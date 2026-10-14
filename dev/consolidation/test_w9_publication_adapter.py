@@ -24,6 +24,19 @@ ERROR_FAILURE_IDENT_SPAN = "Span{source_id:SourceId(0),start:70,len:5}"
 ALIAS_FIELD_SPAN = "Span{source_id:SourceId(0),start:70,len:8}"
 ALIAS_IDENT_SPAN = "Span{source_id:SourceId(0),start:70,len:3}"
 ALIAS_DEFINITION_SPAN = "Span{source_id:SourceId(5),start:0,len:17}"
+PARTIAL_ALIAS_CALL_IDENT_SPAN = "Span{source_id:SourceId(0),start:70,len:6}"
+PARTIAL_ALIAS_INIT_SPAN = "Span{source_id:SourceId(0),start:5,len:6}"
+PARTIAL_ALIAS_BODY_SPAN = "Span{source_id:SourceId(0),start:55,len:8}"
+EXPORTED_ALIAS_DECL_SPAN = "Span{source_id:SourceId(1),start:122,len:27}"
+EXPORTED_ALIAS_INIT_SPAN = "Span{source_id:SourceId(1),start:142,len:6}"
+EXPORTED_ALIAS_BINDING = "BindingId(Target(BindingTargetId(7)))"
+EXPORTED_ALIAS_CALL_SPAN = "Span{source_id:SourceId(0),start:42,len:25}"
+EXPORTED_ALIAS_FIELD_SPAN = "Span{source_id:SourceId(0),start:42,len:14}"
+EXPORTED_ALIAS_BASE_SPAN = "Span{source_id:SourceId(0),start:42,len:7}"
+EXPORTED_ALIAS_DEFINITION_SPAN = "Span{source_id:SourceId(1),start:69,len:13}"
+MODULE_ALIAS_CALL_FIELD_SPAN = "Span{source_id:SourceId(0),start:42,len:15}"
+MODULE_ALIAS_BASE_FIELD_SPAN = "Span{source_id:SourceId(0),start:42,len:10}"
+MODULE_ALIAS_BASE_IDENT_SPAN = "Span{source_id:SourceId(0),start:42,len:3}"
 RUN_FORM_SPAN = "Span{source_id:SourceId(0),start:90,len:7}"
 RUN_GLOBAL_SPAN = "Span{source_id:SourceId(0),start:60,len:7}"
 STAGE_SPAN = "Span{source_id:SourceId(0),start:80,len:7}"
@@ -177,6 +190,7 @@ def exact_call_owners(extra_call_span=None):
         "records": {},
         "aliases": {},
         "tails": {},
+        "binding_initializers": {},
         "expr_count": len(expressions),
         "record_field_count": 0,
     }
@@ -288,6 +302,7 @@ def exact_native_set_publication(shadowed=False):
         "records": {},
         "aliases": {},
         "tails": {},
+        "binding_initializers": {},
         "expr_count": 5,
         "record_field_count": 0,
     }
@@ -382,7 +397,268 @@ def exact_selected_callable_alias_publication(method_call=False):
             f"expressions:{{ExprId(4):{BINDING}}},"
             "expression_namespaces:{ExprId(2):None,ExprId(4):None}",
         )
+    alias_binding_name = "targets" if method_call else "render"
+    current = current.replace(
+        f"{BINDING}:{DECLARATION}",
+        f'{BINDING}:BindingDeclaration{{exported:false,global:false,kind:Runtime,'
+        f'name:Name("{alias_binding_name}"),namespace:None,span:{CONST_SPAN}}}',
+    ).replace(
+        "declaration_sites:{},expressions:",
+        f"declaration_sites:{{({CONST_SPAN},Name(\"{alias_binding_name}\")):{BINDING}}},expressions:",
+    )
+    owners[CONST_SPAN] = {"stmt:LetExprNoTy"}
     return current, owners, exact_owners
+
+
+def exact_selected_exported_field_alias_publication(
+    target_namespace="helpers.xsh", receiver="helpers"
+):
+    current, owners, exact_owners = exact_static_alias_publication(
+        callee_kind="Field",
+        method_call=False,
+        definition=f"Some({CONST_SPAN})",
+    )
+    span_mapping = {
+        EXTRA_CALL_SPAN: EXPORTED_ALIAS_CALL_SPAN,
+        ALIAS_FIELD_SPAN: EXPORTED_ALIAS_FIELD_SPAN,
+        ALIAS_IDENT_SPAN: EXPORTED_ALIAS_BASE_SPAN,
+    }
+    for old_span, new_span in span_mapping.items():
+        current = current.replace(old_span, new_span)
+    owners = {
+        span_mapping.get(span, span): owner_kinds
+        for span, owner_kinds in owners.items()
+    }
+    for expression_id, row in exact_owners["exprs"].items():
+        exact_owners["exprs"][expression_id] = (
+            span_mapping.get(row[0], row[0]),
+            row[1],
+            receiver if expression_id == 4 else row[2],
+        )
+    stream_declaration = (
+        'FunctionDefId(2):CheckedFunctionDeclaration{namespace:None,name:Name("lines"),'
+        "internal:false,kind:Stream,signature:Some(CompactFunctionSig{params:[],"
+        "parameter_schemas:[],return_ty:Stream(Str),return_type_expr:TypeExprId(2),"
+        f"inferred_effects:false,effects:None}}),body:{CONST_SPAN},parameter_spans:[]}}"
+    )
+    target_declaration = stream_declaration.replace(
+        'namespace:None,name:Name("lines"),internal:false,kind:Stream,',
+        f'namespace:Some(Name("{target_namespace}")),name:Name("render"),internal:false,kind:Pure,',
+    ).replace("return_ty:Stream(Str)", "return_ty:Int").replace(
+        "params:[],parameter_schemas:[]",
+        "params:[CallableParamType{name:Name(\"value\"),ty:Int,defaulted:false,rest:false}],"
+        "parameter_schemas:[None]",
+    ).replace("parameter_spans:[]", "parameter_spans:[Span{source_id:SourceId(1),start:50,len:5}]").replace(
+        f"body:{CONST_SPAN}", f"body:{EXPORTED_ALIAS_DEFINITION_SPAN}"
+    )
+    current = current.replace(stream_declaration, target_declaration)
+    alternate_declaration = stream_declaration.replace(
+        "FunctionDefId(2)", "FunctionDefId(3)"
+    ).replace('name:Name("lines")', 'name:Name("alternate")')
+    forged_target_declaration = target_declaration.replace(
+        "FunctionDefId(2)", "FunctionDefId(3)"
+    ).replace(
+        f'namespace:Some(Name("{target_namespace}"))',
+        'namespace:Some(Name("elsewhere.xsh"))',
+    ).replace(f"body:{EXPORTED_ALIAS_DEFINITION_SPAN}", f"body:{TAIL_CONST_SPAN}")
+    current = current.replace(alternate_declaration, forged_target_declaration)
+    current = current.replace(
+        f'definition:Some({CONST_SPAN}),method_call:false,name:Name("render")',
+        f'definition:Some({EXPORTED_ALIAS_DEFINITION_SPAN}),method_call:false,name:Name("format")',
+    )
+    target = (
+        f"{EXPORTED_ALIAS_CALL_SPAN}:CheckedFunctionTarget{{definition:FunctionDefId(2),"
+        f'namespace:Some(Name("{target_namespace}")),name:Name("render")}}'
+    )
+    current = current.replace(
+        f"selected_function_calls:{{{CALL_SPAN}:",
+        f"selected_function_calls:{{{target},{CALL_SPAN}:",
+    ).replace(
+        f"{RUN_GLOBAL_BINDING}:BindingDeclaration{{exported:false,global:true,kind:Constant(StmtId(12)),"
+        f"name:Name(\"not_prepared\"),namespace:None,span:{RUN_GLOBAL_SPAN}}}",
+        f"{RUN_GLOBAL_BINDING}:BindingDeclaration{{exported:false,global:false,kind:Module(Name(\"{receiver}.xsh\")),"
+        f"name:Name(\"{receiver}\"),namespace:None,span:{RUN_GLOBAL_SPAN}}}",
+    ).replace(
+        "expressions:{},expression_namespaces:{ExprId(2):None,ExprId(4):None}",
+        f"expressions:{{ExprId(5):{RUN_GLOBAL_BINDING}}},"
+        "expression_namespaces:{ExprId(2):None,ExprId(4):None,ExprId(5):None}",
+    )
+    exact_owners["field_accesses"][3] = (4, "format")
+    current = current.replace(
+        f"{EXPORTED_ALIAS_CALL_SPAN}:Bool", f"{EXPORTED_ALIAS_CALL_SPAN}:Int"
+    ).replace(
+        "signature:CallableType{effects:None,params:[],return_ty:Bool}",
+        "signature:CallableType{effects:None,params:[CallableParamType{name:Name(\"value\"),"
+        "ty:Int,defaulted:false,rest:false}],return_ty:Int}",
+    )
+    return current, owners, exact_owners
+
+
+def exact_selected_exported_field_call_alias_publication():
+    current, owners, exact_owners, _statement_owners = (
+        exact_selected_partial_exported_field_alias_publication(
+            target_namespace="implementation.xsh", receiver="api"
+        )
+    )
+    current = current.replace(EXPORTED_ALIAS_FIELD_SPAN, MODULE_ALIAS_CALL_FIELD_SPAN)
+    current = current.replace(EXPORTED_ALIAS_BASE_SPAN, MODULE_ALIAS_BASE_FIELD_SPAN)
+    initializer_alias = _map_entries_for_test(
+        _fields_for_test(current, "CheckOutput")["static_callable_aliases"]
+    )[EXPORTED_ALIAS_INIT_SPAN]
+    method_alias = initializer_alias.replace("method_call:false", "method_call:true")
+    current = current.replace(
+        f"static_callable_aliases:{{{EXPORTED_ALIAS_INIT_SPAN}:{initializer_alias}}}",
+        f"static_callable_aliases:{{{EXPORTED_ALIAS_INIT_SPAN}:{initializer_alias},"
+        f"{MODULE_ALIAS_CALL_FIELD_SPAN}:{method_alias}}}",
+    )
+    current = current.replace(
+        f"expressions:{{ExprId(4):{EXPORTED_ALIAS_BINDING},ExprId(5):{RUN_GLOBAL_BINDING}}},"
+        "expression_namespaces:{ExprId(2):None,ExprId(4):Some(Name(\"api.xsh\")),"
+        'ExprId(5):None,ExprId(6):Some(Name("api.xsh"))}',
+        f"expressions:{{ExprId(5):{EXPORTED_ALIAS_BINDING},ExprId(6):{RUN_GLOBAL_BINDING}}},"
+        "expression_namespaces:{ExprId(2):None,ExprId(4):None,"
+        'ExprId(5):Some(Name("api.xsh")),ExprId(6):None,ExprId(7):Some(Name("api.xsh"))}',
+    )
+    owners[MODULE_ALIAS_CALL_FIELD_SPAN] = {"expr:Field"}
+    owners.pop(EXPORTED_ALIAS_BASE_SPAN, None)
+    owners[MODULE_ALIAS_BASE_FIELD_SPAN] = {"expr:Field"}
+    owners[MODULE_ALIAS_BASE_IDENT_SPAN] = {"expr:Ident"}
+    exact_owners["exprs"][3] = (MODULE_ALIAS_CALL_FIELD_SPAN, "Field", "")
+    exact_owners["exprs"][4] = (MODULE_ALIAS_BASE_FIELD_SPAN, "Field", "")
+    exact_owners["exprs"][6] = exact_owners["exprs"].pop(5)
+    exact_owners["exprs"][5] = (MODULE_ALIAS_BASE_IDENT_SPAN, "Ident", "api")
+    exact_owners["field_accesses"] = {3: (4, "call"), 4: (5, "format")}
+    exact_owners["expr_count"] = 7
+    exact_owners["binding_initializers"] = {
+        (20, "format"): (EXPORTED_ALIAS_DECL_SPAN, 6)
+    }
+    return current, owners, exact_owners
+
+
+def exact_selected_partial_local_alias_publication():
+    current, owners, exact_owners = exact_selected_callable_alias_publication()
+    current = current.replace(
+        f"static_callable_aliases:{{{ALIAS_IDENT_SPAN}:StaticCallableAlias{{definition:Some({CONST_SPAN}),"
+        'method_call:false,name:Name("render"),pure:true,signature:CallableType{effects:None,params:[],return_ty:Bool}}}',
+        f"static_callable_aliases:{{{PARTIAL_ALIAS_INIT_SPAN}:StaticCallableAlias{{definition:Some({PARTIAL_ALIAS_BODY_SPAN}),"
+        'method_call:false,name:Name("format"),pure:true,signature:CallableType{effects:None,params:[],return_ty:Bool}}}',
+    )
+    current = current.replace(
+        f'{BINDING}:BindingDeclaration{{exported:false,global:false,kind:Runtime,name:Name("render"),namespace:None,span:{CONST_SPAN}}}',
+        f'{BINDING}:BindingDeclaration{{exported:false,global:false,kind:Runtime,name:Name("format"),namespace:None,span:{CONST_SPAN}}}',
+    ).replace(
+        f'body:{CONST_SPAN},parameter_spans:[]}},FunctionDefId(3):',
+        f'body:{PARTIAL_ALIAS_BODY_SPAN},parameter_spans:[]}},FunctionDefId(3):',
+    ).replace(
+        f"declaration_sites:{{({CONST_SPAN},Name(\"render\")):{BINDING}}},expressions:{{ExprId(4):" + BINDING + "},"
+        "expression_namespaces:{ExprId(2):None,ExprId(4):None}",
+        f"declaration_sites:{{({CONST_SPAN},Name(\"format\")):{BINDING}}},"
+        f"expressions:{{ExprId(4):{BINDING}}},"
+        "expression_namespaces:{ExprId(2):None,ExprId(4):None,ExprId(5):None}",
+    ).replace(
+        f"owner\t{CONST_SPAN}\tstmt:Const", f"owner\t{CONST_SPAN}\tstmt:LetExprNoTy"
+    )
+    current = current.replace(
+        f"{ALIAS_IDENT_SPAN}:StaticCallableAlias{{definition:Some({PARTIAL_ALIAS_BODY_SPAN}),method_call:false,"
+        'name:Name("format"),pure:true,signature:CallableType{effects:None,params:[],return_ty:Bool}}',
+        "",
+    )
+    exact_owners["exprs"][3] = (PARTIAL_ALIAS_CALL_IDENT_SPAN, "Ident", "format")
+    exact_owners["exprs"][4] = (PARTIAL_ALIAS_INIT_SPAN, "Ident", "render")
+    exact_owners["expr_count"] = 5
+    exact_owners["binding_initializers"] = {(0, "format"): (CONST_SPAN, 4)}
+    owners.pop(ALIAS_IDENT_SPAN, None)
+    owners[PARTIAL_ALIAS_CALL_IDENT_SPAN] = {"expr:Ident"}
+    owners[PARTIAL_ALIAS_INIT_SPAN] = {"expr:Ident"}
+    owners[CONST_SPAN] = {"stmt:LetExprNoTy"}
+    statement_owners = dict(STATEMENT_OWNERS)
+    statement_owners["StmtId(1)"] = (CONST_SPAN, "stmt:LetExprNoTy")
+    return current, owners, exact_owners, statement_owners
+
+
+def exact_selected_partial_local_call_method_publication():
+    current, owners, exact_owners, statement_owners = (
+        exact_selected_partial_local_alias_publication()
+    )
+    current = current.replace(
+        f"expressions:{{ExprId(4):{BINDING}}}",
+        f"expressions:{{ExprId(5):{BINDING}}}",
+    )
+    exact_owners["exprs"][3] = (ALIAS_FIELD_SPAN, "Field", "")
+    exact_owners["exprs"][4] = (PARTIAL_ALIAS_CALL_IDENT_SPAN, "Ident", "format")
+    exact_owners["exprs"][5] = (PARTIAL_ALIAS_INIT_SPAN, "Ident", "render")
+    exact_owners["field_accesses"] = {3: (4, "call")}
+    exact_owners["expr_count"] = 6
+    exact_owners["binding_initializers"] = {(0, "format"): (CONST_SPAN, 5)}
+    owners.pop(ALIAS_IDENT_SPAN, None)
+    owners[ALIAS_FIELD_SPAN] = {"expr:Field"}
+    owners[PARTIAL_ALIAS_CALL_IDENT_SPAN] = {"expr:Ident"}
+    return current, owners, exact_owners, statement_owners
+
+
+def exact_selected_partial_exported_field_alias_publication(
+    target_namespace="helpers.xsh", receiver="helpers"
+):
+    current, owners, exact_owners = exact_selected_exported_field_alias_publication(
+        target_namespace=target_namespace, receiver=receiver
+    )
+    _, alias_value = next(
+        iter(
+            _map_entries_for_test(
+                _fields_for_test(current, "CheckOutput")["static_callable_aliases"]
+            ).items()
+        )
+    )
+    current = current.replace(
+        f"static_callable_aliases:{{{EXPORTED_ALIAS_FIELD_SPAN}:{alias_value}}}",
+        f"static_callable_aliases:{{{EXPORTED_ALIAS_INIT_SPAN}:{alias_value}}}",
+    )
+    alias_declaration = (
+        f"{EXPORTED_ALIAS_BINDING}:BindingDeclaration{{exported:true,global:true,kind:Runtime,"
+        f'name:Name("format"),namespace:Some(Name("{receiver}.xsh")),span:{EXPORTED_ALIAS_DECL_SPAN}}}'
+    )
+    current = current.replace(
+        f"declarations:{{{BINDING}:",
+        f"declarations:{{{alias_declaration},{BINDING}:",
+    ).replace(
+        "declaration_sites:{},expressions:{ExprId(5):" + RUN_GLOBAL_BINDING + "},"
+        "expression_namespaces:{ExprId(2):None,ExprId(4):None,ExprId(5):None}",
+        f"declaration_sites:{{({EXPORTED_ALIAS_DECL_SPAN},Name(\"format\")):{EXPORTED_ALIAS_BINDING}}},"
+        f"expressions:{{ExprId(4):{EXPORTED_ALIAS_BINDING},ExprId(5):{RUN_GLOBAL_BINDING}}},"
+        f'expression_namespaces:{{ExprId(2):None,ExprId(4):Some(Name("{receiver}.xsh")),ExprId(5):None,ExprId(6):Some(Name("{receiver}.xsh"))}}',
+    )
+    exact_owners["exprs"][5] = (EXPORTED_ALIAS_INIT_SPAN, "Ident", "render")
+    exact_owners["expr_count"] = 6
+    exact_owners["binding_initializers"] = {
+        (20, "format"): (EXPORTED_ALIAS_DECL_SPAN, 5)
+    }
+    owners[EXPORTED_ALIAS_DECL_SPAN] = {"stmt:LetExprNoTy"}
+    owners[EXPORTED_ALIAS_INIT_SPAN] = {"expr:Ident"}
+    statement_owners = dict(STATEMENT_OWNERS)
+    statement_owners["StmtId(21)"] = (EXPORTED_ALIAS_DECL_SPAN, "stmt:LetExprNoTy")
+    return current, owners, exact_owners, statement_owners
+
+
+def exact_selected_same_name_exported_alias_publication():
+    current, owners, exact_owners, statement_owners = (
+        exact_selected_partial_exported_field_alias_publication(
+            target_namespace="implementation.xsh", receiver="api"
+        )
+    )
+    current = current.replace('name:Name("render")', 'name:Name("format")')
+    return current, owners, exact_owners, statement_owners
+
+
+def _fields_for_test(rendered, name):
+    from w9_publication_adapter import _fields
+
+    return _fields(rendered, name)
+
+
+def _map_entries_for_test(rendered):
+    from w9_publication_adapter import _map_entries
+
+    return _map_entries(rendered)
 
 
 def exact_qualified_call_publication():
@@ -416,6 +692,7 @@ def exact_qualified_call_publication():
         "records": {},
         "aliases": {},
         "tails": {},
+        "binding_initializers": {},
         "expr_count": 3,
         "record_field_count": 0,
     }
@@ -451,6 +728,7 @@ def exact_native_error_failure_publication(field="failure", return_type="Error")
         "records": {},
         "aliases": {},
         "tails": {},
+        "binding_initializers": {},
         "expr_count": 5,
         "record_field_count": 0,
     }
@@ -714,7 +992,7 @@ class PublicationAdapterTests(unittest.TestCase):
             'kind:Module(Name("module.xsh")),name:Name("mod")',
             'kind:Module(Name("other.xsh")),name:Name("mod")',
         )
-        with self.assertRaisesRegex(AdapterError, "module binding namespace disagrees"):
+        with self.assertRaisesRegex(AdapterError, "no unique exported alias declaration"):
             project_publication(
                 "current", wrong_module, SOURCE_SIZES, owners,
                 candidate_exact_owners=exact_owners,
@@ -745,6 +1023,36 @@ class PublicationAdapterTests(unittest.TestCase):
                 candidate_exact_owners=exact_owners,
             )
 
+        wrong_resolver_binding = current.replace(
+            f"expressions:{{ExprId(4):{BINDING}}}",
+            f"expressions:{{ExprId(4):{TAIL_BINDING}}}",
+        )
+        with self.assertRaisesRegex(AdapterError, "resolver binding identity disagrees"):
+            project_publication(
+                "current", wrong_resolver_binding, SOURCE_SIZES, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+        non_runtime_alias = current.replace(
+            f'{BINDING}:BindingDeclaration{{exported:false,global:false,kind:Runtime,name:Name("render"),namespace:None,span:{CONST_SPAN}}}',
+            f'{BINDING}:BindingDeclaration{{exported:false,global:false,kind:Constant(StmtId(1)),name:Name("render"),namespace:None,span:{CONST_SPAN}}}',
+        )
+        with self.assertRaisesRegex(AdapterError, "resolver binding identity disagrees"):
+            project_publication(
+                "current", non_runtime_alias, SOURCE_SIZES, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+        wrong_declaration_site = current.replace(
+            f"declaration_sites:{{({CONST_SPAN},Name(\"render\")):{BINDING}}}",
+            f"declaration_sites:{{({TAIL_CONST_SPAN},Name(\"render\")):{BINDING}}}",
+        )
+        with self.assertRaisesRegex(AdapterError, "resolver declaration site disagrees"):
+            project_publication(
+                "current", wrong_declaration_site, SOURCE_SIZES, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
         method_call, method_owners, method_exact = exact_selected_callable_alias_publication(
             method_call=True
         )
@@ -764,7 +1072,7 @@ class PublicationAdapterTests(unittest.TestCase):
         wrong_method_link = dict(method_exact)
         wrong_method_link["field_accesses"] = dict(method_exact["field_accesses"])
         wrong_method_link["field_accesses"][3] = (4, "invoke")
-        with self.assertRaisesRegex(AdapterError, "callee identity disagrees"):
+        with self.assertRaisesRegex(AdapterError, "method-call fact"):
             project_publication(
                 "current", method_call, SOURCE_SIZES, method_owners,
                 candidate_exact_owners=wrong_method_link,
@@ -775,10 +1083,280 @@ class PublicationAdapterTests(unittest.TestCase):
             "expressions:{},expression_namespaces:{ExprId(2):None}",
             f"expressions:{{ExprId(2):{BINDING}}},expression_namespaces:{{ExprId(2):None}}",
         )
-        with self.assertRaisesRegex(AdapterError, "selected bound function-call callee has no exact callable alias"):
+        with self.assertRaisesRegex(AdapterError, "selected callable alias declaration identity disagrees"):
             project_publication(
                 "current", bound_without_alias, SOURCE_SIZES, owners,
                 candidate_exact_owners=exact_call_owners(),
+            )
+
+    def test_selected_local_alias_uses_exact_declaration_initializer_link(self):
+        current, owners, exact_owners, _statement_owners = (
+            exact_selected_partial_local_alias_publication()
+        )
+        project_publication(
+            "current", current, SOURCE_SIZES, owners, candidate_exact_owners=exact_owners,
+        )
+
+        missing_initializer = dict(exact_owners)
+        missing_initializer["binding_initializers"] = {}
+        with self.assertRaisesRegex(AdapterError, "no exact declaration initializer"):
+            project_publication(
+                "current", current, SOURCE_SIZES, owners,
+                candidate_exact_owners=missing_initializer,
+            )
+
+        wrong_initializer = dict(exact_owners)
+        wrong_initializer["binding_initializers"] = {
+            (0, "format"): (CONST_SPAN, 3)
+        }
+        with self.assertRaisesRegex(AdapterError, "no exact callable alias fact"):
+            project_publication(
+                "current", current, SOURCE_SIZES, owners,
+                candidate_exact_owners=wrong_initializer,
+            )
+
+        wrong_declaration_span = dict(exact_owners)
+        wrong_declaration_span["binding_initializers"] = {
+            (0, "format"): (TAIL_CONST_SPAN, 4)
+        }
+        with self.assertRaisesRegex(AdapterError, "no exact declaration initializer"):
+            project_publication(
+                "current", current, SOURCE_SIZES, owners,
+                candidate_exact_owners=wrong_declaration_span,
+            )
+
+        wrong_declaration_site = current.replace(
+            f"({CONST_SPAN},Name(\"format\")):{BINDING}",
+            f"({CONST_SPAN},Name(\"format\")):{TAIL_BINDING}",
+        )
+        with self.assertRaisesRegex(AdapterError, "resolver declaration site"):
+            project_publication(
+                "current", wrong_declaration_site, SOURCE_SIZES, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+    def test_selected_call_method_uses_exact_initializer_without_callsite_alias(self):
+        current, owners, exact_owners, _statement_owners = (
+            exact_selected_partial_local_call_method_publication()
+        )
+        project_publication(
+            "current", current, SOURCE_SIZES, owners,
+            candidate_exact_owners=exact_owners,
+        )
+
+        missing_initializer = dict(exact_owners)
+        missing_initializer["binding_initializers"] = {}
+        with self.assertRaisesRegex(AdapterError, "no exact declaration initializer"):
+            project_publication(
+                "current", current, SOURCE_SIZES, owners,
+                candidate_exact_owners=missing_initializer,
+            )
+
+        wrong_initializer_target = current.replace(
+            f'definition:Some({PARTIAL_ALIAS_BODY_SPAN}),method_call:false,name:Name("format")',
+            f'definition:Some({TAIL_CONST_SPAN}),method_call:false,name:Name("format")',
+        )
+        with self.assertRaisesRegex(AdapterError, "definition disagrees"):
+            project_publication(
+                "current", wrong_initializer_target, SOURCE_SIZES, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+        wrong_method = dict(exact_owners)
+        wrong_method["field_accesses"] = dict(exact_owners["field_accesses"])
+        wrong_method["field_accesses"][3] = (4, "invoke")
+        with self.assertRaisesRegex(AdapterError, "module binding namespace disagrees"):
+            project_publication(
+                "current", current, SOURCE_SIZES, owners,
+                candidate_exact_owners=wrong_method,
+            )
+
+    def test_same_name_exported_alias_uses_body_identity_across_namespaces(self):
+        current, owners, exact_owners, _statement_owners = (
+            exact_selected_same_name_exported_alias_publication()
+        )
+        project_publication(
+            "current", current, {**SOURCE_SIZES, 1: 200}, owners,
+            candidate_exact_owners=exact_owners,
+        )
+
+        wrong_definition = current.replace(
+            f'definition:Some({EXPORTED_ALIAS_DEFINITION_SPAN}),method_call:false,name:Name("format")',
+            f'definition:Some({TAIL_CONST_SPAN}),method_call:false,name:Name("format")',
+        )
+        with self.assertRaisesRegex(AdapterError, "definition disagrees"):
+            project_publication(
+                "current", wrong_definition, {**SOURCE_SIZES, 1: 200}, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+    def test_selected_exported_alias_uses_exact_module_declaration_initializer_link(self):
+        current, owners, exact_owners, _statement_owners = (
+            exact_selected_partial_exported_field_alias_publication()
+        )
+        source_sizes = {**SOURCE_SIZES, 1: 200}
+        projected = project_publication(
+            "current", current, source_sizes, owners, candidate_exact_owners=exact_owners,
+        )
+        self.assertIn('name:Name("format")', projected)
+
+        wrong_module = current.replace(
+            'namespace:Some(Name("helpers.xsh")),span:' + EXPORTED_ALIAS_DECL_SPAN,
+            'namespace:Some(Name("other.xsh")),span:' + EXPORTED_ALIAS_DECL_SPAN,
+        )
+        with self.assertRaisesRegex(AdapterError, "no unique exported alias declaration"):
+            project_publication(
+                "current", wrong_module, source_sizes, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+        wrong_export = current.replace(
+            f"{EXPORTED_ALIAS_BINDING}:BindingDeclaration{{exported:true,global:true,kind:Runtime,",
+            f"{EXPORTED_ALIAS_BINDING}:BindingDeclaration{{exported:false,global:true,kind:Runtime,",
+        )
+        with self.assertRaisesRegex(AdapterError, "no unique exported alias declaration"):
+            project_publication(
+                "current", wrong_export, source_sizes, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+        wrong_member = dict(exact_owners)
+        wrong_member["field_accesses"] = dict(exact_owners["field_accesses"])
+        wrong_member["field_accesses"][3] = (4, "other")
+        with self.assertRaisesRegex(AdapterError, "no unique exported alias declaration"):
+            project_publication(
+                "current", current, source_sizes, owners,
+                candidate_exact_owners=wrong_member,
+            )
+
+        missing_initializer = dict(exact_owners)
+        missing_initializer["binding_initializers"] = {}
+        with self.assertRaisesRegex(AdapterError, "no exact declaration initializer"):
+            project_publication(
+                "current", current, source_sizes, owners,
+                candidate_exact_owners=missing_initializer,
+            )
+
+    def test_selected_exported_field_alias_joins_alias_name_body_and_call(self):
+        current, owners, exact_owners = exact_selected_exported_field_alias_publication()
+        source_sizes = {**SOURCE_SIZES, 1: 100}
+        projected = project_publication(
+            "current", current, source_sizes, owners,
+            candidate_exact_owners=exact_owners,
+        )
+        self.assertIn('name:Name("format")', projected)
+
+        wrong_alias_name = current.replace('name:Name("format")', 'name:Name("different")')
+        with self.assertRaisesRegex(AdapterError, "alias name disagrees"):
+            project_publication(
+                "current", wrong_alias_name, source_sizes, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+        wrong_field_name = dict(exact_owners)
+        wrong_field_name["field_accesses"] = dict(exact_owners["field_accesses"])
+        wrong_field_name["field_accesses"][3] = (4, "other")
+        with self.assertRaisesRegex(AdapterError, "alias name disagrees"):
+            project_publication(
+                "current", current, source_sizes, owners,
+                candidate_exact_owners=wrong_field_name,
+            )
+
+        wrong_call_link = dict(exact_owners)
+        wrong_call_link["calls"] = dict(exact_owners["calls"])
+        wrong_call_link["calls"][2] = 99
+        with self.assertRaisesRegex(AdapterError, "invalid exact callee link"):
+            project_publication(
+                "current", current, source_sizes, owners,
+                candidate_exact_owners=wrong_call_link,
+            )
+
+        wrong_definition = current.replace(
+            f'definition:Some({EXPORTED_ALIAS_DEFINITION_SPAN}),method_call:false,name:Name("format")',
+            f'definition:Some({TAIL_CONST_SPAN}),method_call:false,name:Name("format")',
+        )
+        with self.assertRaisesRegex(AdapterError, "definition disagrees"):
+            project_publication(
+                "current", wrong_definition, source_sizes, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+        wrong_module_binding = current.replace(
+            'kind:Module(Name("helpers.xsh")),name:Name("helpers")',
+            'kind:Runtime,name:Name("other")',
+        )
+        with self.assertRaisesRegex(AdapterError, "module binding namespace disagrees"):
+            project_publication(
+                "current", wrong_module_binding, source_sizes, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+        reexported, reexported_owners, reexported_exact = (
+            exact_selected_exported_field_alias_publication(
+                target_namespace="implementation.xsh", receiver="api"
+            )
+        )
+        project_publication(
+            "current", reexported, source_sizes, reexported_owners,
+            candidate_exact_owners=reexported_exact,
+        )
+
+        module_method, module_method_owners, module_method_exact = (
+            exact_selected_exported_field_call_alias_publication()
+        )
+        project_publication(
+            "current", module_method, {**source_sizes, 1: 200}, module_method_owners,
+            candidate_exact_owners=module_method_exact,
+        )
+
+        unexported_module_alias = module_method.replace(
+            f"{EXPORTED_ALIAS_BINDING}:BindingDeclaration{{exported:true,global:true,kind:Runtime,",
+            f"{EXPORTED_ALIAS_BINDING}:BindingDeclaration{{exported:false,global:true,kind:Runtime,",
+        )
+        with self.assertRaisesRegex(AdapterError, "no unique exported alias declaration"):
+            project_publication(
+                "current", unexported_module_alias, {**source_sizes, 1: 200}, module_method_owners,
+                candidate_exact_owners=module_method_exact,
+            )
+
+        wrong_module_alias_name = dict(module_method_exact)
+        wrong_module_alias_name["field_accesses"] = dict(module_method_exact["field_accesses"])
+        wrong_module_alias_name["field_accesses"][4] = (5, "different")
+        with self.assertRaisesRegex(AdapterError, "alias name disagrees"):
+            project_publication(
+                "current", module_method, {**source_sizes, 1: 200}, module_method_owners,
+                candidate_exact_owners=wrong_module_alias_name,
+            )
+
+        wrong_module_alias_base = dict(module_method_exact)
+        wrong_module_alias_base["field_accesses"] = dict(module_method_exact["field_accesses"])
+        wrong_module_alias_base["field_accesses"][4] = (99, "format")
+        with self.assertRaisesRegex(AdapterError, "module identifier"):
+            project_publication(
+                "current", module_method, {**source_sizes, 1: 200}, module_method_owners,
+                candidate_exact_owners=wrong_module_alias_base,
+            )
+
+        wrong_module_alias_binding = module_method.replace(
+            'kind:Module(Name("api.xsh")),name:Name("api")',
+            'kind:Runtime,name:Name("api")',
+        )
+        with self.assertRaisesRegex(AdapterError, "module binding namespace disagrees"):
+            project_publication(
+                "current", wrong_module_alias_binding, {**source_sizes, 1: 200}, module_method_owners,
+                candidate_exact_owners=module_method_exact,
+            )
+
+        forged_target = reexported.replace(
+            f"{EXPORTED_ALIAS_CALL_SPAN}:CheckedFunctionTarget{{definition:FunctionDefId(2),"
+            'namespace:Some(Name("implementation.xsh")),name:Name("render")}',
+            f"{EXPORTED_ALIAS_CALL_SPAN}:CheckedFunctionTarget{{definition:FunctionDefId(3),"
+            'namespace:Some(Name("elsewhere.xsh")),name:Name("render")}',
+        )
+        with self.assertRaisesRegex(AdapterError, "definition disagrees"):
+            project_publication(
+                "current", forged_target, source_sizes, reexported_owners,
+                candidate_exact_owners=reexported_exact,
             )
 
     def test_static_callable_alias_routes_join_exact_callee_spans(self):

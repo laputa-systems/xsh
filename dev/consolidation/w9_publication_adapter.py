@@ -41,6 +41,7 @@ class ParsedResolvedBindings(NamedTuple):
     expression_namespaces: Mapping[str, str]
     expressions: Mapping[str, str]
     declarations: Mapping[str, str]
+    declaration_sites: Mapping[tuple[str, str], str]
 
 
 def _canonical_owner_span(value: str, line_number: int) -> str:
@@ -368,10 +369,22 @@ def _map_entries(value: str) -> dict[str, str]:
 
 def _parse_resolved_bindings(value: str) -> ParsedResolvedBindings:
     fields = _fields(value, "ResolvedBindings")
+    declaration_sites = {}
+    for raw_key, binding in _map_entries(fields["declaration_sites"]).items():
+        raw_span, raw_name = _pair_key(raw_key)
+        span = _canonicalize_span(raw_span)[0]
+        name = _debug_name_value(raw_name)
+        if name is None:
+            raise AdapterError("resolver declaration site has a malformed name")
+        key = span, name
+        if key in declaration_sites:
+            raise AdapterError("resolver declaration sites have duplicate canonical identities")
+        declaration_sites[key] = binding
     return ParsedResolvedBindings(
         expression_namespaces=_map_entries(fields["expression_namespaces"]),
         expressions=_map_entries(fields["expressions"]),
         declarations=_map_entries(fields["declarations"]),
+        declaration_sites=declaration_sites,
     )
 
 
@@ -677,12 +690,16 @@ def _current_fact_owners(
     exact_exprs: Mapping[object, object] = {}
     exact_calls: Mapping[object, object] = {}
     exact_fields: Mapping[object, object] = {}
+    binding_initializers: Mapping[object, object] = {}
     if exact_owners is not None:
         exact_exprs = exact_owners.get("exprs", {})
         exact_calls = exact_owners.get("calls", {})
         exact_fields = exact_owners.get("field_accesses", {})
+        binding_initializers = exact_owners.get("binding_initializers", {})
         if not all(isinstance(value, Mapping) for value in (exact_exprs, exact_calls, exact_fields)):
             raise AdapterError("exact call owner facts are malformed")
+        if not isinstance(binding_initializers, Mapping):
+            raise AdapterError("exact binding initializer facts are malformed")
     expression_ids_by_span: dict[str, list[int]] = {}
     for expression_id, row in exact_exprs.items():
         if type(expression_id) is not int or not isinstance(row, tuple) or len(row) != 3:
@@ -691,6 +708,9 @@ def _current_fact_owners(
         if not isinstance(span, str) or not isinstance(tag, str) or not isinstance(name, str):
             raise AdapterError("exact expression owner row is malformed")
         expression_ids_by_span.setdefault(_canonicalize_span(span)[0], []).append(expression_id)
+    binding_initializers_by_declaration = _index_binding_initializers(
+        binding_initializers, exact_exprs, source_sizes, source_owners
+    )
     for span, target in selected.items():
         exact_call_ids = [
             expression_id
@@ -758,7 +778,8 @@ def _current_fact_owners(
                 _validate_selected_callee_identity(
                     span, call_id, callee_id, target_fields, declaration["body"],
                     exact_exprs, exact_calls, exact_fields, resolved_bindings,
-                    callable_aliases, source_sizes, source_owners,
+                    callable_aliases, binding_initializers_by_declaration,
+                    source_sizes, source_owners,
                 )
 
     native_set_spans: set[str] = set()
@@ -1139,6 +1160,266 @@ def _validate_selected_callable_alias(
         raise AdapterError(f"selected callable alias definition disagrees with its checked target at {span}")
 
 
+def _validate_resolver_binding_identity(
+    span: str,
+    expression_id: str,
+    expected_name: str,
+    resolved_bindings: ParsedResolvedBindings,
+    source_sizes: Mapping[int, int],
+    source_owners: Mapping[str, set[str]],
+) -> None:
+    if expression_id not in resolved_bindings.expressions:
+        raise AdapterError(f"selected callable alias has no resolver binding at {span}")
+    if expression_id not in resolved_bindings.expression_namespaces:
+        raise AdapterError(f"selected callable alias has no resolver namespace at {span}")
+    binding = resolved_bindings.expressions[expression_id]
+    declaration = resolved_bindings.declarations.get(binding)
+    if declaration is None:
+        raise AdapterError(f"selected callable alias resolver binding has no declaration at {span}")
+    fields = _fields(declaration, "BindingDeclaration")
+    if set(fields) != {"exported", "global", "kind", "name", "namespace", "span"}:
+        raise AdapterError(f"selected callable alias resolver declaration has unexpected fields at {span}")
+    if (
+        _debug_name_value(fields["name"]) != expected_name
+        or fields["namespace"] != resolved_bindings.expression_namespaces[expression_id]
+        or re.fullmatch(r"BindingId\(Target\(BindingTargetId\(\d+\)\)\)", binding) is None
+        or fields["kind"] != "Runtime"
+        or fields["exported"] not in {"true", "false"}
+        or fields["global"] not in {"true", "false"}
+    ):
+        raise AdapterError(f"selected callable alias resolver binding identity disagrees at {span}")
+    declaration_span = _validate_source_span(
+        fields["span"], "selected callable alias declaration", source_sizes, source_owners,
+        {"stmt:Let", "stmt:LetExprNoTy", "stmt:Var", "stmt:VarExprNoTy"},
+    )
+    if resolved_bindings.declaration_sites.get((declaration_span, expected_name)) != binding:
+        raise AdapterError(f"selected callable alias resolver declaration site disagrees at {span}")
+
+
+def _validate_selected_module_binding(
+    span: str,
+    target: Mapping[str, str],
+    base_id: int,
+    base_span: str,
+    base_name: str,
+    resolved_bindings: ParsedResolvedBindings,
+    source_sizes: Mapping[int, int],
+    source_owners: Mapping[str, set[str]],
+    *,
+    target_may_be_reexported: bool,
+) -> str:
+    _validate_source_span(
+        base_span, "selected function-call module base", source_sizes, source_owners,
+        {"expr:Ident"},
+    )
+    base_key = f"ExprId({base_id + 1})"
+    if base_key not in resolved_bindings.expression_namespaces or base_key not in resolved_bindings.expressions:
+        raise AdapterError(f"selected function-call module base has no resolver binding at {span}")
+    binding = resolved_bindings.expressions[base_key]
+    declaration = resolved_bindings.declarations.get(binding)
+    if declaration is None:
+        raise AdapterError(f"selected function-call module binding has no declaration at {span}")
+    declaration_fields = _fields(declaration, "BindingDeclaration")
+    if set(declaration_fields) != {
+        "exported", "global", "kind", "name", "namespace", "span"
+    }:
+        raise AdapterError(f"selected function-call module binding has unexpected fields at {span}")
+    binding_name = _debug_name_value(declaration_fields.get("name", ""))
+    module = re.fullmatch(r"Module\((Name\(.*\))\)", declaration_fields.get("kind", ""))
+    target_namespace = re.fullmatch(r"Some\((Name\(.*\))\)", target["namespace"])
+    module_name = _debug_name_value(module.group(1)) if module is not None else None
+    target_module_name = (
+        _debug_name_value(target_namespace.group(1)) if target_namespace is not None else None
+    )
+    if (
+        binding_name != base_name
+        or declaration_fields.get("namespace") != resolved_bindings.expression_namespaces[base_key]
+        or module_name is None
+        or target_module_name is None
+        or (not target_may_be_reexported and module_name != target_module_name)
+    ):
+        raise AdapterError(f"selected function-call module binding namespace disagrees with its target at {span}")
+    return module_name
+
+
+def _index_binding_initializers(
+    binding_initializers: Mapping[object, object],
+    exact_exprs: Mapping[object, object],
+    source_sizes: Mapping[int, int],
+    source_owners: Mapping[str, set[str]],
+) -> dict[tuple[str, str], list[int]]:
+    indexed: dict[tuple[str, str], list[int]] = {}
+    for key, row in binding_initializers.items():
+        if (
+            not isinstance(key, tuple)
+            or len(key) != 2
+            or type(key[0]) is not int
+            or key[0] < 0
+            or not isinstance(key[1], str)
+            or (
+                re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key[1]) is None
+                and key[1] not in {"%dest", "%delay", "%cap"}
+            )
+            or not isinstance(row, tuple)
+            or len(row) != 2
+            or not isinstance(row[0], str)
+            or type(row[1]) is not int
+            or row[1] not in exact_exprs
+        ):
+            raise AdapterError("exact binding initializer row is malformed")
+        statement_span = _validate_source_span(
+            row[0], "binding initializer declaration", source_sizes, source_owners,
+            {"stmt:Const", "stmt:Let", "stmt:LetExprNoTy", "stmt:Var", "stmt:VarExprNoTy"},
+        )
+        indexed.setdefault((statement_span, key[1]), []).append(row[1])
+    return indexed
+
+
+def _validate_binding_initializer_alias(
+    span: str,
+    binding: str,
+    expected_name: str,
+    expected_namespace: str,
+    target_body: str,
+    resolved_bindings: ParsedResolvedBindings,
+    exact_exprs: Mapping[object, object],
+    callable_aliases: Mapping[str, str],
+    binding_initializers_by_declaration: Mapping[tuple[str, str], list[int]],
+    source_sizes: Mapping[int, int],
+    source_owners: Mapping[str, set[str]],
+    *,
+    exported: bool,
+) -> None:
+    if re.fullmatch(r"BindingId\(Target\(BindingTargetId\(\d+\)\)\)", binding) is None:
+        raise AdapterError(f"selected callable alias has no exact target binding at {span}")
+    declaration = resolved_bindings.declarations.get(binding)
+    if declaration is None:
+        raise AdapterError(f"selected callable alias target has no resolver declaration at {span}")
+    fields = _fields(declaration, "BindingDeclaration")
+    if set(fields) != {"exported", "global", "kind", "name", "namespace", "span"}:
+        raise AdapterError(f"selected callable alias declaration has unexpected fields at {span}")
+    if (
+        _debug_name_value(fields["name"]) != expected_name
+        or fields["namespace"] != expected_namespace
+        or fields["kind"] != "Runtime"
+        or fields["exported"] not in {"true", "false"}
+        or fields["global"] not in {"true", "false"}
+    ):
+        raise AdapterError(f"selected callable alias declaration identity disagrees with its resolver binding at {span}")
+    if exported and (fields["exported"] != "true" or fields["global"] != "true"):
+        raise AdapterError(f"selected callable alias has no unique exported alias declaration at {span}")
+    declaration_span = _validate_source_span(
+        fields["span"], "selected callable alias declaration", source_sizes, source_owners,
+        {"stmt:Let", "stmt:LetExprNoTy", "stmt:Var", "stmt:VarExprNoTy"},
+    )
+    if resolved_bindings.declaration_sites.get((declaration_span, expected_name)) != binding:
+        raise AdapterError(f"selected callable alias resolver declaration site disagrees with its binding at {span}")
+    if not (
+        source_owners.get(declaration_span, set())
+        & {"stmt:Let", "stmt:LetExprNoTy", "stmt:Var", "stmt:VarExprNoTy"}
+    ):
+        raise AdapterError(f"selected callable alias declaration is not a Let or Var at {span}")
+    initializer_ids = binding_initializers_by_declaration.get((declaration_span, expected_name), [])
+    if len(initializer_ids) != 1:
+        raise AdapterError(f"selected callable alias has no exact declaration initializer at {span}")
+    initializer_id = initializer_ids[0]
+    initializer = exact_exprs.get(initializer_id)
+    if not isinstance(initializer, tuple) or len(initializer) != 3:
+        raise AdapterError(f"selected callable alias initializer has no exact AST expression at {span}")
+    initializer_span, initializer_kind, _initializer_name = initializer
+    if initializer_kind not in {"Ident", "Field"}:
+        raise AdapterError(f"selected callable alias initializer has an unsupported AST kind at {span}")
+    initializer_span = _validate_source_span(
+        initializer_span, "selected callable alias initializer", source_sizes, source_owners,
+        {f"expr:{initializer_kind}"},
+    )
+    if _canonicalize_span(initializer_span)[1] != _canonicalize_span(declaration_span)[1]:
+        raise AdapterError(f"selected callable alias initializer source disagrees with its declaration at {span}")
+    _validate_selected_callable_alias(
+        initializer_span, callable_aliases.get(initializer_span), expected_name, False, target_body
+    )
+
+
+def _validate_exported_alias_initializer(
+    span: str,
+    call_id: int,
+    call_callee_id: int,
+    alias_field_id: int,
+    module_id: int,
+    module_span: str,
+    module_name: str,
+    member_name: str,
+    target: Mapping[str, str],
+    target_body: str,
+    expressions: Mapping[object, object],
+    calls: Mapping[object, object],
+    fields_accessed: Mapping[object, object],
+    resolved_bindings: ParsedResolvedBindings,
+    exact_exprs: Mapping[object, object],
+    callable_aliases: Mapping[str, str],
+    binding_initializers_by_declaration: Mapping[tuple[str, str], list[int]],
+    source_sizes: Mapping[int, int],
+    source_owners: Mapping[str, set[str]],
+) -> None:
+    if type(call_id) is not int or calls.get(call_id) != call_callee_id:
+        raise AdapterError(f"selected callable alias has no exact Call-to-callee link at {span}")
+    field = expressions.get(alias_field_id)
+    if not isinstance(field, tuple) or len(field) != 3 or field[1] != "Field":
+        raise AdapterError(f"selected module alias has no exact field expression at {span}")
+    _validate_source_span(
+        field[0], "selected module alias field", source_sizes, source_owners, {"expr:Field"}
+    )
+    if fields_accessed.get(alias_field_id) != (module_id, member_name):
+        raise AdapterError(f"selected module alias has no exact field-to-member link at {span}")
+    module = expressions.get(module_id)
+    if (
+        not isinstance(module, tuple)
+        or len(module) != 3
+        or module[1] != "Ident"
+        or _canonicalize_span(module[0])[0] != _canonicalize_span(module_span)[0]
+        or module[2] != module_name
+    ):
+        raise AdapterError(f"selected module alias has no exact module identifier at {span}")
+    module_namespace = _validate_selected_module_binding(
+        span, target, module_id, module_span, module_name, resolved_bindings,
+        source_sizes, source_owners, target_may_be_reexported=True,
+    )
+    candidates = []
+    for (declaration_span, declaration_name), binding in resolved_bindings.declaration_sites.items():
+        if declaration_name != member_name:
+            continue
+        declaration = resolved_bindings.declarations.get(binding)
+        if declaration is None:
+            raise AdapterError(f"selected module alias resolver site has no declaration at {span}")
+        fields = _fields(declaration, "BindingDeclaration")
+        namespace = fields.get("namespace", "")
+        namespace_match = re.fullmatch(r"Some\((Name\(.*\))\)", namespace)
+        declaration_namespace = (
+            _debug_name_value(namespace_match.group(1)) if namespace_match is not None else None
+        )
+        if (
+            declaration_namespace == module_namespace
+            and fields.get("global") == "true"
+            and fields.get("exported") == "true"
+        ):
+            candidates.append((declaration_span, binding, namespace))
+    if len(candidates) != 1:
+        raise AdapterError(f"selected callable alias has no unique exported alias declaration at {span}")
+    declaration_span, binding, namespace = candidates[0]
+    field_binding = resolved_bindings.expressions.get(f"ExprId({alias_field_id + 1})")
+    if field_binding != binding:
+        raise AdapterError(f"selected module alias resolver binding disagrees with its declaration at {span}")
+    _validate_binding_initializer_alias(
+        span, binding, member_name, namespace, target_body, resolved_bindings,
+        exact_exprs, callable_aliases, binding_initializers_by_declaration,
+        source_sizes, source_owners, exported=True,
+    )
+    if declaration_span != _canonicalize_span(
+        _fields(resolved_bindings.declarations[binding], "BindingDeclaration")["span"]
+    )[0]:
+        raise AdapterError(f"selected callable alias declaration site disagrees with its binding at {span}")
+
+
 def _validate_selected_callee_identity(
     span: str,
     call_id: int,
@@ -1150,6 +1431,7 @@ def _validate_selected_callee_identity(
     fields_accessed: Mapping[object, object],
     resolved_bindings: ParsedResolvedBindings,
     callable_aliases: Mapping[str, str],
+    binding_initializers_by_declaration: Mapping[tuple[str, str], list[int]],
     source_sizes: Mapping[int, int],
     source_owners: Mapping[str, set[str]],
 ) -> None:
@@ -1170,9 +1452,25 @@ def _validate_selected_callee_identity(
         if expression_id in resolved_bindings.expressions:
             if type(call_id) is not int or calls.get(call_id) != callee_id:
                 raise AdapterError(f"selected callable alias has no exact Call-to-callee link at {span}")
-            _validate_selected_callable_alias(
-                callee_span, callable_aliases.get(callee_span), callee_name, False, target_body
-            )
+            alias_value = callable_aliases.get(callee_span)
+            if alias_value is not None:
+                _validate_selected_callable_alias(
+                    callee_span, alias_value, callee_name, False, target_body
+                )
+                _validate_resolver_binding_identity(
+                    span, expression_id, callee_name, resolved_bindings,
+                    source_sizes, source_owners,
+                )
+            else:
+                namespace = resolved_bindings.expression_namespaces.get(expression_id)
+                if namespace is None:
+                    raise AdapterError(f"selected function-call alias has no resolver namespace at {span}")
+                _validate_binding_initializer_alias(
+                    span, resolved_bindings.expressions[expression_id], callee_name,
+                    namespace, target_body, resolved_bindings, expressions, callable_aliases,
+                    binding_initializers_by_declaration, source_sizes, source_owners,
+                    exported=False,
+                )
             return
         if expression_id not in resolved_bindings.expression_namespaces:
             raise AdapterError(f"selected function-call callee has no resolver namespace at {span}")
@@ -1202,59 +1500,111 @@ def _validate_selected_callee_identity(
         if callee_alias_value is not None
         else None
     )
+    if callee_alias is not None and callee_alias.get("method_call") == "true" and member_name != "call":
+        raise AdapterError(f"selected callable alias method-call fact disagrees with its Field at {span}")
     base_alias_value = callable_aliases.get(base_span)
     method_alias = member_name == "call" and (
         base_alias_value is not None
         or (callee_alias is not None and callee_alias.get("method_call") == "true")
+        or (base_kind == "Ident" and base_key in resolved_bindings.expressions)
     )
     if method_alias:
-        if base_kind != "Ident" or base_key not in resolved_bindings.expressions:
-            raise AdapterError(f"selected callable alias method has no exact bound base identifier at {span}")
         if type(call_id) is not int or calls.get(call_id) != callee_id:
             raise AdapterError(f"selected callable alias has no exact Call-to-callee link at {span}")
+        if base_kind == "Ident":
+            if base_key not in resolved_bindings.expressions:
+                raise AdapterError(f"selected callable alias method has no exact bound base identifier at {span}")
+            _validate_source_span(
+                base_span, "selected callable alias base", source_sizes, source_owners, {"expr:Ident"}
+            )
+            if base_alias_value is not None:
+                _validate_selected_callable_alias(
+                    base_span, base_alias_value, base_name, False, target_body
+                )
+                _validate_resolver_binding_identity(
+                    span, base_key, base_name, resolved_bindings,
+                    source_sizes, source_owners,
+                )
+            else:
+                namespace = resolved_bindings.expression_namespaces.get(base_key)
+                if namespace is None:
+                    raise AdapterError(f"selected callable alias method has no resolver namespace at {span}")
+                _validate_binding_initializer_alias(
+                    span, resolved_bindings.expressions[base_key], base_name,
+                    namespace, target_body, resolved_bindings, expressions, callable_aliases,
+                    binding_initializers_by_declaration, source_sizes, source_owners,
+                    exported=False,
+                )
+            if callee_alias_value is not None:
+                if callee_alias.get("method_call") != "true":
+                    raise AdapterError(f"selected callable alias method has an incorrect method-call fact at {span}")
+                _validate_selected_callable_alias(
+                    callee_span, callee_alias_value, base_name, True, target_body
+                )
+            return
+        if base_kind != "Field":
+            raise AdapterError(f"selected callable alias method has no exact module field base at {span}")
         _validate_source_span(
-            base_span, "selected callable alias base", source_sizes, source_owners, {"expr:Ident"}
+            base_span, "selected callable alias module field", source_sizes, source_owners,
+            {"expr:Field"},
         )
+        base_field = fields_accessed.get(base_id)
+        if not isinstance(base_field, tuple) or len(base_field) != 2:
+            raise AdapterError(f"selected callable alias module field has no exact access link at {span}")
+        module_id, alias_name = base_field
+        if type(module_id) is not int or not isinstance(alias_name, str):
+            raise AdapterError(f"selected callable alias module field has an invalid access link at {span}")
+        module_row = expressions.get(module_id)
+        if not isinstance(module_row, tuple) or len(module_row) != 3 or module_row[1] != "Ident":
+            raise AdapterError(f"selected callable alias method has no exact module identifier at {span}")
+        module_span, _module_kind, module_name = module_row
         _validate_selected_callable_alias(
-            base_span, base_alias_value, base_name, False, target_body
+            callee_span, callee_alias_value, alias_name, True, target_body
         )
-        _validate_selected_callable_alias(
-            callee_span, callee_alias_value, base_name, True, target_body
+        _validate_exported_alias_initializer(
+            span, call_id, callee_id, base_id, module_id, module_span, module_name,
+            alias_name, target, target_body, expressions, calls, fields_accessed,
+            resolved_bindings, expressions, callable_aliases,
+            binding_initializers_by_declaration, source_sizes, source_owners,
         )
         return
-    if member_name != target_name:
-        raise AdapterError(f"selected function-call callee identity disagrees with its target at {span}")
+    selected_field_alias = False
     if base_kind != "Ident":
         raise AdapterError(f"selected function-call module base is not an exact identifier at {span}")
     _validate_source_span(
         base_span, "selected function-call module base", source_sizes, source_owners,
         {"expr:Ident"},
     )
-    if base_key not in resolved_bindings.expression_namespaces or base_key not in resolved_bindings.expressions:
-        raise AdapterError(f"selected function-call module base has no resolver binding at {span}")
-    binding = resolved_bindings.expressions[base_key]
-    declaration = resolved_bindings.declarations.get(binding)
-    if declaration is None:
-        raise AdapterError(f"selected function-call module binding has no declaration at {span}")
-    declaration_fields = _fields(declaration, "BindingDeclaration")
-    if set(declaration_fields) != {
-        "exported", "global", "kind", "name", "namespace", "span"
-    }:
-        raise AdapterError(f"selected function-call module binding has unexpected fields at {span}")
-    binding_name = _debug_name_value(declaration_fields.get("name", ""))
-    module = re.fullmatch(r"Module\((Name\(.*\))\)", declaration_fields.get("kind", ""))
+    module_name = _validate_selected_module_binding(
+        span, target, base_id, base_span, base_name, resolved_bindings,
+        source_sizes, source_owners, target_may_be_reexported=True,
+    )
+    if callee_alias_value is not None:
+        alias = _fields(callee_alias_value, "StaticCallableAlias")
+        if alias.get("definition") != "None":
+            if type(call_id) is not int or calls.get(call_id) != callee_id:
+                raise AdapterError(f"selected callable alias has no exact Call-to-callee link at {span}")
+            _validate_selected_callable_alias(
+                callee_span, callee_alias_value, member_name, False, target_body
+            )
+            selected_field_alias = True
+        elif member_name != target_name:
+            raise AdapterError(f"selected function-call callee identity disagrees with its target at {span}")
     target_namespace = re.fullmatch(r"Some\((Name\(.*\))\)", target["namespace"])
-    module_name = _debug_name_value(module.group(1)) if module is not None else None
     target_module_name = (
         _debug_name_value(target_namespace.group(1)) if target_namespace is not None else None
     )
-    if (
-        binding_name != base_name
-        or declaration_fields.get("namespace") != resolved_bindings.expression_namespaces[base_key]
-        or module_name is None
-        or target_module_name is None
-        or module_name != target_module_name
+    if not selected_field_alias and (
+        member_name != target_name or module_name != target_module_name
     ):
+        _validate_exported_alias_initializer(
+            span, call_id, callee_id, callee_id, base_id, base_span, base_name, member_name,
+            target, target_body, expressions, calls, fields_accessed, resolved_bindings,
+            expressions, callable_aliases, binding_initializers_by_declaration,
+            source_sizes, source_owners,
+        )
+        selected_field_alias = True
+    if not selected_field_alias and module_name != target_module_name:
         raise AdapterError(f"selected function-call module binding namespace disagrees with its target at {span}")
 
 
