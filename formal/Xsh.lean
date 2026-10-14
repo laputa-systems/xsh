@@ -7,6 +7,7 @@ import Xsh.Values.OrderedSet
 import Xsh.Values.MapPresence
 import Xsh.Results.Fallback
 import Xsh.Results.Propagation
+import Xsh.Control.OptionalAccess
 import Xsh.Json.Path
 import Xsh.Json.Compatibility
 import Xsh.Records.Update
@@ -20,6 +21,7 @@ import Xsh.Semantics.ListAccess
 import Xsh.Semantics.ListExecution
 import Xsh.Strings.Slice
 import Xsh.Strings.Search
+import Xsh.Strings.ByteAccess
 import Xsh.Semantics.Environments
 import Xsh.Proofs.BaseMachine
 import Xsh.Semantics.BaseHostTrace

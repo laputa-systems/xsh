@@ -13,7 +13,8 @@ raw-IR, and transport codec/law fragments are
 integrated, along with finite map-presence laws over ordinal keys, checked call
 argument ordering, Unicode scalar text slicing, primitive collection-key
 ordering, finite Result fallback traces, JSON-tree paths, checked record
-updates, finite Map literal evaluation, UTF-8 byte string search, Result `?`
+updates, finite Map literal evaluation, UTF-8 byte string search and byte
+access, lazy optional access, Result `?`
 propagation boundaries, and finite `.require(Set[T])` validation and array
 conversion.
 The XSH language contract defines Float `==` and `!=` by IEEE value equality;
@@ -29,7 +30,7 @@ source or Rust conformance claim and close no full G1, G2, or G3 obligation; all
 fragments prove successful word-read length, payload length and table bounds,
 plus rejection of one concrete out-of-bounds payload
 range. They do not close G7a, establish complete decoder soundness, or prove
-Rust conformance. The inventory now names 424 fragment roots across 89 owners;
+Rust conformance. The inventory now names 448 fragment roots across 89 owners;
 its 50 Python tests check inventory consistency, mutation controls, and finite-case evidence
 boundaries. The new RelPath roots cover the independent byte-list model only;
 they establish no Rust checker/runtime correspondence, symlink confinement,
@@ -41,6 +42,14 @@ They do not execute producers or establish Rust conformance or full
 `EFF-LATENT`/`EFF-SEMANTIC` semantics. The record-update fragment models the
 current checker's path-prefix overlap rule; `docs/SPEC.md` currently omits this
 rule. No `BASE-*` obligation is complete.
+
+`Xsh.Control.OptionalAccess` models one lazy access hop over an already
+evaluated nullable receiver, callback order, and Result propagation before
+method arguments; it excludes effects, cleanup, and runtime parity.
+`Xsh.Strings.ByteAccess` models `Str` byte lookup and UTF-8-boundary-checked
+slices with an explicit length only. It excludes omitted-length slices,
+runtime errors, and `UInt8` conversion. Neither fragment establishes Rust
+conformance or closes a full G1/G2/G3 obligation.
 The earlier 29 roots cover argv word/splice expansion, five named primitive
 effect classifications under the represented lexical rules, and ordered-set laws
 over finite ordinal keys. They establish no parser, Rust implementation, or full
@@ -481,6 +490,7 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 
 | UTF-8 string search, Result propagation, and Set validation | Reviewed commits `075b3b71b`, `e3e25d986`, and `fc4061faa` add 11 roots in `Xsh.Strings.Search`, 12 in `Xsh.Results.Propagation`, and 10 in `Xsh.Validation.SetRequire`; `formal/Xsh.lean` imports each once. Search models first-match offsets over Lean's UTF-8 byte list, including empty needles and a scalar-index mutation witness. Propagation models nearest try/retry/function boundaries, plain-procedure failure unwinding, and returned Result data; compatible error embedding is an explicit premise. Set validation checks existing members and decoded-array members, preserves membership, iterates in primitive key order, and detects a deduplication mutation. The private `decoded_array_acceptance_iff_typed_nodup` helper is compiled proof support, not a coverage root. The inventory reports 396 roots across 89 owners and 72 planned obligations; all 50 Python tests pass. `lake build Xsh` passes; the axiom allowlist accepts 8,776 declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity`, no finite conformance cases, and all 72 obligations planned. | String search does not prove XSH storage/runtime, normalization, parsing, raw `Bytes` search, or Rust correspondence. Result propagation assumes a compatible error embedding and does not prove checking, cleanup, or effect behavior. Set validation assumes a finite ordered key table and predicate and excludes JSON parsing and diagnostic text. None establishes Rust correspondence or closes full G1/G2/G3 obligations. |
 | JSON compatibility and bounded List-comprehension execution | Reviewed commits `98cfd2b02697` and `71029bfedae5` add fourteen roots each in `Xsh.Json.Compatibility` and `Xsh.Semantics.ListExecution`; the latter retains the established List semantics path. Both proof files remain byte-identical to their reviewed sources. The root imports each module once. The inventory reports 424 roots across 89 owners and 72 planned obligations; all 50 Python tests pass. `lake build Xsh` passes; the transitive axiom allowlist accepts 9,324 project declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | JSON Set projection covers only ordered ordinal keys and emits their ordinals as JSON integers; it does not model general `Set[T]` serialization. Record and Map entries are assumed unique, Path values need explicit conversion, and JSON text encoding/parsing, diagnostics, runtime, and Rust correspondence are excluded. List execution uses abstract finite expressions and excludes parsing, effects, streams, cleanup, and runtime/Rust correspondence. Neither fragment establishes full G1/G2/G3 closure. |
+| Optional access and UTF-8 byte access | Reviewed commits `c727034ed` and `6bd4387525c2` add 12 roots each in `Xsh.Control.OptionalAccess` and `Xsh.Strings.ByteAccess`; both proof files remain byte-identical to those commits, and `Xsh.lean` imports each module once. OptionalAccess covers lazy callback ordering for field, method, index, and range hops plus Result propagation and an eager-argument mutation witness. ByteAccess covers `Str` byte lookup and UTF-8-boundary-checked slicing with an explicit byte length. The inventory reports 448 roots across 89 owners and 72 planned obligations; all 50 Python inventory tests pass. Full `lake build` passes; the transitive axiom allowlist accepts 9,479 declarations, all three negative controls are rejected, the prohibited-term scan is clean, and the guarded fresh kernel check passes. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | OptionalAccess excludes effects, cleanup, and runtime parity. ByteAccess excludes omitted-length slicing, the `Bytes` API, bracket slicing, parsing, runtime errors, `UInt8` conversion, runtime evaluation, and Rust correspondence. Neither fragment establishes Rust conformance or closes full G1/G2/G3 obligations. |
 
 ## For the owner afterwards
 

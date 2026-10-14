@@ -6802,6 +6802,222 @@
       "status": "fragment",
       "scope": "Eager execution and event order for a finite two-source List comprehension with filters and projection.",
       "boundary": "Uses abstract finite source, filter, and projection functions; excludes parsing, general expression effects, streams, cleanup, XSH runtime correspondence, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Control.OptionalAccess.null_field_returns_null_without_reading_field",
+      "module": "Xsh.Control.OptionalAccess",
+      "declaration": "Xsh.Control.OptionalAccess.null_field_returns_null_without_reading_field",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One lazy optional-access hop over an already evaluated nullable receiver, ordered callbacks, Result propagation, and an eager-argument mutation witness.",
+      "boundary": "Independent finite callback-trace model only; no checker diagnostics, effect accounting, cleanup behavior, runtime parity, Rust conformance, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Control.OptionalAccess.present_field_evaluates_receiver_once_and_optionalizes_value",
+      "module": "Xsh.Control.OptionalAccess",
+      "declaration": "Xsh.Control.OptionalAccess.present_field_evaluates_receiver_once_and_optionalizes_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One lazy optional-access hop over an already evaluated nullable receiver, ordered callbacks, Result propagation, and an eager-argument mutation witness.",
+      "boundary": "Independent finite callback-trace model only; no checker diagnostics, effect accounting, cleanup behavior, runtime parity, Rust conformance, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Control.OptionalAccess.null_method_skips_argument_and_call",
+      "module": "Xsh.Control.OptionalAccess",
+      "declaration": "Xsh.Control.OptionalAccess.null_method_skips_argument_and_call",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One lazy optional-access hop over an already evaluated nullable receiver, ordered callbacks, Result propagation, and an eager-argument mutation witness.",
+      "boundary": "Independent finite callback-trace model only; no checker diagnostics, effect accounting, cleanup behavior, runtime parity, Rust conformance, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Control.OptionalAccess.present_method_evaluates_once_in_source_order_and_optionalizes",
+      "module": "Xsh.Control.OptionalAccess",
+      "declaration": "Xsh.Control.OptionalAccess.present_method_evaluates_once_in_source_order_and_optionalizes",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One lazy optional-access hop over an already evaluated nullable receiver, ordered callbacks, Result propagation, and an eager-argument mutation witness.",
+      "boundary": "Independent finite callback-trace model only; no checker diagnostics, effect accounting, cleanup behavior, runtime parity, Rust conformance, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Control.OptionalAccess.null_index_skips_expression_and_access",
+      "module": "Xsh.Control.OptionalAccess",
+      "declaration": "Xsh.Control.OptionalAccess.null_index_skips_expression_and_access",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One lazy optional-access hop over an already evaluated nullable receiver, ordered callbacks, Result propagation, and an eager-argument mutation witness.",
+      "boundary": "Independent finite callback-trace model only; no checker diagnostics, effect accounting, cleanup behavior, runtime parity, Rust conformance, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Control.OptionalAccess.present_index_evaluates_expression_then_optionalizes_value",
+      "module": "Xsh.Control.OptionalAccess",
+      "declaration": "Xsh.Control.OptionalAccess.present_index_evaluates_expression_then_optionalizes_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One lazy optional-access hop over an already evaluated nullable receiver, ordered callbacks, Result propagation, and an eager-argument mutation witness.",
+      "boundary": "Independent finite callback-trace model only; no checker diagnostics, effect accounting, cleanup behavior, runtime parity, Rust conformance, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Control.OptionalAccess.null_range_skips_bounds_and_access",
+      "module": "Xsh.Control.OptionalAccess",
+      "declaration": "Xsh.Control.OptionalAccess.null_range_skips_bounds_and_access",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One lazy optional-access hop over an already evaluated nullable receiver, ordered callbacks, Result propagation, and an eager-argument mutation witness.",
+      "boundary": "Independent finite callback-trace model only; no checker diagnostics, effect accounting, cleanup behavior, runtime parity, Rust conformance, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Control.OptionalAccess.present_range_evaluates_bounds_in_order_and_optionalizes_value",
+      "module": "Xsh.Control.OptionalAccess",
+      "declaration": "Xsh.Control.OptionalAccess.present_range_evaluates_bounds_in_order_and_optionalizes_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One lazy optional-access hop over an already evaluated nullable receiver, ordered callbacks, Result propagation, and an eager-argument mutation witness.",
+      "boundary": "Independent finite callback-trace model only; no checker diagnostics, effect accounting, cleanup behavior, runtime parity, Rust conformance, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Control.OptionalAccess.result_error_propagates_before_method_arguments",
+      "module": "Xsh.Control.OptionalAccess",
+      "declaration": "Xsh.Control.OptionalAccess.result_error_propagates_before_method_arguments",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One lazy optional-access hop over an already evaluated nullable receiver, ordered callbacks, Result propagation, and an eager-argument mutation witness.",
+      "boundary": "Independent finite callback-trace model only; no checker diagnostics, effect accounting, cleanup behavior, runtime parity, Rust conformance, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Control.OptionalAccess.result_ok_method_result_is_not_optionalized",
+      "module": "Xsh.Control.OptionalAccess",
+      "declaration": "Xsh.Control.OptionalAccess.result_ok_method_result_is_not_optionalized",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One lazy optional-access hop over an already evaluated nullable receiver, ordered callbacks, Result propagation, and an eager-argument mutation witness.",
+      "boundary": "Independent finite callback-trace model only; no checker diagnostics, effect accounting, cleanup behavior, runtime parity, Rust conformance, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Control.OptionalAccess.result_optional_payload_uses_question_then_optional_hop",
+      "module": "Xsh.Control.OptionalAccess",
+      "declaration": "Xsh.Control.OptionalAccess.result_optional_payload_uses_question_then_optional_hop",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One lazy optional-access hop over an already evaluated nullable receiver, ordered callbacks, Result propagation, and an eager-argument mutation witness.",
+      "boundary": "Independent finite callback-trace model only; no checker diagnostics, effect accounting, cleanup behavior, runtime parity, Rust conformance, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Control.OptionalAccess.eager_argument_mutation_is_detectable",
+      "module": "Xsh.Control.OptionalAccess",
+      "declaration": "Xsh.Control.OptionalAccess.eager_argument_mutation_is_detectable",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "One lazy optional-access hop over an already evaluated nullable receiver, ordered callbacks, Result propagation, and an eager-argument mutation witness.",
+      "boundary": "Independent finite callback-trace model only; no checker diagnostics, effect accounting, cleanup behavior, runtime parity, Rust conformance, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.ByteAccess.byte_length_matches_search_encoding",
+      "module": "Xsh.Strings.ByteAccess",
+      "declaration": "Xsh.Strings.ByteAccess.byte_length_matches_search_encoding",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
+      "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.ByteAccess.byte_at_returns_unsigned_utf8_storage",
+      "module": "Xsh.Strings.ByteAccess",
+      "declaration": "Xsh.Strings.ByteAccess.byte_at_returns_unsigned_utf8_storage",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
+      "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.ByteAccess.negative_byte_index_is_absent",
+      "module": "Xsh.Strings.ByteAccess",
+      "declaration": "Xsh.Strings.ByteAccess.negative_byte_index_is_absent",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
+      "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.ByteAccess.past_end_byte_index_is_absent",
+      "module": "Xsh.Strings.ByteAccess",
+      "declaration": "Xsh.Strings.ByteAccess.past_end_byte_index_is_absent",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
+      "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.ByteAccess.negative_byte_slice_offset_is_rejected",
+      "module": "Xsh.Strings.ByteAccess",
+      "declaration": "Xsh.Strings.ByteAccess.negative_byte_slice_offset_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
+      "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.ByteAccess.past_end_byte_slice_offset_is_rejected",
+      "module": "Xsh.Strings.ByteAccess",
+      "declaration": "Xsh.Strings.ByteAccess.past_end_byte_slice_offset_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
+      "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.ByteAccess.negative_byte_slice_length_is_rejected",
+      "module": "Xsh.Strings.ByteAccess",
+      "declaration": "Xsh.Strings.ByteAccess.negative_byte_slice_length_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
+      "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.ByteAccess.nonboundary_byte_slice_start_is_rejected",
+      "module": "Xsh.Strings.ByteAccess",
+      "declaration": "Xsh.Strings.ByteAccess.nonboundary_byte_slice_start_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
+      "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.ByteAccess.nonboundary_byte_slice_end_is_rejected",
+      "module": "Xsh.Strings.ByteAccess",
+      "declaration": "Xsh.Strings.ByteAccess.nonboundary_byte_slice_end_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
+      "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.ByteAccess.byte_slice_length_is_clamped",
+      "module": "Xsh.Strings.ByteAccess",
+      "declaration": "Xsh.Strings.ByteAccess.byte_slice_length_is_clamped",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
+      "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.ByteAccess.byte_slice_selects_exact_multibyte_range",
+      "module": "Xsh.Strings.ByteAccess",
+      "declaration": "Xsh.Strings.ByteAccess.byte_slice_selects_exact_multibyte_range",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
+      "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
+    },
+    {
+      "id": "fragment.Xsh.Strings.ByteAccess.byte_slice_differs_from_scalar_slice",
+      "module": "Xsh.Strings.ByteAccess",
+      "declaration": "Xsh.Strings.ByteAccess.byte_slice_differs_from_scalar_slice",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Signed-offset Str byte lookup and UTF-8-boundary-checked byte slicing with an explicit length and clamped range.",
+      "boundary": "Independent Str UTF-8 byte-list model with explicit offset and length only; no omitted-length slices, Bytes API, bracket slicing, parsing, runtime errors, UInt8 conversion, Rust correspondence, or full G1/G2/G3 closure."
     }
   ],
   "source_identity": null

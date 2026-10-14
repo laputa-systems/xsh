@@ -16,7 +16,9 @@ search; Result `?` propagation boundaries and returned-Result data; finite
 boundaries and atomic typed-store writes; and effect lattices, recursive
 summaries, lexical bounds, and delayed-work origins. Failed typed writes
 preserve the old store and produce an uncatchable type error; `.require(UInt)`
-remains recoverable.
+remains recoverable. Optional-access traces cover lazy field, method, index, and
+range hops plus Result propagation, while byte access covers `Str` byte lookup
+and explicit-length UTF-8 slices.
 The effect fragments also prove that an abstract finite pull prefix preserves
 creation-site charge order and its corresponding remainder, that each charge
 retains its creation and body sites, and that a supplied creation-context
@@ -80,7 +82,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 424 fragment
+G0b source freeze remain pending. The provisional inventory has 448 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -189,6 +191,18 @@ independent model over Lean's `String.toUTF8` bytes; it does not prove the XSH
 storage or runtime implementation, normalization or parsing, raw `Bytes`
 search APIs, Rust correspondence, or full G1/G2/G3 closure.
 
+`Xsh.Control.OptionalAccess` has twelve roots for lazy field, method, index,
+and range access over an already evaluated nullable receiver, plus Result
+propagation before method arguments and a mutation witness for eager argument
+evaluation. It does not model checker diagnostics, effects, cleanup, runtime
+parity, Rust correspondence, or full G1/G2/G3 closure.
+
+`Xsh.Strings.ByteAccess` has twelve roots for `Str` byte lookup and UTF-8
+boundary-checked slicing with an explicit byte offset and length. It excludes
+the omitted-length form, the `Bytes` API, bracket slicing, parsing, runtime
+errors, `UInt8` conversion, runtime evaluation, Rust correspondence, and full
+G1/G2/G3 closure.
+
 `Xsh.Values.DurationOps` has eighteen roots for checked millisecond addition,
 subtraction, multiplication, division, interval ratios, and time conversions.
 Its `time.millis` saturation law uses mathematical `Int`; actual XSH signed-64-bit
@@ -267,7 +281,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 424 rooted Lean fragment declarations across 89 core owner
+The inventory names 448 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
