@@ -343,17 +343,17 @@ def validate_harness_test_listing(output: str) -> None:
 def candidate_scratch_parent(root: pathlib.Path) -> pathlib.Path:
     root_descriptor = open_absolute_nofollow(root, directory=True)
     work_descriptor = -1
-    temporary_descriptor = -1
+    worktree_descriptor = -1
     try:
         work_descriptor = open_or_create_child_directory(root_descriptor, ".work", "candidate .work")
-        temporary_descriptor = open_or_create_child_directory(work_descriptor, "tmp", "candidate .work/tmp")
+        worktree_descriptor = open_or_create_child_directory(work_descriptor, "wt", "candidate .work/wt")
     finally:
-        if temporary_descriptor >= 0:
-            os.close(temporary_descriptor)
+        if worktree_descriptor >= 0:
+            os.close(worktree_descriptor)
         if work_descriptor >= 0:
             os.close(work_descriptor)
         os.close(root_descriptor)
-    return real_directory(root / ".work/tmp", "candidate scratch directory")
+    return real_directory(root / ".work/wt", "candidate scratch directory")
 
 
 def exclude_work_from_git(root: pathlib.Path) -> None:

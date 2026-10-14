@@ -30,6 +30,12 @@ class PublicationRunnerTests(unittest.TestCase):
         self.root = pathlib.Path(self.temporary.name)
         subprocess.run(["git", "-C", str(self.root), "init", "--quiet"], check=True)
 
+    def test_source_scratch_checkouts_use_the_worktree_directory(self):
+        self.assertEqual(
+            runner.candidate_scratch_parent(self.root),
+            self.root / ".work/wt",
+        )
+
     def paths(self):
         return {
             0: runner.ManifestSource("one.xsh", "a" * 64),
