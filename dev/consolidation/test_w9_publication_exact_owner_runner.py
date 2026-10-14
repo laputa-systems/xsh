@@ -22,12 +22,12 @@ def span(start, length):
 def owner_index():
     rows = ["source\tSourceId(0)\t100"]
     expressions = (
-        (1, 0, 50, "Record", ""),
-        (2, 5, 5, "Ident", "first"),
-        (3, 10, 5, "Ident", "alias"),
-        (4, 50, 40, "Record", ""),
-        (5, 55, 5, "Ident", "second"),
-        (6, 60, 5, "Ident", "again"),
+        (1, 0, 50, "Record", '""'),
+        (2, 5, 5, "Ident", '"first"'),
+        (3, 10, 5, "Ident", '"alias"'),
+        (4, 50, 40, "Record", '""'),
+        (5, 55, 5, "Ident", '"second"'),
+        (6, 60, 5, "Ident", '"again"'),
     )
     for expression_id, start, length, tag, name in expressions:
         current_span = span(start, length)
@@ -41,15 +41,50 @@ def owner_index():
             f"owner\t{tail_span}\tstmt:TailBareIdent",
             "exact-counts\t6\t4",
             f"record\tExprId(1)\t{span(0, 50)}\t2",
-            f"record-field\tExprId(1)\t0\tnamed\tfirst\t{span(1, 4)}\t\tExprId(2)",
-            f"record-field\tExprId(1)\t1\tshorthand\talias\t{span(10, 5)}\t\t",
-            f"record-shorthand-alias\tExprId(1)\t1\tExprId(3)\t{span(10, 5)}\talias",
+        f'record-field\tExprId(1)\t0\tnamed\t"first"\t{span(1, 4)}\t\tExprId(2)',
+        f'record-field\tExprId(1)\t1\tshorthand\t"alias"\t{span(10, 5)}\t\t',
+        f'record-shorthand-alias\tExprId(1)\t1\tExprId(3)\t{span(10, 5)}\t"alias"',
             f"record\tExprId(4)\t{span(50, 40)}\t2",
-            f"record-field\tExprId(4)\t2\tnamed\tsecond\t{span(51, 4)}\t\tExprId(5)",
-            f"record-field\tExprId(4)\t3\tshorthand\tagain\t{span(60, 5)}\t\t",
-            f"record-shorthand-alias\tExprId(4)\t3\tExprId(6)\t{span(60, 5)}\tagain",
+        f'record-field\tExprId(4)\t2\tnamed\t"second"\t{span(51, 4)}\t\tExprId(5)',
+        f'record-field\tExprId(4)\t3\tshorthand\t"again"\t{span(60, 5)}\t\t',
+        f'record-shorthand-alias\tExprId(4)\t3\tExprId(6)\t{span(60, 5)}\t"again"',
         )
     )
+    return "\n".join(rows) + "\n"
+
+
+def call_and_field_owner_index():
+    rows = [
+        "source\tSourceId(0)\t100",
+        f'owner\t{span(0, 5)}\texpr:Ident',
+        f'expr\tExprId(1)\t{span(0, 5)}\tIdent\t"callee"',
+        f'owner\t{span(0, 12)}\texpr:Call',
+        f'expr\tExprId(2)\t{span(0, 12)}\tCall\t""',
+        f'owner\t{span(20, 4)}\texpr:Ident',
+        f'expr\tExprId(3)\t{span(20, 4)}\tIdent\t"base"',
+        f'owner\t{span(20, 9)}\texpr:Field',
+        f'expr\tExprId(4)\t{span(20, 9)}\tField\t""',
+        "call\tExprId(2)\tExprId(1)",
+        "field-access\tExprId(4)\tExprId(3)\t" + r'"a\tb\n\r\0\\\"\u{1f642}"',
+        "exact-counts\t4\t0",
+    ]
+    return "\n".join(rows) + "\n"
+
+
+def named_and_path_owner_index():
+    rows = [
+        "source\tSourceId(0)\t100",
+        f'owner\t{span(0, 50)}\texpr:Record',
+        f'expr\tExprId(1)\t{span(0, 50)}\tRecord\t""',
+        f'owner\t{span(60, 5)}\texpr:Ident',
+        f'expr\tExprId(2)\t{span(60, 5)}\tIdent\t"value"',
+        f'record\tExprId(1)\t{span(0, 50)}\t4',
+        f'record-field\tExprId(1)\t0\tpath\t["a.b", "c,]d"]\t{span(1, 20)}\t\tExprId(2)',
+        f'record-field\tExprId(1)\t1\tnamed\t"a\\nb"\t{span(25, 15)}\t\tExprId(2)',
+        f'record-field\tExprId(1)\t2\tnamed\t""\t{span(41, 5)}\t\tExprId(2)',
+        f'record-field\tExprId(1)\t3\tpath\t[""]\t{span(47, 2)}\t\tExprId(2)',
+        "exact-counts\t2\t4",
+    ]
     return "\n".join(rows) + "\n"
 
 
@@ -82,12 +117,12 @@ class ExactOwnerIndexTests(unittest.TestCase):
 
     def test_rejects_missing_expression_or_record_field_coverage(self):
         missing_expression = owner_index().replace(
-            f"expr\tExprId(6)\t{span(60, 5)}\tIdent\tagain\n", ""
+            f'expr\tExprId(6)\t{span(60, 5)}\tIdent\t"again"\n', ""
         )
         with self.assertRaisesRegex(exact_runner.ExactOwnerError, "expression ids"):
             exact_runner.parse_exact_owner_index(missing_expression)
         missing_field = owner_index().replace(
-            f"record-field\tExprId(4)\t3\tshorthand\tagain\t{span(60, 5)}\t\t\n", ""
+            f'record-field\tExprId(4)\t3\tshorthand\t"again"\t{span(60, 5)}\t\t\n', ""
         )
         with self.assertRaisesRegex(exact_runner.ExactOwnerError, "field count"):
             exact_runner.parse_exact_owner_index(missing_field)
@@ -114,16 +149,94 @@ class ExactOwnerIndexTests(unittest.TestCase):
 
     def test_rejects_nonmatching_or_missing_shorthand_aliases(self):
         wrong_name = owner_index().replace(
-            f"record-shorthand-alias\tExprId(1)\t1\tExprId(3)\t{span(10, 5)}\talias",
-            f"record-shorthand-alias\tExprId(1)\t1\tExprId(3)\t{span(10, 5)}\tother",
+            f'record-shorthand-alias\tExprId(1)\t1\tExprId(3)\t{span(10, 5)}\t"alias"',
+            f'record-shorthand-alias\tExprId(1)\t1\tExprId(3)\t{span(10, 5)}\t"other"',
         )
         with self.assertRaisesRegex(exact_runner.ExactOwnerError, "disagrees"):
             exact_runner.parse_exact_owner_index(wrong_name)
         missing_alias = owner_index().replace(
-            f"record-shorthand-alias\tExprId(4)\t3\tExprId(6)\t{span(60, 5)}\tagain\n", ""
+            f'record-shorthand-alias\tExprId(4)\t3\tExprId(6)\t{span(60, 5)}\t"again"\n', ""
         )
         with self.assertRaisesRegex(exact_runner.ExactOwnerError, "aliases do not match"):
             exact_runner.parse_exact_owner_index(missing_alias)
+
+    def test_decodes_rust_debug_escapes_without_accepting_malformed_escapes(self):
+        value = r'"tab\tline\nreturn\rc0\0slash\\quote\"unicode\u{1f642}"'
+
+        self.assertEqual(
+            exact_runner._decode_rust_string(value, "fixture"),
+            "tab\tline\nreturn\rc0\0slash\\quote\"unicode🙂",
+        )
+        for malformed in (
+            r'"bad\x41"',
+            r'"bad\u{}"',
+            r'"bad\u{d800}"',
+            r'"bad\u{110000}"',
+            '"bad\nline"',
+            '"bad\\',
+        ):
+            with self.subTest(malformed=malformed), self.assertRaises(exact_runner.ExactOwnerError):
+                exact_runner._decode_rust_string(malformed, "fixture")
+
+    def test_preserves_path_components_and_input_1593_named_keys(self):
+        _legacy, exact = exact_runner.parse_exact_owner_index(named_and_path_owner_index())
+
+        self.assertEqual(
+            exact["records"][0]["fields"][0],
+            ("path", ("a.b", "c,]d"), "Span{source_id:SourceId(0),start:1,len:20}", None, 1),
+        )
+        self.assertEqual(
+            exact["records"][0]["fields"][1],
+            ("named", "a\nb", "Span{source_id:SourceId(0),start:25,len:15}", None, 1),
+        )
+        self.assertEqual(
+            exact["records"][0]["fields"][2],
+            ("named", "", "Span{source_id:SourceId(0),start:41,len:5}", None, 1),
+        )
+        self.assertEqual(
+            exact["records"][0]["fields"][3],
+            ("path", ("",), "Span{source_id:SourceId(0),start:47,len:2}", None, 1),
+        )
+
+    def test_rejects_malformed_path_vectors(self):
+        path_row = f'record-field\tExprId(1)\t0\tpath\t["a.b", "c,]d"]\t{span(1, 20)}\t\tExprId(2)'
+        for value in ('[]', '["a",]', '["a", 2]', '["a", "b"'):
+            with self.subTest(value=value), self.assertRaises(exact_runner.ExactOwnerError):
+                exact_runner.parse_exact_owner_index(
+                    named_and_path_owner_index().replace(path_row, path_row.replace('["a.b", "c,]d"]', value))
+                )
+
+    def test_parses_complete_call_and_field_access_child_maps(self):
+        _legacy, exact = exact_runner.parse_exact_owner_index(call_and_field_owner_index())
+
+        self.assertEqual(exact["calls"], {1: 0})
+        self.assertEqual(exact["field_accesses"], {3: (2, "a\tb\n\r\0\\\"🙂")})
+
+    def test_rejects_missing_extra_duplicate_and_dangling_ast_links(self):
+        contents = call_and_field_owner_index()
+        field_link = "field-access\tExprId(4)\tExprId(3)\t" + r'"a\tb\n\r\0\\\"\u{1f642}"' + "\n"
+        call_link = "call\tExprId(2)\tExprId(1)\n"
+        cases = (
+            (contents.replace(call_link, ""), "call links do not cover"),
+            (contents + "call\tExprId(1)\tExprId(2)\n", "call links do not cover"),
+            (contents.replace(call_link, "call\tExprId(2)\tExprId(99)\n"), "invalid callee"),
+            (contents.replace(field_link, ""), "field-access links do not cover"),
+            (contents.replace(field_link, "field-access\tExprId(4)\tExprId(99)\t\"x\"\n"), "invalid base"),
+            (contents.replace(f'owner\t{span(20, 9)}\texpr:Field\n', ""), "no matching generic AST owner"),
+            (
+                contents.replace(f'owner\t{span(20, 9)}\texpr:Field\n', f'owner\t{span(20, 9)}\texpr:Call\n'),
+                "no matching generic AST owner",
+            ),
+            (
+                contents.replace(f'expr\tExprId(4)\t{span(20, 9)}\tField', f'expr\tExprId(4)\t{span(99, 9)}\tField'),
+                "outside its source",
+            ),
+            (contents.replace(call_link, call_link + call_link), "duplicate call expression id"),
+            (contents.replace(field_link, field_link + field_link), "duplicate field-access expression id"),
+        )
+        for candidate, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(exact_runner.ExactOwnerError, message):
+                exact_runner.parse_exact_owner_index(candidate)
 
 
 class ExactOwnerHashOutputTests(unittest.TestCase):

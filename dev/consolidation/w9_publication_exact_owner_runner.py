@@ -22,7 +22,7 @@ EXACT_OWNER_HELPER = pathlib.Path(
     "/home/josh/d/laputa-systems/xsh/.work/wt/w9-exact-owners-56580/"
     "dev/consolidation/w9-publication-exact-owners.rs"
 )
-EXACT_OWNER_HELPER_SHA256 = "8193b802c8b0bec05404b6bf287f7a0e75d9ad61566ff349e34470691e57c6bb"
+EXACT_OWNER_HELPER_SHA256 = "da43a868ade8e8e97be885b0cea6c8be3df9e8b17f5b08c544819ddf326df0d0"
 EXACT_PROOF_SCHEMA = "w9-exact-owner-proof\t1\n"
 EXACT_PROOF_FIELDS = (
     "schema",
@@ -100,6 +100,8 @@ EXACT_OWNER_ROWS = {
     "record",
     "record-field",
     "record-shorthand-alias",
+    "call",
+    "field-access",
 }
 
 
@@ -145,16 +147,91 @@ def _span(value: str, source_sizes: Mapping[int, int], label: str) -> str:
     return canonical
 
 
-def _field_name(kind: str, value: str, label: str) -> str:
+def _decode_rust_string(value: str, label: str) -> str:
+    if len(value) < 2 or value[0] != '"' or value[-1] != '"':
+        raise ExactOwnerError(f"{label}: malformed Rust Debug string")
+    decoded: list[str] = []
+    index = 1
+    limit = len(value) - 1
+    escapes = {"n": "\n", "r": "\r", "t": "\t", "0": "\0", "\\": "\\", '"': '"'}
+    while index < limit:
+        character = value[index]
+        if character == "\\":
+            index += 1
+            if index >= limit:
+                raise ExactOwnerError(f"{label}: incomplete Rust Debug escape")
+            escape = value[index]
+            if escape in escapes:
+                decoded.append(escapes[escape])
+                index += 1
+                continue
+            if escape != "u" or index + 1 >= limit or value[index + 1] != "{":
+                raise ExactOwnerError(f"{label}: unsupported Rust Debug escape")
+            close = value.find("}", index + 2, limit)
+            digits = value[index + 2 : close] if close >= 0 else ""
+            if not 1 <= len(digits) <= 6 or any(
+                digit not in "0123456789abcdefABCDEF" for digit in digits
+            ):
+                raise ExactOwnerError(f"{label}: malformed Rust Unicode escape")
+            codepoint = int(digits, 16)
+            if codepoint > 0x10FFFF or 0xD800 <= codepoint <= 0xDFFF:
+                raise ExactOwnerError(f"{label}: invalid Rust Unicode escape")
+            decoded.append(chr(codepoint))
+            index = close + 1
+            continue
+        if character == '"' or not character.isprintable():
+            raise ExactOwnerError(f"{label}: unescaped character in Rust Debug string")
+        decoded.append(character)
+        index += 1
+    return "".join(decoded)
+
+
+def _decode_rust_string_vector(value: str, label: str) -> tuple[str, ...]:
+    if not value.startswith("["):
+        raise ExactOwnerError(f"{label}: malformed Rust Debug string vector")
+    if value == "[]":
+        return ()
+    values: list[str] = []
+    index = 1
+    while index < len(value):
+        if index >= len(value) or value[index] != '"':
+            raise ExactOwnerError(f"{label}: malformed Rust Debug string vector")
+        start = index
+        index += 1
+        closed = False
+        while index < len(value):
+            if value[index] == "\\":
+                if index + 1 >= len(value):
+                    break
+                index += 2
+                continue
+            if value[index] == '"':
+                index += 1
+                closed = True
+                break
+            index += 1
+        if not closed:
+            raise ExactOwnerError(f"{label}: unterminated Rust Debug string vector item")
+        values.append(_decode_rust_string(value[start:index], label))
+        if index == len(value) - 1 and value[index] == "]":
+            return tuple(values)
+        if not value.startswith(", ", index):
+            raise ExactOwnerError(f"{label}: malformed Rust Debug string vector separator")
+        index += 2
+    raise ExactOwnerError(f"{label}: unterminated Rust Debug string vector")
+
+
+def _field_name(kind: str, value: str, label: str) -> str | tuple[str, ...]:
+    if kind == "path":
+        components = _decode_rust_string_vector(value, label)
+        if not components:
+            raise ExactOwnerError(f"{label}: malformed field path")
+        return components
+    decoded = _decode_rust_string(value, label)
     if kind in {"computed", "spread"}:
-        if value:
+        if decoded:
             raise ExactOwnerError(f"{label}: {kind} field has an unexpected name")
-        return ""
-    if not value or any(character in value for character in "\t\r\n"):
-        raise ExactOwnerError(f"{label}: malformed field name")
-    if kind == "path" and any(not part for part in value.split(".")):
-        raise ExactOwnerError(f"{label}: malformed field path")
-    return value
+    return decoded
 
 
 def parse_exact_owner_index(
@@ -174,8 +251,13 @@ def parse_exact_owner_index(
     expressions: dict[int, tuple[str, str, str]] = {}
     runs: dict[int, tuple[str, bool]] = {}
     record_headers: dict[int, tuple[str, int]] = {}
-    record_fields: dict[int, dict[int, tuple[str, str, str, int | None, int | None]]] = {}
+    record_fields: dict[
+        int,
+        dict[int, tuple[str, str | tuple[str, ...], str, int | None, int | None]],
+    ] = {}
     aliases: dict[tuple[int, int], tuple[int, str, str]] = {}
+    calls: dict[int, int] = {}
+    field_accesses: dict[int, tuple[int, str]] = {}
     for line_number, line in enumerate(contents.splitlines(), 1):
         fields = line.split("\t")
         if fields[0] in {"source", "stmt", "tail"}:
@@ -199,11 +281,12 @@ def parse_exact_owner_index(
             expression_id = _expr_id(fields[1], "expression id")
             if expression_id in expressions:
                 raise ExactOwnerError(f"owner index line {line_number}: duplicate expression id")
-            tag, name = fields[3], fields[4]
+            tag, raw_name = fields[3], fields[4]
             if IDENTIFIER.fullmatch(tag) is None:
                 raise ExactOwnerError(f"owner index line {line_number}: malformed expression tag")
+            name = _decode_rust_string(raw_name, f"owner index line {line_number} expression name")
             if tag == "Ident":
-                if not name or any(character in name for character in "\t\r\n"):
+                if IDENTIFIER.fullmatch(name) is None:
                     raise ExactOwnerError(f"owner index line {line_number}: malformed identifier spelling")
             elif name:
                 raise ExactOwnerError(f"owner index line {line_number}: non-identifier expression has a spelling")
@@ -248,12 +331,31 @@ def parse_exact_owner_index(
             parent = _expr_id(fields[1], "record alias parent id")
             field_index = _decimal(fields[2], "record alias field index")
             alias_id = _expr_id(fields[3], "record alias expression id")
-            name = fields[5]
+            name = _decode_rust_string(fields[5], f"owner index line {line_number} alias name")
             if (parent, field_index) in aliases:
                 raise ExactOwnerError(f"owner index line {line_number}: duplicate record shorthand alias")
-            if not name or any(character in name for character in "\t\r\n"):
-                raise ExactOwnerError(f"owner index line {line_number}: malformed record shorthand alias name")
+            if IDENTIFIER.fullmatch(name) is None:
+                raise ExactOwnerError(
+                    f"owner index line {line_number}: malformed record shorthand alias name"
+                )
             aliases[(parent, field_index)] = (alias_id, fields[4], name)
+        elif fields[0] == "call":
+            if len(fields) != 3:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed call row")
+            expression_id = _expr_id(fields[1], "call expression id")
+            callee_id = _expr_id(fields[2], "call callee expression id")
+            if expression_id in calls:
+                raise ExactOwnerError(f"owner index line {line_number}: duplicate call expression id")
+            calls[expression_id] = callee_id
+        elif fields[0] == "field-access":
+            if len(fields) != 4:
+                raise ExactOwnerError(f"owner index line {line_number}: malformed field-access row")
+            expression_id = _expr_id(fields[1], "field-access expression id")
+            base_id = _expr_id(fields[2], "field-access base expression id")
+            name = _decode_rust_string(fields[3], f"owner index line {line_number} field name")
+            if expression_id in field_accesses:
+                raise ExactOwnerError(f"owner index line {line_number}: duplicate field-access expression id")
+            field_accesses[expression_id] = (base_id, name)
 
     try:
         legacy = adapter.parse_owner_index("\n".join(legacy_lines) + "\n")
@@ -269,6 +371,27 @@ def parse_exact_owner_index(
         raise ExactOwnerError("exact run form ids are not contiguous")
     if set(expressions) != set(range(len(expressions))):
         raise ExactOwnerError("exact expression ids are not contiguous")
+
+    call_ids = {
+        expression_id
+        for expression_id, (_span_value, tag, _name) in expressions.items()
+        if tag == "Call"
+    }
+    if set(calls) != call_ids:
+        raise ExactOwnerError("call links do not cover the Call expression table")
+    field_ids = {
+        expression_id
+        for expression_id, (_span_value, tag, _name) in expressions.items()
+        if tag == "Field"
+    }
+    if set(field_accesses) != field_ids:
+        raise ExactOwnerError("field-access links do not cover the Field expression table")
+    for expression_id, callee_id in calls.items():
+        if callee_id not in expressions or callee_id == expression_id:
+            raise ExactOwnerError(f"call {expression_id} references an invalid callee expression")
+    for expression_id, (base_id, _name) in field_accesses.items():
+        if base_id not in expressions or base_id == expression_id:
+            raise ExactOwnerError(f"field access {expression_id} references an invalid base expression")
 
     for expression_id, (raw_span, tag, _name) in expressions.items():
         span = _span(raw_span, source_sizes, f"expression {expression_id}")
@@ -314,7 +437,9 @@ def parse_exact_owner_index(
                     raise ExactOwnerError(f"record field {parent}:{field_index} references a missing expression")
             if kind == "computed" and (not name == "" or key_expr is None or value_expr is None):
                 raise ExactOwnerError(f"record field {parent}:{field_index} has malformed computed data")
-            if kind in {"path", "named"} and (not name or key_expr is not None or value_expr is None):
+            if kind == "path" and (not name or key_expr is not None or value_expr is None):
+                raise ExactOwnerError(f"record field {parent}:{field_index} has malformed path data")
+            if kind == "named" and (key_expr is not None or value_expr is None):
                 raise ExactOwnerError(f"record field {parent}:{field_index} has malformed named data")
             if kind == "shorthand" and (not name or key_expr is not None or value_expr is not None):
                 raise ExactOwnerError(f"record field {parent}:{field_index} has malformed shorthand data")
@@ -361,6 +486,8 @@ def parse_exact_owner_index(
         "aliases": normalized_aliases,
         "expr_count": expr_count,
         "record_field_count": record_field_count,
+        "calls": calls,
+        "field_accesses": field_accesses,
         "tails": {
             _stmt_id(statement_id): (span, name, kind)
             for statement_id, (span, name, kind) in legacy[2].items()
