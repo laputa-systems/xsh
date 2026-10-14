@@ -835,7 +835,7 @@ mod tests {
 
     #[test]
     fn multiline_index_assignment_keeps_the_list_mutable() {
-        let source = "proc build(items: List[Int]) -> List[Int] {\n  var kept = []\n  for item in items {\n    kept += [item]\n  }\n  kept[\n    0\n  ] = 4\n  kept\n}\n";
+        let source = "proc build(items: List[Int], index: Int) -> List[Int] {\n  var kept: List[Int] = []\n  for item in items {\n    kept += [item]\n  }\n  kept[(index +\n    1) * 2] = 4\n  kept\n}\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         assert!(Checker::check_arena(&parsed.arena, source).diagnostics.is_empty());
@@ -855,7 +855,7 @@ mod tests {
     fn indexed_division_and_remainder_assignments_keep_the_list_mutable() {
         for operator in ["/=", "%="] {
             let source = format!(
-                "proc build(items: List[Int]) -> List[Int] {{\n  var kept = []\n  for item in items {{\n    kept += [item]\n  }}\n  kept[0]{operator}2\n  kept\n}}\n"
+                "proc build(items: List[Int]) -> List[Int] {{\n  var kept: List[Int] = []\n  for item in items {{\n    kept += [item]\n  }}\n  kept[0]{operator}2\n  kept\n}}\n"
             );
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
             assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
@@ -925,7 +925,7 @@ mod tests {
 
     #[test]
     fn indexed_comparison_after_the_loop_is_not_a_reassignment() {
-        let source = "proc build(items: List[Int]) -> List[Int] {\n  var kept = []\n  for item in items {\n    kept += [item]\n  }\n  assert kept[0]!=4\n  kept\n}\n";
+        let source = "proc build(items: List[Int]) -> List[Int] {\n  var kept = []\n  for item in items {\n    print $item\n    kept += [item]\n  }\n  assert kept[0]!=4\n  kept\n}\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         assert!(Checker::check_arena(&parsed.arena, source).diagnostics.is_empty());
@@ -951,7 +951,7 @@ mod tests {
     fn spaced_field_assignment_keeps_the_list_mutable() {
         let source = r#"type Row = {value: Int}
 proc build(items: List[Row]) -> List[Row] {
-  var kept = []
+  var kept: List[Row] = []
   for item in items {
     kept += [item]
   }
