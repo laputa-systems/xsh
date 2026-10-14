@@ -211,10 +211,17 @@ def _field(entry: str) -> tuple[str, str]:
 
 def _fields(value: str, expected_type: str) -> dict[str, str]:
     _, entries = _struct_parts(value, expected_type)
-    fields = dict(_field(entry) for entry in entries)
+    return _parse_struct_fields(entries, expected_type)[1]
+
+
+def _parse_struct_fields(
+    entries: list[str], expected_type: str
+) -> tuple[list[tuple[str, str]], dict[str, str]]:
+    parsed = [_field(entry) for entry in entries]
+    fields = dict(parsed)
     if len(fields) != len(entries):
         raise AdapterError(f"duplicate {expected_type} Debug field")
-    return fields
+    return parsed, fields
 
 
 def _canonicalize_span(value: str) -> tuple[str, int, int, int]:
@@ -327,14 +334,18 @@ def _map_entries(value: str) -> dict[str, str]:
     return entries
 
 
-def _set_items(value: str) -> set[str]:
+def _set_items_ordered(value: str) -> list[str]:
     value = value.strip()
     if not value.startswith("{") or _group_end(value, 0) != len(value) - 1:
         raise AdapterError("expected Rust Debug set")
     items = _split_top_level(value[1:-1], ",")
     if len(set(items)) != len(items):
         raise AdapterError("duplicate Rust Debug set entry")
-    return set(items)
+    return items
+
+
+def _set_items(value: str) -> set[str]:
+    return set(_set_items_ordered(value))
 
 
 def _pair_key(value: str) -> tuple[str, str]:
@@ -546,8 +557,7 @@ def _project_propagating_statements(
     source_sizes: Mapping[int, int],
     source_owners: Mapping[str, set[str]],
 ) -> str:
-    _set_items(value)
-    raw_spans = _split_top_level(value.strip()[1:-1], ",")
+    raw_spans = _set_items_ordered(value)
     seen = set()
     retained = []
     if source_schema == "current":
@@ -678,6 +688,55 @@ def _remove_field_path(value: str, path: tuple[tuple[str, str], ...]) -> tuple[s
     return f"{prefix}{{{','.join(rebuilt)}}}", removed_value
 
 
+def _remove_field_pairs(
+    fields: list[tuple[str, str]], path: tuple[tuple[str, str], ...]
+) -> tuple[list[tuple[str, str]], str]:
+    target_field = path[0][1]
+    rebuilt = []
+    removed_value = None
+    matches = 0
+    for name, field_value in fields:
+        if name != target_field:
+            rebuilt.append((name, field_value))
+            continue
+        matches += 1
+        if len(path) == 1:
+            removed_value = field_value
+        else:
+            nested_value, nested_removed = _remove_field_path(field_value, path[1:])
+            removed_value = nested_removed
+            rebuilt.append((name, nested_value))
+    if matches != 1 or removed_value is None:
+        raise AdapterError(f"field path {path!r} matched {matches} times")
+    return rebuilt, removed_value
+
+
+def _rewrite_field_pairs(
+    fields: list[tuple[str, str]],
+    path: tuple[tuple[str, str], ...],
+    transform: Callable[[str], str],
+) -> list[tuple[str, str]]:
+    target_field = path[0][1]
+    rebuilt = []
+    matches = 0
+    for name, field_value in fields:
+        if name != target_field:
+            rebuilt.append((name, field_value))
+            continue
+        matches += 1
+        if len(path) == 1:
+            rebuilt.append((name, transform(field_value)))
+        else:
+            rebuilt.append((name, _rewrite_field_path(field_value, path[1:], transform)))
+    if matches != 1:
+        raise AdapterError(f"field path {path!r} matched {matches} times")
+    return rebuilt
+
+
+def _format_struct_fields(prefix: str, fields: list[tuple[str, str]]) -> str:
+    return f"{prefix}{{{','.join(f'{name}:{value}' for name, value in fields)}}}"
+
+
 def project_publication(
     source_schema: str,
     rendered: str,
@@ -688,12 +747,12 @@ def project_publication(
 ) -> str:
     if source_schema not in SOURCE_SCHEMAS:
         raise AdapterError(f"unsupported source schema {source_schema!r}")
-    fields = _fields(rendered, "CheckOutput")
-    common = rendered
+    prefix, entries = _struct_parts(rendered, "CheckOutput")
+    common_fields, fields = _parse_struct_fields(entries, "CheckOutput")
     for path in PATHS[source_schema]:
-        common, _ = _remove_field_path(common, path)
-    common = _rewrite_field_path(
-        common,
+        common_fields, _ = _remove_field_pairs(common_fields, path)
+    common_fields = _rewrite_field_pairs(
+        common_fields,
         (("CheckOutput", "prepared_constants"), ("PreparedConstants", "cli_plans")),
         lambda value: _normalize_cli_plan_mutex(value, source_schema),
     )
@@ -707,14 +766,14 @@ def project_publication(
         raise AdapterError("current publication validation requires source sizes and AST owners")
     else:
         _current_fact_owners(fields, source_sizes, source_owners)
-    common = _rewrite_field_path(
-        common,
+    common_fields = _rewrite_field_pairs(
+        common_fields,
         (("CheckOutput", "propagating_statements"),),
         lambda value: _project_propagating_statements(
             value, source_schema, fields, source_sizes, source_owners
         ),
     )
-    return common
+    return _format_struct_fields(prefix, common_fields)
 
 
 def compare_publications(

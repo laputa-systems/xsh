@@ -190,6 +190,20 @@ class PublicationAdapterTests(unittest.TestCase):
         self.assertEqual(legacy, current)
         self.assertIn('opaque:Other{global_bindings:"keep"}', legacy)
 
+    def test_projection_keeps_opaque_quoted_delimiters_and_rejects_root_corruption(self):
+        opaque_field = r'opaque:Other{global_bindings:"brace } , { : \"quoted\" keep"}'
+        publication = LEGACY_PUBLICATION.replace(
+            'opaque:Other{global_bindings:"keep"}', opaque_field
+        )
+        self.assertIn(opaque_field, project_legacy(publication))
+
+        with self.assertRaisesRegex(AdapterError, "unterminated Rust Debug value"):
+            project_legacy(LEGACY_PUBLICATION[:-1])
+
+        duplicate = LEGACY_PUBLICATION[:-1] + ",diagnostics:[]}"
+        with self.assertRaisesRegex(AdapterError, "duplicate CheckOutput Debug field"):
+            project_legacy(duplicate)
+
     def test_legacy_global_and_tail_fields_must_match_common_facts(self):
         missing_global = LEGACY_PUBLICATION.replace(
             '(None,Name("answer")):ExprId(2)', '(None,Name("answer")):ExprId(3)'
@@ -592,6 +606,14 @@ class PublicationAdapterTests(unittest.TestCase):
     def test_projection_rejects_schema_shape_mismatch(self):
         with self.assertRaisesRegex(AdapterError, "matched 0 times"):
             project_publication("legacy", CURRENT_PUBLICATION)
+
+    def test_propagating_statement_set_rejects_duplicate_spans(self):
+        duplicate = CURRENT_PUBLICATION.replace(
+            f"propagating_statements:{{{SPAN},{COMMAND_SPAN}}}",
+            f"propagating_statements:{{{SPAN},{SPAN},{COMMAND_SPAN}}}",
+        )
+        with self.assertRaisesRegex(AdapterError, "duplicate Rust Debug set entry"):
+            project_publication("current", duplicate, SOURCE_SIZES, SOURCE_OWNERS)
 
 
 if __name__ == "__main__":
