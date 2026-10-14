@@ -332,7 +332,7 @@ impl CompactBodyFacts {
             }
         }
         for (&span, &target) in &checked.selected_function_calls {
-            if !selected_function_expr_spans.contains(&span) {
+            if !selected_function_expr_spans.contains(&span) || record_field_types.contains_key(&span) {
                 facts.selected_function_references.insert(
                     span,
                     (

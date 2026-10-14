@@ -315,7 +315,7 @@ mod tests {
     use crate::syntax::parser::ArenaParseOutput;
 
     fn checked_program() -> (String, SourceMap, ArenaParseOutput, CompactDeclOutput) {
-        let source = "type Renderer = pure(value: Int) -> Int\npure render() -> Int { 1 }\npure other() -> Int { 2 }\npure render_defaulted(value: Int = 1) -> Int { value }\npure factory() -> Renderer { render_defaulted }\nlet first = render\nlet second = other\nlet fields = {render}\n".to_string();
+        let source = "type Renderer = pure(value: Int) -> Int\npure render() -> Int { 1 }\npure other() -> Int { 2 }\npure render_defaulted(value: Int = 1) -> Int { value }\npure factory() -> Renderer { render_defaulted }\nlet first = render\nlet second = other\nlet fields = {render, marker: 1}\n".to_string();
         let entry = entry_source_from_text("function-reference-authority.xsh", source.clone());
         let source_id = entry.source_id;
         let (sources, parsed) = parse_load_entry_source_arena_only(
@@ -361,6 +361,17 @@ mod tests {
             .expect("the fixture contains the requested identifier")
     }
 
+    fn function_name(parsed: &ArenaParseOutput, name: &str) -> Name {
+        parsed
+            .arena
+            .arena
+            .function_defs
+            .iter()
+            .find(|definition| definition.name.as_str().as_str() == name)
+            .map(|definition| definition.name)
+            .expect("the fixture contains the requested function")
+    }
+
     fn tail_statement(parsed: &ArenaParseOutput, name: Name) -> StmtId {
         (0..parsed.arena.arena.stmt_tags.len())
             .map(StmtId::from_index)
@@ -382,7 +393,7 @@ mod tests {
             .span(parsed.arena.arena.block(definition.body).span)
     }
 
-    fn shorthand_span(parsed: &ArenaParseOutput, name: Name) -> Span {
+    fn shorthand_record(parsed: &ArenaParseOutput, name: &str) -> (ExprId, Span) {
         (0..parsed.arena.arena.expr_tags.len())
             .map(ExprId::from_index)
             .find_map(|id| {
@@ -398,7 +409,9 @@ mod tests {
                         ArenaRecordFieldKind::Shorthand {
                             name: found,
                             span,
-                        } if found == name => Some(parsed.arena.arena.span(span)),
+                        } if found.as_str().as_str() == name => {
+                            Some((id, parsed.arena.arena.span(span)))
+                        }
                         _ => None,
                     })
             })
@@ -408,7 +421,7 @@ mod tests {
     #[test]
     fn bare_function_values_publish_and_lower_the_checked_target() {
         let (source, sources, parsed, declarations) = checked_program();
-        let render = Name::intern("render");
+        let render = function_name(&parsed, "render");
         let expression = identifier(&parsed, render);
         let target = declarations
             .bodies
@@ -435,7 +448,7 @@ mod tests {
     #[test]
     fn missing_function_value_target_does_not_reselect_by_spelling() {
         let (source, sources, parsed, mut declarations) = checked_program();
-        let render = Name::intern("render");
+        let render = function_name(&parsed, "render");
         let expression = identifier(&parsed, render);
         assert!(declarations
             .bodies
@@ -452,12 +465,12 @@ mod tests {
     #[test]
     fn mismatched_function_value_target_fails_closed() {
         let (source, sources, parsed, mut declarations) = checked_program();
-        let render = Name::intern("render");
+        let render = function_name(&parsed, "render");
         let expression = identifier(&parsed, render);
         let other = declarations
             .bodies
             .selected_function_calls
-            .get(&identifier(&parsed, Name::intern("other")))
+            .get(&identifier(&parsed, function_name(&parsed, "other")))
             .copied()
             .expect("the other function has a checker target");
         declarations
@@ -474,7 +487,7 @@ mod tests {
     #[test]
     fn mismatched_function_value_kind_fails_closed() {
         let (source, sources, parsed, mut declarations) = checked_program();
-        let render = Name::intern("render");
+        let render = function_name(&parsed, "render");
         let expression = identifier(&parsed, render);
         assert_eq!(declarations.bodies.expr_types.get(&expression), Some(&Type::Pure));
         declarations.bodies.expr_types.insert(expression, Type::Proc);
@@ -488,7 +501,7 @@ mod tests {
     #[test]
     fn typed_callable_tail_publishes_and_lowers_the_checked_target() {
         let (source, sources, parsed, declarations) = checked_program();
-        let name = Name::intern("render_defaulted");
+        let name = function_name(&parsed, "render_defaulted");
         let statement = tail_statement(&parsed, name);
         let span = parsed.arena.arena.stmt(statement).span;
         let (target, checked_type) = declarations
@@ -517,10 +530,10 @@ mod tests {
     #[test]
     fn missing_typed_callable_tail_target_does_not_reselect_by_spelling() {
         let (source, sources, parsed, mut declarations) = checked_program();
-        let name = Name::intern("render_defaulted");
+        let name = function_name(&parsed, "render_defaulted");
         let statement = tail_statement(&parsed, name);
         let span = parsed.arena.arena.stmt(statement).span;
-        let factory_span = function_body_span(&parsed, Name::intern("factory"));
+        let factory_span = function_body_span(&parsed, function_name(&parsed, "factory"));
         let checked_return_type = declarations
             .function_return_types
             .get(&factory_span)
@@ -560,9 +573,26 @@ mod tests {
     #[test]
     fn shorthand_function_values_retain_the_checked_span_target() {
         let (source, sources, parsed, declarations) = checked_program();
-        let render = Name::intern("render");
-        let span = shorthand_span(&parsed, render);
-        assert!(declarations.bodies.selected_function_references.contains_key(&span));
+        let render = function_name(&parsed, "render");
+        let (record, span) = shorthand_record(&parsed, "render");
+        assert!(matches!(
+            declarations.bodies.expr_types.get(&record),
+            Some(Type::Record(_))
+        ));
+        let matching_exprs: Vec<_> = (0..parsed.arena.arena.expr_tags.len())
+            .map(ExprId::from_index)
+            .filter(|&id| parsed.arena.arena.expr(id).span == span)
+            .map(|id| {
+                (
+                    format!("{:?}", parsed.arena.arena.expr(id).kind),
+                    declarations.bodies.selected_function_calls.get(&id).copied(),
+                )
+            })
+            .collect();
+        assert!(
+            declarations.bodies.selected_function_references.contains_key(&span),
+            "the record shorthand span must retain its checked target; matching expression kinds and targets: {matching_exprs:?}"
+        );
 
         let probe = probe(&parsed, &declarations, &source, &sources);
         let lowered = probe
@@ -581,8 +611,8 @@ mod tests {
     #[test]
     fn mismatched_shorthand_function_kind_fails_closed() {
         let (source, sources, parsed, mut declarations) = checked_program();
-        let render = Name::intern("render");
-        let span = shorthand_span(&parsed, render);
+        let render = function_name(&parsed, "render");
+        let (_, span) = shorthand_record(&parsed, "render");
         let (target, checked_type) = declarations
             .bodies
             .selected_function_references
