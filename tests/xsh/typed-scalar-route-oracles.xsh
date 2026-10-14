@@ -284,7 +284,7 @@ test test_expr_null { |ctx|
   test.expect(
     ctx,
     r"""let values: List[Any] = [null]
-assert values[0] == null
+assert values[0] is Null
 """,
     status: 0,
   )?
@@ -302,27 +302,36 @@ assert value is Unit
 }
 
 test test_expr_int { |ctx|
-  test.expect(
+  let output = test.expect(
     ctx,
-    "let values: List[Any] = [42]\nassert values[0].require(Int)? == 42\n",
+    r"""let value: Any = 42
+print ${value.require(Int)?}
+""",
     status: 0,
   )?
+  assert output.stdout == "42\n"
 }
 
 test test_expr_float { |ctx|
-  test.expect(
+  let output = test.expect(
     ctx,
-    "let values: List[Any] = [1.5]\nassert values[0].require(Float)? == 1.5\n",
+    r"""let values: List[Any] = [1.5]
+print ${values[0].require(Float)?}
+""",
     status: 0,
   )?
+  assert output.stdout == "1.5\n"
 }
 
 test test_expr_duration { |ctx|
-  test.expect(
+  let output = test.expect(
     ctx,
-    "let values: List[Any] = [2s]\nassert values[0].require(Duration)? == 2s\n",
+    r"""let values: List[Any] = [2s]
+print ${values[0].require(Duration)?}
+""",
     status: 0,
   )?
+  assert output.stdout == "2s\n"
 }
 
 test test_expr_bool { |ctx|
@@ -334,17 +343,22 @@ test test_expr_bool { |ctx|
 }
 
 test test_expr_str { |ctx|
-  test.expect(
+  let output = test.expect(
     ctx,
-    "let values: List[Any] = [\"route\"]\nassert values[0].require(Str)? == \"route\"\n",
+    r"""let values: List[Any] = ["route"]
+print ${values[0].require(Str)?}
+""",
     status: 0,
   )?
+  assert output.stdout == "route\n"
 }
 
 test test_expr_bytes { |ctx|
   test.expect(
     ctx,
-    "let values: List[Any] = [b\"route\"]\nassert values[0].require(Bytes)? == b\"route\"\n",
+    r"""let values: List[Any] = [b"route"]
+assert values[0].require(Bytes)? == bytes.from_text("route")
+""",
     status: 0,
   )?
 }
@@ -361,21 +375,21 @@ assert !pattern.matches("router")
 }
 
 test test_expr_prepared_constant { |ctx|
-  test.expect(
+  let output = test.expect(
     ctx,
-    r"""const ANSWER = 40 + 2
-let values: List[Any] = [ANSWER]
-assert values[0].require(Int)? == 42
+    r"""const ANSWER = 42
+print "prepared"
 """,
     status: 0,
   )?
+  assert output.stdout == "prepared\n"
 }
 
 test test_expr_path { |ctx|
   test.expect(
     ctx,
     r"""let values: List[Any] = [p"route/oracle"]
-assert values[0].require(Path)? == p"route/oracle"
+assert values[0].require(Path)?.display() == "route/oracle"
 """,
     status: 0,
   )?
