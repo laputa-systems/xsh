@@ -133,6 +133,25 @@ class PublicationAdapterTests(unittest.TestCase):
         self.assertEqual(TAIL_STATEMENT_OWNERS["StmtId(3)"], (TAIL_SPAN, "answer", "stmt:TailBareIdent"))
         self.assertEqual(STATEMENT_OWNERS["StmtId(4)"], (TAIL_CONST_SPAN, "stmt:Const"))
 
+        reordered = OWNER_INDEX.replace(
+            SPAN, "Span{len:6,start:10,source_id:SourceId(0)}"
+        )
+        self.assertEqual(parse_owner_index(reordered), (SOURCE_SIZES, SOURCE_OWNERS, TAIL_STATEMENT_OWNERS, STATEMENT_OWNERS))
+
+        for malformed_span in (
+            "Span{len:6,start:10,source_id:0}",
+            "Span{len:6,start:ten,source_id:SourceId(0)}",
+            "Span{len:6,start:10,source_id:SourceId(0),other:0}",
+            "Span{len:6,start:10,start:10,source_id:SourceId(0)}",
+        ):
+            malformed_owner = OWNER_INDEX.replace(
+                f"owner\t{SPAN}\tstmt:Match", f"owner\t{malformed_span}\tstmt:Match"
+            )
+            with self.subTest(malformed_span=malformed_span), self.assertRaisesRegex(
+                AdapterError, "malformed span"
+            ):
+                parse_owner_index(malformed_owner)
+
         duplicate = OWNER_INDEX + f"owner\t{CALL_SPAN}\texpr:Call\n"
         with self.assertRaisesRegex(AdapterError, "duplicate owner row"):
             parse_owner_index(duplicate)
@@ -187,6 +206,41 @@ class PublicationAdapterTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AdapterError, "legacy constant has no matching AST declaration"):
             project_legacy(wrong_declaration_span)
+
+    def test_nonempty_legacy_global_and_tail_spans_normalize_without_rewriting_common(self):
+        reordered_constant_span = "Span{len:17,source_id:SourceId(0),start:0}"
+        reordered_tail_span = "Span{len:6,start:40,source_id:SourceId(0)}"
+        owner_index = OWNER_INDEX.replace(CONST_SPAN, reordered_constant_span)
+        source_sizes, source_owners, tail_statement_owners, statement_owners = parse_owner_index(owner_index)
+        legacy = LEGACY_PUBLICATION.replace(CONST_SPAN, reordered_constant_span).replace(
+            f"tail_bindings:{{{TAIL_SPAN}:{TAIL_EXPR}}}",
+            f"tail_bindings:{{{reordered_tail_span}:{TAIL_EXPR}}}",
+        )
+
+        projected = project_publication(
+            "legacy", legacy, source_sizes, source_owners, tail_statement_owners, statement_owners
+        )
+        expected_common = project_legacy(LEGACY_PUBLICATION)
+        self.assertEqual(projected, expected_common.replace(CONST_SPAN, reordered_constant_span))
+
+    def test_current_fact_owner_joins_normalize_span_field_order(self):
+        reordered_call_span = "Span{len:12,start:20,source_id:SourceId(0)}"
+        reordered_match_span = "Span{start:10,len:6,source_id:SourceId(0)}"
+        current = CURRENT_PUBLICATION.replace(
+            f"selected_function_calls:{{{CALL_SPAN}:",
+            f"selected_function_calls:{{{reordered_call_span}:",
+        ).replace(
+            f"statically_resolved_call_spans:{{{CALL_SPAN}}}",
+            f"statically_resolved_call_spans:{{{reordered_call_span}}}",
+        ).replace(
+            "builtin_range_calls:{}",
+            f"builtin_range_calls:{{{reordered_call_span}}}",
+        ).replace(
+            f"exhaustive_match_spans:{{{SPAN}}}",
+            f"exhaustive_match_spans:{{{reordered_match_span}}}",
+        )
+
+        project_publication("current", current, SOURCE_SIZES, SOURCE_OWNERS)
 
     def test_selected_function_calls_reject_removed_added_and_wrong_owner_rows(self):
         missing = CURRENT_PUBLICATION.replace(

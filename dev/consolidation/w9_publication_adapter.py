@@ -16,10 +16,6 @@ PATHS = {
         (("CheckOutput", "checked_control_flow"),),
     ),
 }
-SPAN = re.compile(r"Span\{source_id:SourceId\((\d+)\),start:(\d+),len:(\d+)\}\Z")
-OWNER_SPAN = re.compile(
-    r"Span\s*\{\s*source_id:\s*SourceId\((\d+)\),\s*start:\s*(\d+),\s*len:\s*(\d+)\s*\}\Z"
-)
 CONTROL_FLOW_OWNERS = {
     "builtin_range_calls": {"expr:Call"},
     "cardinality_preserving_collection_calls": {"expr:Call"},
@@ -34,11 +30,10 @@ class AdapterError(ValueError):
 
 
 def _canonical_owner_span(value: str, line_number: int) -> str:
-    match = OWNER_SPAN.fullmatch(value)
-    if match is None:
-        raise AdapterError(f"owner index line {line_number}: malformed span")
-    source_id, start, length = match.groups()
-    return f"Span{{source_id:SourceId({source_id}),start:{start},len:{length}}}"
+    try:
+        return _canonicalize_span(value)[0]
+    except AdapterError:
+        raise AdapterError(f"owner index line {line_number}: malformed span") from None
 
 
 def parse_owner_index(
@@ -102,7 +97,7 @@ def parse_owner_index(
     if not source_sizes or set(source_sizes) != set(range(max(source_sizes) + 1)):
         raise AdapterError("owner index source ids are empty or nonsequential")
     for span in source_owners:
-        source_id, start, length = map(int, SPAN.fullmatch(span).groups())
+        _, source_id, start, length = _canonicalize_span(span)
         if source_id not in source_sizes or start + length > source_sizes[source_id]:
             raise AdapterError(f"owner index span is outside its source {span}")
     for statement_id, (span, _name, _kind) in tail_statement_owners.items():
@@ -222,6 +217,53 @@ def _fields(value: str, expected_type: str) -> dict[str, str]:
     return fields
 
 
+def _canonicalize_span(value: str) -> tuple[str, int, int, int]:
+    try:
+        fields = _fields(value, "Span")
+    except AdapterError:
+        raise AdapterError("malformed Span fields") from None
+    if set(fields) != {"source_id", "start", "len"}:
+        raise AdapterError("malformed Span fields")
+    source_id = re.fullmatch(r"SourceId\((\d+)\)", fields["source_id"])
+    start = re.fullmatch(r"\d+", fields["start"])
+    length = re.fullmatch(r"\d+", fields["len"])
+    if source_id is None or start is None or length is None:
+        raise AdapterError("malformed Span field types")
+    source_id_value, start_value, length_value = map(
+        int, (source_id.group(1), start.group(), length.group())
+    )
+    canonical = (
+        f"Span{{source_id:SourceId({source_id_value}),start:{start_value},len:{length_value}}}"
+    )
+    return canonical, source_id_value, start_value, length_value
+
+
+def _canonical_span_set(value: str, label: str) -> set[str]:
+    spans = set()
+    for raw_span in _set_items(value):
+        try:
+            span = _canonicalize_span(raw_span)[0]
+        except AdapterError:
+            raise AdapterError(f"malformed {label} span {raw_span}") from None
+        if span in spans:
+            raise AdapterError(f"duplicate normalized {label} span: {span}")
+        spans.add(span)
+    return spans
+
+
+def _canonical_span_map(value: str, label: str) -> dict[str, str]:
+    spans = {}
+    for raw_span, item in _map_entries(value).items():
+        try:
+            span = _canonicalize_span(raw_span)[0]
+        except AdapterError:
+            raise AdapterError(f"malformed {label} span {raw_span}") from None
+        if span in spans:
+            raise AdapterError(f"duplicate normalized {label} span: {span}")
+        spans[span] = item
+    return spans
+
+
 def _split_top_level(value: str, separator: str) -> list[str]:
     parts = []
     stack: list[str] = []
@@ -324,8 +366,9 @@ def _legacy_redundancy(
         constant = re.fullmatch(r"Constant\((StmtId\(\d+\))\)", declaration_fields["kind"])
         if constant:
             declaration_statement = constant.group(1)
+            declaration_span = _canonicalize_span(declaration_fields["span"])[0]
             if statement_owners.get(declaration_statement) != (
-                declaration_fields["span"], "stmt:Const"
+                declaration_span, "stmt:Const"
             ):
                 raise AdapterError(f"legacy constant has no matching AST declaration: {declaration_statement}")
             constant_bindings[binding_id] = declaration_statement
@@ -341,7 +384,7 @@ def _legacy_redundancy(
         raise AdapterError("legacy global bindings differ from declaration and binding-value facts")
     tail_values = _map_entries(prepared["values"])
     tails = _map_entries(bindings["tails"])
-    tail_bindings = _map_entries(prepared["tail_bindings"])
+    tail_bindings = _canonical_span_map(prepared["tail_bindings"], "legacy tail binding")
     derived_tails = {}
     for statement_id, binding_id in tails.items():
         owner = tail_statement_owners.get(statement_id)
@@ -349,9 +392,9 @@ def _legacy_redundancy(
         if owner is None or declaration is None:
             raise AdapterError(f"legacy tail has no statement owner or declaration: {statement_id}")
         span, name, owner_kind = owner
-        if name == "" or owner_kind != "stmt:TailBareIdent" or not SPAN.fullmatch(span):
+        if name == "" or owner_kind != "stmt:TailBareIdent":
             raise AdapterError(f"malformed legacy tail owner for {statement_id}")
-        _validate_source_span(
+        span = _validate_source_span(
             span, "legacy tail statement", source_sizes, source_owners, {"stmt:TailBareIdent"}
         )
         declaration_fields = _fields(declaration, "BindingDeclaration")
@@ -378,16 +421,17 @@ def _validate_source_span(
     source_sizes: Mapping[int, int],
     source_owners: Mapping[str, set[str]],
     allowed_owners: set[str],
-) -> None:
-    span_match = SPAN.fullmatch(span)
-    if span_match is None:
+) -> str:
+    try:
+        canonical_span, source_id, start, length = _canonicalize_span(span)
+    except AdapterError:
         raise AdapterError(f"malformed {label} span {span}")
-    source_id, start, length = map(int, span_match.groups())
     if source_id not in source_sizes or start + length > source_sizes[source_id]:
         raise AdapterError(f"{label} span is outside its source {span}")
-    owners = source_owners.get(span, set())
+    owners = source_owners.get(canonical_span, set())
     if not any(owner in allowed_owners or owner.split(":", 1)[0] in allowed_owners for owner in owners):
         raise AdapterError(f"{label} span has no matching AST owner: {span}")
+    return canonical_span
 
 
 def _current_fact_owners(
@@ -404,8 +448,8 @@ def _current_fact_owners(
             declaration_fields["namespace"],
             declaration_fields["name"],
         )
-    selected = _map_entries(fields["selected_function_calls"])
-    static = _set_items(fields["statically_resolved_call_spans"])
+    selected = _canonical_span_map(fields["selected_function_calls"], "selected function-call")
+    static = _canonical_span_set(fields["statically_resolved_call_spans"], "statically resolved call")
     other_static_calls = set()
     for name in (
         "standard_call_spans",
@@ -415,12 +459,13 @@ def _current_fact_owners(
         "message_payload_constructors",
         "error_constructors",
     ):
-        other_static_calls.update(_map_entries(fields[name]))
+        other_static_calls.update(_canonical_span_map(fields[name], name.replace("_", " ")))
     if set(selected) != static - other_static_calls:
         raise AdapterError("selected function-call sites differ from static call-site facts")
+    expression_types = _canonical_span_map(fields["expr_types"], "checked expression type")
     for span, target in selected.items():
-        _validate_source_span(span, "selected function-call", source_sizes, source_owners, {"expr:Call"})
-        if span not in _map_entries(fields["expr_types"]):
+        span = _validate_source_span(span, "selected function-call", source_sizes, source_owners, {"expr:Call"})
+        if span not in expression_types:
             raise AdapterError(f"selected function-call span has no checked expression type: {span}")
         target_fields = _fields(target, "CheckedFunctionTarget")
         if set(target_fields) != {"definition", "namespace", "name"}:
@@ -436,24 +481,29 @@ def _current_fact_owners(
         raise AdapterError(f"checked control-flow fields differ: missing={missing} added={added}")
     if control_flow.get("complete") != "true":
         raise AdapterError("checked control-flow facts are incomplete")
+    api_calls = _canonical_span_map(fields["api_calls"], "checked API call")
+    statement_positions = _canonical_span_map(fields["statement_positions"], "checked statement position")
+    stage_spans = {
+        _canonicalize_span(_pair_key(key)[1])[0]
+        for key in _map_entries(fields["stream_stage_types"])
+    }
     for field, allowed_owners in CONTROL_FLOW_OWNERS.items():
-        for span in _set_items(control_flow[field]):
-            _validate_source_span(span, field.replace("_", " "), source_sizes, source_owners, allowed_owners)
+        for span in _canonical_span_set(control_flow[field], field.replace("_", " ")):
+            span = _validate_source_span(span, field.replace("_", " "), source_sizes, source_owners, allowed_owners)
             if field in {"builtin_range_calls", "propagating_error_spans", "latent_stream_error_spans"}:
-                if span not in _map_entries(fields["expr_types"]):
+                if span not in expression_types:
                     raise AdapterError(f"{field.replace('_', ' ')} span has no checked expression type: {span}")
             elif field == "cardinality_preserving_collection_calls":
-                if span not in _map_entries(fields["api_calls"]):
+                if span not in api_calls:
                     raise AdapterError(f"{field.replace('_', ' ')} span has no checked API call: {span}")
             elif field in {"fallible_pipeline_stage_spans", "propagating_stage_callback_spans"}:
-                stage_spans = {_pair_key(key)[1] for key in _map_entries(fields["stream_stage_types"])}
                 if span not in stage_spans:
                     raise AdapterError(f"{field.replace('_', ' ')} span has no checked stream stage: {span}")
             elif field == "exhaustive_match_spans":
                 owner_kinds = source_owners.get(span, set())
-                if "expr:Match" in owner_kinds and span not in _map_entries(fields["expr_types"]):
+                if "expr:Match" in owner_kinds and span not in expression_types:
                     raise AdapterError(f"exhaustive match expression has no checked expression type: {span}")
-                if "stmt:Match" in owner_kinds and span not in _map_entries(fields["statement_positions"]):
+                if "stmt:Match" in owner_kinds and span not in statement_positions:
                     raise AdapterError(f"exhaustive match statement has no checked statement position: {span}")
 
 
