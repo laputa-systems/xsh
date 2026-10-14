@@ -267,24 +267,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some(lowered)
     }
 
-    pub(super) fn lower_optional_expr(
-        &mut self,
-        id: Option<ExprId>,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: Option<usize>,
-    ) -> Option<Option<BuildExprId>> {
-        match id {
-            Some(id) => Some(Some(self.lower_expr(
-                id,
-                slots,
-                current_function,
-                item_slot,
-            )?)),
-            None => Some(None),
-        }
-    }
-
     pub(super) fn lower_postfix_receiver(
         &mut self,
         base: ExprId,
