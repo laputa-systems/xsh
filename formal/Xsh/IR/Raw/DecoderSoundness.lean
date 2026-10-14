@@ -263,6 +263,116 @@ theorem immediate_payload_guard_mutation_is_detected :
         some (.immediate oneWord) := by
   decide
 
+namespace FiniteSchema
+
+structure Row where
+  tag : Word32
+  payload : List Word32
+  deriving DecidableEq, Repr
+
+structure Schema where
+  payloadWidths : Array (Option Nat)
+  deriving Repr
+
+def payloadWidth? (schema : Schema) (tag : Word32) : Option Nat :=
+  match schema.payloadWidths[tag.val]? with
+  | none => none
+  | some width => width
+
+def encode (row : Row) : List Word32 := row.tag :: row.payload
+
+def decode? (schema : Schema) : List Word32 → Option Row
+  | [] => none
+  | tag :: payload =>
+      match payloadWidth? schema tag with
+      | none => none
+      | some width =>
+          if payload.length = width then some ⟨tag, payload⟩ else none
+
+def decodeIgnoringPayloadWidth? (schema : Schema) : List Word32 → Option Row
+  | [] => none
+  | tag :: payload =>
+      match payloadWidth? schema tag with
+      | none => none
+      | some _ => some ⟨tag, payload⟩
+
+theorem finite_schema_decode_encode (schema : Schema) (row : Row)
+    (declared : payloadWidth? schema row.tag = some row.payload.length) :
+    decode? schema (encode row) = some row := by
+  simp [decode?, encode, declared]
+
+/-- Successful decoding preserves the raw ordinal and payload and uses its exact declared width. -/
+theorem finite_schema_success_has_declared_width (schema : Schema) (tag : Word32)
+    (payload : List Word32) (decoded : Row)
+    (success : decode? schema (tag :: payload) = some decoded) :
+    payloadWidth? schema tag = some payload.length ∧ decoded = ⟨tag, payload⟩ := by
+  cases width : payloadWidth? schema tag with
+  | none => simp [decode?, width] at success
+  | some expected =>
+      simp only [decode?, width] at success
+      by_cases sizeMatches : payload.length = expected
+      · simp [sizeMatches] at success
+        rcases success with rfl
+        exact ⟨by simp [sizeMatches], rfl⟩
+      · simp [sizeMatches] at success
+
+/-- A finite schema accepts exactly the registered ordinal and payload width. -/
+theorem finite_schema_acceptance_iff (schema : Schema) (tag : Word32)
+    (payload : List Word32) :
+    decode? schema (tag :: payload) = some ⟨tag, payload⟩ ↔
+      payloadWidth? schema tag = some payload.length := by
+  constructor
+  · intro success
+    exact (finite_schema_success_has_declared_width schema tag payload _ success).1
+  · intro declared
+    simpa [encode] using
+      finite_schema_decode_encode schema ⟨tag, payload⟩ declared
+
+/-- An ordinal absent from the finite schema is rejected. -/
+theorem finite_schema_unknown_ordinal_rejected (schema : Schema) (tag : Word32)
+    (payload : List Word32)
+    (unknown : payloadWidth? schema tag = none) :
+    decode? schema (tag :: payload) = none := by
+  simp [decode?, unknown]
+
+/-- A known ordinal is rejected when its payload length differs from its schema width. -/
+theorem finite_schema_payload_width_mismatch_rejected (schema : Schema)
+    (tag : Word32) (payload : List Word32) (expected : Nat)
+    (declared : payloadWidth? schema tag = some expected)
+    (mismatch : payload.length ≠ expected) :
+    decode? schema (tag :: payload) = none := by
+  simp [decode?, declared, mismatch]
+
+/-- A reserved array slot is rejected as an unknown tag ordinal. -/
+theorem finite_schema_reserved_ordinal_rejected (schema : Schema) (tag : Word32)
+    (payload : List Word32)
+    (reserved : schema.payloadWidths[tag.val]? = some none) :
+    decode? schema (tag :: payload) = none := by
+  exact finite_schema_unknown_ordinal_rejected schema tag payload (by
+    simp [payloadWidth?, reserved])
+
+/-- An ordinal beyond the finite schema array is rejected without indexing it unsafely. -/
+theorem finite_schema_out_of_range_ordinal_rejected (schema : Schema) (tag : Word32)
+    (payload : List Word32)
+    (outside : schema.payloadWidths.size ≤ tag.val) :
+    decode? schema (tag :: payload) = none := by
+  apply finite_schema_unknown_ordinal_rejected
+  unfold payloadWidth?
+  rw [Array.getElem?_eq_none outside]
+
+private def sampleSchema : Schema := ⟨#[some 0, none, some 2]⟩
+private def sampleTag : Word32 := ⟨2, by decide⟩
+private def malformedWidthRow : List Word32 := [sampleTag, oneWord]
+
+/-- A schema width check rejects a malformed row accepted by the guard-dropping mutation. -/
+theorem finite_schema_rejects_wrong_width_mutation_accepts :
+    decode? sampleSchema malformedWidthRow = none ∧
+      decodeIgnoringPayloadWidth? sampleSchema malformedWidthRow =
+        some ⟨sampleTag, [oneWord]⟩ := by
+  decide
+
+end FiniteSchema
+
 end DecoderSoundness
 
 end Xsh.IR.Raw
