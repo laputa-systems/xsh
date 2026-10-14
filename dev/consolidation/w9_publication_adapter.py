@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Callable, Mapping
+from typing import Callable, Mapping, NamedTuple
 
 
 ADAPTER_SCHEMA = "w9-publication-adapter-v1"
@@ -31,6 +31,12 @@ CONTROL_FLOW_OWNERS = {
 }
 class AdapterError(ValueError):
     pass
+
+
+class ParsedResolvedBindings(NamedTuple):
+    expression_namespaces: Mapping[str, str]
+    expressions: Mapping[str, str]
+    declarations: Mapping[str, str]
 
 
 def _canonical_owner_span(value: str, line_number: int) -> str:
@@ -140,11 +146,12 @@ def _group_end(value: str, start: int) -> int | None:
     stack = [closes[opening]]
     index = start + 1
     while index < len(value):
-        quoted = _quoted_end(value, index)
-        if quoted is not None:
-            index = quoted
-            continue
         character = value[index]
+        if character in {"\"", "'"}:
+            quoted = _quoted_end(value, index)
+            if quoted is not None:
+                index = quoted
+                continue
         if character in closes:
             stack.append(closes[character])
         elif character in "}])":
@@ -160,11 +167,13 @@ def _struct_parts(value: str, expected_type: str) -> tuple[str, list[str]]:
     index = 0
     opening = None
     while index < len(value):
-        quoted = _quoted_end(value, index)
-        if quoted is not None:
-            index = quoted
-            continue
-        if value[index] == "{":
+        character = value[index]
+        if character in {"\"", "'"}:
+            quoted = _quoted_end(value, index)
+            if quoted is not None:
+                index = quoted
+                continue
+        if character == "{":
             opening = index
             break
         index += 1
@@ -183,11 +192,12 @@ def _struct_parts(value: str, expected_type: str) -> tuple[str, list[str]]:
     start = 0
     index = 0
     while index < len(body):
-        quoted = _quoted_end(body, index)
-        if quoted is not None:
-            index = quoted
-            continue
         character = body[index]
+        if character in {"\"", "'"}:
+            quoted = _quoted_end(body, index)
+            if quoted is not None:
+                index = quoted
+                continue
         if character in closes:
             stack.append(closes[character])
         elif character in "}])":
@@ -282,11 +292,12 @@ def _split_top_level(value: str, separator: str) -> list[str]:
     start = 0
     index = 0
     while index < len(value):
-        quoted = _quoted_end(value, index)
-        if quoted is not None:
-            index = quoted
-            continue
         character = value[index]
+        if character in {"\"", "'"}:
+            quoted = _quoted_end(value, index)
+            if quoted is not None:
+                index = quoted
+                continue
         if character in closes:
             stack.append(closes[character])
         elif character in "}])":
@@ -307,11 +318,12 @@ def _split_first_top_level(value: str, separator: str) -> tuple[str, str] | None
     closes = {"{": "}", "[": "]", "(": ")"}
     index = 0
     while index < len(value):
-        quoted = _quoted_end(value, index)
-        if quoted is not None:
-            index = quoted
-            continue
         character = value[index]
+        if character in {"\"", "'"}:
+            quoted = _quoted_end(value, index)
+            if quoted is not None:
+                index = quoted
+                continue
         if character in closes:
             stack.append(closes[character])
         elif character in "}])":
@@ -336,6 +348,15 @@ def _map_entries(value: str) -> dict[str, str]:
             raise AdapterError("malformed or duplicate Rust Debug map entry")
         entries[pair[0]] = pair[1]
     return entries
+
+
+def _parse_resolved_bindings(value: str) -> ParsedResolvedBindings:
+    fields = _fields(value, "ResolvedBindings")
+    return ParsedResolvedBindings(
+        expression_namespaces=_map_entries(fields["expression_namespaces"]),
+        expressions=_map_entries(fields["expressions"]),
+        declarations=_map_entries(fields["declarations"]),
+    )
 
 
 def _set_items_ordered(value: str) -> list[str]:
@@ -601,12 +622,15 @@ def _current_fact_owners(
     functions = _map_entries(declarations["functions"])
     function_owners = {}
     function_declarations = {}
+    function_definitions_by_identity: dict[tuple[str, str], list[str]] = {}
     for definition, declaration in functions.items():
         declaration_fields = _fields(declaration, "CheckedFunctionDeclaration")
-        function_owners[definition] = (
+        identity = (
             declaration_fields["namespace"],
             declaration_fields["name"],
         )
+        function_owners[definition] = identity
+        function_definitions_by_identity.setdefault(identity, []).append(definition)
         function_declarations[definition] = declaration_fields
     selected = _canonical_span_map(fields["selected_function_calls"], "selected function-call")
     static = _canonical_span_set(fields["statically_resolved_call_spans"], "statically resolved call")
@@ -622,7 +646,15 @@ def _current_fact_owners(
         other_static_calls.update(_canonical_span_map(fields[name], name.replace("_", " ")))
     if exact_owners is None and set(selected) != static - other_static_calls:
         raise AdapterError("selected function-call sites differ from static call-site facts")
+    validated_function_declarations: set[str] = set()
     expression_types = _canonical_span_map(fields["expr_types"], "checked expression type")
+    resolved_bindings = (
+        _parse_resolved_bindings(fields["resolved_bindings"])
+        if exact_owners is not None and (selected or static - other_static_calls)
+        else None
+    )
+    statement_owner_counts: dict[tuple[str, str], int] | None = None
+    statement_owner_indexed = False
     exact_exprs: Mapping[object, object] = {}
     exact_calls: Mapping[object, object] = {}
     exact_fields: Mapping[object, object] = {}
@@ -668,40 +700,42 @@ def _current_fact_owners(
         if owner != (target_fields["namespace"], target_fields["name"]):
             raise AdapterError(f"selected function-call target disagrees with its declaration at {span}")
         if exact_owners is not None and callee_id is not None:
-            matching_definitions = [
-                definition
-                for definition, declaration in function_owners.items()
-                if declaration == (target_fields["namespace"], target_fields["name"])
-            ]
+            matching_definitions = function_definitions_by_identity.get(
+                (target_fields["namespace"], target_fields["name"]), []
+            )
             if matching_definitions != [target_fields["definition"]]:
                 raise AdapterError(f"selected function-call target has ambiguous checked declaration identity at {span}")
         if exact_owners is not None:
             declaration = function_declarations[target_fields["definition"]]
-            if set(declaration) != {
-                "name", "namespace", "internal", "kind", "signature", "body", "parameter_spans"
-            }:
-                raise AdapterError(f"selected function-call declaration has unexpected fields at {span}")
-            if declaration["kind"] not in {"Pure", "Proc", "Stream", "CliMain"}:
-                raise AdapterError(f"selected function-call declaration has an unknown kind at {span}")
-            if declaration["internal"] not in {"true", "false"}:
-                raise AdapterError(f"selected function-call declaration has a malformed internal flag at {span}")
-            if declaration["signature"] == "None":
-                raise AdapterError(f"selected function-call declaration has no checked signature at {span}")
-            signature = declaration["signature"]
-            if not signature.startswith("Some(") or not signature.endswith(")"):
-                raise AdapterError(f"selected function-call declaration has no checked signature at {span}")
-            signature_fields = _fields(signature[5:-1], "CompactFunctionSig")
-            if set(signature_fields) != {
-                "params", "parameter_schemas", "return_ty", "return_type_expr",
-                "inferred_effects", "effects",
-            }:
-                raise AdapterError(f"selected function-call declaration has an incomplete signature at {span}")
-            _canonical = _canonicalize_span(declaration["body"])
-            if _canonical[1] not in source_sizes or _canonical[2] + _canonical[3] > source_sizes[_canonical[1]]:
-                raise AdapterError(f"selected function-call declaration body is outside its source at {span}")
+            if target_fields["definition"] not in validated_function_declarations:
+                if set(declaration) != {
+                    "name", "namespace", "internal", "kind", "signature", "body", "parameter_spans"
+                }:
+                    raise AdapterError(f"selected function-call declaration has unexpected fields at {span}")
+                if declaration["kind"] not in {"Pure", "Proc", "Stream", "CliMain"}:
+                    raise AdapterError(f"selected function-call declaration has an unknown kind at {span}")
+                if declaration["internal"] not in {"true", "false"}:
+                    raise AdapterError(f"selected function-call declaration has a malformed internal flag at {span}")
+                if declaration["signature"] == "None":
+                    raise AdapterError(f"selected function-call declaration has no checked signature at {span}")
+                signature = declaration["signature"]
+                if not signature.startswith("Some(") or not signature.endswith(")"):
+                    raise AdapterError(f"selected function-call declaration has no checked signature at {span}")
+                signature_fields = _fields(signature[5:-1], "CompactFunctionSig")
+                if set(signature_fields) != {
+                    "params", "parameter_schemas", "return_ty", "return_type_expr",
+                    "inferred_effects", "effects",
+                }:
+                    raise AdapterError(f"selected function-call declaration has an incomplete signature at {span}")
+                _canonical = _canonicalize_span(declaration["body"])
+                if _canonical[1] not in source_sizes or _canonical[2] + _canonical[3] > source_sizes[_canonical[1]]:
+                    raise AdapterError(f"selected function-call declaration body is outside its source at {span}")
+                validated_function_declarations.add(target_fields["definition"])
             if exact_owners is not None and callee_id is not None:
+                if resolved_bindings is None:
+                    raise AdapterError("selected function-call validation has no parsed resolver facts")
                 _validate_selected_callee_identity(
-                    span, callee_id, target_fields, exact_exprs, exact_fields, fields,
+                    span, callee_id, target_fields, exact_exprs, exact_fields, resolved_bindings,
                     source_sizes, source_owners,
                 )
 
@@ -730,9 +764,11 @@ def _current_fact_owners(
         for span in static - other_static_calls:
             if span in selected_call_spans:
                 continue
+            if resolved_bindings is None:
+                raise AdapterError("static call-site validation has no parsed resolver facts")
             if _is_native_set_call(
                 span, exact_exprs, exact_calls, exact_fields, source_sizes, source_owners,
-                expression_types, selected, other_static_calls, fields,
+                expression_types, selected, other_static_calls, resolved_bindings,
             ):
                 native_set_spans.add(span)
             elif _is_native_error_failure_call(
@@ -846,10 +882,14 @@ def _current_fact_owners(
                 if owner_kinds & {"stmt:Command", "stmt:Expr", "stmt:Assert", "stmt:AssertBare", "stmt:DeferExpr"} and span not in statement_positions:
                     raise AdapterError(f"{field.replace('_', ' ')} span has no checked statement position: {span}")
                 statement_owner_kinds = owner_kinds & {"stmt:Assert", "stmt:AssertBare", "stmt:DeferExpr"}
-                if statement_owner_kinds and not _has_unique_statement_owner(
-                    span, statement_owner_kinds, statement_owners
-                ):
-                    raise AdapterError(f"propagating error span has no unique exact statement owner: {span}")
+                if statement_owner_kinds:
+                    if not statement_owner_indexed:
+                        statement_owner_counts = _index_statement_owners(statement_owners)
+                        statement_owner_indexed = True
+                    if not _has_unique_statement_owner(
+                        span, statement_owner_kinds, statement_owner_counts
+                    ):
+                        raise AdapterError(f"propagating error span has no unique exact statement owner: {span}")
                 if "run:RunForm" in owner_kinds:
                     runs = exact_owners.get("runs") if exact_owners is not None else None
                     if not isinstance(runs, Mapping) or not any(
@@ -884,7 +924,7 @@ def _is_native_set_call(
     expression_types: Mapping[str, str],
     selected: Mapping[str, str],
     other_static_calls: set[str],
-    fields: Mapping[str, str],
+    resolved_bindings: ParsedResolvedBindings,
 ) -> bool:
     if span in selected or span in other_static_calls or re.fullmatch(
         r"Set\(.+\)", expression_types.get(span, "")
@@ -918,12 +958,10 @@ def _is_native_set_call(
     _validate_source_span(
         base_row[0], "native Set module identifier", source_sizes, source_owners, {"expr:Ident"}
     )
-    resolved = _fields(fields["resolved_bindings"], "ResolvedBindings")
-    expression_namespaces = _map_entries(resolved["expression_namespaces"])
     expression_key = f"ExprId({base_id + 1})"
-    if expression_key not in expression_namespaces:
+    if expression_key not in resolved_bindings.expression_namespaces:
         raise AdapterError(f"native Set module identifier has no checked namespace fact: {span}")
-    if expression_key in _map_entries(resolved["expressions"]):
+    if expression_key in resolved_bindings.expressions:
         raise AdapterError(f"native Set module identifier is shadowed by a binding: {span}")
     return True
 
@@ -1063,7 +1101,7 @@ def _validate_selected_callee_identity(
     target: Mapping[str, str],
     expressions: Mapping[object, object],
     fields_accessed: Mapping[object, object],
-    check_fields: Mapping[str, str],
+    resolved_bindings: ParsedResolvedBindings,
     source_sizes: Mapping[int, int],
     source_owners: Mapping[str, set[str]],
 ) -> None:
@@ -1076,16 +1114,17 @@ def _validate_selected_callee_identity(
         callee_span, "selected function-call callee", source_sizes, source_owners,
         {callee_owner},
     )
-    resolved = _fields(check_fields["resolved_bindings"], "ResolvedBindings")
-    expression_namespaces = _map_entries(resolved["expression_namespaces"])
     target_name = _debug_name_value(target["name"])
     if target_name is None:
         raise AdapterError(f"selected function-call target has a malformed name at {span}")
     if callee_kind == "Ident":
         expression_id = f"ExprId({callee_id + 1})"
-        if expression_id not in expression_namespaces:
+        if expression_id not in resolved_bindings.expression_namespaces:
             raise AdapterError(f"selected function-call callee has no resolver namespace at {span}")
-        if callee_name != target_name or expression_namespaces[expression_id] != target["namespace"]:
+        if (
+            callee_name != target_name
+            or resolved_bindings.expression_namespaces[expression_id] != target["namespace"]
+        ):
             raise AdapterError(f"selected function-call callee identity disagrees with its target at {span}")
         return
     if callee_kind != "Field":
@@ -1104,12 +1143,10 @@ def _validate_selected_callee_identity(
         {"expr:Ident"},
     )
     base_key = f"ExprId({base_id + 1})"
-    bindings = _map_entries(resolved["expressions"])
-    if base_key not in expression_namespaces or base_key not in bindings:
+    if base_key not in resolved_bindings.expression_namespaces or base_key not in resolved_bindings.expressions:
         raise AdapterError(f"selected function-call module base has no resolver binding at {span}")
-    declarations = _map_entries(resolved["declarations"])
-    binding = bindings[base_key]
-    declaration = declarations.get(binding)
+    binding = resolved_bindings.expressions[base_key]
+    declaration = resolved_bindings.declarations.get(binding)
     if declaration is None:
         raise AdapterError(f"selected function-call module binding has no declaration at {span}")
     declaration_fields = _fields(declaration, "BindingDeclaration")
@@ -1126,7 +1163,7 @@ def _validate_selected_callee_identity(
     )
     if (
         binding_name != base[2]
-        or declaration_fields.get("namespace") != expression_namespaces[base_key]
+        or declaration_fields.get("namespace") != resolved_bindings.expression_namespaces[base_key]
         or module_name is None
         or target_module_name is None
         or module_name != target_module_name
@@ -1137,20 +1174,28 @@ def _validate_selected_callee_identity(
 def _has_unique_statement_owner(
     span: str,
     owner_kinds: set[str],
-    statement_owners: Mapping[str, tuple[str, str]] | None,
+    statement_owner_counts: Mapping[tuple[str, str], int] | None,
 ) -> bool:
-    if statement_owners is None:
+    if statement_owner_counts is None:
         return False
-    matching_ids = []
+    return sum(statement_owner_counts.get((span, kind), 0) for kind in owner_kinds) == 1
+
+
+def _index_statement_owners(
+    statement_owners: Mapping[str, tuple[str, str]] | None,
+) -> dict[tuple[str, str], int]:
+    owner_counts: dict[tuple[str, str], int] = {}
+    if statement_owners is None:
+        return owner_counts
     for statement_id, row in statement_owners.items():
         if re.fullmatch(r"StmtId\(\d+\)", statement_id) is None:
             raise AdapterError("statement owner index has a malformed statement id")
         if not isinstance(row, tuple) or len(row) != 2 or not isinstance(row[0], str) or not isinstance(row[1], str):
             raise AdapterError("statement owner index has a malformed statement row")
         statement_span = _canonicalize_span(row[0])[0]
-        if statement_span == span and row[1] in owner_kinds:
-            matching_ids.append(statement_id)
-    return len(matching_ids) == 1
+        key = statement_span, row[1]
+        owner_counts[key] = owner_counts.get(key, 0) + 1
+    return owner_counts
 
 
 def _is_native_error_failure_call(
