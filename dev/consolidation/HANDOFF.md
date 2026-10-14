@@ -4,6 +4,34 @@ Status: active 2026-10-14.
 
 ## Current publication repair batch, 2026-10-14
 
+The repaired source at `47a691832` completed all 18 selected smoke harness
+invocations, but strict projection stopped at input 873. The parsed `drop(1)`
+span at SourceId(0), offset 11499, length 7 belongs to the exact stream-stage
+table; the frozen generic owner projection contains pipeline-wrapper spans
+instead. The independently reviewed follow-up from `4fe16f456` validates
+stream-stage ownership against its exact AST table, retaining source bounds,
+contiguous IDs, unique spans, argument/callback graph checks, and unchanged
+generic projection equality. The removed generic-owner assertion was wrong
+for this AST class. The integrated tooling passes 210 focused Python tests.
+The parsed Rust regression still requires execution on
+both fresh exact-owner roles. No full capture started after this smoke failure.
+
+The 47a cache qualification passes all eight normal/traced XSH and Laputa
+check/lint commands with matching output and diagnostics and zero duplicate
+shared module keys. XSH check records 1,675 checks and 10,738 reuses; lint
+records 1,533 shared checks and 1,264 reuses. Private lint contexts retain 524
+checks and 58 repeated keys. Laputa check records 379 checks and 3,653 reuses;
+lint records 316 shared checks and 1,389 reuses, with 372 private checks and
+60 repeated keys. These are counts, not timing claims. The mixed migration
+fixture passes repair, fresh import-graph recheck, execution, and convergence.
+Evidence remains in `.work/wt/w9-cache-47a/.work/consolidation/w9-cache-47a-a1/`.
+The proof-only follow-up leaves production Rust and cache commands unchanged.
+
+Generated documentation renders successfully with the source-qualified 47a
+verification binaries and produces no changed files. The scoped Markdown
+checker was interrupted after 180 seconds without output and did not pass.
+Canonical generated-doc, snippet, and project checks remain final gates.
+
 The full strict W9 c1 comparison completed with 6,760 outcomes and 24
 mismatches across inputs 873, 877, 893, 1162, 1516, and 1681. It failed;
 neither its complete status nor its earlier zero-mismatch progress is acceptance.
