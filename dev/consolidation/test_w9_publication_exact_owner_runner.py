@@ -551,6 +551,132 @@ class ExactOwnerReceiptTests(unittest.TestCase):
                 exact_runner.parse_exact_owner_ledger(invalid, [(0, 1), (1, 2)])
 
 
+class ExactOwnerCaptureSchedulingTests(unittest.TestCase):
+    def run_capture(self, failing_worker=None):
+        class OutputHandle:
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        class Process:
+            def __init__(self, polls_before_exit, status=0):
+                self.polls_before_exit = polls_before_exit
+                self.status = status
+
+            def poll(self):
+                if self.polls_before_exit:
+                    self.polls_before_exit -= 1
+                    return None
+                return self.status
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = pathlib.Path(directory)
+            launched = []
+            stops = []
+            completed = []
+            facts = {}
+            build = {"source_root": str(output), "source_commit": "commit", "source_tree": "tree"}
+
+            def launch(_runner, _source_record, _role, role_output, _build, _raw_root,
+                       _receipt_directory, start, end, worker, active, _docker_environment):
+                process = Process(
+                    4 if worker == "A" and failing_worker is None else 0,
+                    1 if worker == failing_worker else 0,
+                )
+                job = {
+                    "worker": worker,
+                    "start": start,
+                    "end": end,
+                    "process": process,
+                    "output": OutputHandle(),
+                    "receipt": role_output / "receipts" / f"range-{start}-{end}.tsv",
+                    "log": role_output / "jobs" / worker / f"{start}-{end}" / "worker.log",
+                }
+                launched.append((worker, start, end))
+                active.append(job)
+                return job
+
+            def capture_record(*args):
+                facts["range_receipts"] = dict(args[9])
+                facts["owner_hashes"] = dict(args[10])
+                return {"role": "candidate"}
+
+            runner = SimpleNamespace(
+                CleanupFailure=RuntimeError,
+                expected_ranges=lambda count: [(index, index + 1) for index in range(count)],
+                regular_file=lambda path, _label: pathlib.Path(path),
+                write_status=lambda *_args: None,
+                inspect_owned_containers=lambda *_args: [],
+                stop_jobs=lambda active, _environment: stops.append(tuple(active)),
+                validate_all_inputs=lambda _record: None,
+                source_identity=lambda _path: ("commit", "tree"),
+            )
+            observed = {index: f"{index:064x}" for index in range(10)}
+            patches = (
+                mock.patch.object(
+                    adapter_runner,
+                    "_mkdir_new_directory",
+                    side_effect=lambda path, _runner: pathlib.Path(path).mkdir(mode=0o700),
+                ),
+                mock.patch.object(exact_runner, "_launch_exact_owner_job", side_effect=launch),
+                mock.patch.object(
+                    exact_runner,
+                    "_read_exact_owner_receipt",
+                    side_effect=lambda _path, start, end, _reference, _runner:
+                        {index: observed[index] for index in range(start, end)},
+                ),
+                mock.patch.object(exact_runner, "_exact_capture_record", side_effect=capture_record),
+                mock.patch.object(exact_runner, "_write_exact_capture_receipt"),
+                mock.patch.object(exact_runner.time, "sleep"),
+            )
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+                try:
+                    record = exact_runner._capture_exact_owner_role(
+                        runner,
+                        {},
+                        "candidate",
+                        output / "build.receipt",
+                        build,
+                        output / "legacy.receipt",
+                        "helper-hash",
+                        {index: object() for index in range(10)},
+                        object(),
+                        output / "inputs",
+                        output / "manifest.tsv",
+                        output,
+                        completed,
+                        {},
+                    )
+                except exact_runner.ExactOwnerError as error:
+                    record = error
+            return launched, completed, observed, record, stops, facts
+
+    def test_capture_backfills_global_ranges_and_validates_full_coverage(self):
+        launched, completed, observed, record, stops, facts = self.run_capture()
+
+        self.assertEqual(
+            launched,
+            [("A", 0, 1), ("B", 1, 2), ("C", 2, 3), ("D", 3, 4),
+             ("B", 4, 5), ("C", 5, 6), ("D", 6, 7), ("B", 7, 8),
+             ("C", 8, 9), ("D", 9, 10)],
+        )
+        self.assertEqual(sorted(completed), [(index, index + 1) for index in range(10)])
+        self.assertEqual(facts["owner_hashes"], observed)
+        self.assertEqual(len(facts["range_receipts"]), 10)
+        self.assertEqual(record, {"role": "candidate"})
+        self.assertEqual(stops, [])
+
+    def test_capture_stops_active_jobs_after_worker_failure(self):
+        _launched, _completed, _observed, error, stops, facts = self.run_capture(failing_worker="A")
+
+        self.assertIsInstance(error, exact_runner.ExactOwnerError)
+        self.assertIn("worker A range 0..1 failed with status 1", str(error))
+        self.assertEqual(len(stops), 1)
+        self.assertEqual(len(stops[0]), 4)
+        self.assertEqual(facts, {})
+
+
 class ExactOwnerProjectionTests(unittest.TestCase):
     def test_returns_validated_legacy_and_exact_owners(self):
         root = pathlib.Path(__file__).resolve().parents[2]

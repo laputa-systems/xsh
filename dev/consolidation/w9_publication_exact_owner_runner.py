@@ -1187,7 +1187,9 @@ def _launch_exact_owner_job(
     active: list[dict[str, object]],
     docker_environment: dict[str, str],
 ) -> dict[str, object]:
-    cpu = {"A": 0, "B": 1, "C": 2, "D": 3}[worker]
+    cpu = next((cpu for slot, cpu in adapter_runner.CAPTURE_SLOTS if slot == worker), None)
+    if cpu is None:
+        raise ExactOwnerError(f"unknown exact-owner worker slot {worker}")
     job_dir = output / "jobs" / worker / f"{start}-{end}"
     job_dir.mkdir(mode=0o700, exist_ok=False)
     receipt = _exact_range_receipt_path(receipt_directory, start, end)
@@ -1269,15 +1271,17 @@ def _capture_exact_owner_role(
     jobs_root = output / "jobs"
     for directory in (raw_root, receipt_directory, jobs_root):
         adapter_runner._mkdir_new_directory(directory, runner)
-    for worker in ("A", "B", "C", "D"):
+    for worker, _cpu in adapter_runner.CAPTURE_SLOTS:
         adapter_runner._mkdir_new_directory(jobs_root / worker, runner)
-    expected_ranges, queues = adapter_runner._capture_plan(len(expected_inputs), runner)
+    expected_ranges, pending_ranges = adapter_runner._capture_plan(len(expected_inputs), runner)
     active: list[dict[str, object]] = []
     range_receipts: dict[tuple[int, int], pathlib.Path] = {}
     owner_hashes: dict[int, str] = {}
     try:
-        for worker in queues:
-            start, end = queues[worker].pop(0)
+        for worker, _cpu in adapter_runner.CAPTURE_SLOTS:
+            if not pending_ranges:
+                break
+            start, end = pending_ranges.pop(0)
             _launch_exact_owner_job(
                 runner, source_record, role, output, build, raw_root,
                 receipt_directory, start, end, worker, active, docker_environment,
@@ -1314,8 +1318,8 @@ def _capture_exact_owner_role(
                 )
                 active.remove(job)
                 worker = str(job["worker"])
-                if queues[worker]:
-                    next_start, next_end = queues[worker].pop(0)
+                if pending_ranges:
+                    next_start, next_end = pending_ranges.pop(0)
                     _launch_exact_owner_job(
                         runner, source_record, role, output, build, raw_root,
                         receipt_directory, next_start, next_end, worker, active, docker_environment,
