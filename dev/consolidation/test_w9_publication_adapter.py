@@ -333,6 +333,58 @@ def exact_static_alias_publication(callee_kind="Field", method_call=False, defin
     return current, owners, exact_owners
 
 
+def exact_selected_callable_alias_publication(method_call=False):
+    current, owners, exact_owners = exact_static_alias_publication(
+        callee_kind="Field" if method_call else "Ident",
+        method_call=method_call,
+        definition=f"Some({CONST_SPAN})",
+    )
+    stream_declaration = (
+        'FunctionDefId(2):CheckedFunctionDeclaration{namespace:None,name:Name("lines"),'
+        "internal:false,kind:Stream,signature:Some(CompactFunctionSig{params:[],"
+        "parameter_schemas:[],return_ty:Stream(Str),return_type_expr:TypeExprId(2),"
+        "inferred_effects:false,effects:None}),body:" + CONST_SPAN + ",parameter_spans:[]}"
+    )
+    target_namespace = 'Some(Name("module.xsh"))'
+    target_declaration = stream_declaration.replace(
+        'namespace:None,name:Name("lines"),internal:false,kind:Stream,',
+        'namespace:Some(Name("module.xsh")),name:Name("underlying"),internal:false,kind:Pure,',
+    ).replace("return_ty:Stream(Str)", "return_ty:Bool")
+    current = current.replace(stream_declaration, target_declaration)
+    target = (
+        f"{EXTRA_CALL_SPAN}:CheckedFunctionTarget{{definition:FunctionDefId(2),"
+        f'namespace:{target_namespace},name:Name("underlying")}},'
+    )
+    current = current.replace(
+        f"selected_function_calls:{{{CALL_SPAN}:",
+        f"selected_function_calls:{{{target}{CALL_SPAN}:",
+    )
+    if method_call:
+        current = current.replace(
+            "expressions:{},expression_namespaces:{ExprId(2):None,ExprId(4):None}",
+            f"expressions:{{ExprId(5):{BINDING}}},"
+            "expression_namespaces:{ExprId(2):None,ExprId(4):None,ExprId(5):None}",
+        )
+        current = current.replace('name:Name("render")', 'name:Name("targets")')
+        field_alias = (
+            f"StaticCallableAlias{{definition:Some({CONST_SPAN}),method_call:true,"
+            'name:Name("targets"),pure:true,'
+            "signature:CallableType{effects:None,params:[],return_ty:Bool}}"
+        )
+        base_alias = field_alias.replace("method_call:true", "method_call:false")
+        current = current.replace(
+            f"static_callable_aliases:{{{ALIAS_FIELD_SPAN}:{field_alias}}}",
+            f"static_callable_aliases:{{{ALIAS_IDENT_SPAN}:{base_alias},{ALIAS_FIELD_SPAN}:{field_alias}}}",
+        )
+    else:
+        current = current.replace(
+            "expressions:{},expression_namespaces:{ExprId(2):None,ExprId(4):None}",
+            f"expressions:{{ExprId(4):{BINDING}}},"
+            "expression_namespaces:{ExprId(2):None,ExprId(4):None}",
+        )
+    return current, owners, exact_owners
+
+
 def exact_qualified_call_publication():
     current, owners = exact_current_call_publication()
     current = current.replace(
@@ -666,6 +718,67 @@ class PublicationAdapterTests(unittest.TestCase):
             project_publication(
                 "current", wrong_module, SOURCE_SIZES, owners,
                 candidate_exact_owners=exact_owners,
+            )
+
+    def test_selected_bound_callee_uses_exact_named_callable_alias_proof(self):
+        current, owners, exact_owners = exact_selected_callable_alias_publication()
+        projected = project_publication(
+            "current", current, SOURCE_SIZES, owners,
+            candidate_exact_owners=exact_owners,
+        )
+        self.assertIn("static_callable_aliases:{", projected)
+
+        wrong_alias_name = current.replace('name:Name("render")', 'name:Name("different")')
+        with self.assertRaisesRegex(AdapterError, "alias name disagrees"):
+            project_publication(
+                "current", wrong_alias_name, SOURCE_SIZES, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+        wrong_alias_definition = current.replace(
+            f'definition:Some({CONST_SPAN}),method_call:false,name:Name("render")',
+            f'definition:Some({TAIL_CONST_SPAN}),method_call:false,name:Name("render")',
+        )
+        with self.assertRaisesRegex(AdapterError, "definition disagrees"):
+            project_publication(
+                "current", wrong_alias_definition, SOURCE_SIZES, owners,
+                candidate_exact_owners=exact_owners,
+            )
+
+        method_call, method_owners, method_exact = exact_selected_callable_alias_publication(
+            method_call=True
+        )
+        project_publication(
+            "current", method_call, SOURCE_SIZES, method_owners,
+            candidate_exact_owners=method_exact,
+        )
+        wrong_method_flag = method_call.replace(
+            f'definition:Some({CONST_SPAN}),method_call:true,name:Name("targets")',
+            f'definition:Some({CONST_SPAN}),method_call:false,name:Name("targets")',
+        )
+        with self.assertRaisesRegex(AdapterError, "incorrect method-call fact"):
+            project_publication(
+                "current", wrong_method_flag, SOURCE_SIZES, method_owners,
+                candidate_exact_owners=method_exact,
+            )
+        wrong_method_link = dict(method_exact)
+        wrong_method_link["field_accesses"] = dict(method_exact["field_accesses"])
+        wrong_method_link["field_accesses"][3] = (4, "invoke")
+        with self.assertRaisesRegex(AdapterError, "callee identity disagrees"):
+            project_publication(
+                "current", method_call, SOURCE_SIZES, method_owners,
+                candidate_exact_owners=wrong_method_link,
+            )
+
+        bound_without_alias, owners = exact_current_call_publication()
+        bound_without_alias = bound_without_alias.replace(
+            "expressions:{},expression_namespaces:{ExprId(2):None}",
+            f"expressions:{{ExprId(2):{BINDING}}},expression_namespaces:{{ExprId(2):None}}",
+        )
+        with self.assertRaisesRegex(AdapterError, "selected bound function-call callee has no exact callable alias"):
+            project_publication(
+                "current", bound_without_alias, SOURCE_SIZES, owners,
+                candidate_exact_owners=exact_call_owners(),
             )
 
     def test_static_callable_alias_routes_join_exact_callee_spans(self):

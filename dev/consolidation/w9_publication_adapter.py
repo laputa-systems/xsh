@@ -664,6 +664,9 @@ def _current_fact_owners(
         raise AdapterError("selected function-call sites differ from static call-site facts")
     validated_function_declarations: set[str] = set()
     expression_types = _canonical_span_map(fields["expr_types"], "checked expression type")
+    callable_aliases = _canonical_span_map(
+        fields["static_callable_aliases"], "static callable alias"
+    )
     resolved_bindings = (
         _parse_resolved_bindings(fields["resolved_bindings"])
         if exact_owners is not None and (selected or static - other_static_calls)
@@ -697,6 +700,7 @@ def _current_fact_owners(
         if exact_owners is not None and "expr:Call" in source_owners.get(span, set()) and not exact_call_ids:
             raise AdapterError(f"selected expr:Call owner has no unique exact AST identity: {span}")
         callee_id = None
+        call_id = None
         if exact_owners is None or exact_call_ids:
             span = _validate_source_span(span, "selected function-call", source_sizes, source_owners, {"expr:Call"})
             if span not in expression_types:
@@ -706,7 +710,8 @@ def _current_fact_owners(
             if exact_owners is not None and exact_call_ids[0] not in exact_calls:
                 raise AdapterError(f"selected function-call has no exact callee link: {span}")
             if exact_owners is not None:
-                callee_id = exact_calls[exact_call_ids[0]]
+                call_id = exact_call_ids[0]
+                callee_id = exact_calls[call_id]
                 if type(callee_id) is not int or callee_id not in exact_exprs or callee_id == exact_call_ids[0]:
                     raise AdapterError(f"selected function-call has an invalid exact callee link: {span}")
         target_fields = _fields(target, "CheckedFunctionTarget")
@@ -751,8 +756,9 @@ def _current_fact_owners(
                 if resolved_bindings is None:
                     raise AdapterError("selected function-call validation has no parsed resolver facts")
                 _validate_selected_callee_identity(
-                    span, callee_id, target_fields, exact_exprs, exact_fields, resolved_bindings,
-                    source_sizes, source_owners,
+                    span, call_id, callee_id, target_fields, declaration["body"],
+                    exact_exprs, exact_calls, exact_fields, resolved_bindings,
+                    callable_aliases, source_sizes, source_owners,
                 )
 
     native_set_spans: set[str] = set()
@@ -792,15 +798,12 @@ def _current_fact_owners(
                 expression_types, selected, other_static_calls,
             ):
                 native_error_failure_spans.add(span)
-        callable_alias_spans = _canonical_span_map(
-            fields["static_callable_aliases"], "static callable alias"
-        )
         validated_alias_spans = _validate_static_callable_alias_facts(
             expression_ids_by_span,
             exact_exprs,
             exact_calls,
             exact_fields,
-            callable_alias_spans,
+            callable_aliases,
             expression_types,
             source_sizes,
             source_owners,
@@ -1111,13 +1114,42 @@ def _debug_name_value(value: str) -> str | None:
     return decoded if isinstance(decoded, str) else None
 
 
+def _validate_selected_callable_alias(
+    span: str,
+    alias_value: str | None,
+    expected_name: str,
+    method_call: bool,
+    target_body: str,
+) -> None:
+    if alias_value is None:
+        raise AdapterError(f"selected bound function-call callee has no exact callable alias fact: {span}")
+    alias = _fields(alias_value, "StaticCallableAlias")
+    if set(alias) != {"definition", "method_call", "name", "pure", "signature"}:
+        raise AdapterError(f"selected callable alias has unexpected fields at {span}")
+    if alias["method_call"] != str(method_call).lower():
+        raise AdapterError(f"selected callable alias has an incorrect method-call fact at {span}")
+    if _debug_name_value(alias["name"]) != expected_name:
+        raise AdapterError(f"selected callable alias name disagrees with its exact identifier at {span}")
+    definition = alias["definition"]
+    if not definition.startswith("Some(") or not definition.endswith(")"):
+        raise AdapterError(f"selected callable alias has no checked function definition at {span}")
+    definition_span = _canonicalize_span(definition[5:-1])[0]
+    target_body_span = _canonicalize_span(target_body)[0]
+    if definition_span != target_body_span:
+        raise AdapterError(f"selected callable alias definition disagrees with its checked target at {span}")
+
+
 def _validate_selected_callee_identity(
     span: str,
+    call_id: int,
     callee_id: int,
     target: Mapping[str, str],
+    target_body: str,
     expressions: Mapping[object, object],
+    calls: Mapping[object, object],
     fields_accessed: Mapping[object, object],
     resolved_bindings: ParsedResolvedBindings,
+    callable_aliases: Mapping[str, str],
     source_sizes: Mapping[int, int],
     source_owners: Mapping[str, set[str]],
 ) -> None:
@@ -1135,6 +1167,13 @@ def _validate_selected_callee_identity(
         raise AdapterError(f"selected function-call target has a malformed name at {span}")
     if callee_kind == "Ident":
         expression_id = f"ExprId({callee_id + 1})"
+        if expression_id in resolved_bindings.expressions:
+            if type(call_id) is not int or calls.get(call_id) != callee_id:
+                raise AdapterError(f"selected callable alias has no exact Call-to-callee link at {span}")
+            _validate_selected_callable_alias(
+                callee_span, callable_aliases.get(callee_span), callee_name, False, target_body
+            )
+            return
         if expression_id not in resolved_bindings.expression_namespaces:
             raise AdapterError(f"selected function-call callee has no resolver namespace at {span}")
         if (
@@ -1149,16 +1188,48 @@ def _validate_selected_callee_identity(
     if not isinstance(field, tuple) or len(field) != 2:
         raise AdapterError(f"selected function-call field callee has no exact access link at {span}")
     base_id, member_name = field
-    if type(base_id) is not int or member_name != target_name:
+    if type(base_id) is not int:
         raise AdapterError(f"selected function-call callee identity disagrees with its target at {span}")
     base = expressions.get(base_id)
-    if not isinstance(base, tuple) or len(base) != 3 or base[1] != "Ident":
+    if not isinstance(base, tuple) or len(base) != 3:
+        raise AdapterError(f"selected function-call module base is not an exact identifier at {span}")
+    base_span, base_kind, base_name = base
+    base_span = _canonicalize_span(base_span)[0]
+    base_key = f"ExprId({base_id + 1})"
+    callee_alias_value = callable_aliases.get(callee_span)
+    callee_alias = (
+        _fields(callee_alias_value, "StaticCallableAlias")
+        if callee_alias_value is not None
+        else None
+    )
+    base_alias_value = callable_aliases.get(base_span)
+    method_alias = member_name == "call" and (
+        base_alias_value is not None
+        or (callee_alias is not None and callee_alias.get("method_call") == "true")
+    )
+    if method_alias:
+        if base_kind != "Ident" or base_key not in resolved_bindings.expressions:
+            raise AdapterError(f"selected callable alias method has no exact bound base identifier at {span}")
+        if type(call_id) is not int or calls.get(call_id) != callee_id:
+            raise AdapterError(f"selected callable alias has no exact Call-to-callee link at {span}")
+        _validate_source_span(
+            base_span, "selected callable alias base", source_sizes, source_owners, {"expr:Ident"}
+        )
+        _validate_selected_callable_alias(
+            base_span, base_alias_value, base_name, False, target_body
+        )
+        _validate_selected_callable_alias(
+            callee_span, callee_alias_value, base_name, True, target_body
+        )
+        return
+    if member_name != target_name:
+        raise AdapterError(f"selected function-call callee identity disagrees with its target at {span}")
+    if base_kind != "Ident":
         raise AdapterError(f"selected function-call module base is not an exact identifier at {span}")
     _validate_source_span(
-        base[0], "selected function-call module base", source_sizes, source_owners,
+        base_span, "selected function-call module base", source_sizes, source_owners,
         {"expr:Ident"},
     )
-    base_key = f"ExprId({base_id + 1})"
     if base_key not in resolved_bindings.expression_namespaces or base_key not in resolved_bindings.expressions:
         raise AdapterError(f"selected function-call module base has no resolver binding at {span}")
     binding = resolved_bindings.expressions[base_key]
@@ -1178,7 +1249,7 @@ def _validate_selected_callee_identity(
         _debug_name_value(target_namespace.group(1)) if target_namespace is not None else None
     )
     if (
-        binding_name != base[2]
+        binding_name != base_name
         or declaration_fields.get("namespace") != resolved_bindings.expression_namespaces[base_key]
         or module_name is None
         or target_module_name is None
