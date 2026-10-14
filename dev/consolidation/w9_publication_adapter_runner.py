@@ -1995,6 +1995,7 @@ def compare_full_publications(
                 mismatches.append(f"{index}\ttui-alignment\t{type(error).__name__}\t{error}")
                 _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
                 continue
+            validated_profile_pairs: set[tuple[str, str, str, str]] = set()
             for (
                 profile,
                 key,
@@ -2004,6 +2005,14 @@ def compare_full_publications(
                 _candidate_publication,
             ) in profile_records:
                 profile_index = PROFILES.index(profile)
+                comparison_pair = (
+                    reference_diagnostics,
+                    aligned.reference_publications[profile_index],
+                    candidate_diagnostics,
+                    aligned.candidate_publications[profile_index],
+                )
+                if comparison_pair in validated_profile_pairs:
+                    continue
                 try:
                     adapter.compare_publications(
                         reference_diagnostics,
@@ -2020,6 +2029,8 @@ def compare_full_publications(
                     )
                 except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
                     mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
+                else:
+                    validated_profile_pairs.add(comparison_pair)
             _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
     finally:
         os.close(reference_root)

@@ -1556,13 +1556,20 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.assertEqual(proof_calls, ["reference"])
         compare.assert_not_called()
 
-    def _run_full_compare_progress_case(self, scenario):
+    def _run_full_compare_progress_case(self, scenario, input_count=1):
         expected_inputs = self.expected_inputs
         reference_receipt = self.reference
         original_profiles = adapter_runner.PROFILES
-        adapter_runner.PROFILES = ("default",)
+        profiles = (
+            original_profiles
+            if scenario in {
+                "cache-identical", "cache-variants", "cache-boundary", "cache-failure"
+            }
+            else ("default",)
+        )
+        adapter_runner.PROFILES = profiles
         self.addCleanup(setattr, adapter_runner, "PROFILES", original_profiles)
-        self.expected_inputs = {0: expected_inputs[0]}
+        self.expected_inputs = {index: expected_inputs[index] for index in range(input_count)}
         self.runner.exclude_work_from_git(self.candidate_root)
         input_manifest = pathlib.Path(self._candidate_source_record()["input_manifest"])
         input_manifest.write_text("fixture manifest\n", encoding="utf-8")
@@ -1611,33 +1618,55 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             reference_build_path,
             reference_build,
             self.artifact_root / "full-reference-capture",
-            outcome_count=1,
+            outcome_count=input_count * len(profiles),
         )
         candidate_capture, _candidate_ranges = self._capture_receipt(
             candidate_build_path,
             candidate_build,
             self.artifact_root / "full-candidate-capture",
             role="candidate",
-            outcome_count=1,
+            outcome_count=input_count * len(profiles),
         )
-        reference_publication = TuiPublicationRunnerAlignmentTests()._schema_publication(
+        base_reference_publication = TuiPublicationRunnerAlignmentTests()._schema_publication(
             source_fixtures.publication(source_fixtures.OLD_SOURCE)[0], "legacy"
         )
-        candidate_publication = TuiPublicationRunnerAlignmentTests()._schema_publication(
+        base_candidate_publication = TuiPublicationRunnerAlignmentTests()._schema_publication(
             source_fixtures.publication(source_fixtures.CURRENT_SOURCE)[0], "current"
         )
-        if scenario == "load-error":
-            reference_publication = ""
-            candidate_publication = ""
-        diagnostics = "[]"
-        reference_hashes = (
-            hashlib.sha256(diagnostics.encode()).hexdigest(),
-            hashlib.sha256(reference_publication.encode()).hexdigest(),
-        )
-        candidate_hashes = (
-            hashlib.sha256(diagnostics.encode()).hexdigest(),
-            hashlib.sha256(candidate_publication.encode()).hexdigest(),
-        )
+        reference_payloads = {}
+        candidate_payloads = {}
+        for profile in profiles:
+            reference_publication = base_reference_publication
+            candidate_publication = base_candidate_publication
+            diagnostics = "[]"
+            if scenario == "load-error":
+                reference_publication = ""
+                candidate_publication = ""
+            if scenario == "cache-variants" and profile == "execution":
+                reference_publication = reference_publication.replace(
+                    'Other{literal:"', 'Other{literal:"profile-variant-'
+                )
+                candidate_publication = candidate_publication.replace(
+                    'Other{literal:"', 'Other{literal:"profile-variant-'
+                )
+            if scenario == "cache-variants" and profile == "check-cli":
+                diagnostics = '[{"message":"profile variant"}]'
+            reference_payloads[profile] = (
+                diagnostics,
+                reference_publication,
+                (
+                    hashlib.sha256(diagnostics.encode()).hexdigest(),
+                    hashlib.sha256(reference_publication.encode()).hexdigest(),
+                ),
+            )
+            candidate_payloads[profile] = (
+                diagnostics,
+                candidate_publication,
+                (
+                    hashlib.sha256(diagnostics.encode()).hexdigest(),
+                    hashlib.sha256(candidate_publication.encode()).hexdigest(),
+                ),
+            )
 
         def owner_text(source):
             sizes = source_fixtures.source_sizes(source)
@@ -1661,43 +1690,51 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         reference_projection = adapter_runner.adapter.parse_owner_index(reference_owner_text)
         candidate_projection = adapter_runner.adapter.parse_owner_index(candidate_owner_text)
 
-        def write_raw(capture, publication, hashes, owners, kind="checked"):
+        def write_raw(capture, payloads, owners, kind="checked"):
             raw_root = capture.parent / "raw"
-            (raw_root / "owners-0.tsv").write_text(owners, encoding="utf-8")
             (raw_root / "schema").write_text(adapter_runner.RAW_SCHEMA, encoding="utf-8")
-            record = raw_root / "record-0-default"
-            record.mkdir()
-            (record / "kind").write_text(kind, encoding="utf-8")
-            (record / "diagnostics").write_text(diagnostics, encoding="utf-8")
-            (record / "publication").write_text(publication, encoding="utf-8")
-            (record / "receipt-hashes").write_text("\t".join(hashes), encoding="utf-8")
+            for index in self.expected_inputs:
+                source_owners = owners(index) if callable(owners) else owners
+                (raw_root / f"owners-{index}.tsv").write_text(source_owners, encoding="utf-8")
+                for profile, (diagnostics, publication, hashes) in payloads.items():
+                    record = raw_root / f"record-{index}-{profile}"
+                    record.mkdir()
+                    (record / "kind").write_text(kind, encoding="utf-8")
+                    (record / "diagnostics").write_text(diagnostics, encoding="utf-8")
+                    (record / "publication").write_text(publication, encoding="utf-8")
+                    (record / "receipt-hashes").write_text("\t".join(hashes), encoding="utf-8")
             return raw_root
 
         reference_raw = write_raw(
             reference_capture,
-            reference_publication,
-            reference_hashes,
-            "invalid-owner-index\n" if scenario == "owner-error" else reference_owner_text,
+            reference_payloads,
+            lambda index: "invalid-owner-index\n"
+            if scenario == "owner-error" and index == 0
+            else reference_owner_text,
             "load-error" if scenario == "load-error" else "checked",
         )
         candidate_raw = write_raw(
             candidate_capture,
-            candidate_publication,
-            candidate_hashes,
+            candidate_payloads,
             candidate_owner_text,
             "load-error" if scenario == "load-error" else "checked",
         )
         reference_outcomes = {
-            (0, self.expected_inputs[0].relative_path, "default"): reference_hashes
+            (index, self.expected_inputs[index].relative_path, profile): payload[2]
+            for index in self.expected_inputs
+            for profile, payload in reference_payloads.items()
         }
         candidate_outcomes = {
-            (0, self.expected_inputs[0].relative_path, "default"): candidate_hashes
+            (index, self.expected_inputs[index].relative_path, profile): payload[2]
+            for index in self.expected_inputs
+            for profile, payload in candidate_payloads.items()
         }
         self.reference = self.runner.ParsedReceipt(
             (),
-            {0: self.runner.ReceiptSource(
-                self.expected_inputs[0].relative_path, "b" * 64
-            )},
+            {
+                index: self.runner.ReceiptSource(source.relative_path, "b" * 64)
+                for index, source in self.expected_inputs.items()
+            },
             reference_outcomes,
             (),
         )
@@ -1707,19 +1744,22 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             if match is None:
                 raise AssertionError(path)
             start, end = int(match.group(1)), int(match.group(2)) + 1
-            outcomes = reference_outcomes if "full-reference-capture" in str(path) else candidate_outcomes
+            recorded = reference_outcomes if "full-reference-capture" in str(path) else candidate_outcomes
+            outcomes = {
+                key: value for key, value in recorded.items() if start <= key[0] < end
+            }
             return self.runner.ParsedReceipt(
                 (
-                    "corpus=1",
-                    "shard=0/1",
+                    f"corpus={len(self.expected_inputs)}",
+                    f"shard={start // 100}/{(len(self.expected_inputs) + 99) // 100}",
                     f"range={start}..{end}",
                     "shard_size=100",
                     f"input_digest={self.runner.CORPUS_BLAKE3}",
                     self.runner.OPTION_HEADER,
                 ),
-                {0: self.reference.inputs[0]},
+                {index: self.reference.inputs[index] for index in range(start, end)},
                 outcomes,
-                ("terminal\tshard=0\tcompleted=1",),
+                (f"terminal\tshard={start // 100}\tcompleted={end - start}",),
             )
 
         candidate_start = source_fixtures.CURRENT_SOURCE.index(b"export pure reset")
@@ -1735,8 +1775,13 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             "field_accesses": {},
         }
         exact_owner_projection = {
-            "reference": {0: (reference_projection, {})},
-            "candidate": {0: (candidate_projection, candidate_exact_owners)},
+            "reference": {
+                index: (reference_projection, {}) for index in self.expected_inputs
+            },
+            "candidate": {
+                index: (candidate_projection, candidate_exact_owners)
+                for index in self.expected_inputs
+            },
         }
         observed = []
         original_regular_file = self.runner.regular_file
@@ -1755,6 +1800,8 @@ class AdapterReferenceReuseTests(unittest.TestCase):
 
         def compare_adapter(*args, **kwargs):
             observed.append((args, kwargs))
+            if scenario == "cache-failure":
+                raise adapter_runner.adapter.AdapterError("fixture comparison failure")
 
         stderr = io.StringIO()
         with (
@@ -1763,7 +1810,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             patch.object(self.runner, "require_sha256", side_effect=require_sha256),
             patch.object(self.runner, "validate_reference_receipt", return_value=self.reference),
             patch.object(self.runner, "parse_receipt", side_effect=parse_shard),
-            patch.object(self.runner, "PROFILES", ("default",)),
+            patch.object(self.runner, "PROFILES", profiles),
             patch.object(adapter_runner, "_load_publication_runner", return_value=self.runner),
             patch.object(adapter_runner, "_hash_raw_outcomes", side_effect=lambda binary, *_args, **_kwargs: (
                 {
@@ -1864,6 +1911,64 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             "comparison_progress inputs=26/26 outcomes=104/104 mismatches=7\n",
         )
         self.assertEqual(stream.flush_count, 2)
+
+    def test_full_compare_reuses_identical_profile_pairs_within_one_input(self):
+        result, observed, progress, _candidate_start = self._run_full_compare_progress_case(
+            "cache-identical"
+        )
+
+        self.assertEqual(result, (4, 0))
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=1/1 outcomes=4/4 mismatches=0\n",
+        )
+
+    def test_full_compare_rechecks_changed_publication_or_diagnostics(self):
+        result, observed, progress, _candidate_start = self._run_full_compare_progress_case(
+            "cache-variants"
+        )
+
+        self.assertEqual(result, (4, 0))
+        self.assertEqual(len(observed), 3)
+        self.assertEqual(
+            len({
+                (args[0], args[1], args[6], args[7])
+                for args, _kwargs in observed
+            }),
+            3,
+        )
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=1/1 outcomes=4/4 mismatches=0\n",
+        )
+
+    def test_full_compare_does_not_reuse_results_across_input_indexes(self):
+        result, observed, progress, _candidate_start = self._run_full_compare_progress_case(
+            "cache-boundary",
+            input_count=2,
+        )
+
+        self.assertEqual(result, (8, 0))
+        self.assertEqual(len(observed), 2)
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=2/2 outcomes=8/8 mismatches=0\n",
+        )
+
+    def test_full_compare_retries_and_reports_each_failed_profile_pair(self):
+        result, observed, progress, _candidate_start = self._run_full_compare_progress_case(
+            "cache-failure"
+        )
+
+        mismatches = (self.artifact_root / "full-mismatches.tsv").read_text().splitlines()
+        self.assertEqual(result, (4, 4))
+        self.assertEqual(len(observed), 4)
+        self.assertEqual(len(mismatches), 4)
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=1/1 outcomes=4/4 mismatches=4\n",
+        )
 
     def test_compare_captures_rejects_candidate_source_drift(self):
         case = self._compare_case()
