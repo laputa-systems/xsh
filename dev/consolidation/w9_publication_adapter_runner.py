@@ -1985,8 +1985,12 @@ def compare_full_publications(
                     reference_tui_source,
                     candidate_tui_source,
                 )
-                aligned_candidate_exact_owners = source_alignment.align_tui_exact_owners(
+                (
+                    aligned_candidate_exact_owners,
+                    aligned_candidate_statement_owners,
+                ) = source_alignment._align_tui_owner_facts(
                     exact_owners=candidate_exact_owners[index][1],
+                    statement_owners=candidate_exact_owners[index][0][3],
                     tui_source_id=aligned.tui_source_id,
                     reference_tui_source=reference_tui_source,
                     candidate_tui_source=candidate_tui_source,
@@ -2026,6 +2030,7 @@ def compare_full_publications(
                         aligned.candidate_source_sizes,
                         aligned.candidate_source_owners,
                         candidate_exact_owners=aligned_candidate_exact_owners,
+                        candidate_statement_owners=aligned_candidate_statement_owners,
                     )
                 except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
                     mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")

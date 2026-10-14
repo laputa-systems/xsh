@@ -1563,7 +1563,8 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         profiles = (
             original_profiles
             if scenario in {
-                "cache-identical", "cache-variants", "cache-boundary", "cache-failure"
+                "cache-identical", "cache-variants", "cache-boundary", "cache-failure",
+                "statement-flow",
             }
             else ("default",)
         )
@@ -1633,11 +1634,106 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         base_candidate_publication = TuiPublicationRunnerAlignmentTests()._schema_publication(
             source_fixtures.publication(source_fixtures.CURRENT_SOURCE)[0], "current"
         )
+        current_statement_start = source_fixtures.CURRENT_SOURCE.index(b"export pure reset") + 1
+        current_statement_rows = {
+            "StmtId(20)": (source_fixtures.span(5, current_statement_start, 1), "stmt:Assert"),
+            "StmtId(21)": (
+                source_fixtures.span(5, current_statement_start + 1, 1),
+                "stmt:AssertBare",
+            ),
+            "StmtId(22)": (
+                source_fixtures.span(5, current_statement_start + 2, 1),
+                "stmt:DeferExpr",
+            ),
+        }
+        reference_statement_rows = {
+            statement_id: (
+                source_fixtures.span(
+                    5,
+                    current_statement_start + offset - source_fixtures.DELTA,
+                    1,
+                ),
+                kind,
+            )
+            for offset, (statement_id, (_span, kind)) in enumerate(current_statement_rows.items())
+        }
+
+        def replace_fields(rendered, struct_name, replacements):
+            prefix, entries = adapter_runner.adapter._struct_parts(rendered, struct_name)
+            changed = []
+            replaced = set()
+            for entry in entries:
+                name, value = adapter_runner.adapter._field(entry)
+                if name in replacements:
+                    value = replacements[name]
+                    replaced.add(name)
+                changed.append(f"{name}:{value}")
+            if replaced != set(replacements):
+                raise AssertionError((struct_name, set(replacements) - replaced))
+            return f"{prefix}{{{','.join(changed)}}}"
+
+        def add_field(rendered, struct_name, name, value):
+            prefix, entries = adapter_runner.adapter._struct_parts(rendered, struct_name)
+            if any(adapter_runner.adapter._field(entry)[0] == name for entry in entries):
+                raise AssertionError((struct_name, name))
+            entries.append(f"{name}:{value}")
+            return f"{prefix}{{{','.join(entries)}}}"
+
+        base_reference_publication = add_field(
+            base_reference_publication, "CheckOutput", "static_callable_aliases", "{}"
+        )
+        base_candidate_publication = add_field(
+            base_candidate_publication, "CheckOutput", "static_callable_aliases", "{}"
+        )
+
+        def add_statement_flow(rendered, current_schema):
+            fields = adapter_runner.adapter._fields(rendered, "CheckOutput")
+            statement_rows = current_statement_rows if current_schema else reference_statement_rows
+            propagated = set(
+                adapter_runner.adapter._set_items_ordered(fields["propagating_statements"])
+            )
+            propagated.update(span for span, _kind in statement_rows.values())
+            replacements = {
+                "propagating_statements": "{" + ",".join(sorted(propagated)) + "}"
+            }
+            statement_positions = adapter_runner.adapter._map_entries(
+                fields["statement_positions"]
+            )
+            statement_positions.update(
+                {span: "Value" for span, _kind in statement_rows.values()}
+            )
+            replacements["statement_positions"] = "{" + ",".join(
+                f"{span}:{value}" for span, value in sorted(statement_positions.items())
+            ) + "}"
+            if current_schema:
+                control_flow = adapter_runner.adapter._fields(
+                    fields["checked_control_flow"], "CheckedControlFlowFacts"
+                )
+                propagating_errors = set(
+                    adapter_runner.adapter._set_items_ordered(
+                        control_flow["propagating_error_spans"]
+                    )
+                )
+                propagating_errors.update(span for span, _kind in statement_rows.values())
+                replacements["checked_control_flow"] = replace_fields(
+                    fields["checked_control_flow"],
+                    "CheckedControlFlowFacts",
+                    {
+                        "propagating_error_spans": "{"
+                        + ",".join(sorted(propagating_errors))
+                        + "}"
+                    },
+                )
+            return replace_fields(rendered, "CheckOutput", replacements)
+
         reference_payloads = {}
         candidate_payloads = {}
         for profile in profiles:
             reference_publication = base_reference_publication
             candidate_publication = base_candidate_publication
+            if scenario == "statement-flow":
+                reference_publication = add_statement_flow(reference_publication, False)
+                candidate_publication = add_statement_flow(candidate_publication, True)
             diagnostics = "[]"
             if scenario == "load-error":
                 reference_publication = ""
@@ -1674,6 +1770,15 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 {source_id: sizes.get(source_id, 0) for source_id in range(max(sizes) + 1)}
             )
             owners = source_fixtures.owner_index(source)
+            statement_rows = {}
+            if scenario == "statement-flow":
+                statement_rows = dict(
+                    reference_statement_rows
+                    if source == source_fixtures.OLD_SOURCE
+                    else current_statement_rows
+                )
+                for span, kind in statement_rows.values():
+                    owners.setdefault(span, set()).add(kind)
             lines = [
                 f"source\tSourceId({source_id})\t{size}"
                 for source_id, size in sorted(sizes.items())
@@ -1682,6 +1787,10 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 f"owner\t{span}\t{kind}"
                 for span, kinds in sorted(owners.items())
                 for kind in sorted(kinds)
+            )
+            lines.extend(
+                f"stmt\t{statement_id}\t{span}\t{kind}"
+                for statement_id, (span, kind) in statement_rows.items()
             )
             return "\n".join(lines) + "\n"
 
@@ -1773,6 +1882,12 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             "tails": {},
             "calls": {},
             "field_accesses": {},
+            "binding_initializers": {
+                (33, "%dest"): (
+                    source_fixtures.span(5, current_statement_start + 4, 1),
+                    0,
+                )
+            },
         }
         exact_owner_projection = {
             "reference": {
@@ -1802,8 +1917,11 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             observed.append((args, kwargs))
             if scenario == "cache-failure":
                 raise adapter_runner.adapter.AdapterError("fixture comparison failure")
+            if scenario == "statement-flow":
+                return actual_compare(*args, **kwargs)
 
         stderr = io.StringIO()
+        actual_compare = adapter_runner.adapter.compare_publications
         with (
             patch.object(adapter_runner.sys, "stderr", stderr),
             patch.object(self.runner, "regular_file", side_effect=regular_file),
@@ -1861,6 +1979,46 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.assertEqual(
             progress,
             "comparison_progress inputs=1/1 outcomes=1/1 mismatches=0\n",
+        )
+
+    def test_full_compare_forwards_and_aligns_exact_assert_bare_defer_owners(self):
+        result, observed, progress, current_start = self._run_full_compare_progress_case(
+            "statement-flow"
+        )
+
+        self.assertEqual(result, (4, 0))
+        self.assertEqual(len(observed), 1)
+        candidate_statement_owners = observed[0][1]["candidate_statement_owners"]
+        reference_start = current_start + 1 - source_fixtures.DELTA
+        self.assertEqual(
+            candidate_statement_owners,
+            {
+                "StmtId(20)": (
+                    source_fixtures.span(5, reference_start, 1),
+                    "stmt:Assert",
+                ),
+                "StmtId(21)": (
+                    source_fixtures.span(5, reference_start + 1, 1),
+                    "stmt:AssertBare",
+                ),
+                "StmtId(22)": (
+                    source_fixtures.span(5, reference_start + 2, 1),
+                    "stmt:DeferExpr",
+                ),
+            },
+        )
+        self.assertEqual(
+            observed[0][1]["candidate_exact_owners"]["binding_initializers"],
+            {
+                (33, "%dest"): (
+                    source_fixtures.span(5, reference_start + 4, 1),
+                    0,
+                )
+            },
+        )
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=1/1 outcomes=4/4 mismatches=0\n",
         )
 
     def test_full_compare_reports_load_error_sources_as_processed_outcomes(self):

@@ -209,7 +209,10 @@ def _known_source_edit(reference_source: bytes, candidate_source: bytes) -> _Sou
 
 
 def _aligned_exact_owner_span(value: str, source_id: int, edit: _SourceEdit) -> str:
-    span_source_id, start, length = _parse_span(value)
+    try:
+        span_source_id, start, length = _parse_span(value)
+    except publication_adapter.AdapterError:
+        raise SourceAlignmentError("exact owner has a malformed Span") from None
     if span_source_id != source_id:
         return value
     aligned_start = edit.current_span_to_reference(start, length)
@@ -222,16 +225,56 @@ def _aligned_exact_owner_span(value: str, source_id: int, edit: _SourceEdit) -> 
     return value[: match.start(1)] + str(aligned_start) + value[match.end(1) :]
 
 
-def align_tui_exact_owners(
+def _align_statement_owner_rows(
+    statement_owners: Mapping[str, tuple[str, str]],
+    source_id: int,
+    edit: _SourceEdit,
+) -> dict[str, tuple[str, str]]:
+    if not isinstance(statement_owners, Mapping):
+        raise SourceAlignmentError("exact statement owners are malformed")
+    aligned = {}
+    for statement_id, row in statement_owners.items():
+        if not isinstance(statement_id, str) or re.fullmatch(
+            r"StmtId\(\d+\)", statement_id
+        ) is None:
+            raise SourceAlignmentError("exact statement owner has a malformed statement id")
+        if (
+            not isinstance(row, tuple)
+            or len(row) != 2
+            or not isinstance(row[0], str)
+            or not isinstance(row[1], str)
+        ):
+            raise SourceAlignmentError("exact statement owner has a malformed statement row")
+        if re.fullmatch(r"stmt:[A-Za-z][A-Za-z0-9_]*", row[1]) is None:
+            raise SourceAlignmentError("exact statement owner has a malformed statement kind")
+        aligned[statement_id] = (
+            _aligned_exact_owner_span(row[0], source_id, edit),
+            row[1],
+        )
+    return aligned
+
+
+def _align_tui_statement_owners(
+    statement_owners: Mapping[str, tuple[str, str]],
+    source_id: int,
+    reference_tui_source: bytes,
+    candidate_tui_source: bytes,
+) -> dict[str, tuple[str, str]]:
+    edit = _known_source_edit(reference_tui_source, candidate_tui_source)
+    return _align_statement_owner_rows(statement_owners, source_id, edit)
+
+
+def _align_tui_owner_facts(
     *,
     exact_owners: Mapping[str, object],
+    statement_owners: Mapping[str, tuple[str, str]],
     tui_source_id: int | None,
     reference_tui_source: bytes,
     candidate_tui_source: bytes,
-) -> dict[str, object]:
+) -> tuple[dict[str, object], dict[str, tuple[str, str]]]:
     aligned = deepcopy(dict(exact_owners))
     if tui_source_id is None:
-        return aligned
+        return aligned, dict(statement_owners)
 
     edit = _known_source_edit(reference_tui_source, candidate_tui_source)
     exprs = aligned["exprs"]
@@ -272,6 +315,48 @@ def align_tui_exact_owners(
             name,
             kind,
         )
+    binding_initializers = aligned["binding_initializers"]
+    if not isinstance(binding_initializers, Mapping):
+        raise SourceAlignmentError("exact binding initializers are malformed")
+    for key, row in binding_initializers.items():
+        if (
+            not isinstance(key, tuple)
+            or len(key) != 2
+            or type(key[0]) is not int
+            or key[0] < 0
+            or not isinstance(key[1], str)
+            or not key[1]
+            or not isinstance(row, tuple)
+            or len(row) != 2
+            or not isinstance(row[0], str)
+            or type(row[1]) is not int
+            or row[1] < 0
+        ):
+            raise SourceAlignmentError("exact binding initializer row is malformed")
+        binding_initializers[key] = (
+            _aligned_exact_owner_span(row[0], tui_source_id, edit),
+            row[1],
+        )
+    aligned_statement_owners = _align_statement_owner_rows(
+        statement_owners, tui_source_id, edit
+    )
+    return aligned, aligned_statement_owners
+
+
+def align_tui_exact_owners(
+    *,
+    exact_owners: Mapping[str, object],
+    tui_source_id: int | None,
+    reference_tui_source: bytes,
+    candidate_tui_source: bytes,
+) -> dict[str, object]:
+    aligned, _statement_owners = _align_tui_owner_facts(
+        exact_owners=exact_owners,
+        statement_owners={},
+        tui_source_id=tui_source_id,
+        reference_tui_source=reference_tui_source,
+        candidate_tui_source=candidate_tui_source,
+    )
     return aligned
 
 

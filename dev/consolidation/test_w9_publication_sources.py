@@ -7,6 +7,7 @@ import w9_publication_sources as publication_sources
 from w9_publication_sources import (
     CURRENT_HEADER,
     SourceAlignmentError,
+    _align_tui_statement_owners,
     align_tui_exact_owners,
     align_tui_publications,
 )
@@ -224,6 +225,10 @@ class TuiPublicationSourceAlignmentTests(unittest.TestCase):
                 0: (span(source_id, tail_start, 1), "tail", "stmt:TailBareIdent"),
                 1: (unrelated_span, "other", "stmt:TailBareIdent"),
             },
+            "binding_initializers": {
+                (17, "%dest"): (span(source_id, tail_start + 1, 1), 4),
+                (18, "spare"): (unrelated_span, 5),
+            },
             "expr_count": 5,
             "record_field_count": 2,
             "extra": {"names": ["preserved"]},
@@ -273,6 +278,13 @@ class TuiPublicationSourceAlignmentTests(unittest.TestCase):
                 1: (unrelated_span, "other", "stmt:TailBareIdent"),
             },
         )
+        self.assertEqual(
+            aligned["binding_initializers"],
+            {
+                (17, "%dest"): (span(source_id, expected_start + 4, 1), 4),
+                (18, "spare"): (unrelated_span, 5),
+            },
+        )
         self.assertEqual(aligned["extra"], exact_owners["extra"])
         self.assertEqual(aligned["expr_count"], exact_owners["expr_count"])
         self.assertEqual(aligned["record_field_count"], exact_owners["record_field_count"])
@@ -287,6 +299,7 @@ class TuiPublicationSourceAlignmentTests(unittest.TestCase):
             "records": {},
             "aliases": {},
             "tails": {},
+            "binding_initializers": {},
             "expr_count": 1,
             "record_field_count": 0,
             "extra": {"names": ["preserved"]},
@@ -312,6 +325,7 @@ class TuiPublicationSourceAlignmentTests(unittest.TestCase):
             "records": {},
             "aliases": {},
             "tails": {},
+            "binding_initializers": {},
             "expr_count": 1,
             "record_field_count": 0,
         }
@@ -332,6 +346,7 @@ class TuiPublicationSourceAlignmentTests(unittest.TestCase):
             "records": {},
             "aliases": {},
             "tails": {},
+            "binding_initializers": {},
             "expr_count": 0,
             "record_field_count": 0,
         }
@@ -351,6 +366,7 @@ class TuiPublicationSourceAlignmentTests(unittest.TestCase):
             "records": {},
             "aliases": {},
             "tails": {},
+            "binding_initializers": {},
             "expr_count": 1,
             "record_field_count": 0,
         }
@@ -361,6 +377,59 @@ class TuiPublicationSourceAlignmentTests(unittest.TestCase):
                 tui_source_id=5,
                 reference_tui_source=OLD_SOURCE,
                 candidate_tui_source=CURRENT_SOURCE,
+            )
+
+    def test_statement_owners_align_tui_spans_and_preserve_statement_identity(self):
+        source_id = 5
+        current_start = CURRENT_SOURCE.index(b"export pure reset")
+        unrelated_span = debug_span(0, 2, 1)
+        statement_owners = {
+            "StmtId(20)": (span(source_id, current_start, 1), "stmt:Assert"),
+            "StmtId(21)": (span(source_id, current_start + 1, 1), "stmt:AssertBare"),
+            "StmtId(22)": (span(source_id, current_start + 2, 1), "stmt:DeferExpr"),
+            "StmtId(23)": (unrelated_span, "stmt:LetExprNoTy"),
+        }
+        original = deepcopy(statement_owners)
+
+        aligned = _align_tui_statement_owners(
+            statement_owners,
+            source_id,
+            OLD_SOURCE,
+            CURRENT_SOURCE,
+        )
+
+        reference_start = current_start - DELTA
+        self.assertEqual(
+            aligned,
+            {
+                "StmtId(20)": (span(source_id, reference_start, 1), "stmt:Assert"),
+                "StmtId(21)": (span(source_id, reference_start + 1, 1), "stmt:AssertBare"),
+                "StmtId(22)": (span(source_id, reference_start + 2, 1), "stmt:DeferExpr"),
+                "StmtId(23)": (unrelated_span, "stmt:LetExprNoTy"),
+            },
+        )
+        self.assertEqual(statement_owners, original)
+
+    def test_statement_owner_alignment_rejects_malformed_rows_and_header_spans(self):
+        cases = (
+            ({"not-a-statement-id": (span(5, 100, 1), "stmt:Assert")}, "malformed statement id"),
+            ({"StmtId(20)": (span(5, 100, 1), "expr:Ident")}, "malformed statement kind"),
+            ({"StmtId(20)": (span(5, 100, 1),)}, "malformed statement row"),
+            ({"StmtId(20)": ("not-a-span", "stmt:Assert")}, "malformed Span"),
+        )
+        for owners, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(
+                SourceAlignmentError, message
+            ):
+                _align_tui_statement_owners(owners, 5, OLD_SOURCE, CURRENT_SOURCE)
+
+        header_span = span(5, CURRENT_SOURCE.index(CURRENT_HEADER) + 1, 1)
+        with self.assertRaisesRegex(SourceAlignmentError, "intersects the changed header"):
+            _align_tui_statement_owners(
+                {"StmtId(20)": (header_span, "stmt:Assert")},
+                5,
+                OLD_SOURCE,
+                CURRENT_SOURCE,
             )
 
     def test_pinned_reference_tui_header_is_the_only_accepted_source_edit(self):
