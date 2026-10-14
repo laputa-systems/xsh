@@ -32,9 +32,9 @@ test test_stmt_with { |ctx|
     r"""proc load() -> Result[Int] { return Ok(7) }
 proc show() [io] {
   with value = load() {
-    print value
+    print $value
   } else { |failure|
-    print failure.message
+    print $failure.message
   }
 }
 show()
@@ -92,7 +92,7 @@ test test_stmt_assign_field { |ctx|
     ctx,
     r"""var record = {name: "before"}
 record.name = "after"
-print record.name
+print $record.name
 """,
     status: 0,
     stdout: ["after"],
@@ -104,7 +104,7 @@ test test_stmt_assign_field_int { |ctx|
     ctx,
     r"""var record = {count: 1}
 record.count = 2
-print record.count
+print $record.count
 """,
     status: 0,
     stdout: ["2"],
@@ -129,7 +129,7 @@ test test_stmt_assign_int { |ctx|
     r"""proc increment() [io] {
   var count: Int = 1
   count = count + 2
-  print count
+  print $count
 }
 increment()
 """,
@@ -144,7 +144,7 @@ test test_stmt_assign_bool { |ctx|
     r"""proc enable() [io] {
   var ready: Bool = false
   ready = true
-  print ready
+  print $ready
 }
 enable()
 """,
@@ -157,7 +157,7 @@ test test_stmt_value { |ctx|
   test.expect(
     ctx,
     r"""let value = retry [] { 4 }?
-print value
+print $value
 """,
     status: 0,
     stdout: ["4"],
@@ -179,7 +179,7 @@ test test_stmt_expr { |ctx|
   test.expect(
     ctx,
     r"""proc mark() [io] { print "called" }
-proc continue_after_mark() [io] {
+proc continue_after_mark() [io, error] {
   mark()
   print "continued"
 }
@@ -230,7 +230,7 @@ var index = 0
 while has_next(index) {
   index += 1
 }
-print index
+print $index
 """,
     status: 0,
     stdout: ["2"],
@@ -245,7 +245,7 @@ test test_stmt_while_bool { |ctx|
   while ready {
     ready = false
   }
-  print ready
+  print $ready
 }
 finish()
 """,
@@ -259,7 +259,7 @@ test test_stmt_pattern_if { |ctx|
     ctx,
     r"""let outcome: Result[Int] = Ok(7)
 if let Ok(value) = outcome {
-  print value
+  print $value
 } else {
   print "missing"
 }
@@ -281,7 +281,7 @@ while let value = next(index) {
   total += value
   index += 1
 }
-print total
+print $total
 """,
     status: 0,
     stdout: ["3"],
@@ -293,7 +293,7 @@ test test_stmt_match { |ctx|
     ctx,
     r"""let outcome: Result[Int] = Ok(7)
 match outcome {
-  Ok(value) => print value
+  Ok(value) => print $value
   Err(_) => print "failed"
 }
 """,
@@ -334,7 +334,7 @@ test test_stmt_for { |ctx|
   test.expect(
     ctx,
     r"""for value in [1, 2] {
-  print value
+  print $value
 }
 """,
     status: 0,
@@ -348,7 +348,7 @@ test test_stmt_let_record { |ctx|
     r"""proc show() [io] {
   let row = {name: "alpha", count: 2}
   let {name, count} = row
-  print name count
+  print $name $count
 }
 show()
 """,
@@ -362,7 +362,7 @@ test test_stmt_for_record { |ctx|
     ctx,
     r"""let rows = [{name: "alpha", count: 2}, {name: "beta", count: 3}]
 for {name, count} in rows {
-  print name count
+  print $name $count
 }
 """,
     status: 0,
@@ -375,7 +375,7 @@ test test_stmt_for_str_lines { |ctx|
     ctx,
     r"""let text = "first\nsecond"
 for line in text.lines() {
-  print line
+  print $line
 }
 """,
     status: 0,
@@ -531,7 +531,7 @@ loop {
   visits += 1
   break
 }
-print visits
+print $visits
 """,
     status: 0,
     stdout: ["1"],
@@ -558,7 +558,7 @@ test test_stmt_yield { |ctx|
   yield 7
 }
 for value in values() {
-  print value
+  print $value
 }
 """,
     status: 0,
@@ -577,7 +577,7 @@ stream parent() [] -> Stream[Int] {
   yield @child()
 }
 for value in parent() {
-  print value
+  print $value
 }
 """,
     status: 0,
@@ -595,7 +595,7 @@ while visits < 3 {
     break
   }
 }
-print visits
+print $visits
 """,
     status: 0,
     stdout: ["2"],
@@ -606,7 +606,7 @@ test test_stmt_break_value { |ctx|
   test.expect(
     ctx,
     r"""let answer = loop { break 9 }
-print answer
+print $answer
 """,
     status: 0,
     stdout: ["9"],
@@ -623,7 +623,7 @@ for value in [1, 2, 3] {
   }
   total += value
 }
-print total
+print $total
 """,
     status: 0,
     stdout: ["4"],
@@ -634,7 +634,7 @@ test test_stmt_defer { |ctx|
   test.expect(
     ctx,
     r"""proc cleanup() [io] { print "cleanup" }
-proc work() [io] {
+proc work() [io, error] {
   defer cleanup()
   print "body"
 }
