@@ -1555,7 +1555,7 @@ fn expression_tag_test_prefix_matches(tag_name: &str, test_suffix: &str) -> bool
 mod tests {
     use super::{
         FrameStrategy, FullPatternTag, FullTag, INSTRUCTION_TAGS, InPlaceClass, InstructionKind,
-        PATTERN_TAGS,
+        PATTERN_TAGS, RouteWitnessCapability,
     };
 
     #[test]
