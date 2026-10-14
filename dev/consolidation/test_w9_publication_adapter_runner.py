@@ -14,6 +14,22 @@ import w9_publication_adapter_runner as adapter_runner
 
 
 class AdapterRawOutcomeTests(unittest.TestCase):
+    def test_reference_source_accepts_the_main_checkout_as_candidate(self):
+        candidate = pathlib.Path("/checkout")
+        reference = candidate / ".work/wt/w9-adapter-ref-e240"
+        runner = SimpleNamespace(
+            REFERENCE_HEAD="e240efad273fe35d66d91f4037b6a8193527da2e",
+            real_directory=lambda path, label: pathlib.Path(path),
+            source_identity=lambda path: (
+                "e240efad273fe35d66d91f4037b6a8193527da2e",
+                adapter_runner.REFERENCE_TREE,
+            ),
+        )
+        self.assertEqual(
+            adapter_runner._prepare_reference_source(candidate, reference, runner),
+            reference,
+        )
+
     def test_capture_plan_covers_all_1690_inputs_in_four_profiles(self):
         repository = pathlib.Path(__file__).resolve().parents[2]
         runner = adapter_runner._load_publication_runner(

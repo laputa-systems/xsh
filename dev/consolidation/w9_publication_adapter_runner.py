@@ -102,9 +102,11 @@ def _prepare_reference_source(
 ) -> pathlib.Path:
     candidate_root = runner.real_directory(candidate_root, "candidate source root")
     reference_source_root = pathlib.Path(os.path.abspath(reference_source_root))
-    if candidate_root.parent.name != "wt" or candidate_root.parent.parent.name != ".work":
-        raise PublicationError("candidate source root must be a worktree under .work/wt")
-    expected_root = candidate_root.parent / "w9-adapter-ref-e240"
+    if candidate_root.parent.name == "wt" and candidate_root.parent.parent.name == ".work":
+        worktrees = candidate_root.parent
+    else:
+        worktrees = candidate_root / ".work/wt"
+    expected_root = worktrees / "w9-adapter-ref-e240"
     if reference_source_root != expected_root:
         raise PublicationError(
             f"reference source clone must use the approved shared worktree path: {expected_root}"
