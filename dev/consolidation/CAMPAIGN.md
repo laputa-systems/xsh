@@ -1,6 +1,6 @@
 # XSH Consolidation Campaign
 
-Status: active and incomplete at checkpoint `aaa590c8e` on 2026-10-13. The
+Status: active and incomplete at checkpoint `9b88622c6` on 2026-10-14. The
 current acceptance and remaining gates are in [`HANDOFF.md`](HANDOFF.md).
 The owner approved the entire campaign and all six designs on 2026-10-11,
 including the Codex model policy and completeness-first sequence. The start
@@ -922,6 +922,25 @@ owner's request. The campaign is not complete.
   Separate Laputa consolidation and migration worktrees were created on disk;
   symlink audit found no required Laputa caller migration. Heavy sibling
   corpus checks remain excluded.
+
+### 2026-10-14 — current master status at `9b88622c6`
+
+- Master now includes checker/lowerer control-flow alignment and flow-fact
+  reuse (`98b297356`), named-spread lowering without arena clones
+  (`7ecb14310`), and the W9 receipt-digest correction (`7099b2a6d`). The
+  current formal foundation includes observed-machine coverage and
+  occurrence-labeled binding identity. The latest recorded formal gate for
+  that inventory passed with 637 fragment roots, 89 owners, 51 inventory
+  tests, and all 72 universal obligations still planned.
+- The route-oracle acceptance matrix is still open; unaccepted route-oracle
+  integration work is not part of current master. W9's pinned real build,
+  1,690-input four-profile publication/corpus run, and final source-matched
+  cache measurements are also pending. Full correctness and privileged Linux
+  acceptance, structural and reliability closure, G0b source freeze, and
+  comparative performance remain open. Strict source shrink is advisory under
+  the 2026-10-11 owner update. Platform gates remain x86_64 Linux musl only.
+- [`HANDOFF.md`](HANDOFF.md) has the current acceptance snapshot and the
+  exact evidence boundaries; this campaign remains active and incomplete.
 
 ### 2026-10-13 — W9 trace hardening and formal checkpoint at `aaa590c8e`
 

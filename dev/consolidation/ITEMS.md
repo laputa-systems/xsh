@@ -5,11 +5,13 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `master` in `/home/josh/d/laputa-systems/xsh`; the owner merged consolidation
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
-**Current checkpoint: `aaa590c8e` on `master`, 2026-10-13.**
+**Current checkpoint: `9b88622c6` on `master`, 2026-10-14.**
 [`HANDOFF.md`](HANDOFF.md) records current acceptance, integrated work, and
 remaining gates; the older grants and progress states below are planning and
 historical context, not a live lane queue. The campaign is active and
-incomplete. The current pinned verification image is
+incomplete. The provisional formal inventory has 637 fragment roots across 89
+owners, with all 72 universal obligations planned. The current pinned
+verification image is
 `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`;
 all development and final platform gates are x86_64 Linux musl.
 

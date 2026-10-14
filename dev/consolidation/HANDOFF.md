@@ -1,8 +1,8 @@
 # Consolidation restart handoff
 
-Status: active 2026-10-13.
+Status: active 2026-10-14.
 
-## Current checkpoint — 2026-10-13 (`aaa590c8e`)
+## Current checkpoint — 2026-10-14 (`9b88622c6`)
 
 This is the current acceptance snapshot; dated sections below preserve earlier
 evidence and plans. Integration continues on `master`. Nothing has been pushed.
@@ -11,59 +11,49 @@ final platform gates are x86_64 Linux musl in the pinned `Dockerfile.test`
 image `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`;
 ARM64 and macOS are excluded.
 
-Since the preceding checkpoint, these commits are integrated:
+The current master includes the checker/lowerer control-flow alignment and
+flow-fact reuse (`98b297356` and its preceding fixes), replacing the old note
+that control-flow work remained isolated. Named-spread lowering now avoids
+arena clones (`7ecb14310`). The W9 publication runner distinguishes BLAKE3
+receipt digests from SHA-256 manifest digests (`7099b2a6d`); this correction
+does not close W9 acceptance.
 
-- W9 manifest and trace coverage: `e090f124e` binds reference digests to the
-  manifest inputs; `4662992cd` validates complete cache-trace coverage. The
-  runner has 36 passing synthetic cases and its trace-coverage checks pass.
-  The pinned real build and 1,690-input, four-profile publication/corpus run,
-  including final source-matched cache measurements, remain pending. Earlier
-  1,690-input / 6,760-outcome parity belongs to an older source snapshot.
-- Command inventory: `7ddd56dd4` prefers native runner invocations while
-  retaining the deterministic mention fallback for existing family tests.
-- Formal runner and raw decoder: `ebecb6d9f` integrates and roots scripted
-  runner laws; `2aceba100` proves raw decoder bounds; `7cf61a3ae` roots those
-  decoder fragments.
-- Delayed effects: `50856659e` proves finite pull sequence origins;
-  `9b200e3dd` records those roots; `ff0a9f729` models delayed-effect
-  observations; `5599ddd5e` checks producer source fragments; and `aaa590c8e`
-  inventories the observations.
-- Generated lint reference refresh: `07397436b`.
+Formal foundations have advanced through the observed-machine and
+occurrence-labeled binding-identity batches, integrated at `3630b99e4` and
+`9b88622c6`, with additional bounded fragments for loops, paths, JSON,
+collections, raw-IR decoding, and effects. The latest recorded formal gate for
+the 637-root binding-identity batch passed the full `Xsh` Lake build, 51
+inventory tests, the guarded fresh kernel check, and an axiom audit over
+12,096 declarations with all three negative controls rejected. The provisional
+inventory has 637 fragment roots across 89 owner sets; all 72 universal
+obligations remain planned. Its source identity is still null and there are no
+finite conformance cases. These bounded models do not establish Rust
+conformance or whole-language soundness.
 
-At exact commit `aaa590c8e`, the formal gate passed: `lake build Xsh`, the
-transitive axiom audit over 5,410 declarations and its negative controls, the
-inventory check with 82 rooted fragment declarations and 89 owner sets, all
-29/29 inventory tests, and the guarded fresh kernel check. All 72 complete
-theorem obligations remain planned. The new finite runner, raw-decoder, and
-effect fragments state bounded results for their models; they do not close
-those obligations or establish Rust conformance, source soundness, or
-whole-language soundness.
+The route-oracle acceptance matrix remains open; current master does not
+contain the unaccepted route-oracle integration work. W9 also remains open
+until its pinned real build, 1,690-input four-profile publication/corpus run,
+and final source-matched cache measurements pass. Earlier 1,690-input /
+6,760-outcome parity belongs to an older source snapshot.
 
-The verifier, applet-lint, and observer changes are already integrated in
-`master`; they are not active lanes. The recorded observer checks passed 6
-tests and 38 current ratchets. Its archived start-source comparison produced
-identical legacy and successor reports over 306 sources and 13 metrics
-(report SHA-256 `322ea03664f2478abb57362fbd0bda714715ff3020dd6316f827f2b441e891d3`).
-That evidence covers the archived start snapshot only; it is not a current
-full-source scan or final structural close. The recorded verification-binary
-size snapshot at `0107c8158` is 31,005,944 bytes for `xsh` and 38,002,304 bytes
-for `xsht`; final release size and memory gates remain open.
+The verifier, applet-lint, and observer changes remain integrated. The
+recorded observer checks passed 6 tests and 38 ratchets at their recorded
+snapshot. Its archived start-source comparison produced identical legacy and
+successor reports over 306 sources and 13 metrics (report SHA-256
+`322ea03664f2478abb57362fbd0bda714715ff3020dd6316f827f2b441e891d3`). That
+evidence covers the archived start snapshot only; a current full-source scan
+and final structural close remain open. The recorded verification-binary size
+snapshot at `0107c8158` is 31,005,944 bytes for `xsh` and 38,002,304 bytes for
+`xsht`; final release size and memory gates remain open.
 
-The four nominal Asterinas error families are restored in Laputa at `ca658ce`,
-with a red-to-green diagnostic-type regression. Control-flow checker/lowerer
-work remains isolated through `cb45f3e54`, outside this checkpoint.
-Dead-tail cleanup remains unaccepted
-pending that work's integration and a pinned gate on the merged tree. The four
-AWK missing-return reports belong to an earlier source snapshot and are not a
-fresh result at `aaa590c8e`.
-
-The final-correctness launcher is prepared under the real-main
-`.work/final-review-evidence/final-correctness-gates` tree, but has not run.
-It does not establish a source freeze. W9 real publication/corpus evidence,
-full correctness and privileged Linux acceptance, structural and reliability
-closure, G0b post-consolidation source freeze, final campaign close, and
-comparative performance remain pending. No final comparative timings are
-recorded.
+The final-correctness launcher remains prepared under the real-main
+`.work/final-review-evidence/final-correctness-gates` tree and has not run. It
+does not establish a source freeze. Full correctness and privileged Linux
+acceptance, structural and reliability closure, G0b post-consolidation source
+freeze, final campaign close, and comparative performance remain pending. No
+final comparative timings are recorded. Strict source shrink remains advisory
+under the 2026-10-11 owner update; structural, correctness, ownership,
+documentation, platform, and performance acceptance remain required.
 
 ## Historical resume checkpoint at `59a6dfbc` — 2026-10-13 (superseded)
 
