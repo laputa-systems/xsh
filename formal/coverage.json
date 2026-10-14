@@ -6037,6 +6037,222 @@
       "status": "fragment",
       "scope": "A rejected conversion exposes no converted value through the wrapper result.",
       "boundary": "Assumes each prepared StrEnumMapping is nonempty and has unique declaration names and wire spellings; source declarations are not checked. Uses NominalId identity. Shared RecursiveRequire checks a structural projection in which maps become open records and structural ValidationFailure is pathless; the additional converter traverses every Str-keyed map value and attaches BlamePath to conversion failures. Excludes implicit coercions, JSON encoding, diagnostic spans, and Rust correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Records.Update.record_update_base_evaluates_once",
+      "module": "Xsh.Records.Update",
+      "declaration": "Xsh.Records.Update.record_update_base_evaluates_once",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked functional updates to existing record paths, source-order replacement evaluation, base-snapshot semantics, and record-shape preservation.",
+      "boundary": "Path overlap mirrors the current checker prefix rule, which docs/SPEC.md does not state. Replacement values are supplied after checking; no parser, checker correspondence, diagnostics, runtime, Rust, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Records.Update.record_update_rhs_evaluates_in_source_order",
+      "module": "Xsh.Records.Update",
+      "declaration": "Xsh.Records.Update.record_update_rhs_evaluates_in_source_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked functional updates to existing record paths, source-order replacement evaluation, base-snapshot semantics, and record-shape preservation.",
+      "boundary": "Path overlap mirrors the current checker prefix rule, which docs/SPEC.md does not state. Replacement values are supplied after checking; no parser, checker correspondence, diagnostics, runtime, Rust, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Records.Update.record_update_failure_stops_later_rhs",
+      "module": "Xsh.Records.Update",
+      "declaration": "Xsh.Records.Update.record_update_failure_stops_later_rhs",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked functional updates to existing record paths, source-order replacement evaluation, base-snapshot semantics, and record-shape preservation.",
+      "boundary": "Path overlap mirrors the current checker prefix rule, which docs/SPEC.md does not state. Replacement values are supplied after checking; no parser, checker correspondence, diagnostics, runtime, Rust, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Records.Update.record_update_failure_publishes_no_partial_value",
+      "module": "Xsh.Records.Update",
+      "declaration": "Xsh.Records.Update.record_update_failure_publishes_no_partial_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked functional updates to existing record paths, source-order replacement evaluation, base-snapshot semantics, and record-shape preservation.",
+      "boundary": "Path overlap mirrors the current checker prefix rule, which docs/SPEC.md does not state. Replacement values are supplied after checking; no parser, checker correspondence, diagnostics, runtime, Rust, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Records.Update.record_update_keeps_base_snapshot",
+      "module": "Xsh.Records.Update",
+      "declaration": "Xsh.Records.Update.record_update_keeps_base_snapshot",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked functional updates to existing record paths, source-order replacement evaluation, base-snapshot semantics, and record-shape preservation.",
+      "boundary": "Path overlap mirrors the current checker prefix rule, which docs/SPEC.md does not state. Replacement values are supplied after checking; no parser, checker correspondence, diagnostics, runtime, Rust, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Records.Update.record_update_replaces_existing_leaf",
+      "module": "Xsh.Records.Update",
+      "declaration": "Xsh.Records.Update.record_update_replaces_existing_leaf",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked functional updates to existing record paths, source-order replacement evaluation, base-snapshot semantics, and record-shape preservation.",
+      "boundary": "Path overlap mirrors the current checker prefix rule, which docs/SPEC.md does not state. Replacement values are supplied after checking; no parser, checker correspondence, diagnostics, runtime, Rust, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Records.Update.nested_update_preserves_sibling_fields",
+      "module": "Xsh.Records.Update",
+      "declaration": "Xsh.Records.Update.nested_update_preserves_sibling_fields",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked functional updates to existing record paths, source-order replacement evaluation, base-snapshot semantics, and record-shape preservation.",
+      "boundary": "Path overlap mirrors the current checker prefix rule, which docs/SPEC.md does not state. Replacement values are supplied after checking; no parser, checker correspondence, diagnostics, runtime, Rust, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Records.Update.disjoint_updates_preserve_both_targets",
+      "module": "Xsh.Records.Update",
+      "declaration": "Xsh.Records.Update.disjoint_updates_preserve_both_targets",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked functional updates to existing record paths, source-order replacement evaluation, base-snapshot semantics, and record-shape preservation.",
+      "boundary": "Path overlap mirrors the current checker prefix rule, which docs/SPEC.md does not state. Replacement values are supplied after checking; no parser, checker correspondence, diagnostics, runtime, Rust, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Records.Update.disjoint_updates_commute_in_value",
+      "module": "Xsh.Records.Update",
+      "declaration": "Xsh.Records.Update.disjoint_updates_commute_in_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked functional updates to existing record paths, source-order replacement evaluation, base-snapshot semantics, and record-shape preservation.",
+      "boundary": "Path overlap mirrors the current checker prefix rule, which docs/SPEC.md does not state. Replacement values are supplied after checking; no parser, checker correspondence, diagnostics, runtime, Rust, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Records.Update.update_preserves_record_shape",
+      "module": "Xsh.Records.Update",
+      "declaration": "Xsh.Records.Update.update_preserves_record_shape",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked functional updates to existing record paths, source-order replacement evaluation, base-snapshot semantics, and record-shape preservation.",
+      "boundary": "Path overlap mirrors the current checker prefix rule, which docs/SPEC.md does not state. Replacement values are supplied after checking; no parser, checker correspondence, diagnostics, runtime, Rust, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Records.Update.ancestor_and_descendant_targets_are_not_disjoint",
+      "module": "Xsh.Records.Update",
+      "declaration": "Xsh.Records.Update.ancestor_and_descendant_targets_are_not_disjoint",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked functional updates to existing record paths, source-order replacement evaluation, base-snapshot semantics, and record-shape preservation.",
+      "boundary": "Path overlap mirrors the current checker prefix rule, which docs/SPEC.md does not state. Replacement values are supplied after checking; no parser, checker correspondence, diagnostics, runtime, Rust, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Records.Update.shallow_update_mutation_loses_sibling",
+      "module": "Xsh.Records.Update",
+      "declaration": "Xsh.Records.Update.shallow_update_mutation_loses_sibling",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked functional updates to existing record paths, source-order replacement evaluation, base-snapshot semantics, and record-shape preservation.",
+      "boundary": "Path overlap mirrors the current checker prefix rule, which docs/SPEC.md does not state. Replacement values are supplied after checking; no parser, checker correspondence, diagnostics, runtime, Rust, or whole-language claim."
+    },
+    {
+      "id": "fragment.Xsh.Maps.Literal.successful_trace_is_written_trace",
+      "module": "Xsh.Maps.Literal",
+      "declaration": "Xsh.Maps.Literal.successful_trace_is_written_trace",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked finite Map literal evaluation, source-order key/value/spread events, overlay replacement, ordered present-key iteration, and a mutation witness.",
+      "boundary": "Uses one already validated finite primitive key domain and abstract evaluator outcomes; no arbitrary expression effects, parsing, key validation or coercion, cross-domain conversion, runtime, Rust, or whole-language correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Maps.Literal.entry_evaluates_key_before_value",
+      "module": "Xsh.Maps.Literal",
+      "declaration": "Xsh.Maps.Literal.entry_evaluates_key_before_value",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked finite Map literal evaluation, source-order key/value/spread events, overlay replacement, ordered present-key iteration, and a mutation witness.",
+      "boundary": "Uses one already validated finite primitive key domain and abstract evaluator outcomes; no arbitrary expression effects, parsing, key validation or coercion, cross-domain conversion, runtime, Rust, or whole-language correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Maps.Literal.key_failure_short_circuits",
+      "module": "Xsh.Maps.Literal",
+      "declaration": "Xsh.Maps.Literal.key_failure_short_circuits",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked finite Map literal evaluation, source-order key/value/spread events, overlay replacement, ordered present-key iteration, and a mutation witness.",
+      "boundary": "Uses one already validated finite primitive key domain and abstract evaluator outcomes; no arbitrary expression effects, parsing, key validation or coercion, cross-domain conversion, runtime, Rust, or whole-language correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Maps.Literal.value_failure_short_circuits",
+      "module": "Xsh.Maps.Literal",
+      "declaration": "Xsh.Maps.Literal.value_failure_short_circuits",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked finite Map literal evaluation, source-order key/value/spread events, overlay replacement, ordered present-key iteration, and a mutation witness.",
+      "boundary": "Uses one already validated finite primitive key domain and abstract evaluator outcomes; no arbitrary expression effects, parsing, key validation or coercion, cross-domain conversion, runtime, Rust, or whole-language correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Maps.Literal.spread_failure_short_circuits",
+      "module": "Xsh.Maps.Literal",
+      "declaration": "Xsh.Maps.Literal.spread_failure_short_circuits",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked finite Map literal evaluation, source-order key/value/spread events, overlay replacement, ordered present-key iteration, and a mutation witness.",
+      "boundary": "Uses one already validated finite primitive key domain and abstract evaluator outcomes; no arbitrary expression effects, parsing, key validation or coercion, cross-domain conversion, runtime, Rust, or whole-language correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Maps.Literal.failure_does_not_publish_partial_map",
+      "module": "Xsh.Maps.Literal",
+      "declaration": "Xsh.Maps.Literal.failure_does_not_publish_partial_map",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked finite Map literal evaluation, source-order key/value/spread events, overlay replacement, ordered present-key iteration, and a mutation witness.",
+      "boundary": "Uses one already validated finite primitive key domain and abstract evaluator outcomes; no arbitrary expression effects, parsing, key validation or coercion, cross-domain conversion, runtime, Rust, or whole-language correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Maps.Literal.later_entry_replaces_earlier",
+      "module": "Xsh.Maps.Literal",
+      "declaration": "Xsh.Maps.Literal.later_entry_replaces_earlier",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked finite Map literal evaluation, source-order key/value/spread events, overlay replacement, ordered present-key iteration, and a mutation witness.",
+      "boundary": "Uses one already validated finite primitive key domain and abstract evaluator outcomes; no arbitrary expression effects, parsing, key validation or coercion, cross-domain conversion, runtime, Rust, or whole-language correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Maps.Literal.spread_replaces_prior_entry",
+      "module": "Xsh.Maps.Literal",
+      "declaration": "Xsh.Maps.Literal.spread_replaces_prior_entry",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked finite Map literal evaluation, source-order key/value/spread events, overlay replacement, ordered present-key iteration, and a mutation witness.",
+      "boundary": "Uses one already validated finite primitive key domain and abstract evaluator outcomes; no arbitrary expression effects, parsing, key validation or coercion, cross-domain conversion, runtime, Rust, or whole-language correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Maps.Literal.later_entry_replaces_spread",
+      "module": "Xsh.Maps.Literal",
+      "declaration": "Xsh.Maps.Literal.later_entry_replaces_spread",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked finite Map literal evaluation, source-order key/value/spread events, overlay replacement, ordered present-key iteration, and a mutation witness.",
+      "boundary": "Uses one already validated finite primitive key domain and abstract evaluator outcomes; no arbitrary expression effects, parsing, key validation or coercion, cross-domain conversion, runtime, Rust, or whole-language correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Maps.Literal.ordered_iteration_exactly_present",
+      "module": "Xsh.Maps.Literal",
+      "declaration": "Xsh.Maps.Literal.ordered_iteration_exactly_present",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked finite Map literal evaluation, source-order key/value/spread events, overlay replacement, ordered present-key iteration, and a mutation witness.",
+      "boundary": "Uses one already validated finite primitive key domain and abstract evaluator outcomes; no arbitrary expression effects, parsing, key validation or coercion, cross-domain conversion, runtime, Rust, or whole-language correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Maps.Literal.ordered_iteration_respects_key_order",
+      "module": "Xsh.Maps.Literal",
+      "declaration": "Xsh.Maps.Literal.ordered_iteration_respects_key_order",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked finite Map literal evaluation, source-order key/value/spread events, overlay replacement, ordered present-key iteration, and a mutation witness.",
+      "boundary": "Uses one already validated finite primitive key domain and abstract evaluator outcomes; no arbitrary expression effects, parsing, key validation or coercion, cross-domain conversion, runtime, Rust, or whole-language correspondence."
+    },
+    {
+      "id": "fragment.Xsh.Maps.Literal.skipped_overwritten_entry_mutation_detected",
+      "module": "Xsh.Maps.Literal",
+      "declaration": "Xsh.Maps.Literal.skipped_overwritten_entry_mutation_detected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Checked finite Map literal evaluation, source-order key/value/spread events, overlay replacement, ordered present-key iteration, and a mutation witness.",
+      "boundary": "Uses one already validated finite primitive key domain and abstract evaluator outcomes; no arbitrary expression effects, parsing, key validation or coercion, cross-domain conversion, runtime, Rust, or whole-language correspondence."
     }
   ],
   "source_identity": null

@@ -7,6 +7,8 @@ import Xsh.Values.OrderedSet
 import Xsh.Values.MapPresence
 import Xsh.Results.Fallback
 import Xsh.Json.Path
+import Xsh.Records.Update
+import Xsh.Maps.Literal
 import Xsh.Paths.Components
 import Xsh.Collections.KeyOrder
 import Xsh.Values.DurationOps

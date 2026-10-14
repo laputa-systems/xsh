@@ -7,8 +7,9 @@ build depends on it. The current `Xsh` root imports every module under
 word representations; lexical environments, activations, and captured cells;
 checked integer outcomes and millisecond-duration operations over typed scalar
 values; finite map-presence and primitive key-order laws; checked call argument
-ordering; byte-lexical path components; Str-backed enum wire conversion; List
-index and slice bounds; Unicode scalar text-slice laws; validated
+ordering; checked record updates and finite Map literal evaluation; byte-lexical
+path components; Str-backed enum wire conversion; List index and slice bounds;
+Unicode scalar text-slice laws; validated
 boundaries and atomic typed-store writes; and effect lattices, recursive
 summaries, lexical bounds, and delayed-work origins. Failed typed writes
 preserve the old store and produce an uncatchable type error; `.require(UInt)`
@@ -76,7 +77,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 339 fragment
+G0b source freeze remain pending. The provisional inventory has 363 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -122,6 +123,25 @@ exclude NaN and infinities; Records and Maps remain distinct. An append-at-lengt
 mutation witness detects extension beyond an existing list index. The model
 does not cover non-String Map-key validation, key uniqueness policy, source
 integer-width bounds, parsing, encoding, diagnostics, JSON validation, runtime
+or Rust correspondence, or full G1/G2/G3 closure.
+
+`Xsh.Records.Update` has twelve roots for checked functional updates to existing
+record paths. The model covers path-prefix overlap checks, one evaluation of the
+base, source-order replacement evaluation, failure short-circuiting without
+partial publication, updates rooted in the original snapshot, preservation of
+untouched nested fields, and record-shape preservation. Its overlap rule mirrors
+the current checker: two targets overlap when either path is a prefix of the
+other. `docs/SPEC.md` currently omits this record-update overlap rule. Replacement
+values are supplied after checking; this fragment does not establish parser,
+checker, diagnostic, runtime, or Rust correspondence, or full G1/G2/G3 closure.
+
+`Xsh.Maps.Literal` has twelve roots for checked finite Map literal evaluation.
+The model records key-before-value evaluation, source-ordered entries and
+spreads, failure short-circuiting without publishing a partial map, later-value
+replacement, and present-key iteration in the selected primitive key order. It
+assumes one already validated finite key domain with an injective, ordered key
+table and abstract expression outcomes. It does not model arbitrary expression
+effects, parsing, key validation or coercion, cross-domain conversion, runtime,
 or Rust correspondence, or full G1/G2/G3 closure.
 
 `Xsh.Strings.Slice` has eleven roots for text slicing represented as finite
@@ -200,7 +220,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 339 rooted Lean fragment declarations across 89 core owner
+The inventory names 363 rooted Lean fragment declarations across 89 core owner
 sets. Its 50 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
