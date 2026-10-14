@@ -1484,9 +1484,16 @@ fn prepare_dynamic_module(
                 module_source_id,
             )
             .map_err(|error| {
+                let message = match error.detail {
+                    Some(detail) => format!(
+                        "loaded module could not encode `{}`: {detail}",
+                        error.construct
+                    ),
+                    None => format!("loaded module could not encode `{}`", error.construct),
+                };
                 RuntimeError::new(
                     "module-load",
-                    format!("loaded module could not encode `{}`", error.construct),
+                    message,
                 )
                 .with_span(span)
             })?,
