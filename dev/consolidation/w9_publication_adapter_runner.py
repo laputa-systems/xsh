@@ -3,14 +3,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.util
+import multiprocessing
+import multiprocessing.connection
 import os
 import pathlib
 import re
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
+from typing import NamedTuple
 
 import w9_publication_adapter as adapter
 import w9_publication_sources as source_alignment
@@ -80,6 +85,25 @@ CAPTURE_FIELDS = (
 
 class PublicationError(ValueError):
     pass
+
+
+class _PublicationComparisonTermination(BaseException):
+    def __init__(self, signum: int) -> None:
+        self.signum = signum
+
+
+class _PublicationComparisonContext(NamedTuple):
+    reference_root: int
+    candidate_root: int
+    expected_inputs: dict[int, object]
+    expected_reference_outcomes: object
+    candidate_outcomes: dict[tuple[int, str, str], tuple[str, str]]
+    reference_raw_hashes: dict[tuple[int, str, str], str]
+    candidate_raw_hashes: dict[tuple[int, str, str], str]
+    reference_exact_owners: dict[int, tuple[object, dict[str, object]]]
+    candidate_exact_owners: dict[int, tuple[object, dict[str, object]]]
+    reference_tui_source: bytes
+    candidate_tui_source: bytes
 
 
 def _replace_once(source: str, before: str, after: str) -> str:
@@ -2058,6 +2082,391 @@ def _report_comparison_progress(
         )
 
 
+def _compare_publication_input(
+    index: int,
+    context: _PublicationComparisonContext,
+) -> tuple[str, ...]:
+    mismatches: list[str] = []
+    owner_error = False
+    try:
+        reference_owner = adapter.parse_owner_index(
+            _read_regular_at(context.reference_root, f"owners-{index}.tsv")
+        )
+        candidate_owner = adapter.parse_owner_index(
+            _read_regular_at(context.candidate_root, f"owners-{index}.tsv")
+        )
+    except (adapter.AdapterError, PublicationError, UnicodeError) as error:
+        owner_error = True
+        mismatches.append(f"{index}\towner-index\t{type(error).__name__}\t{error}")
+    if not owner_error:
+        if reference_owner != context.reference_exact_owners[index][0]:
+            owner_error = True
+            mismatches.append(f"{index}\treference-exact-owner-legacy-projection")
+        if candidate_owner != context.candidate_exact_owners[index][0]:
+            owner_error = True
+            mismatches.append(f"{index}\tcandidate-exact-owner-legacy-projection")
+    profile_records = []
+    profile_error = False
+    for profile in PROFILES:
+        key = (index, context.expected_inputs[index].relative_path, profile)
+        try:
+            reference_kind, reference_diagnostics, reference_publication, reference_hashes = _record(
+                context.reference_root, key
+            )
+            candidate_kind, candidate_diagnostics, candidate_publication, candidate_hashes = _record(
+                context.candidate_root, key
+            )
+            reference_diagnostic_hash, reference_publication_hash = (
+                context.expected_reference_outcomes.outcomes[key]
+            )
+            candidate_diagnostic_hash, candidate_publication_hash = context.candidate_outcomes[key]
+            if not _raw_hash_pair_matches(context.reference_raw_hashes, index, profile, reference_hashes):
+                mismatches.append(f"{key}\treference-raw-bytes-hash")
+            if not _raw_hash_pair_matches(context.candidate_raw_hashes, index, profile, candidate_hashes):
+                mismatches.append(f"{key}\tcandidate-raw-bytes-hash")
+            if reference_hashes != (reference_diagnostic_hash, reference_publication_hash):
+                mismatches.append(f"{key}\treference-raw-receipt-hash")
+            if candidate_hashes != (candidate_diagnostic_hash, candidate_publication_hash):
+                mismatches.append(f"{key}\tcandidate-raw-receipt-hash")
+            if reference_diagnostics != candidate_diagnostics:
+                mismatches.append(
+                    f"{key}\tdiagnostics\t{hashlib.sha256(reference_diagnostics.encode()).hexdigest()}"
+                    f"\t{hashlib.sha256(candidate_diagnostics.encode()).hexdigest()}"
+                )
+            if reference_kind != candidate_kind:
+                mismatches.append(f"{key}\tkind\t{reference_kind}\t{candidate_kind}")
+                profile_error = True
+                continue
+            if reference_kind == "load-error":
+                if reference_publication or candidate_publication:
+                    mismatches.append(f"{key}\tload-error-has-publication")
+                    profile_error = True
+                continue
+            profile_records.append(
+                (
+                    profile,
+                    key,
+                    reference_diagnostics,
+                    reference_publication,
+                    candidate_diagnostics,
+                    candidate_publication,
+                )
+            )
+        except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
+            mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
+            profile_error = True
+    if owner_error or profile_error or not profile_records:
+        return tuple(mismatches)
+    try:
+        profile_by_name = {record[0]: record for record in profile_records}
+        publication_alignment = _align_profile_publications_with_parsed(
+            [
+                profile_by_name[profile][3] if profile in profile_by_name else ""
+                for profile in PROFILES
+            ],
+            [
+                profile_by_name[profile][5] if profile in profile_by_name else ""
+                for profile in PROFILES
+            ],
+            reference_owner,
+            candidate_owner,
+            context.reference_tui_source,
+            context.candidate_tui_source,
+        )
+        aligned = publication_alignment.aligned
+        (
+            aligned_candidate_exact_owners,
+            aligned_candidate_statement_owners,
+        ) = source_alignment._align_tui_owner_facts(
+            exact_owners=context.candidate_exact_owners[index][1],
+            statement_owners=context.candidate_exact_owners[index][0][3],
+            tui_source_id=aligned.tui_source_id,
+            reference_tui_source=context.reference_tui_source,
+            candidate_tui_source=context.candidate_tui_source,
+        )
+    except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
+        mismatches.append(f"{index}\ttui-alignment\t{type(error).__name__}\t{error}")
+        return tuple(mismatches)
+    comparison_outcomes: dict[
+        tuple[str, str, str, str], tuple[type[Exception], str] | None
+    ] = {}
+    for (
+        profile,
+        key,
+        reference_diagnostics,
+        _reference_publication,
+        candidate_diagnostics,
+        _candidate_publication,
+    ) in profile_records:
+        profile_index = PROFILES.index(profile)
+        comparison_pair = (
+            reference_diagnostics,
+            aligned.reference_publications[profile_index],
+            candidate_diagnostics,
+            aligned.candidate_publications[profile_index],
+        )
+        if comparison_pair in comparison_outcomes:
+            cached_error = comparison_outcomes[comparison_pair]
+            if cached_error is not None:
+                error_type, error_text = cached_error
+                mismatches.append(f"{key}\tadapter\t{error_type.__name__}\t{error_text}")
+            continue
+        try:
+            reference_parsed = publication_alignment.reference[profile_index]
+            candidate_parsed = publication_alignment.candidate[profile_index]
+            if reference_parsed is None or candidate_parsed is None:
+                adapter.compare_publications(
+                    reference_diagnostics,
+                    aligned.reference_publications[profile_index],
+                    reference_owner[0],
+                    reference_owner[1],
+                    reference_owner[2],
+                    reference_owner[3],
+                    candidate_diagnostics,
+                    aligned.candidate_publications[profile_index],
+                    aligned.candidate_source_sizes,
+                    aligned.candidate_source_owners,
+                    reference_exact_owners=context.reference_exact_owners[index][1],
+                    candidate_exact_owners=aligned_candidate_exact_owners,
+                    candidate_statement_owners=aligned_candidate_statement_owners,
+                )
+            else:
+                adapter._compare_parsed_publications(
+                    reference_diagnostics,
+                    reference_parsed.prefix,
+                    tuple(field.rendered for field in reference_parsed.fields),
+                    reference_owner[0],
+                    reference_owner[1],
+                    reference_owner[2],
+                    reference_owner[3],
+                    candidate_diagnostics,
+                    candidate_parsed.prefix,
+                    tuple(field.rendered for field in candidate_parsed.fields),
+                    aligned.candidate_source_sizes,
+                    aligned.candidate_source_owners,
+                    reference_exact_owners=context.reference_exact_owners[index][1],
+                    candidate_exact_owners=aligned_candidate_exact_owners,
+                    candidate_statement_owners=aligned_candidate_statement_owners,
+                )
+        except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
+            comparison_outcomes[comparison_pair] = (type(error), str(error))
+            mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
+        else:
+            comparison_outcomes[comparison_pair] = None
+    return tuple(mismatches)
+
+
+def _publication_comparison_worker(
+    connection,
+    context: _PublicationComparisonContext,
+) -> None:
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    try:
+        connection.send((None, None, None))
+        while True:
+            index = connection.recv()
+            if index is None:
+                return
+            try:
+                result = _compare_publication_input(index, context)
+            except BaseException as error:
+                connection.send((index, None, error))
+                return
+            connection.send((index, result, None))
+    finally:
+        connection.close()
+
+
+def _stop_publication_comparison_workers(
+    workers: list[tuple[multiprocessing.Process, object, object]],
+    *,
+    terminate: bool,
+) -> None:
+    errors = []
+    if terminate:
+        for process, _parent_connection, _child_connection in workers:
+            try:
+                if process.is_alive():
+                    process.terminate()
+            except BaseException as error:
+                errors.append(error)
+    else:
+        for _process, connection, _child_connection in workers:
+            try:
+                connection.send(None)
+            except BaseException as error:
+                errors.append(error)
+        if errors:
+            for process, _parent_connection, _child_connection in workers:
+                try:
+                    if process.is_alive():
+                        process.terminate()
+                except BaseException as error:
+                    errors.append(error)
+    for process, connection, child_connection in workers:
+        try:
+            process.join(timeout=2)
+            if process.is_alive():
+                process.kill()
+                process.join(timeout=2)
+            if process.is_alive():
+                errors.append(PublicationError("comparison worker could not be reaped"))
+            elif not terminate and process.exitcode != 0:
+                errors.append(
+                    PublicationError(f"comparison worker exited with status {process.exitcode}")
+                )
+        except BaseException as error:
+            errors.append(error)
+        try:
+            connection.close()
+        except BaseException as error:
+            errors.append(error)
+        try:
+            child_connection.close()
+        except BaseException as error:
+            errors.append(error)
+    if errors:
+        raise PublicationError(f"comparison worker cleanup failed: {errors[0]}") from errors[0]
+
+
+def _run_parallel_publication_comparisons(
+    context: _PublicationComparisonContext,
+    count: int,
+    on_result,
+) -> None:
+    process_context = multiprocessing.get_context("fork")
+    workers: list[tuple[multiprocessing.Process, object, object]] = []
+    previous_handlers = {}
+    try:
+        if threading.current_thread() is threading.main_thread():
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                previous_handlers[signum] = signal.getsignal(signum)
+
+                def interrupt(_signum, _frame):
+                    if _signum == signal.SIGTERM:
+                        raise _PublicationComparisonTermination(_signum)
+                    raise KeyboardInterrupt("publication comparison interrupted")
+
+                signal.signal(signum, interrupt)
+        for _ in range(min(3, count)):
+            parent_connection, child_connection = process_context.Pipe()
+            process = process_context.Process(
+                target=_publication_comparison_worker,
+                args=(child_connection, context),
+            )
+            try:
+                process.start()
+            except BaseException:
+                if process.pid is not None:
+                    workers.append((process, parent_connection, child_connection))
+                child_connection.close()
+                if process.pid is None:
+                    parent_connection.close()
+                raise
+            workers.append((process, parent_connection, child_connection))
+            child_connection.close()
+        for process, connection, _child_connection in workers:
+            try:
+                ready = connection.recv()
+            except (EOFError, OSError) as error:
+                raise PublicationError(
+                    f"comparison worker exited before startup with status {process.exitcode}"
+                ) from error
+            if ready != (None, None, None):
+                raise PublicationError("comparison worker returned an invalid startup message")
+        sentinels = {process.sentinel: process for process, _connection, _child in workers}
+        batch_start = 0
+        while batch_start < count:
+            batch_end = min(batch_start + len(workers), count)
+            batch_indices = tuple(range(batch_start, batch_end))
+            active = {}
+            for (process, connection, _child), index in zip(workers, batch_indices):
+                connection.send(index)
+                active[connection] = (process, index)
+            batch_results = {}
+            expected_error_exits = set()
+            next_output = batch_start
+            while len(batch_results) + next_output - batch_start < len(batch_indices):
+                ready = multiprocessing.connection.wait([*active, *sentinels])
+                for connection in (item for item in ready if item in active):
+                    process, expected_index = active.pop(connection)
+                    try:
+                        index, result, error = connection.recv()
+                    except (EOFError, OSError) as receive_error:
+                        raise PublicationError(
+                            f"comparison worker exited without an outcome for input {expected_index}"
+                        ) from receive_error
+                    if index != expected_index:
+                        raise PublicationError(
+                            f"comparison worker returned input {index} for assigned input {expected_index}"
+                        )
+                    batch_results[index] = error if error is not None else result
+                    if error is not None:
+                        expected_error_exits.add(process)
+                for sentinel in (item for item in ready if item in sentinels):
+                    process = sentinels[sentinel]
+                    if process in expected_error_exits:
+                        expected_error_exits.remove(process)
+                        sentinels.pop(sentinel)
+                        continue
+                    connection = next(
+                        (
+                            connection
+                            for connection, (active_process, _index) in active.items()
+                            if active_process is process
+                        ),
+                        None,
+                    )
+                    if connection is not None and connection.poll():
+                        process, expected_index = active.pop(connection)
+                        try:
+                            index, result, error = connection.recv()
+                        except (EOFError, OSError) as receive_error:
+                            raise PublicationError(
+                                f"comparison worker exited without an outcome for input {expected_index}"
+                            ) from receive_error
+                        if index != expected_index:
+                            raise PublicationError(
+                                f"comparison worker returned input {index} for assigned input {expected_index}"
+                            )
+                        batch_results[index] = error if error is not None else result
+                        if error is not None:
+                            expected_error_exits.add(process)
+                            sentinels.pop(sentinel)
+                            continue
+                    raise PublicationError(
+                        f"comparison worker exited unexpectedly with status {process.exitcode}"
+                    )
+                while next_output in batch_results:
+                    result = batch_results.pop(next_output)
+                    if isinstance(result, BaseException):
+                        raise result
+                    on_result(next_output, result)
+                    next_output += 1
+            batch_start = batch_end
+    except BaseException as error:
+        try:
+            _stop_publication_comparison_workers(workers, terminate=True)
+        except BaseException as cleanup_error:
+            if hasattr(error, "add_note"):
+                error.add_note(f"comparison worker cleanup also failed: {cleanup_error}")
+        raise
+    else:
+        try:
+            _stop_publication_comparison_workers(workers, terminate=False)
+        except BaseException as error:
+            try:
+                _stop_publication_comparison_workers(workers, terminate=True)
+            except BaseException as cleanup_error:
+                if hasattr(error, "add_note"):
+                    error.add_note(f"comparison worker cleanup also failed: {cleanup_error}")
+            raise
+    finally:
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)
+
+
 def compare_full_publications(
     runner,
     reference_receipt_path: pathlib.Path,
@@ -2281,169 +2690,33 @@ def compare_full_publications(
         if len(keys) != count * len(PROFILES):
             raise PublicationError(f"receipt outcome count differs: {len(keys)}")
 
-        for index in range(count):
-            owner_error = False
-            try:
-                reference_owner = adapter.parse_owner_index(
-                    _read_regular_at(reference_root, f"owners-{index}.tsv")
-                )
-                candidate_owner = adapter.parse_owner_index(
-                    _read_regular_at(candidate_root, f"owners-{index}.tsv")
-                )
-            except (adapter.AdapterError, PublicationError, UnicodeError) as error:
-                owner_error = True
-                mismatches.append(f"{index}\towner-index\t{type(error).__name__}\t{error}")
-            if not owner_error:
-                if reference_owner != reference_exact_owners[index][0]:
-                    owner_error = True
-                    mismatches.append(f"{index}\treference-exact-owner-legacy-projection")
-                if candidate_owner != candidate_exact_owners[index][0]:
-                    owner_error = True
-                    mismatches.append(f"{index}\tcandidate-exact-owner-legacy-projection")
-            profile_records = []
-            profile_error = False
-            for profile in PROFILES:
-                key = (index, expected_inputs[index].relative_path, profile)
-                try:
-                    reference_kind, reference_diagnostics, reference_publication, reference_hashes = _record(reference_root, key)
-                    candidate_kind, candidate_diagnostics, candidate_publication, candidate_hashes = _record(candidate_root, key)
-                    reference_diagnostic_hash, reference_publication_hash = expected_reference_outcomes.outcomes[key]
-                    candidate_diagnostic_hash, candidate_publication_hash = candidate.outcomes[key]
-                    if not _raw_hash_pair_matches(reference_raw_hashes, index, profile, reference_hashes):
-                        mismatches.append(f"{key}\treference-raw-bytes-hash")
-                    if not _raw_hash_pair_matches(candidate_raw_hashes, index, profile, candidate_hashes):
-                        mismatches.append(f"{key}\tcandidate-raw-bytes-hash")
-                    if reference_hashes != (reference_diagnostic_hash, reference_publication_hash):
-                        mismatches.append(f"{key}\treference-raw-receipt-hash")
-                    if candidate_hashes != (candidate_diagnostic_hash, candidate_publication_hash):
-                        mismatches.append(f"{key}\tcandidate-raw-receipt-hash")
-                    if reference_diagnostics != candidate_diagnostics:
-                        mismatches.append(
-                            f"{key}\tdiagnostics\t{hashlib.sha256(reference_diagnostics.encode()).hexdigest()}"
-                            f"\t{hashlib.sha256(candidate_diagnostics.encode()).hexdigest()}"
-                        )
-                    if reference_kind != candidate_kind:
-                        mismatches.append(f"{key}\tkind\t{reference_kind}\t{candidate_kind}")
-                        profile_error = True
-                        continue
-                    if reference_kind == "load-error":
-                        if reference_publication or candidate_publication:
-                            mismatches.append(f"{key}\tload-error-has-publication")
-                            profile_error = True
-                        continue
-                    profile_records.append(
-                        (profile, key, reference_diagnostics, reference_publication,
-                         candidate_diagnostics, candidate_publication)
-                    )
-                except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
-                    mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
-                    profile_error = True
-            if owner_error or profile_error:
-                _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
-                continue
-            if not profile_records:
-                _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
-                continue
-            try:
-                profile_by_name = {record[0]: record for record in profile_records}
-                publication_alignment = _align_profile_publications_with_parsed(
-                    [
-                        profile_by_name[profile][3] if profile in profile_by_name else ""
-                        for profile in PROFILES
-                    ],
-                    [
-                        profile_by_name[profile][5] if profile in profile_by_name else ""
-                        for profile in PROFILES
-                    ],
-                    reference_owner,
-                    candidate_owner,
-                    reference_tui_source,
-                    candidate_tui_source,
-                )
-                aligned = publication_alignment.aligned
-                (
-                    aligned_candidate_exact_owners,
-                    aligned_candidate_statement_owners,
-                ) = source_alignment._align_tui_owner_facts(
-                    exact_owners=candidate_exact_owners[index][1],
-                    statement_owners=candidate_exact_owners[index][0][3],
-                    tui_source_id=aligned.tui_source_id,
-                    reference_tui_source=reference_tui_source,
-                    candidate_tui_source=candidate_tui_source,
-                )
-            except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
-                mismatches.append(f"{index}\ttui-alignment\t{type(error).__name__}\t{error}")
-                _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
-                continue
-            comparison_outcomes: dict[
-                tuple[str, str, str, str], tuple[type[Exception], str] | None
-            ] = {}
-            for (
-                profile,
-                key,
-                reference_diagnostics,
-                _reference_publication,
-                candidate_diagnostics,
-                _candidate_publication,
-            ) in profile_records:
-                profile_index = PROFILES.index(profile)
-                comparison_pair = (
-                    reference_diagnostics,
-                    aligned.reference_publications[profile_index],
-                    candidate_diagnostics,
-                    aligned.candidate_publications[profile_index],
-                )
-                if comparison_pair in comparison_outcomes:
-                    cached_error = comparison_outcomes[comparison_pair]
-                    if cached_error is not None:
-                        error_type, error_text = cached_error
-                        mismatches.append(
-                            f"{key}\tadapter\t{error_type.__name__}\t{error_text}"
-                        )
-                    continue
-                try:
-                    reference_parsed = publication_alignment.reference[profile_index]
-                    candidate_parsed = publication_alignment.candidate[profile_index]
-                    if reference_parsed is None or candidate_parsed is None:
-                        adapter.compare_publications(
-                            reference_diagnostics,
-                            aligned.reference_publications[profile_index],
-                            reference_owner[0],
-                            reference_owner[1],
-                            reference_owner[2],
-                            reference_owner[3],
-                            candidate_diagnostics,
-                            aligned.candidate_publications[profile_index],
-                            aligned.candidate_source_sizes,
-                            aligned.candidate_source_owners,
-                            reference_exact_owners=reference_exact_owners[index][1],
-                            candidate_exact_owners=aligned_candidate_exact_owners,
-                            candidate_statement_owners=aligned_candidate_statement_owners,
-                        )
-                    else:
-                        adapter._compare_parsed_publications(
-                            reference_diagnostics,
-                            reference_parsed.prefix,
-                            tuple(field.rendered for field in reference_parsed.fields),
-                            reference_owner[0],
-                            reference_owner[1],
-                            reference_owner[2],
-                            reference_owner[3],
-                            candidate_diagnostics,
-                            candidate_parsed.prefix,
-                            tuple(field.rendered for field in candidate_parsed.fields),
-                            aligned.candidate_source_sizes,
-                            aligned.candidate_source_owners,
-                            reference_exact_owners=reference_exact_owners[index][1],
-                            candidate_exact_owners=aligned_candidate_exact_owners,
-                            candidate_statement_owners=aligned_candidate_statement_owners,
-                        )
-                except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
-                    comparison_outcomes[comparison_pair] = (type(error), str(error))
-                    mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
-                else:
-                    comparison_outcomes[comparison_pair] = None
+        comparison_context = _PublicationComparisonContext(
+            reference_root,
+            candidate_root,
+            expected_inputs,
+            expected_reference_outcomes,
+            candidate.outcomes,
+            reference_raw_hashes,
+            candidate_raw_hashes,
+            reference_exact_owners,
+            candidate_exact_owners,
+            reference_tui_source,
+            candidate_tui_source,
+        )
+
+        def accept_input_result(index: int, input_mismatches: tuple[str, ...]) -> None:
+            mismatches.extend(input_mismatches)
             _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
+
+        if count <= 1:
+            for index in range(count):
+                accept_input_result(index, _compare_publication_input(index, comparison_context))
+        else:
+            _run_parallel_publication_comparisons(
+                comparison_context,
+                count,
+                accept_input_result,
+            )
     finally:
         os.close(reference_root)
         os.close(candidate_root)
@@ -2823,6 +3096,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in {"compare-captures", "compare-derived-captures"}:
             return compare_captured_publications(args, runner)
         return execute_adapter_publication(args, runner)
+    except (
+        _PublicationComparisonTermination,
+    ) as termination:
+        os.kill(os.getpid(), termination.signum)
+        raise
     except (
         PublicationError,
         reference_correction.CorrectionError,

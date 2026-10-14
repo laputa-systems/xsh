@@ -1,9 +1,11 @@
 import argparse
 import io
 import hashlib
+import multiprocessing
 import os
 import pathlib
 import re
+import signal
 import shutil
 import sys
 import subprocess
@@ -830,6 +832,21 @@ class AdapterCaptureSchedulingTests(unittest.TestCase):
 
 
 class AdapterReferenceReuseTests(unittest.TestCase):
+    def _parallel_test_context(self):
+        return adapter_runner._PublicationComparisonContext(
+            -1,
+            -1,
+            {},
+            None,
+            {},
+            {},
+            {},
+            {},
+            {},
+            b"",
+            b"",
+        )
+
     def setUp(self):
         self.repository = pathlib.Path(__file__).resolve().parents[2]
         self.runner = adapter_runner._load_publication_runner(
@@ -1881,7 +1898,14 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.assertEqual(proof_calls, ["reference"])
         compare.assert_not_called()
 
-    def _run_full_compare_progress_case(self, scenario, input_count=1):
+    def _run_full_compare_progress_case(
+        self,
+        scenario,
+        input_count=1,
+        *,
+        verify_serial_parity=False,
+        mismatch_name="full-mismatches.tsv",
+    ):
         expected_inputs = self.expected_inputs
         reference_receipt = self.reference
         original_profiles = adapter_runner.PROFILES
@@ -2249,9 +2273,44 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             "stage_arguments": {},
             "stage_callbacks": {},
         }
+        reference_exact_owners = dict(candidate_exact_owners)
+        if scenario == "statement-flow":
+            reference_exact_owners["exprs"] = {
+                0: (
+                    source_fixtures.span(
+                        5,
+                        FIXTURE_INITIALIZER_EXPRESSION_START - source_fixtures.DELTA,
+                        1,
+                    ),
+                    "Ident",
+                    "initializer",
+                )
+            }
+            reference_exact_owners["binding_initializers"] = {
+                (33, "%dest"): (
+                    source_fixtures.span(
+                        5,
+                        FIXTURE_INITIALIZER_STATEMENT_START - source_fixtures.DELTA,
+                        4,
+                    ),
+                    0,
+                )
+            }
+        else:
+            reference_exact_owners["exprs"] = {
+                0: (
+                    source_fixtures.span(
+                        5,
+                        candidate_start - source_fixtures.DELTA,
+                        1,
+                    ),
+                    "Ident",
+                    "reset",
+                )
+            }
         exact_owner_projection = {
             "reference": {
-                index: (reference_projection, EMPTY_EXACT_OWNER_FACTS)
+                index: (reference_projection, reference_exact_owners)
                 for index in self.expected_inputs
             },
             "candidate": {
@@ -2260,6 +2319,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             },
         }
         observed = []
+        observed_count = multiprocessing.get_context("fork").Value("i", 0)
         original_regular_file = self.runner.regular_file
         original_require_sha256 = self.runner.require_sha256
 
@@ -2276,13 +2336,92 @@ class AdapterReferenceReuseTests(unittest.TestCase):
 
         def compare_adapter(*args, **kwargs):
             observed.append((args, kwargs))
+            with observed_count.get_lock():
+                observed_count.value += 1
             if scenario == "cache-failure":
                 raise adapter_runner.adapter.AdapterError("fixture comparison failure")
             if scenario == "statement-flow":
+                expected_initializer = (
+                    source_fixtures.span(
+                        5,
+                        FIXTURE_INITIALIZER_EXPRESSION_START - source_fixtures.DELTA,
+                        1,
+                    ),
+                    "Ident",
+                    "initializer",
+                )
+                expected_binding_initializers = {
+                    (33, "%dest"): (
+                        source_fixtures.span(
+                            5,
+                            FIXTURE_INITIALIZER_STATEMENT_START - source_fixtures.DELTA,
+                            4,
+                        ),
+                        0,
+                    )
+                }
+                expected_statement_start = candidate_start + 1 - source_fixtures.DELTA
+                expected_statement_owners = {
+                    "StmtId(20)": (
+                        source_fixtures.span(5, expected_statement_start, 1),
+                        "stmt:Assert",
+                    ),
+                    "StmtId(21)": (
+                        source_fixtures.span(5, expected_statement_start + 1, 1),
+                        "stmt:AssertBare",
+                    ),
+                    "StmtId(22)": (
+                        source_fixtures.span(5, expected_statement_start + 2, 1),
+                        "stmt:DeferExpr",
+                    ),
+                }
+                if (
+                    kwargs.get("reference_exact_owners") != reference_exact_owners
+                    or kwargs.get("reference_exact_owners", {}).get("exprs", {}).get(0)
+                    != expected_initializer
+                    or kwargs.get("candidate_exact_owners", {}).get("exprs", {}).get(0)
+                    != expected_initializer
+                    or kwargs.get("candidate_exact_owners", {}).get("binding_initializers")
+                    != expected_binding_initializers
+                    or kwargs.get("candidate_statement_owners") != expected_statement_owners
+                ):
+                    raise adapter_runner.adapter.AdapterError(
+                        "parallel exact-owner forwarding differs from fixture facts"
+                    )
                 return actual_compare(*args, **kwargs)
 
         stderr = io.StringIO()
         actual_compare = adapter_runner.adapter._compare_parsed_publications
+        actual_parallel_runner = adapter_runner._run_parallel_publication_comparisons
+
+        self.comparison_parity = None
+
+        def run_parallel_and_check_serial(context, count, on_result):
+            parallel_results = []
+
+            def accept_result(index, result):
+                parallel_results.append((index, result))
+                on_result(index, result)
+
+            serial_context = context._replace(
+                reference_root=os.dup(context.reference_root),
+                candidate_root=os.dup(context.candidate_root),
+            )
+            try:
+                actual_parallel_runner(
+                    context,
+                    count,
+                    accept_result,
+                )
+                serial_results = tuple(
+                    (index, adapter_runner._compare_publication_input(index, serial_context))
+                    for index in range(count)
+                )
+                self.comparison_parity = (tuple(parallel_results), serial_results)
+            finally:
+                os.close(serial_context.reference_root)
+                os.close(serial_context.candidate_root)
+
         with (
             patch.object(adapter_runner.sys, "stderr", stderr),
             patch.object(self.runner, "regular_file", side_effect=regular_file),
@@ -2291,6 +2430,15 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             patch.object(self.runner, "parse_receipt", side_effect=parse_shard),
             patch.object(self.runner, "PROFILES", profiles),
             patch.object(adapter_runner, "_load_publication_runner", return_value=self.runner),
+            patch.object(
+                adapter_runner,
+                "_run_parallel_publication_comparisons",
+                side_effect=(
+                    run_parallel_and_check_serial
+                    if verify_serial_parity
+                    else actual_parallel_runner
+                ),
+            ),
             patch.object(adapter_runner, "_hash_raw_outcomes", side_effect=lambda binary, *_args, **_kwargs: (
                 {
                     (index, profile, field): digest
@@ -2314,7 +2462,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 reference_raw,
                 candidate_raw,
                 self.expected_inputs,
-                self.artifact_root / "full-mismatches.tsv",
+                self.artifact_root / mismatch_name,
                 reference_capture,
                 candidate_capture,
                 self.candidate_root,
@@ -2329,6 +2477,8 @@ class AdapterReferenceReuseTests(unittest.TestCase):
 
         self.expected_inputs = expected_inputs
         self.reference = reference_receipt
+        if input_count > 1 and observed_count.value:
+            observed = [None] * observed_count.value
         return result, observed, stderr.getvalue(), candidate_start
 
     def test_full_compare_aligns_candidate_exact_owner_spans_before_comparison(self):
@@ -2341,8 +2491,12 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             source_fixtures.span(5, candidate_start - source_fixtures.DELTA, 1),
         )
         self.assertEqual(
-            observed[0][1]["reference_exact_owners"],
-            EMPTY_EXACT_OWNER_FACTS,
+            observed[0][1]["reference_exact_owners"]["exprs"][0],
+            (
+                source_fixtures.span(5, candidate_start - source_fixtures.DELTA, 1),
+                "Ident",
+                "reset",
+            ),
         )
         self.assertEqual(
             progress,
@@ -2395,6 +2549,31 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 FIXTURE_INITIALIZER_EXPRESSION_START - source_fixtures.DELTA,
                 1,
             ),
+        )
+        self.assertEqual(
+            observed[0][1]["reference_exact_owners"]["exprs"][0],
+            (
+                source_fixtures.span(
+                    5,
+                    FIXTURE_INITIALIZER_EXPRESSION_START - source_fixtures.DELTA,
+                    1,
+                ),
+                "Ident",
+                "initializer",
+            ),
+        )
+        self.assertEqual(
+            observed[0][1]["reference_exact_owners"]["binding_initializers"],
+            {
+                (33, "%dest"): (
+                    source_fixtures.span(
+                        5,
+                        FIXTURE_INITIALIZER_STATEMENT_START - source_fixtures.DELTA,
+                        4,
+                    ),
+                    0,
+                )
+            },
         )
         self.assertEqual(
             progress,
@@ -2493,6 +2672,234 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             progress,
             "comparison_progress inputs=2/2 outcomes=8/8 mismatches=0\n",
         )
+
+    def test_parallel_full_compare_matches_serial_and_preserves_mismatch_order(self):
+        result, _observed, progress, _candidate_start = self._run_full_compare_progress_case(
+            "owner-error",
+            input_count=2,
+            verify_serial_parity=True,
+            mismatch_name="parallel-owner-error.tsv",
+        )
+
+        self.assertEqual(result, (2, 1))
+        self.assertEqual(
+            self.comparison_parity[0],
+            self.comparison_parity[1],
+        )
+        self.assertEqual(
+            (self.artifact_root / "parallel-owner-error.tsv").read_bytes(),
+            b"0\towner-index\tAdapterError\towner index line 1: unrecognized row\n",
+        )
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=2/2 outcomes=2/2 mismatches=1\n",
+        )
+
+    def test_parallel_full_compare_detects_perturbed_profiles_like_serial(self):
+        result, _observed, progress, _candidate_start = self._run_full_compare_progress_case(
+            "cache-failure",
+            input_count=2,
+            verify_serial_parity=True,
+            mismatch_name="parallel-cache-failure.tsv",
+        )
+
+        self.assertEqual(result, (8, 8))
+        self.assertEqual(self.comparison_parity[0], self.comparison_parity[1])
+        report = (self.artifact_root / "parallel-cache-failure.tsv").read_bytes()
+        self.assertEqual(report.count(b"\tadapter\tAdapterError\tfixture comparison failure\n"), 8)
+        self.assertLess(report.index(b"(0, 'source/0000.xsh'"), report.index(b"(1, 'source/0001.xsh'"))
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=2/2 outcomes=8/8 mismatches=8\n",
+        )
+
+    def test_parallel_full_compare_forwards_both_exact_owner_roles(self):
+        result, _observed, progress, _candidate_start = self._run_full_compare_progress_case(
+            "statement-flow",
+            input_count=2,
+        )
+
+        self.assertEqual(result, (8, 0))
+        self.assertEqual(
+            (self.artifact_root / "full-mismatches.tsv").read_bytes(),
+            b"",
+        )
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=2/2 outcomes=8/8 mismatches=0\n",
+        )
+
+    def test_parallel_comparison_preserves_lowest_index_worker_exception(self):
+        context = multiprocessing.get_context("fork")
+        earlier_failure_ready = context.Event()
+        lower_index_may_fail = context.Event()
+        parent_observed_worker_exit = [False]
+        actual_wait = adapter_runner.multiprocessing.connection.wait
+        existing_children = {process.pid for process in multiprocessing.active_children()}
+
+        def fail_by_index(index, _comparison_context):
+            if index == 1:
+                earlier_failure_ready.set()
+                raise RuntimeError("input one failed first")
+            self.assertTrue(earlier_failure_ready.wait(timeout=3))
+            self.assertTrue(lower_index_may_fail.wait(timeout=3))
+            raise RuntimeError("input zero failed second")
+
+        def wait_for_worker_exit(waitables, timeout=None):
+            if parent_observed_worker_exit[0]:
+                lower_index_may_fail.set()
+            ready = actual_wait(waitables, timeout)
+            if any(
+                not isinstance(item, adapter_runner.multiprocessing.connection.Connection)
+                for item in ready
+            ):
+                parent_observed_worker_exit[0] = True
+            return ready
+
+        with (
+            patch.object(adapter_runner, "_compare_publication_input", side_effect=fail_by_index),
+            patch.object(
+                adapter_runner.multiprocessing.connection,
+                "wait",
+                side_effect=wait_for_worker_exit,
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "input zero failed second"):
+                adapter_runner._run_parallel_publication_comparisons(
+                    self._parallel_test_context(), 2, lambda _index, _result: None
+                )
+
+        self.assertEqual(
+            {process.pid for process in multiprocessing.active_children()},
+            existing_children,
+        )
+
+    def test_parallel_comparison_reaps_workers_after_abrupt_exit(self):
+        existing_children = {process.pid for process in multiprocessing.active_children()}
+
+        def exit_abruptly(index, _comparison_context):
+            if index == 0:
+                os._exit(19)
+            return ()
+
+        with patch.object(adapter_runner, "_compare_publication_input", side_effect=exit_abruptly):
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "comparison worker exited (without an outcome for input 0|unexpectedly with status 19)",
+            ):
+                adapter_runner._run_parallel_publication_comparisons(
+                    self._parallel_test_context(), 2, lambda _index, _result: None
+                )
+
+        self.assertEqual(
+            {process.pid for process in multiprocessing.active_children()},
+            existing_children,
+        )
+
+    def test_parallel_comparison_reaps_workers_after_sigint(self):
+        signum = signal.SIGINT
+        existing_children = {process.pid for process in multiprocessing.active_children()}
+        previous_handler = signal.getsignal(signum)
+
+        def interrupt_parent(_index, _comparison_context):
+            os.kill(os.getppid(), signum)
+            signal.pause()
+
+        with patch.object(adapter_runner, "_compare_publication_input", side_effect=interrupt_parent):
+            with self.assertRaisesRegex(KeyboardInterrupt, "publication comparison interrupted"):
+                adapter_runner._run_parallel_publication_comparisons(
+                    self._parallel_test_context(), 2, lambda _index, _result: None
+                )
+
+        self.assertIs(signal.getsignal(signum), previous_handler)
+        self.assertEqual(
+            {process.pid for process in multiprocessing.active_children()},
+            existing_children,
+        )
+
+    def test_parallel_comparison_reaps_workers_after_sigterm_and_preserves_exit(self):
+        script = """
+import multiprocessing
+import os
+import pathlib
+import signal
+import sys
+import subprocess
+from unittest.mock import patch
+import w9_publication_adapter_runner as runner
+
+publication_runner = runner._load_publication_runner(
+    runner.ROOT / "dev/consolidation/w9-publication-run.py"
+)
+scratch_parent = runner.ROOT / ".work/tmp"
+scratch_parent.mkdir(parents=True, exist_ok=True)
+candidate_root = pathlib.Path(sys.argv[1]) / "candidate"
+candidate_root.mkdir()
+(candidate_root / ".work").mkdir()
+subprocess.run(["git", "init", "--quiet", str(candidate_root)], check=True)
+output = candidate_root / ".work" / "comparison"
+context = runner._PublicationComparisonContext(-1, -1, {}, None, {}, {}, {}, {}, {}, b"", b"")
+original_kill = os.kill
+
+def observe_termination(pid, signum):
+    if pid == os.getpid() and signum == signal.SIGTERM:
+        reaped = len(multiprocessing.active_children()) == 0
+        restored = signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+        locks_released = not publication_runner.global_runner_lock_path(candidate_root).exists()
+        locks_released = locks_released and not publication_runner.output_lock_path(output).exists()
+        status = (output / "attempt-status.txt").read_text()
+        incomplete = "status=incomplete\\n" in status
+        print(f"reaped={reaped} restored={restored} locks_released={locks_released} incomplete={incomplete}", flush=True)
+    original_kill(pid, signum)
+
+def interrupt_parent(index, _context):
+    if index == 0:
+        os.kill(os.getppid(), signal.SIGTERM)
+    signal.pause()
+
+os.kill = observe_termination
+def compare(args, active_runner):
+    with active_runner.claim_run_resources(args.candidate_root, output, []):
+        active_runner.write_status(output, "incomplete", [])
+        with patch.object(runner, "_compare_publication_input", side_effect=interrupt_parent):
+            runner._run_parallel_publication_comparisons(context, 2, lambda _index, _result: None)
+
+runner._load_candidate_publication_runner = lambda *_args: publication_runner
+runner.compare_captured_publications = compare
+arguments = [
+    "compare-captures",
+    "--candidate-root", str(candidate_root),
+    "--candidate-source-receipt", str(candidate_root / "source.receipt"),
+    "--reference-source-root", str(candidate_root),
+    "--reference-exact-build-receipt", str(candidate_root / "reference-build.receipt"),
+    "--candidate-exact-build-receipt", str(candidate_root / "candidate-build.receipt"),
+    "--reference-capture-receipt", str(candidate_root / "reference-capture.receipt"),
+    "--candidate-capture-receipt", str(candidate_root / "candidate-capture.receipt"),
+    "--reference-exact-capture-receipt", str(candidate_root / "reference-exact.receipt"),
+    "--candidate-exact-capture-receipt", str(candidate_root / "candidate-exact.receipt"),
+    "--output", str(output),
+]
+runner.main(arguments)
+"""
+        scratch_parent = adapter_runner.ROOT / ".work/tmp"
+        scratch_parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix="w9-parallel-sigterm-", dir=scratch_parent
+        ) as scratch:
+            completed = subprocess.run(
+                [sys.executable, "-c", script, scratch],
+                cwd=pathlib.Path(__file__).parent,
+                capture_output=True,
+                text=True,
+                timeout=12,
+            )
+
+        self.assertEqual(completed.returncode, -signal.SIGTERM)
+        self.assertEqual(
+            completed.stdout,
+            "reaped=True restored=True locks_released=True incomplete=True\n",
+        )
+        self.assertEqual(completed.stderr, "")
 
     def test_full_compare_reuses_failed_profile_pairs_and_reports_each_mismatch(self):
         result, observed, progress, _candidate_start = self._run_full_compare_progress_case(
