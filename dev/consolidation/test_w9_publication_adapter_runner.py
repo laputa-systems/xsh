@@ -1878,9 +1878,15 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             original_profiles
             if scenario in {
                 "cache-identical", "cache-variants", "cache-boundary", "cache-failure",
-                "statement-flow", "parse-error",
+                "statement-flow", "parse-error", "empty-checked",
+                "empty-checked-diagnostics",
             }
             else ("default",)
+        )
+        candidate_tui_source = (
+            source_fixtures.OLD_SOURCE
+            if scenario in {"empty-checked", "empty-checked-diagnostics"}
+            else source_fixtures.CURRENT_SOURCE
         )
         adapter_runner.PROFILES = profiles
         self.addCleanup(setattr, adapter_runner, "PROFILES", original_profiles)
@@ -1891,7 +1897,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         reference_tui_path = self.reference_root / "stdlib/tui.xsh"
         candidate_tui_path = self.candidate_root / "stdlib/tui.xsh"
         candidate_tui_path.parent.mkdir(parents=True, exist_ok=True)
-        candidate_tui_path.write_bytes(source_fixtures.CURRENT_SOURCE)
+        candidate_tui_path.write_bytes(candidate_tui_source)
         subprocess.run(
             ["git", "-C", str(self.candidate_root), "add", "stdlib/tui.xsh"],
             check=True,
@@ -2037,6 +2043,9 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         for profile in profiles:
             reference_publication = base_reference_publication
             candidate_publication = base_candidate_publication
+            if scenario in {"empty-checked", "empty-checked-diagnostics"}:
+                reference_publication = ""
+                candidate_publication = ""
             if scenario == "statement-flow":
                 reference_publication = add_statement_flow(reference_publication, False)
                 candidate_publication = add_statement_flow(candidate_publication, True)
@@ -2053,6 +2062,9 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 )
             if scenario == "cache-variants" and profile == "check-cli":
                 diagnostics = '[{"message":"profile variant"}]'
+            candidate_diagnostics = diagnostics
+            if scenario == "empty-checked-diagnostics":
+                candidate_diagnostics = '[{"message":"profile difference"}]'
             if scenario == "parse-error" and profile == "reveal":
                 reference_publication = "not a CheckOutput"
             reference_payloads[profile] = (
@@ -2064,10 +2076,10 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 ),
             )
             candidate_payloads[profile] = (
-                diagnostics,
+                candidate_diagnostics,
                 candidate_publication,
                 (
-                    hashlib.sha256(diagnostics.encode()).hexdigest(),
+                    hashlib.sha256(candidate_diagnostics.encode()).hexdigest(),
                     hashlib.sha256(candidate_publication.encode()).hexdigest(),
                 ),
             )
@@ -2122,7 +2134,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             return "\n".join(lines) + "\n"
 
         reference_owner_text = owner_text(source_fixtures.OLD_SOURCE)
-        candidate_owner_text = owner_text(source_fixtures.CURRENT_SOURCE)
+        candidate_owner_text = owner_text(candidate_tui_source)
         reference_projection = adapter_runner.adapter.parse_owner_index(reference_owner_text)
         candidate_projection = adapter_runner.adapter.parse_owner_index(candidate_owner_text)
 
@@ -2198,7 +2210,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 (f"terminal\tshard={start // 100}\tcompleted={end - start}",),
             )
 
-        candidate_start = source_fixtures.CURRENT_SOURCE.index(b"export pure reset")
+        candidate_start = candidate_tui_source.index(b"export pure reset")
         initializer_expression = (
             (initializer_expression_span, "Ident", "initializer")
             if scenario == "statement-flow"
@@ -2497,6 +2509,51 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.assertEqual(
             progress,
             "comparison_progress inputs=1/1 outcomes=4/4 mismatches=1\n",
+        )
+
+    def _assert_empty_checked_publication_failure(self, scenario, expected_error):
+        result, observed, progress, _candidate_start = self._run_full_compare_progress_case(
+            scenario
+        )
+        mismatch_report = (self.artifact_root / "full-mismatches.tsv").read_bytes()
+        expected_diagnostics = ""
+        if scenario == "empty-checked-diagnostics":
+            reference_hash = hashlib.sha256(b"[]").hexdigest()
+            candidate_hash = hashlib.sha256(
+                b'[{"message":"profile difference"}]'
+            ).hexdigest()
+            expected_diagnostics = "".join(
+                f"{(0, self.expected_inputs[0].relative_path, profile)}"
+                f"\tdiagnostics\t{reference_hash}\t{candidate_hash}\n"
+                for profile in adapter_runner.PROFILES
+            )
+        expected_adapter_errors = "".join(
+            f"{(0, self.expected_inputs[0].relative_path, profile)}"
+            f"\tadapter\tAdapterError\t{expected_error}\n"
+            for profile in adapter_runner.PROFILES
+        )
+        expected_mismatches = (expected_diagnostics + expected_adapter_errors).encode()
+        mismatch_count = len(adapter_runner.PROFILES) + (
+            len(adapter_runner.PROFILES) if expected_diagnostics else 0
+        )
+        self.assertEqual(result, (4, mismatch_count))
+        self.assertEqual(observed, [])
+        self.assertEqual(mismatch_report, expected_mismatches)
+        self.assertEqual(
+            progress,
+            f"comparison_progress inputs=1/1 outcomes=4/4 mismatches={mismatch_count}\n",
+        )
+
+    def test_full_compare_preserves_raw_error_for_empty_checked_publications(self):
+        self._assert_empty_checked_publication_failure(
+            "empty-checked",
+            "expected named CheckOutput Debug struct",
+        )
+
+    def test_full_compare_preserves_diagnostic_error_for_empty_checked_publications(self):
+        self._assert_empty_checked_publication_failure(
+            "empty-checked-diagnostics",
+            "diagnostic mismatch",
         )
 
     def test_compare_captures_rejects_candidate_source_drift(self):

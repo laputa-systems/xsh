@@ -2405,23 +2405,37 @@ def compare_full_publications(
                     reference_parsed = publication_alignment.reference[profile_index]
                     candidate_parsed = publication_alignment.candidate[profile_index]
                     if reference_parsed is None or candidate_parsed is None:
-                        raise PublicationError("aligned publication is missing parsed fields")
-                    adapter._compare_parsed_publications(
-                        reference_diagnostics,
-                        reference_parsed.prefix,
-                        tuple(field.rendered for field in reference_parsed.fields),
-                        reference_owner[0],
-                        reference_owner[1],
-                        reference_owner[2],
-                        reference_owner[3],
-                        candidate_diagnostics,
-                        candidate_parsed.prefix,
-                        tuple(field.rendered for field in candidate_parsed.fields),
-                        aligned.candidate_source_sizes,
-                        aligned.candidate_source_owners,
-                        candidate_exact_owners=aligned_candidate_exact_owners,
-                        candidate_statement_owners=aligned_candidate_statement_owners,
-                    )
+                        adapter.compare_publications(
+                            reference_diagnostics,
+                            aligned.reference_publications[profile_index],
+                            reference_owner[0],
+                            reference_owner[1],
+                            reference_owner[2],
+                            reference_owner[3],
+                            candidate_diagnostics,
+                            aligned.candidate_publications[profile_index],
+                            aligned.candidate_source_sizes,
+                            aligned.candidate_source_owners,
+                            candidate_exact_owners=aligned_candidate_exact_owners,
+                            candidate_statement_owners=aligned_candidate_statement_owners,
+                        )
+                    else:
+                        adapter._compare_parsed_publications(
+                            reference_diagnostics,
+                            reference_parsed.prefix,
+                            tuple(field.rendered for field in reference_parsed.fields),
+                            reference_owner[0],
+                            reference_owner[1],
+                            reference_owner[2],
+                            reference_owner[3],
+                            candidate_diagnostics,
+                            candidate_parsed.prefix,
+                            tuple(field.rendered for field in candidate_parsed.fields),
+                            aligned.candidate_source_sizes,
+                            aligned.candidate_source_owners,
+                            candidate_exact_owners=aligned_candidate_exact_owners,
+                            candidate_statement_owners=aligned_candidate_statement_owners,
+                        )
                 except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
                     comparison_outcomes[comparison_pair] = (type(error), str(error))
                     mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
