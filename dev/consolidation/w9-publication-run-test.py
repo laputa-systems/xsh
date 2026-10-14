@@ -31,11 +31,20 @@ class PublicationRunnerTests(unittest.TestCase):
         subprocess.run(["git", "-C", str(self.root), "init", "--quiet"], check=True)
 
     def paths(self):
-        return {0: ("one.xsh", "a" * 64), 1: ("two.xsh", "b" * 64)}
+        return {
+            0: runner.ManifestSource("one.xsh", "a" * 64),
+            1: runner.ManifestSource("two.xsh", "b" * 64),
+        }
+
+    def receipt_paths(self):
+        return {
+            0: runner.ReceiptSource("one.xsh", "c" * 64),
+            1: runner.ReceiptSource("two.xsh", "d" * 64),
+        }
 
     def write_receipt(self, path, start, end, *, reference=False, omit_outcome=None, changed=None, terminal=True):
-        expected_paths = self.paths()
-        count = len(expected_paths)
+        receipt_paths = self.receipt_paths()
+        count = len(receipt_paths)
         corpus = "c" * 64
         shard = 0 if reference else start // 100
         shard_count = 1 if reference else (count + 99) // 100
@@ -51,8 +60,9 @@ class PublicationRunnerTests(unittest.TestCase):
         ]
         indexes = range(count) if reference else range(start, end)
         for index in indexes:
-            relative, source_hash = expected_paths[index]
-            lines.append(f"input\t{index}\t{relative}\t{source_hash}")
+            source = receipt_paths[index]
+            relative = source.relative_path
+            lines.append(f"input\t{index}\t{relative}\t{source.blake3}")
             for profile in runner.PROFILES:
                 if omit_outcome == (index, profile):
                     continue
@@ -67,8 +77,8 @@ class PublicationRunnerTests(unittest.TestCase):
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return corpus
 
-    def write_reference_receipt(self, path, expected_paths, corpus_digest):
-        count = len(expected_paths)
+    def write_reference_receipt(self, path, receipt_paths, corpus_digest):
+        count = len(receipt_paths)
         lines = [
             f"corpus={count}",
             "shard=0/1",
@@ -77,8 +87,9 @@ class PublicationRunnerTests(unittest.TestCase):
             f"input_digest={corpus_digest}",
             runner.OPTION_HEADER,
         ]
-        for index, (relative, source_hash) in expected_paths.items():
-            lines.append(f"input\t{index}\t{relative}\t{source_hash}")
+        for index, source in receipt_paths.items():
+            relative = source.relative_path
+            lines.append(f"input\t{index}\t{relative}\t{source.blake3}")
             for profile in runner.PROFILES:
                 lines.append(f"output\t{index}\t{relative}\t{profile}\t{'d' * 64}\t{'e' * 64}")
         lines.append(f"terminal\tshard=0\tcompleted={count}")
@@ -177,10 +188,11 @@ class PublicationRunnerTests(unittest.TestCase):
         source_hash = runner.sha256_file(corpus_source)
         helper_hash = runner.sha256_file(helper)
         corpus_digest = runner.CORPUS_BLAKE3
-        paths_by_index = {0: ("one.xsh", source_hash)}
+        paths_by_index = {0: runner.ManifestSource("one.xsh", source_hash)}
         paths_by_path = {"one.xsh": source_hash}
+        receipt_paths = {0: runner.ReceiptSource("one.xsh", "f" * 64)}
         input_manifest.write_text(f"0\tone.xsh\t{source_hash}\t100644\n", encoding="utf-8")
-        self.write_reference_receipt(reference_receipt, paths_by_index, corpus_digest)
+        self.write_reference_receipt(reference_receipt, receipt_paths, corpus_digest)
         reference_validation.write_text(
             "\n".join(
                 (
@@ -561,6 +573,13 @@ class PublicationRunnerTests(unittest.TestCase):
         lines[4] = "input_digest=not-a-digest"
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(runner.PublicationError, "malformed corpus digest"):
+            runner.parse_receipt(path, self.paths())
+
+        self.write_receipt(path, 0, 2)
+        lines = path.read_text(encoding="utf-8").splitlines()
+        lines[6] = "input\t0\tone.xsh\tnot-a-blake3-digest"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(runner.PublicationError, "malformed source BLAKE3 for index 0"):
             runner.parse_receipt(path, self.paths())
 
     def test_candidate_receipt_parser_rejects_duplicate_fields_schema_and_bad_digest(self):
@@ -1164,17 +1183,16 @@ class PublicationRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.PublicationError, "unexpected candidate receipt filename 'receipt.tsv'"):
             runner.discover_candidate_receipts(candidate_dir, 2)
 
-    def test_reference_receipt_input_digest_must_match_manifest(self):
+    def test_reference_receipt_blake3_source_hashes_are_distinct_from_manifest_sha256(self):
         reference_path = self.root / "receipt.tsv"
-        self.write_receipt(reference_path, 0, 2, reference=True)
-        valid_input = f"input\t1\ttwo.xsh\t{'b' * 64}"
-        changed_input = f"input\t1\ttwo.xsh\t{'f' * 64}"
-        receipt_text = reference_path.read_text(encoding="utf-8")
-        self.assertIn(valid_input, receipt_text)
-        reference_path.write_text(receipt_text.replace(valid_input, changed_input, 1), encoding="utf-8")
+        manifest_paths = self.paths()
+        receipt_paths = self.receipt_paths()
+        self.write_reference_receipt(reference_path, receipt_paths, "e" * 64)
 
-        with self.assertRaisesRegex(runner.PublicationError, "approved reference input digest differs from manifest at index 1"):
-            runner.validate_reference_receipt(reference_path, self.paths(), "c" * 64)
+        reference = runner.validate_reference_receipt(reference_path, manifest_paths, "e" * 64)
+
+        self.assertEqual(reference.inputs[0], receipt_paths[0])
+        self.assertNotEqual(reference.inputs[0].blake3, manifest_paths[0].sha256)
 
     def test_incomplete_four_profile_outcomes_are_rejected(self):
         candidate_dir = self.root / "candidate"

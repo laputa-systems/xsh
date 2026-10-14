@@ -133,9 +133,21 @@ class CleanupFailure(PublicationError):
 
 
 @dataclass(frozen=True)
+class ManifestSource:
+    relative_path: str
+    sha256: str
+
+
+@dataclass(frozen=True)
+class ReceiptSource:
+    relative_path: str
+    blake3: str
+
+
+@dataclass(frozen=True)
 class ParsedReceipt:
     header: tuple[str, ...]
-    inputs: dict[int, tuple[str, str]]
+    inputs: dict[int, ReceiptSource]
     outcomes: dict[tuple[int, str, str], tuple[str, str]]
     terminals: tuple[str, ...]
 
@@ -518,8 +530,8 @@ def validate_wrapper_root(wrapper_root: pathlib.Path, candidate_root: pathlib.Pa
         raise PublicationError(f"wrapper root does not contain candidate source: {wrapper_root}")
 
 
-def parse_input_manifest(path: pathlib.Path) -> tuple[dict[int, tuple[str, str]], dict[str, str]]:
-    by_index: dict[int, tuple[str, str]] = {}
+def parse_input_manifest(path: pathlib.Path) -> tuple[dict[int, ManifestSource], dict[str, str]]:
+    by_index: dict[int, ManifestSource] = {}
     by_path: dict[str, str] = {}
     for row_number, line in enumerate(read_regular_text(path).splitlines(), 1):
         fields = line.split("\t")
@@ -537,7 +549,7 @@ def parse_input_manifest(path: pathlib.Path) -> tuple[dict[int, tuple[str, str]]
             raise PublicationError(f"input manifest row {row_number}: malformed source SHA-256")
         if index in by_index or relative in by_path:
             raise PublicationError(f"input manifest row {row_number}: duplicate index or path")
-        by_index[index] = (relative, digest)
+        by_index[index] = ManifestSource(relative, digest)
         by_path[relative] = digest
     if len(by_index) != 1690 or set(by_index) != set(range(1690)):
         raise PublicationError(f"input manifest: expected 1690 sequential sources, found {len(by_index)}")
@@ -609,7 +621,7 @@ def parse_validation(path: pathlib.Path) -> dict[str, str]:
     return result
 
 
-def parse_receipt(path: pathlib.Path, expected_paths: dict[int, tuple[str, str]]) -> ParsedReceipt:
+def parse_receipt(path: pathlib.Path, expected_paths: dict[int, ManifestSource]) -> ParsedReceipt:
     lines = read_regular_text(path).splitlines()
     if len(lines) < 7:
         raise PublicationError(f"{path}: receipt is incomplete")
@@ -623,7 +635,7 @@ def parse_receipt(path: pathlib.Path, expected_paths: dict[int, tuple[str, str]]
     corpus_digest = header[4].removeprefix("input_digest=")
     if not re.fullmatch(r"[0-9a-f]{64}", corpus_digest):
         raise PublicationError(f"{path}: malformed corpus digest")
-    inputs: dict[int, tuple[str, str]] = {}
+    inputs: dict[int, ReceiptSource] = {}
     outcomes: dict[tuple[int, str, str], tuple[str, str]] = {}
     terminals: list[str] = []
     for line in lines[6:]:
@@ -634,13 +646,13 @@ def parse_receipt(path: pathlib.Path, expected_paths: dict[int, tuple[str, str]]
             except ValueError as error:
                 raise PublicationError(f"{path}: malformed input index {fields[1]!r}") from error
             relative, digest = fields[2], fields[3]
-            if index not in expected_paths or expected_paths[index][0] != relative:
+            if index not in expected_paths or expected_paths[index].relative_path != relative:
                 raise PublicationError(f"{path}: wrong input path at index {index}: {relative}")
             if not re.fullmatch(r"[0-9a-f]{64}", digest):
-                raise PublicationError(f"{path}: malformed source digest for index {index}")
+                raise PublicationError(f"{path}: malformed source BLAKE3 for index {index}")
             if index in inputs:
                 raise PublicationError(f"{path}: duplicate input index {index}")
-            inputs[index] = (relative, digest)
+            inputs[index] = ReceiptSource(relative, digest)
         elif fields[0] == "output" and len(fields) == 6:
             try:
                 index = int(fields[1])
@@ -648,7 +660,7 @@ def parse_receipt(path: pathlib.Path, expected_paths: dict[int, tuple[str, str]]
                 raise PublicationError(f"{path}: malformed output index {fields[1]!r}") from error
             relative, profile = fields[2], fields[3]
             key = (index, relative, profile)
-            if index not in expected_paths or expected_paths[index][0] != relative:
+            if index not in expected_paths or expected_paths[index].relative_path != relative:
                 raise PublicationError(f"{path}: unknown source outcome {key}")
             if profile not in PROFILES:
                 raise PublicationError(f"{path}: unknown profile {profile!r}")
@@ -669,7 +681,7 @@ def parse_receipt(path: pathlib.Path, expected_paths: dict[int, tuple[str, str]]
 
 def validate_reference_receipt(
     path: pathlib.Path,
-    expected_paths: dict[int, tuple[str, str]],
+    expected_paths: dict[int, ManifestSource],
     corpus_digest: str,
 ) -> ParsedReceipt:
     receipt = parse_receipt(path, expected_paths)
@@ -685,15 +697,12 @@ def validate_reference_receipt(
         raise PublicationError(f"{path}: approved full-corpus receipt header differs")
     if set(receipt.inputs) != set(range(count)):
         raise PublicationError(f"{path}: approved reference input coverage is incomplete")
-    for index, (_relative, expected_digest) in expected_paths.items():
-        actual_digest = receipt.inputs[index][1]
-        if actual_digest != expected_digest:
-            raise PublicationError(
-                f"{path}: approved reference input digest differs from manifest at index {index}"
-            )
+    # The input manifest carries SHA-256; receipt source rows carry BLAKE3.
+    # The caller authenticates each artifact with its own pin, and the corpus
+    # itself is checked against the SHA-256 manifest separately.
     expected_outcomes = {
-        (index, relative, profile)
-        for index, (relative, _digest) in expected_paths.items()
+        (index, source.relative_path, profile)
+        for index, source in expected_paths.items()
         for profile in PROFILES
     }
     if set(receipt.outcomes) != expected_outcomes:
@@ -728,7 +737,7 @@ def validate_candidate_shard(
         extra = sorted(set(receipt.inputs) - expected_inputs)[:10]
         raise PublicationError(f"{path}: incomplete input range; missing={missing} extra={extra}")
     expected_outcomes = {
-        (index, receipt.inputs[index][0], profile)
+        (index, receipt.inputs[index].relative_path, profile)
         for index in range(start, end)
         for profile in PROFILES
     }
@@ -761,7 +770,7 @@ def compare_outcomes(
 def compare_shard(
     reference: ParsedReceipt,
     path: pathlib.Path,
-    expected_paths: dict[int, tuple[str, str]],
+    expected_paths: dict[int, ManifestSource],
     start: int,
     end: int,
     corpus_digest: str,
@@ -770,7 +779,7 @@ def compare_shard(
     validate_candidate_shard(path, candidate, start, end, len(expected_paths), corpus_digest)
     for index in range(start, end):
         if candidate.inputs[index] != reference.inputs[index]:
-            raise PublicationError(f"input path or source digest mismatch at index {index}: {candidate.inputs[index]}")
+            raise PublicationError(f"input path or source BLAKE3 mismatch at index {index}: {candidate.inputs[index]}")
     compare_outcomes(reference, candidate, set(candidate.outcomes))
 
 
@@ -805,12 +814,12 @@ def discover_candidate_receipts(candidate_dir: pathlib.Path, count: int) -> dict
 def verify_receipt_bundle(
     reference: ParsedReceipt,
     candidate_dir: pathlib.Path,
-    expected_paths: dict[int, tuple[str, str]],
+    expected_paths: dict[int, ManifestSource],
     corpus_digest: str,
 ) -> str:
     count = len(expected_paths)
     candidates = discover_candidate_receipts(candidate_dir, count)
-    all_inputs: dict[int, tuple[str, str]] = {}
+    all_inputs: dict[int, ReceiptSource] = {}
     all_outcomes: dict[tuple[int, str, str], tuple[str, str]] = {}
     for (start, end), path in sorted(candidates.items()):
         receipt = parse_receipt(path, expected_paths)
@@ -819,7 +828,7 @@ def verify_receipt_bundle(
             if index in all_inputs:
                 raise PublicationError(f"duplicate candidate input index {index}")
             if value != reference.inputs[index]:
-                raise PublicationError(f"input path or source digest mismatch at index {index}: {value}")
+                raise PublicationError(f"input path or source BLAKE3 mismatch at index {index}: {value}")
             all_inputs[index] = value
         for key, value in receipt.outcomes.items():
             if key in all_outcomes:
@@ -844,7 +853,7 @@ def validate_reference_inputs(
     validation: pathlib.Path,
     input_root: pathlib.Path,
     input_manifest: pathlib.Path,
-) -> tuple[dict[int, tuple[str, str]], dict[str, str], ParsedReceipt]:
+) -> tuple[dict[int, ManifestSource], dict[str, str], ParsedReceipt]:
     require_sha256(reference_receipt, REFERENCE_RECEIPT_SHA256, "approved reference receipt")
     require_sha256(reference_binary, REFERENCE_BINARY_SHA256, "approved reference binary")
     require_sha256(validation, REFERENCE_VALIDATION_SHA256, "approved reference validation")
@@ -1230,7 +1239,7 @@ def seal_candidate(args: argparse.Namespace) -> None:
     print(f"candidate receipt: {receipt_path}")
 
 
-def validate_all_inputs(record: dict[str, str]) -> tuple[dict[int, tuple[str, str]], dict[str, str], ParsedReceipt]:
+def validate_all_inputs(record: dict[str, str]) -> tuple[dict[int, ManifestSource], dict[str, str], ParsedReceipt]:
     validate_receipt_shape(record)
     validate_recorded_pins(record)
     root, _binary, _helper, _wrapper = validate_candidate_files(record)
