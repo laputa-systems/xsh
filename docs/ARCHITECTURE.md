@@ -139,16 +139,25 @@ directly to native runtime operations.
 
 1. Define observable behavior in the SPEC template and snippets, then render
    generated docs as described in [`TESTING.md`](TESTING.md).
-2. Add grammar, arena storage, and parsing under `src/syntax/`. Preserve the
-   CST and extend the exhaustive immediate-child enumerators in
-   `src/syntax/arena.rs`. Each recursive consumer keeps its own traversal
-   policy; update the consumers whose behavior needs the new form.
+2. Add grammar, an arena variant, and parsing under `src/syntax/`. Preserve the
+   CST and add the node's logical children to the exhaustive `AstArena` child
+   enumerator for each affected node family. Keep each recursive consumer's
+   traversal policy explicit.
 3. Check the behavior in `src/sema/check/` and publish any facts later stages
    need.
-4. Lower those facts and add verifier rules for any new indexed representation
-   in `src/runtime/eval/`.
+4. If the feature has an indexed representation, add its row to
+   `instruction_schema!` in `src/runtime/eval/indexed/full/schema.rs`. The row
+   generates its tag, view, and payload codecs; choose its in-place class and
+   frame strategy. Implement lowering and any `FullVerifier` checks required
+   by the representation's payload invariants. Add behavior-specific arms for
+   every compiler-reported `ArenaExprKind`, `ExprView`, and `ExprViewKind`
+   match. Add a `compact_expr_kind_catalog!` row when the expression needs a
+   compact blocker category; the catalog owns its indices and labels and
+   derives their count.
 5. Update formatting and linting in `crates/xsht/`, and add focused native
-   behavior and verifier coverage. See [`TESTING.md`](TESTING.md) for gates.
+   behavior and verifier coverage. Use the staged library-check sequence in
+   [`TESTING.md`](TESTING.md) to find missing compiler arms, then run the
+   relevant behavior and verifier gates.
 
 ## Adding a sugar form
 

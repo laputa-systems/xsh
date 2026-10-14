@@ -39,6 +39,7 @@ Start here:
   Read the grammar   xsht grammar 
   Run with tracing   xsht trace SCRIPT [ARGS...]
   Query the API      xsht api [QUERY...]
+  Inspect lowered IR xsht ir-tags 
   Run tests          xsht test [FILTER]
   Search source      xsht grep PATTERN [FILE...]
   Rewrite source     xsht refactor PATTERN REPLACEMENT [FILE...]
