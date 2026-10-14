@@ -39,6 +39,17 @@ reuse artifacts only for their exact source revision, and run one full
 native suite at a time. Structural and correctness gates come first;
 stricter performance thresholds follow functional completion.
 
+Treat iteration latency as shared campaign infrastructure. At resume and after
+each accepted batch, inspect what every focused gate actually selects and where
+the serialized build queue spends its work. If a leaf-path gate selects an
+unrelated suite, an exact test still rebuilds a broad harness, or verification
+becomes the critical path for ready lanes, assign a dedicated loop-speed owner
+before adding more implementation width. Reduce unnecessary work first: add exact
+path mappings, named test targets, and revision-safe artifact reuse. Preserve
+broader gates for shared runtime changes and final acceptance. Record target and
+test counts; make timing claims only under the repository performance-readiness
+rules.
+
 After each accepted batch, record merged commits, gates, metric evidence,
 migrations of existing tests, and remaining items in the handoff log.
 Complete every workstream's observable and structural end state before
