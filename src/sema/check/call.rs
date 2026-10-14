@@ -1214,7 +1214,7 @@ impl Checker {
         result
     }
 
-    fn record_selected_function_call(&mut self, span: Span, signature: &super::FunctionSig) {
+    pub(super) fn record_selected_function_call(&mut self, span: Span, signature: &super::FunctionSig) {
         let Some(target) = signature.definition_target else {
             return;
         };
