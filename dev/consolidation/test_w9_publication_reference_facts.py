@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 
 from w9_publication_adapter import AdapterError
-from w9_publication_reference_facts import validate_function_reference_targets
+from w9_publication_reference_facts import _exact_owner_tables, validate_function_reference_targets
 
 
 IDENT_SPAN = "Span{source_id:SourceId(0),start:10,len:6}"
@@ -92,6 +92,82 @@ def _direct_owners():
         "aliases": {},
         "expr_count": 1,
         "record_field_count": 0,
+        "tails": {},
+    }
+
+
+def _named_path_exact_owners(path_components=("a.b", "c,]d")):
+    return {
+        "exprs": {
+            0: (IDENT_SPAN, "Ident", "render"),
+            1: (PARENT_SPAN, "Record", ""),
+            2: ("Span{source_id:SourceId(0),start:40,len:1}", "Int", ""),
+            3: ("Span{source_id:SourceId(0),start:41,len:1}", "Int", ""),
+            4: ("Span{source_id:SourceId(0),start:42,len:1}", "Int", ""),
+            5: ("Span{source_id:SourceId(0),start:43,len:1}", "Int", ""),
+        },
+        "records": {
+            1: {
+                "span": PARENT_SPAN,
+                "count": 4,
+                "fields": {
+                    0: (
+                        "path",
+                        path_components,
+                        "Span{source_id:SourceId(0),start:8,len:2}",
+                        None,
+                        2,
+                    ),
+                    1: (
+                        "named",
+                        "a\nb",
+                        "Span{source_id:SourceId(0),start:10,len:1}",
+                        None,
+                        3,
+                    ),
+                    2: (
+                        "named",
+                        "",
+                        "Span{source_id:SourceId(0),start:11,len:1}",
+                        None,
+                        4,
+                    ),
+                    3: (
+                        "named",
+                        "\0🙂",
+                        "Span{source_id:SourceId(0),start:12,len:1}",
+                        None,
+                        5,
+                    ),
+                },
+            }
+        },
+        "aliases": {},
+        "expr_count": 6,
+        "record_field_count": 4,
+        "runs": {},
+        "calls": {},
+        "field_accesses": {},
+        "tails": {},
+    }
+
+
+def _shorthand_exact_owners():
+    return {
+        "exprs": {
+            0: (PARENT_SPAN, "Record", ""),
+            1: (IDENT_SPAN, "Ident", "render"),
+        },
+        "records": {
+            0: {
+                "span": PARENT_SPAN,
+                "count": 1,
+                "fields": {0: ("shorthand", "render", IDENT_SPAN, None, None)},
+            }
+        },
+        "aliases": {(0, 0): (1, IDENT_SPAN, "render")},
+        "expr_count": 2,
+        "record_field_count": 1,
         "tails": {},
     }
 
@@ -232,29 +308,61 @@ class FunctionReferenceFactTests(unittest.TestCase):
         )
 
     def test_record_shorthand_uses_its_exact_parent_field(self):
-        exact_owners = {
-            "exprs": {
-                0: (PARENT_SPAN, "Record", ""),
-                1: (IDENT_SPAN, "Ident", "render"),
-            },
-            "records": {
-                0: {
-                    "span": PARENT_SPAN,
-                    "count": 1,
-                    "fields": {0: ("shorthand", "render", IDENT_SPAN, None, None)},
-                }
-            },
-            "aliases": {(0, 0): (1, IDENT_SPAN, "render")},
-            "expr_count": 2,
-            "record_field_count": 1,
-            "tails": {},
-        }
+        exact_owners = _shorthand_exact_owners()
         fields = _fields(types=f"{{{PARENT_SPAN}: Record({{Name(\"render\"): Pure}})}}")
         _validate(
             fields,
             owners={PARENT_SPAN: {"expr:Record"}, IDENT_SPAN: {"expr:Ident"}},
             exact_owners=exact_owners,
         )
+
+    def test_rejects_record_shorthand_name_that_disagrees_with_target(self):
+        selected = TARGET.replace('Name("render")', 'Name("other")')
+        declaration = PURE_DECLARATION.replace('Name("render")', 'Name("other")')
+        fields = _fields(
+            selected=selected,
+            declaration=declaration,
+            types=f"{{{PARENT_SPAN}: Record({{Name(\"render\"): Pure}})}}",
+        )
+        with self.assertRaises(AdapterError):
+            _validate(
+                fields,
+                owners={PARENT_SPAN: {"expr:Record"}, IDENT_SPAN: {"expr:Ident"}},
+                exact_owners=_shorthand_exact_owners(),
+            )
+
+    def test_named_record_keys_and_path_components_keep_decoded_boundaries(self):
+        source = (
+            Path(__file__).resolve().parents[2] / "tests/xsh/stdlib/ini.xsh"
+        ).read_bytes()
+        self.assertIn(b'"a\\nb"', source)
+        exact_owners = _named_path_exact_owners(("a.b", "c,]d", "🙂\n", ""))
+        _exprs, records, _aliases, _tails = _exact_owner_tables(
+            exact_owners, {0: 128, 1: 100, 2: 10000}
+        )
+        self.assertEqual(records[1]["fields"][0][1], ("a.b", "c,]d", "🙂\n", ""))
+        self.assertEqual(records[1]["fields"][1][1], "a\nb")
+        self.assertEqual(records[1]["fields"][2][1], "")
+        self.assertEqual(records[1]["fields"][3][1], "\0🙂")
+        _validate(
+            _fields(),
+            owners={
+                IDENT_SPAN: {"expr:Ident"},
+                PARENT_SPAN: {"expr:Record"},
+                "Span{source_id:SourceId(0),start:40,len:1}": {"expr:Int"},
+                "Span{source_id:SourceId(0),start:41,len:1}": {"expr:Int"},
+                "Span{source_id:SourceId(0),start:42,len:1}": {"expr:Int"},
+                "Span{source_id:SourceId(0),start:43,len:1}": {"expr:Int"},
+            },
+            exact_owners=exact_owners,
+        )
+
+    def test_rejects_empty_record_path_component_vector(self):
+        with self.assertRaises(AdapterError):
+            _validate(
+                _fields(),
+                exact_owners=_named_path_exact_owners(()),
+            )
 
     def test_tail_reference_uses_its_statement_type(self):
         exact_owners = {

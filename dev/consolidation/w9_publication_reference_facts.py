@@ -292,7 +292,9 @@ def _exact_owner_tables(
             raise AdapterError(f"exact owner record {parent} field indexes are not contiguous")
         if not indexes and count:
             raise AdapterError(f"exact owner record {parent} has no field rows")
-        normalized_fields = {}
+        normalized_fields: dict[
+            int, tuple[str, str | tuple[str, ...], str, int | None, int | None]
+        ] = {}
         for field_index, field in fields.items():
             if type(field_index) is not int or not isinstance(field, tuple) or len(field) != 5:
                 raise AdapterError(f"exact owner record field {parent}:{field_index} is malformed")
@@ -300,7 +302,6 @@ def _exact_owner_tables(
             if (
                 not isinstance(kind, str)
                 or kind not in _RECORD_FIELD_KINDS
-                or not isinstance(name, str)
                 or not isinstance(field_span, str)
             ):
                 raise AdapterError(f"exact owner record field {parent}:{field_index} has malformed values")
@@ -312,19 +313,32 @@ def _exact_owner_tables(
                     raise AdapterError(f"exact owner record field {parent}:{field_index} has an invalid child id")
             _check_span_bounds(field_span, f"exact owner record field {parent}:{field_index}", source_sizes)
             if kind == "computed":
-                if name or key_expr is None or value_expr is None:
+                if not isinstance(name, str) or name or key_expr is None or value_expr is None:
                     raise AdapterError(f"exact owner computed field {parent}:{field_index} is malformed")
             elif kind == "path":
-                if not name or key_expr is not None or value_expr is None:
+                if (
+                    not isinstance(name, tuple)
+                    or not name
+                    or any(not isinstance(component, str) for component in name)
+                    or key_expr is not None
+                    or value_expr is None
+                ):
                     raise AdapterError(f"exact owner path field {parent}:{field_index} is malformed")
             elif kind == "named":
-                if not _IDENTIFIER.fullmatch(name) or key_expr is not None or value_expr is None:
+                if not isinstance(name, str) or key_expr is not None or value_expr is None:
                     raise AdapterError(f"exact owner named field {parent}:{field_index} is malformed")
             elif kind == "shorthand":
-                if not _IDENTIFIER.fullmatch(name) or key_expr is not None or value_expr is not None:
+                if (
+                    not isinstance(name, str)
+                    or not _IDENTIFIER.fullmatch(name)
+                    or key_expr is not None
+                    or value_expr is not None
+                ):
                     raise AdapterError(f"exact owner shorthand field {parent}:{field_index} is malformed")
                 shorthand_keys.add((parent, field_index))
-            elif kind == "spread" and (name or key_expr is not None or value_expr is None):
+            elif kind == "spread" and (
+                not isinstance(name, str) or name or key_expr is not None or value_expr is None
+            ):
                 raise AdapterError(f"exact owner spread field {parent}:{field_index} is malformed")
             normalized_fields[field_index] = field
         normalized_records[parent] = {"span": span, "count": count, "fields": normalized_fields}
