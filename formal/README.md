@@ -101,7 +101,7 @@ Finite private Rust bridge fixtures exercise selected JSON limits, table
 bounds, and ghost-reference rejection. They are empirical tests of that
 private bridge; they are separate from the Lean theorems and do not establish
 general Rust conformance. Consolidation acceptance and the post-consolidation
-G0b source freeze remain pending. The provisional inventory has 631 fragment
+G0b source freeze remain pending. The provisional inventory has 637 fragment
 roots across 89 core owner sets and still marks all 72 universal theorem
 obligations planned. Integer operation fragments prove
 checked conversion's exact signed-range split and total outcomes for addition,
@@ -403,7 +403,7 @@ recursive solver answer and detects a first-edge-only mutation. These 15 roots
 cover bounded failure classification and graph operations; they do not
 establish Rust checker or graph-construction correspondence or full G3.
 
-The inventory names 631 rooted Lean fragment declarations across 89 core owner
+The inventory names 637 rooted Lean fragment declarations across 89 core owner
 sets. Its 51 Python tests check inventory shape, root reachability, mutation
 controls, and finite-case
 evidence boundaries; they are not semantic or Rust conformance tests. No full
@@ -447,6 +447,18 @@ representation equality used by `FloatValue::eq`. The
 `tests/xsh/float-equality.xsh` source regression includes signed zeros, NaNs,
 and nested values. These Lean laws and the source regression do not establish
 Rust conformance.
+
+`Xsh.Syntax.Foundation.ResolvedIdentity` defines declaration, occurrence, and
+dynamic binding identities. `Xsh.Semantics.Foundation.ResolvedBinding` checks
+the stored declaration against lexical lookup, then reads or writes through
+the active cell in the existing typed store. `Xsh.Proofs.Foundation.ResolvedBinding`
+has six roots for equal raw-name syntax in distinct checked declaration
+contexts, active-cell reads, selected-cell writes, declaration-mismatch
+rejection, an activation-only mutation that no longer names the active cell,
+and atomic wrong-type rejection. `OccurrenceId` labels a use but is not a lookup
+key. The model has no source-site table and proves no source-site uniqueness or
+whole lexical-shadowing semantics. It establishes no source, raw-IR, lowering,
+or Rust correspondence and closes no full G1/BASE obligation.
 
 Coverage schema 2 prepares the finite conformance ledger for G0b. The current
 inventory remains provisional, has no frozen source identity, contains no

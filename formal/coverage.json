@@ -8665,6 +8665,60 @@
       "status": "fragment",
       "scope": "A Boolean reply to typed timeNow is rejected as a specified failure with its observation trace preserved.",
       "boundary": "Independent scalar/integer BaseMachine and finite host-trace fragment only; pending waits stay linked to emitted typed requests by BaseHostTrace. No source, raw-IR, lowering, Rust, or concrete clock correspondence; no full BASE-* obligation or G1 closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ResolvedBinding.dynamic_binding_identity_round_trips_through_machine_cell",
+      "module": "Xsh.Proofs.Foundation.ResolvedBinding",
+      "declaration": "Xsh.Proofs.Foundation.ResolvedBinding.dynamic_binding_identity_round_trips_through_machine_cell",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Round-trips a cell identity and detects an activation-only change that no longer names the active cell.",
+      "boundary": "Finite examples over the existing observed scalar machine. OccurrenceId is a label, not a lookup key; no source-site table or uniqueness, whole lexical-shadowing semantics, source/lowering/Rust correspondence, or full G1/BASE closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ResolvedBinding.equal_name_syntax_has_distinct_occurrence_and_declaration_ids",
+      "module": "Xsh.Proofs.Foundation.ResolvedBinding",
+      "declaration": "Xsh.Proofs.Foundation.ResolvedBinding.equal_name_syntax_has_distinct_occurrence_and_declaration_ids",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Shows equal raw-name syntax can carry distinct occurrence and declaration identities.",
+      "boundary": "Finite identity examples only. OccurrenceId does not participate in lookup, and the roots prove no source-site table or uniqueness, source/lowering/Rust correspondence, or full G1/BASE closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ResolvedBinding.accepted_observed_uses_resolve_to_their_active_cells",
+      "module": "Xsh.Proofs.Foundation.ResolvedBinding",
+      "declaration": "Xsh.Proofs.Foundation.ResolvedBinding.accepted_observed_uses_resolve_to_their_active_cells",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Reads the typed active cell selected for each same-name checked declaration context.",
+      "boundary": "Two finite checked contexts over the existing observed scalar machine; no whole lexical-shadowing semantics, source-site table or uniqueness, source/lowering/Rust correspondence, or full G1/BASE closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ResolvedBinding.changing_a_use_to_an_unresolved_binding_is_rejected",
+      "module": "Xsh.Proofs.Foundation.ResolvedBinding",
+      "declaration": "Xsh.Proofs.Foundation.ResolvedBinding.changing_a_use_to_an_unresolved_binding_is_rejected",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Rejects reads and writes when a use declaration disagrees with lexical resolution.",
+      "boundary": "Finite declaration-mismatch witness over the existing observed scalar machine; no source-site table or uniqueness, whole lexical-shadowing semantics, source/lowering/Rust correspondence, or full G1/BASE closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ResolvedBinding.resolved_write_updates_only_the_selected_binding_cell",
+      "module": "Xsh.Proofs.Foundation.ResolvedBinding",
+      "declaration": "Xsh.Proofs.Foundation.ResolvedBinding.resolved_write_updates_only_the_selected_binding_cell",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Updates only the resolved cell while preserving another active cell.",
+      "boundary": "Finite write witness over the existing typed store and observed scalar machine; no source/lowering/Rust correspondence or full G1/BASE closure."
+    },
+    {
+      "id": "fragment.Xsh.Proofs.Foundation.ResolvedBinding.incompatible_value_write_is_rejected_without_store_change",
+      "module": "Xsh.Proofs.Foundation.ResolvedBinding",
+      "declaration": "Xsh.Proofs.Foundation.ResolvedBinding.incompatible_value_write_is_rejected_without_store_change",
+      "evidence_class": "SPEC_PROVED",
+      "status": "fragment",
+      "scope": "Rejects a wrong-type write with the original store unchanged.",
+      "boundary": "Finite type-mismatch witness over the existing typed store and observed scalar machine; no source/lowering/Rust correspondence or full G1/BASE closure."
     }
   ],
   "source_identity": null

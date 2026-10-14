@@ -1,5 +1,6 @@
 import Xsh.Foundation
 import Xsh.Syntax.Core
+import Xsh.Syntax.Foundation.ResolvedIdentity
 import Xsh.Values.Scalars
 import Xsh.Values.Composite
 import Xsh.Values.FloatEquality
@@ -41,7 +42,9 @@ import Xsh.Semantics.BaseHostTrace
 import Xsh.Proofs.BaseHostTrace
 import Xsh.Proofs.BaseHostRunnerLaws
 import Xsh.Semantics.Foundation.ObservedMachine
+import Xsh.Semantics.Foundation.ResolvedBinding
 import Xsh.Proofs.Foundation.ObservedMachine
+import Xsh.Proofs.Foundation.ResolvedBinding
 import Xsh.Validation.Boundary
 import Xsh.Validation.Store
 import Xsh.Validation.Nominal

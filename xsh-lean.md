@@ -38,14 +38,18 @@ mutation witness. This does not close G7a or establish Rust decoder/verifier
 correspondence. The effects checker bridge consumes already-classified
 `FactSet` summaries and checks their body-site obligations through the finite
 lexical model; it does not establish Rust classification/runtime correspondence
-or close `EFF-LATENT`/`EFF-SEMANTIC`. The inventory now names 631 fragment
+or close `EFF-LATENT`/`EFF-SEMANTIC`. The inventory now names 637 fragment
 roots across 89 owners; its 51 Python tests check inventory consistency,
 mutation controls, and finite-case evidence boundaries. The observed-machine
 fragment wraps the accepted scalar/integer BaseMachine in an ordered
 observation trace; progress preserves the link between a pending typed wait
-and its emitted request. It adds no source, raw-IR/lowering, Rust, or
-concrete-clock correspondence and closes no full BASE-* obligation or G1. The
-new RelPath roots cover the independent byte-list model only;
+and its emitted request. The binding adapter uses occurrence IDs as labels
+while resolving the same raw name in distinct checked declaration contexts,
+then reads or writes the corresponding active typed cell. It proves no
+source-site table or source-site uniqueness and no whole lexical-shadowing
+semantics. It establishes no source, raw-IR/lowering, Rust, or concrete-clock
+correspondence, and closes no full BASE-* obligation or G1. The RelPath roots
+cover the independent byte-list model only;
 they establish no Rust checker/runtime correspondence, symlink confinement,
 or full G2 validation closure. Five observation
 fragments pair caller-supplied emissions with classified obligations, require
@@ -558,6 +562,7 @@ Lean's bundled fresh checker is `leanchecker --fresh`; it was introduced in Lean
 
 | Raw decoder schema and effects checker bridge | Reviewed source commits `7e3a3db5` and `dc25d4d0` were cherry-picked as `50d786e2b` and `da453be39`. `Xsh.IR.Raw.DecoderSoundness` adds 12 roots for the finite four-tag row schema, successful payload constraints, malformed-row rejection, and a dropped-guard mutation witness. `Xsh.Effects.CheckerBridge` adds 12 roots that project already classified `FactSet` summaries to body-site obligations and exercise lexical creation charging, aliases, delegation, and conditional arms. The root imports both modules once. The inventory checker and all 50 Python tests pass; the inventory has 623 roots across 89 owner sets and all 72 theorem obligations remain planned. The full Lake build and guarded fresh kernel check pass. The axiom allowlist accepts 11,850 project declarations; all three negative controls are rejected; the prohibited-term scan and diff check pass. Schema 2 remains provisional with null `source_identity` and no finite conformance cases. | The decoder is a finite model of four tag kinds, not full raw-IR coverage or Rust decoder/verifier correspondence and does not close G7a. The effects bridge consumes classified summaries with captures fixed to the empty fixture; it proves no Rust classifier, checker, or runtime correspondence and closes neither EFF-LATENT nor EFF-SEMANTIC. |
 | Observed scalar/integer machine foundation | Reviewed source commit `c7e25db9` was cherry-picked as `ba30fa948`. `Xsh.Semantics.Foundation.ObservedMachine` and `Xsh.Proofs.Foundation.ObservedMachine` add eight `SPEC_PROVED` roots for accepted evaluated BaseExpr configurations, observed preservation, terminal/typed-host-wait/labeled-step progress, runner non-stuckness, and arithmetic/timeNow witnesses; `formal/Xsh.lean` imports each module once. The inventory checker, all 51 inventory tests, the full Lake root build, the axiom allowlist (11,912 declarations), all three negative controls, prohibited-term scan, guarded fresh checker, and diff check pass. Coverage remains provisional at 631 roots across 89 owners with `source_identity: null`, zero finite conformance cases, and all 72 universal obligations planned. | A pending wait remains tied to its emitted typed request by `BaseHostTrace`. The fragment establishes no source, raw-IR/lowering, Rust, or concrete clock correspondence and closes no full BASE-* obligation or G1. |
+| Occurrence-labeled binding identity | Reviewed source commit `4b5a84d` was cherry-picked as `9817a7a49`; the root imports each identity, semantics, and proof module once, and the inventory adds exactly six `SPEC_PROVED` roots. They cover same-name declarations, occurrence labels, active-cell reads and writes, declaration mismatch, activation-only cell mismatch, and atomic wrong-type rejection. The checker reports 637 roots, 89 owners, and 72 planned obligations; all 51 inventory tests, the full Lake root build, fresh kernel check, axiom audit (12,096 declarations) and three negative controls, prohibited-term scan, and diff check pass. `source_identity` stays null with zero finite cases. | `OccurrenceId` is a label, not a lookup key; the examples prove no source-site table or uniqueness, whole lexical-shadowing semantics, source/lowering/Rust correspondence, or full G1/BASE closure. |
 
 ## For the owner afterwards
 
