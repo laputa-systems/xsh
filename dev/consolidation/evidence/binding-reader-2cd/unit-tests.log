@@ -1,0 +1,144 @@
+    Finished `test` profile [unoptimized] target(s) in 0.05s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::stmt::reader_binding_identity_tests::callable_selection_reads_the_expression_binding_identity ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::stmt::reader_binding_identity_tests::missing_call_identity_does_not_fall_through_to_function ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::stmt::reader_binding_identity_tests::missing_expression_identity_does_not_fall_through_to_function ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.05s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::stmt::reader_binding_identity_tests::missing_tail_identity_does_not_fall_through_to_function_command ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.05s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::stmt::reader_binding_identity_tests::proof_subject_reads_the_expression_binding_identity ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::command::binding_identity_tests::command_binding_capture_keeps_the_first_selected_identity ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::expr::arena_tests::missing_implicit_item_identity_reports_unresolved_item ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::expr::arena_tests::stmt_let_var_assign ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.05s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::resource::tests::transfer_facts_distinguish_outer_and_same_block_assignments ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::stream::static_namespace_identity_tests::root_static_namespace_ignores_different_id_shadow ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::stream::static_namespace_identity_tests::selected_inner_static_namespace_remains_nonstatic ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::expr::arena_tests::stmt_control_flow ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::expr::arena_tests::call_constructors_and_unresolved_names ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::expr::arena_tests::call_module_apis_and_static_introspection ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::expr::arena_tests::call_method_dispatch_and_path_constructor_method ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::expr::arena_tests::stmt_commands_and_tail_bare_ident ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::expr::arena_tests::builder_and_structured_pipeline_are_native ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.05s
+     Running unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::expr::arena_tests::run_spawn_wait_are_native ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+

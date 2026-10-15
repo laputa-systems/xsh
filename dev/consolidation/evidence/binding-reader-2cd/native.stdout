@@ -1,0 +1,13 @@
+running 1 tests
+tests/xsh/item-shorthand.xsh::test_implicit_item_reads_like_a_named_parameter ... ok 0ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+running 1 tests
+tests/xsh/item-shorthand.xsh::test_nested_callbacks_have_their_own_item ... ok 0ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+running 1 tests
+tests/xsh/item-shorthand.xsh::test_error_handler_takes_the_error_as_its_item ... ok 0ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+running 1 tests
+tests/xsh/lexical-blocks.xsh::test_bare_blocks_preserve_implicit_stream_item_values ... ok 3ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+2

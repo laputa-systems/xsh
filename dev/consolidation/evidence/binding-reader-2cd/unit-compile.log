@@ -1,0 +1,3 @@
+   Compiling xsh v0.0.1 (/work)
+    Finished `test` profile [unoptimized] target(s) in 29.89s
+  Executable unittests src/lib.rs (.work/target-binding-authority/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)

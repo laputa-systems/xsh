@@ -134,6 +134,16 @@ work is authorized by this resume.
   `a7298ffa3`. Disposable assets remain under `.work/consolidation/qemu` and
   `.work/consolidation/gnu-reference`. Product tests await the final source and
   matching harnesses. The smoke establishes no privileged acceptance result.
+- Binding-reader repair `2cd2baa86` is integrated. AST expressions and tails
+  consume their published identities. Missing identities report existing
+  unresolved-name errors before procedure or literal-word fallback. Command
+  capture preserves its first selected ID. Proof creation retains the chosen
+  binding. Stream classification checks that binding's scope owner. Recovery,
+  constructor precedence, and the documented `error` module exception remain.
+  All 18 focused unit selections pass. Fresh verification products pass four
+  existing native item tests and match the constructor probe's baseline output.
+  [Retained output](evidence/binding-reader-2cd/README.md) records the checks,
+  source qualification, product hashes, and sizes. Canonical gates remain open.
 - Verification `xsh` and `xsht` products were rebuilt at `2688d52fc` for the
   assignment repair's output baseline. Repository and Laputa check and lint
   each exit zero. Preserve their complete outputs for candidate comparison.
@@ -147,10 +157,11 @@ have isolated worktrees under `.work/wt/`. Each lane
 requires review and focused verification before integration. Source changes
 require a new canonical freeze.
 
-The checker audit found AST-backed consumers that still select values by name
-instead of the shared `BindingId`. Repair assignment, proof, call, and command
-consumers while preserving recovery-only fallback and nearest active refinements.
-The audit establishes an authority gap, not a demonstrated user-visible failure.
+The checker audit's assignment and reader repairs are integrated. Requalify
+them on the final source. The invariants establish authority failures in
+controlled checker states, not demonstrated user-visible failures. Existing
+nearest-visible-name proof filters retain their identity checks. Changing
+those filters could replace a real shadow and is outside this repair.
 
 The diagnostic compiler replay at `52c0f5399` found 35 XSH and 19 XSHT source
 sites requiring explicit decisions for a synthetic expression variant. The
