@@ -122,9 +122,9 @@ pure shown(limit: Int?) -> Str {
 }
 
 test test_prlimit_lists_every_limit_of_a_process_in_a_table { |ctx|
-  let handle = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
+  let handle = spawn run sleep 60 ?
   let child = handle.pid
-  defer process.kill(child, signal: "KILL")
+  defer handle.cancel(signal: "KILL", kill_after: 0ms)
 
   if let Err(failure) = fix_limits(child) {
     test.skip(f"cannot lower this process's limits: {failure.message}")
@@ -176,9 +176,9 @@ test test_prlimit_lists_every_limit_of_a_process_in_a_table { |ctx|
 }
 
 test test_prlimit_shows_the_requested_resources_in_command_line_order { |ctx|
-  let handle = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
+  let handle = spawn run sleep 60 ?
   let child = handle.pid
-  defer process.kill(child, signal: "KILL")
+  defer handle.cancel(signal: "KILL", kill_after: 0ms)
 
   if let Err(failure) = fix_limits(child) {
     test.skip(f"cannot lower this process's limits: {failure.message}")
@@ -202,9 +202,9 @@ STACK    max stack size            115  215 bytes
 }
 
 test test_prlimit_output_columns_headings_and_raw_form { |ctx|
-  let handle = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
+  let handle = spawn run sleep 60 ?
   let child = handle.pid
-  defer process.kill(child, signal: "KILL")
+  defer handle.cancel(signal: "KILL", kill_after: 0ms)
 
   if let Err(failure) = fix_limits(child) {
     test.skip(f"cannot lower this process's limits: {failure.message}")
@@ -272,9 +272,9 @@ test test_prlimit_sets_limits_before_running_a_command { |ctx|
 }
 
 test test_prlimit_unlimited_values_and_verbose_reports { |ctx|
-  let handle = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
+  let handle = spawn run sleep 60 ?
   let child = handle.pid
-  defer process.kill(child, signal: "KILL")
+  defer handle.cancel(signal: "KILL", kill_after: 0ms)
 
   # `unlimited` and -1 are the same limit, and a lower bound needs no privilege.
   let cpu_before = process.rlimit("cpu", pid: child)?
@@ -392,9 +392,9 @@ test test_prlimit_raising_a_hard_limit_needs_privilege { |ctx|
     test.skip("root may raise hard limits")
   }
 
-  let handle = process.spawn(process.command_argv("sleep", ["sleep", "60"]))?
+  let handle = spawn run sleep 60 ?
   let child = handle.pid
-  defer process.kill(child, signal: "KILL")
+  defer handle.cancel(signal: "KILL", kill_after: 0ms)
 
   # A limit that no process can raise without privilege, since the nice
   # ceiling of an ordinary process is already 0.

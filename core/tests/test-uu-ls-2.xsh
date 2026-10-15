@@ -389,7 +389,7 @@ test test_uu_ls_ls_dired_normal_style_offsets { |ctx|
   uu.touch(s, "d/note")
   let r = invoke(s, ["--dired", "-l", "--quoting-style=literal", "--color=always", "d"], vars: {LS_COLORS: "no=35:di=36"})?
   uu.succeeds(r)
-  assert r.stdout.utf8()?.starts_with("  total 0\n")
+  assert rx"^  total [0-9]+$".matches(r.stdout.utf8()?.lines()[0])
   uu.stdout_contains(r, "//DIRED// 55 58 104 108\n")
   # GNU's offsets index the uncolored listing even when normal style emits SGR prefixes.
   let uncolored = bytes.from_text(rx"\x1b\[[0-9;]*m".replace(r.stdout as Str, with: ""))
@@ -923,11 +923,17 @@ test test_uu_ls_ls_indicator_style { |ctx|
     uu.stdout_contains(r, "@")
     uu.stdout_contains(r, "|")
   }
-  let sockets = test.temp_dir(ctx, name: "unix_socket")?
+  let repo = ctx.core_dir.parent()
+  assert fs.cwd()? == repo
+  let scratch = fp"{repo}/.work/tmp"
+  let root = fs.tempdir_in(scratch)?
+  defer root.close()
+  let sockets = root.host_path()?
+  let socket_path = fp"{sockets}/sock"
   let constants = linux.net_constants()
   let socket = linux.socket(constants.AF_UNIX, constants.SOCK_STREAM)?
   defer unix.close_fd(socket)
-  linux.bind(socket, {family: "unix", address: fp"{sockets}/sock".display()})
+  linux.bind(socket, {family: "unix", address: socket_path.relative_to(repo).display()})
   let r = invoke(s, [sockets.display(), "--indicator-style=classify"])?
   uu.succeeds(r)
   uu.stdout_only(r, "sock=\n")

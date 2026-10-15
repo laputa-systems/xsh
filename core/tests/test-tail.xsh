@@ -1,5 +1,6 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
-type FollowCase = {args: List[Str], expected: Bytes}
+type FollowAppend = {file: Path, data: Bytes}
+type FollowCase = {args: List[Str], expected: Bytes, initial: Bytes, appends: List[FollowAppend]}
 
 # Runs core/tail.xsh by its real path inside `root`, capturing both streams.
 proc tail_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
@@ -13,6 +14,26 @@ proc tail_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, p
 
 proc numbers(from: Int, to: Int) -> Bytes {
   bytes.concat([bytes.from_text(f"{n}\n") for n in range(from, to + 1)])
+}
+
+proc tail_append(file: Path, data: Bytes) [fs, process, net, error] -> Result[Unit] {
+  let fd = unix.open_fd(file, write: true, flags: ["append"])?
+  defer unix.close_fd(fd)
+  var offset = 0
+  while offset < data.len() {
+    let count = unix.write_fd(fd, data[offset..])?
+    assert count > 0
+    offset += count
+  }
+  Ok()
+}
+
+proc tail_wait_for_bytes(file: Path, expected: Bytes) [fs, time, error] -> Result[Bool] {
+  repeat 100 times {
+    if file.read_bytes()? == expected { return Ok(true) }
+    time.sleep(10ms)
+  }
+  Ok(false)
 }
 
 test test_tail_last_lines_of_files_and_stdin { |ctx|
@@ -383,30 +404,38 @@ test test_tail_follows_descriptor_appends_and_zero_count { |ctx|
   let other = fp"{root}/other"
   file.write(b"initial\n")
   other.write(b"other initial\n")
-  let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
   let cases: List[FollowCase] = [
-    {args: ["-f", "-s.02", "log"], expected: b"initial\nlog appended\n"},
-    {args: ["-q", "-n0", "-f", "-s.02", "log", "other"], expected: b"other appended\nlog appended\n"},
+    {args: ["-f", "-s.02", "log"], expected: b"initial\nlog appended\n", initial: b"initial\n", appends: [{file: file, data: b"log appended\n"}]},
+    {args: ["-q", "-n0", "-f", "-s.02", "log", "other"], expected: b"other appended\nlog appended\n", initial: b"", appends: [{file: other, data: b"other appended\n"}, {file: file, data: b"log appended\n"}]},
   ]
 
   for case in cases {
-    let writer = spawn run sh -c "sleep 0.1; printf 'other appended\\n' >> \"$2\"; sleep 0.1; printf 'log appended\\n' >> \"$1\"" sh $file $other ?
-    defer writer.cancel(signal: "KILL", kill_after: 0ms)
-
     let stdout = fp"{root}/stdout"
     let stderr = fp"{root}/stderr"
-    let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", ".5", ctx.xsh_bin.display(), tail.display(), @case.args]
-    let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
-    let status = process.run(plan)?
+    stdout.write(b"")
+    stderr.write(b"")
+    let watcher = spawn run sleep 60 ?
+    defer watcher.cancel(signal: "KILL", kill_after: 0ms)
 
-    let exit_code = status.exit_code()?
-    let output = stdout.read_bytes()?
-    let diagnostic = stderr.read_text()?
-    assert exit_code == 124, f"exit={exit_code} stderr={diagnostic}"
+    let argv = [ctx.xsh_bin.display(), tail.display(), "--debug", f"--pid={watcher.pid}"].extend(case.args)
+    let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+    let follower = spawn plan?
+    defer follower.cancel(signal: "KILL", kill_after: 0ms)
+
+    assert tail_wait_for_bytes(stderr, b"tail: using notification mode\n")?, stderr.read_text()?
+    var output = case.initial
+    assert tail_wait_for_bytes(stdout, output)?, stdout.read_text()?
+    for update in case.appends {
+      tail_append(update.file, update.data)?
+      output = bytes.concat([output, update.data])
+      assert tail_wait_for_bytes(stdout, output)?, stdout.read_text()?
+    }
     assert output == case.expected
-    assert diagnostic == ""
-    assert (wait writer?).exited_with(0)
+    watcher.cancel(signal: "KILL", kill_after: 0ms)?
+    assert (wait follower?).exited_with(0)
+    assert stdout.read_bytes()? == case.expected
+    assert stderr.read_text()? == "tail: using notification mode\n"
   }
 }
 
