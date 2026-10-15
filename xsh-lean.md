@@ -2,10 +2,12 @@
 
 **Status:** Paused by the owner on 2026-10-15 during consolidation winddown.
 Preserve existing foundations and unfinished work in Git. Start no new Lean
-lanes. On explicit resume, follow
+lanes. Only on an explicit Lean resume, follow
 [the typing and formal successor requirements](dev/consolidation/CAMPAIGN.md#typing-and-formal-successor-requirements):
 complete one connected compiler proof milestone while retaining the full-core
 obligations and post-consolidation source-freeze requirement.
+Typing acceptance does not wait for this phase. A typing-only resume leaves
+Lean paused.
 
 The foundations were authorized on 2026-10-13 after preflight.
 The pinned toolchain, finite private bridge fixtures, provisional inventory,

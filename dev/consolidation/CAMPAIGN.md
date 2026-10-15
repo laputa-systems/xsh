@@ -1,15 +1,16 @@
 # XSH Consolidation Campaign
 
-Status: winding down on 2026-10-15. The owner requests all unfinished work
-integrated, no linked worktrees retained, and a reboot-safe handoff. Lean is
-paused. Start no new implementation or verification work.
+Status: paused on 2026-10-15 after winddown. No linked worktrees remain.
+Unfinished source is preserved in Git and on parked refs. Consolidation
+acceptance is incomplete. Lean remains paused. Start no new implementation
+or verification until the owner explicitly resumes the relevant milestone.
 
 ## Owner steering, 2026-10-15
 
 The owner adopted [the typing and formal successor requirements](#typing-and-formal-successor-requirements)
-as the direction for resumed work. The current winddown and cleanup finish
-first. Lean remains paused. The steering's unattended execution instructions
-apply after an explicit resume; they do not restart lanes during winddown.
+as the direction for resumed work. Winddown and cleanup are complete. Lean
+remains paused. Unattended execution applies only after an explicit resume
+of the relevant milestone; a typing resume does not resume Lean.
 
 Judge these outcomes separately:
 
@@ -1082,11 +1083,27 @@ owner's request. The campaign is not complete.
   memory, size, scheduler, and comparative gates remain open.
   Consolidation is not complete.
 
+### 2026-10-15 — paused after winddown
+
+Preserved 50 reviewed unfinished overlays as byte-restorable recovery patches,
+retained detached source tips, and imported otherwise unretained standalone
+clone histories onto parked refs. Removed all 557 linked worktrees, the
+remaining standalone checkouts, and both sibling consolidation directories.
+The primary checkout is the only retained worktree. Large historical captures
+are locally ignored outside the disposable work directory.
+
+The owner steering is incorporated below, including the typing-only acceptance
+boundary, exact performance targets and their later waiver, and the first
+end-to-end inference slice. Lean stays paused. Final acceptance is incomplete;
+the last observer was interrupted for this stop. See the replacement
+[restart handoff](HANDOFF.md). No implementation or verification resumes
+merely because an agent reads these requirements.
+
 ## Typing and formal successor requirements
 
 The owner adopted these requirements on 2026-10-15. They govern resumed
-acceptance and successor work. The current winddown and Lean pause remain
-in force until explicit resume. General inference stays outside the
+acceptance and successor work. The pause after winddown remains
+in force until explicit resume, with Lean requiring its own explicit resume. General inference stays outside the
 behavior-preserving consolidation milestone.
 
 ### Mission
@@ -1101,7 +1118,7 @@ Deliver three separately judged outcomes:
 
 The review baseline was `31c07c71f871428d255fe48e042725e703126b58`. Inspect the actual current checkout; do not reset to this commit. Reuse existing campaign ownership, lane/model policy, and source-qualification procedures. Recreate worktrees under the repository work directory only after explicit resume. Preserve unrelated work and recorded failed receipts.
 
-Read current `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md`, `docs/DESIGN.md`, the relevant SPEC source templates, `dev/consolidation/{CAMPAIGN,HANDOFF,ITEMS}.md`, `formal/README.md`, `formal/coverage.json`, and the original unified typing campaign when available. Do not resurrect obsolete documentation paths or test commands from earlier briefs.
+Read current `AGENTS.md`, `docs/ARCHITECTURE.md`, `docs/TESTING.md`, `docs/DESIGN.md`, the relevant SPEC source templates, `dev/consolidation/{CAMPAIGN,HANDOFF,ITEMS}.md`, `formal/README.md`, and `formal/coverage.json`. The successor performance policy below owns every required numerical target and sampling rule. The original typing campaign is historical context; its availability is not an acceptance dependency. Do not resurrect obsolete documentation paths or test commands from earlier briefs.
 
 Honor the latest approved platform scope: the active consolidation campaign selects host-native x86_64 Linux musl in the pinned `Dockerfile.test` environment. Do not replace it with arbitrary Linux/glibc builds, revive the old macOS/ARM requirement, or mix receipts from unlike hosts, profiles, binaries, or resource allocations. Follow the repository's current `verification`, debug-unit, and release-performance profile rules.
 
@@ -1140,6 +1157,16 @@ Deliver a concise current-source acceptance summary in the existing handoff. Pre
 ### Phase B — establish a red/green capability contract for general inference
 
 Before redesigning the solver, turn the original user-facing promises into executable acceptance cases. Keep their initial current-checker outcomes as baseline evidence. Use the ordinary loader/checker/indexed execution path, not a special demonstration mode.
+
+The first implementation checkpoint is one end-to-end slice: polymorphic
+identity, record projection, two independent importing modules, and their
+corresponding rejection cases. Execute the accepted programs through normal
+verified indexed instructions after frontend disposal. Preserve reusable
+schemes without `Any` substitution, caller-trained signatures, or runtime
+inference. Retain the solver counters and the observed 400-variable alias-chain
+regression result, including its source and exact outcome before the repair.
+This checkpoint precedes wider language coverage and corpus migration.
+The current pause defers even this first checkpoint until explicit resume.
 
 At minimum, establish these positive witnesses:
 
@@ -1235,7 +1262,7 @@ Keep the existing isolated 15-second repository-lint budget and the active campa
 
 On the same pinned host/profile/resource allocation, separately measure parsing/loading, constraint generation, solving/generalization, checked-fact publication, lowering/verifying, end-to-end cold preparation, retained typing memory, peak process memory, and any separately observed cgroup peak. Label these metrics accurately.
 
-Retain the original typing campaign's paired frontend/preparation/runtime budgets. Freeze a fresh, justified successor baseline only after current consolidation closes; do not erase older failed receipts or silently rebase away regressions. Compare the new checker on unchanged annotated source, then annotation-reduced equivalents. Measure cold performance independently of session reuse; warm workspace checking is an additional result, not the substitute.
+Use the exact successor performance policy below. Freeze a fresh, justified successor baseline only after current consolidation closes; do not erase older failed receipts or silently rebase away regressions. Compare the new checker on unchanged annotated source, then annotation-reduced equivalents. Measure cold performance independently of session reuse; warm workspace checking is an additional result, not the substitute.
 
 Instrument deterministic counts: generated constraints, representative hops, unifications, occurs visits, row-field visits, scheme instantiations, candidate tests, watcher wakeups, solver passes, and per-module/body check counts. Compare several sizes of alias chains, wide/deep records, repeated generic instantiations, reversed declaration chains, module diamonds, and effect-call chains. Genuine growth in output type size must be distinguished from repeated work on the same type graph.
 
@@ -1243,7 +1270,88 @@ Preserve session-cache isolation and source/option/interface key validity. Attri
 
 Performance repairs must preserve solution/rejection under variable renaming, legal constraint reordering, module-root changes, and rollback. Raising budgets, deleting adversarial tests, or returning recovery types on exhaustion is not an improvement.
 
-### Phase F — turn Lean fragments into a connected compiler milestone
+#### Successor performance policy
+
+This section is the durable numerical owner. The original table survives in
+`f9cec20c35385686fe4ea0a1d64621fde1bbbf8b` at
+`bench/typing/history/877a114d/xsh-typing-inference-campaign.md`, section 13.3.
+The same commit's current `xsh-typing-inference-campaign.md`, sections 13.2–13.4,
+and `bench/typing/measurement-policy.json` supersede its hard percentage
+ceilings and 200-sample p95 acceptance with lightweight observations. Preserve
+that later waiver. The table copies the original numbers as reference targets;
+it does not reinstate them as hard gates. Large or reproducible regressions
+still require explanation. No new tighter target is introduced here.
+
+Freeze baseline `B` from the accepted post-consolidation source before typing
+changes. Compare candidate `C` on the identical stabilized annotated cohort.
+For reduced-source comparisons, `B` instead denotes that same candidate on its
+annotated source. For generic comparisons, `B` denotes its handwritten
+monomorphic equivalent with the same algorithm, inputs, calls, and effects.
+Freeze those comparator identities and eligible workloads before measurement.
+The old macOS baseline is historical and cannot qualify current Linux results.
+
+Profile `P` is the current release profile: opt3, thin LTO, 16 codegen units,
+host-native x86_64 Linux musl in the pinned `Dockerfile.test` environment.
+Use identical features, toolchain, worker configuration, and recorded resource
+allocation for both arms. Profile `I` is a separately identified instrumented
+profiling product with the same release settings for retained-byte accounting.
+Its timings and allocator traffic do not substitute for product timing or RSS.
+Ordinary verification remains opt3 without LTO and 64 codegen units.
+
+Sampling rule `S` is one fresh-process warmup per arm and workload, then five
+measured fresh-process pairs with alternating arm order. Report each arm's
+ordinary median and full observed range, preserving every raw sample. Cold
+checks have no process-local solver/interface reuse; filesystem caches may be
+warm. Keep within-bundle reuse. Retain invalid pairs and their reasons; replace
+the entire pair, with at most ten invalid pairs per workload. A changed source,
+binary, or configuration starts a new set; do not pool incompatible sets.
+Collect memory in the same product observations or separately under `I`, with
+matching units and collector definitions. Five observations establish no p95.
+
+Time-based observations require `perf-gate-ready` to exit zero before and with
+`-1` immediately afterward. Discard timing overlapped by load. If the host stays
+busy, record `perf gate deferred: host busy`; a deferred gate is not a pass.
+Memory and binary-size checks still run. Record CPU time as well as wall time;
+use the minimum CPU observation for primary comparisons and retain medians and
+ranges for context. Do not fail on a timing difference within observed spread.
+This current host-readiness rule supersedes the historical no-quiet-host rule.
+
+In the table, `B50` and `B95` are the matching baseline median and historical
+p95, and `Bmem` is the matching baseline memory quantity. Percentages apply to
+that statistic; absolute memory tolerances use binary MiB. Historical p95
+targets are recorded for completeness and remain unmeasured under rule `S`.
+
+| Metric and comparison | Median or memory reference target | Historical p95 reference target | Profile | Sampling | Status |
+|---|---|---|---|---|---|
+| Cold frontend, identical annotated source | `C50 <= B50 + max(5% * B50, 1 ms)` | `C95 <= B95 + max(10% * B95, 2 ms)` | P | S | Aspirational reference |
+| Production peak RSS, identical annotated source | `Cmem <= Bmem + max(10% * Bmem, 2 MiB)` | None | P | S, record process peaks | Aspirational reference |
+| Retained typing/interface bytes, identical annotated source | `Cmem <= Bmem + max(10% * Bmem, 2 MiB)` | None | I | Separate matched retained-byte observations | Aspirational reference |
+| Startup through verified preparation, identical annotated source | `C50 <= B50 + max(5% * B50, 1 ms)` | `C95 <= B95 + max(10% * B95, 2 ms)` | P | S | Aspirational reference |
+| Unchanged monomorphic runtime | `C50 <= B50 + max(5% * B50, 1 ms)` | `C95 <= B95 + max(10% * B95, 2 ms)` | P | S | Aspirational reference |
+| Jointly reduced versus candidate annotated frontend | `C50 <= B50 + max(20% * B50, 2 ms)` | `C95 <= B95 + max(25% * B95, 3 ms)` | P | S | Aspirational reference |
+| Reduced versus annotated peak RSS and retained bytes, measured separately | `Cmem <= Bmem + max(15% * Bmem, 2 MiB)` | None | P for RSS; I for retained bytes | S for RSS; matched retained-byte observations | Aspirational reference |
+| Generic/evidence runtime versus monomorphic equivalent | `C50 <= B50 + max(5% * B50, 1 ms)` | `C95 <= B95 + max(10% * B95, 2 ms)` | P | S | Aspirational reference |
+| Generic/evidence startup versus monomorphic equivalent | `C50 <= B50 + max(10% * B50, 1 ms)` | `C95 <= B95 + max(15% * B95, 2 ms)` | P | S | Aspirational reference |
+| Generic/evidence peak RSS versus monomorphic equivalent | `Cmem <= Bmem + max(10% * Bmem, 2 MiB)` | None | P | S, record process peaks | Aspirational reference |
+
+These existing numerical gates and investigation thresholds remain separate:
+
+| Metric | Comparison baseline | Limit and absolute tolerance | Profile | Sampling | Status |
+|---|---|---|---|---|---|
+| Repository lint, including startup, discovery, checking, and linting | Absolute elapsed wall time | 15 seconds; no added tolerance | P | Existing isolated `repository_lint_is_clean_within_wall_budget` test, readiness before and after | Hard gate |
+| Total and applicable family-specific solver work | Previous size in fixed-seed 1k/2k/4k/8k families | At most 2.6x at both 2k→4k and 4k→8k; no absolute allowance | Same identified counter product in both arms | Exact deterministic counts for every size and family | Hard gate |
+| Retained type/constraint memory scaling | Previous size in the same families | At most 2.5x at both final doublings; no absolute allowance | I | Matched retained-byte accounting for every size and family | Hard gate |
+| Wall-time scaling | Previous size in the same families | Investigate growth above 2.8x; no absolute allowance | P | S and readiness before and after | Investigation threshold |
+
+Separate unavoidable output growth from repeated work. Ordinary families must
+remain below their frozen resource guards; hitting a guard fails that family.
+No invocation-time inference, per-incidental-shape bodies, input-proportional
+metadata graphs, or erased unresolved effects are allowed, regardless of timing.
+Record phase costs, memory, prepared evidence/code size, and finite resource
+guards without inventing additional numerical thresholds. Existing consolidation
+performance requirements retain their own owner and remain prerequisites.
+
+### Phase F — connected Lean compiler milestone, deferred
 
 Keep Lean an independent specification/verification layer. No production dependency on Lean. Preserve the existing formal campaign's core scope and all universal obligations; coreutils, system-report, btop, and other application algorithms do not become proof targets here. They may supply minimized semantic counterexamples.
 
@@ -1261,6 +1369,16 @@ Complete one connected slice as an intermediate milestone while leaving broader 
 
 ### Execution and completion
 
+Typing convergence is judged on Phases B–E, after the existing consolidation
+prerequisite closes. Phase F remains deferred until the owner explicitly
+resumes Lean. A typing-only resume does not authorize formal work, and the
+paused formal milestone does not block typing acceptance.
+
+The paused status at the top of this document is a deliberate stop. Reading
+these requirements or completing documentation does not resume implementation
+or verification. After explicit typing resume, use the first end-to-end slice
+in Phase B as the initial implementation milestone.
+
 Use existing current repository gate commands and changed-path selection. Process tests use verification/release products from the same target; debug-only unit assertions still run in their proper profile. Respect the no-source-tree-formatter/autofixer rule. Focused migration acceptance in isolated temporary fixtures is in scope; whole-tree mechanical churn is not.
 
 Continue through independently ready work without asking routine design questions. Use bounded agent/worktree ownership and separate compilation/test/performance concurrency budgets. Do not weaken or quarantine a failing test to maintain momentum. If a genuine blocker remains, report the exact reproducer, constraint, failed gate, and dependent work; do not mark the milestone complete or replace the implementation with a report.
@@ -1271,6 +1389,6 @@ The final report must answer, in order:
 2. Which formerly rejected unannotated programs now have principled inferred schemes, including independent imports and negative controls?
 3. How many eligible annotations were removed jointly on the frozen real-program cohort, without weaker boundaries?
 4. What do cold phase timings, retained memory, runtime comparisons, and scaling counters show?
-5. Which Lean statements now form a connected proof/correspondence milestone, which are finite empirical evidence, and which universal obligations remain unproved?
+5. For a typing-only report, state that Lean is deferred by the owner and does not block typing acceptance. Only after an explicit Lean resume, report which statements form a connected proof/correspondence milestone, which are finite empirical evidence, and which universal obligations remain unproved.
 
 The desired outcome is not another large volume of syntax, formal fragments, or acceptance paperwork. It is an annotation-light, fast, soundly constrained compiler whose existing corpus and formal layer test the same semantic contracts.
