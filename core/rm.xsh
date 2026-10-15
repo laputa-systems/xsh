@@ -138,8 +138,7 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
     for child in entries {
       let base = search.basename_bytes(child.path.bytes())
       let child_name = if name.ends_with(b"/") { bytes.concat([name, base]) } else { bytes.concat([name, b"/", base]) }
-      let child_target = search.child(target, base)?
-      let result = remove_target(child_target, child_name, opts, device, interactive, automatic, presume_input_tty)
+      let result = remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
       if ! result.ok { success = false }
       if let failure = result.write_error { if write_error == null { write_error = failure } }
       if ! result.removed { retained = true }
