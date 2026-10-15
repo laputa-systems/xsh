@@ -902,3 +902,27 @@ let code = status.exit_code() ?
     ],
   )
 }
+
+test test_imported_standard_modules_keep_namespace_resolution { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""use system
+use unix
+proc machine_and_features() [env, process, error] {
+  let machine = system.uname()?.machine
+  let features = unix.cpu_features()
+  assert machine != ""
+  for feature in features { assert feature != "" }
+  print ${machine}
+  print ${features.len()}
+}
+machine_and_features()?
+""",
+    status: 0,
+  )?
+  assert output.stderr == "", output.stderr
+  let lines = output.stdout.lines().collect()
+  assert lines.len() == 2, output.stdout
+  assert lines[0] != ""
+  assert lines[1].parse_int()? >= 0
+}

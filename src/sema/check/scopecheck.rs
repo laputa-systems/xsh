@@ -418,6 +418,15 @@ impl ScopeChecker<'_> {
 
     fn import(&mut self, import: UseStmtId, span: Span, global: bool) {
         let entry = self.program.arena.use_stmt(import);
+        if entry.resolved.is_none() && entry.alias.is_none() {
+            let mut path = self.program.arena.names(entry.path);
+            if let Some(name) = path.next()
+                && path.next().is_none()
+                && super::api_spec().module(&name.as_str()).is_some()
+            {
+                return;
+            }
+        }
         if let Some(name) = entry.alias.or_else(|| self.program.arena.names(entry.path).last()) {
             let kind = entry.resolved.as_deref().map_or(BindingKind::Runtime,
                 |key| BindingKind::Module(Name::intern(key)));
