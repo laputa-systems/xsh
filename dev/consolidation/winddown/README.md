@@ -31,13 +31,15 @@ is preserved for recovery, not selected as current runtime behavior.
 
 [The branch index](branches.tsv) records all local branch tips at winddown.
 [The detached index](detached.tsv) records detached checkout bases. Their
-commits are retained through the archival merge on `master`, so recovery does
-not depend on a surviving lane branch or a linked worktree. Inspect a commit
-with `git show COMMIT`. Create a new branch from it only when resuming that work.
+commits remain on their named local branches. Additional detached tips have
+explicit tags in [the recovery-tag index](detached-refs.tsv). Recovery does
+not depend on any linked worktree. Inspect a commit with `git show COMMIT`.
+Create a new checkout only when resuming that work.
 
-An archival merge preserves the alternative trees in Git history. It does not
-establish that their changes are active, compatible, or verified. The selected
-compiler source remains the source already integrated before winddown.
+Automatic approval review rejected a mass archival merge because it would mark
+unintegrated alternatives as merged. The 824 non-ancestor branches remain
+visibly parked. They are not accepted implementation. The selected compiler
+source remains the source already integrated before winddown.
 
 ## Read the retained evidence
 
@@ -53,6 +55,19 @@ passed 1,022 tests. Neither result closes the remaining canonical, native,
 structural, semantic-review, scheduler, or comparative acceptance requirements.
 The isolated lint command exited zero but exceeded the 15-second budget.
 The historical extra AWK outcome remains unexplained.
+
+The ignored `.campaign-evidence/consolidation` directory outside the disposable
+work directory holds the large historical captures. These captures are optional
+evidence; source recovery and resume do not require them. Keep them out of Git.
+
+`w9-raw.tar.zst.part-00` and `w9-raw.tar.zst.part-01` retain the 208 candidate,
+derived reference, comparison receipts, and both exact-owner captures. Join
+the parts in name order and decode with `zstd --long=28 -d` before reading the
+tar archive. All 61,825 archived files were compared byte for byte with their
+original captures. `w9-input-corpus.tar.zst` retains the 1,690 frozen input
+files and their original manifest. Each input matched that manifest before
+archiving. These are historical finite observations, not current-source or
+universal correctness claims. The original receipt paths remain historical.
 
 The `gate-tools` directory preserves the ignored gate-tool source. It is a
 historical implementation, not an executable acceptance receipt. Its launch

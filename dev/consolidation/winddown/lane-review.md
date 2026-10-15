@@ -4,7 +4,7 @@ This inventory compares the pre-winddown lane tips with `e0ede796e`.
 There were 824 non-ancestor branches. Of these, 716 had no unique non-merge
 patch according to `git cherry`. The remaining 108 contained historical
 alternatives requiring archival preservation. Path overlap does not prove
-semantic equivalence. All committed tips are retained in master ancestry.
+semantic equivalence. All committed tips retain named branch or recovery-tag refs.
 The feature-probe instrumentation contains intentional `todo!()` arms and
 must remain diagnostic source. Existing Lean feature modules are already
 represented in master; the dirty base-equality overlay is separately archived.
