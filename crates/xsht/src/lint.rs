@@ -145,7 +145,7 @@ mod rules;
 
 #[path = "lint_flow.rs"]
 mod flow;
-use flow::{FlowSummary, stmt_flow};
+use flow::{FlowFacts, FlowSummary};
 
 #[path = "lint_reachability.rs"]
 mod reachability;
@@ -207,7 +207,7 @@ use xsh::frontend::syntax::arena::{
     ArenaText, ArenaTypeDefBody, ArenaTypeExprTag, ArenaWordPart, AssignTargetId, AstArena,
     BindingTargetId,
     BlockId, BuilderBlockId, CommandStmtId, DeferTrigger, ExprId, FunctionDefId, PatternId,
-    RunFormId, StmtId, SugarForm, TypeExprId,
+    RunFormId, StmtId, SugarForm, TypeExprId, WaitPace,
 };
 use xsh::frontend::syntax::node::{
     AssignOp, BinaryOp, CoreCommand, Effect, RunKind, StreamStageKind, UnaryOp,
@@ -666,6 +666,7 @@ pub struct Linter<'a> {
     source_assignment_names: FxHashSet<Name>,
     assignment_collection_enabled: bool,
     assignment_candidates: Vec<AssignmentCandidate>,
+    flow_facts: Option<FlowFacts>,
     regex_recovery_context: bool,
     assertion_capture_depth: usize,
     duration_conversion_module_unshadowed: bool,
@@ -1199,6 +1200,9 @@ impl<'a> Linter<'a> {
             source_assignment_names: FxHashSet::default(),
             assignment_collection_enabled: false,
             assignment_candidates: Vec::new(),
+            flow_facts: rule_selection
+                .enabled(DiagnosticCode::LintDeadCode)
+                .then(FlowFacts::default),
             regex_recovery_context: false,
             assertion_capture_depth: 0,
             list_any_bindings: lint_list_any_union::ListAnyBindings::default(),
@@ -1694,7 +1698,7 @@ impl<'a> Linter<'a> {
         rules::root_sequence(self, statements);
         self.assignment_collection_enabled = self.checked_output.is_none();
         let close_diagnostic_index = self.diagnostics.len();
-        self.lint_statement_sequence(statements);
+        let _ = self.lint_statement_sequence(statements);
         self.assignment_collection_enabled = false;
         if let Some(edges) = &mut self.callable_edges {
             edges.finish_program();

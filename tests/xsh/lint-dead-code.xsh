@@ -86,6 +86,52 @@ test test_lint_keeps_following_code_reachable_after_conditional_exit_and_zero_it
   assert headers(reported.stderr) == [], reported.stderr
 }
 
+test test_lint_keeps_pattern_condition_fallback_reachable { |ctx|
+  let reported = dead_code(
+    ctx,
+    "proc work(outcome: Result[Int]) {\n  if let Ok(value) = outcome {\n    return\n  }\n  print \"reachable after pattern condition\"\n}\n",
+  )?
+  assert reported.status.exited_with(0), reported.stderr
+  assert headers(reported.stderr) == [], reported.stderr
+}
+
+test test_lint_flow_preserves_defer_try_and_sugar_continuations { |ctx|
+  let reported = dead_code(
+    ctx,
+    "proc deferred() {\n  defer { print \"cleanup\" }\n  print \"reachable after defer\"\n}\n\nproc repeated(count: Int) {\n  repeat count times { return }\n  print \"reachable after repeat\"\n}\n\nproc indexed() {\n  for index, item in [\"item\"] { return }\n  print \"reachable after indexed loop\"\n}\n\nproc propagated() [error] {\n  let value = \"7\".parse_int()?\n  print \"reachable after try\"\n}\n\nproc guarded(ready: Bool) [error] {\n  guard ready else fail \"not ready\"\n  print \"reachable after guard\"\n}\n\nproc waited() [time, error] {\n  wait until true within 1ms\n  print \"reachable after wait\"\n}\n",
+  )?
+  assert reported.status.exited_with(0), reported.stderr
+  assert headers(reported.stderr) == [], reported.stderr
+}
+
+test test_lint_flow_keeps_producer_returns_inside_the_producer { |ctx|
+  let reported = dead_code(
+    ctx,
+    "stream values() -> Stream[Int] {\n  return\n  yield 1\n}\n\nproc later() {\n  print \"reachable\"\n}\n",
+  )?
+  assert headers(reported.stderr) == [unreachable], reported.stderr
+  assert "dead.xsh:3:3\n" in reported.stderr, reported.stderr
+}
+
+test test_lint_flow_carries_atomic_body_returns_to_the_enclosing_sequence { |ctx|
+  let reported = dead_code(
+    ctx,
+    "proc publish(dest: Path) [fs, error] -> Result[Unit] {\n  atomically replace dest as partial {\n    return\n  }\n  print \"unreachable\"\n}\n",
+  )?
+  assert headers(reported.stderr) == [unreachable], reported.stderr
+  assert "dead.xsh:5:3\n" in reported.stderr, reported.stderr
+}
+
+test test_lint_flow_preserves_guard_fail_pacing_and_builder_transfers { |ctx|
+  let reported = dead_code(
+    ctx,
+    "proc guarded(ready: Bool) {\n  guard ready else { return }\n  print \"reachable after block guard\"\n}\n\nproc unless_return(stop: Bool) {\n  return unless stop\n  print \"reachable after unless\"\n}\n\nproc paced() [time, error] {\n  wait until true within 1ms every 1ms\n  wait until true within 1ms backoff 1ms..4ms\n  print \"reachable after waits\"\n}\n\nproc failed() [error] {\n  fail \"failed\"\n  print \"unreachable after fail\"\n}\n\nproc built(stop: Bool) [process, error] {\n  let command = process.command {\n    timeout = if stop { return } else { return }\n    run true\n  }\n  print \"unreachable after builder\"\n}\n",
+  )?
+  assert headers(reported.stderr) == [unreachable, unreachable], reported.stderr
+  assert "dead.xsh:19:3\n" in reported.stderr, reported.stderr
+  assert "dead.xsh:27:3\n" in reported.stderr, reported.stderr
+}
+
 test test_lint_keeps_code_after_loop_break_reachable_but_reports_dead_loop_body { |ctx|
   let reported = dead_code(
     ctx,

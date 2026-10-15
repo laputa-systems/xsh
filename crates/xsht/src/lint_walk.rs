@@ -71,6 +71,7 @@ impl LintExprVisitor<'_, '_> {
         self.linter.propagation_boundary_depth += 1;
         self.visit_expression(expr);
         self.linter.propagation_boundary_depth -= 1;
+        self.linter.record_flow_expression(expr);
     }
 
     fn visit_expression(&mut self, expr: ExprId) {
@@ -255,6 +256,7 @@ impl LintExprVisitor<'_, '_> {
                         arena.expr(branch.condition).kind
                     {
                         self.visit_expr(value);
+                        self.linter.record_flow_expression(branch.condition);
                         self.linter.push_scope();
                         self.linter
                             .lint_pattern(arena.match_expr_arms(arms)[0].pattern);
@@ -711,6 +713,9 @@ impl LintExprVisitor<'_, '_> {
                 self.visit_redirection(&redirection);
             }
         }
+        if let Some(flow_facts) = &mut self.linter.flow_facts {
+            flow_facts.record_run(arena, run);
+        }
     }
 
     fn visit_env_assignment(&mut self, assignment: &ArenaEnvAssignment) {
@@ -908,6 +913,9 @@ impl<'a> Linter<'a> {
             self.source_assignment_names.insert(name);
         }
         self.lint_stmt_inner(stmt_id, exported);
+        if let Some(flow_facts) = &mut self.flow_facts {
+            flow_facts.record_statement(self.arena, stmt_id);
+        }
         self.assignment_collection_enabled = previous_collection;
     }
 
@@ -1525,6 +1533,7 @@ impl<'a> Linter<'a> {
     pub(super) fn lint_pattern_condition_block(&mut self, condition: ExprId, block: BlockId) {
         if let ArenaExprKind::PatternCondition { value, arms } = self.arena.expr(condition).kind {
             self.lint_expr(value);
+            self.record_flow_expression(condition);
             self.push_scope();
             self.lint_pattern(self.arena.match_expr_arms(arms)[0].pattern);
             self.lint_block_statements(block);
@@ -1548,7 +1557,10 @@ impl<'a> Linter<'a> {
             .collect();
         rules::block_sequence(self, &stmts, block);
         let close_diagnostic_index = self.diagnostics.len();
-        self.lint_statement_sequence(&stmts);
+        let flow = self.lint_statement_sequence(&stmts);
+        if let (Some(flow), Some(flow_facts)) = (flow, &mut self.flow_facts) {
+            flow_facts.record_block(block, flow);
+        }
         rules::sequence_exit(
             self,
             rules::SequenceExitSite::Block,
@@ -1581,6 +1593,9 @@ impl<'a> Linter<'a> {
                 }
             }
             ArenaCommand::Run(run) => self.lint_run(run),
+        }
+        if let Some(flow_facts) = &mut self.flow_facts {
+            flow_facts.record_command(self.arena, stmt_id);
         }
     }
 
@@ -1621,6 +1636,9 @@ impl<'a> Linter<'a> {
                 self.lint_assign_target(base);
                 self.lint_expr(index);
             }
+        }
+        if let Some(flow_facts) = &mut self.flow_facts {
+            flow_facts.record_assign_target(self.arena, target);
         }
     }
 
@@ -1666,6 +1684,12 @@ impl<'a> Linter<'a> {
         self.stream_producers
             .restore_candidate_analysis(active_candidate);
         self.assignment_collection_enabled = previous_collection;
+    }
+
+    pub(super) fn record_flow_expression(&mut self, expr: ExprId) {
+        if let Some(flow_facts) = &mut self.flow_facts {
+            flow_facts.record_expression(self.arena, expr);
+        }
     }
 
     pub(super) fn observe_expression_positions(&mut self, expression: ExprId) {
@@ -1773,6 +1797,9 @@ impl<'a> Linter<'a> {
                 ArenaBuilderEntryKind::Task { block, .. } => self.lint_block_statements(block),
                 ArenaBuilderEntryKind::Stmt(stmt) => self.lint_stmt(stmt, false),
             }
+        }
+        if let Some(flow_facts) = &mut self.flow_facts {
+            flow_facts.record_builder_block(self.arena, block);
         }
         self.pop_scope();
     }

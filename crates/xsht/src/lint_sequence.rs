@@ -11,7 +11,7 @@ use super::{
     expr_may_assign_local, expr_may_have_effects, expr_references_name,
     format_binding_target, is_map_empty_call, list_splice_element_type_is_precise,
     list_update_argument_stable, map_comp_key_can_be_bare, pipeline_argument_expr,
-    span_end_after_following_newlines, span_may_contain_comment, stmt_flow, type_expr_kind,
+    span_end_after_following_newlines, span_may_contain_comment, type_expr_kind,
 };
 
 pub(super) fn return_list_type_expr(arena: &AstArena, ty: TypeExprId) -> bool {
@@ -657,9 +657,9 @@ impl<'a> Linter<'a> {
         }
     }
 
-    pub(super) fn lint_statement_sequence(&mut self, stmts: &[StmtId]) {
+    pub(super) fn lint_statement_sequence(&mut self, stmts: &[StmtId]) -> Option<FlowSummary> {
         rules::statement_sequence(self, stmts);
-        let mut flow = FlowSummary::fallthrough();
+        let mut flow = self.flow_facts.as_ref().map(|_| FlowSummary::fallthrough());
         let mut reported_dead_region = false;
         let collect_pair_hooks = rules::statement_pair_enabled(self);
         let mut pair_insertion_points = Vec::new();
@@ -669,16 +669,22 @@ impl<'a> Linter<'a> {
                     pair_insertion_points.push((stmts[index - 1], stmt, self.diagnostics.len()));
                 }
             }
-            if rules::enabled(self, DiagnosticCode::LintDeadCode)
-                && !flow.fallthrough
+            if flow.is_some_and(|flow| !flow.fallthrough)
                 && !reported_dead_region
             {
                 rules::before_statement(self, stmt);
                 reported_dead_region = true;
             }
             self.lint_stmt(stmt, false);
-            if flow.fallthrough {
-                flow = flow.then(stmt_flow(self.arena, stmt));
+            if let Some(current) = flow
+                && current.fallthrough
+            {
+                flow = Some(current.then(
+                    self.flow_facts
+                        .as_ref()
+                        .expect("dead-code flow facts are enabled for this sequence")
+                        .statement(stmt),
+                ));
             }
         }
         let mut inserted = 0;
@@ -690,6 +696,7 @@ impl<'a> Linter<'a> {
             self.move_diagnostics_to(before, end, insertion_point + inserted);
             inserted += count;
         }
+        flow
     }
 
     pub(super) fn lint_list_element_reconstruction(&mut self, stmts: &[StmtId]) {
