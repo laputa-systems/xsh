@@ -331,7 +331,14 @@ proc run_case(ctx: TestContext, case: MatrixCase, index: Int) [fs, process, env,
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/awk.xsh".display(), "--", @arguments]
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: ""}, stdin, out, err)
+  let root_permission_case = !case.modes.is_empty() and unix.id()?.euid == 0
+  let executable = if root_permission_case { process.which("setpriv")? } else { ctx.xsh_bin }
+  let command = if root_permission_case {
+    ["setpriv", "--bounding-set", "-dac_override,-dac_read_search", "--"].extend(argv)
+  } else {
+    argv
+  }
+  let plan = process.command_argv(executable, command, root, {XSH_EXECUTION_PHRASE: ""}, stdin, out, err)
   var overlay: Map[Str] = {}
   for pair in case.env { overlay = overlay.set(pair[0], pair[1]) }
   let ran = env (overlay) { process.run(plan) }
