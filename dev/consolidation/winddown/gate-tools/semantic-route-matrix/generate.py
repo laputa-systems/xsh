@@ -4565,24 +4565,24 @@ def validate_route_witness_mappings(
     extra = sorted(set(by_id) - set(expected))
     if missing or extra:
         raise EvidenceError(f"route-witness source map differs: missing={missing}; extra={extra}")
-    expression_child_mappings = [
-        mapping
-        for mapping in mappings
-        if mapping["mapping_kind"] != "artifact_capability" and "child_source" in mapping
-    ]
-    if expression_child_mappings:
-        expected_expression_tags = {row["tag"] for row in rows if row["kind"] == "Expr"}
-        mapped_expression_tags = {
-            mapping["tag"]
-            for mapping in mappings
-            if mapping["tag"].startswith("Expr") and "child_source" in mapping
-        }
-        if mapped_expression_tags != expected_expression_tags:
-            raise EvidenceError(
-                "expression route-witness child map differs from schema: "
-                f"missing={sorted(expected_expression_tags - mapped_expression_tags)}; "
-                f"extra={sorted(mapped_expression_tags - expected_expression_tags)}"
-            )
+    schema_tags = set(rows_by_tag)
+    mapped_tags = {mapping["tag"] for mapping in mappings}
+    if mapped_tags != schema_tags:
+        raise EvidenceError(
+            "route-witness tag map differs from schema: "
+            f"missing={sorted(schema_tags - mapped_tags)}; "
+            f"extra={sorted(mapped_tags - schema_tags)}"
+        )
+    expected_expression_tags = {row["tag"] for row in rows if row["kind"] == "Expr"}
+    mapped_expression_tags = {
+        mapping["tag"] for mapping in mappings if "child_source" in mapping
+    }
+    if mapped_expression_tags != expected_expression_tags:
+        raise EvidenceError(
+            "expression route-witness child map differs from schema: "
+            f"missing={sorted(expected_expression_tags - mapped_expression_tags)}; "
+            f"extra={sorted(mapped_expression_tags - expected_expression_tags)}"
+        )
     return by_id
 
 

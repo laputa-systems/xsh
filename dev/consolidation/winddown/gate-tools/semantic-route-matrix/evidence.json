@@ -23,1848 +23,2531 @@
   ],
   "route_witness_mappings": [
     {
-      "mapping_kind": "statement_expression",
+      "tag": "BoolAnd",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_and",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprBinary",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_binary"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
+        },
         "forced": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        },
+        }
+      }
+    },
+    {
+      "tag": "BoolBool",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_bool",
+      "mode_expectations": {
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprCall",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_call"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
+        },
         "forced": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        },
+        }
+      }
+    },
+    {
+      "tag": "BoolContainsSlot",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_contains_slot",
+      "mode_expectations": {
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprCapture",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_capture"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
+        },
         "forced": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        },
+        }
+      }
+    },
+    {
+      "tag": "BoolIntCompare",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_int_compare",
+      "mode_expectations": {
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprCheckedValue",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_checked_value"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
+        },
         "forced": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        },
+        }
+      }
+    },
+    {
+      "tag": "BoolLiteralCompareSlot",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_literal_compare_slot",
+      "mode_expectations": {
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprComparisonChain",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_comparison_chain"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
+        },
         "forced": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        },
+        }
+      }
+    },
+    {
+      "tag": "BoolNot",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_not",
+      "mode_expectations": {
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprContextScope",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_context_scope"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
+        },
         "forced": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        },
+        }
+      }
+    },
+    {
+      "tag": "BoolOr",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_or",
+      "mode_expectations": {
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprDirectPureCall",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_direct_pure_call"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
+        },
         "forced": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        },
+        }
+      }
+    },
+    {
+      "tag": "BoolSlot",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_slot",
+      "mode_expectations": {
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprDynamicCall",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_dynamic_call"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
+        },
         "forced": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        },
+        }
+      }
+    },
+    {
+      "tag": "BoolStrContainsSlot",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_str_contains_slot",
+      "mode_expectations": {
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprErr",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_err"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
+        },
         "forced": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        },
+        }
+      }
+    },
+    {
+      "tag": "BoolStrPredicateSlot",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_str_predicate_slot",
+      "mode_expectations": {
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprErrorContext",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_error_context"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
+        },
         "forced": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        },
+        }
+      }
+    },
+    {
+      "tag": "BoolTrimEmptySlot",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_trim_empty_slot",
+      "mode_expectations": {
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprExternalCall",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_external_call"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
+        },
         "forced": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
-        },
+        }
+      }
+    },
+    {
+      "tag": "BoolTrimStrPredicateSlot",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_trim_str_predicate_slot",
+      "mode_expectations": {
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
         }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprFmtString",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_fmt_string"
+      }
     },
     {
+      "tag": "ExprAbort",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
       "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_abort",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprIf",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_if"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprListComp",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_list_comp"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprLoop",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_loop"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprMapComp",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_map_comp"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprMapLiteral",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_map_literal"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprMatch",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_match"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprMethod",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_method"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprModuleCall",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_module_call"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprOk",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_ok"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprPathFmtString",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_fmt_string"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprPatternIf",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_pattern_if"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprProcCallResult",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_proc_call_result"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprProcessCommandArgv",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_process_command_argv"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprProcessCommandBuilder",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_process_command_builder"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprRecord",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_record"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprRecordUpdate",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_record_update"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprRequire",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_require"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprResultFallback",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_result_fallback"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprRetry",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_retry"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprRunCapture",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_run_capture"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprRunPipeline",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_run_pipeline"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprSelfCall",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_self_call"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprSpawnCommand",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_spawn_command"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprSpawnRun",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_spawn_run"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprStrMatch",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_str_match"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprTagMatch",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_tag_match"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprTry",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_try"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprTypedCall",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_typed_call"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprValueBlock",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_value_block"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/expression-route-oracles.xsh",
-      "tag": "ExprWait",
-      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_wait"
-    },
-    {
-      "mapping_kind": "artifact_capability",
-      "mode_expectations": {
-        "forced": {
-          "route_id": "generic_operand_apply_path",
-          "status": "supported_by_artifact_format"
-        },
         "normal": {
           "route_id": "explicit_frame_apply_path",
           "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/frame-apply-oracles.xsh",
+      "child_source": "proc terminate() { exit 23 }\nterminate()\n"
+    },
+    {
+      "tag": "ExprArchiveTarCreate",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_archive_tar_create",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let root = Path(args[0])\narchive.tar_create(fp\"{root}/payload.tar\", root, [p\"member\"])\nassert fp\"{root}/payload.tar\".exists()?\n"
+    },
+    {
+      "tag": "ExprBinary",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_binary",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "assert \"route \" + \"binary\" == \"route binary\"\n"
+    },
+    {
+      "tag": "ExprBool",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_bool",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let values: List[Any] = [true]\nassert values[0].require(Bool)?\n"
+    },
+    {
+      "tag": "ExprBytes",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_bytes",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let values: List[Any] = [b\"route\"]\nassert values[0].require(Bytes)? == bytes.from_text(\"route\")\n"
+    },
+    {
+      "tag": "ExprCall",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_call",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "proc route_proc_target(value: Int) -> Int { value + 1 }\nassert route_proc_target(20) == 21\n"
+    },
+    {
+      "tag": "ExprCapture",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_capture",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let parsed = \"21\".parse_int()\nlet result = try { parsed? }\nassert result == Ok(21)\n"
+    },
+    {
+      "tag": "ExprCheckedValue",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_checked_value",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let raw: UInt = 17\nlet checked = raw\nassert checked == 17\n"
+    },
+    {
+      "tag": "ExprComparisonChain",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_comparison_chain",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let first = 1\nlet second = 2\nlet third = 3\nlet selected = first < second < third\nassert selected == true\n"
+    },
+    {
+      "tag": "ExprContextScope",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_context_scope",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "assert within 1s { 21 } == Ok(21)\n"
+    },
+    {
+      "tag": "ExprDirectPureCall",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_direct_pure_call",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "pure route_direct_scale(value: Int) -> Int { value * 3 }\nassert route_direct_scale(7) == 21\n"
+    },
+    {
+      "tag": "ExprDuration",
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_duration",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let values: List[Any] = [2s]\nprint ${values[0].require(Duration)?}\n"
+    },
+    {
+      "tag": "ExprDynamicCall",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_dynamic_call",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "type RouteScale = pure(value: Int) -> Int\npure route_double(value: Int) -> Int { value * 2 }\nlet scale: RouteScale = route_double\nlet handle: Pure = scale\nassert handle.call(10).require(Int)? == 20\n"
+    },
+    {
       "tag": "ExprEmptyMap",
+      "source_file": "tests/xsh/frame-apply-oracles.xsh",
+      "mapping_kind": "artifact_capability",
       "test_id": "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
       "child_source": "let empty: Map[Str, Int] = {}\nassert empty.len() == 0\n"
     },
     {
+      "tag": "ExprErr",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
       "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_err",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtAssert",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assert"
+      "child_source": "error RouteOracleError = Failed\nlet result: Result[Int, RouteOracleError] = Err(.Failed(\"failed\"))\nassert result is Err(_)\n"
     },
     {
+      "tag": "ExprError",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
       "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_error",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtAssign",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assign"
+      "child_source": "error RouteError = Failed(message: Str)\nlet result: Result[Int, RouteError] = Err(RouteError.Failed(message: \"failed\"))\nassert result is Err(_)\n"
     },
     {
+      "tag": "ExprErrorContext",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
       "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_error_context",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtAssignBool",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assign_bool"
+      "child_source": "let value = ctx \"route oracle\" { 21 }\nassert value == 21\n"
     },
     {
+      "tag": "ExprExternalCall",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
       "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_external_call",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtAssignField",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assign_field"
+      "child_source": "type RouteRenderPlugin = module {export pure render(data: Any) -> Result[Str, Error]}\nlet root = fs.tempdir()?\ndefer root.close()?\nlet plugin_file = fp\"{root.host_path()?}/plugin.xsh\"\nplugin_file.write(\"##! Expression route plugin.\\n## Renders its input.\\nexport pure render(data: Any) -> Result[Str, Error] { template.render(\\\"{{.value}}\\\", data) }\\n\")\nlet plugin = module.load(plugin_file)?.require(RouteRenderPlugin)?\nassert plugin.render({value: \"external\"})? == \"external\"\n"
     },
     {
+      "tag": "ExprFail",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
       "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_fail",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtAssignFieldInt",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assign_field_int"
+      "child_source": "let result = error.fail(\"expected failure\")\nmatch result { Err(problem) => assert problem.message == \"expected failure\"; Ok(_) => assert false }\n"
     },
     {
+      "tag": "ExprField",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
       "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_field",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtAssignInt",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assign_int"
+      "child_source": "type Item = {value: Int}\npure read_item(item: Item) -> Int { item.value }\nassert read_item({value: 41}) == 41\n"
     },
     {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtAssignPath",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assign_path"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtBreak",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_break"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtBreakValue",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_break_value"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtCd",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_cd"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtContinue",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_continue"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtDefaultParameter",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_default_parameter"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtDefer",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_defer"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtEnv",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_env"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtExpr",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_expr"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtFor",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_for"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtForRecord",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_for_record"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtForStrLines",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_for_str_lines"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtGuard",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_guard"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtIf",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_if"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtIfBool",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_if_bool"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtLet",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_let"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtLetBool",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_let_bool"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtLetInt",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_let_int"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtLetRecord",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_let_record"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtLoop",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_loop"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtMatch",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_match"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtPatternIf",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_pattern_if"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtPatternWhile",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_pattern_while"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtPrint",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_print"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtReturn",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_return"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtRun",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_run"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtScanBytes",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_scan_bytes"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtScanLines",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_scan_lines"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtStrMatch",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_str_match"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtTagMatch",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_tag_match"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtValue",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_value"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtWhile",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_while"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtWhileBool",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_while_bool"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtWith",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_with"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtYield",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_yield"
-    },
-    {
-      "mapping_kind": "statement_expression",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/statement-route-oracles.xsh",
-      "tag": "StmtYieldDelegate",
-      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_yield_delegate"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "BoolAnd",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_and"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "BoolBool",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_bool"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "BoolContainsSlot",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_contains_slot"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "BoolIntCompare",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_int_compare"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "BoolLiteralCompareSlot",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_literal_compare_slot"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "BoolNot",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_not"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "BoolOr",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_or"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "BoolSlot",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_slot"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "BoolStrContainsSlot",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_str_contains_slot"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "BoolStrPredicateSlot",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_str_predicate_slot"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "BoolTrimEmptySlot",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_trim_empty_slot"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "BoolTrimStrPredicateSlot",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_bool_trim_str_predicate_slot"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "ExprBool",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_bool"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "ExprBytes",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_bytes"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
-      "tag": "ExprDuration",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_duration"
-    },
-    {
-      "mapping_kind": "scalar",
-      "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
-        "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "tag": "ExprFloat",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_float"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_float",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "child_source": "let values: List[Any] = [1.5]\nprint ${values[0].require(Float)?}\n"
+    },
+    {
+      "tag": "ExprFmtString",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_fmt_string",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let word = \"formatted\"\nassert f\"route {word}\" == \"route formatted\"\n"
+    },
+    {
+      "tag": "ExprFsFiles",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_fs_files",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let root = Path(args[0])\nlet files = fs.files(root, gitignore: false, stat: false, hidden: false, exts: [\"txt\"])?.collect()\nassert files.len() == 1 and files[0].name == \"visible.txt\"\n"
+    },
+    {
+      "tag": "ExprFsList",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_fs_list",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let root = Path(args[0])\nlet children = fs.children(root, ordered: true)?.collect()\nassert children.len() == 1 and children[0].name == \"entry\"\n"
+    },
+    {
+      "tag": "ExprFsMkdir",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_fs_mkdir",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let directory = Path(args[0])\ntempdir scratch at directory { assert scratch.exists()? }\nassert !directory.exists()?\n"
+    },
+    {
+      "tag": "ExprFsRemove",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_fs_remove",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let target = Path(args[0])\nlet result = tempdir scratch at target { assert false }\ntest.error_kind(result, \"fs-remove\")\n"
+    },
+    {
+      "tag": "ExprFsTempDir",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_fs_temp_dir",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let root = fs.tempdir()?\ndefer root.close()?\nlet host_path = root.host_path()?\nassert host_path.exists()?\n"
+    },
+    {
+      "tag": "ExprFsWalk",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_fs_walk",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let root = Path(args[0])\nlet walked = fs.walk(root, gitignore: false, stat: false, hidden: false)?.collect()\nassert walked.len() == 2\nassert walked |> any .name == \"entry\"\n"
+    },
+    {
+      "tag": "ExprFunctionRef",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_function_ref",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "pure increment(value: Int) -> Int { value + 1 }\nlet alias = increment\nassert alias(41) == 42\n"
+    },
+    {
+      "tag": "ExprGlob",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_glob",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let root = Path(args[0])\ncd root { let matches = g\"*.txt\"; assert matches == [p\"match.txt\"] }\n"
+    },
+    {
+      "tag": "ExprIf",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_if",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let selected = if true { \"selected\" } else { \"skipped\" }\nassert selected == \"selected\"\n"
+    },
+    {
+      "tag": "ExprIndex",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_index",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "proc selected_index() [io] -> Int { return 1 }\nlet values = [10, 20]\nassert values[selected_index()] == 20\n"
+    },
+    {
+      "tag": "ExprIndexFromEnd",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_index_from_end",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "proc last(values: List[Str]) -> Str { return values[-1] }\nassert last([\"first\", \"last\"]) == \"last\"\n"
+    },
+    {
       "tag": "ExprInt",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_int"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_int",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "child_source": "let value: Any = 42\nprint ${value.require(Int)?}\n"
+    },
+    {
+      "tag": "ExprLastStatus",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_last_status",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "run.status false\nlet status = $?\nassert status.exited_with(1)\n"
+    },
+    {
+      "tag": "ExprList",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_list",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let values = [10, 20]\nassert values.len() == 2 and values[0] == 10 and values[1] == 20\n"
+    },
+    {
+      "tag": "ExprListBuild",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_list_build",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "proc middle() -> List[Int] { return [2, 3] }\nlet values = [1, @middle(), 4]\nassert values.len() == 4 and values[1] == 2 and values[2] == 3\n"
+    },
+    {
+      "tag": "ExprListComp",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_list_comp",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let doubled = [value * 2 for value in [1, 2, 3]]\nassert doubled == [2, 4, 6]\n"
+    },
+    {
+      "tag": "ExprLoop",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_loop",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let value = loop { break 21 }\nassert value == 21\n"
+    },
+    {
+      "tag": "ExprMapComp",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_map_comp",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let entries = {[word]: word for word in [\"a\", \"b\"]}\nassert entries.get(\"b\")? == \"b\"\n"
+    },
+    {
+      "tag": "ExprMapLiteral",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_map_literal",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let entries: Map[Int, Str] = {[1]: \"one\", [2]: \"two\"}\nassert entries.get(2)? == \"two\"\n"
+    },
+    {
+      "tag": "ExprMatch",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_match",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "\nproc route_match_source() -> Int { return 2 }\nassert (match route_match_source() { 2 => 22, _ => 0 }) == 22\n"
+    },
+    {
+      "tag": "ExprMethod",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_method",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let parsed = \"17\".parse_int()\nassert parsed? == 17\n"
+    },
+    {
+      "tag": "ExprModuleCall",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_module_call",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "type RouteJson = {value: Int}\nassert json.decode(\"{\\\"value\\\":21}\")?.require(RouteJson)?.value == 21\n"
+    },
+    {
       "tag": "ExprNull",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_null"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_null",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "child_source": "let values: List[Any] = [null]\nassert values[0] is Null\n"
+    },
+    {
+      "tag": "ExprOk",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_ok",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let result = Ok(21)\nassert result is Ok(_)\n"
+    },
+    {
       "tag": "ExprParam",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_param"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_param",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "child_source": "pure identity(value: Duration) -> Duration { value }\nassert identity(7s) == 7s\n"
+    },
+    {
       "tag": "ExprPath",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_path"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_path",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "child_source": "let values: List[Any] = [p\"route/oracle\"]\nassert values[0].require(Path)?.display() == \"route/oracle\"\n"
+    },
+    {
+      "tag": "ExprPathDu",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_du",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let target = Path(args[0])\nassert target.du()? >= 0\n"
+    },
+    {
+      "tag": "ExprPathExecutable",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_executable",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let executable = Path(args[0])\nassert executable.executable()?\n"
+    },
+    {
+      "tag": "ExprPathExists",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_exists",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let target = Path(args[0])\nassert target.exists()?\n"
+    },
+    {
+      "tag": "ExprPathFmtString",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_fmt_string",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let name = \"entry\"\nassert fp\"root/{name}\" == p\"root/entry\"\n"
+    },
+    {
+      "tag": "ExprPathFrom",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_from",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let candidate = Path(\"folder/file\")\nassert candidate == p\"folder/file\"\n"
+    },
+    {
+      "tag": "ExprPathMetadata",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_metadata",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let target = Path(args[0])\nassert target.metadata()?.size == 7\n"
+    },
+    {
+      "tag": "ExprPathMkdir",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_mkdir",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let target = Path(args[0])\ntarget.mkdir()?\nassert target.exists()?\n"
+    },
+    {
+      "tag": "ExprPathReadBytes",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_read_bytes",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let target = Path(args[0])\nassert target.read_bytes()? == b\"raw\\0bytes\"\n"
+    },
+    {
+      "tag": "ExprPathReadText",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_read_text",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let target = Path(args[0])\nassert target.read_text()? == \"payload\"\n"
+    },
+    {
+      "tag": "ExprPathReadlink",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_readlink",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let link = Path(args[0])\nassert link.readlink()? == p\"target\"\n"
+    },
+    {
+      "tag": "ExprPathRemove",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_remove",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let target = Path(args[0])\ntarget.remove(missing_ok: false)?\nassert !target.exists()?\n"
+    },
+    {
+      "tag": "ExprPathResolve",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_resolve",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let target = Path(args[0])\nassert target.resolve()?.name() == \"entry\"\n"
+    },
+    {
+      "tag": "ExprPathWrite",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_path_write",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let target = Path(args[0])\ntarget.write(\"payload\")?\nassert target.read_text()? == \"payload\"\n"
+    },
+    {
+      "tag": "ExprPatternIf",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_pattern_if",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let result = Ok(7)\nlet selected = if let Ok(value) = result { value } else { 0 }\nassert selected == 7\n"
+    },
+    {
+      "tag": "ExprPipeline",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_pipeline",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let values = [1, 2, 3] |> map { |value| value * 2 }\nassert values.len() == 3 and values[1] == 4\n"
+    },
+    {
       "tag": "ExprPreparedConstant",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_prepared_constant"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_prepared_constant",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "child_source": "type RouteConstantBox = {values: Map[Int, Int] = {[42]: 7}}\nlet box = RouteConstantBox()\nassert box.values.get(42)? == 7\n"
+    },
+    {
       "tag": "ExprPreparedRegex",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_prepared_regex"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_prepared_regex",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "child_source": "let pattern = rx\"^route$\"\nassert pattern.matches(\"route\")\nassert !pattern.matches(\"router\")\n"
+    },
+    {
+      "tag": "ExprProcCallResult",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_proc_call_result",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "proc route_proc_target(value: Int) -> Int { value + 1 }\nlet handle: Proc = route_proc_target\nassert handle.call(20)?.require(Int)? == 21\n"
+    },
+    {
+      "tag": "ExprProcessCommandArgv",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_process_command_argv",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let command = process.command_argv(\"true\", [\"true\"])\nassert process.run(command)?.exited_with(0)\n"
+    },
+    {
+      "tag": "ExprProcessCommandBuilder",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_process_command_builder",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let command = process.command { run true }\nassert process.run(command)?.exited_with(0)\n"
+    },
+    {
+      "tag": "ExprRange",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_range",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let values = range(2, 5).collect()\nassert values == [2, 3, 4]\n"
+    },
+    {
+      "tag": "ExprRecord",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_record",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let entry = {name: \"route\", count: 2}\nassert entry.name == \"route\"\nassert entry.count == 2\n"
+    },
+    {
+      "tag": "ExprRecordUpdate",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_record_update",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "type RouteDetails = {count: Int}\ntype RouteRecord = {name: Str, details: RouteDetails}\nproc route_original_record() -> RouteRecord { return {name: \"before\", details: {count: 1}} }\nlet original = route_original_record()\nlet changed = {...original, details.count: 2}\nassert changed.name == \"before\"\nassert changed.details.count == 2\n"
+    },
+    {
+      "tag": "ExprRequire",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_require",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let raw: Any = 17\nassert raw.require(Int)? == 17\n"
+    },
+    {
+      "tag": "ExprResultFallback",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_result_fallback",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "error RouteOracleError = Failed\nlet missing: Result[Int, RouteOracleError] = Err(.Failed(\"missing\"))\nassert (missing ?? 9) == 9\n"
+    },
+    {
+      "tag": "ExprRetry",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_retry",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let value = retry [] { 21 }?\nassert value == 21\n"
+    },
+    {
+      "tag": "ExprRunCapture",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_run_capture",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let output = run.capture --text printf \"captured\"\nassert output.stdout == \"captured\"\n"
+    },
+    {
+      "tag": "ExprRunPipeline",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_run_pipeline",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let output = run.capture --text printf \"piped\" | run cat\nassert output.stdout == \"piped\"\n"
+    },
+    {
+      "tag": "ExprSelfCall",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_self_call",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "pure route_self_count(value: Int) -> Int { if value == 0 { 0 } else { route_self_count(value - 1) + 1 } }\nassert route_self_count(1) == 1\n"
+    },
+    {
+      "tag": "ExprSlice",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_slice",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let values = [10, 20, 30, 40]\nlet selected = values[1..3]\nassert selected.len() == 2 and selected[0] == 20 and selected[1] == 30\n"
+    },
+    {
+      "tag": "ExprSpawnCommand",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_spawn_command",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let command = process.command_argv(\"true\", [\"true\"])\nlet child = spawn command?\nassert (wait child?).exited_with(0)\n"
+    },
+    {
+      "tag": "ExprSpawnRun",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_spawn_run",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let child = spawn run true?\nassert (wait child?).exited_with(0)\n"
+    },
+    {
       "tag": "ExprStr",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_str"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_str",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "child_source": "let values: List[Any] = [\"route\"]\nprint ${values[0].require(Str)?}\n"
+    },
+    {
+      "tag": "ExprStrByteAt",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_str_byte_at",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "assert \"é\".byte_at(1) == 169\n"
+    },
+    {
+      "tag": "ExprStrByteLen",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_str_byte_len",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "assert \"é\".byte_len() == 2\n"
+    },
+    {
+      "tag": "ExprStrMatch",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_str_match",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let word = \"green\"\nlet selected = match word {\n  \"green\" => \"go\"\n  else => \"stop\"\n}\nassert selected == \"go\"\n"
+    },
+    {
+      "tag": "ExprStrPredicate",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_str_predicate",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "assert \"alpha\".starts_with(\"al\")\n"
+    },
+    {
+      "tag": "ExprTag",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_tag",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_apply_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "generic_operand_apply_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "enum Choice { Selected(Int) }\nlet selected: Choice = Selected(42)\nmatch selected { Selected(value) => assert value == 42 }\n"
+    },
+    {
+      "tag": "ExprTagMatch",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_tag_match",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "enum RouteTag { Ready, Busy }\nproc route_match_tag() -> RouteTag { return Ready }\nlet tag = route_match_tag()\nlet selected = match tag {\n  Ready() => \"ready\"\n  Busy() => \"busy\"\n}\nassert selected == \"ready\"\n"
+    },
+    {
+      "tag": "ExprTry",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_try",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let parsed = \"21\".parse_int()\nassert parsed? == 21\n"
+    },
+    {
+      "tag": "ExprTypedCall",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_typed_call",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "type RouteScale = pure(value: Int) -> Int\npure route_direct_scale(value: Int) -> Int { value * 3 }\nlet scale: RouteScale = route_direct_scale\nassert scale(7) == 21\n"
+    },
+    {
       "tag": "ExprUnit",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_unit"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_unit",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "eager_frame_apply_path",
+          "status": "supported_by_artifact_format"
         }
       },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "child_source": "pure unit() -> Unit {}\nlet value: Any = unit()\nassert value is Unit\n"
+    },
+    {
+      "tag": "ExprValueBlock",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_value_block",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let value = { 20 + 1 }\nassert value == 21\n"
+    },
+    {
+      "tag": "ExprWait",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_wait",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "let child = spawn run true?\nlet status = wait child?\nassert status.exited_with(0)\n"
+    },
+    {
       "tag": "IntBinary",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_binary"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_binary",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
         }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      }
+    },
+    {
       "tag": "IntInt",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_int"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_int",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
         }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      }
+    },
+    {
       "tag": "IntSlot",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_slot"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_slot",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
         }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      }
+    },
+    {
       "tag": "IntStrByteAtSlot",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_str_byte_at_slot"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_str_byte_at_slot",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
         }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      }
+    },
+    {
       "tag": "IntStrByteLenSlot",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_str_byte_len_slot"
-    },
-    {
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
       "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_str_byte_len_slot",
       "mode_expectations": {
-        "forced": {
-          "route_id": null,
-          "status": "unsupported_by_artifact_format"
-        },
         "normal": {
           "route_id": null,
           "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
         }
-      },
-      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      }
+    },
+    {
       "tag": "IntStrCountLinesSlot",
-      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_str_count_lines_slot"
+      "source_file": "tests/xsh/typed-scalar-route-oracles.xsh",
+      "mapping_kind": "scalar",
+      "test_id": "tests/xsh/typed-scalar-route-oracles.xsh::test_int_str_count_lines_slot",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtAssert",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assert",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtAssign",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assign",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtAssignBool",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assign_bool",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtAssignField",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assign_field",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtAssignFieldInt",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assign_field_int",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtAssignInt",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assign_int",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtAssignPath",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_assign_path",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtBreak",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_break",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtBreakValue",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_break_value",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtCd",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_cd",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtContinue",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_continue",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtDefaultParameter",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_default_parameter",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtDefer",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_defer",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtEnv",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_env",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtExpr",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_expr",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtFor",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_for",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtForRecord",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_for_record",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtForStrLines",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_for_str_lines",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtGuard",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_guard",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtIf",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_if",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtIfBool",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_if_bool",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtLet",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_let",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtLetBool",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_let_bool",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtLetInt",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_let_int",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtLetRecord",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_let_record",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtLoop",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_loop",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtMatch",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_match",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtPatternIf",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_pattern_if",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtPatternWhile",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_pattern_while",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtPrint",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_print",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtReturn",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_return",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtRun",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_run",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtScanBytes",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_scan_bytes",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtScanLines",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_scan_lines",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtStrMatch",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_str_match",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtTagMatch",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_tag_match",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtValue",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_value",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtWhile",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_while",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtWhileBool",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_while_bool",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtWith",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_with",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtYield",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_yield",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
+    },
+    {
+      "tag": "StmtYieldDelegate",
+      "source_file": "tests/xsh/statement-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/statement-route-oracles.xsh::test_stmt_yield_delegate",
+      "mode_expectations": {
+        "normal": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": null,
+          "status": "unsupported_by_artifact_format"
+        }
+      }
     }
   ],
-  "route_witness_source_commit": "b27611a55205118055a36a9502ff5140682d743f",
+  "route_witness_source_commit": "95488faf20621dd2fd182e840e4ff5fafdb0abfd",
   "runtime_oracles": {
     "BoolAnd": {
       "ids": [
@@ -1949,6 +2632,20 @@
       ],
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/typed-scalar-route-oracles.xsh::test_bool_trim_str_predicate_slot is associated with BoolTrimStrPredicateSlot; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
+    },
+    "ExprAbort": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_abort"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_abort exercises ExprAbort behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprArchiveTarCreate": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_archive_tar_create"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_archive_tar_create exercises ExprArchiveTarCreate behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
     },
     "ExprBinary": {
       "ids": [
@@ -2041,6 +2738,13 @@
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_err is associated with ExprErr; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
+    "ExprError": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_error"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_error exercises ExprError behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
     "ExprErrorContext": {
       "ids": [
         "tests/xsh/expression-route-oracles.xsh::test_expr_error_context"
@@ -2054,6 +2758,20 @@
       ],
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_external_call is associated with ExprExternalCall; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
+    },
+    "ExprFail": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_fail"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_fail exercises ExprFail behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprField": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_field"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_field exercises ExprField behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
     },
     "ExprFloat": {
       "ids": [
@@ -2069,6 +2787,62 @@
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_fmt_string is associated with ExprFmtString; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
+    "ExprFsFiles": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_fs_files"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_fs_files exercises ExprFsFiles behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprFsList": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_fs_list"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_fs_list exercises ExprFsList behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprFsMkdir": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_fs_mkdir"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_fs_mkdir exercises ExprFsMkdir behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprFsRemove": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_fs_remove"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_fs_remove exercises ExprFsRemove behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprFsTempDir": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_fs_temp_dir"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_fs_temp_dir exercises ExprFsTempDir behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprFsWalk": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_fs_walk"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_fs_walk exercises ExprFsWalk behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprFunctionRef": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_function_ref"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_function_ref exercises ExprFunctionRef behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprGlob": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_glob"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_glob exercises ExprGlob behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
     "ExprIf": {
       "ids": [
         "tests/xsh/expression-route-oracles.xsh::test_expr_if"
@@ -2076,12 +2850,47 @@
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_if is associated with ExprIf; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
+    "ExprIndex": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_index"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_index exercises ExprIndex behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprIndexFromEnd": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_index_from_end"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_index_from_end exercises ExprIndexFromEnd behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
     "ExprInt": {
       "ids": [
         "tests/xsh/typed-scalar-route-oracles.xsh::test_expr_int"
       ],
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/typed-scalar-route-oracles.xsh::test_expr_int is associated with ExprInt; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
+    },
+    "ExprLastStatus": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_last_status"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_last_status exercises ExprLastStatus behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprList": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_list"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_list exercises ExprList behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprListBuild": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_list_build"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_list_build exercises ExprListBuild behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
     },
     "ExprListComp": {
       "ids": [
@@ -2160,12 +2969,26 @@
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/typed-scalar-route-oracles.xsh::test_expr_path is associated with ExprPath; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
-    "ExprPipeline": {
+    "ExprPathDu": {
       "ids": [
-        "runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_input_that_names_a_statement"
+        "tests/xsh/expression-route-oracles.xsh::test_expr_path_du"
       ],
-      "proof_kind": "verifier_rejection",
-      "scope": "This Rust oracle changes an ExprPipeline input to reference a statement and checks the wrong-category verifier error; it does not cover absent or truncated payloads and does not claim a runtime route."
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_du exercises ExprPathDu behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprPathExecutable": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_path_executable"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_executable exercises ExprPathExecutable behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprPathExists": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_path_exists"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_exists exercises ExprPathExists behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
     },
     "ExprPathFmtString": {
       "ids": [
@@ -2174,12 +2997,83 @@
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_fmt_string is associated with ExprPathFmtString; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
+    "ExprPathFrom": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_path_from"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_from exercises ExprPathFrom behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprPathMetadata": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_path_metadata"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_metadata exercises ExprPathMetadata behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprPathMkdir": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_path_mkdir"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_mkdir exercises ExprPathMkdir behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprPathReadBytes": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_path_read_bytes"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_read_bytes exercises ExprPathReadBytes behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprPathReadText": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_path_read_text"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_read_text exercises ExprPathReadText behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprPathReadlink": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_path_readlink"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_readlink exercises ExprPathReadlink behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprPathRemove": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_path_remove"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_remove exercises ExprPathRemove behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprPathResolve": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_path_resolve"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_resolve exercises ExprPathResolve behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprPathWrite": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_path_write"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_write exercises ExprPathWrite behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
     "ExprPatternIf": {
       "ids": [
         "tests/xsh/expression-route-oracles.xsh::test_expr_pattern_if"
       ],
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_pattern_if is associated with ExprPatternIf; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
+    },
+    "ExprPipeline": {
+      "ids": [
+        "runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_input_that_names_a_statement",
+        "tests/xsh/expression-route-oracles.xsh::test_expr_pipeline"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_pipeline exercises ExprPipeline runtime behavior and carries the pending normal/forced route candidate. The Rust verifier oracle separately checks rejection when a present pipeline input names a statement. Neither oracle covers an absent or truncated pipeline payload."
     },
     "ExprPreparedConstant": {
       "ids": [
@@ -2215,6 +3109,13 @@
       ],
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_process_command_builder is associated with ExprProcessCommandBuilder; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
+    },
+    "ExprRange": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_range"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_range exercises ExprRange behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
     },
     "ExprRecord": {
       "ids": [
@@ -2272,6 +3173,13 @@
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_self_call is associated with ExprSelfCall; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
+    "ExprSlice": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_slice"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_slice exercises ExprSlice behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
     "ExprSpawnCommand": {
       "ids": [
         "tests/xsh/expression-route-oracles.xsh::test_expr_spawn_command"
@@ -2293,12 +3201,40 @@
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/typed-scalar-route-oracles.xsh::test_expr_str is associated with ExprStr; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
+    "ExprStrByteAt": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_str_byte_at"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_str_byte_at exercises ExprStrByteAt behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprStrByteLen": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_str_byte_len"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_str_byte_len exercises ExprStrByteLen behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
     "ExprStrMatch": {
       "ids": [
         "tests/xsh/expression-route-oracles.xsh::test_expr_str_match"
       ],
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_str_match is associated with ExprStrMatch; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
+    },
+    "ExprStrPredicate": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_str_predicate"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_str_predicate exercises ExprStrPredicate behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
+    },
+    "ExprTag": {
+      "ids": [
+        "tests/xsh/expression-route-oracles.xsh::test_expr_tag"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_tag exercises ExprTag behavior; the observed route is a candidate and receives no credit until an authenticated receipt is validated."
     },
     "ExprTagMatch": {
       "ids": [
@@ -3009,82 +3945,8 @@
     "src/runtime/value/error_cause.rs",
     "src/syntax/arena.rs"
   ],
-  "static_or_rejection_reasons": {
-    "ExprAbort": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_abort exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprArchiveTarCreate": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_archive_tar_create exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprError": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_error exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprFail": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_fail exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprField": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_field exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprFsFiles": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_fs_files exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprFsList": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_fs_list exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprFsMkdir": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_fs_mkdir exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprFsRemove": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_fs_remove exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprFsTempDir": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_fs_temp_dir exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprFsWalk": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_fs_walk exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprFunctionRef": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_function_ref exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprGlob": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_glob exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprIndex": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_index exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprIndexFromEnd": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_index_from_end exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprLastStatus": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_last_status exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprList": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_list exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprListBuild": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_list_build exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPathDu": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_du exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPathExecutable": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_executable exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPathExists": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_exists exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPathFrom": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_from exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPathMetadata": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_metadata exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPathMkdir": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_mkdir exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPathReadBytes": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_read_bytes exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPathReadText": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_read_text exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPathReadlink": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_readlink exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPathRemove": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_remove exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPathResolve": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_resolve exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPathWrite": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_write exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprRange": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_range exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprSlice": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_slice exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprStrByteAt": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_str_byte_at exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprStrByteLen": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_str_byte_len exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprStrPredicate": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_str_predicate exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprTag": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_tag exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed."
-  },
-  "static_or_rejection_tags": [
-    "ExprAbort",
-    "ExprArchiveTarCreate",
-    "ExprError",
-    "ExprFail",
-    "ExprField",
-    "ExprFsFiles",
-    "ExprFsList",
-    "ExprFsMkdir",
-    "ExprFsRemove",
-    "ExprFsTempDir",
-    "ExprFsWalk",
-    "ExprFunctionRef",
-    "ExprGlob",
-    "ExprIndex",
-    "ExprIndexFromEnd",
-    "ExprLastStatus",
-    "ExprList",
-    "ExprListBuild",
-    "ExprPathDu",
-    "ExprPathExecutable",
-    "ExprPathExists",
-    "ExprPathFrom",
-    "ExprPathMetadata",
-    "ExprPathMkdir",
-    "ExprPathReadBytes",
-    "ExprPathReadText",
-    "ExprPathReadlink",
-    "ExprPathRemove",
-    "ExprPathResolve",
-    "ExprPathWrite",
-    "ExprRange",
-    "ExprSlice",
-    "ExprStrByteAt",
-    "ExprStrByteLen",
-    "ExprStrPredicate",
-    "ExprTag"
-  ],
+  "static_or_rejection_reasons": {},
+  "static_or_rejection_tags": [],
   "static_oracle_id": "runtime::eval::indexed::full::tests::instruction_schema_views_reject_malformed_fields_and_wrong_child_categories",
   "unmapped_paths": [
     {

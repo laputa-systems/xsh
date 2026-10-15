@@ -3502,6 +3502,12 @@ def rust_test_command(oracle_id: str) -> list[str]:
     ]
 
 
+def runtime_oracle_commands(oracle_id: str, rust_ids: set[str]) -> dict[str, list[str]]:
+    if oracle_id in rust_ids:
+        return {"verification": rust_test_command(oracle_id)}
+    return native_commands(oracle_id)
+
+
 def receipt_step_matches(
     receipt: dict[str, Any],
     step: dict[str, Any],
@@ -3894,7 +3900,7 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
         row["proof_kind"] = oracle.get("proof_kind", "runtime")
         row["oracles"] = {"runtime": oracle_ids}
         row["commands"] = {
-            oracle_id: native_commands(oracle_id)
+            oracle_id: runtime_oracle_commands(oracle_id, rust_ids)
             for oracle_id in oracle_ids
         }
         row["oracle_scope"] = oracle.get("scope", "")

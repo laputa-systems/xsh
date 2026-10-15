@@ -1225,7 +1225,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         with self.assertRaisesRegex(generate.EvidenceError, "absent from the pinned source map"):
             generate.validate_scalar_route_oracle_mappings(config)
 
-    def test_route_witness_mappings_are_exact_and_candidates_stay_unsupported(self) -> None:
+    def test_route_witness_mappings_cover_the_schema_and_leave_non_expr_uncredited(self) -> None:
         root = generate.HERE.parents[4]
         config = json.loads(generate.CONFIG.read_text())
         rows = generate.parse_schema((root / generate.SCHEMA_PATH).read_text())
@@ -1242,11 +1242,32 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             mapping for mapping in mappings.values()
             if mapping["mapping_kind"] == "artifact_capability"
         ]
+        expression_children = [
+            mapping for mapping in mappings.values() if "child_source" in mapping
+        ]
+        unsupported = [mapping for mapping in mappings.values() if "child_source" not in mapping]
+        self.assertEqual(len(rows), 152)
+        self.assertEqual(len(mappings), 152)
+        self.assertEqual({mapping["tag"] for mapping in mappings.values()}, {row["tag"] for row in rows})
+        self.assertEqual(len(expression_children), 92)
+        self.assertEqual(len(unsupported), 60)
         self.assertEqual(len(capabilities), 1)
         for mapping in candidates:
             for expectation in mapping["mode_expectations"].values():
-                self.assertIsNone(expectation["route_id"])
-                self.assertEqual(expectation["status"], "unsupported_by_artifact_format")
+                if "child_source" in mapping:
+                    self.assertIsNotNone(expectation["route_id"])
+                    self.assertEqual(expectation["status"], "supported_by_artifact_format")
+                else:
+                    self.assertIsNone(expectation["route_id"])
+                    self.assertEqual(expectation["status"], "unsupported_by_artifact_format")
+        self.assertEqual(
+            sum(
+                expectation["route_id"] is not None
+                for mapping in mappings.values()
+                for expectation in mapping["mode_expectations"].values()
+            ),
+            184,
+        )
 
         empty_map = capabilities[0]
         self.assertEqual(empty_map["tag"], "ExprEmptyMap")
@@ -1360,36 +1381,32 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             }
             mappings.append(item)
 
-        statement = next(row for row in rows if row["kind"] == "Stmt")
-        statement_id = "tests/xsh/statement-route-oracles.xsh::test_stmt_print"
-        expected[statement_id] = {
-            "tag": statement["tag"],
-            "source_file": "tests/xsh/statement-route-oracles.xsh",
-            "mapping_kind": "statement_expression",
-        }
-        mappings.append({
-            **expected[statement_id],
-            "test_id": statement_id,
-            "mode_expectations": {
-                mode: {"route_id": None, "status": "unsupported_by_artifact_format"}
-                for mode in generate.ROUTE_WITNESS_EXPECTATION_MODES
-            },
-        })
-        scalar = next(row for row in rows if row["kind"] == "Int")
-        scalar_id = "tests/xsh/typed-scalar-route-oracles.xsh::test_int_int"
-        expected[scalar_id] = {
-            "tag": scalar["tag"],
-            "source_file": generate.SCALAR_ROUTE_ORACLE_FILE,
-            "mapping_kind": "scalar",
-        }
-        mappings.append({
-            **expected[scalar_id],
-            "test_id": scalar_id,
-            "mode_expectations": {
-                mode: {"route_id": None, "status": "unsupported_by_artifact_format"}
-                for mode in generate.ROUTE_WITNESS_EXPECTATION_MODES
-            },
-        })
+        scalar_oracle_ids = generate.scalar_route_oracle_ids()
+        for row in rows:
+            if row["kind"] == "Expr":
+                continue
+            if row["kind"] == "Stmt":
+                source_file = "tests/xsh/statement-route-oracles.xsh"
+                mapping_kind = "statement_expression"
+                suffix = re.sub(r"(?<!^)(?=[A-Z])", "_", row["tag"]).lower().removeprefix("stmt_")
+                test_id = f"{source_file}::test_stmt_{suffix}"
+            else:
+                source_file = generate.SCALAR_ROUTE_ORACLE_FILE
+                mapping_kind = "scalar"
+                test_id = scalar_oracle_ids[row["tag"]]
+            expected[test_id] = {
+                "tag": row["tag"],
+                "source_file": source_file,
+                "mapping_kind": mapping_kind,
+            }
+            mappings.append({
+                **expected[test_id],
+                "test_id": test_id,
+                "mode_expectations": {
+                    mode: {"route_id": None, "status": "unsupported_by_artifact_format"}
+                    for mode in generate.ROUTE_WITNESS_EXPECTATION_MODES
+                },
+            })
         config = {
             "route_witness_source_commit": "a" * 40,
             "route_witness_mappings": mappings,
@@ -1523,8 +1540,29 @@ class SemanticRouteMatrixTests(unittest.TestCase):
                 "expected_route_witness_mappings",
                 return_value=missing_tag_expected,
             ):
-                with self.assertRaisesRegex(generate.EvidenceError, "expression route-witness child map differs"):
+                with self.assertRaisesRegex(generate.EvidenceError, "route-witness tag map differs from schema"):
                     generate.validate_route_witness_mappings(root, missing_tag_config, rows)
+
+            missing_schema_config = copy.deepcopy(config)
+            missing_schema_expected = copy.deepcopy(expected)
+            missing_schema_tags = [
+                next(row for row in rows if row["kind"] == "Stmt"),
+                next(row for row in rows if row["kind"] == "Int"),
+            ]
+            for row in missing_schema_tags:
+                mapping = next(
+                    item for item in missing_schema_config["route_witness_mappings"]
+                    if item["tag"] == row["tag"]
+                )
+                missing_schema_config["route_witness_mappings"].remove(mapping)
+                missing_schema_expected.pop(mapping["test_id"])
+            with mock.patch.object(
+                generate,
+                "expected_route_witness_mappings",
+                return_value=missing_schema_expected,
+            ):
+                with self.assertRaisesRegex(generate.EvidenceError, "route-witness tag map differs from schema"):
+                    generate.validate_route_witness_mappings(root, missing_schema_config, rows)
 
     def test_scalar_route_candidates_stay_pending_for_each_mode_and_receipt(self) -> None:
         config = json.loads(generate.CONFIG.read_text())

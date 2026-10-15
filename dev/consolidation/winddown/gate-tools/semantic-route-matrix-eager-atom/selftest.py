@@ -1844,6 +1844,21 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         with self.assertRaisesRegex(generate.EvidenceError, "missing AST statement inventory"):
             generate.build_fallback_path_map(row, refs)
 
+    def test_runtime_oracle_commands_select_rust_and_native_harnesses(self) -> None:
+        rust_id = (
+            "runtime::eval::indexed::full::tests::"
+            "verifier_rejects_a_pipeline_input_that_names_a_statement"
+        )
+        xsh_id = "tests/xsh/expression-route-oracles.xsh::test_expr_pipeline"
+        self.assertEqual(
+            generate.runtime_oracle_commands(rust_id, {rust_id}),
+            {"verification": generate.rust_test_command(rust_id)},
+        )
+        self.assertEqual(
+            generate.runtime_oracle_commands(xsh_id, {rust_id}),
+            generate.native_commands(xsh_id),
+        )
+
     def test_receipt_reuse_requires_exact_source_id_command_and_mode(self) -> None:
         oracle_id = "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map"
         receipt = {
