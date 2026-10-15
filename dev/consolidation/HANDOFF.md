@@ -118,6 +118,13 @@ work is authorized by this resume.
   selftests pass 61 and 46 cases on the merged source. The eager helper now
   selects Rust commands for Rust verifier oracles. Pipeline runtime behavior,
   wrong-category rejection, and the absent-or-truncated gap remain distinct.
+- Pipeline payload tests at `382381547` reject an absent input word and a
+  payload truncated after the input ID. Both begin with a verified fixture
+  and assert the exact decoder rejection after changing its payload length.
+  The two new tests and the existing wrong-category test each pass. Evidence
+  metadata at `52fc6694a` records all three rejection oracles separately from
+  the native child and removes the covered malformed-payload gap. Merged main
+  and eager helper selftests pass 62 and 47 cases. Route receipts remain zero.
 - Verification `xsh` and `xsht` products were rebuilt at `2688d52fc` for the
   assignment repair's output baseline. Repository and Laputa check and lint
   each exit zero. Preserve their complete outputs for candidate comparison.
