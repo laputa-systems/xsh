@@ -1,6 +1,6 @@
 #!/usr/bin/env -S xsh --
+use consolidation.current_source_policy
 use consolidation_metrics_current as metrics
-use consolidation.current_source_policy as current_source_policy
 
 const CURRENT_SOURCE_ACTION = "check-current"
 
@@ -19,7 +19,7 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
   let current = measured.report
   json.write(o.output, current)
   if o.item_inventory != "" { json.write(fp"{o.item_inventory}", measured.item_allowances) }
-  if o.action == CURRENT_SOURCE_ACTION { current_source_policy.assert_current_source_contract(current)? }
+  if o.action == CURRENT_SOURCE_ACTION { current_source_policy.assert_current_source_contract(current) }
   metrics.assert_structural_not_risen(current, current)
   return when o.action == "measure"
   if o.baseline == "" or o.audit == "" { fail "checks require --baseline and --audit" }

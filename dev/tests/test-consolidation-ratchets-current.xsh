@@ -1,5 +1,5 @@
+use consolidation.current_source_policy
 use consolidation_metrics_current as metrics
-use consolidation.current_source_policy as current_source_policy
 
 type AuditRise = {metric: Str, baseline: Int, current: Int, ceiling: Int, approval: Str, reason: Str, remove_when: Str}
 
@@ -12,11 +12,12 @@ pure value(scan: metrics.SourceScan, name: Str) -> Int {
 }
 
 pure current_stage_evidence(source_path: Str, count: Int) -> List[metrics.Evidence] {
-  var evidence: List[metrics.Evidence] = []
-  var line = 1
-  while line <= count {
-    evidence += [{path: source_path, line: line, detail: f"stage {line}"}]
-    line += 1
+  let evidence: List[metrics.Evidence] = collect {
+    var line = 1
+    while line <= count {
+      yield {path: source_path, line: line, detail: f"stage {line}"}
+      line += 1
+    }
   }
   evidence
 }
@@ -31,7 +32,7 @@ pure current_source_report() -> metrics.Report {
 pure current_source_policy_rejection(report: metrics.Report) -> Str {
   match current_source_policy.assert_current_source_contract(report) {
     Ok(_) => "accepted"
-    Err(metrics.MetricError.Contract {detail}) => detail
+    Err(.Contract {detail}) => detail
     Err(error) => error.message
   }
 }
@@ -372,7 +373,7 @@ test test_lowering_type_resolver_metric_rejects_indirect_semantic_walkers {
 
 test test_current_report_requires_zero_lowering_type_resolvers {
   let report = current_source_report()
-  current_source_policy.assert_current_source_contract(report)?
+  current_source_policy.assert_current_source_contract(report)
   let nonzero = { ...report, metrics: collect {
     for row in report.metrics { yield if row.name == "lowering_type_resolver_definitions" { {...row, value: 1} } else { row } }
   } }
@@ -428,7 +429,7 @@ test test_pipeline_stage_schema_accepts_complete_borrowed_view_context_only {
 
 test test_current_report_requires_generated_pipeline_stage_schema {
   let report = current_source_report()
-  current_source_policy.assert_current_source_contract(report)?
+  current_source_policy.assert_current_source_contract(report)
   let wrong_value = { ...report, metrics: collect {
     for row in report.metrics { yield if row.name == "stage_variants" { {...row, value: 45} } else { row } }
   } }
