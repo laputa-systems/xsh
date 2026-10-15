@@ -852,7 +852,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.runner = adapter_runner._load_publication_runner(
             self.repository / "dev/consolidation/w9-publication-run.py"
         )
-        self.scratch_root = self.repository.parents[2] / ".work/wt"
+        self.scratch_root = self.repository / ".work/wt"
         self.scratch_root.mkdir(parents=True, exist_ok=True)
         self.case_root = pathlib.Path(
             tempfile.mkdtemp(prefix="w9-adapter-reference-reuse-", dir=self.scratch_root)
