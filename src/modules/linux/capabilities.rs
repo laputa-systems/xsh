@@ -42,7 +42,7 @@ pub(crate) fn call(op: RuntimeOp, args: &Args<'_>) -> Result<Value, RuntimeError
 
 #[cfg(target_os = "linux")]
 mod native {
-    use super::*;
+    use super::{Args, RuntimeError, RuntimeOp, Value, host_error};
     use crate::runtime::value::RecordMap;
     use crate::source::Span;
     use std::io;

@@ -169,14 +169,13 @@ pub(crate) fn named_digest_reader(
     }
     let bytes = match algorithm {
         "sha3" => {
-            let bytes = match length {
+            match length {
                 224 => digest_stream::<sha3::Sha3_224>(reader, span)?,
                 256 => digest_stream::<sha3::Sha3_256>(reader, span)?,
                 384 => digest_stream::<sha3::Sha3_384>(reader, span)?,
                 512 => digest_stream::<sha3::Sha3_512>(reader, span)?,
                 _ => return Err(RuntimeError::new("hash-length", "SHA3 length must be 224, 256, 384, or 512 bits").with_span(span)),
-            };
-            bytes
+            }
         }
         "shake128" => {
             let bits = output_bits(length, 256, "SHAKE128", span)?;
@@ -235,7 +234,7 @@ fn shake_digest<D: sha3::digest::Update + sha3::digest::ExtendableOutput + Defau
     output_bits: usize,
     span: Span,
 ) -> Result<Vec<u8>, RuntimeError> {
-    let output_bytes = output_bits / 8 + usize::from(output_bits % 8 != 0);
+    let output_bytes = output_bits / 8 + usize::from(!output_bits.is_multiple_of(8));
     let mut digest = D::default();
     stream_update(reader, span, |chunk| sha3::digest::Update::update(&mut digest, chunk))?;
     let mut xof = sha3::digest::ExtendableOutput::finalize_xof(digest);
@@ -411,8 +410,8 @@ impl Blake2b {
     }
     fn compress(&mut self, last: bool) {
         let mut words = [0_u64;16];
-        for (word, bytes) in words.iter_mut().zip(self.block.chunks_exact(8)) {
-            *word = u64::from_le_bytes(bytes.try_into().expect("eight byte word"));
+        for (word, bytes) in words.iter_mut().zip(self.block.as_chunks::<8>().0) {
+            *word = u64::from_le_bytes(*bytes);
         }
         let mut v = [0_u64;16];
         v[..8].copy_from_slice(&self.state);

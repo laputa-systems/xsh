@@ -8,7 +8,7 @@ use crate::source::Span;
 
 #[cfg(target_os = "linux")]
 mod imp {
-    use super::*;
+    use super::{NvmeRequest, NvmeResponse, RuntimeError, SgRequest, SgResponse, Span, Transfer};
     use std::ffi::c_void;
     use std::io;
 

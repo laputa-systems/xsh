@@ -214,7 +214,7 @@ mod imp {
                     add(offset, "vfat", "filesystem", magic)?;
                 }
             }
-            let partition = boot[446..510].chunks_exact(16).any(|entry| {
+            let partition = boot[446..510].as_chunks::<16>().0.iter().any(|entry| {
                 (entry[0] == 0 || entry[0] == 0x80) && entry[4] != 0
                     && le32(&entry[8..12]) != 0 && le32(&entry[12..16]) != 0
             });
