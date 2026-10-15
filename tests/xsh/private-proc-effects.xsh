@@ -140,7 +140,8 @@ test test_private_proc_effects_capture_assertion_error_locally { |ctx|
     """
 proc caller() [] -> Int { locally_caught() }
 proc locally_caught() -> Int {
-  let outcome = try { assert false; 0 }
+  let condition = false
+  let outcome = try { assert condition; 0 }
   42
 }
 print \${caller()}

@@ -582,9 +582,9 @@ let value = retry ["soon"] {
 test test_retry_family_selectors_keep_builtin_and_user_error_identity { |ctx|
   for source in [
     "let result: Result[Unit, AssertionError] = retry [] on (AssertionError) { assert false, \"condition\" }\n",
-    "error LocalError = Failed(message: Str)\nlet result = retry [] on (LocalError) { Err(LocalError.Failed(message: \"local\"))? }\n",
-    "let result = retry [] on (Error) { assert false, \"condition\" }\n",
-    "let result = retry [] on (ProcessError) { Err(ProcessError.NotFound(message: \"missing\", status: null))? }\n",
+    "error LocalError = Failed(message: Str)\nlet result: Result[Unit, LocalError] = retry [] on (LocalError) { Err(LocalError.Failed(message: \"local\"))? }\n",
+    "let result: Result[Unit, Error] = retry [] on (Error) { assert false, \"condition\" }\n",
+    "let result: Result[Unit, ProcessError] = retry [] on (ProcessError) { Err(ProcessError.NotFound(message: \"missing\", status: null))? }\n",
   ] {
     let file = test.temp_file(ctx, name: "selector.xsh", contents: bytes.from_text(source))?
     let checked = run.capture --text "xsht" check $file

@@ -2316,18 +2316,30 @@ impl Checker {
         self.push_scope();
         self.begin_error_boundary();
         self.boundary.retry_block_depth += 1;
-        let expected_ok = match expected {
-            Some(Type::Result(ok, _)) => Some(ok.as_ref()),
-            _ => None,
+        let (expected_ok, expected_error) = match expected {
+            Some(Type::Result(ok, error)) => (Some(ok.as_ref()), Some(error.as_ref())),
+            _ => (None, None),
         };
         let body_ty = self.check_tail_block_arena(arena, source, block, expected_ok);
         self.boundary.retry_block_depth -= 1;
-        let error_ty = self.end_error_boundary(None);
+        let error_ty = self.end_error_boundary(expected_error);
         self.pop_scope();
+
+        let body_ty = if let Some(expected_ok) = expected_ok {
+            if matches!(&body_ty, Type::Unknown | Type::Invalid)
+                && body_ty.matches_expected(expected_ok)
+            {
+                expected_ok.clone()
+            } else {
+                body_ty
+            }
+        } else {
+            body_ty
+        };
 
         let result_ty = match body_ty {
             Type::Result(ok, err) => Type::Result(ok, err),
-            Type::Invalid | Type::Unknown => Type::Result(Box::new(body_ty), Box::new(Type::Error)),
+            Type::Invalid | Type::Unknown => Type::Result(Box::new(body_ty), Box::new(error_ty)),
             ty => Type::Result(Box::new(ty), Box::new(error_ty)),
         };
         if let Some(pattern) = pattern {

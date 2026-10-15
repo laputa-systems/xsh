@@ -163,7 +163,8 @@ let selected = { defer { count = 2 }; (count) }
 print $selected $count
 let captured = try { { defer failed()?; "value" } }
 print ${captured ?? {|failure| failure.message}}
-let primary = try { { defer failed()?; assert false }; "value" }
+let condition = false
+let primary = try { { defer failed()?; assert condition }; "value" }
 print ${primary ?? {|failure| failure.message}}
 """,
   )?

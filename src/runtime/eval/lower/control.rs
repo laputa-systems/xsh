@@ -141,11 +141,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot)?;
                     push_build_row!(self, stmt, BuildStmtRow::Return { value })
                 } else {
-                    // Every other command's value is Unit. A return type that
-                    // accepts the Unit fallthrough (checked before lowering)
-                    // runs the command as the statement it is and completes
-                    // with that Unit.
-                    self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?
+                    lowered.push(self.lower_stmt_with_blocker_guard(
+                        tail,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?);
+                    push_build_row!(
+                        self,
+                        stmt,
+                        BuildStmtRow::Return {
+                            value: push_build_row!(self, expr, BuildExprRow::Unit),
+                        }
+                    )
                 }
             }
             _ => self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?,

@@ -90,8 +90,9 @@ test test_try_assertions_capture_but_trace_has_no_retry_events { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     """
+let condition = false
 let result = try {
-  assert false
+  assert condition
   7
 }
 print (result is Err(_))

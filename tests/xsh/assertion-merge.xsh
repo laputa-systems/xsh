@@ -5,8 +5,9 @@ test test_assertion_forms_share_nominal_capture_inference { |ctx|
 pure captured() -> Result[Unit, AssertionError] {
   try { assert false, "private capture" }
 }
-let bare = try { assert false; let _ = 0 }
-let explicit = try { assert false, "explicit context" }
+let condition = false
+let bare = try { assert condition; let _ = 0 }
+let explicit = try { assert condition, "explicit context" }
 let chain = try { assert 3 < 2 < 1; let _ = 0 }
 for result in [bare, explicit, chain, captured()] {
   match result {
@@ -19,7 +20,7 @@ for result in [bare, explicit, chain, captured()] {
 }
 """,
     status: 0,
-    stdout: ["false", "explicit context", "3 < 2", "private capture"],
+    stdout: ["condition", "explicit context", "3 < 2", "private capture"],
   )?
   assert "unexpected" not in output.stdout, output.stdout
 }

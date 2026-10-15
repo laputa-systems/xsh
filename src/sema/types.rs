@@ -1070,6 +1070,10 @@ impl Type {
             (Self::Callable(actual), Self::Pure) => actual.pure,
             (Self::Tag(a), Self::Tag(b)) => a == b,
             (Self::ErrorVariant { family, .. }, Self::ErrorFamily(expected)) => family == expected,
+            (Self::ErrorVariant { family, .. }, Self::ProcessError) => {
+                *family == Name::PROCESS_ERROR
+            }
+            (Self::ErrorFamily(family), Self::ProcessError) => *family == Name::PROCESS_ERROR,
             (Self::ErrorVariant { .. }, Self::Error) => true,
             (Self::ErrorFamily(_), Self::Error) => true,
             (Self::ErrorFacet(_), Self::Error) => true,
@@ -1540,7 +1544,7 @@ pub(crate) fn callable_effects_match(
 #[cfg(test)]
 mod tests {
     use super::{CallableParamType, CallableType, ModuleExportType, Type};
-    use crate::symbol::Name;
+    use crate::symbol::{Name, SymbolOwner};
     use crate::syntax::node::Effect;
     use std::collections::BTreeMap;
 
@@ -1643,6 +1647,22 @@ mod tests {
         );
         assert!(words.can_be_argv_item());
         assert!(!Type::Union(vec![Type::Int, Type::Float]).can_be_argv_item());
+    }
+
+    #[test]
+    fn process_error_accepts_only_its_variants_and_family() {
+        SymbolOwner::new().with_current(|| {
+            let family = Name::PROCESS_ERROR;
+            let variant = Type::ErrorVariant {
+                family,
+                variant: Name::intern("NotFound"),
+            };
+
+            assert!(variant.matches_expected(&Type::ProcessError));
+            assert!(Type::ErrorFamily(family).matches_expected(&Type::ProcessError));
+            assert!(!Type::ErrorFamily(Name::intern("LocalError"))
+                .matches_expected(&Type::ProcessError));
+        });
     }
 
     // Every shape a simplifier would rewrite is an error, and the order the
