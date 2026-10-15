@@ -610,6 +610,36 @@ fn synchronized_frames(output: &[u8]) -> usize {
     output.windows(b"\x1b[?2026l".len()).filter(|window| *window == b"\x1b[?2026l").count()
 }
 
+fn btop_replay_text_completed_after(output: &[u8], start: usize, rendered_text: &[u8]) -> bool {
+    let output = &output[start..];
+    let Some(text_start) = output.windows(rendered_text.len()).position(|window| window == rendered_text) else { return false };
+    let text_end = text_start + rendered_text.len();
+    output[text_end..].windows(b"\x1b[?2026l".len()).any(|window| window == b"\x1b[?2026l")
+}
+
+fn btop_replay_initial_view_ready(output: &[u8]) -> bool {
+    btop_replay_text_completed_after(output, 0, b"Interface eth0")
+        && btop_replay_text_completed_after(output, 0, b"PID USER CPU% RSS COMMAND")
+}
+
+#[test]
+fn btop_replay_initial_view_waits_for_frame_completion() {
+    let partial_frame = b"\x1b[?2026hInterface eth0 PID USER CPU% RSS COMMAND";
+    let completed_frame = b"\x1b[?2026hInterface eth0 PID USER CPU% RSS COMMAND\x1b[?2026l";
+    let unrelated_frame_closed_before_text = b"\x1b[?2026h\x1b[?2026l\x1b[?2026hInterface eth0 PID USER CPU% RSS COMMAND";
+    let previous_key_frame = b"\x1b[?2026hCPU/core%\x1b[?2026l";
+    let mut next_frame_without_key_text = previous_key_frame.to_vec();
+    next_frame_without_key_text.extend_from_slice(b"\x1b[?2026hSort CPU lazy ascending\x1b[?2026l");
+
+    assert!(!btop_replay_initial_view_ready(partial_frame), "panel text must not complete an open frame");
+    assert!(!btop_replay_initial_view_ready(unrelated_frame_closed_before_text), "an earlier frame must not complete a later open frame");
+    assert!(btop_replay_initial_view_ready(completed_frame));
+    assert!(
+        !btop_replay_text_completed_after(&next_frame_without_key_text, previous_key_frame.len(), b"CPU/core%"),
+        "pre-key rendered text and a later unrelated frame must not acknowledge the key",
+    );
+}
+
 fn percentile_ms(samples: &[Duration], percentile: usize) -> f64 {
     let mut nanos = samples.iter().map(Duration::as_nanos).collect::<Vec<_>>();
     nanos.sort_unstable();
@@ -941,8 +971,8 @@ fn btop_replay_filter_sort_selection_and_resize_use_the_decoded_input() {
     let mut output = Vec::new();
 
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
-        bytes.windows(b"PID USER CPU% RSS COMMAND".len()).any(|window| window == b"PID USER CPU% RSS COMMAND")
-            && synchronized_frames(bytes) >= 1
+        btop_replay_text_completed_after(bytes, 0, b"PID USER CPU% RSS COMMAND")
+            && btop_replay_text_completed_after(bytes, 0, b"> 43")
     });
     let mut screen = VirtualTerminal::new(24, 80);
     let mut captured = output.len();
@@ -951,59 +981,58 @@ fn btop_replay_filter_sort_selection_and_resize_use_the_decoded_input() {
 
     terminal.master.try_clone().unwrap().write_all(b"\x1b[B").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) >= 2 && bytes.windows(b"> 42".len()).any(|window| window == b"> 42")
+        btop_replay_text_completed_after(bytes, captured, b"> 42")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"r").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) >= 3 && bytes.windows(b"Sort CPU lazy ascending".len()).any(|window| window == b"Sort CPU lazy ascending")
+        btop_replay_text_completed_after(bytes, captured, b"Sort CPU lazy ascending")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"\x1b[C").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) >= 4 && bytes.windows(b"Sort PID ascending".len()).any(|window| window == b"Sort PID ascending")
+        btop_replay_text_completed_after(bytes, captured, b"Sort PID ascending")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"f44\r").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) >= 5
-            && bytes.windows(b"Filter: 44".len()).any(|window| window == b"Filter: 44")
-            && bytes.windows(b"> 44".len()).any(|window| window == b"> 44")
+        btop_replay_text_completed_after(bytes, captured, b"Filter: 44 | f edit, Del clear")
+            && btop_replay_text_completed_after(bytes, captured, b"> 44")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"/").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) >= 6 && bytes.windows(b"Filter: 44_".len()).any(|window| window == b"Filter: 44_")
+        btop_replay_text_completed_after(bytes, captured, b"Filter: 44_")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"x").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) >= 7 && bytes.windows(b"Filter: 44x_".len()).any(|window| window == b"Filter: 44x_")
+        btop_replay_text_completed_after(bytes, captured, b"Filter: 44x_")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"\x1b").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) >= 8
-            && bytes.windows(b"Filter: 44 | f edit, Del clear".len()).any(|window| window == b"Filter: 44 | f edit, Del clear")
+        btop_replay_text_completed_after(bytes, captured, b"Filter: 44 | f edit, Del clear")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
 
     terminal.master.try_clone().unwrap().write_all(b"\x1b[3~").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) >= 9 && bytes.windows(b"> 44".len()).any(|window| window == b"> 44")
+        btop_replay_text_completed_after(bytes, captured, b"Sort PID ascending")
+            && btop_replay_text_completed_after(bytes, captured, b"> 44")
     });
     screen.feed(&output[captured..]);
     captured = output.len();
@@ -1074,27 +1103,24 @@ fn btop_replay_network_and_cpu_view_keys_change_rendered_cells() {
     drop(command);
     let mut output = Vec::new();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(10), |bytes| {
-        bytes.windows(b"Interface eth0".len()).any(|window| window == b"Interface eth0")
-            && bytes.windows(b"PID USER CPU% RSS COMMAND".len()).any(|window| window == b"PID USER CPU% RSS COMMAND")
+        btop_replay_initial_view_ready(bytes)
     });
     let mut screen = VirtualTerminal::new(24, 80);
     screen.feed(&output);
     let mut captured = output.len();
 
-    let before_per_core = synchronized_frames(&output);
     terminal.master.try_clone().unwrap().write_all(b"c").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) > before_per_core
+        btop_replay_text_completed_after(bytes, captured, b"CPU/core%")
     });
     screen.feed(&output[captured..]);
     assert!((0..screen.rows).any(|row| screen.line(row).contains("CPU/core%")));
     captured = output.len();
 
     assert!(child.0.try_wait().unwrap().is_none(), "monitor exited before network selection");
-    let before_interface_cycle = synchronized_frames(&output);
     terminal.master.try_clone().unwrap().write_all(b"n").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) > before_interface_cycle
+        btop_replay_text_completed_after(bytes, captured, b"Interface lo")
     });
     assert!(child.0.try_wait().unwrap().is_none(), "monitor exited while handling network selection");
     screen.feed(&output[captured..]);
@@ -1106,10 +1132,9 @@ fn btop_replay_network_and_cpu_view_keys_change_rendered_cells() {
     );
     captured = output.len();
 
-    let before_total_offset = synchronized_frames(&output);
     terminal.master.try_clone().unwrap().write_all(b"z").unwrap();
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) > before_total_offset
+        btop_replay_text_completed_after(bytes, captured, b"0 B total")
     });
     screen.feed(&output[captured..]);
     assert!((0..screen.rows).any(|row| screen.line(row).contains("0 B total")));
@@ -1150,12 +1175,17 @@ fn btop_input_to_present_latency_is_separate_from_replay_sample_interval() {
     });
 
     let mut samples = Vec::new();
-    for _ in 0..100 {
-        let expected_frames = synchronized_frames(&output) + 1;
+    for index in 0..100 {
+        let expected_direction = if index % 2 == 0 {
+            b"Sort CPU lazy ascending".as_slice()
+        } else {
+            b"Sort CPU lazy descending".as_slice()
+        };
+        let output_start = output.len();
         let started = Instant::now();
         terminal.master.try_clone().unwrap().write_all(b"r").unwrap();
         wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-            synchronized_frames(bytes) >= expected_frames
+            btop_replay_text_completed_after(bytes, output_start, expected_direction)
         });
         samples.push(started.elapsed());
     }
