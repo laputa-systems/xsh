@@ -43,9 +43,7 @@ pub enum Type {
     Set(Box<Type>),
     /// A record value whose fields were deliberately erased.
     ErasedRecord,
-    Record(BTreeMap<Name, Type>),
-    /// Shared because namespace bindings carry whole module contracts through
-    /// every checker scope snapshot.
+    Record(Arc<BTreeMap<Name, Type>>),
     Module(Arc<ModuleType>),
     DynamicModule,
     Result(Box<Type>, Box<Type>),
@@ -565,10 +563,13 @@ impl Type {
             Self::List(item) | Self::Stream(item) | Self::Set(item) => Some((**item).clone()),
             Self::Str => Some(Self::Str),
             Self::Bytes => Some(Self::Int),
-            Self::Map(key, item) => Some(Self::Record(BTreeMap::from([
-                (Name::intern("key"), (**key).clone()),
-                (Name::intern("value"), (**item).clone()),
-            ]))),
+            Self::Map(key, item) => Some(Self::Record(
+                BTreeMap::from([
+                    (Name::intern("key"), (**key).clone()),
+                    (Name::intern("value"), (**item).clone()),
+                ])
+                .into(),
+            )),
             Self::Validated(validated) => validated.base().iteration_item_type(),
             Self::Result(ok, _)
                 if matches!(

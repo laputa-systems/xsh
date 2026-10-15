@@ -792,7 +792,8 @@ fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
             Some(Type::Record(
                 left.iter()
                     .map(|(name, ty)| Some((*name, unify_return_shapes(ty, &right[name])?)))
-                    .collect::<Option<_>>()?,
+                    .collect::<Option<std::collections::BTreeMap<_, _>>>()?
+                    .into(),
             ))
         }
         (Type::List(left), Type::List(right)) => {

@@ -1056,7 +1056,7 @@ mod tests {
     fn assert_record_type_fields_preloaded(ty: &Type) {
         match ty {
             Type::Record(fields) => {
-                for (name, ty) in fields {
+                for (name, ty) in fields.iter() {
                     assert!(
                         name.is_preloaded(),
                         "`{name}` was not in the generated preloaded symbol table"

@@ -6147,9 +6147,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             Type::Set(item) => Type::Set(Box::new(self.canonicalize_checked_type(*item))),
             Type::Record(fields) => Type::Record(
                 fields
-                    .into_iter()
-                    .map(|(name, ty)| (name, self.canonicalize_checked_type(ty)))
-                    .collect(),
+                    .iter()
+                    .map(|(name, ty)| (*name, self.canonicalize_checked_type(ty.clone())))
+                    .collect::<BTreeMap<_, _>>()
+                    .into(),
             ),
             Type::Module(module) => Type::Module(Arc::new(crate::sema::types::ModuleType {
                 exports: module

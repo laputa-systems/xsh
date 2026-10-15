@@ -96,14 +96,14 @@ mod tests {
         assert!(Type::Map(Box::new(Type::ProcessHandle), Box::new(Type::Int)).may_hold_resource());
         assert!(Type::Result(Box::new(Type::Int), Box::new(Type::FsLock)).may_hold_resource());
         let owner = SymbolOwner::new();
-        let record = Type::Record(BTreeMap::from([(owner.intern("child"), Type::NetJob)]));
+        let record = Type::Record(BTreeMap::from([(owner.intern("child"), Type::NetJob)]).into());
         assert!(record.may_hold_resource());
         let validated = Type::nominal(owner.intern("Wrapper"), record).expect("record is nominal");
         assert!(validated.may_hold_resource());
         for ty in [Type::Any, Type::ErasedRecord, Type::Error, Type::Unknown] {
             assert!(ty.may_hold_resource());
         }
-        for ty in [Type::Int, Type::Str, Type::Record(BTreeMap::new())] {
+        for ty in [Type::Int, Type::Str, Type::Record(BTreeMap::new().into())] {
             assert!(!ty.may_hold_resource());
         }
     }

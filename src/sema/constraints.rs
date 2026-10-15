@@ -327,6 +327,10 @@ impl TypeConstraints {
         if depth > MAX_TYPE_DEPTH {
             return Err(ConstraintResolutionError::TypeDepth);
         }
+        let record_needs_rewrite = match ty {
+            Type::Record(_) => has_inference(ty, depth)?,
+            _ => false,
+        };
         match ty {
             Type::Inference(id) => {
                 let mut id = *id;
@@ -364,11 +368,12 @@ impl TypeConstraints {
                 self.resolve_depth(first, depth + 1)?;
                 self.resolve_depth(second, depth + 1)?;
             }
-            Type::Record(fields) => {
-                for field in fields.values_mut() {
+            Type::Record(fields) if record_needs_rewrite => {
+                for field in Arc::make_mut(fields).values_mut() {
                     self.resolve_depth(field, depth + 1)?;
                 }
             }
+            Type::Record(_) => {}
             Type::Union(members) => {
                 for member in members {
                     self.resolve_depth(member, depth + 1)?;
@@ -377,7 +382,6 @@ impl TypeConstraints {
             Type::Validated(validated) => {
                 validated.rewrite_base(|base| self.resolve_depth(base, depth + 1))?
             }
-            // Module contracts are shared; copy one only when it must be rewritten.
             Type::Module(exports) if module_has_inference(exports, depth)? => {
                 for export in Arc::make_mut(exports).exports.values_mut() {
                     match export {
@@ -718,6 +722,101 @@ mod tests {
     }
 
     #[test]
+    fn shared_nested_records_resolve_independently() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut base = TypeConstraints::default();
+            let inference = base.fresh(span(1));
+            let inner_name = crate::symbol::Name::intern("inner");
+            let outer_name = crate::symbol::Name::intern("outer");
+            let original = Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                outer_name,
+                Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                    inner_name,
+                    inference.clone(),
+                )]))),
+            )])));
+            let copied = original.clone();
+            let mut int_constraints = base.clone();
+            let mut path_constraints = base.clone();
+            int_constraints
+                .constrain(&inference, &Type::Int, span(2))
+                .unwrap();
+            path_constraints
+                .constrain(&inference, &Type::Path, span(3))
+                .unwrap();
+
+            let int_record = int_constraints.resolve(&copied).unwrap();
+            let path_record = path_constraints.resolve(&original).unwrap();
+
+            assert_eq!(
+                int_record,
+                Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                    outer_name,
+                    Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                        inner_name,
+                        Type::Int,
+                    )]))),
+                )])))
+            );
+            assert_eq!(
+                path_record,
+                Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                    outer_name,
+                    Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                        inner_name,
+                        Type::Path,
+                    )]))),
+                )])))
+            );
+            assert_eq!(
+                original,
+                Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                    outer_name,
+                    Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                        inner_name,
+                        inference,
+                    )]))),
+                )])))
+            );
+        });
+    }
+
+    #[test]
+    fn ground_record_resolution_preserves_depth_errors() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let name = crate::symbol::Name::intern("next");
+            let mut ground = Type::Int;
+            for _ in 0..=MAX_TYPE_DEPTH {
+                ground = Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                    name, ground,
+                )])));
+            }
+
+            assert_eq!(
+                TypeConstraints::default().resolve(&ground),
+                Err(ConstraintResolutionError::TypeDepth)
+            );
+        });
+    }
+
+    #[test]
+    fn record_resolution_preserves_foreign_variable_errors() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut owner = TypeConstraints::default();
+            let foreign = owner.fresh(span(1));
+            let record = Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                crate::symbol::Name::intern("value"),
+                foreign,
+            )])));
+
+            assert_eq!(
+                TypeConstraints::default().resolve(&record),
+                Err(ConstraintResolutionError::ForeignVariable)
+            );
+        });
+    }
+
+    #[test]
     fn nested_dynamic_and_recovery_operands_do_not_establish_contracts() {
         let mut constraints = TypeConstraints::default();
         let seed = constraints.fresh(span(1));
@@ -745,7 +844,7 @@ mod tests {
         for annotation in [
             Type::Any,
             Type::Null,
-            Type::Record(Default::default()),
+            Type::Record(Arc::new(Default::default())),
             Type::List(Box::new(Type::Any)),
         ] {
             let mut constraints = TypeConstraints::default();
@@ -788,10 +887,10 @@ mod tests {
                     .is_err()
             );
         }
-        let record = Type::Record(std::collections::BTreeMap::from([(
+        let record = Type::Record(Arc::new(std::collections::BTreeMap::from([(
             crate::symbol::Name::intern("value"),
             Type::Int,
-        )]));
+        )])));
         assert!(
             constraints
                 .constrain(&record, &Type::ErasedRecord, span(2))
@@ -811,13 +910,15 @@ mod tests {
             let mut constraints = TypeConstraints::default();
             let item = constraints.fresh(span(1));
             let name = crate::symbol::Name::intern("value");
-            let expected = Type::List(Box::new(Type::Record(std::collections::BTreeMap::from([
-                (name, item.clone()),
-            ]))));
-            let actual = Type::List(Box::new(Type::Record(std::collections::BTreeMap::from([
-                (name, Type::Int),
-                (crate::symbol::Name::intern("extra"), Type::Bool),
-            ]))));
+            let expected = Type::List(Box::new(Type::Record(Arc::new(
+                std::collections::BTreeMap::from([(name, item.clone())]),
+            ))));
+            let actual = Type::List(Box::new(Type::Record(Arc::new(
+                std::collections::BTreeMap::from([
+                    (name, Type::Int),
+                    (crate::symbol::Name::intern("extra"), Type::Bool),
+                ]),
+            ))));
             assert!(constraints.constrain(&expected, &actual, span(2)).is_err());
             assert_eq!(constraints.resolve(&item).unwrap(), item);
         });
@@ -826,11 +927,14 @@ mod tests {
     fn optional_record_contributions_keep_one_shape_in_either_order() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let name = crate::symbol::Name::intern("value");
-            let narrow = Type::Record(std::collections::BTreeMap::from([(name, Type::Int)]));
-            let wide = Type::Record(std::collections::BTreeMap::from([
+            let narrow = Type::Record(Arc::new(std::collections::BTreeMap::from([(
+                name,
+                Type::Int,
+            )])));
+            let wide = Type::Record(Arc::new(std::collections::BTreeMap::from([
                 (name, Type::Int),
                 (crate::symbol::Name::intern("extra"), Type::Bool),
-            ]));
+            ])));
             for (first, second) in [(&narrow, &wide), (&wide, &narrow)] {
                 let mut constraints = TypeConstraints::default();
                 let item = constraints.fresh(span(1));
@@ -838,7 +942,6 @@ mod tests {
                 constraints.constrain(&optional, first, span(2)).unwrap();
                 assert!(constraints.constrain(&optional, second, span(3)).is_err());
                 assert_eq!(constraints.resolve(&item).unwrap(), *first);
-                // A separately grounded destination may deliberately hide fields.
                 assert!(constraints.constrain(&narrow, &wide, span(4)).is_ok());
             }
         });

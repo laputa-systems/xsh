@@ -508,7 +508,7 @@ mod tests {
         SymbolOwner::new().with_current(|| {
             let items = Name::intern("items");
             let item_type = Type::List(Box::new(Type::Optional(Box::new(Type::UInt))));
-            let record_type = Type::Record(BTreeMap::from([(items, item_type)]));
+            let record_type = Type::Record(BTreeMap::from([(items, item_type)]).into());
             let runtime = Value::Record(RecordMap::from_name_values(vec![
                 (items, Value::List(vec![Value::Int(7), Value::Null])),
             ]));
@@ -543,7 +543,7 @@ mod tests {
             drop(released);
             let stats_type = Type::Record(BTreeMap::from([
                 (blobs, Type::Map(Box::new(Type::Str), Box::new(Type::UInt))),
-            ]));
+            ]).into());
             let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/runtime/value.rs");
             let entry = Value::FsEntry(FsEntryValue::new(source.clone(), std::fs::metadata(source).unwrap().file_type()));
             let entry_type = Type::Record(BTreeMap::from([
@@ -551,7 +551,7 @@ mod tests {
                 (Name::intern("name"), Type::Str),
                 (Name::intern("ext"), Type::Str),
                 (Name::intern("kind"), Type::Str),
-            ]));
+            ]).into());
 
             enable_tracking();
             begin_stage();
@@ -589,7 +589,7 @@ mod tests {
             let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/runtime/value.rs");
             let path = std::path::PathBuf::from(std::ffi::OsString::from_vec(b"invalid\0path".to_vec()));
             let entry = Value::FsEntry(FsEntryValue::new(path, std::fs::metadata(source).unwrap().file_type()));
-            let ty = Type::Record(BTreeMap::from([(Name::intern("path"), Type::Any)]));
+            let ty = Type::Record(BTreeMap::from([(Name::intern("path"), Type::Any)]).into());
             assert!(!value_matches_static_type(ValueView::Runtime(&entry), &ty));
         });
     }

@@ -53,16 +53,18 @@ pub fn expand_named_arguments(
                         message: "open Record has no statically visible fields to spread".into(),
                     });
                 }
-                expanded.extend(fields.into_iter().map(|(field, ty)| ExpandedArgument {
-                    entry_index,
-                    name: Some(field),
-                    value: ArgumentValueSource::RecordField {
-                        record: value,
-                        field,
-                    },
-                    ty,
-                    span,
-                }));
+                expanded.extend(
+                    fields.iter().map(|(field, ty)| ExpandedArgument {
+                            entry_index,
+                            name: Some(*field),
+                            value: ArgumentValueSource::RecordField {
+                                record: value,
+                                field: *field,
+                            },
+                            ty: ty.clone(),
+                            span,
+                        }),
+                );
                 continue;
             }
             ArenaCallArgKind::Positional(value) => {

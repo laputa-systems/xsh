@@ -40,7 +40,7 @@ pub(super) fn run_capture_result_type_arena(arena: &ArenaProgram, run: RunFormId
                 ("status", Type::Status),
                 ("stdout", output.clone()),
                 ("stderr", output),
-            ]))
+            ]).into())
         }
         RunKind::StreamText => Type::Stream(Box::new(Type::Str)),
         RunKind::StreamBytes => Type::Stream(Box::new(Type::Bytes)),

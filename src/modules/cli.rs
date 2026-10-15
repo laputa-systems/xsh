@@ -491,7 +491,7 @@ impl CliDescriptorPlan {
             for shape in shapes {
                 common.retain(|name, ty| shape.get(name) == Some(ty));
             }
-            return Type::Record(common);
+            return Type::Record(common.into());
         }
         option_values_type(&self.specs)
     }
@@ -507,7 +507,7 @@ impl CliDescriptorPlan {
                     Type::List(Box::new(Type::Str)),
                 )
                 .map(|(name, ty)| (crate::symbol::Name::intern(name), ty)),
-            ))
+            ).into())
         } else {
             values
         };
@@ -538,7 +538,7 @@ fn command_value_type(
         (crate::symbol::Name::intern("action"), Type::Str),
     ]);
     if let Type::Record(options) = option_values_type(&spec.options) {
-        fields.extend(options);
+        fields.extend(Arc::unwrap_or_clone(options));
     }
     for name in &spec.positionals {
         fields.insert(
@@ -584,7 +584,8 @@ fn option_values_type(specs: &BTreeMap<String, OptionSpec>) -> crate::sema::type
                 };
                 (crate::symbol::Name::intern(name), ty)
             })
-            .collect(),
+            .collect::<BTreeMap<_, _>>()
+            .into(),
     )
 }
 

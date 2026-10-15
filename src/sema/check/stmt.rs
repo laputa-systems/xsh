@@ -21,6 +21,7 @@ use rustc_hash::FxHashMap;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 pub(super) use super::proof::{ConditionNarrowings, Narrowing};
 
@@ -3797,7 +3798,9 @@ impl Checker {
             return ConditionNarrowings::default();
         };
         let field_name = arena.arena.string_literal(field_name_id);
-        fields.entry(Name::intern(field_name)).or_insert(Type::Any);
+        Arc::make_mut(&mut fields)
+            .entry(Name::intern(field_name))
+            .or_insert(Type::Any);
         ConditionNarrowings {
             when_true: vec![binding.proof.fact(record_name, path, Type::Record(fields))],
             when_false: Vec::new(),

@@ -855,7 +855,7 @@ fn qualify_error_type(ty: &mut Type, namespace: Name, families: &FxHashSet<Name>
             qualify_error_type(right, namespace, families);
         }
         Type::Record(fields) => {
-            for field in fields.values_mut() {
+            for field in Arc::make_mut(fields).values_mut() {
                 qualify_error_type(field, namespace, families);
             }
         }

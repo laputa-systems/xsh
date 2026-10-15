@@ -431,7 +431,8 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
             fields
                 .iter()
                 .map(|(name, ty)| (Name::intern(name), convert_type(ty)))
-                .collect(),
+                .collect::<BTreeMap<_, _>>()
+                .into(),
         ),
         xsh_registry::types::Type::Module(exports) if exports.is_empty() => Type::DynamicModule,
         xsh_registry::types::Type::Module(exports) => {

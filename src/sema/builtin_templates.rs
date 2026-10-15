@@ -159,7 +159,8 @@ fn instantiate_type(
             fields
                 .iter()
                 .map(|(name, ty)| (*name, instantiate_type(ty, parameters, constraints, span)))
-                .collect(),
+                .collect::<BTreeMap<_, _>>()
+                .into(),
         ),
         Type::Validated(validated) => Type::Validated(Box::new(
             validated.map_base(|base| instantiate_type(base, parameters, constraints, span)),
@@ -492,7 +493,7 @@ mod tests {
         let method = &api_spec()
             .method_overloads(MethodReceiver::List, "get")
             .unwrap()[0];
-        for item in [Type::Null, Type::Record(BTreeMap::new())] {
+        for item in [Type::Null, Type::Record(BTreeMap::new().into())] {
             let receiver = Type::List(Box::new(item.clone()));
             let signature = concrete_method_signature(method, &receiver).unwrap();
             assert_eq!(signature.return_ty.result_ok(), Some(&item));

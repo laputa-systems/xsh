@@ -545,7 +545,7 @@ impl SemanticPools {
                 for (name, raw) in names.iter().copied().zip(raw_types.iter().copied()) {
                     fields.insert(name, child(raw)?);
                 }
-                Type::Record(fields)
+                Type::Record(fields.into())
             }
             TypeTag::Module | TypeTag::ExactModule => {
                 let shape = ShapeId::from_raw(data.lhs)
@@ -1689,10 +1689,10 @@ mod tests {
             (Name::intern("count"), Type::Int),
             (Name::intern("name"), Type::Str),
         ]);
-        let record = Type::Record(fields.clone());
+        let record = Type::Record(fields.clone().into());
         let first = builder.intern_type(&mut pools, &record).unwrap();
         let second = builder
-            .intern_type(&mut pools, &Type::Record(fields))
+            .intern_type(&mut pools, &Type::Record(fields.into()))
             .unwrap();
         assert_eq!(first, second);
 
@@ -1776,7 +1776,7 @@ mod tests {
             .intern_type(&mut pools, &Type::ErasedRecord)
             .unwrap();
         let empty_record = builder
-            .intern_type(&mut pools, &Type::Record(BTreeMap::new()))
+            .intern_type(&mut pools, &Type::Record(BTreeMap::new().into()))
             .unwrap();
         let dynamic_module = builder
             .intern_type(&mut pools, &Type::DynamicModule)
@@ -1789,7 +1789,7 @@ mod tests {
         assert_eq!(pools.to_type(erased_record).unwrap(), Type::ErasedRecord);
         assert_eq!(
             pools.to_type(empty_record).unwrap(),
-            Type::Record(BTreeMap::new())
+            Type::Record(BTreeMap::new().into())
         );
         assert_eq!(pools.to_type(dynamic_module).unwrap(), Type::DynamicModule);
         assert_eq!(
@@ -1811,7 +1811,7 @@ mod tests {
                     family: Name::intern("BuildError"),
                     variant: Name::intern("Failed"),
                 },
-                Type::Record(BTreeMap::from([(Name::intern("value"), Type::Str)])),
+                Type::Record(BTreeMap::from([(Name::intern("value"), Type::Str)]).into()),
             ];
             for ty in types {
                 let id = builder.intern_type(&mut pools, &ty).unwrap();
@@ -1934,7 +1934,8 @@ mod tests {
                     (Name::intern("version"), Type::Str),
                 ]
                 .into_iter()
-                .collect(),
+                .collect::<BTreeMap<_, _>>()
+                .into(),
             );
             let package = Type::nominal(Name::intern("Package"), record.clone()).unwrap();
             let release = Type::nominal(Name::intern("Release"), record.clone()).unwrap();
@@ -2179,7 +2180,7 @@ mod tests {
         builder
             .intern_type(
                 &mut pools,
-                &Type::Record(BTreeMap::from([(Name::intern("value"), Type::Int)])),
+                &Type::Record(BTreeMap::from([(Name::intern("value"), Type::Int)]).into()),
             )
             .unwrap();
         pools.verify().unwrap();

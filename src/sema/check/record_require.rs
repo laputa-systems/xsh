@@ -165,7 +165,7 @@ impl Checker {
             }
             fields.insert(*name, ty);
         }
-        let expected = Type::Record(fields);
+        let expected = Type::Record(fields.into());
         let mut names = self.type_defs.keys().copied().collect::<Vec<Name>>();
         names.sort_by_key(|name| name.as_str());
         let schema = names.into_iter().find(|name| {

@@ -3261,7 +3261,8 @@ fn executable_type(ty: &Type) -> Type {
             fields
                 .iter()
                 .map(|(name, ty)| (*name, executable_type(ty)))
-                .collect(),
+                .collect::<BTreeMap<_, _>>()
+                .into(),
         ),
         Type::Module(module) => Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType {
             exact: module.exact,
@@ -5950,12 +5951,13 @@ impl<'a> FullDecoder<'a> {
                                     "checked callable record spread has no field facts",
                                 ));
                             };
-                            for (name, field_type) in source_fields {
+                            for (name, field_type) in source_fields.iter() {
+                                let name = *name;
                                 if !later_fields.contains(&name) {
                                     if field_type.contains_typed_callable()
                                         && let Some(expected_field) = fields.get(&name)
                                     {
-                                        if !self.checked_type_fits(&field_type, expected_field) {
+                                        if !self.checked_type_fits(field_type, expected_field) {
                                             return Err(IrVerifyError::new(
                                                 "checked record spread field disagrees with its result",
                                             ));
@@ -7096,15 +7098,15 @@ impl<'a> FullDecoder<'a> {
                     let Type::Record(source_fields) = source_type.into_unvalidated() else {
                         return Ok(None);
                     };
-                    fields.extend(source_fields);
+                    fields.extend(source_fields.iter().map(|(name, ty)| (*name, ty.clone())));
                 }
             }
         }
-        Ok(Some(Type::Record(fields)))
+        Ok(Some(Type::Record(fields.into())))
     }
 
     fn update_derived_record_type(
-        fields: &mut BTreeMap<Name, Type>,
+        fields: &mut Arc<BTreeMap<Name, Type>>,
         path: &[Name],
         value_type: Type,
     ) -> bool {
@@ -7112,9 +7114,9 @@ impl<'a> FullDecoder<'a> {
             return false;
         };
         if rest.is_empty() {
-            return fields.insert(*field, value_type).is_some();
+            return Arc::make_mut(fields).insert(*field, value_type).is_some();
         }
-        let Some(Type::Record(nested)) = fields.get_mut(field) else {
+        let Some(Type::Record(nested)) = Arc::make_mut(fields).get_mut(field) else {
             return false;
         };
         Self::update_derived_record_type(nested, rest, value_type)
@@ -7712,12 +7714,13 @@ impl<'a> FullDecoder<'a> {
                                     "checked callable record spread has no field facts",
                                 ));
                             };
-                            for (name, field_type) in source_fields {
+                            for (name, field_type) in source_fields.iter() {
+                                let name = *name;
                                 if !later_fields.contains(&name) {
                                     if field_type.contains_typed_callable()
                                         && let Some(expected_field) = fields.get(&name)
                                     {
-                                        if !self.checked_type_fits(&field_type, expected_field) {
+                                        if !self.checked_type_fits(field_type, expected_field) {
                                             return Err(IrVerifyError::new(
                                                 "checked record spread field disagrees with its result",
                                             ));
@@ -8944,7 +8947,7 @@ impl<'a> FullDecoder<'a> {
             (Type::Record(declared_fields), Type::Record(checked_fields))
                 if declared_fields.len() == checked_fields.len() =>
             {
-                for (field, declared_field) in declared_fields {
+                for (field, declared_field) in declared_fields.iter() {
                     let Some(checked_field) = checked_fields.get(field) else {
                         return Ok(false);
                     };
@@ -23742,7 +23745,7 @@ test test_typed_callable_literal_containers {
                 FullTag::ExprList,
                 Type::List(Box::new(scale.clone())),
             ),
-            ("record_value", FullTag::ExprRecord, Type::Record(record_fields)),
+            ("record_value", FullTag::ExprRecord, Type::Record(record_fields.into())),
         ];
         for (function, tag, forged_type) in container_types {
             let instructions = function_instruction_indices(&program, function, tag);
@@ -27689,7 +27692,7 @@ proc local() [env, error] -> Int {
                 },
                 LoweredType::Error,
             ),
-            (Type::Record(std::collections::BTreeMap::new()), LoweredType::Record),
+            (Type::Record(std::collections::BTreeMap::new().into()), LoweredType::Record),
             (module, LoweredType::Module),
             (callable(true), LoweredType::Pure),
             (callable(false), LoweredType::Proc),
@@ -27705,7 +27708,7 @@ proc local() [env, error] -> Int {
         let nominal = Type::Validated(Box::new(
             crate::sema::validated::ValidatedType::new(
                 crate::sema::validated::Validation::Nominal(Name::intern("Nominal")),
-                Type::Record(fields),
+                Type::Record(fields.into()),
             )
             .unwrap(),
         ));

@@ -516,7 +516,8 @@ mod tests {
                     fields
                         .iter()
                         .map(|field| (Name::intern(*field), Type::Str))
-                        .collect(),
+                        .collect::<std::collections::BTreeMap<_, _>>()
+                        .into(),
                 )
             };
             let base = record(&["id", "version"]);

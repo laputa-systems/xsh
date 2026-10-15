@@ -4,6 +4,32 @@ Status: active and incomplete 2026-10-15.
 
 ## Final-batch status, 2026-10-15
 
+### Record-type lint repair in qualification
+
+The remaining lint profiles attribute substantial work to cloning and dropping
+record type maps. The combined repair shares `Type::Record` fields through
+`Arc` and uses copy on write for refinement and inference substitution.
+The first-party frontend Rust payload changes from `BTreeMap` to
+`Arc<BTreeMap>`; owned-map constructors migrate with `.into()`. XSH types,
+runtime values, field order, and wire formats retain their contracts.
+Independent review found no remaining source or semantic blocker.
+
+The pinned package compile check passes with warnings denied. Thirteen
+constraint tests, two semantic-pool tests, and two resource-type tests pass.
+These include independent substitutions of shared nested records and retained
+depth and foreign-variable failures. Five exact native cases also pass,
+covering record narrowing, inferred CLI schemas, rejected record contracts,
+nested update spreads, and resource-shape forgery. The new lint-budget
+measurement remains pending. Logs are under
+`.work/tmp/record-integration/`. The unused root `syscalls` dependency is removed;
+XSHT retains its dependency for syscall tracing.
+
+The callback dispatch repair is integrated as `e7e5d653e`. It selects the first
+enabled callback for each existing expression-analysis site once, retaining
+rule order and selection policy. Its pinned verification build and four exact
+native lint cases pass. No timing improvement is established by those checks.
+Do not freeze final acceptance until the clean 15-second lint gate passes.
+
 ### Passing native suite and lint blocker
 
 The frozen `acfa649338d4b8276b1b2ae13be1c1ff41d59748` profile attempt

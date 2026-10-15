@@ -1044,13 +1044,13 @@ impl Checker {
                 .ok()?;
             Some(
                 fields
-                    .into_iter()
+                    .iter()
                     .map(|(name, ty)| super::FunctionParamSig {
-                        name,
-                        ty,
+                        name: *name,
+                        ty: ty.clone(),
                         schema_expectation: schema
                             .children
-                            .get(&crate::sema::constants::SchemaComponent::Field(name))
+                            .get(&crate::sema::constants::SchemaComponent::Field(*name))
                             .cloned(),
                         defaulted: false,
                         rest: false,
@@ -1088,9 +1088,9 @@ impl Checker {
                             (*name, actual.clone())
                         }
                     })
-                    .collect();
+                    .collect::<BTreeMap<_, _>>();
                 self.argument_projection_contexts
-                    .insert(value, (Type::Record(expected), context));
+                    .insert(value, (Type::Record(expected.into()), context));
             }
             checked.insert(value, ty);
         }

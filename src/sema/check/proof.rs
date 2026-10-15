@@ -153,7 +153,7 @@ pub(super) fn replace_projection(ty: &mut Type, path: &[Name], replacement: Type
     let Type::Record(fields) = ty else {
         return false;
     };
-    let Some(child) = fields.get_mut(name) else {
+    let Some(child) = Arc::make_mut(fields).get_mut(name) else {
         return false;
     };
     replace_projection(child, rest, replacement)
@@ -163,7 +163,8 @@ fn merge_proven_type(current: &Type, mut replacement: Type) -> Type {
         return current.clone();
     }
     if let (Type::Record(current), Type::Record(replacement)) = (current, &mut replacement) {
-        for (name, ty) in current {
+        let replacement = Arc::make_mut(replacement);
+        for (name, ty) in current.iter() {
             if let Some(new) = replacement.get_mut(name) {
                 *new = merge_proven_type(ty, new.clone());
             } else {
@@ -187,6 +188,7 @@ pub(super) fn restore_projection(ty: &mut Type, original: &Type, path: &[Name]) 
         return;
     };
     let (name, rest) = path.split_first().unwrap();
+    let fields = Arc::make_mut(fields);
     match (fields.get_mut(name), original_fields.get(name)) {
         (Some(child), Some(original)) => restore_projection(child, original, rest),
         (_, None) => {
@@ -207,8 +209,8 @@ pub(super) fn intersection_type(original: &Type, continuations: &[Type]) -> Type
     if let Type::Record(original_fields) = original
         && continuations.iter().all(|ty| matches!(ty, Type::Record(_)))
     {
-        let mut fields = original_fields.clone();
-        for (name, ty) in &mut fields {
+        let mut fields = Arc::clone(original_fields);
+        for (name, ty) in Arc::make_mut(&mut fields) {
             let children = continuations
                 .iter()
                 .map(|continuation| {

@@ -599,12 +599,12 @@ impl Checker {
                     Type::Module(exports) => Type::Module(exports),
                     Type::Record(fields) => {
                         let exports = fields
-                            .into_iter()
+                            .iter()
                             .map(|(name, ty)| {
                                 (
-                                    name,
+                                    *name,
                                     ModuleExportType::Value {
-                                        ty,
+                                        ty: ty.clone(),
                                         optional: false,
                                     },
                                 )
@@ -764,7 +764,7 @@ impl Checker {
                 for field in fields {
                     record.insert(field.name, self.type_from_ann(&field.ty));
                 }
-                Type::Record(record)
+                Type::Record(record.into())
             }
             TypeDefBody::ModuleContract { entries, exact } => {
                 let mut exports = BTreeMap::new();

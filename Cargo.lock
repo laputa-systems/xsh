@@ -1895,7 +1895,6 @@ dependencies = [
  "sm3",
  "smallvec",
  "syn",
- "syscalls",
  "tar",
  "tempfile",
  "unicode-width",

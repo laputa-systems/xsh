@@ -1585,7 +1585,7 @@ impl RecordConstructors {
                         .map(|ty| (field.name, ty))
                 })
                 .collect::<Result<BTreeMap<_, _>, _>>()
-                .map(Type::Record)
+                .map(|fields| Type::Record(fields.into()))
                 .and_then(|record| {
                     if !definition.nominal {
                         return Ok(record);
@@ -1870,12 +1870,12 @@ impl RecordConstructors {
                     Type::Record(fields) => {
                         Type::Module(Arc::new(crate::sema::types::ModuleType::open(
                             fields
-                                .into_iter()
+                                .iter()
                                 .map(|(name, ty)| {
                                     (
-                                        name,
+                                        *name,
                                         ModuleExportType::Value {
-                                            ty,
+                                            ty: ty.clone(),
                                             optional: false,
                                         },
                                     )
@@ -2048,7 +2048,7 @@ mod instance_tests {
                 .unwrap();
             assert_eq!(
                 nested,
-                Type::Record(BTreeMap::from([(Name::intern("value"), count)]))
+                Type::Record(BTreeMap::from([(Name::intern("value"), count)]).into())
             );
         });
     }
@@ -2082,7 +2082,8 @@ impl LiteralConstant {
                 values
                     .iter()
                     .map(|(key, value)| (*key, value.value_type()))
-                    .collect(),
+                    .collect::<BTreeMap<_, _>>()
+                    .into(),
             ),
         }
     }
@@ -3464,7 +3465,7 @@ impl ConstantPreparation<'_> {
                     if !declared.is_empty()
                         && let Type::Record(mut fields) = value.value_type()
                     {
-                        fields.extend(declared);
+                        Arc::make_mut(&mut fields).extend(declared);
                         self.prepared.types.insert(id, Type::Record(fields));
                     }
                     value
@@ -3591,13 +3592,14 @@ impl ConstantPreparation<'_> {
                             else {
                                 return Err(failure());
                             };
-                            for (name, actual) in visible {
+                            for (name, actual) in visible.iter() {
+                                let name = *name;
                                 let ty = field_types.get(&name).ok_or_else(failure)?;
                                 if !supplied.insert(name) {
                                     return Err(failure());
                                 }
                                 self.type_constraints
-                                    .constrain(ty, &actual, arena.expr(value).span)
+                                    .constrain(ty, actual, arena.expr(value).span)
                                     .map_err(|conflict| {
                                         (
                                             arena.expr(value).span,
@@ -3640,7 +3642,7 @@ impl ConstantPreparation<'_> {
                     }
                 }
                 let value = LiteralConstant::Record(Arc::new(values));
-                self.prepared.types.insert(id, Type::Record(field_types));
+                self.prepared.types.insert(id, Type::Record(field_types.into()));
                 self.pending_constructors
                     .push((id, inference.instance, value.clone()));
                 self.constructor_group_depth -= 1;

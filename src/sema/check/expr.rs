@@ -1906,8 +1906,8 @@ impl Checker {
                         .into_unvalidated();
                     match ty {
                         Type::Record(spread_fields) => {
-                            for (k, v) in spread_fields {
-                                record.entry(k).or_insert(v);
+                            for (k, v) in spread_fields.iter() {
+                                record.entry(*k).or_insert_with(|| v.clone());
                             }
                         }
                         Type::Any => self.reject_dynamic_use("a record spread", None, arena.arena.expr(*expr).span),
@@ -2009,7 +2009,7 @@ impl Checker {
                 }
             }
         }
-        Type::Record(record)
+        Type::Record(record.into())
     }
 
     fn check_if_expr_arena(

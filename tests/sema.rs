@@ -1979,7 +1979,7 @@ fn stream_callback_result_contracts_publish_matching_full_and_compact_types() {
                 Type::List(Box::new(Type::Record(std::collections::BTreeMap::from([
                     (Name::intern("key"), payload),
                     (Name::intern("items"), Type::List(Box::new(Type::Int))),
-                ]))))
+                ]).into())))
             } else {
                 Type::List(Box::new(Type::Int))
             };

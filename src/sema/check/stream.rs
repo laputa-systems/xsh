@@ -379,7 +379,7 @@ impl Checker {
                 Type::Stream(Box::new(Type::Record(btree_map(vec![
                     ("index".to_string(), Type::Int),
                     ("value".to_string(), item_ty),
-                ]))))
+                ]).into())))
             }
             StreamStageKind::Zip => {
                 let other_ty = arguments
@@ -410,7 +410,7 @@ impl Checker {
                 Type::Stream(Box::new(Type::Record(btree_map(vec![
                     ("left".to_string(), item_ty),
                     ("right".to_string(), other_item),
-                ]))))
+                ]).into())))
             }
             StreamStageKind::Range => {
                 if stage.block.is_some() {
@@ -610,7 +610,7 @@ impl Checker {
                 let expected = Type::Record(btree_map(vec![
                     ("key".to_string(), Type::Any),
                     ("value".to_string(), Type::Any),
-                ]));
+                ]).into());
                 self.expect_type(&expected, &block_ty, stage_span);
                 let value_ty = match &block_ty {
                     Type::Record(fields) => fields
@@ -690,7 +690,7 @@ impl Checker {
             StreamStageKind::GroupBy => Type::Stream(Box::new(Type::Record(btree_map(vec![
                 ("key".to_string(), callback_ty),
                 ("items".to_string(), Type::List(Box::new(item_ty.clone()))),
-            ])))),
+            ]).into()))),
             StreamStageKind::Any | StreamStageKind::All => {
                 self.expect_type(&Type::Bool, &callback_ty, stage_span);
                 Type::Bool

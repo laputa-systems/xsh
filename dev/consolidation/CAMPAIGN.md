@@ -489,9 +489,11 @@ Follows workstreams 2 and 4.
 **Internal record storage for the final lint repair.** CPU profiles show
 substantial copying and destruction of record type maps. `Type::Record` will
 share its immutable ordered fields through `Arc`, as module types already do.
-This changes an internal Rust payload, not XSH types, runtime values, or wire
-formats. Field order, structural equality, display, and debug output stay the
-same. A mutation must obtain unique fields through copy on write. Constraint
+The first-party frontend Rust constructor changes from a `BTreeMap` payload to
+`Arc<BTreeMap>`; callers convert owned maps with `.into()`. XSH types, runtime
+values, and wire formats stay the same. Field order, structural equality,
+display, and debug output stay the same. A mutation must obtain unique fields
+through copy on write. Constraint
 resolution must preserve unresolved identities, foreign-variable failures, and
 the existing depth limit; ground records must not copy fields during resolution.
 Tests cover independent refinement of clones and unchanged failure behavior.

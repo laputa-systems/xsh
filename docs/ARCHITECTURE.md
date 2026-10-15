@@ -51,6 +51,12 @@ façade. `tests/libxsh_api.rs` protects this boundary. `libxsh` remains the root
 Rust library; a separate core crate or foreign-function ABI needs a concrete
 consumer.
 
+The frontend's `Type::Record` payload is an `Arc<BTreeMap<Name, Type>>`.
+Rust callers construct it from owned field maps with `.into()`. Clones share
+immutable type metadata; refinement and substitution obtain mutable fields
+through `Arc::make_mut`, preserving other snapshots. Equality, diagnostic
+formatting, and field order remain structural.
+
 Language and command behavior lives in XSH libraries under `core/lib/`. Rust
 provides host operations such as syscalls, descriptors, codecs, and byte-level
 work. A native performance exception needs an XSH implementation and
