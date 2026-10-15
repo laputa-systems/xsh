@@ -59,25 +59,35 @@ line always computes. Three things found while porting the rest:
 
 ## Defects
 
-Earlier 1,690-input, 6,760-outcome W9 comparisons are historical evidence, not
-final-source acceptance. The source-qualified 8ca cache receipt counts one
-preparation and check per full module-record key in each shared session: XSH
-check 1,675 and default lint 1,533; Laputa check 379 and default lint 316. No
+The strict W9 comparison on f105 passed for 1,690 inputs and 6,760 outcomes,
+with zero mismatches. That result is historical and does not qualify the newer
+integration. The later 47a c1 comparison failed with 24 mismatches. The narrow
+derived-reference retry correction at `1fd9e5f2f` passed a direct build and
+four positive and two negative fixtures; its Rust unit build could not run
+because the miniature internal proc-macro was unavailable. The correction
+controller pin repair `a898` passed eight tests and live source validation. A
+fresh full comparison on the current integration remains required; see the
+[handoff](dev/consolidation/HANDOFF.md#final-batch-status-2026-10-15) for the
+direct unit and compiler-image qualification.
+
+The source-qualified 8ca cache receipt is also historical. It records XSH check
+1,675 and default lint 1,533, plus Laputa check 379 and default lint 316. No
 shared key repeats. Candidate-probe caches are private and separate from those
-shared session counts. The latest [consolidation handoff](dev/consolidation/HANDOFF.md#current-w4-and-w9-closure-batch-2026-10-14)
-records the corrected-reference comparison process. Final W9 parity remains
-pending until all 1,690 inputs across four profiles pass strict comparison of
-all 6,760 outcomes.
+shared session counts. See the [2026-10-15 consolidation handoff](dev/consolidation/HANDOFF.md#final-batch-status-2026-10-15)
+for current W9 boundaries and receipts.
 
 ### Current consolidation acceptance gates
 
-The current 8ca structural report covers 370 source files, matches the 11
-non-source values from 6ec, and leaves all four required-zero metrics at zero.
-Source totals remain advisory. The feature-touch probe records 38 XSH and 18
-XSHT compiler demands. It compiled isolated placeholder arms; it does not prove
-runtime reachability. The source-qualified 0ab-to-8ca review found 25 of 27
-selected blobs identical and confirms the changed statement-flow sites are
-unchanged.
+The 8ca structural report covers 370 source files, matches the 11 non-source
+values from 6ec, and leaves all four required-zero metrics at zero. These are
+historical results. The start-source scanner rerun and its archived report are
+byte-identical; the final-source structural scan remains pending. The final
+structural snapshot `fd39e7ed` differs only by a deleted stale comment and an
+updated source pin. Source totals remain advisory. The 8ca feature-touch probe records
+38 XSH and 18 XSHT compiler demands from isolated placeholder arms. It does not
+prove runtime reachability or feature-touch coverage on the current source. The
+source-qualified 0ab-to-8ca review found 25 of 27 selected blobs identical and
+confirms the changed statement-flow sites are unchanged.
 
 The 152-tag dispatch review classified four defensive error fallback paths and
 found no concrete route divergence. The 74 authenticated route receipts cover
@@ -86,20 +96,25 @@ found no concrete route divergence. The 74 authenticated route receipts cover
 
 The review of all 46 generated stage rows is complete. An allocation probe on
 8ca is retained separately from the Rust allocation test filter, which remains
-pending. Current full runtime gates remain pending.
+pending. The frozen d02 opt3 suite attempt failed correctness before the
+focused repairs, so its timing is invalid. The handoff records the result and
+the post-repair focused checks; the nine-suite run remains pending.
 
 Sixty focused lint tests are source-qualified from an earlier run and do not
 replace the final lint gate. These reviews do not close the ten acceptance
 rows.
 
-The final canonical fixed-seed, integration, normal and forced runtime, full
-native, repository, documentation, Linux privileged, size, memory, and guarded
-performance gates remain pending. The canonical integration run owns the
-22,768-candidate deep grammar proof; do not run it twice. The batch gate
-(`cargo dev gate --batch`) owns fixed-seed and tooling checks plus one full
-native suite. The final report must state cumulative campaign fuzz seeds and
-upstream compatibility results. See the
-[consolidation handoff](dev/consolidation/HANDOFF.md) for the source freeze and
+The final full W9 comparison on the current source, canonical fixed-seed,
+integration, normal and forced runtime, repository, documentation, Linux
+privileged, size, memory, scheduler, comparative, and guarded performance gates
+remain pending.
+The canonical integration run owns the 22,768-candidate deep grammar proof; do
+not run it twice. The batch gate (`cargo dev gate --batch`) owns fixed-seed and
+tooling checks plus one full native suite. The source-qualified documentation
+generator passed without changing files, but canonical docs, snippets, and
+project checks remain pending. The final report must state cumulative campaign
+fuzz seeds and upstream compatibility results. See the
+[consolidation handoff](dev/consolidation/HANDOFF.md) for current receipts and
 close requirements.
 
 ### Lint migration
@@ -118,8 +133,10 @@ index form covered by
 `crates/xsht/src/lint_prefer_collect.rs::multiline_index_assignment_keeps_the_list_mutable`.
 The focused `xsht test --exact` run passes with the pinned verification pair,
 and the program prints `99,2`. This fixes the malformed test but does not
-reproduce or disprove the earlier rewrite report. Current-source lint
-acceptance remains open.
+reproduce or disprove the earlier rewrite report. The report remains
+unconfirmed. The fixture correction does not show whether the reported rewrite
+occurs. Keep the acceptance open until a reproducer or explicit disposition
+exists. Current source lint acceptance remains open.
 
 Adjacent tests keep indexed mutations out of the rewrite. The Rust tests
 `indexed_comparison_after_the_loop_is_not_a_reassignment` and
@@ -141,14 +158,12 @@ writes, loop backedges, and reordered evidence.
 
 ### Historical host-load failures and current targeted shards
 
-The recorded full native counts predate the current source. The latest run in
-the [consolidation handoff](dev/consolidation/HANDOFF.md) recorded 13,437
-passes, 56 failures, and 138 skips on snapshot `59a6dfbc` under host load.
-The handoff records later targeted passes and repairs, including the split
-system-report checks, GNU cut, factor, and sort shards. Those runs do not
-replace a full current-source suite. The older result of 13,377 passed, 116
-failed, and 138 skipped is not a current failure total. Run the full suite from
-the final source freeze before reporting current failures.
+The 59a6dfbc run under host load recorded 13,437 passes, 56 failures, and 138
+skips. That result and the older 13,377 passed, 116 failed, and 138 skipped
+count are historical. The frozen d02 attempt failed before the focused repairs;
+the post-repair suite has not run. The focused GNU rm repair passes its exact
+parity cases and isolated 400,000-entry case, but full stress acceptance remains
+open. The handoff links the exact run log and qualification.
 
 ### Smaller open items
 

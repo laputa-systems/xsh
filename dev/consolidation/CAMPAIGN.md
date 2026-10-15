@@ -1,12 +1,15 @@
 # XSH Consolidation Campaign
 
-Status: active and incomplete on 2026-10-14. The
-current acceptance and remaining gates are in [`HANDOFF.md`](HANDOFF.md).
+Status: active and incomplete on 2026-10-15. Main remains frozen at
+`d02dd3d8d9d01def71c102b1e90a66188626c0e2`; the focused final-batch repairs
+are isolated while current-source acceptance is pending. The current acceptance
+and remaining gates are in [`HANDOFF.md`](HANDOFF.md).
 The owner approved the entire campaign and all six designs on 2026-10-11,
 including the Codex model policy and completeness-first sequence. The start
-commit remains `5e66b6b896a47d0c692739135d51200b007a2a67`; after the owner's
-2026-10-11 update, integration continues on `master`. Implementation and gate
-evidence are tracked in `ITEMS.md` and the handoff log.
+commit remains `5e66b6b896a47d0c692739135d51200b007a2a67`. The owner moved
+integration to `master` on 2026-10-11. The current repair batch stays isolated
+from the frozen main tree. Implementation and gate evidence are tracked in
+`ITEMS.md` and the handoff log.
 
 The campaign runs unattended: once started it never waits for the owner.
 Every question it would otherwise ask is answered here or in a design file
@@ -972,3 +975,31 @@ owner's request. The campaign is not complete.
   final-correctness launcher is prepared but not executed. W9 real publication
   and corpus evidence, full correctness, source freeze, final close, and
   comparative performance remain open; consolidation is not complete.
+
+### 2026-10-15 — final-batch repair and acceptance status
+
+- The frozen d02 suite attempt failed correctness before the focused repairs;
+  its counts, log, and invalid timing are in
+  [`HANDOFF.md`](HANDOFF.md#final-batch-status-2026-10-15). The focused GNU rm
+  repair passes 14 exact parity cases and the isolated 400,000-entry case; full
+  stress acceptance and the nine serial native suites remain open.
+- W9's f105 comparison is historical; 47a c1 failed with 24 mismatches. The
+  correction-controller pin repair `a898` passed eight tests and live source
+  validation. Fresh full current-source parity remains pending.
+- The start-source scanner rerun matches its archived report and allowance
+  inventory byte for byte. The final structural ratchet remains open. Frozen-
+  source LLVM and API measurements meet the pre-refactor coverage prerequisite;
+  no current-source coverage claim is made.
+- The source-qualified documentation generator passed without changing files;
+  the scoped Markdown check was interrupted. Canonical documentation, snippet,
+  and project checks and all ten CLOSE review rows remain open.
+- The btop report-only 20-sample run uses a standalone profile. A separate full
+  20-sample run passes its readiness and cleanup checks, and the qualified
+  `04eb` runtime passes the three remaining btop native files. No performance
+  change or range claim is made.
+- The Lean inventory remains separate from Rust conformance. The owner waived
+  profile-selection measurement; ordinary verification stays opt3 without LTO
+  and with 64 codegen units, while release acceptance uses opt3 with thin LTO
+  and 16. Current-source W9 parity, full correctness, platform, structural,
+  memory, size, scheduler, and comparative gates remain open.
+  Consolidation is not complete.

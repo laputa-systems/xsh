@@ -1,6 +1,136 @@
 # Consolidation restart handoff
 
-Status: active 2026-10-14.
+Status: active and incomplete 2026-10-15.
+
+## Final-batch status, 2026-10-15
+
+The main source tree remains frozen at `d02dd3d8d9d01def71c102b1e90a66188626c0e2`.
+The private integration branch `campaign/final-batch-docs-d02` contains the
+accepted focused repairs summarized below. The campaign is not complete. The
+full W9 comparison on the current source and the post-repair serial suite
+remain pending.
+
+### Native-suite attempt
+
+The opt3 native-suite attempt on the frozen d02 source reported 13,761 passed,
+22 failed, and 136 skipped. The log is
+`.work/consolidation/final-performance-gates/profile-cost-d02dd3d8d9d01def71c102b1e90a66188626c0e2-attempt-cleanup-fix-a1/opt3/native-suite.log`
+(SHA-256 `7687ebde29e6f8d50b09ecbcbaaaefb1614a04acaa82838d4e759dd54bb6f0f1`).
+The run failed correctness, so its timing is invalid. It predates the focused
+repairs integrated on the private branch.
+
+Those repairs cover process result context, FAT allocation reuse, sort key
+formatting, paired system-report trace parsing and quoted trace text, native
+test context, Docker fixture tools, and btop profile isolation. The integration
+log records the source changes in `04195d09b`, `a0e284bb0`, `2cbf52dcb`,
+`f90b80dbf`, `943aa0a86`, `279d3ea7a`, `d2a4d35c6`, `00890a066`,
+`eaf07e6d0`, `e78f83400`, and `98de1147a`.
+
+The focused GNU rm repair uses `child.path` from `fs.children` for recursion,
+removing repeated child lookup by raw basename. Raw diagnostic names, enumeration
+order, `lstat`, and prompts remain unchanged. Fourteen exact parity cases pass
+under UID 1000, including non-UTF-8 names, symlinks, protection, trailing
+slashes, verbose output, and errors. The unchanged 400,000-entry case also
+passes in isolation. The 42.4-versus-48.6-second timing pair is one diagnostic
+comparison, not a performance result: no limiter, repeated range, or user-path
+profile was established, so no speed claim follows. The current
+`core/tests/test-gnu-rm.xsh::test_gnu_rm_ext3_perf_log` still needs full stress
+acceptance; this focused repair does not establish a passing full suite. The
+nine serial full-suite runs must still verify the integrated source.
+
+The focused cohort records 18 passing checks: 14 language invocations across
+seven normal and forced pairs, plus four native checks (Cargo-step, Docker
+gate, lifecycle, and corrected baseline provenance). The first combined command
+exited 1 at the Docker gate because the root user's host UID triggered Git's
+dubious-ownership check. The three environment-sensitive checks then passed
+under a UID-1000 and HOME-compatible environment. Logs are
+`.work/tmp/integrated-focused-green.log` and
+`.work/tmp/integrated-remaining-green.log`; this is not a full-suite result.
+The focused runs used source-correct binaries in the explicit pinned
+`sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`
+runtime.
+
+The exact Rust `ProcessError` unit also passed against an existing source-correct
+binary in that pinned runtime: one passed, 713 filtered. The log is
+`.work/tmp/green-process-error-unit-direct-campaign-image-20261015.log`. The
+earlier build3 compilation used mutable `xsh-test`; no immutable compiler image
+ID was retained, so it does not qualify a pinned build. Fresh W9 and release
+builds must record the explicit 3b compiler image. No Rust production source
+changed between `5c` and `7232`.
+
+### W9 publication status
+
+The f105 strict comparison remains a historical pass: 1,690 inputs, 6,760
+outcomes, and zero mismatches. It does not qualify the newer source. The later
+47a c1 comparison failed with 24 mismatches. The derived-reference retry
+correction `1fd9e5f2f` passed a direct build and four positive and two negative
+fixtures. Its exact Rust unit could not build because the miniature internal
+proc-macro was unavailable. No red run against the old `bb` reference was
+recorded. The correction controller pin repair `a898` passed eight tests and
+live source validation. No fresh full comparison on the current integration
+has run.
+
+### Start-source structural scan
+
+The scanner rerun at `3b36990f` on the frozen start source
+`5e66b6b896a47d0c692739135d51200b007a2a67` matches the archived report and
+allowance inventory byte for byte. The report
+SHA-256 is `322ea03664f2478abb57362fbd0bda714715ff3020dd6316f827f2b441e891d3`;
+the inventory SHA-256 is `269f793535e0bee19aabeb96b721314d4f2852db12b73e254ba9a283e7c75c26`.
+The final source structural snapshot `fd39e7ed` differs from the archived
+baseline only by deleting a stale comment and updating its source pin. The
+start-source comparison does not close the final source structural gate.
+
+### Frozen-source coverage measurement
+
+The coverage-before-refactoring prerequisite is now met by measurements on the
+frozen start source. The coverage worktree retained all 212 sealed Rust source
+files unchanged. The LLVM aggregate is
+`/home/josh/d/laputa-systems/xsh-consolidation-lanes/coverage-baseline/.work/consolidation/coverage/profile-aggregate/aggregate-result.json`
+(SHA-256 `5afb78fcbde7b6cef17ac6069ec9f28be07f0c37bc0c612e8c637256d53a6e21`).
+The decoder ledger is
+`/home/josh/d/laputa-systems/xsh-consolidation-lanes/coverage-baseline/.work/consolidation/coverage/profile-aggregate/decoder-closure-ledger/decoder-closure-ledger.json`
+(SHA-256 `8d4127de341932898b6a94499492c4c574c33c5dd6f5abf55fb2c4ab2cbf6d82`).
+It lists 115 rows: 41 covered, two outside the line denominator, 72 uncovered,
+and zero unresolved live rows. This ledger does not accept W1 or describe d02
+coverage.
+
+The completed native and API checkpoint is
+`/home/josh/d/laputa-systems/xsh-consolidation-lanes/coverage-baseline/.work/consolidation/coverage/native-continuation/canonical-full-resume-after-488/checkpoint.json`
+(SHA-256 `adea3450793a3198014dd0c781d62cf07c99b9e5bf7a4525b886ab77ec30104b`).
+It records 545 valid reports, zero report gaps, and 6,122 of 6,122 API
+outcomes. Its gate failed: 5,972 passed, 12 failed, 20 timed out, and 118 were
+skipped. These are frozen-baseline results, not d02 failures or a green suite.
+The aggregate records one xsh function mismatch at line 700 of external
+`ignore` 0.4.25. It also records uncovered groups 30, 181, and 488, a replay
+gap at group 16, and three corrupt raw xsh profiles. This evidence meets the
+pre-refactor measurement prerequisite. It makes no current-source coverage
+claim and does not establish runtime acceptance or a green Rust baseline.
+
+### Other open acceptance
+
+The source-qualified documentation generator passed on 47a and wrote no
+changed files. The scoped Markdown checker was interrupted after 180 seconds
+without output. The canonical documentation, snippet, and project checks
+remain pending.
+
+The report-only btop 20-sample run uses a standalone profile. A separate full
+20-sample run passes with zero pre-run and post-run ready counts and zero
+cleanup count. The explicitly qualified `04eb` runtime passed the three
+remaining btop native files. No performance change or range claim is made; the
+full-work data remain preserved.
+
+The latest Lean inventory has 685 roots and 89 owners. Its 72 universal
+obligations remain planned, and `source_identity` is null. This formal-model
+evidence establishes no Rust conformance. Compatibility G0b still awaits an
+accepted source freeze.
+
+The owner retained ordinary verification at opt3 without LTO and with 64
+codegen units. Final release acceptance uses opt3 with thin LTO and 16 codegen
+units. The owner waived profile-selection measurement; no fastest-profile claim
+is required. Nine full native suites remain serialized. The final current-source
+W9 comparison, canonical correctness and documentation checks, platform,
+structural, memory, size, scheduler, and comparative gates remain open.
 
 ## Full publication acceptance, 2026-10-14
 
@@ -2516,21 +2646,25 @@ before final builds; do not launch ARM work while paused.
 
 ## Closing work still required
 
-Generated SPEC/tour/reference docs are deliberately not regenerated yet. Update
-R2 canonical cleanup prose (old text still says roots/locks are not scope-owned),
-type/fact/session architecture, Optional/label guidance and resource API docs,
-then `make docs`. Update TODOs only after each defect is actually closed.
+The source-qualified documentation generator passed on 47a and wrote no changed
+files. The scoped Markdown checker was interrupted after 180 seconds without
+output. Canonical generated-doc, snippet, and project checks remain pending.
 
 The original scanner reports 189,274 src and 49,968 xsht non-test lines.
 The corrected blanket baseline is 47,061 lines; 47,705 was a scope-count error.
 Source totals, intermediate envelopes, and strict shrink are advisory under
 the 2026-10-11 owner update. Final closure requires zero blanket allowances and
-the other structural end states. Ten semantic review rows need verified
-evidence consumed by the check. The verification opt3/no-LTO profile remains
-provisional; profile-cost measurement follows functional close.
+the other structural end states. Ten semantic review rows remain
+`pending_review` in
+`.work/final-review-evidence/review-evidence-d02dd3d8d9d01def71c102b1e90a66188626c0e2.json`.
+Each row needs reviewer-backed evidence before the final-close check can pass.
+The owner retained verification opt3 without LTO and with 64 codegen units, and
+waived profile-selection measurement. Release evidence uses opt3 with thin LTO
+and 16 codegen units. No fastest-profile claim is required.
 
-Final feature probe (manual sites zero), reliability/fixed-seed gates, pinned
-seven-tool comparative parity/timings, complete candidate x86_64 Linux verification,
-cleanup and the closing report all remain. No comparative timings were taken;
-prepared suite has 35 parity cases and eight harness tests green. Continue to
-campaign completion only after the owner's resume request.
+The final feature-touch probe, fixed-seed reliability gates, fresh W9 parity,
+current-source correctness, platform, structural, memory, size, scheduler, and
+comparative gates remain open. The nine serial native suites have not passed on
+the repaired integration. The comparative suite preparation has 35 parity
+cases and eight harness tests. No comparative timing claim is supported. The
+campaign remains active until every gate and review row is closed or parked.

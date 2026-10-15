@@ -5,12 +5,15 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `master` in `/home/josh/d/laputa-systems/xsh`; the owner merged consolidation
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
-**Status: active on `master`, 2026-10-14.**
+**Status: active and incomplete, 2026-10-15.** Main remains frozen at
+`d02dd3d8d9d01def71c102b1e90a66188626c0e2`; the focused final-batch repairs
+are isolated on `campaign/final-batch-docs-d02`.
 [`HANDOFF.md`](HANDOFF.md) records current acceptance, integrated work, and
 remaining gates; the older grants and progress states below are planning and
 historical context, not a live lane queue. The campaign is active and
-incomplete. The provisional formal inventory has 685 fragment roots across 89
-owners, with all 72 universal obligations planned. The current pinned
+incomplete. The separate formal inventory has 685 fragment roots across 89
+owners, with all 72 universal obligations planned and `source_identity` null.
+It establishes no Rust conformance. The current pinned
 verification image is
 `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`;
 all development and final platform gates are x86_64 Linux musl.
@@ -115,10 +118,10 @@ an exact additional adapter carve-out for imported command words.
 | Item | Ownership / deliverable | Prerequisite | State |
 |---|---|---|---|
 | S0 | Integrator: approvals, baseline commit, ownership and handoff | owner approval | active |
-| S1 | Integrator: pinned Linux environment, baseline correctness gates and coverage | S0 | native baseline green; Rust and coverage pending |
+| S1 | Integrator: pinned Linux environment, baseline correctness gates and coverage | S0 | frozen-source LLVM and API measurements satisfy the pre-refactor prerequisite; the baseline gate retains failures and timeouts; no current-source coverage result or green Rust baseline is claimed ([HANDOFF](HANDOFF.md#frozen-source-coverage-measurement)) |
 | S2 | Integrator: XSH structural scanner, baseline JSON, evidence for each metric | S0; verified binaries to run | 13 fixtures green; exact-source baseline measured; CLI/ratchet wiring active |
 | S3 | Integrator: measured no-LTO optimized test profile and path-mapped lane gate | S1 | tooling integrated be681661; 51 automation tests green; on 2026-10-14 the owner waived profile-selection measurement for final acceptance; ordinary verification retains opt3/no LTO/64 codegen units; path-mapped gate remains integrated; final release opt3 gate remains pending |
-| S4 | Pure partitions of lower, indexed executor, module executor, and lint | coverage; baseline gates | four partitions integrated; body proofs and compiler gates green; combined coverage acceptance pending |
+| S4 | Pure partitions of lower, indexed executor, module executor, and lint | frozen-source coverage measurement; baseline gates | four partitions integrated; body proofs and compiler gates green; pre-refactor coverage prerequisite met; current-source runtime acceptance remains pending and no current-source coverage claim is made ([HANDOFF](HANDOFF.md#frozen-source-coverage-measurement)) |
 | S5 | Integrator: instruction-table, traversal, and lint-rule designs; campaign skill | revalidation | designs and campaign skill established |
 | D1 | `src/diagnostic.rs`, new native diagnostic-rendering coverage | recorded contract below; S1 for execution | integrated 053a546b; 4 native, 18 parser and 7 renderer tests green |
 | D2 | `src/sema/types.rs`, imported-enum diagnostic coverage | recorded contract below; S1 for execution | integrated a13ea703; 36 native and one unit green |
