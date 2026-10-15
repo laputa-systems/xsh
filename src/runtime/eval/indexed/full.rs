@@ -403,8 +403,9 @@ enum CallableAssignmentPathStep {
     Index,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 enum FunctionSignatureLookup {
+    #[default]
     Missing,
     Unique(SignatureId),
     Ambiguous,
@@ -419,12 +420,6 @@ struct FunctionIdentitySignatures {
 enum CheckedRecordEntry {
     Field(Name, usize),
     Spread(usize),
-}
-
-impl Default for FunctionSignatureLookup {
-    fn default() -> Self {
-        Self::Missing
-    }
 }
 
 /// Shares bounded target lookup between checked references and module exports.
@@ -2567,15 +2562,15 @@ impl FullBuilder {
         let slot_count = statement
             .as_ref()
             .map_or(0, |statement| statement.slot_count);
-        if let Some(statement) = statement.as_ref() {
-            if statement.slot_type_facts.len() != statement.slot_count {
-                return Err(IrBuildError::format(
-                    "driver_slot_type_fact_count",
-                    Some(span),
-                    0,
-                    self.store.tags.len(),
-                ));
-            }
+        if let Some(statement) = statement.as_ref()
+            && statement.slot_type_facts.len() != statement.slot_count
+        {
+            return Err(IrBuildError::format(
+                "driver_slot_type_fact_count",
+                Some(span),
+                0,
+                self.store.tags.len(),
+            ));
         }
         let write_slots = statement
             .as_ref()
@@ -5681,20 +5676,19 @@ impl<'a> FullDecoder<'a> {
             .expression_checked_type_id(instruction)?
             .map(|type_id| self.store.semantic.to_type(type_id))
             .transpose()?;
-        if expected.contains_typed_callable()
+        if (expected.contains_typed_callable()
             || actual_type
                 .as_ref()
-                .is_some_and(Type::contains_typed_callable)
+                .is_some_and(Type::contains_typed_callable))
+            && let schema::ExprView::MapLiteral(entries) = self.expression_view(instruction)?
         {
-            if let schema::ExprView::MapLiteral(entries) = self.expression_view(instruction)? {
-                let map_type = actual_type
-                    .as_ref()
-                    .filter(|actual| actual.contains_typed_callable())
-                    .unwrap_or(expected);
-                self.checked_map_literal_matches_type(entries, map_type)?;
-                if actual_type.is_none() {
-                    return Ok(());
-                }
+            let map_type = actual_type
+                .as_ref()
+                .filter(|actual| actual.contains_typed_callable())
+                .unwrap_or(expected);
+            self.checked_map_literal_matches_type(entries, map_type)?;
+            if actual_type.is_none() {
+                return Ok(());
             }
         }
         if !expected.contains_typed_callable()
@@ -5953,17 +5947,16 @@ impl<'a> FullDecoder<'a> {
                             };
                             for (name, field_type) in source_fields.iter() {
                                 let name = *name;
-                                if !later_fields.contains(&name) {
-                                    if field_type.contains_typed_callable()
-                                        && let Some(expected_field) = fields.get(&name)
-                                    {
-                                        if !self.checked_type_fits(field_type, expected_field) {
-                                            return Err(IrVerifyError::new(
-                                                "checked record spread field disagrees with its result",
-                                            ));
-                                        }
-                                        supplied.insert(name);
+                                if !later_fields.contains(&name)
+                                    && field_type.contains_typed_callable()
+                                    && let Some(expected_field) = fields.get(&name)
+                                {
+                                    if !self.checked_type_fits(field_type, expected_field) {
+                                        return Err(IrVerifyError::new(
+                                            "checked record spread field disagrees with its result",
+                                        ));
                                     }
+                                    supplied.insert(name);
                                 }
                                 later_fields.insert(name);
                             }
@@ -7237,14 +7230,14 @@ impl<'a> FullDecoder<'a> {
                     Err(error) => return Err(error),
                 };
                 let actual_type = self.store.semantic.to_type(actual)?;
-                if actual_type == ty {
-                    return Ok(());
-                } else if self.checked_declared_type_matches_narrowed_fact(
-                    instruction,
-                    (slot, Vec::new()),
-                    &actual_type,
-                    &ty,
-                )? {
+                if actual_type == ty
+                    || self.checked_declared_type_matches_narrowed_fact(
+                        instruction,
+                        (slot, Vec::new()),
+                        &actual_type,
+                        &ty,
+                    )?
+                {
                     return Ok(());
                 } else if let Type::Optional(payload) = &actual_type
                     && payload.as_ref() == &ty
@@ -7716,17 +7709,16 @@ impl<'a> FullDecoder<'a> {
                             };
                             for (name, field_type) in source_fields.iter() {
                                 let name = *name;
-                                if !later_fields.contains(&name) {
-                                    if field_type.contains_typed_callable()
-                                        && let Some(expected_field) = fields.get(&name)
-                                    {
-                                        if !self.checked_type_fits(field_type, expected_field) {
-                                            return Err(IrVerifyError::new(
-                                                "checked record spread field disagrees with its result",
-                                            ));
-                                        }
-                                        supplied.insert(name);
+                                if !later_fields.contains(&name)
+                                    && field_type.contains_typed_callable()
+                                    && let Some(expected_field) = fields.get(&name)
+                                {
+                                    if !self.checked_type_fits(field_type, expected_field) {
+                                        return Err(IrVerifyError::new(
+                                            "checked record spread field disagrees with its result",
+                                        ));
                                     }
+                                    supplied.insert(name);
                                 }
                                 later_fields.insert(name);
                             }
@@ -7984,9 +7976,7 @@ impl<'a> FullDecoder<'a> {
                     "checked expression fact is neither callable, a structured error, nor a With error source",
                 ));
             }
-            if let Err(error) = self.verify_checked_expression_producer(instruction, *fact) {
-                return Err(error);
-            }
+            self.verify_checked_expression_producer(instruction, *fact)?;
         }
         for instruction in self.instruction_range.clone() {
             if self.store.tags[instruction] == FullTag::ExprError
@@ -8066,11 +8056,11 @@ impl<'a> FullDecoder<'a> {
         if !fact_type.contains_typed_callable() {
             return Ok(());
         }
-        if let Some(initializer) = self.checked_expression_type_id(value)? {
-            if self.store.semantic.to_type(initializer)? == fact_type {
-                self.proven_callable_writers.borrow_mut().insert(slot);
-                return Ok(());
-            }
+        if let Some(initializer) = self.checked_expression_type_id(value)?
+            && self.store.semantic.to_type(initializer)? == fact_type
+        {
+            self.proven_callable_writers.borrow_mut().insert(slot);
+            return Ok(());
         }
         if self
             .checked_expression_matches_type(value, &fact_type)
@@ -9144,10 +9134,10 @@ impl<'a> FullDecoder<'a> {
                 return self.checked_prefix_roots_preserve_binding_path(&prefix_roots, target);
             }
             for roots in self.checked_statement_blocks(parent)? {
-                if !roots.is_empty() {
-                    if let Some(prefix) = self.checked_block_prefix_roots(&roots, before)? {
-                        prefix_roots.extend(prefix);
-                    }
+                if !roots.is_empty()
+                    && let Some(prefix) = self.checked_block_prefix_roots(&roots, before)?
+                {
+                    prefix_roots.extend(prefix);
                 }
             }
             child = parent;
@@ -9508,12 +9498,11 @@ impl<'a> FullDecoder<'a> {
                         "checked With initializer has multiple owners",
                     ));
                 }
-                if else_param_slot.is_some() {
-                    if let Some(Type::Result(_, error)) =
+                if else_param_slot.is_some()
+                    && let Some(Type::Result(_, error)) =
                         self.checked_expression_type(initializer)?
-                    {
-                        Self::merge_with_error_type(&mut error_type, *error);
-                    }
+                {
+                    Self::merge_with_error_type(&mut error_type, *error);
                 }
             }
             if else_param_slot.is_some() {
@@ -10922,9 +10911,7 @@ impl<'d, 'a> IndexedCardinalityQuery<'d, 'a> {
                 let mut has_value = false;
                 for entry in &mut values {
                     let (splice, value, _) = entry?;
-                    if !splice {
-                        has_value = true;
-                    } else if self.expression(value.raw() as usize)? == NonEmpty {
+                    if !splice || self.expression(value.raw() as usize)? == NonEmpty {
                         has_value = true;
                     }
                 }
@@ -10979,9 +10966,9 @@ impl<'d, 'a> IndexedCardinalityQuery<'d, 'a> {
             }
             schema::ExprView::Method {
                 receiver,
-                name,
+                name: "to_list" | "to_set" | "collect",
                 ..
-            } if matches!(name, "to_list" | "to_set" | "collect") => {
+            } => {
                 self.expression(receiver.raw() as usize)
             }
             schema::ExprView::ListPipeline {
@@ -15428,7 +15415,7 @@ impl<'a> StageFieldMatch<BuildStmtId> for decode::StmtInstructionId<'a> {
 }
 
 #[cfg(test)]
-impl<'a> StageFieldMatch<String> for &'a str {
+impl StageFieldMatch<String> for &str {
     fn assert_matches(self, expected: &String, _expectations: &StageViewExpectations<'_>) {
         assert_eq!(self, expected.as_str());
     }
@@ -17789,12 +17776,12 @@ proc main() [env, error] -> Result[Unit] {
         for (forced, route, mode) in [
             (
                 false,
-                RouteWitnessRoute::InPlaceEvaluatorPath,
+                RouteWitnessRoute::InPlaceEvaluator,
                 RouteWitnessMode::Normal,
             ),
             (
                 true,
-                RouteWitnessRoute::ExplicitFrameControlPath,
+                RouteWitnessRoute::ExplicitFrameControl,
                 RouteWitnessMode::Forced,
             ),
         ] {
@@ -18207,12 +18194,11 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
         assert_eq!(payloads, [vec![u32::MAX, u32::MAX], vec![1], vec![1],
             vec![1], vec![], vec![0, 0x8000_0000], vec![0]]);
         let execution = schema_execution(&builder.store);
-        for (raw, expected) in [(0, -1)] {
-            let (tag, payload) = execution.instruction_id(raw).unwrap();
-            let schema::ExprView::Int(actual) = schema::ExprView::decode(&execution, tag, payload).unwrap()
-                else { panic!("integer view") };
-            assert_eq!(actual, expected);
-        }
+        let (raw, expected) = (0, -1);
+        let (tag, payload) = execution.instruction_id(raw).unwrap();
+        let schema::ExprView::Int(actual) = schema::ExprView::decode(&execution, tag, payload).unwrap()
+            else { panic!("integer view") };
+        assert_eq!(actual, expected);
         let (tag, payload) = execution.instruction_id(2).unwrap();
         let schema::ExprView::Str(text) = schema::ExprView::decode(&execution, tag, payload).unwrap()
             else { panic!("string view") };
@@ -23293,42 +23279,41 @@ pure apply_nested_write(container: Container, n: Int) -> Int {
         );
         FullVerifier::verify(&program).unwrap();
 
-        for (function, assignment_tag) in [("apply_direct_write", FullTag::StmtAssign)] {
-            let mut malformed = program.clone();
-            let body = first_if_body_block(&malformed, function);
-            let typed_call = function_instruction_indices(&malformed, function, FullTag::ExprTypedCall)
-                .into_iter()
-                .next()
-                .expect("guard body has a typed call");
-            let call_statement = block_statement_containing_instruction(&malformed, body, typed_call);
-            let assignment = function_instruction_indices(&malformed, function, assignment_tag)
-                .into_iter()
-                .find(|instruction| *instruction != call_statement)
-                .expect("the guarded body has an alternate binding write");
-            let payload = malformed.store.data[assignment].range();
-            let protected_slot = typed_call_receiver_slot(&program, function);
-            assert_ne!(
-                malformed.store.extra[payload.start as usize] as usize,
-                protected_slot,
-                "the source assignment initially targets an unrelated local",
-            );
-            malformed.store.extra[payload.start as usize] = protected_slot as u32;
+        let (function, assignment_tag) = ("apply_direct_write", FullTag::StmtAssign);
+        let mut malformed = program.clone();
+        let body = first_if_body_block(&malformed, function);
+        let typed_call = function_instruction_indices(&malformed, function, FullTag::ExprTypedCall)
+            .into_iter()
+            .next()
+            .expect("guard body has a typed call");
+        let call_statement = block_statement_containing_instruction(&malformed, body, typed_call);
+        let assignment = function_instruction_indices(&malformed, function, assignment_tag)
+            .into_iter()
+            .find(|instruction| *instruction != call_statement)
+            .expect("the guarded body has an alternate binding write");
+        let payload = malformed.store.data[assignment].range();
+        let protected_slot = typed_call_receiver_slot(&program, function);
+        assert_ne!(
+            malformed.store.extra[payload.start as usize] as usize,
+            protected_slot,
+            "the source assignment initially targets an unrelated local",
+        );
+        malformed.store.extra[payload.start as usize] = protected_slot as u32;
 
-            let statement_range = block_statement_range(&malformed, body);
-            let statements = &mut malformed.store.extra[statement_range];
-            let assignment_position = statements
-                .iter()
-                .position(|instruction| *instruction as usize == assignment)
-                .expect("assignment belongs to the guarded body");
-            assert_eq!(statements.len(), 2, "guard body contains the call and write");
-            let read_position = statements
-                .iter()
-                .position(|instruction| *instruction as usize == call_statement)
-                .expect("field call belongs to the guarded body");
-            statements.swap(assignment_position, read_position);
+        let statement_range = block_statement_range(&malformed, body);
+        let statements = &mut malformed.store.extra[statement_range];
+        let assignment_position = statements
+            .iter()
+            .position(|instruction| *instruction as usize == assignment)
+            .expect("assignment belongs to the guarded body");
+        assert_eq!(statements.len(), 2, "guard body contains the call and write");
+        let read_position = statements
+            .iter()
+            .position(|instruction| *instruction as usize == call_statement)
+            .expect("field call belongs to the guarded body");
+        statements.swap(assignment_position, read_position);
 
-            assert!(FullVerifier::verify(&malformed).is_err(), "{function}");
-        }
+        assert!(FullVerifier::verify(&malformed).is_err(), "{function}");
 
         let function = "apply_nested_write";
         let mut malformed = program.clone();
