@@ -4,6 +4,38 @@ Status: winding down on 2026-10-15. The owner requests all unfinished work
 integrated, no linked worktrees retained, and a reboot-safe handoff. Lean is
 paused. Start no new implementation or verification work.
 
+## Owner steering, 2026-10-15
+
+The owner adopted [the typing consolidation steering](../../xsh-typing-consolidation-steering.md)
+as the direction for resumed work. The current winddown and cleanup finish
+first. Lean remains paused. The steering's unattended execution instructions
+apply after an explicit resume; they do not restart lanes during winddown.
+
+Judge these outcomes separately:
+
+1. Close the existing behavior-preserving consolidation acceptance on a
+   qualified source freeze. Retain failed receipts and the unexplained AWK
+   discrepancy. A later green comparison does not explain that discrepancy.
+2. Deliver general rank-1 inference in a successor milestone. Establish
+   red/green capability witnesses before solver changes: reusable function
+   schemes, independent importer instantiation, open record rows, recursive
+   components, mutable-state restrictions, and callable/effect relationships.
+   Preserve checked facts, verifier-owned execution, and current contracts.
+   Measure joint annotation removal on a frozen real-program cohort and cold
+   solver phases, memory, and scaling. The 95% eligible-local and 85%
+   eligible-internal targets remain targets, not achieved results.
+3. Resume Lean toward one connected compiler slice from lexical resolution
+   through constraints, schemes, elaboration, verified indexed instructions,
+   and observable execution. State each stage's domain and assumptions.
+   Distinguish universal theorems, finite certificates, empirical comparisons,
+   and host assumptions. Preserve the full-core obligations and require the
+   post-consolidation source freeze before claiming Rust correspondence.
+
+Use the existing acceptance owners and pinned x86_64 Linux musl environment.
+General inference changes language acceptance and belongs after consolidation.
+Do not add another language-surface campaign or expand consolidation's scope.
+The [restart handoff](HANDOFF.md) owns the current stop and remaining gates.
+
 The implementation and focused
 repairs are integrated on `master`. The 31c selected-profile native suite
 passes. Its canonical batch stopped on a btop PTY assertion. The latest

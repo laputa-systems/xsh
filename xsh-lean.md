@@ -1,6 +1,13 @@
 # XSH semantic soundness campaign
 
-**Status:** Active staggered foundations, authorized 2026-10-13 after preflight.
+**Status:** Paused by the owner on 2026-10-15 during consolidation winddown.
+Preserve existing foundations and unfinished work in Git. Start no new Lean
+lanes. On explicit resume, follow
+[the typing consolidation steering](xsh-typing-consolidation-steering.md):
+complete one connected compiler proof milestone while retaining the full-core
+obligations and post-consolidation source-freeze requirement.
+
+The foundations were authorized on 2026-10-13 after preflight.
 The pinned toolchain, finite private bridge fixtures, provisional inventory,
 scalar, base-machine, and observed-machine fragments, validation, nominal
 identity/provenance,
@@ -28,8 +35,7 @@ and `Xsh.Values.FloatEquality` defines an executable comparator over raw
 encodings with Lean laws for IEEE value equality. A source regression covers
 runtime and constant-folded signed-zero, NaN, and nested comparisons. Consolidation
 acceptance and the post-consolidation G0b source freeze remain pending gates.
-The owner requested wider staggered lanes; continue on disjoint domains with
-the coordinated build and memory limits. These independent fragments make no
+The earlier authorization for wider staggered lanes is paused. These independent fragments make no
 source or Rust conformance claim and close no full G1, G2, or G3 obligation; all
 72 inventoried universal theorem obligations remain planned. The Raw decoder
 modules include a finite four-tag schema model with successful-row conditions,

@@ -3,6 +3,18 @@
 Status: winding down 2026-10-15. Integrate unfinished work, retain no linked
 worktrees, preserve required state in Git, and stop. Lean remains paused.
 
+## Direction after resume
+
+Read [the owner steering](../../xsh-typing-consolidation-steering.md) and
+[the campaign's sequencing decision](CAMPAIGN.md#owner-steering-2026-10-15).
+Finish the current winddown first. After an explicit resume, close existing
+consolidation acceptance before starting the general-inference successor.
+That successor first establishes capability witnesses, then implements shared
+scheme/row inference, validates joint annotation removal, and measures cold
+solver costs. Lean remains paused until resumed toward a connected compiler
+proof milestone. Fragment counts do not close full-core or Rust-correspondence
+obligations. Preserve the failed receipts and unexplained AWK discrepancy.
+
 ## Final-batch status, 2026-10-15
 
 ### Await completed PTY frames and reuse the canonical Cargo cache
