@@ -643,7 +643,7 @@ group("io", [
     ("redirect_printf", 'BEGIN { printf "%d-%s\\n", 5, "x" > "out"; close("out"); getline l < "out"; print l }'),
     ("redirect_multiple_files", 'BEGIN { print "1" > "o1"; print "2" > "o2"; close("o1"); close("o2"); getline a < "o1"; getline b < "o2"; print a, b }'),
     ("redirect_files_by_field", '{ print $2 > $1 ".txt" } END { close("a.txt"); close("b.txt"); while ((getline l < "a.txt") > 0) print "a:", l; while ((getline l < "b.txt") > 0) print "b:", l }', "a 1\nb 2\na 3\n"),
-    ("redirect_unwritable", 'BEGIN { print "x" > "/nonexistent/dir/f" }'),
+    ("redirect_unwritable", 'BEGIN { print "x" > "@DIR@/nonexistent/dir/f" }'),
     ("redirect_directory", 'BEGIN { print "x" > "." }'),
     ("redirect_empty_name", 'BEGIN { print "x" > "" }'),
     ("dev_stdout", 'BEGIN { print "a" > "/dev/stdout"; print "b" }'),
