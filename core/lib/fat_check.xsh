@@ -240,9 +240,16 @@ export proc check(image: Path, repair = false) -> Result[Report, Error] {
   var next_free = 4294967295
   for index in range(layout.clusters) {
     let cluster = index + 2
-    let allocated = value(state, cluster)?
-    if allocated != 0 and allocated != geom.bad(layout) and cluster not in state.owners { if lost == 0 { first_lost = cluster }; lost += 1; if repair { state.changes[cluster] = 0 } }
-    if value(state, cluster)? == 0 { free += 1; if next_free == 4294967295 { next_free = cluster } }
+    var allocated = value(state, cluster)?
+    if allocated != 0 and allocated != geom.bad(layout) and cluster not in state.owners {
+      if lost == 0 { first_lost = cluster }
+      lost += 1
+      if repair {
+        state.changes[cluster] = 0
+        allocated = 0
+      }
+    }
+    if allocated == 0 { free += 1; if next_free == 4294967295 { next_free = cluster } }
   }
   if lost > 0 { state = issue(state, f"{lost} lost clusters, first cluster {first_lost}", true) }
   if layout.bits == 32 {

@@ -80,6 +80,10 @@ test test_fat16_and_fat32_sparse_images { |ctx|
   assert vfat.check(fat32)?.issues.is_empty()
   assert vfat.label(fat32, label: "CHANGED")? == "CHANGED"
   assert vfat.check(fat32)?.issues.is_empty()
+  let boot = bytes.read_at(fat32, 0, 512)?
+  let reserved = bytes.unpack_le(boot[14..16], 2)?
+  let sector = bytes.unpack_le(boot[11..13], 2)?
+  let _ = bytes.write_at(fat32, reserved * sector + 12, b"\xff\xff\xff\x0f")?
   let _ = bytes.write_at(fat32, 3072, b"\0")?
   assert ! vfat.check(fat32)?.issues.is_empty()
   assert vfat.check(fat32, repair: true)?.unresolved == 0
