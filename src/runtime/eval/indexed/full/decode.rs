@@ -820,14 +820,18 @@ macro_rules! decode_field {
 }
 
 macro_rules! enum_schema {
-    ($ty:ident => $view:ident [$message:literal] {
-        $(
-            $variant:ident
-            $(($($tuple_field:ident: $tuple_ty:ty $(as $wire_ty:ty)?),* $(,)?))?
-            $({$($field:ident: $field_ty:ty),* $(,)?})?
-            = $tag:literal $(encode |$slot:ident, $encode_builder:ident, $encode_output:ident| $encode:block)?;
-        )*
-    }) => {
+    (
+        $(#[$view_attribute:meta])*
+        $ty:ident => $view:ident [$message:literal] {
+            $(
+                $variant:ident
+                $(($($tuple_field:ident: $tuple_ty:ty $(as $wire_ty:ty)?),* $(,)?))?
+                $({$($field:ident: $field_ty:ty),* $(,)?})?
+                = $tag:literal $(encode |$slot:ident, $encode_builder:ident, $encode_output:ident| $encode:block)?;
+            )*
+        }
+    ) => {
+        $(#[$view_attribute])*
         pub(in crate::runtime::eval) enum $view<'a> {
             $(
                 $variant $(($(<$tuple_ty as BorrowCodec>::View<'a>),*))?
@@ -993,12 +997,16 @@ enum_schema!(LoweredCompQualifier => CompQualifierView ["comprehension qualifier
     For { target: Box<LoweredCompTarget>, iter: BuildExprId, span: Span } = 0;
     If { condition: BuildExprId, span: Span } = 1;
 });
-#[expect(clippy::large_enum_variant, reason = "boxing the borrowed Run view would allocate during indexed IR decoding")]
-enum_schema!(LoweredProcessCommandBuilderEntry => ProcessCommandBuilderEntryView ["process command builder entry tag is invalid"] {
-    Field { name: Name, value: BuildExprId, span: Span } = 0;
-    Run { target: LoweredRunArg, args: Vec<LoweredRunArg>, env: Vec<LoweredRunEnv>,
-        timeout: Option<BuildExprId>, cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>,
-        span: Span } = 1;
+enum_schema!(
+    #[expect(
+        clippy::large_enum_variant,
+        reason = "boxing the borrowed Run view would allocate during indexed IR decoding"
+    )]
+    LoweredProcessCommandBuilderEntry => ProcessCommandBuilderEntryView ["process command builder entry tag is invalid"] {
+        Field { name: Name, value: BuildExprId, span: Span } = 0;
+        Run { target: LoweredRunArg, args: Vec<LoweredRunArg>, env: Vec<LoweredRunEnv>,
+            timeout: Option<BuildExprId>, cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>,
+            span: Span } = 1;
 });
 enum_schema!(LoweredErrorExpr => ErrorExprView ["error expression tag is invalid"] {
     Structured { family: String, family_identity: String, variant: String,
