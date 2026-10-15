@@ -1,0 +1,9 @@
+err[check.unresolved-name]: unresolved name `system`
+  /work/.work/tmp/stdmodule-fact-min-run.xsh:4:17
+    let machine = system.uname()?.machine
+                  ^^^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/.work/tmp/stdmodule-fact-min-run.xsh:5:18
+    let features = unix.cpu_features()
+                   ^^^^ unresolved name

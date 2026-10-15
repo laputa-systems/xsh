@@ -1,0 +1,17 @@
+   Compiling rustls v0.23.43
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.46
+   Compiling vte v0.15.0
+   Compiling xsh-registry v0.0.1 (/work/crates/xsh-registry)
+   Compiling laputa-h2-futures-lite v0.4.16-beta.0
+   Compiling vt100 v0.16.2
+   Compiling xsh v0.0.1 (/work)
+   Compiling laputa-ptytest v0.1.1
+   Compiling syn v2.0.118
+   Compiling futures-rustls v0.26.0
+   Compiling rustls-graviola v0.4.0
+   Compiling h12tiny-client v0.1.1
+   Compiling xsh-net v0.0.1 (/work/crates/xsh-net)
+    Finished `test` profile [unoptimized] target(s) in 27.39s
+  Executable unittests src/lib.rs (/target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)

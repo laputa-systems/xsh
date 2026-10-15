@@ -1,0 +1,23 @@
+running 1 tests
+tests/xsh/checker-modules.xsh::test_imported_standard_modules_keep_namespace_resolution ... FAILED 4ms
+
+failures:
+
+---- tests/xsh/checker-modules.xsh::test_imported_standard_modules_keep_namespace_resolution ----
+AssertionError.Failed: test.expect: the script did not behave as expected
+  expected status 0
+status: 2
+stdout:
+
+stderr:
+err[check.unresolved-name]: unresolved name `system`
+  /work/.work/tmp/xsh-test-1-1792093421127646820-0-test_imported_standard_modules_keep_namespace_resolution/script.xsh-1:4:17
+    let machine = system.uname()?.machine
+                  ^^^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/.work/tmp/xsh-test-1-1792093421127646820-0-test_imported_standard_modules_keep_namespace_resolution/script.xsh-1:5:18
+    let features = unix.cpu_features()
+                   ^^^^ unresolved name
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped

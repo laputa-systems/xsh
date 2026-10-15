@@ -149,7 +149,12 @@ work is authorized by this resume.
   bindings, so the identity lookup rejects valid namespace calls. Baseline
   2688 accepts the same source. [All eight command outputs](evidence/binding-reader-2cd-comparison/README.md)
   retain the failed observation. A minimal imported `system`/`unix` source
-  reproduces it. Repair the namespace-only import facts before acceptance.
+  reproduces it. Repair `5366d950a` omits only accepted namespace-only imports
+  from value facts. The exact native regression is red before and green after;
+  five existing namespace/import tests and four Missing-identity tests pass.
+  Fresh merged verification products restore byte-identical repository and
+  Laputa check/lint diagnostics on the same source. [Repair evidence](evidence/binding-import-5366/README.md)
+  retains the focused checks and all eight paired outputs.
 - Verification `xsh` and `xsht` products were rebuilt at `2688d52fc` for the
   assignment repair's output baseline. Repository and Laputa check and lint
   each exit zero. Preserve their complete outputs for candidate comparison.
@@ -163,9 +168,9 @@ have isolated worktrees under `.work/wt/`. Each lane
 requires review and focused verification before integration. Source changes
 require a new canonical freeze.
 
-The checker audit's assignment and reader repairs are integrated. The imported
-standard-module regression above is under repair in the isolated checker lane.
-Requalify the repaired facts and readers on the final source. The invariants establish authority failures in
+The checker audit's assignment and reader repairs and imported-standard-module
+fact correction are integrated. Requalify the repaired facts and readers on the
+final source. The invariants establish authority failures in
 controlled checker states, not demonstrated user-visible failures. Existing
 nearest-visible-name proof filters retain their identity checks. Changing
 those filters could replace a real shadow and is outside this repair.

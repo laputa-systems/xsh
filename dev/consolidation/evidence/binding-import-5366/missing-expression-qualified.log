@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized] target(s) in 0.06s
+     Running unittests src/lib.rs (/target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::stmt::reader_binding_identity_tests::missing_expression_identity_does_not_fall_through_to_function ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 741 filtered out; finished in 0.01s
+
