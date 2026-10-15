@@ -299,9 +299,9 @@ mod layout_tests {
         assert_eq!(
             statement_spans(&program),
             [
-                Span::new(SourceId::new(7), 0, 1),
-                Span::new(SourceId::new(2), 0, 2),
+                Span::new(SourceId::new(7), 0, 2),
                 Span::new(SourceId::new(2), 0, 3),
+                Span::new(SourceId::new(2), 0, 4),
             ]
         );
     }
@@ -329,11 +329,11 @@ mod layout_tests {
         assert_eq!(
             statement_spans(&program),
             [
-                Span::new(SourceId::new(7), 0, 1),
-                Span::new(SourceId::new(2), 0, 2),
-                Span::new(SourceId::new(7), 0, 3),
-                Span::new(SourceId::new(2), 0, 4),
-                Span::new(SourceId::new(7), 0, 5),
+                Span::new(SourceId::new(7), 0, 2),
+                Span::new(SourceId::new(2), 0, 3),
+                Span::new(SourceId::new(7), 0, 4),
+                Span::new(SourceId::new(2), 0, 5),
+                Span::new(SourceId::new(7), 0, 6),
             ]
         );
         let rows = program.arena.source_rows();
