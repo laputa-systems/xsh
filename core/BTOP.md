@@ -147,13 +147,16 @@ Archived performance observations are gate evidence, not speedup claims:
 The native test suite keeps behavior and scaling assertions. The 20-sample
 preloaded profile runs separately as `dev/perf/btop-profile.xsh` because it
 prints performance evidence without asserting behavior or latency. Run it from
-the repository root with the release `xsh` binary and the Linux test image
-available. The command checks host readiness before the profile and checks
-again afterward, even if the profile times out or fails:
+the repository root with the Linux test image. Use a release `xsh` binary built
+from the source revision you are profiling. Set `XSH_BIN` to its absolute path.
+The command checks host readiness before the profile and checks again
+afterward, even if the profile times out or fails:
 
 ```sh
 set -e
 repo=$(pwd -P)
+: "${XSH_BIN:?set XSH_BIN to the matching release xsh binary}"
+test -x "$XSH_BIN"
 profile_status=0
 post_status=0
 perf-gate-ready
@@ -162,7 +165,7 @@ timeout 120s docker run \
   --cpus=1 --memory=4g --memory-swap=4g \
   --tmpfs /tmp:rw,nodev,exec,mode=1777 \
   -v "$repo:/work" \
-  -v "$repo/target/x86_64-unknown-linux-musl/release/xsh:/main-xsh:ro" \
+  -v "$XSH_BIN:/main-xsh:ro" \
   -w /work \
   -e TMPDIR=/work/.work/tmp \
   -e TARGET=x86_64-unknown-linux-musl \
@@ -174,8 +177,9 @@ test "$post_status" -eq 0
 ```
 
 `perf-gate-ready` must exit successfully before you run the profile. The
-release `xsh` binary must target `x86_64-unknown-linux-musl`. The image digest
-pins the `Dockerfile.test` environment for `linux/amd64`.
+`XSH_BIN` must target `x86_64-unknown-linux-musl` and match the source revision
+you are profiling. The image digest pins the `Dockerfile.test` environment for
+`linux/amd64`.
 
 ## Campaign completion summary
 
