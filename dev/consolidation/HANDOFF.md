@@ -14,6 +14,22 @@ Preserve the older d02 record as historical evidence.
 
 ### Native-suite attempt
 
+The `35ac3d839` attempt passed its pinned release build and both build
+readiness checks. FAT16/FAT32 sparse images, uptime pretty output, and the
+lowering-tree scanner check passed in the full native run. The monitor stopped
+at the first red row, line 7,484:
+`test_generated_pipeline_stage_schema_counts_current_source ... TIMEOUT 2m`.
+The receipt records interruption and resolved cleanup, SHA-256
+`b61409d8460a8de72619b3d0e2cc7fbeef9b6747fc81cbf4932f4c0558a42145`.
+The native log SHA-256 is
+`9b1fbd702792d97f82f277851cd241d33584bab96437c53fb8b37b1fbb39a27d`.
+Native timing is discarded. No later final gate ran.
+
+The scanner owner is profiling the remaining lexer and source-counting work.
+A separate read-only review is checking those same paths for removable work.
+Use a bounded focused contention probe before restarting the full suite.
+Keep the original two-minute test bound and runtime type guards.
+
 The `4d92c010` attempt passed its pinned release build and both build
 readiness checks. The native monitor stopped at the first red row:
 `test_fat16_and_fat32_sparse_images ... TIMEOUT 2m`, line 1,845. The receipt
