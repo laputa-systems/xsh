@@ -234,9 +234,14 @@ test test_docker_image_and_container_failures_are_staged { |ctx|
   let root = test.temp_dir(ctx, name: "docker-failures")?
   let tools = fp"{root}/tools"
   tools.mkdir()
+  let cargo_home = fp"{root}/cargo"
+  let cargo_bin = fp"{cargo_home}/bin"
+  cargo_home.mkdir()
+  cargo_bin.mkdir()
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
   let docker_marker = fp"{root}/docker-marker"
+  write_fake_tool(fp"{cargo_bin}/kache", xsh, "exit 0")
   write_fake_tool(
     fp"{tools}/docker",
     xsh,
@@ -266,7 +271,11 @@ match docker.run_internal(ctx, "dist", false, []) {{
       "StageError.Failed",
     ],
     args: [],
-    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
+    env: {
+      PATH: tools,
+      CARGO_HOME: cargo_home.display(),
+      XSH_MODULE_PATH: fp"{repository}/dev",
+    },
   )?
   assert "run" in docker_marker.read_text()?
 }
