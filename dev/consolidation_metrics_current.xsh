@@ -222,22 +222,26 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
     }
   }
   var stack = []
+  var depth = 0
   var mates: Map[Int, Int] = {}
   var index = 0
   for item in tokens {
-    if ! item.literal and item.text in ["(", "[", "{"] { stack += [index] }
+    if ! item.literal and item.text in ["(", "[", "{"] {
+      if depth < stack.len() { stack[depth] = index } else { stack += [index] }
+      depth += 1
+    }
     if ! item.literal and item.text in [")", "]", "}"] {
-      if stack.is_empty() { invalid(source_path, item.line, "unmatched closing delimiter") }
-      let opening = stack[-1]
+      if depth == 0 { invalid(source_path, item.line, "unmatched closing delimiter") }
+      let opening = stack[depth - 1]
       let expected = if item.text == ")" { "(" } else if item.text == "]" { "[" } else { "{" }
       if tokens[opening].text != expected { invalid(source_path, item.line, "mismatched Rust delimiters") }
       mates[opening] = index
       mates[index] = opening
-      stack = stack |> take(stack.len() - 1) |> collect
+      depth -= 1
     }
     index += 1
   }
-  if ! stack.is_empty() { invalid(source_path, tokens[stack[0]].line, "unclosed Rust delimiter") }
+  if depth > 0 { invalid(source_path, tokens[stack[0]].line, "unclosed Rust delimiter") }
   let physical = if source == "" { 0 } else { line - (if source.ends_with("\n") { 1 } else { 0 }) }
   {tokens: tokens, mates: mates, size: chars.len(), lines: physical}
 }
@@ -568,14 +572,19 @@ proc excluded_spans(source_path: Str, lexed: Lexed, attrs: List[Attribute]) [err
 pure count_lines(source_path: Str, lexed: Lexed, spans: List[Span], lookup: SpanLookup) -> SourceCount {
   var retained: Map[Int, Bool] = {}
   var excluded: Map[Int, Bool] = {}
+  var retained_through = 0
   for span in spans {
     var line = span.line
     while line <= span.last_line { excluded[line] = true; line += 1 }
   }
+  var span_cursor = 0
   for item in lexed.tokens {
-    if ! inside(item, lookup) {
-      var line = item.line
+    while span_cursor < lookup.entries.len() and lookup.entries[span_cursor].start <= item.start { span_cursor += 1 }
+    let inside_span = span_cursor > 0 and lookup.entries[span_cursor - 1].prefix_end >= item.end
+    if ! inside_span {
+      var line = if item.line > retained_through { item.line } else { retained_through + 1 }
       while line <= item.last_line { retained[line] = true; line += 1 }
+      if item.last_line > retained_through { retained_through = item.last_line }
     }
   }
   let lines: List[Int] = collect {
@@ -1281,10 +1290,13 @@ proc structural(source_path: Str, lexed: Lexed, lookup: SpanLookup, attrs: List[
   var pipeline_stage_schema_definitions = 0
   var pipeline_stage_schema_definition = false
   var cursor = 0
+  var span_cursor = 0
   while cursor < lexed.tokens.len() {
     let item = lexed.tokens[cursor]
     let name = item.text
-    if ! item.literal and ! inside(item, lookup) {
+    while span_cursor < lookup.entries.len() and lookup.entries[span_cursor].start <= item.start { span_cursor += 1 }
+    let inside_span = span_cursor > 0 and lookup.entries[span_cursor - 1].prefix_end >= item.end
+    if ! item.literal and ! inside_span {
       if name == "macro_rules" and (lexed.tokens.get(cursor + 1) ?? end_token).text == "!" and (lexed.tokens.get(cursor + 2) ?? end_token).text == "pipeline_stage_schema" {
         pipeline_stage_schema_definitions += 1
         pipeline_stage_schema_definition = true
