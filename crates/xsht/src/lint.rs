@@ -52,6 +52,9 @@ mod lint_path_display_equality;
 #[cfg(test)]
 #[path = "lint_needless_annotation_tests.rs"]
 mod lint_needless_annotation_tests;
+#[cfg(test)]
+#[path = "lint_assignment_facts_tests.rs"]
+mod assignment_facts_tests;
 
 #[path = "lint_path_display_sink.rs"]
 mod lint_path_display_sink;
@@ -548,7 +551,28 @@ struct Binding {
     immutable_byte_length: Option<usize>,
 }
 
+#[derive(Clone, Copy)]
+struct AssignmentFactOwner {
+    source_id: SourceId,
+    statements: ArenaRange,
+}
+
+enum AssignmentCandidateCondition {
+    NoAssignedNames(Vec<Name>),
+    AllNamesAssigned(Vec<String>),
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct AssignmentCandidateId(usize);
+
+struct AssignmentCandidate {
+    diagnostic_index: usize,
+    condition: AssignmentCandidateCondition,
+    suppressed_by: Vec<AssignmentCandidateId>,
+}
+
 pub struct Linter<'a> {
+    program: &'a ArenaProgram,
     arena: &'a AstArena,
     source_id: Option<SourceId>,
     effect_body_spans: Vec<Span>,
@@ -638,7 +662,10 @@ pub struct Linter<'a> {
     user_type_names: FxHashSet<String>,
     record_type_names: FxHashSet<String>,
     used_type_names: FxHashSet<String>,
-    assigned_names: FxHashSet<Name>,
+    assignment_fact_owner: Option<AssignmentFactOwner>,
+    source_assignment_names: FxHashSet<Name>,
+    assignment_collection_enabled: bool,
+    assignment_candidates: Vec<AssignmentCandidate>,
     regex_recovery_context: bool,
     assertion_capture_depth: usize,
     duration_conversion_module_unshadowed: bool,
@@ -942,6 +969,21 @@ impl<'a> Linter<'a> {
         };
         // Shared baseline facts belong to the caller's checked workspace.
         let checked_output = options.checked_output.clone();
+        let assignment_fact_owner = checked_output.as_ref().and_then(|_| {
+            let statements = view.root_statements();
+            source_id
+                .map(|source_id| AssignmentFactOwner {
+                    source_id,
+                    statements,
+                })
+                .or_else(|| {
+                    assert_eq!(
+                        statements.len, 0,
+                        "checked assignment facts require a selected source"
+                    );
+                    None
+                })
+        });
         #[cfg(test)]
         let message_payload_constructors = options.message_payload_constructors.clone();
         #[cfg(test)]
@@ -973,6 +1015,7 @@ impl<'a> Linter<'a> {
         }
         let mut linter = Self {
             record_constructors: xsh::frontend::check::RecordConstructors::collect_view(view),
+            program,
             arena: &program.arena,
             source_id,
             effect_body_spans,
@@ -1152,7 +1195,10 @@ impl<'a> Linter<'a> {
             user_type_names: FxHashSet::default(),
             record_type_names: FxHashSet::default(),
             used_type_names: FxHashSet::default(),
-            assigned_names: FxHashSet::default(),
+            assignment_fact_owner,
+            source_assignment_names: FxHashSet::default(),
+            assignment_collection_enabled: false,
+            assignment_candidates: Vec::new(),
             regex_recovery_context: false,
             assertion_capture_depth: 0,
             list_any_bindings: lint_list_any_union::ListAnyBindings::default(),
@@ -1441,8 +1487,165 @@ impl<'a> Linter<'a> {
         }
     }
 
+    fn assignment_names(&self) -> &BTreeSet<Name> {
+        let checked = self
+            .checked_output
+            .as_deref()
+            .expect("checked assignment facts require checked output");
+        let owner = self
+            .assignment_fact_owner
+            .expect("checked assignment facts require the selected source owner");
+        checked
+            .assignment_names(owner.source_id, owner.statements)
+            .expect("checked output does not own the selected assignment-fact range")
+    }
+
+    fn assignment_contains(&self, name: Name) -> bool {
+        if self.checked_output.is_some() {
+            self.assignment_names().contains(&name)
+        } else {
+            self.source_assignment_names.contains(&name)
+        }
+    }
+
+    fn assignment_contains_spelling(&self, spelling: &str) -> bool {
+        if self.checked_output.is_some() {
+            self.assignment_names()
+                .iter()
+                .any(|assigned| assigned.as_str().as_str() == spelling)
+        } else {
+            self.source_assignment_names
+                .iter()
+                .any(|assigned| assigned.as_str().as_str() == spelling)
+        }
+    }
+
+    fn in_scope(&self, spelling: &str) -> bool {
+        self.scopes
+            .iter()
+            .rev()
+            .any(|scope| scope.contains_key(spelling))
+    }
+
+    fn push_assignment_candidate(
+        &mut self,
+        diagnostic: Diagnostic,
+        condition: AssignmentCandidateCondition,
+        suppressed_by: Vec<AssignmentCandidateId>,
+    ) -> AssignmentCandidateId {
+        let diagnostic_index = self.diagnostics.len();
+        self.diagnostics.push(diagnostic);
+        self.assignment_candidates.push(AssignmentCandidate {
+            diagnostic_index,
+            condition,
+            suppressed_by,
+        });
+        AssignmentCandidateId(self.assignment_candidates.len() - 1)
+    }
+
+    pub(super) fn insert_diagnostics_at(
+        &mut self,
+        index: usize,
+        diagnostics: Vec<Diagnostic>,
+    ) {
+        let inserted = diagnostics.len();
+        for candidate in &mut self.assignment_candidates {
+            if candidate.diagnostic_index >= index {
+                candidate.diagnostic_index += inserted;
+            }
+        }
+        self.diagnostics.splice(index..index, diagnostics);
+    }
+
+    pub(super) fn move_diagnostics_to(&mut self, start: usize, end: usize, index: usize) {
+        assert!(start <= end && end <= self.diagnostics.len() && index <= start);
+        let moved = end - start;
+        if moved == 0 {
+            return;
+        }
+        for candidate in &mut self.assignment_candidates {
+            let diagnostic_index = &mut candidate.diagnostic_index;
+            if (start..end).contains(diagnostic_index) {
+                *diagnostic_index = index + (*diagnostic_index - start);
+            } else {
+                if *diagnostic_index >= end {
+                    *diagnostic_index -= moved;
+                }
+                if *diagnostic_index >= index {
+                    *diagnostic_index += moved;
+                }
+            }
+        }
+        let diagnostics = self.diagnostics.drain(start..end).collect::<Vec<_>>();
+        self.diagnostics.splice(index..index, diagnostics);
+    }
+
+    pub(super) fn comparison_chain_suppressors(
+        &self,
+        span: Span,
+    ) -> Option<Vec<AssignmentCandidateId>> {
+        let mut suppressors = Vec::new();
+        for (diagnostic_index, diagnostic) in self.diagnostics.iter().enumerate() {
+            if diagnostic.code != Some(DiagnosticCode::LintPreferComparisonChain)
+                || !diagnostic.labels.iter().any(|label| {
+                    label.span.source_id == span.source_id
+                        && label.span.start() <= span.start()
+                        && label.span.end() >= span.end()
+                })
+            {
+                continue;
+            }
+            if let Some(candidate_index) = self
+                .assignment_candidates
+                .iter()
+                .position(|candidate| candidate.diagnostic_index == diagnostic_index)
+            {
+                suppressors.push(AssignmentCandidateId(candidate_index));
+            } else {
+                return None;
+            }
+        }
+        Some(suppressors)
+    }
+
+    fn finalize_assignment_candidates(&mut self) {
+        let mut retained = Vec::with_capacity(self.assignment_candidates.len());
+        for (candidate_index, candidate) in self.assignment_candidates.iter().enumerate() {
+            let condition = match &candidate.condition {
+                AssignmentCandidateCondition::NoAssignedNames(names) => {
+                    !names.iter().any(|&name| self.assignment_contains(name))
+                }
+                AssignmentCandidateCondition::AllNamesAssigned(names) => names
+                    .iter()
+                    .all(|name| self.assignment_contains_spelling(name)),
+            };
+            let suppressed = candidate.suppressed_by.iter().any(|suppressor| {
+                assert!(suppressor.0 < candidate_index);
+                retained[suppressor.0]
+            });
+            retained.push(condition && !suppressed);
+        }
+        let mut removed = self
+            .assignment_candidates
+            .iter()
+            .zip(retained)
+            .filter_map(|(candidate, keep)| (!keep).then_some(candidate.diagnostic_index))
+            .collect::<Vec<_>>();
+        removed.sort_unstable();
+        let mut removed = removed.into_iter().peekable();
+        let mut diagnostic_index = 0;
+        self.diagnostics.retain(|_| {
+            let keep = removed.peek().copied() != Some(diagnostic_index);
+            if !keep {
+                removed.next();
+            }
+            diagnostic_index += 1;
+            keep
+        });
+        self.assignment_candidates.clear();
+    }
+
     fn lint_program(&mut self, view: &CheckBundleView<'a>, statements: &[StmtId]) {
-        self.collect_assigned_names(statements);
         self.module_callable_names.clear();
         rules::root_hooks(self, rules::RootStage::ImportBlock, view, statements);
         rules::root_hooks(self, rules::RootStage::TopLevelConstOrder, view, statements);
@@ -1489,8 +1692,10 @@ impl<'a> Linter<'a> {
             edges.begin_program();
         }
         rules::root_sequence(self, statements);
+        self.assignment_collection_enabled = self.checked_output.is_none();
         let close_diagnostic_index = self.diagnostics.len();
         self.lint_statement_sequence(statements);
+        self.assignment_collection_enabled = false;
         if let Some(edges) = &mut self.callable_edges {
             edges.finish_program();
         }
@@ -1500,6 +1705,7 @@ impl<'a> Linter<'a> {
             statements,
             close_diagnostic_index,
         );
+        self.finalize_assignment_candidates();
         rules::root_hooks(self, rules::RootStage::ImplicitMain, view, statements);
         rules::root_hooks(self, rules::RootStage::UnusedTypes, view, statements);
     }
@@ -2092,30 +2298,41 @@ impl<'a> Linter<'a> {
                             name_end += 1;
                         }
                         let name = &source[name_start..name_end];
-                        if self.is_binding_in_scope_or_assigned(name) {
+                        let in_scope = self.in_scope(name);
+                        let assigned = self.assignment_contains_spelling(name);
+                        if in_scope || assigned || self.checked_output.is_none() {
                             let dollar_span = Span::new(
                                 expr_span.source_id,
                                 expr_span.start() + index,
                                 expr_span.start() + name_end,
                             );
-                            self.diagnostics.push(
-                                Diagnostic::new(
-                                    Severity::Warning,
-                                    format!(
-                                        "expression string literals never interpolate; `${name}` is literal text here"
-                                    ),
-                                )
-                                .with_code(DiagnosticCode::LintDollarInExpressionString)
-                                .with_label(Label::primary(
-                                    dollar_span,
-                                    format!(
-                                        "use `f\"...{{{name}}}...\"` or `+` concatenation to interpolate `{name}`"
-                                    ),
-                                ))
-                                .with_note(
-                                    "write `r\"...\"` or `\\$` when a literal dollar sign is intended",
+                            let diagnostic = Diagnostic::new(
+                                Severity::Warning,
+                                format!(
+                                    "expression string literals never interpolate; `${name}` is literal text here"
                                 ),
+                            )
+                            .with_code(DiagnosticCode::LintDollarInExpressionString)
+                            .with_label(Label::primary(
+                                dollar_span,
+                                format!(
+                                    "use `f\"...{{{name}}}...\"` or `+` concatenation to interpolate `{name}`"
+                                ),
+                            ))
+                            .with_note(
+                                "write `r\"...\"` or `\\$` when a literal dollar sign is intended",
                             );
+                            if in_scope || assigned {
+                                self.diagnostics.push(diagnostic);
+                            } else {
+                                self.push_assignment_candidate(
+                                    diagnostic,
+                                    AssignmentCandidateCondition::AllNamesAssigned(vec![
+                                        name.to_string(),
+                                    ]),
+                                    Vec::new(),
+                                );
+                            }
                         }
                         index = name_end;
                         continue;
@@ -2131,36 +2348,54 @@ impl<'a> Linter<'a> {
     /// f-string mistake. Fires only when every `{...}` is a dotted name and
     /// the literal would be a valid f-string, so the fix changes nothing else.
     fn lint_missing_f_prefix(&mut self, expr: ExprId) {
-        let Some((label, first, replacement)) = self.missing_f_prefix(expr) else {
+        let Some((label, first, replacement, names)) = self.missing_f_prefix(expr) else {
             return;
         };
+        let unresolved = names
+            .iter()
+            .filter(|name| {
+                !self.in_scope(name)
+                    && !self.assignment_contains_spelling(name)
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if self.checked_output.is_some() && !unresolved.is_empty() {
+            return;
+        }
         let span = self.arena.expr(expr).span;
         let path = replacement.starts_with("fp");
-        self.diagnostics.push(
-            Diagnostic::new(
-                Severity::Warning,
-                format!("`{{{first}}}` is literal text without the `f` prefix"),
-            )
-            .with_code(DiagnosticCode::LintMissingFPrefix)
-            .with_label(Label::primary(
-                label,
-                format!("`{first}` is a binding in scope"),
-            ))
-            .with_fix_hint(FixHint::replacement(
-                span,
-                if path {
-                    "use `fp\"...\"` to interpolate"
-                } else {
-                    "use `f\"...\"` to interpolate"
-                },
-                replacement,
-            )),
-        );
+        let diagnostic = Diagnostic::new(
+            Severity::Warning,
+            format!("`{{{first}}}` is literal text without the `f` prefix"),
+        )
+        .with_code(DiagnosticCode::LintMissingFPrefix)
+        .with_label(Label::primary(
+            label,
+            format!("`{first}` is a binding in scope"),
+        ))
+        .with_fix_hint(FixHint::replacement(
+            span,
+            if path {
+                "use `fp\"...\"` to interpolate"
+            } else {
+                "use `f\"...\"` to interpolate"
+            },
+            replacement,
+        ));
+        if unresolved.is_empty() {
+            self.diagnostics.push(diagnostic);
+        } else {
+            self.push_assignment_candidate(
+                diagnostic,
+                AssignmentCandidateCondition::AllNamesAssigned(unresolved),
+                Vec::new(),
+            );
+        }
     }
 
     /// The `{name}` label span, the name, and the prefixed literal for a
     /// plain or path string literal that is missing its `f` prefix.
-    fn missing_f_prefix(&self, expr: ExprId) -> Option<(Span, String, String)> {
+    fn missing_f_prefix(&self, expr: ExprId) -> Option<(Span, String, String, Vec<String>)> {
         let arena_expr = self.arena.expr(expr);
         let path = match arena_expr.kind {
             ArenaExprKind::Str(_) => false,
@@ -2175,12 +2410,6 @@ impl<'a> Linter<'a> {
             return None;
         }
         let names = xsh::frontend::syntax::literal::dotted_names_if_formatted(source)?;
-        if !names
-            .iter()
-            .all(|(name, _)| self.is_binding_in_scope_or_assigned(name))
-        {
-            return None;
-        }
         let (first, range) = names[0].clone();
         let label = Span::new(
             span.source_id,
@@ -2192,7 +2421,15 @@ impl<'a> Linter<'a> {
         } else {
             format!("f{source}")
         };
-        Some((label, first.to_string(), replacement))
+        Some((
+            label,
+            first.to_string(),
+            replacement,
+            names
+                .into_iter()
+                .map(|(name, _)| name.to_owned())
+                .collect(),
+        ))
     }
 
     /// Whether inert data holds a string that `lint.missing-f-prefix` may
@@ -2225,14 +2462,7 @@ impl<'a> Linter<'a> {
     }
 
     fn is_binding_in_scope_or_assigned(&self, name: &str) -> bool {
-        self.scopes
-            .iter()
-            .rev()
-            .any(|scope| scope.contains_key(name))
-            || self
-                .assigned_names
-                .iter()
-                .any(|assigned| assigned.as_str().as_str() == name)
+        self.in_scope(name) || self.assignment_contains_spelling(name)
     }
 
     fn lint_json_encode_decode_roundtrip(&mut self, expr: ExprId) {
@@ -2360,7 +2590,7 @@ impl<'a> Linter<'a> {
         ) {
             return;
         }
-        if self.assigned_names.contains(&subject)
+        if self.assignment_contains(subject)
             || !self
                 .scopes
                 .iter()
@@ -4143,7 +4373,7 @@ impl<'a> Linter<'a> {
                 end += 1;
             }
             let edit_span = Span::new(call_span.source_id, self.arena.span(span).start(), edit_end);
-            let stable = !self.assigned_names.contains(&receiver)
+            let stable = !self.assignment_contains(receiver)
                 && self
                     .scopes
                     .iter()

@@ -738,102 +738,6 @@ impl LintExprVisitor<'_, '_> {
 }
 
 impl<'a> Linter<'a> {
-    pub(super) fn collect_assigned_names(&mut self, statements: &[StmtId]) {
-        for &stmt in statements {
-            self.collect_assigned_names_stmt(stmt);
-        }
-    }
-
-    pub(super) fn collect_assigned_names_block(&mut self, block: BlockId) {
-        let statements = self.arena.block(block).statements;
-        for stmt in self.arena.stmt_ids(statements).collect::<Vec<_>>() {
-            self.collect_assigned_names_stmt(stmt);
-        }
-    }
-
-    pub(super) fn collect_assigned_names_stmt(&mut self, stmt_id: StmtId) {
-        match self.arena.stmt(stmt_id).kind {
-            ArenaStmtKind::Export(inner) => self.collect_assigned_names_stmt(inner),
-            ArenaStmtKind::Assign { target, .. } => self.collect_assigned_names_target(target),
-            ArenaStmtKind::ProcDef(def)
-            | ArenaStmtKind::CliMain(def)
-            | ArenaStmtKind::PureDef(def)
-            | ArenaStmtKind::StreamDef(def) => {
-                self.collect_assigned_names_block(self.arena.function_def(def).body);
-            }
-            ArenaStmtKind::SignalHook(hook) => {
-                self.collect_assigned_names_block(self.arena.signal_hook(hook).body);
-            }
-            ArenaStmtKind::If {
-                branches,
-                else_block,
-            } => {
-                for branch in self.arena.if_branches(branches).to_vec() {
-                    self.collect_assigned_names_block(branch.block);
-                }
-                if let Some(block) = else_block {
-                    self.collect_assigned_names_block(block);
-                }
-            }
-            ArenaStmtKind::While { block, .. }
-            | ArenaStmtKind::For { block, .. }
-            | ArenaStmtKind::Loop { block } => self.collect_assigned_names_block(block),
-            ArenaStmtKind::Sugar { operands, .. } => {
-                for operand in self.arena.sugar_operands(operands).to_vec() {
-                    match operand {
-                        ArenaSugarOperand::Block(block) => self.collect_assigned_names_block(block),
-                        ArenaSugarOperand::Stmt(stmt) => self.collect_assigned_names_stmt(stmt),
-                        _ => {}
-                    }
-                }
-            }
-            ArenaStmtKind::With {
-                body, else_block, ..
-            } => {
-                self.collect_assigned_names_block(body);
-                self.collect_assigned_names_block(else_block);
-            }
-            ArenaStmtKind::Guard { else_block, .. } => {
-                self.collect_assigned_names_block(else_block);
-            }
-            ArenaStmtKind::Match { arms, .. } => {
-                for arm in self.arena.match_arms(arms).to_vec() {
-                    self.collect_assigned_names_block(arm.block);
-                }
-            }
-            ArenaStmtKind::Use(_)
-            | ArenaStmtKind::TypeDef(_)
-            | ArenaStmtKind::ErrorDef(_)
-            | ArenaStmtKind::Let { .. }
-            | ArenaStmtKind::Const { .. }
-            | ArenaStmtKind::Var { .. }
-            | ArenaStmtKind::Return(_)
-            | ArenaStmtKind::YieldDelegate(_)
-            | ArenaStmtKind::Exit(_)
-            | ArenaStmtKind::Yield(_)
-            | ArenaStmtKind::Defer(..)
-            | ArenaStmtKind::Break { .. }
-            | ArenaStmtKind::Continue
-            | ArenaStmtKind::Command(_)
-            | ArenaStmtKind::TailBareIdent(_)
-            | ArenaStmtKind::Assert { .. }
-            | ArenaStmtKind::Expr(_) => {}
-        }
-    }
-
-    pub(super) fn collect_assigned_names_target(&mut self, target: AssignTargetId) {
-        match self.arena.assign_target(target).kind {
-            ArenaAssignTargetKind::Name(name) => {
-                self.assigned_names.insert(name);
-            }
-            ArenaAssignTargetKind::Env(_) => {}
-            ArenaAssignTargetKind::Field { base, .. }
-            | ArenaAssignTargetKind::Index { base, .. } => {
-                self.collect_assigned_names_target(base);
-            }
-        }
-    }
-
     pub(super) fn collect_type_expr_refs(&mut self, ty: TypeExprId) {
         self.set_like_bindings
             .visit_type(self.arena, self.source, ty);
@@ -959,6 +863,39 @@ impl<'a> Linter<'a> {
     }
 
     pub(super) fn lint_stmt(&mut self, stmt_id: StmtId, exported: bool) {
+        let previous_collection = self.assignment_collection_enabled;
+        let collect_assignment = previous_collection && self.checked_output.is_none();
+        let kind = self.arena.stmt(stmt_id).kind;
+        self.assignment_collection_enabled = collect_assignment
+            && matches!(
+                kind,
+                ArenaStmtKind::Export(_)
+                    | ArenaStmtKind::Assign { .. }
+                    | ArenaStmtKind::ProcDef(_)
+                    | ArenaStmtKind::CliMain(_)
+                    | ArenaStmtKind::PureDef(_)
+                    | ArenaStmtKind::StreamDef(_)
+                    | ArenaStmtKind::SignalHook(_)
+                    | ArenaStmtKind::If { .. }
+                    | ArenaStmtKind::While { .. }
+                    | ArenaStmtKind::For { .. }
+                    | ArenaStmtKind::Loop { .. }
+                    | ArenaStmtKind::Sugar { .. }
+                    | ArenaStmtKind::With { .. }
+                    | ArenaStmtKind::Guard { .. }
+                    | ArenaStmtKind::Match { .. }
+            );
+        if collect_assignment
+            && let ArenaStmtKind::Assign { target, .. } = kind
+            && let Some(name) = xsh::frontend::check::assignment_target_root_name(self.program, target)
+        {
+            self.source_assignment_names.insert(name);
+        }
+        self.lint_stmt_inner(stmt_id, exported);
+        self.assignment_collection_enabled = previous_collection;
+    }
+
+    fn lint_stmt_inner(&mut self, stmt_id: StmtId, exported: bool) {
         let stmt = self.arena.stmt(stmt_id);
         rules::statement(self, stmt_id, rules::StatementSite::PropagationContext, exported);
         rules::statement(self, stmt_id, rules::StatementSite::TempdirScopeCandidate, exported);
@@ -1688,6 +1625,8 @@ impl<'a> Linter<'a> {
     }
 
     pub(super) fn lint_expr_or_run(&mut self, value: &ArenaExprOrRun) {
+        let previous_collection =
+            std::mem::replace(&mut self.assignment_collection_enabled, false);
         match value {
             ArenaExprOrRun::Expr(expr) => self.lint_expr(*expr),
             ArenaExprOrRun::Run(run) => {
@@ -1696,9 +1635,12 @@ impl<'a> Linter<'a> {
                 self.stream_producers.restore_projection(observing);
             }
         }
+        self.assignment_collection_enabled = previous_collection;
     }
 
     pub(super) fn lint_expr(&mut self, expr: ExprId) {
+        let previous_collection =
+            std::mem::replace(&mut self.assignment_collection_enabled, false);
         let active_candidate = self.stream_producers.suspend_candidate_analysis();
         LintExprVisitor {
             linter: self,
@@ -1707,6 +1649,7 @@ impl<'a> Linter<'a> {
         .visit_expr(expr);
         self.stream_producers
             .restore_candidate_analysis(active_candidate);
+        self.assignment_collection_enabled = previous_collection;
     }
 
     pub(super) fn observe_expression_positions(&mut self, expression: ExprId) {

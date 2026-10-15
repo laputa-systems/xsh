@@ -794,7 +794,7 @@ impl<'a> Linter<'a> {
     pub(super) fn pipeline_argument_stable(&self, value: ExprId) -> bool {
         match self.arena.expr(value).kind {
             ArenaExprKind::Ident(name) => {
-                !self.assigned_names.contains(&name)
+                !self.assignment_contains(name)
                     && self
                         .scopes
                         .iter()
@@ -911,7 +911,7 @@ impl<'a> Linter<'a> {
         let ArenaExprKind::Ident(name) = self.arena.expr(receiver).kind else {
             return;
         };
-        if self.assigned_names.contains(&name)
+        if self.assignment_contains(name)
             || !matches!(
                 self.expr_types.get(&self.arena.expr(receiver).span),
                 Some(Type::Optional(_))
@@ -1090,7 +1090,7 @@ impl<'a> Linter<'a> {
                     .rev()
                     .find_map(|scope| scope.get(name.as_str().as_str()))
                     .is_some_and(|binding| binding.absence_lookup && !binding.mutable)
-                    && !self.assigned_names.contains(&name)
+                    && !self.assignment_contains(name)
             }
             ArenaExprKind::Call { callee, .. } => {
                 let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
@@ -1135,7 +1135,7 @@ impl<'a> Linter<'a> {
                     .rev()
                     .find_map(|scope| scope.get(name.as_str().as_str()))
                     .is_some_and(|binding| binding.materialized_record && !binding.mutable)
-                    && !self.assigned_names.contains(&name)
+                    && !self.assignment_contains(name)
             }
             ArenaExprKind::Call { callee, .. } => self
                 .record_constructors
@@ -1148,7 +1148,7 @@ impl<'a> Linter<'a> {
     pub(super) fn proven_immutable_byte_length(&self, expr: ExprId) -> Option<usize> {
         match self.arena.expr(expr).kind {
             ArenaExprKind::Bytes(bytes) => Some(self.arena.bytes_literal(bytes).len()),
-            ArenaExprKind::Ident(name) if !self.assigned_names.contains(&name) => {
+            ArenaExprKind::Ident(name) if !self.assignment_contains(name) => {
                 let binding = self
                     .scopes
                     .iter()

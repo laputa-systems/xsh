@@ -685,10 +685,9 @@ impl<'a> Linter<'a> {
         for (previous, current, insertion_point) in pair_insertion_points {
             let before = self.diagnostics.len();
             rules::statement_pair(self, previous, current, stmts);
-            let findings = self.diagnostics.split_off(before);
-            let count = findings.len();
-            self.diagnostics
-                .splice(insertion_point + inserted..insertion_point + inserted, findings);
+            let end = self.diagnostics.len();
+            let count = end - before;
+            self.move_diagnostics_to(before, end, insertion_point + inserted);
             inserted += count;
         }
     }
@@ -937,7 +936,7 @@ impl<'a> Linter<'a> {
         else {
             return;
         };
-        if self.assigned_names.contains(&source)
+        if self.assignment_contains(source)
             || source == index
             || binding.mutable
             || !binding.comparison_stable
@@ -1142,7 +1141,7 @@ impl<'a> Linter<'a> {
         {
             return;
         }
-        if self.assigned_names.contains(&map)
+        if self.assignment_contains(map)
             || key == map
             || !matches!(
                 self.expr_types.get(&self.arena.expr(base).span),
@@ -1320,7 +1319,7 @@ impl<'a> Linter<'a> {
                 )),
             );
         }
-        self.diagnostics.splice(pending.report_at..pending.report_at, reports);
+        self.insert_diagnostics_at(pending.report_at, reports);
     }
 
     pub(super) fn accumulator_qualifiers(
@@ -1878,7 +1877,7 @@ impl<'a> Linter<'a> {
                 self.arena.expr(input).kind,
                 ArenaExprKind::ValuePipelineCall { .. }
             ))
-            || self.assigned_names.contains(&name)
+            || self.assignment_contains(name)
         {
             return;
         }

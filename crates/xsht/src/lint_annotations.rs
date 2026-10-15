@@ -488,7 +488,7 @@ impl<'a> Linter<'a> {
         }
         if mutable
             && let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind
-            && self.assigned_names.contains(&name)
+            && self.assignment_contains(name)
         {
             return;
         }

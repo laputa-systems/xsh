@@ -1094,7 +1094,7 @@ fn run_redundant_close_sequence_exit(
     diagnostic_index: usize,
 ) {
     let diagnostics = super::redundant_close::lint_deferred_root_closes(linter, statements);
-    linter.diagnostics.splice(diagnostic_index..diagnostic_index, diagnostics);
+    linter.insert_diagnostics_at(diagnostic_index, diagnostics);
 }
 pub(super) fn expression(linter: &mut Linter<'_>, expr: ExprId) {
     for rule in LINT_RULES {
@@ -1835,16 +1835,9 @@ impl<'a> Linter<'a> {
             }
         }
         let span = self.arena.expr(expr).span;
-        if self.diagnostics.iter().any(|diagnostic| {
-            diagnostic.code == Some(DiagnosticCode::LintPreferComparisonChain)
-                && diagnostic.labels.iter().any(|label| {
-                    label.span.source_id == span.source_id
-                        && label.span.start() <= span.start()
-                        && label.span.end() >= span.end()
-                })
-        }) {
+        let Some(suppressed_by) = self.comparison_chain_suppressors(span) else {
             return;
-        }
+        };
         if !matches!(
             self.arena.expr(expr).kind,
             ArenaExprKind::Binary {
@@ -1858,14 +1851,21 @@ impl<'a> Linter<'a> {
         if !ladder(self.arena, expr, &mut pairs) || pairs.len() < 2 {
             return;
         }
-        let stable = |id| match self.arena.expr(id).kind {
+        let mut assigned_name_conditions = Vec::new();
+        let mut stable = |id| match self.arena.expr(id).kind {
             ArenaExprKind::Ident(name) => {
-                self.scopes
+                let stable_binding = self
+                    .scopes
                     .iter()
                     .rev()
                     .find_map(|scope| scope.get(name.as_str().as_str()))
-                    .is_some_and(|binding| binding.comparison_stable)
-                    && !self.assigned_names.contains(&name)
+                    .is_some_and(|binding| binding.comparison_stable);
+                if !stable_binding || self.assignment_contains(name) {
+                    false
+                } else {
+                    assigned_name_conditions.push(name);
+                    true
+                }
             }
             ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) => true,
             _ => false,
@@ -1932,7 +1932,7 @@ impl<'a> Linter<'a> {
             });
             replacement.push_str(&text);
         }
-        self.diagnostics.push(
+        let diagnostic =
             Diagnostic::new(Severity::Warning, "prefer an ordering comparison chain")
                 .with_code(DiagnosticCode::LintPreferComparisonChain)
                 .with_label(Label::secondary(
@@ -1943,8 +1943,16 @@ impl<'a> Linter<'a> {
                     span,
                     "compare adjacent operands once",
                     replacement,
-                )),
-        );
+                ));
+        if self.checked_output.is_some() {
+            self.diagnostics.push(diagnostic);
+        } else {
+            self.push_assignment_candidate(
+                diagnostic,
+                super::AssignmentCandidateCondition::NoAssignedNames(assigned_name_conditions),
+                suppressed_by,
+            );
+        }
     }
 
     pub(super) fn lint_nested_value_pipeline(&mut self, value: ExprId) {
@@ -2082,7 +2090,7 @@ impl<'a> Linter<'a> {
             .rev()
             .find_map(|scope| scope.get(root.as_str().as_str()))
             .is_some_and(|binding| !binding.mutable);
-        if !stable || self.assigned_names.contains(&root) {
+        if !stable || self.assignment_contains(root) {
             return;
         }
         let Some(base_ty @ Type::Record(shape)) = self.expr_types.get(&self.arena.expr(*base).span)
