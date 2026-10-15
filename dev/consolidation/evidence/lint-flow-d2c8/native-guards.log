@@ -1,0 +1,13 @@
+command: docker run --rm --platform linux/amd64 --cpus=8 --memory=16g --memory-swap=16g --network=none -v /home/josh/d/laputa-systems/xsh:/home/josh/d/laputa-systems/xsh -w /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow -e TMPDIR=/home/josh/d/laputa-systems/xsh/.work/tmp/lint-flow-focused/tmp -e XSH_BIN=/home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/verification/xsh -e PATH=/home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/verification:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c /home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/verification/xsht test tests/xsh/lint-guards.xsh
+exit_status: 0
+stdout_bytes: 356
+stderr_bytes: 0
+--- stdout ---
+running 3 tests
+tests/xsh/lint-guards.xsh::test_boolean_guard_float_fix_retains_nan_negation ... ok 11ms
+tests/xsh/lint-guards.xsh::test_boolean_guard_fix_keeps_failure_body_comments_and_converges ... ok 21ms
+tests/xsh/lint-guards.xsh::test_boolean_guard_fix_refuses_fallthrough_and_binding_forms ... ok 27ms
+test result: ok. 3 passed; 0 failed; 0 skipped
+
+--- stderr ---
+

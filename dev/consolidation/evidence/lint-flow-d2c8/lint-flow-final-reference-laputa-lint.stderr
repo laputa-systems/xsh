@@ -1,0 +1,504 @@
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/pm/execute.xsh:166:11
+      PATH: f"{build_root}/bin:{build_root}/usr/bin:{e"PATH" ?? ""}",
+            -------------------------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/bin", fp"{build_root}/usr/bin", @env.PathList.PATH ?? []]
+warn[lint.prefer-list-comp]: use a list comprehension instead of building `names` with a for loop
+  /home/josh/d/laputa-systems/laputa/guest/asterinas/viability/overlay/usr/lib/asterinas/boot-proof.xsh:117:3
+    for entry in fs.children(test_dir)? {
+    ------------------------------------- this for loop only builds a list
+help: convert to list comprehension -> var names = [entry.name for entry in fs.children(test_dir)?]
+
+note[lint.prefer-wait-until]: this loop polls with `time.sleep` and a count; `wait until CONDITION within LIMIT every INTERVAL` states the condition and the limit
+  /home/josh/d/laputa-systems/laputa/guest/qemu-dwl-foot-proof.xsh:19:3
+    while ! path_value.exists() {
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ a polling loop with a limit
+note: no rewrite is shown: when this loop gives up it goes on to the code after it, and `wait until` fails with `Timeout` instead, so the rewrite would change what a timeout does
+note[lint.prefer-fail]: `AsterinasImageError.Failed` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/laputa/infra/asterinas/build-image.xsh:32:18
+        return Err(AsterinasImageError.Failed("existing Asterinas generation has a different identity"))
+                   ------------------------------------------------------------------------------------ nothing in this file matches on `AsterinasImageError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `AsterinasImageError.Failed`
+note[lint.prefer-fail]: `AsterinasImageError.Failed` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/laputa/infra/asterinas/build-image.xsh:51:18
+        return Err(AsterinasImageError.Failed("cached ext2 root image checksum mismatch"))
+                   ---------------------------------------------------------------------- nothing in this file matches on `AsterinasImageError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `AsterinasImageError.Failed`
+note[lint.prefer-fail]: `AsterinasImageError.Failed` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/laputa/infra/asterinas/build-image.xsh:78:16
+      return Err(AsterinasImageError.Failed("root image does not contain an ext2 superblock"))
+                 ---------------------------------------------------------------------------- nothing in this file matches on `AsterinasImageError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `AsterinasImageError.Failed`
+note[lint.prefer-fail]: `AsterinasImageError.Failed` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/laputa/infra/asterinas/build-image.xsh:82:16
+      return Err(AsterinasImageError.Failed("root ext2 image unexpectedly contains a journal"))
+                 ----------------------------------------------------------------------------- nothing in this file matches on `AsterinasImageError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `AsterinasImageError.Failed`
+note[lint.prefer-fail]: `AsterinasImageError.Failed` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/laputa/infra/asterinas/build-image.xsh:86:16
+      return Err(AsterinasImageError.Failed("root ext2 image has an unsupported incompatible feature"))
+                 ------------------------------------------------------------------------------------- nothing in this file matches on `AsterinasImageError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `AsterinasImageError.Failed`
+note[lint.prefer-fail]: `AsterinasImageError.Failed` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/laputa/infra/asterinas/build-image.xsh:90:16
+      return Err(AsterinasImageError.Failed("root ext2 image has an unsupported read-only feature"))
+                 ---------------------------------------------------------------------------------- nothing in this file matches on `AsterinasImageError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `AsterinasImageError.Failed`
+note[lint.prefer-fail]: `GuestOutputCheckError.Failed` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/laputa/infra/asterinas/check-guest-output.xsh:11:16
+      return Err(GuestOutputCheckError.Failed(f"guest proof is missing: {missing.join(", ")}"))
+                 ----------------------------------------------------------------------------- nothing in this file matches on `GuestOutputCheckError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `GuestOutputCheckError.Failed`
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/pm/proof.xsh:168:11
+      PATH: f"{root}/bin:{root}/usr/bin:{e"PATH" ?? ""}",
+            -------------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{root}/bin", fp"{root}/usr/bin", @env.PathList.PATH ?? []]
+note[lint.prefer-fail]: `AsterinasImageBuildError.Failed` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/laputa/infra/asterinas/compose-image.xsh:37:16
+      return Err(AsterinasImageBuildError.Failed("Asterinas PM generation and ext2 image build failed"))
+                 -------------------------------------------------------------------------------------- nothing in this file matches on `AsterinasImageBuildError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `AsterinasImageBuildError.Failed`
+note[lint.prefer-fail]: `InitramfsPackError.Failed` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/laputa/infra/asterinas/pack-initramfs.xsh:17:14
+    return Err(InitramfsPackError.Failed(f"command failed: {argv.join(" ")}")) unless status.ok
+               -------------------------------------------------------------- nothing in this file matches on `InitramfsPackError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `InitramfsPackError.Failed`
+note[lint.prefer-fail]: `InitramfsPackError.Failed` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/laputa/infra/asterinas/pack-initramfs.xsh:35:16
+      return Err(InitramfsPackError.Failed(f"initramfs root is not a directory: {root}"))
+                 ----------------------------------------------------------------------- nothing in this file matches on `InitramfsPackError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `InitramfsPackError.Failed`
+note[lint.prefer-fail]: `InitramfsPackError.Failed` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/laputa/infra/asterinas/pack-initramfs.xsh:76:16
+      return Err(InitramfsPackError.Failed("packed initramfs does not contain /init"))
+                 -------------------------------------------------------------------- nothing in this file matches on `InitramfsPackError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `InitramfsPackError.Failed`
+note[lint.prefer-wait-until]: this loop polls with `time.sleep` and a count; `wait until CONDITION within LIMIT every INTERVAL` states the condition and the limit
+  /home/josh/d/laputa-systems/laputa/installer-qemu-test.xsh:91:3
+    while process_live(kill, pid, cwd) {
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ a polling loop with a limit
+note: no rewrite is shown: the loop is not the plain test, sleep, and count with literal limits. The statement fails with `Timeout` in place of the failure written here
+note[lint.prefer-wait-until]: this loop polls with `time.sleep` and a count; `wait until CONDITION within LIMIT every INTERVAL` states the condition and the limit
+  /home/josh/d/laputa-systems/laputa/installer-qemu-test.xsh:175:3
+    while process_live(kill, pid, cwd) {
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ a polling loop with a limit
+note: no rewrite is shown: the loop is not the plain test, sleep, and count with literal limits. The statement fails with `Timeout` in place of the failure written here
+note[lint.prefer-wait-until]: this loop polls with `time.sleep` and a count; `wait until CONDITION within LIMIT every INTERVAL` states the condition and the limit
+  /home/josh/d/laputa-systems/laputa/installer/setup-laputa.xsh:230:3
+    while tries > 0 {
+    ^^^^^^^^^^^^^^^ a polling loop with a limit
+note: `--fix` does not apply the rewrite, because it is not the same program: the statement fails with `Timeout` in place of the failure written here, and its limit is elapsed time, not a count of sleeps
+help: rewrite as `wait until` -> wait until path_value.exists() within 5000ms every 100ms
+  return
+note[lint.empty-sentinel]: `value` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/pm/make.xsh:302:31
+    let value = e"MAKEFLAGS" ?? ""
+                                ^^ a missing value becomes the empty string here
+    return cpu.count() when value == ""
+                            ----------- and is tested here; `if let Ok(value) = e"MAKEFLAGS" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-wait-until]: this loop polls with `time.sleep` and a count; `wait until CONDITION within LIMIT every INTERVAL` states the condition and the limit
+  /home/josh/d/laputa-systems/laputa/system/qemu.xsh:262:3
+    while qemu_process_live(launched.pid) {
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ a polling loop with a limit
+note: no rewrite is shown: the loop is not the plain test, sleep, and count with literal limits. The statement fails with `Timeout` in place of the failure written here
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/cargo/proof.xsh:87:13
+        PATH: f"{rootfs}/usr/bin:{e"PATH" ?? ""}",
+              ----------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{rootfs}/usr/bin", @env.PathList.PATH ?? []]
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/cmake/PKGBUILD.xsh:126:13
+        PATH: f"{build_root}/usr/bin:{build_root}/usr/lib/llvm-toolchain/bin:{e"PATH" ?? ""}",
+              ------------------------------------------------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/usr/bin", fp"{build_root}/usr/lib/llvm-toolchain/bin", @env.PathList.PATH ?? []]
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/deno/PKGBUILD.xsh:189:11
+      PATH: f"{bin}:{e"PATH" ?? ""}",
+            ------------------------ a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [bin, @env.PathList.PATH ?? []]
+note[lint.prefer-wait-until]: this loop polls with `time.sleep` and a count; `wait until CONDITION within LIMIT every INTERVAL` states the condition and the limit
+  /home/josh/d/laputa-systems/laputa/packages/dropbear/proof-xinit.xsh:83:3
+    while remaining > 0 {
+    ^^^^^^^^^^^^^^^^^^^ a polling loop with a limit
+note: no rewrite is shown: when this loop gives up it goes on to the code after it, and `wait until` fails with `Timeout` instead, so the rewrite would change what a timeout does
+note[lint.prefer-wait-until]: this loop polls with `time.sleep` and a count; `wait until CONDITION within LIMIT every INTERVAL` states the condition and the limit
+  /home/josh/d/laputa-systems/laputa/packages/dropbear/proof-xinit.xsh:149:3
+    while remaining > 0 {
+    ^^^^^^^^^^^^^^^^^^^ a polling loop with a limit
+note: no rewrite is shown: the loop is not the plain test, sleep, and count with literal limits. The statement fails with `Timeout` in place of the failure written here
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/foot-minimal/PKGBUILD.xsh:259:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    let cross_build = pm_util.build_arch()? != pm_util.target_arch()? and build_root != ""
+                                                                          ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `bootstrap_llvm` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/gnu-stubs/PKGBUILD.xsh:69:57
+    let bootstrap_llvm = e"XSH_PM_BOOTSTRAP_LLVM_ROOT" ?? ""
+                                                          ^^ a missing value becomes the empty string here
+    let llvm_root = if bootstrap_llvm == "" { fp"{laputa_root}/usr/lib/llvm23" } else { fp"{bootstrap_llvm}" }
+                       -------------------- and is tested here; `if let Ok(bootstrap_llvm) = e"XSH_PM_BOOTSTRAP_LLVM_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-env-path-list]: `LD_LIBRARY_PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/gnu-stubs/PKGBUILD.xsh:134:22
+      LD_LIBRARY_PATH: f"{llvm_root}/lib:{e"LD_LIBRARY_PATH" ?? ""}",
+                       --------------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `LD_LIBRARY_PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `LD_LIBRARY_PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{llvm_root}/lib", @env.PathList.LD_LIBRARY_PATH ?? []]
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/libcap/PKGBUILD.xsh:138:13
+        PATH: f"{build_root}/usr/bin:{build_root}/usr/lib/llvm-toolchain/bin:{e"PATH" ?? ""}",
+              ------------------------------------------------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/usr/bin", fp"{build_root}/usr/lib/llvm-toolchain/bin", @env.PathList.PATH ?? []]
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/libva/PKGBUILD.xsh:239:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    let native_scanner = pm_util.build_arch()? != pm_util.target_arch()? and build_root != ""
+                                                                             ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-build.xsh:79:38
+    let root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                       ^^ a missing value becomes the empty string here
+    if root != "" {
+       ---------- and is tested here; `if let Ok(root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `only` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-aarch64.xsh:630:42
+    let only = e"XSH_LINUX_KBUILD_ONLY" ?? ""
+                                           ^^ a missing value becomes the empty string here
+    if only != "" {
+       ---------- and is tested here; `if let Ok(only) = e"XSH_LINUX_KBUILD_ONLY" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `raw` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-shared.xsh:7:41
+    let raw = e"XSH_LINUX_KBUILD_JOBS" ?? ""
+                                          ^^ a missing value becomes the empty string here
+    if raw != "" {
+       --------- and is tested here; `if let Ok(raw) = e"XSH_LINUX_KBUILD_JOBS" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `raw` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-shared.xsh:26:58
+    let raw = e"XSH_LINUX_KBUILD_ARCHIVE_ANALYSIS_JOBS" ?? ""
+                                                           ^^ a missing value becomes the empty string here
+    return 8 when raw == ""
+                  --------- and is tested here; `if let Ok(raw) = e"XSH_LINUX_KBUILD_ARCHIVE_ANALYSIS_JOBS" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `jobs_text` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-shared.xsh:47:56
+    let jobs_text = e"XSH_LINUX_KBUILD_DISCOVER_JOBS" ?? ""
+                                                         ^^ a missing value becomes the empty string here
+    let jobs_count = if jobs_text == "" { build_jobs()? } else { jobs_text as Int }
+                        --------------- and is tested here; `if let Ok(jobs_text) = e"XSH_LINUX_KBUILD_DISCOVER_JOBS" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `requested` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-shared.xsh:118:53
+    let requested = e"XSH_LINUX_KBUILD_STOP_AFTER" ?? ""
+                                                      ^^ a missing value becomes the empty string here
+    return "" when requested == ""
+                   --------------- and is tested here; `if let Ok(requested) = e"XSH_LINUX_KBUILD_STOP_AFTER" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `explicit_inline` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-shared.xsh:381:69
+    let explicit_inline = e"XSH_LINUX_KBUILD_USE_PLAN_TEXT_INLINE" ?? ""
+                                                                      ^^ a missing value becomes the empty string here
+    if explicit_inline != "" {
+       --------------------- and is tested here; `if let Ok(explicit_inline) = e"XSH_LINUX_KBUILD_USE_PLAN_TEXT_INLINE" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `explicit_text` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-shared.xsh:382:60
+    let explicit_text = e"XSH_LINUX_KBUILD_USE_PLAN_TEXT" ?? ""
+                                                             ^^ a missing value becomes the empty string here
+    if explicit_text != "" {
+       ------------------- and is tested here; `if let Ok(explicit_text) = e"XSH_LINUX_KBUILD_USE_PLAN_TEXT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `explicit` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-shared.xsh:383:50
+    let explicit = e"XSH_LINUX_KBUILD_USE_PLAN" ?? ""
+                                                   ^^ a missing value becomes the empty string here
+    if explicit != "" {
+       -------------- and is tested here; `if let Ok(explicit) = e"XSH_LINUX_KBUILD_USE_PLAN" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-shared.xsh:616:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    if build_root != "" {
+       ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-shared.xsh:629:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    let command = if build_root != "" {
+                     ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-shared.xsh:632:53
+      process.command_argv(argv[0], argv, env: {PATH: f"{build_root}/usr/bin:{e"PATH" ?? ""}"})
+                                                      --------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/usr/bin", @env.PathList.PATH ?? []]
+note[lint.empty-sentinel]: `only` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/PKGBUILD-x86_64.xsh:758:42
+    let only = e"XSH_LINUX_KBUILD_ONLY" ?? ""
+                                           ^^ a missing value becomes the empty string here
+    if only != "" {
+       ---------- and is tested here; `if let Ok(only) = e"XSH_LINUX_KBUILD_ONLY" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/kbuild.xsh:3753:38
+    let root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                       ^^ a missing value becomes the empty string here
+    return fp"{root}/usr/bin/cc" when root != ""
+                                      ---------- and is tested here; `if let Ok(root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/kbuild.xsh:3761:38
+    let root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                       ^^ a missing value becomes the empty string here
+    return f"{root}/usr/lib/llvm-toolchain/bin:{root}/usr/bin:{current}" when root != ""
+                                                                              ---------- and is tested here; `if let Ok(root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/kbuild.xsh:3770:38
+    let root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                       ^^ a missing value becomes the empty string here
+    return current when root == ""
+                        ---------- and is tested here; `if let Ok(root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `current` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/kbuild.xsh:3771:39
+    let current = e"LD_LIBRARY_PATH" ?? ""
+                                        ^^ a missing value becomes the empty string here
+    return f"{root}/usr/lib:{root}/usr/lib/llvm23/lib" when current == ""
+                                                            ------------- and is tested here; `if let Ok(current) = e"LD_LIBRARY_PATH" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/linux/kbuild.xsh:3882:26
+    let build_env = {PATH: f"{build_root}/usr/bin:{e"PATH" ?? ""}"}
+                           --------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/usr/bin", @env.PathList.PATH ?? []]
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/kbuild.xsh:3881:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    let compile_command = if build_root != "" {
+                             ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/linux/kbuild.xsh:3939:26
+    let build_env = {PATH: f"{build_root}/usr/bin:{e"PATH" ?? ""}"}
+                           --------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/usr/bin", @env.PathList.PATH ?? []]
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/kbuild.xsh:3938:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    let compile_command = if build_root != "" {
+                             ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `noreturn` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/kbuild.xsh:4104:41
+          let noreturn = fields.get(5) ?? ""
+                                          ^^ a missing value becomes the empty string here
+          if noreturn != "" and noreturn != "noreturn" {
+             -------------- and is tested here; `if let Ok(noreturn) = fields.get(5) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `name` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/kbuild.xsh:4273:38
+            let name = parts.get(0) ?? ""
+                                       ^^ a missing value becomes the empty string here
+            if name != "" and value != "" {
+               ---------- and is tested here; `if let Ok(name) = parts.get(0) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `dep` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/kbuild.xsh:6960:60
+          let dep = result_archive_deps.get(output_index) ?? ""
+                                                             ^^ a missing value becomes the empty string here
+            if dep != "" {
+               --------- and is tested here; `if let Ok(dep) = result_archive_deps.get(output_index) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `parent_key` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/linux/kbuild.xsh:7043:54
+        let parent_key = parent_by_dir.get(dir_key) ?? ""
+                                                       ^^ a missing value becomes the empty string here
+        if parent_key != "" {
+           ---------------- and is tested here; `if let Ok(parent_key) = parent_by_dir.get(dir_key) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `d` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/m4/files/m4.xsh:2044:33
+        let d = defs.get(word) ?? ""
+                                  ^^ a missing value becomes the empty string here
+        if d == "" {
+           ------- and is tested here; `if let Ok(d) = defs.get(word) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/musl/proof.xsh:61:11
+      PATH: f"{build_root}/usr/lib/llvm-toolchain/bin:{build_root}/usr/bin:{e"PATH" ?? ""}",
+            ------------------------------------------------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/usr/lib/llvm-toolchain/bin", fp"{build_root}/usr/bin", @env.PathList.PATH ?? []]
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/strace/PKGBUILD.xsh:314:13
+        PATH: f"{build_root}/usr/bin:{build_root}/usr/lib/llvm-toolchain/bin:{e"PATH" ?? ""}",
+              ------------------------------------------------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/usr/bin", fp"{build_root}/usr/lib/llvm-toolchain/bin", @env.PathList.PATH ?? []]
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/tzdata/PKGBUILD.xsh:126:13
+        PATH: f"{build_root}/usr/bin:{build_root}/usr/lib/llvm-toolchain/bin:{e"PATH" ?? ""}",
+              ------------------------------------------------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/usr/bin", fp"{build_root}/usr/lib/llvm-toolchain/bin", @env.PathList.PATH ?? []]
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/wayland-dev/PKGBUILD.xsh:228:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    let native_scanner = if pm_util.build_arch()? != pm_util.target_arch()? and build_root != "" {
+                                                                                ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/wayland-dev/PKGBUILD.xsh:253:15
+          PATH: f"{build_root}/usr/lib/llvm-toolchain/bin:{build_root}/usr/bin:{e"PATH" ?? ""}",
+                ------------------------------------------------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/usr/lib/llvm-toolchain/bin", fp"{build_root}/usr/bin", @env.PathList.PATH ?? []]
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/wayland-libs-client/PKGBUILD.xsh:147:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    let native_scanner = if pm_util.build_arch()? != pm_util.target_arch()? and build_root != "" {
+                                                                                ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/wayland-libs-client/PKGBUILD.xsh:172:15
+          PATH: f"{build_root}/usr/lib/llvm-toolchain/bin:{build_root}/usr/bin:{e"PATH" ?? ""}",
+                ------------------------------------------------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/usr/lib/llvm-toolchain/bin", fp"{build_root}/usr/bin", @env.PathList.PATH ?? []]
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/wayland-libs-cursor/PKGBUILD.xsh:131:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    let native_scanner = pm_util.build_arch()? != pm_util.target_arch()? and build_root != ""
+                                                                             ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/wayland-libs-cursor/PKGBUILD.xsh:150:15
+          PATH: f"{build_root}/usr/lib/llvm-toolchain/bin:{build_root}/usr/bin:{e"PATH" ?? ""}",
+                ------------------------------------------------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/usr/lib/llvm-toolchain/bin", fp"{build_root}/usr/bin", @env.PathList.PATH ?? []]
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/wayland-libs-server/PKGBUILD.xsh:147:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    let native_scanner = if pm_util.build_arch()? != pm_util.target_arch()? and build_root != "" {
+                                                                                ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/packages/wayland-libs-server/PKGBUILD.xsh:172:15
+          PATH: f"{build_root}/usr/lib/llvm-toolchain/bin:{build_root}/usr/bin:{e"PATH" ?? ""}",
+                ------------------------------------------------------------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [fp"{build_root}/usr/lib/llvm-toolchain/bin", fp"{build_root}/usr/bin", @env.PathList.PATH ?? []]
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/wl-clipboard/PKGBUILD.xsh:65:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    let native_scanner = pm_util.build_arch()? != pm_util.target_arch()? and build_root != ""
+                                                                             ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/wlroots0.20/PKGBUILD.xsh:713:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    let native_scanner = pm_util.build_arch()? != pm_util.target_arch()? and build_root != ""
+                                                                             ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/laputa/seed/container_entry.xsh:45:27
+    let status = run.status @command ?
+                            -------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-wait-until]: this loop polls with `time.sleep` and a count; `wait until CONDITION within LIMIT every INTERVAL` states the condition and the limit
+  /home/josh/d/laputa-systems/laputa/seed/verify.xsh:101:7
+        while ! mirror_ready(curl) {
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^ a polling loop with a limit
+note: `--fix` does not apply the rewrite, because it is not the same program: the statement fails with `Timeout` in place of the failure written here, and its limit is elapsed time, not a count of sleeps
+help: rewrite as `wait until` -> wait until mirror_ready(curl) within 600s every 1s
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /home/josh/d/laputa-systems/laputa/system/container_build.xsh:91:87
+  proc container_require_no_forbidden_sonames(root: Path, profile: types.SystemProfile) [fs, error] {
+                                                                                        ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+note[lint.empty-sentinel]: `configured` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/tests/pm/ca_certificates_recipe.xsh:4:35
+    let configured = e"XSH_HOST" ?? ""
+                                    ^^ a missing value becomes the empty string here
+    return fp"{configured}" when configured != ""
+                                 ---------------- and is tested here; `if let Ok(configured) = e"XSH_HOST" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `build_root` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/packages/dwl-minimal/PKGBUILD.xsh:262:44
+    let build_root = e"XSH_PM_BUILD_ROOT" ?? ""
+                                             ^^ a missing value becomes the empty string here
+    let cross_build = pm_util.build_arch()? != pm_util.target_arch()? and build_root != ""
+                                                                          ---------------- and is tested here; `if let Ok(build_root) = e"XSH_PM_BUILD_ROOT" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `configured` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/tests/pm/laputa_fs.xsh:7:35
+    let configured = e"XSH_HOST" ?? ""
+                                    ^^ a missing value becomes the empty string here
+    return fp"{configured}" when configured != ""
+                                 ---------------- and is tested here; `if let Ok(configured) = e"XSH_HOST" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `configured` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/tests/pm/llvm_toolchain_recipe.xsh:5:35
+    let configured = e"XSH_HOST" ?? ""
+                                    ^^ a missing value becomes the empty string here
+    let runner = if configured != "" { fp"{configured}" } else { process.which("xsh")? }
+                    ---------------- and is tested here; `if let Ok(configured) = e"XSH_HOST" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `configured` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/tests/pm/parser_generators.xsh:3:35
+    let configured = e"XSH_HOST" ?? ""
+                                    ^^ a missing value becomes the empty string here
+    return fp"{configured}" when configured != ""
+                                 ---------------- and is tested here; `if let Ok(configured) = e"XSH_HOST" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `configured` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/tests/pm/pm_make.xsh:7:35
+    let configured = e"XSH_HOST" ?? ""
+                                    ^^ a missing value becomes the empty string here
+    return fp"{configured}" when configured != ""
+                                 ---------------- and is tested here; `if let Ok(configured) = e"XSH_HOST" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-env-path-list]: `PATH` is extended by formatting a `:`-separated string
+  /home/josh/d/laputa-systems/laputa/tests/pm/pm_make.xsh:129:15
+    env ({PATH: f"{root}:{e"PATH" ?? ""}", XSH_PM_TARGET_ROOT: ""}) {
+                ------------------------- a `List[Path]` environment value joins its entries and keeps their bytes
+note: as a list this value differs in three cases: when `PATH` is unset there is no trailing empty entry, which a search reads as the current directory; bytes that are not UTF-8, in `PATH` or in an interpolated Path, are kept; and an entry that contains `:` fails instead of becoming two entries
+help: write the search path as a list (apply manually: see the note for what changes) -> [root, @env.PathList.PATH ?? []]
+note[lint.empty-sentinel]: `configured` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/laputa/tests/pm/pm_store.xsh:246:35
+    let configured = e"XSH_HOST" ?? ""
+                                    ^^ a missing value becomes the empty string here
+    let runner = if configured != "" { fp"{configured}" } else { process.which("xsh")? }
+                    ---------------- and is tested here; `if let Ok(configured) = e"XSH_HOST" { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+xsht lint: 2 findings, 78 notes
+xsht lint: 316 files in 6.29s (thread time by stage: discover 0.01s, load 0.12s, check 1.88s, lint 5.53s)

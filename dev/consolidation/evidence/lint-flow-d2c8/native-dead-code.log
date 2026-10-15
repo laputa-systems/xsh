@@ -1,0 +1,35 @@
+command: docker run --rm --platform linux/amd64 --cpus=8 --memory=16g --memory-swap=16g --network=none -v /home/josh/d/laputa-systems/xsh:/home/josh/d/laputa-systems/xsh -w /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow -e TMPDIR=/home/josh/d/laputa-systems/xsh/.work/tmp/lint-flow-focused/tmp -e XSH_BIN=/home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/verification/xsh -e PATH=/home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/verification:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c /home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/verification/xsht test tests/xsh/lint-dead-code.xsh
+exit_status: 0
+stdout_bytes: 2778
+stderr_bytes: 0
+--- stdout ---
+running 25 tests
+tests/xsh/lint-dead-code.xsh::test_lint_callable_edges_include_reachable_defaults_and_ignore_shadowed_cli_values ... ok 6ms
+tests/xsh/lint-dead-code.xsh::test_lint_callable_reachability_uses_import_aliases_and_reports_shared_modules_once ... ok 6ms
+tests/xsh/lint-dead-code.xsh::test_lint_flow_preserves_guard_fail_pacing_and_builder_transfers ... ok 7ms
+tests/xsh/lint-dead-code.xsh::test_lint_flow_preserves_defer_try_and_sugar_continuations ... ok 8ms
+tests/xsh/lint-dead-code.xsh::test_lint_flow_carries_atomic_body_returns_to_the_enclosing_sequence ... ok 9ms
+tests/xsh/lint-dead-code.xsh::test_lint_flow_keeps_producer_returns_inside_the_producer ... ok 9ms
+tests/xsh/lint-dead-code.xsh::test_lint_keeps_code_after_loop_break_reachable_but_reports_dead_loop_body ... ok 5ms
+tests/xsh/lint-dead-code.xsh::test_lint_follows_declared_callable_resolution_past_local_bindings ... ok 5ms
+tests/xsh/lint-dead-code.xsh::test_lint_keeps_following_code_reachable_after_conditional_exit_and_zero_iteration_loop ... ok 6ms
+tests/xsh/lint-dead-code.xsh::test_lint_keeps_pattern_condition_fallback_reachable ... ok 7ms
+tests/xsh/lint-dead-code.xsh::test_lint_reports_dead_code_after_all_with_paths_exit ... ok 5ms
+tests/xsh/lint-dead-code.xsh::test_lint_reports_dead_code_after_match_without_a_normal_no_arm_path ... ok 5ms
+tests/xsh/lint-dead-code.xsh::test_lint_reports_one_dead_region_after_loop_branches_exit ... ok 6ms
+tests/xsh/lint-dead-code.xsh::test_lint_config_disables_dead_code_diagnostics_without_disabling_other_lints ... ok 28ms
+tests/xsh/lint-dead-code.xsh::test_lint_counts_a_record_type_annotation_as_a_type_use ... ok 30ms
+tests/xsh/lint-dead-code.xsh::test_lint_reports_unused_module_callable_without_reporting_exported_module_api ... ok 5ms
+tests/xsh/lint-dead-code.xsh::test_lint_keeps_native_tests_exports_and_recursive_callables_live ... ok 21ms
+tests/xsh/lint-dead-code.xsh::test_lint_reports_dead_code_after_all_returning_match ... ok 22ms
+tests/xsh/lint-dead-code.xsh::test_lint_reports_dead_code_after_exit ... ok 20ms
+tests/xsh/lint-dead-code.xsh::test_lint_resource_scope_body_fields_shadow_top_level_callables ... ok 5ms
+tests/xsh/lint-dead-code.xsh::test_lint_resource_scope_initializer_resolves_outer_callable_before_binding ... ok 5ms
+tests/xsh/lint-dead-code.xsh::test_lint_resource_scope_initializers_use_prior_bindings_and_names_do_not_escape ... ok 5ms
+tests/xsh/lint-dead-code.xsh::test_lint_reports_dead_code_after_return ... ok 19ms
+tests/xsh/lint-dead-code.xsh::test_lint_signal_hooks_use_final_top_level_bindings_and_order_findings_by_source ... ok 6ms
+tests/xsh/lint-dead-code.xsh::test_lint_reports_unused_callable_but_keeps_main_calls_and_dynamic_references_live ... ok 18ms
+test result: ok. 25 passed; 0 failed; 0 skipped
+
+--- stderr ---
+

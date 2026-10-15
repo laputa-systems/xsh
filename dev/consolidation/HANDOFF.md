@@ -179,6 +179,15 @@ work is authorized by this resume.
   All 178 merged-source Python checks, shell syntax, and diff checks pass.
   [Boundary evidence](evidence/w9-artifact-boundary/README.md) retains the five
   complete suite outputs. A fresh real build and capture remain pending.
+- Shared lint-flow repair `d2c842812` is integrated. Transfer functions consume
+  child summaries published by the common walk instead of recursively reading
+  each subtree again. Source sugar preserves the reference's expansion behavior.
+  The dead-code file passes 25 tests, guards pass three, and the exact duplicate
+  summary invariant passes one. A deliberate fallthrough mutation fails its
+  exact oracle, then passes after restoration. All eight repository/Laputa
+  check/lint commands exit zero with matching output apart from timing footers.
+  [Focused evidence](evidence/lint-flow-d2c8/README.md) retains fresh test output,
+  paired diagnostics, source accounting, and the mutation evidence's limits.
 
 ### Current queue
 
@@ -209,13 +218,10 @@ builder qualification and fresh captures remain pending. No parity is claimed.
 The migrated expression children require explicit matrix requalification.
 Keep the scheduler comparison's original default workers and outcome checks.
 
-The lint traversal review found an independent recursive flow-analysis family
-after the shared statement walk. The one-descent contract requires that flow
-classification consume summaries from the common walk instead. The approved
-[flow integration](designs/lint-rules.md#flow-summaries-in-the-shared-walk)
-preserves sugar behavior and diagnostic order. Its isolated lane has added
-behavior coverage; the reference's dead-code file suite passes 23 cases.
-Implementation and candidate verification remain open.
+The [shared flow integration](designs/lint-rules.md#flow-summaries-in-the-shared-walk)
+is integrated with focused parity and an independent static review. Replay the
+feature-touch probe and structural scan on the repaired source. Focused checks
+do not replace the final canonical and full native gates.
 
 General inference implementation, its initial red/green witnesses, and the
 400-variable solver observation have not started. Consolidation acceptance

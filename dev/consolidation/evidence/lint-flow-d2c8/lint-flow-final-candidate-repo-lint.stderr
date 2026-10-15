@@ -1,0 +1,714 @@
+note[lint.empty-sentinel]: `named` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/lib/gnu.xsh:64:57
+    let named = env.get_or("XSH_EXECUTION_PHRASE", "") ?? ""
+                                                          ^^ a missing value becomes the empty string here
+    return named when named != ""
+                      ----------- and is tested here; `if let Ok(named) = env.get_or("XSH_EXECUTION_PHRASE", "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `found` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/lib/gnu.xsh:222:41
+      let found = env.get_or(name, "") ?? ""
+                                          ^^ a missing value becomes the empty string here
+      if found != "" {
+         ----------- and is tested here; `if let Ok(found) = env.get_or(name, "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `name` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/arp.xsh:249:44
+      let name = names.get(entry.address) ?? ""
+                                             ^^ a missing value becomes the empty string here
+        gnu.write_text(nettools.arp_bsd_row(entry, if name == "" { "?" } else { name }) + "\n")
+                                                      ---------- and is tested here; `if let Ok(name) = names.get(entry.address) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `types` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/lib/storage.xsh:851:40
+    var types = args.values.get("-t") ?? ""
+                                         ^^ a missing value becomes the empty string here
+      if types != "" or ! options.is_empty() { unsupported("filtered or option-overridden mount --all") }
+         ----------- and is tested here; `if let Ok(types) = args.values.get("-t") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `entry` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/lib/system_report.xsh:2204:46
+        let entry = device.entry_name.value ?? ""
+                                               ^^ a missing value becomes the empty string here
+        if entry == "" or entry == "." or entry == ".." or "/" in entry or "\0" in entry {
+           ----------- and is tested here; `if let entry = device.entry_name.value { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `val` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/cp.xsh:609:26
+        let val = value ?? ""
+                           ^^ a missing value becomes the empty string here
+            opts.suffix = if val == "" { "~" } else { val }
+                             --------- and is tested here; `if let val = value { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `cache_kind` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/lib/system_report_live.xsh:2964:54
+        let cache_kind = observed_source_text(kind) ?? ""
+                                                       ^^ a missing value becomes the empty string here
+        if cache_kind == "" {
+           ---------------- and is tested here; `if let cache_kind = observed_source_text(kind) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `field_name` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/lib/system_report_live.xsh:3902:41
+        let field_name = labels.get(2) ?? ""
+                                          ^^ a missing value becomes the empty string here
+        if labels.len() != 3 or labels[0] != "Node" or labels[1] != f"{node_id}" or field_name == "" {
+                                                                                    ---------------- and is tested here; `if let Ok(field_name) = labels.get(2) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `value` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/lib/text_a2.xsh:250:34
+      let value = env.get(name) ?? ""
+                                   ^^ a missing value becomes the empty string here
+      if value != "" { locale = value; break }
+         ----------- and is tested here; `if let Ok(value) = env.get(name) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-wait-until]: this loop polls with `time.sleep` and a count; `wait until CONDITION within LIMIT every INTERVAL` states the condition and the limit
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/curl.xsh:884:3
+    while true {
+    ^^^^^^^^^^ a polling loop with a limit
+note: no rewrite is shown: when this loop gives up it goes on to the code after it, and `wait until` fails with `Timeout` instead, so the rewrite would change what a timeout does
+note[lint.empty-sentinel]: `value` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/cut.xsh:52:41
+      let value = env.get_or(name, "") ?? ""
+                                          ^^ a missing value becomes the empty string here
+      if value != "" { locale = value; break }
+         ----------- and is tested here; `if let Ok(value) = env.get_or(name, "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `found` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/date.xsh:220:41
+      let found = env.get_or(name, "") ?? ""
+                                          ^^ a missing value becomes the empty string here
+      return found when found != ""
+                        ----------- and is tested here; `if let Ok(found) = env.get_or(name, "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-fail]: `DateError.Invalid` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/date.xsh:39:78
+    if rx"(?i)\b(AWST|ACST|ACDT|AEST|AEDT)\b".matches(zone_input) { return Err(DateError.Invalid(f"invalid date: {input}")) }
+                                                                               ------------------------------------------- nothing in this file matches on `DateError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `DateError.Invalid`
+note[lint.prefer-fail]: `DateError.Invalid` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/lib/date_parse.xsh:36:3
+    DateError.Invalid(f"invalid date: {text}")
+    ------------------------------------------ nothing in this file matches on `DateError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `DateError.Invalid`
+note[lint.empty-sentinel]: `found` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/diff.xsh:280:41
+      let found = env.get_or(name, "") ?? ""
+                                          ^^ a missing value becomes the empty string here
+      if found != "" {
+         ----------- and is tested here; `if let Ok(found) = env.get_or(name, "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `start` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/diff.xsh:525:41
+    let start = cfg.opts.starting_file ?? ""
+                                          ^^ a missing value becomes the empty string here
+      continue when top and start != "" and name < start
+                            ----------- and is tested here; `if let start = cfg.opts.starting_file { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `term` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/diff.xsh:1081:44
+        let term = env.get_or("TERM", "") ?? ""
+                                             ^^ a missing value becomes the empty string here
+        colored = unix.isatty(1) and term != "" and term != "dumb"
+                                     ---------- and is tested here; `if let Ok(term) = env.get_or("TERM", "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-fail]: `DeviceError.TooLarge` only carries a message; report it with `fail`
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/diff.xsh:473:20
+          return Err(DeviceError.TooLarge("input is unbounded or too large to compare"))
+                     ------------------------------------------------------------------ nothing in this file matches on `DeviceError`
+note: rewrite this failure by hand only if changing its nominal error family is intended; `fail MESSAGE` reports `validation` instead of `DeviceError.TooLarge`
+note[lint.empty-sentinel]: `selected` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/dircolors.xsh:172:47
+      let selected = env.get_or("SHELL", "") ?? ""
+                                                ^^ a missing value becomes the empty string here
+      if selected == "" { gnu.error("no SHELL environment variable, and no shell type option given"); exit 1 }
+         -------------- and is tested here; `if let Ok(selected) = env.get_or("SHELL", "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `found` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/lib/gnu_grep.xsh:254:41
+      let found = env.get_or(name, "") ?? ""
+                                          ^^ a missing value becomes the empty string here
+      if found != "" { value = found; break }
+         ----------- and is tested here; `if let Ok(found) = env.get_or(name, "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `term` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/lib/gnu_grep.xsh:972:40
+    let term = env.get_or("TERM", "") ?? ""
+                                         ^^ a missing value becomes the empty string here
+    term != "" and term != "dumb" and unix.isatty(1)
+    ---------- and is tested here; `if let Ok(term) = env.get_or("TERM", "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `legacy` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/lib/gnu_grep.xsh:1156:50
+      let legacy = env.get_or("GREP_COLOR", "") ?? ""
+                                                   ^^ a missing value becomes the empty string here
+      var legacy_ok = legacy != ""
+                      ------------ and is tested here; `if let Ok(legacy) = env.get_or("GREP_COLOR", "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `text` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/expr.xsh:653:35
+          let text = body.utf8() ?? ""
+                                    ^^ a missing value becomes the empty string here
+          return fail_with(st, "Invalid content of \\{\\}") when parts.is_empty() or text == ""
+                                                                                     ---------- and is tested here; `if let Ok(text) = body.utf8() { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `found` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/expr.xsh:871:41
+      let found = env.get_or(name, "") ?? ""
+                                          ^^ a missing value becomes the empty string here
+      return found when found != ""
+                        ----------- and is tested here; `if let Ok(found) = env.get_or(name, "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `text` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/factor.xsh:1101:28
+    let text = raw.utf8() ?? ""
+                             ^^ a missing value becomes the empty string here
+    if text == "" or ! rx"^[0-9]+$".matches(body) {
+       ---------- and is tested here; `if let Ok(text) = raw.utf8() { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `found` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/join.xsh:82:41
+      let found = env.get_or(name, "") ?? ""
+                                          ^^ a missing value becomes the empty string here
+      return found == "C" or found == "POSIX" or found.starts_with("C.") when found != ""
+                                                                              ----------- and is tested here; `if let Ok(found) = env.get_or(name, "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `value` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/join.xsh:124:41
+      let value = env.get_or(name, "") ?? ""
+                                          ^^ a missing value becomes the empty string here
+      if value != "" {
+         ----------- and is tested here; `if let Ok(value) = env.get_or(name, "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `named` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/ln.xsh:33:52
+    let named = env.get_or("VERSION_CONTROL", "") ?? ""
+                                                     ^^ a missing value becomes the empty string here
+    return "existing" when named == ""
+                           ----------- and is tested here; `if let Ok(named) = env.get_or("VERSION_CONTROL", "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `suffix` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/ln.xsh:218:31
+    var suffix = opts.suffix ?? ""
+                                ^^ a missing value becomes the empty string here
+    if suffix == "" { suffix = env.get_or("SIMPLE_BACKUP_SUFFIX", "") ?? "" }
+       ------------ and is tested here; `if let suffix = opts.suffix { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `name` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/login.xsh:32:35
+    var name = opts.users.get(0) ?? ""
+                                    ^^ a missing value becomes the empty string here
+    if name == "" {
+       ---------- and is tested here; `if let Ok(name) = opts.users.get(0) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `found` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/ls.xsh:742:35
+      let found = env_text(name) ?? ""
+                                    ^^ a missing value becomes the empty string here
+      return found when found != ""
+                        ----------- and is tested here; `if let found = env_text(name) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `text` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/ls.xsh:1314:28
+    let text = raw.utf8() ?? ""
+                             ^^ a missing value becomes the empty string here
+    if text != "" and SAFE_NAME.matches(text) and (qs.extra == "" or [c for c in qs.extra if text.find(c) != null].is_empty()) {
+       ---------- and is tested here; `if let Ok(text) = raw.utf8() { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `columns` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/ls.xsh:3340:40
+    let columns = env_text("COLUMNS") ?? ""
+                                         ^^ a missing value becomes the empty string here
+    if cfg.width == null and columns != "" {
+                             ------------- and is tested here; `if let columns = env_text("COLUMNS") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `tab_env` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/ls.xsh:3354:40
+    let tab_env = env_text("TABSIZE") ?? ""
+                                         ^^ a missing value becomes the empty string here
+    if cfg.tabsize == null and tab_env != "" {
+                               ------------- and is tested here; `if let tab_env = env_text("TABSIZE") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `spec` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/ls.xsh:3431:41
+      let spec = env_text("LS_COLORS") ?? ""
+                                          ^^ a missing value becomes the empty string here
+      if spec != "" {
+         ---------- and is tested here; `if let spec = env_text("LS_COLORS") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `pattern` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/more.xsh:255:33
+    var pattern = opts.pattern ?? ""
+                                  ^^ a missing value becomes the empty string here
+    if pattern != "" {
+       ------------- and is tested here; `if let pattern = opts.pattern { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `found` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/numfmt.xsh:450:45
+      let found = env.get_or(variable, "") ?? ""
+                                              ^^ a missing value becomes the empty string here
+      if found != "" {
+         ----------- and is tested here; `if let Ok(found) = env.get_or(variable, "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `value` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/numfmt.xsh:1069:41
+      let value = env.get_or(name, "") ?? ""
+                                          ^^ a missing value becomes the empty string here
+      if value != "" { locale = value; break }
+         ----------- and is tested here; `if let Ok(value) = env.get_or(name, "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `user_suffix` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/numfmt.xsh:1146:40
+    let user_suffix = settings.suffix ?? ""
+                                         ^^ a missing value becomes the empty string here
+      let scaled = if user_suffix != "" and with_suffix.ends_with(user_suffix) {
+                      ----------------- and is tested here; `if let user_suffix = settings.suffix { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `value` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/paste.xsh:19:34
+      let value = env.get(name) ?? ""
+                                   ^^ a missing value becomes the empty string here
+      return "gb18030" in value.lower() when value != ""
+                                             ----------- and is tested here; `if let Ok(value) = env.get(name) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `known` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/lib/ping.xsh:333:37
+    let known = names.get(address) ?? ""
+                                      ^^ a missing value becomes the empty string here
+    return address when known == ""
+                        ----------- and is tested here; `if let Ok(known) = names.get(address) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `found` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/pinky.xsh:61:35
+      let found = env_text(name) ?? ""
+                                    ^^ a missing value becomes the empty string here
+      return found != "C" and found != "POSIX" when found != ""
+                                                    ----------- and is tested here; `if let found = env_text(name) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `named` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/pinky.xsh:199:44
+    let named = env_text("XSH_UTMP_FILE") ?? ""
+                                             ^^ a missing value becomes the empty string here
+    if named == "" { /var/run/utmp } else { fp"{named}" }
+       ----------- and is tested here; `if let named = env_text("XSH_UTMP_FILE") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `value` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/printf.xsh:368:41
+      let value = env.get_or(name, "") ?? ""
+                                          ^^ a missing value becomes the empty string here
+      if value != "" { locale = value; break }
+         ----------- and is tested here; `if let Ok(value) = env.get_or(name, "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `word_override` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/ptx.xsh:567:36
+    let word_override = opts.word ?? ""
+                                     ^^ a missing value becomes the empty string here
+    var word_pattern = if word_override != "" {
+                          ------------------- and is tested here; `if let word_override = opts.word { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `base_name` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/realpath.xsh:95:41
+    let base_name = opts.relative_base ?? ""
+                                          ^^ a missing value becomes the empty string here
+    if base_name != "" {
+       --------------- and is tested here; `if let base_name = opts.relative_base { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-head.xsh:182:25
+    let output = run.text @args
+                          ----- this is a `List[Union[Str, Path]]`; a `NonEmpty[Union[Str, Path]]` always names a program
+note: declare the vector `NonEmpty[Union[Str, Path]]` where it is built, or validate it with `.require(NonEmpty[Union[Str, Path]])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-head.xsh:193:25
+    let output = run.text @args
+                          ----- this is a `List[Union[Str, Path]]`; a `NonEmpty[Union[Str, Path]]` always names a program
+note: declare the vector `NonEmpty[Union[Str, Path]]` where it is built, or validate it with `.require(NonEmpty[Union[Str, Path]])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-sort.xsh:524:25
+    let child = spawn run @(["/bin/sh", "-c", "error_file=$1; shift; exec \"$@\" 2>\"$error_file\"", "sort-test",
+                          --------------------------------------------------------------------------------------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-tail.xsh:126:25
+    let output = run.text @args
+                          ----- this is a `List[Union[Str, Path]]`; a `NonEmpty[Union[Str, Path]]` always names a program
+note: declare the vector `NonEmpty[Union[Str, Path]]` where it is built, or validate it with `.require(NonEmpty[Union[Str, Path]])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-tail.xsh:342:27
+    let reported = run.text @args
+                            ----- this is a `List[Union[Str, Path]]`; a `NonEmpty[Union[Str, Path]]` always names a program
+note: declare the vector `NonEmpty[Union[Str, Path]]` where it is built, or validate it with `.require(NonEmpty[Union[Str, Path]])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-yes.xsh:27:42
+    let count = run.text --accept=[0, 141] @yes | run @head | run @wc
+                                           ---- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-yes.xsh:27:53
+    let count = run.text --accept=[0, 141] @yes | run @head | run @wc
+                                                      ----- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-yes.xsh:27:65
+    let count = run.text --accept=[0, 141] @yes | run @head | run @wc
+                                                                  --- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-yes.xsh:32:40
+    let two = run.text --accept=[0, 141] @odd | run @([ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display(), "-n", "2"])
+                                         ---- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-yes.xsh:32:51
+    let two = run.text --accept=[0, 141] @odd | run @([ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display(), "-n", "2"])
+                                                    ---------------------------------------------------------------------------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-yes.xsh:38:41
+    let text = run.text --accept=[0, 141] @joined | run @([ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display(), "-c", "12"])
+                                          ------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-yes.xsh:38:55
+    let text = run.text --accept=[0, 141] @joined | run @([ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display(), "-c", "12"])
+                                                        ----------------------------------------------------------------------------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-yes.xsh:42:42
+    let plain = run.text --accept=[0, 141] @defaulted | run @([ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display(), "-n", "2"])
+                                           ---------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/tests/test-yes.xsh:42:59
+    let plain = run.text --accept=[0, 141] @defaulted | run @([ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display(), "-n", "2"])
+                                                            ---------------------------------------------------------------------------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.empty-sentinel]: `found` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/uniq.xsh:165:41
+      let found = env.get_or(name, "") ?? ""
+                                          ^^ a missing value becomes the empty string here
+      if found != "" {
+         ----------- and is tested here; `if let Ok(found) = env.get_or(name, "") { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `reason` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/uptime.xsh:207:34
+      let reason = boot.problem ?? ""
+                                   ^^ a missing value becomes the empty string here
+      gnu.error(if reason == "" { "couldn't get boot time" } else { f"couldn't get boot time: {reason}" })
+                   ------------ and is tested here; `if let reason = boot.problem { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `found` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/who.xsh:86:35
+      let found = env_text(name) ?? ""
+                                    ^^ a missing value becomes the empty string here
+      return found != "C" and found != "POSIX" when found != ""
+                                                    ----------- and is tested here; `if let found = env_text(name) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `value` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/core/xargs.xsh:326:36
+        let value = values[index] ?? ""
+                                     ^^ a missing value becomes the empty string here
+            cfg.replace = if key == "i" and ! (given and value != "") { "{}" } else { value }
+                                                         ----------- and is tested here; `if let value = values[index] { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `digit` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/consolidation_metrics_current.xsh:195:59
+                  let digit = chars.get(cursor + offset) ?? ""
+                                                            ^^ a missing value becomes the empty string here
+                  if digit == "" or ! (digit in "0123456789abcdefABCDEF") { invalid(source_path, line, "malformed hexadecimal escape") }
+                     ----------- and is tested here; `if let Ok(digit) = chars.get(cursor + offset) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/consolidation_metrics_current.xsh:1770:49
+    let output = run.capture --text --timeout=30s @argv
+                                                  ----- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/consolidation_metrics_current.xsh:1823:58
+    let ancestry_output = run.capture --text --timeout=30s @ancestry
+                                                           --------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/tests/test-consolidation-ratchets-current.xsh:566:49
+    let output = run.capture --text --timeout=30s @argv
+                                                  ----- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.empty-sentinel]: `name` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:3528:53
+      let name = section.devices[index].sysfs_name ?? ""
+                                                      ^^ a missing value becomes the empty string here
+      if name == "" or name in candidate_by_name {
+         ---------- and is tested here; `if let name = section.devices[index].sysfs_name { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `name` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:3757:53
+      let name = section.devices[index].sysfs_name ?? ""
+                                                      ^^ a missing value becomes the empty string here
+      if name == "" or name in candidate_by_name {
+         ---------- and is tested here; `if let name = section.devices[index].sysfs_name { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `device_name` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:4378:44
+      let device_name = device.sysfs_name ?? ""
+                                             ^^ a missing value becomes the empty string here
+      if device_name == "" {
+         ----------------- and is tested here; `if let device_name = device.sysfs_name { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `name` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:6819:53
+      let name = section.devices[index].sysfs_name ?? ""
+                                                      ^^ a missing value becomes the empty string here
+      if name == "" or name in candidate_by_name {
+         ---------- and is tested here; `if let name = section.devices[index].sysfs_name { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `source_unit` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:8608:42
+        let source_unit = fields.get(1) ?? ""
+                                           ^^ a missing value becomes the empty string here
+          unit: if kib { "bytes" } else if source_unit == "" { "count" } else { source_unit },
+                                           ----------------- and is tested here; `if let Ok(source_unit) = fields.get(1) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `address` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:10336:47
+      let address = candidate[index].address ?? ""
+                                                ^^ a missing value becomes the empty string here
+      if address == "" {
+         ------------- and is tested here; `if let address = candidate[index].address { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `address` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:10432:37
+        let address = item.address ?? ""
+                                      ^^ a missing value becomes the empty string here
+        if address != "" and address not in before_by_address and address not in after_by_address {
+           ------------- and is tested here; `if let address = item.address { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `address` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:10485:47
+      let address = candidate[index].address ?? ""
+                                                ^^ a missing value becomes the empty string here
+      if address == "" {
+         ------------- and is tested here; `if let address = candidate[index].address { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `address` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:10573:37
+        let address = item.address ?? ""
+                                      ^^ a missing value becomes the empty string here
+        if address != "" and address not in before_by_address and address not in after_by_address {
+           ------------- and is tested here; `if let address = item.address { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `class_target` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:14686:46
+      let class_target = entry.class_target ?? ""
+                                               ^^ a missing value becomes the empty string here
+      } else if class_target == "" {
+                ------------------ and is tested here; `if let class_target = entry.class_target { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `syscall` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:20721:61
+        let syscall = call_parts.get(call_parts.len() - 1) ?? ""
+                                                              ^^ a missing value becomes the empty string here
+        if syscall == "" or ! trace_task_prefix_is_valid(task_prefix) {
+           ------------- and is tested here; `if let Ok(syscall) = call_parts.get(call_parts.len() - 1) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `prefix` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:20753:44
+            let prefix = pending.get(key) ?? ""
+                                             ^^ a missing value becomes the empty string here
+            if syscall == "" or prefix == "" {
+                                ------------ and is tested here; `if let Ok(prefix) = pending.get(key) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `group_bits` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:20955:64
+        let group_bits = field.split("=", maxsplit: 1).get(1) ?? ""
+                                                                 ^^ a missing value becomes the empty string here
+        return false when group_bits == ""
+                          ---------------- and is tested here; `if let Ok(group_bits) = field.split("=", maxsplit: 1).get(1) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `result` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/system_report_check.xsh:25550:60
+    let result = result_lines.get(result_lines.len() - 1) ?? ""
+                                                             ^^ a missing value becomes the empty string here
+    return result when result != ""
+                       ------------ and is tested here; `if let Ok(result) = result_lines.get(result_lines.len() - 1) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/tests/test-targets.xsh:193:31
+    let echo_output = run.bytes @echo_argv
+                                ---------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/dev/tests/test-targets.xsh:196:31
+    let expr_output = run.bytes @expr_argv
+                                ---------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/docs/snippets/spec/47-run-argv.xsh:4:7
+    run @compile @extra
+        -------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/docs/snippets/spec/47-run-argv.xsh:6:27
+    let status = run.status @compile -fsyntax-only
+                            -------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/docs/snippets/spec/47-run-argv.xsh:7:26
+    let version = run.text @(["cc", "--version"])
+                           ---------------------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/docs/snippets/spec/47-run-argv.xsh:8:23
+    let job = spawn run @compile ?
+                        -------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/docs/snippets/spec/47-run-argv.xsh:11:9
+      run @compile
+          -------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.empty-sentinel]: `c` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/showcase/jq.xsh:438:29
+    let c = chars.get(pos) ?? ""
+                              ^^ a missing value becomes the empty string here
+    return c + "=" when d == "=" and c != "" and c in "=!<>+-*/%|"
+                                     ------- and is tested here; `if let Ok(c) = chars.get(pos) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+warn[lint.prefer-as-conversion]: prefer `as Int` over the propagated operation it names
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/checker-modules.xsh:927:10
+    assert lines[1].parse_int()? >= 0
+           --------------------- this converts Str to Int and propagates a failure; write `... as Int`
+help: convert with `as Int` -> lines[1] as Int
+warn[lint.redundant-tail-return]: tail return can supply its value implicitly
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/expression-route-oracles.xsh:9:56
+  proc route_oracle_match_tag() -> RouteOracleTagMatch { return Ready }
+                                                         ^^^^^^^ remove the tail return
+help: use the tail value
+warn[lint.missing-f-prefix]: `{root}` is literal text without the `f` prefix
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/expression-route-oracles.xsh:413:55
+      "let root = Path(args[0])\narchive.tar_create(fp\"{root}/payload.tar\", root, [p\"member\"])\nassert fp\"{root}/payload.tar\".exists()?\n",
+                                                        ^^^^^^ `root` is a binding in scope
+help: use `f"..."` to interpolate -> f"let root = Path(args[0])\narchive.tar_create(fp\"{root}/payload.tar\", root, [p\"member\"])\nassert fp\"{root}/payload.tar\".exists()?\n"
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/non-empty.xsh:211:14
+      run.text @none
+               ----- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/result-chaining.xsh:183:24
+    for line in run.text @words?.lines() {
+                         ------ this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:3:27
+    let trailing = run.text @argv two three
+                            ----- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:5:25
+    let inline = run.text @(["printf", "%s", "inline"])
+                          ----------------------------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:8:26
+    let spliced = run.text @argv @more
+                           ----- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:11:29
+    let from_paths = run.text @paths
+                              ------ this is a `List[Path]`; a `NonEmpty[Path]` always names a program
+note: declare the vector `NonEmpty[Path]` where it is built, or validate it with `.require(NonEmpty[Path])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:17:27
+    let status = run.status @quiet
+                            ------ this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:19:37
+    let captured = run.capture --text @(["sh", "-c", "printf out; printf err >&2"])
+                                      --------------------------------------------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:21:33
+    let lines = run.stream --text @(["printf", "a\nb\n"]) |> collect()
+                                  ----------------------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:23:24
+    let upper = run.text @(["printf", "piped"]) | run @(["tr", "a-z", "A-Z"])
+                         ---------------------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:23:53
+    let upper = run.text @(["printf", "piped"]) | run @(["tr", "a-z", "A-Z"])
+                                                      ----------------------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:25:23
+    let job = spawn run @(["true"]) ?
+                        ----------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:30:9
+      run @(["sh", "-c", "exit 0"])
+          ------------------------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:38:24
+    let named = run.text @argv
+                         ----- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:40:26
+    let spliced = run.text @(["sh", "-c", "printf %s \"$0\""])
+                           ----------------------------------- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:48:9
+      run @argv
+          ----- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-non-empty-argv]: this command vector may be empty, which fails only when it runs
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/run-argv.xsh:59:16
+      run.status @argv
+                 ----- this is a `List[Str]`; a `NonEmpty[Str]` always names a program
+note: declare the vector `NonEmpty[Str]` where it is built, or validate it with `.require(NonEmpty[Str])?`
+note[lint.prefer-wait-until]: this loop polls with `time.sleep` and a count; `wait until CONDITION within LIMIT every INTERVAL` states the condition and the limit
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/stdlib/process.xsh:690:3
+    while ! marker.exists() and tries < 300 {
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ a polling loop with a limit
+note: no rewrite is shown: when this loop gives up it goes on to the code after it, and `wait until` fails with `Timeout` instead, so the rewrite would change what a timeout does
+note[lint.prefer-wait-until]: this loop polls with `time.sleep` and a count; `wait until CONDITION within LIMIT every INTERVAL` states the condition and the limit
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tests/xsh/stdlib/unix.xsh:304:3
+    while ! marker.exists() and tries < 300 {
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ a polling loop with a limit
+note: no rewrite is shown: when this loop gives up it goes on to the code after it, and `wait until` fails with `Timeout` instead, so the rewrite would change what a timeout does
+note[lint.empty-sentinel]: `token` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tools/xsh-ir-coverage.xsh:189:39
+        let token = parts.get(index) ?? ""
+                                        ^^ a missing value becomes the empty string here
+        yield token when token != ""
+                         ----------- and is tested here; `if let Ok(token) = parts.get(index) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `name` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tools/xsh-ir-coverage.xsh:259:45
+        let name = line.split("\"").get(1) ?? ""
+                                              ^^ a missing value becomes the empty string here
+        if name != "" and ! (name in names) {
+           ---------- and is tested here; `if let Ok(name) = line.split("\"").get(1) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `name` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tools/xsh-ir-coverage.xsh:421:80
+        let name = raw_variant.trim().replace("(", with: " ").fields().get(0) ?? ""
+                                                                                 ^^ a missing value becomes the empty string here
+        if name != "" and ! (name in names) {
+           ---------- and is tested here; `if let Ok(name) = raw_variant.trim().replace("(", with: " ").fields().get(0) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+note[lint.empty-sentinel]: `next` is `""` both when there is no value and when the value is empty
+  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-lint-flow/tools/xsh-ir-coverage.xsh:473:41
+      let next = tokens.get(index + 1) ?? ""
+                                          ^^ a missing value becomes the empty string here
+      if token.ends_with(":") and next != "" and ! lowerable_type(next, false, record_types) {
+                                  ---------- and is tested here; `if let Ok(next) = tokens.get(index + 1) { ... }` keeps the missing case apart
+note: not rewritten: the value may itself be `""`, and an optional binding would then take the present branch
+xsht lint: 3 findings, 113 notes
+xsht lint: 1524 files in 14.38s (thread time by stage: discover 0.02s, load 0.87s, check 10.40s, lint 9.67s)
