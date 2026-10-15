@@ -7,8 +7,11 @@ into master on 2026-10-11. Private lanes and original baselines remain preserved
 
 **Status: active and incomplete, 2026-10-15.** The implementation and focused
 repairs are integrated on `master`. The latest bounded corpus-worker and
-fixture repairs pass the exact 197-file desugar check. An earlier extra AWK
-outcome remains unexplained, and current final gates remain required.
+fixture repairs pass the exact 197-file desugar check. The 31c profile suite
+passes. Its canonical btop PTY failure led to test-only frame acknowledgements
+and a deterministic regression. Focused checks pass. The final observer can
+reuse a separate Cargo cache without skipping acceptance commands. An earlier
+extra AWK outcome remains unexplained, and current final gates remain required.
 W9 parity passed 1,690 inputs and 6,760
 outcomes with zero mismatches on `2083821ed`. Independent review qualifies
 that result across the two-file route-witness repair `ae7cf8490`.

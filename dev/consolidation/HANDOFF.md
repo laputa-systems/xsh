@@ -4,6 +4,57 @@ Status: active and incomplete 2026-10-15.
 
 ## Final-batch status, 2026-10-15
 
+### Await completed PTY frames and reuse the canonical Cargo cache
+
+The `31c07c71f` selected-profile suite passed 13,793 native cases, with zero
+failures and 136 skips. Its receipt SHA-256 is
+`8227446ce03c60e5a99006a704cda3b8b322f093924c0121c01ebe3e7df307cd`.
+The isolated lint passed for 1,524 files in 13.31 seconds, with both readiness
+checks passing. The canonical batch then stopped in `core_compat_extra`:
+56 passed, one failed, three ignored, and two filtered. The failure was
+`pty::btop_replay_network_and_cpu_view_keys_change_rendered_cells`, whose
+screen lacked `CPU/core%` after the key wait. The failed observer receipt is
+`.work/final-review-evidence/final-performance-gates/31c07c71f871428d255fe48e042725e703126b58-observers/receipt.json`,
+SHA-256 `028bc418739951635a8a466a2deab838d8bcde41c8bf7470ab95a7f186ad06a2`.
+Its native suite and later checks were not reached.
+
+The original failure did not recur in twenty exact runs or three sibling-test
+runs. A deterministic regression instead demonstrates a test synchronization
+flaw: panel text can satisfy initial readiness before its frame closes. A
+following frame-count wait can acknowledge that earlier frame instead of the
+key. Repair `5c777367e` requires the expected state after the input boundary,
+followed by its frame close. Follow-up `3b4f5c542` acknowledges resize through
+the new 100-column border and its frame close. Both commits change only
+`tests/core_compat_extra/pty.rs`. Display assertions and latency limits remain.
+No product-source defect or historical byte ordering was established.
+
+The frame regression fails before the repair and passes afterward. The
+network/CPU, process-view, and latency cases pass. Latency readiness passes
+before and after, with no comparative timing claim. The final resize and
+regression checks pass in `.work/tmp/btop-pty-31c-green-a5-{process,regression}-test/`.
+Other focused evidence is in `.work/tmp/btop-pty-31c-green-a4-*` and
+`.work/tmp/btop-pty-31c-green-a3-latency-guard/`.
+The correctly configured diagnostic run in
+`.work/tmp/canonical-unreached-31c-a2/` passes 57 core tests and 223 root
+integration tests. Those results do not replace the failed canonical receipt.
+The earlier `a1` diagnostic omitted canonical exclusions and the registry
+mount, so its extra failures and interrupted metadata check are discarded.
+
+The ignored final observer now accepts `--gate-target-dir` for an existing
+Cargo cache. Its focused self-checks pass. The complete public batch command,
+fresh output and receipts, source and binary validation, locks, readiness,
+and cleanup checks remain required. The next attempt uses
+`.work/consolidation/final-canonical-target`, copied from the failed target.
+The original target and failed launch inputs remain preserved. Cached
+products count only after Cargo revalidates them and the current gate passes.
+
+Freeze these test-only repairs with the campaign docs, refresh the functional
+record and launch pins, and rerun final acceptance. Runtime, XSHT production,
+and all native script bodies are unchanged after `31c07c71f`. Keep the
+immutable W9 scope qualified and the historical extra AWK shard `001` cause
+unexplained. Nine passing native suites and all ten semantic reviews remain
+required on the new freeze. The campaign is incomplete.
+
 ### Bound corpus workers and repair root and large-PID fixtures
 
 The `0ea216732` selected-profile suite passed 13,793 native cases, with zero

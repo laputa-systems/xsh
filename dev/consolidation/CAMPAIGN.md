@@ -1,10 +1,14 @@
 # XSH Consolidation Campaign
 
 Status: active and incomplete on 2026-10-15. The implementation and focused
-repairs are integrated on `master`. The latest repair batch passes its exact
-197-file desugar corpus check after fixing root permission fixtures and
-six-digit `fuser` PID separators. The earlier extra AWK parity failure remains
-unexplained; final acceptance is still open. Fresh W9 parity on `2083821ed` passed
+repairs are integrated on `master`. The 31c selected-profile native suite
+passes. Its canonical batch stopped on a btop PTY assertion. The latest
+test-only repairs require the expected screen state and a completed frame
+after each input or resize. Focused regressions pass. The observer can reuse
+a separate Cargo cache while retaining fresh receipts and the complete gate.
+The exact 197-file desugar comparison also passes after the earlier root
+permission and six-digit PID repairs. The historical extra AWK parity failure
+remains unexplained; final acceptance is still open. Fresh W9 parity on `2083821ed` passed
 1,690 inputs and 6,760 outcomes with zero mismatches. Independent review
 qualifies that result across the route-witness repair `ae7cf8490`.
 The earlier selected-profile native suite and clean 13.65-second lint pass
