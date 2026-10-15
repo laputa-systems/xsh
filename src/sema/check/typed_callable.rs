@@ -17,7 +17,7 @@
 use super::{CallableAlias, Checker, FunctionParamSig, FunctionSig, Name, Span, Type};
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::types::TypedCallable;
-use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ExprId};
+use crate::syntax::arena::{ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ExprId, StmtId};
 use std::sync::Arc;
 
 /// The callable type a slot expects, directly or as the present value of an
@@ -56,19 +56,20 @@ impl Checker {
         self.fit_named_callable(named, &actual, target, span)
     }
 
-    /// A block's tail that is the bare name of a function, where a callable
-    /// type is expected: the function as a value of that type. Anywhere else
-    /// a bare function name is a command-style call, which is rejected, so
-    /// this gives no existing program a second meaning. `None` leaves the
-    /// tail to the ordinary rule, which covers a local of a callable type.
     pub(super) fn tail_typed_callable(
         &mut self,
         name: Name,
+        statement: StmtId,
         span: Span,
         expected: Option<&Type>,
     ) -> Option<Type> {
         let target = expected_typed_callable(expected)?;
-        let (named, actual, selected_signature) = if let Some(binding) = self.lookup(name) {
+        let binding = match self.lookup_value_binding_for_tail(name, statement) {
+            super::ValueBindingLookup::Found(binding) => Some(binding),
+            super::ValueBindingLookup::Missing => return None,
+            super::ValueBindingLookup::NoSite => None,
+        };
+        let (named, actual, selected_signature) = if let Some(binding) = binding {
             let actual = self.type_constraints.resolve(&binding.ty).ok()?;
             if !matches!(actual, Type::Proc | Type::Pure) {
                 return None;
@@ -138,18 +139,21 @@ impl Checker {
         expected
     }
 
-    /// The callable type of a call's callee, when the callee is a local of
-    /// that type. Checking the callee here records its use.
     pub(super) fn typed_callable_local_callee(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
         callee: ExprId,
     ) -> Option<Arc<TypedCallable>> {
-        let ArenaExprKind::Ident(name) = arena.arena.expr(callee).kind else {
+        let ArenaExprKind::Ident(_) = arena.arena.expr(callee).kind else {
             return None;
         };
-        let binding = self.lookup(name)?;
+        let binding = match self.lookup_value_binding_for_expr(arena, callee) {
+            super::ValueBindingLookup::Found(binding) => binding,
+            super::ValueBindingLookup::Missing | super::ValueBindingLookup::NoSite => {
+                return None;
+            }
+        };
         if !matches!(
             self.type_constraints.resolve(&binding.ty),
             Ok(Type::Callable(_))

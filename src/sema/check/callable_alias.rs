@@ -68,8 +68,12 @@ impl Checker {
         }
         let (name, signature, pure) = match program.arena.expr(expression).kind {
             ArenaExprKind::Ident(name) => {
-                if let Some(binding) = self.lookup(name) {
-                    return binding.callable_alias.clone();
+                match self.lookup_value_binding_for_expr(program, expression) {
+                    super::ValueBindingLookup::Found(binding) => {
+                        return binding.callable_alias.clone();
+                    }
+                    super::ValueBindingLookup::Missing => return None,
+                    super::ValueBindingLookup::NoSite => {}
                 }
                 if let Some(signature) = self.pures.get(&name) {
                     (name, signature, true)
@@ -81,11 +85,12 @@ impl Checker {
                 let ArenaExprKind::Ident(namespace) = program.arena.expr(base).kind else {
                     return None;
                 };
-                if self
-                    .lookup(namespace)
-                    .is_some_and(|binding| !binding.static_namespace)
-                {
-                    return None;
+                match self.lookup_value_binding_for_expr(program, base) {
+                    super::ValueBindingLookup::Found(binding) if binding.static_namespace => {}
+                    super::ValueBindingLookup::NoSite => {}
+                    super::ValueBindingLookup::Found(_) | super::ValueBindingLookup::Missing => {
+                        return None;
+                    }
                 }
                 let qualified = QualifiedName::new(namespace, name);
                 if let Some(signature) = self.qualified_pures.get(&qualified) {
@@ -110,10 +115,16 @@ impl Checker {
         name: Name,
         export: &ModuleExportType,
     ) -> Option<CallableAlias> {
+        let static_namespace = match program.arena.expr(receiver).kind {
+            ArenaExprKind::Ident(_) => match self.lookup_value_binding_for_expr(program, receiver) {
+                super::ValueBindingLookup::Found(binding) => binding.static_namespace,
+                super::ValueBindingLookup::Missing => return None,
+                super::ValueBindingLookup::NoSite => true,
+            },
+            _ => false,
+        };
         if let ArenaExprKind::Ident(namespace) = program.arena.expr(receiver).kind
-            && self
-                .lookup(namespace)
-                .is_none_or(|binding| binding.static_namespace)
+            && static_namespace
         {
             let qualified = QualifiedName::new(namespace, name);
             if let Some(signature) = self.qualified_pures.get(&qualified) {
@@ -185,13 +196,7 @@ impl Checker {
             return Some(alias);
         }
         let target = self.resolve_callable_alias_target(program, expression)?;
-        let aliased = match program.arena.expr(expression).kind {
-            ArenaExprKind::Ident(name) => self
-                .lookup(name)
-                .is_some_and(|binding| binding.callable_alias.is_some()),
-            _ => target.signature.is_alias,
-        };
-        aliased.then_some(target)
+        target.signature.is_alias.then_some(target)
     }
 
     pub(super) fn record_callable_alias(&mut self, span: Span, alias: &CallableAlias) {

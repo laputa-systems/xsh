@@ -64,8 +64,6 @@ fn capture_success_underconstrained(ty: &Type) -> bool {
 }
 
 impl Checker {
-    /// Retains independently declared schema context for expected slots. Structural
-    /// record values alone never identify a schema application or its unused arguments.
     pub(super) fn schema_expectation_for_expr(
         &self,
         arena: &ArenaProgram,
@@ -73,9 +71,11 @@ impl Checker {
     ) -> Option<super::super::constants::SchemaExpectation> {
         use super::super::constants::{SchemaComponent, SchemaExpectation};
         match arena.arena.expr(expression).kind {
-            ArenaExprKind::Ident(name) => self
-                .lookup_value_binding(name, arena.arena.expr(expression).span)?
-                .schema_expectation.clone(),
+            ArenaExprKind::Ident(_) => self
+                .lookup_value_binding_for_expr(arena, expression)
+                .binding()?
+                .schema_expectation
+                .clone(),
             ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 self.schema_expectation_for_expr(arena, base)?
                     .value_context()
@@ -238,28 +238,81 @@ impl Checker {
     }
 
     pub(super) fn lookup_expr_ident(&mut self, name: Name, span: Span) -> Type {
+        let binding_id = self
+            .resolved_command_sites
+            .get(&(span, name))
+            .copied()
+            .or_else(|| self.resolved_bindings.at(span, name));
+        self.lookup_expr_ident_by_binding_id(name, span, binding_id)
+    }
+
+    pub(super) fn lookup_expr_ident_for_expr(
+        &mut self,
+        arena: &ArenaProgram,
+        expression: ExprId,
+        span: Span,
+    ) -> Type {
+        let ArenaExprKind::Ident(name) = arena.arena.expr(expression).kind else {
+            unreachable!();
+        };
+        let binding_id = self.resolved_bindings.expressions.get(&expression).copied();
+        self.lookup_expr_ident_by_binding_id(name, span, binding_id)
+    }
+
+    fn lookup_expr_ident_by_binding_id(
+        &mut self,
+        name: Name,
+        span: Span,
+        binding_id: Option<super::BindingId>,
+    ) -> Type {
         if name == "_" {
-            self.error(
-                span,
-                "`_` is only a whole argument placeholder in an immediate value pipeline call",
-                DiagnosticCode::CheckPipelineHole,
-            );
-            return Type::Invalid;
+            return self.report_missing_identifier(name, span);
         }
-        if let Some(binding) = self.lookup_value_binding(name, span) {
+        let selected = match binding_id {
+            Some(binding_id) => self.scopes.iter().rev().find_map(|scope| {
+                scope
+                    .get(&name)
+                    .filter(|binding| binding.id == Some(binding_id))
+            }),
+            None => self
+                .scopes
+                .iter()
+                .rev()
+                .find_map(|scope| scope.get(&name))
+                .filter(|binding| binding.recovery),
+        };
+        if binding_id.is_some() && selected.is_none() {
+            return self.report_missing_identifier(name, span);
+        }
+        let binding = selected.map(|binding| {
             let alias = binding.callable_alias.clone();
             let latent_stream_error = binding.latent_stream_error;
             let ty = self
                 .type_constraints
                 .resolve(&binding.ty)
                 .unwrap_or(Type::Invalid);
+            (ty, alias, latent_stream_error)
+        });
+        self.lookup_expr_ident_from_binding(name, span, binding)
+    }
+
+    fn lookup_expr_ident_from_binding(
+        &mut self,
+        name: Name,
+        span: Span,
+        binding: Option<(Type, Option<super::CallableAlias>, bool)>,
+    ) -> Type {
+        if name == "_" {
+            return self.report_missing_identifier(name, span);
+        }
+        if let Some((binding_ty, alias, latent_stream_error)) = binding {
             if let Some(alias) = alias {
                 self.record_callable_alias(span, &alias);
             }
             if latent_stream_error {
                 self.latent_stream_error_spans.insert(span);
             }
-            return ty;
+            return binding_ty;
         }
         if let Some(info) = self.tag_variants.get(&name).cloned()
             && info.field_count == 0
@@ -275,8 +328,6 @@ impl Checker {
             return Type::Pure;
         }
         if api_spec().module(&name.as_str()).is_some() {
-            // A namespace has no runtime value; typing it as an erased record
-            // let `let host = system` check and then fail preparation.
             self.diagnostics.push(
                 Diagnostic::error(format!(
                     "standard module `{name}` is a namespace, not a value"
@@ -299,10 +350,21 @@ impl Checker {
         Type::Unknown
     }
 
-    /// Spellings of `null`, `true`, and `false` from other languages get a
-    /// fix, an all-caps name is usually an environment variable, and any
-    /// other name gets the nearest visible binding or callable.
-    fn report_unresolved_name(&mut self, name: Name, span: Span) {
+    pub(super) fn report_missing_identifier(&mut self, name: Name, span: Span) -> Type {
+        if name == "_" {
+            self.error(
+                span,
+                "`_` is only a whole argument placeholder in an immediate value pipeline call",
+                DiagnosticCode::CheckPipelineHole,
+            );
+            Type::Invalid
+        } else {
+            self.report_unresolved_name(name, span);
+            Type::Unknown
+        }
+    }
+
+    pub(super) fn report_unresolved_name(&mut self, name: Name, span: Span) {
         let text = name.as_str();
         let text: &str = text.as_ref();
         let mut diagnostic = Diagnostic::error(format!("unresolved name `{text}`"))
@@ -686,9 +748,6 @@ impl Checker {
                         Type::Invalid
                     })
                 } else {
-                    // Dollar command identifiers include their sigil in the
-                    // expression span. The removed binding edit replaces only
-                    // its four-byte name, preserving command interpolation.
                     let name_span = if *name == "ARGV"
                         && expr.span.end() - expr.span.start() == "ARGV".len() + 1
                     {
@@ -696,7 +755,7 @@ impl Checker {
                     } else {
                         expr.span
                     };
-                    self.lookup_expr_ident(*name, name_span)
+                    self.lookup_expr_ident_for_expr(arena, id, name_span)
                 }
             }
             ArenaExprKind::ValuePipelineCall { input, call, hole } => {
@@ -714,7 +773,7 @@ impl Checker {
                 }
                 ty
             }
-            ArenaExprKind::Item => self.check_item_arena(expr.span),
+            ArenaExprKind::Item => self.check_item_arena(arena, id, expr.span),
             ArenaExprKind::LastStatus => {
                 if !self.boundary.last_status_available {
                     self.error(
@@ -1168,7 +1227,13 @@ impl Checker {
                 }
             }
             ArenaExprKind::Call { callee, args } => {
-                let may_mutate = matches!(arena.arena.expr(*callee).kind, ArenaExprKind::Ident(name) if self.lookup(name).is_some_and(|binding| binding.ty == Type::Proc));
+                let may_mutate = matches!(
+                    arena.arena.expr(*callee).kind,
+                    ArenaExprKind::Ident(_)
+                ) && matches!(
+                    self.lookup_value_binding_for_expr(arena, *callee),
+                    super::ValueBindingLookup::Found(binding) if binding.ty == Type::Proc
+                );
                 let diagnostics_before = self.diagnostics.len();
                 let result =
                     self.check_call_arena(arena, source, *callee, *args, expr.span, expected);
@@ -2628,15 +2693,19 @@ impl Checker {
         }
     }
 
-    /// `.` is the implicit parameter of the innermost one-parameter callback.
-    fn check_item_arena(&mut self, span: Span) -> Type {
+    fn check_item_arena(&mut self, arena: &ArenaProgram, expression: ExprId, span: Span) -> Type {
         let message = match self.boundary.item_frames.last_mut() {
             Some(super::ItemFrame::Implicit { ty, used, .. }) => {
                 *used = true;
                 let ty = ty.clone();
-                return self
-                    .lookup(super::item_binding())
-                    .map_or(ty, |binding| binding.ty.clone());
+                return match self.lookup_value_binding_for_expr(arena, expression) {
+                    super::ValueBindingLookup::Found(binding) => binding.ty.clone(),
+                    super::ValueBindingLookup::Missing => {
+                        self.report_unresolved_name(super::item_binding(), span);
+                        Type::Unknown
+                    }
+                    super::ValueBindingLookup::NoSite => ty,
+                };
             }
             Some(super::ItemFrame::Named { param, .. }) => match param {
                 super::NamedItem::Param(name) => {
@@ -2808,9 +2877,10 @@ impl Checker {
                     inner
                 } else if self
                     .proof_subject_arena(arena, left)
-                    .is_some_and(|(name, path, _)| {
-                        self.lookup(name)
-                            .and_then(|binding| binding.unrefined_ty.as_ref())
+                    .is_some_and(|(_, path, _, binding)| {
+                        binding
+                            .unrefined_ty
+                            .as_ref()
                             .and_then(|ty| super::proof::projected_type(ty, &path))
                             .is_some_and(|ty| matches!(ty, Type::Optional(_)))
                     })
@@ -3235,7 +3305,11 @@ impl Checker {
             return ty;
         }
         let base_expr = arena.arena.expr(base);
-        if matches!(base_expr.kind, ArenaExprKind::Ident(module) if module == "fs" && self.lookup(module).is_none())
+        if matches!(base_expr.kind, ArenaExprKind::Ident(module) if module == "fs")
+            && matches!(
+                self.lookup_value_binding_for_expr(arena, base),
+                super::ValueBindingLookup::NoSite
+            )
             && name == "ls"
         {
             self.removed_compatibility_name(
@@ -3269,10 +3343,11 @@ impl Checker {
                 return Type::Tag(info.type_name);
             }
         }
-        // A standard module is a namespace of functions, not a record: a member
-        // read without a call used to type as Any and failed preparation.
         if let ArenaExprKind::Ident(module) = base_expr.kind
-            && self.lookup(module).is_none()
+            && matches!(
+                self.lookup_value_binding_for_expr(arena, base),
+                super::ValueBindingLookup::NoSite
+            )
             && api_spec().module(&module.as_str()).is_some()
         {
             let message = if api_spec()
@@ -3784,7 +3859,7 @@ impl Checker {
 #[cfg(test)]
 mod arena_tests {
     use super::Checker;
-    use crate::sema::check::CheckOptions;
+    use crate::sema::check::{CheckOptions, ResolvedBindings};
     use crate::source::SourceId;
     use crate::syntax::arena::{ArenaExprOrRun, ArenaProgram, ArenaStmtKind};
     use crate::syntax::parser::Parser;
@@ -3839,6 +3914,42 @@ mod arena_tests {
             for &id in &stmt_ids {
                 native.check_stmt_arena(&program, source, id);
             }
+        });
+    }
+
+    #[test]
+    fn missing_implicit_item_identity_reports_unresolved_item() {
+        let source = "let values = [1] |> map .\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = parsed.arena;
+        let item = program
+            .arena
+            .source_rows()
+            .expr_ids(SourceId::new(0))
+            .find(|&expression| {
+                matches!(
+                    program.arena.expr(expression).kind,
+                    crate::syntax::arena::ArenaExprKind::Item
+                )
+            })
+            .unwrap();
+
+        program.symbol_owner().with_current(|| {
+            let mut checker = Checker::new(CheckOptions::default());
+            checker.resolved_bindings = std::sync::Arc::new(ResolvedBindings::collect(&program));
+            checker.boundary.item_frames.push(super::super::ItemFrame::Implicit {
+                ty: crate::sema::types::Type::Int,
+                used: false,
+                stage: true,
+            });
+
+            let ty = checker.check_item_arena(&program, item, program.arena.expr(item).span);
+
+            assert_eq!(ty, crate::sema::types::Type::Unknown);
+            assert!(checker.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUnresolvedName)
+            }));
         });
     }
 

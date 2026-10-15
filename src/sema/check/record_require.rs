@@ -61,7 +61,10 @@ impl Checker {
         };
         if module != "record"
             || name != "require"
-            || self.lookup(module).is_some()
+            || !matches!(
+                self.lookup_value_binding_for_expr(arena, base),
+                super::ValueBindingLookup::NoSite
+            )
             || self.user_modules.contains_key("record")
             || self
                 .qualified_procs

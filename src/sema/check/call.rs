@@ -379,18 +379,25 @@ impl Checker {
         }
 
         if let ArenaExprKind::Ident(name) = callee_kind {
+            let local_binding_ty = match self.lookup_value_binding_for_expr(arena, callee) {
+                super::ValueBindingLookup::Found(binding) => Some(binding.ty.clone()),
+                super::ValueBindingLookup::Missing => {
+                    self.report_missing_identifier(name, arena.arena.expr(callee).span);
+                    for arg in args {
+                        self.check_call_arg_arena(arena, source, &arg.kind, None);
+                    }
+                    return Type::Unknown;
+                }
+                super::ValueBindingLookup::NoSite => None,
+            };
             if name == "reveal_type" {
                 return self.check_reveal_type_call_arena(arena, source, args, span);
             }
-            // A local binding shadows a function of the same name, and the
-            // runtime calls the local; checking the call against the function
-            // accepted programs that then failed with a runtime type error.
             if (self.procs.contains_key(&name)
                 || self.pures.contains_key(&name)
                 || self.streams.contains_key(&name))
-                && let Some(binding) = self.lookup(name)
+                && let Some(ty) = local_binding_ty
             {
-                let ty = binding.ty.clone();
                 self.error(
                     span,
                     &format!("local `{name}` of type {ty} shadows the function `{name}` and cannot be called"),
@@ -553,8 +560,18 @@ impl Checker {
                         expected_context,
                     );
                 }
+                let (static_namespace, unbound_namespace) =
+                    match self.lookup_value_binding_for_expr(arena, base) {
+                        super::ValueBindingLookup::Found(binding) => {
+                            (binding.static_namespace, false)
+                        }
+                        super::ValueBindingLookup::Missing => (false, false),
+                        super::ValueBindingLookup::NoSite => (true, true),
+                    };
                 let qualified = QualifiedName::new(module, name);
-                if let Some(sig) = self.qualified_pures.get(&qualified).cloned() {
+                if static_namespace
+                    && let Some(sig) = self.qualified_pures.get(&qualified).cloned()
+                {
                     self.record_selected_function_call(span, &sig);
                     self.check_function_call_arguments_arena(
                         arena, source, args, &sig.params, span, checked_argument,
@@ -562,7 +579,9 @@ impl Checker {
                     self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty;
                 }
-                if let Some(sig) = self.qualified_procs.get(&qualified).cloned() {
+                if static_namespace
+                    && let Some(sig) = self.qualified_procs.get(&qualified).cloned()
+                {
                     self.record_selected_function_call(span, &sig);
                     if self.boundary.in_pure {
                         self.error(
@@ -579,7 +598,9 @@ impl Checker {
                     self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty;
                 }
-                if let Some(sig) = self.qualified_streams.get(&qualified).cloned() {
+                if static_namespace
+                    && let Some(sig) = self.qualified_streams.get(&qualified).cloned()
+                {
                     self.record_selected_function_call(span, &sig);
                     if self.boundary.in_pure {
                         self.error(
@@ -610,12 +631,7 @@ impl Checker {
                         None,
                     );
                 }
-                // A local binding takes precedence over a standard module name.
-                // Without this guard, `let path = ...; path.read_text()` is
-                // checked as the module call `path.read_text`, producing a
-                // misleading unknown-module-api diagnostic instead of checking
-                // the valid Path method.
-                if self.lookup(module).is_none() && api_spec().module(&module.as_str()).is_some() {
+                if unbound_namespace && api_spec().module(&module.as_str()).is_some() {
                     let canonical_name = if module == "fs" && name == "ls" {
                         let callee_span = arena.arena.expr(callee).span;
                         self.removed_compatibility_name(
@@ -988,8 +1004,6 @@ impl Checker {
         use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments};
         use crate::syntax::arena::ArenaCallArgInput;
         let args = arena.arena.call_args(args_range);
-        // Discover finite field sets without applying argument flow changes
-        // to the real checker. Actual checks run at each source entry below.
         let mut probe = self.constraint_probe();
         let receiver_type = match arena.arena.expr(callee).kind {
             ArenaExprKind::Field { base, .. } => {
@@ -1001,14 +1015,34 @@ impl Checker {
             .resolve_callable_alias_call(arena, callee)
             .map(|alias| alias.signature)
             .or_else(|| match arena.arena.expr(callee).kind {
-                ArenaExprKind::Ident(name) => self
-                    .pures
-                    .get(&name)
-                    .or_else(|| self.procs.get(&name))
-                    .or_else(|| self.streams.get(&name))
-                    .cloned(),
+                ArenaExprKind::Ident(name)
+                    if matches!(
+                        self.lookup_value_binding_for_expr(arena, callee),
+                        super::ValueBindingLookup::NoSite
+                    ) =>
+                {
+                    self.pures
+                        .get(&name)
+                        .or_else(|| self.procs.get(&name))
+                        .or_else(|| self.streams.get(&name))
+                        .cloned()
+                }
                 ArenaExprKind::Field { base, name } => {
-                    if let ArenaExprKind::Ident(module) = arena.arena.expr(base).kind {
+                    let static_namespace = match arena.arena.expr(base).kind {
+                        ArenaExprKind::Ident(_) => match self
+                            .lookup_value_binding_for_expr(arena, base)
+                        {
+                            super::ValueBindingLookup::Found(binding) => {
+                                binding.static_namespace
+                            }
+                            super::ValueBindingLookup::Missing => false,
+                            super::ValueBindingLookup::NoSite => true,
+                        },
+                        _ => false,
+                    };
+                    if let ArenaExprKind::Ident(module) = arena.arena.expr(base).kind
+                        && static_namespace
+                    {
                         let qualified = QualifiedName::new(module, name);
                         self.qualified_pures
                             .get(&qualified)
@@ -1105,21 +1139,38 @@ impl Checker {
             || match arena.arena.expr(callee).kind {
                 ArenaExprKind::Ident(name) => {
                     name == "Err"
-                        || self.procs.contains_key(&name)
-                        || self.pures.contains_key(&name)
-                        || self.streams.contains_key(&name)
+                        || matches!(
+                            self.lookup_value_binding_for_expr(arena, callee),
+                            super::ValueBindingLookup::NoSite
+                        ) && (self.procs.contains_key(&name)
+                            || self.pures.contains_key(&name)
+                            || self.streams.contains_key(&name))
                         || self
                             .record_constructors
                             .resolve_call(&arena.arena, callee, self.current_namespace)
                             .is_some()
                 }
                 ArenaExprKind::Field { base, name } => {
-                    let static_namespace = matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
-                    if api_spec().module(&namespace.as_str()).is_some() || self.error_families.contains_key(&namespace))
-                        || self
-                            .record_constructors
-                            .resolve_call(&arena.arena, callee, self.current_namespace)
-                            .is_some();
+                    let static_namespace = if let ArenaExprKind::Ident(namespace) =
+                        arena.arena.expr(base).kind
+                    {
+                        self.error_families.contains_key(&namespace)
+                            || api_spec().module(&namespace.as_str()).is_some()
+                                && matches!(
+                                    self.lookup_value_binding_for_expr(arena, base),
+                                    super::ValueBindingLookup::Found(binding)
+                                        if binding.static_namespace
+                                ) || api_spec().module(&namespace.as_str()).is_some()
+                                && matches!(
+                                    self.lookup_value_binding_for_expr(arena, base),
+                                    super::ValueBindingLookup::NoSite
+                                )
+                    } else {
+                        false
+                    } || self
+                        .record_constructors
+                        .resolve_call(&arena.arena, callee, self.current_namespace)
+                        .is_some();
                     let positional_tag = matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
                     if self.tag_variants.contains_key(&Name::intern(format!("{namespace}.{name}"))));
                     !positional_tag

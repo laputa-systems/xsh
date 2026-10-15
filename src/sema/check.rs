@@ -981,6 +981,22 @@ impl Binding {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ValueBindingLookup<'a> {
+    Found(&'a Binding),
+    Missing,
+    NoSite,
+}
+
+impl<'a> ValueBindingLookup<'a> {
+    fn binding(self) -> Option<&'a Binding> {
+        match self {
+            Self::Found(binding) => Some(binding),
+            Self::Missing | Self::NoSite => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct FunctionSig {
     effect_declaration: Option<EffectDeclarationId>,
@@ -2187,8 +2203,66 @@ impl Checker {
         self.scopes.iter().rev().find_map(|scope| scope.get(&name))
     }
 
-    // Probe checkers share immutable lexical facts. Command names need source
-    // text, so their selected identities accumulate locally and publish once.
+    fn lookup_binding_id(&self, name: Name, id: Option<BindingId>) -> ValueBindingLookup<'_> {
+        match id {
+            Some(id) => self
+                .scopes
+                .iter()
+                .rev()
+                .find_map(|scope| {
+                    scope
+                        .get(&name)
+                        .filter(|binding| binding.id == Some(id))
+                })
+                .map_or(ValueBindingLookup::Missing, ValueBindingLookup::Found),
+            None => self
+                .lookup(name)
+                .filter(|binding| binding.recovery)
+                .map_or(ValueBindingLookup::NoSite, ValueBindingLookup::Found),
+        }
+    }
+
+    fn lookup_value_binding_at(&self, name: Name, span: Span) -> ValueBindingLookup<'_> {
+        self.lookup_binding_id(
+            name,
+            self.resolved_command_sites
+                .get(&(span, name))
+                .copied()
+                .or_else(|| self.resolved_bindings.at(span, name)),
+        )
+    }
+
+    fn lookup_value_binding_for_expr(
+        &self,
+        arena: &ArenaProgram,
+        expression: crate::syntax::arena::ExprId,
+    ) -> ValueBindingLookup<'_> {
+        let name = match arena.arena.expr(expression).kind {
+            crate::syntax::arena::ArenaExprKind::Ident(name) => name,
+            crate::syntax::arena::ArenaExprKind::Item
+                if matches!(
+                    self.boundary.item_frames.last(),
+                    Some(ItemFrame::Implicit { .. })
+                ) =>
+            {
+                item_binding()
+            }
+            _ => return ValueBindingLookup::NoSite,
+        };
+        self.lookup_binding_id(
+            name,
+            self.resolved_bindings.expressions.get(&expression).copied(),
+        )
+    }
+
+    fn lookup_value_binding_for_tail(
+        &self,
+        name: Name,
+        statement: StmtId,
+    ) -> ValueBindingLookup<'_> {
+        self.lookup_binding_id(name, self.resolved_bindings.tails.get(&statement).copied())
+    }
+
     fn publish_command_binding_sites(&mut self) {
         let sites = std::mem::take(&mut self.resolved_command_sites);
         if !sites.is_empty() {
@@ -2197,12 +2271,7 @@ impl Checker {
     }
 
     fn lookup_value_binding(&self, name: Name, span: Span) -> Option<&Binding> {
-        match self.resolved_command_sites.get(&(span, name)).copied()
-            .or_else(|| self.resolved_bindings.at(span, name))
-        {
-            Some(id) => self.scopes.iter().rev().find_map(|scope| scope.get(&name).filter(|binding| binding.id == Some(id))),
-            None => self.lookup(name).filter(|binding| binding.recovery),
-        }
+        self.lookup_value_binding_at(name, span).binding()
     }
 
     fn define(&mut self, name: Name, mut binding: Binding, span: Span) {

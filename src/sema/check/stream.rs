@@ -726,41 +726,60 @@ impl Checker {
         )
     }
 
-    /// A descriptor retains a checked declaration or immutable alias signature.
-    /// Lexical values with erased callable types cannot supply that contract.
     pub(super) fn stage_callable_is_static(&self, arena: &ArenaProgram, callee: ExprId) -> bool {
         if self.resolve_callable_alias_call(arena, callee).is_some() {
             return true;
         }
         match arena.arena.expr(callee).kind {
             ArenaExprKind::Ident(name) => {
-                self.lookup(name).is_none()
+                matches!(
+                    self.lookup_value_binding_for_expr(arena, callee),
+                    super::ValueBindingLookup::NoSite
+                )
                     && (self.pures.contains_key(&name) || self.procs.contains_key(&name))
             }
             ArenaExprKind::Field { base, name } => {
                 let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind else {
                     return false;
                 };
-                if self
-                    .scopes
-                    .iter()
-                    .skip(1)
-                    .any(|scope| scope.contains_key(&namespace))
-                {
+                let namespace_binding = self.lookup_value_binding_for_expr(arena, base);
+                if matches!(namespace_binding, super::ValueBindingLookup::Missing) {
+                    return false;
+                }
+                let nested_namespace_binding = match namespace_binding {
+                    super::ValueBindingLookup::Found(selected) => self
+                        .binding_scope(namespace, selected)
+                        .is_none_or(|index| index > 0),
+                    super::ValueBindingLookup::NoSite => self
+                        .scopes
+                        .iter()
+                        .skip(1)
+                        .any(|scope| scope.contains_key(&namespace)),
+                    super::ValueBindingLookup::Missing => true,
+                };
+                if nested_namespace_binding {
                     return false;
                 }
                 let qualified = crate::symbol::QualifiedName::new(namespace, name);
-                self.qualified_pures.contains_key(&qualified)
-                    || self.qualified_procs.contains_key(&qualified)
+                let static_namespace = matches!(
+                    namespace_binding,
+                    super::ValueBindingLookup::Found(binding)
+                        if binding.static_namespace
+                ) || matches!(namespace_binding, super::ValueBindingLookup::NoSite);
+                static_namespace
+                    && (self.qualified_pures.contains_key(&qualified)
+                        || self.qualified_procs.contains_key(&qualified))
                     || crate::sema::stage_arguments::stage_namespace_is_imported(
                         arena,
                         namespace,
                         self.current_namespace,
                         self.bundle_root_statements,
                         self.bundle_module_keys.as_deref(),
-                    ) && matches!(self.lookup(namespace).map(|binding| &binding.ty), Some(Type::Module(exports))
-                        if exports.get(&name).is_some_and(|export| matches!(export, crate::sema::types::ModuleExportType::Pure { .. } | crate::sema::types::ModuleExportType::Proc { .. })))
-                    || self.lookup(namespace).is_none()
+                    ) && matches!(namespace_binding,
+                        super::ValueBindingLookup::Found(binding)
+                            if matches!(&binding.ty, Type::Module(exports)
+                                if exports.get(&name).is_some_and(|export| matches!(export, crate::sema::types::ModuleExportType::Pure { .. } | crate::sema::types::ModuleExportType::Proc { .. }))))
+                    || matches!(namespace_binding, super::ValueBindingLookup::NoSite)
                         && super::api_spec()
                             .module(&namespace.as_str())
                             .is_some_and(|module| {
@@ -1192,6 +1211,114 @@ impl Checker {
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod static_namespace_identity_tests {
+    use super::{Checker, Type};
+    use crate::sema::check::{CheckOptions, ResolvedBindings};
+    use crate::source::SourceId;
+    use crate::symbol::{Name, QualifiedName};
+    use crate::syntax::arena::{ArenaExprKind, ArenaExprOrRun, ArenaStmtKind};
+    use crate::syntax::parser::Parser;
+    use std::sync::Arc;
+
+    fn checker(program: &crate::syntax::arena::ArenaProgram) -> Checker {
+        let mut checker = Checker::new(CheckOptions::default());
+        checker.resolved_bindings = Arc::new(ResolvedBindings::collect(program));
+        checker
+    }
+
+    fn namespace_field(
+        program: &crate::syntax::arena::ArenaProgram,
+        statement: crate::syntax::arena::StmtId,
+    ) -> (crate::syntax::arena::ExprId, crate::syntax::arena::ExprId) {
+        let ArenaStmtKind::Let {
+            initializer: ArenaExprOrRun::Expr(expression),
+            ..
+        } = program.arena.stmt(statement).kind
+        else {
+            panic!("expected let initializer expression");
+        };
+        let ArenaExprKind::Field { base, .. } = program.arena.expr(expression).kind else {
+            panic!("expected field expression");
+        };
+        (expression, base)
+    }
+
+    fn install_static_stage(checker: &mut Checker, namespace: Name) {
+        checker
+            .current_scope_mut()
+            .get_mut(&namespace)
+            .unwrap()
+            .static_namespace = true;
+        Arc::make_mut(&mut checker.qualified_pures).insert(
+            QualifiedName::new(namespace, Name::intern("stage")),
+            super::super::FunctionSig {
+                effect_declaration: None,
+                inferred_effects: false,
+                explicit_return: true,
+                is_alias: false,
+                definition: None,
+                definition_target: None,
+                params: Vec::new(),
+                return_ty: Type::Int,
+                return_schema: None,
+                effects: Some(Vec::new()),
+            },
+        );
+    }
+
+    #[test]
+    fn root_static_namespace_ignores_different_id_shadow() {
+        let source = "let namespace = 1\nlet result = namespace.stage\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+
+        program.symbol_owner().with_current(|| {
+            let mut checker = checker(program);
+            checker.check_stmt_arena(program, source, statements[0]);
+            let namespace = Name::intern("namespace");
+            install_static_stage(&mut checker, namespace);
+            let (field, base) = namespace_field(program, statements[1]);
+
+            assert!(checker.stage_callable_is_static(program, field));
+            let decoy = super::super::Binding::new(Type::Int, false);
+            checker.push_scope();
+            checker.current_scope_mut().insert(namespace, decoy);
+
+            assert!(matches!(
+                checker.lookup_value_binding_for_expr(program, base),
+                super::super::ValueBindingLookup::Found(binding)
+                    if binding.static_namespace
+            ));
+            assert!(checker.stage_callable_is_static(program, field));
+        });
+    }
+
+    #[test]
+    fn selected_inner_static_namespace_remains_nonstatic() {
+        let source = "let namespace = 1\nlet result = namespace.stage\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+
+        program.symbol_owner().with_current(|| {
+            let mut checker = checker(program);
+            checker.check_stmt_arena(program, source, statements[0]);
+            let namespace = Name::intern("namespace");
+            install_static_stage(&mut checker, namespace);
+            let (field, _) = namespace_field(program, statements[1]);
+            let selected = checker.current_scope_mut().remove(&namespace).unwrap();
+            checker.push_scope();
+            checker.current_scope_mut().insert(namespace, selected);
+
+            assert!(!checker.stage_callable_is_static(program, field));
+        });
     }
 }
 

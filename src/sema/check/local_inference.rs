@@ -248,8 +248,12 @@ impl Checker {
         program: &ArenaProgram,
         expression: ArenaExprOrRun,
     ) {
-        if self.lookup(super::Name::intern("map")).is_none() && empty_map_call(program, expression)
-        {
+        if empty_map_call_receiver(program, expression).is_some_and(|base| {
+            matches!(
+                self.lookup_value_binding_for_expr(program, base),
+                super::ValueBindingLookup::NoSite
+            )
+        }) {
             self.local_inference
                 .nonmaterial_expressions
                 .insert(super::expr::expr_or_run_span_arena(program, expression));
@@ -457,11 +461,17 @@ impl Checker {
         let Some(seed) = local_seed_kind(program, target, initializer, mutable) else {
             return ordinary;
         };
-        if matches!(seed, LocalSeed::Map)
-            && (self.lookup(super::Name::intern("map")).is_some()
-                || !matches!(ordinary, Type::Map(_, _)))
-        {
-            return ordinary;
+        if matches!(seed, LocalSeed::Map) {
+            let has_unshadowed_empty_map = empty_map_call_receiver(program, initializer)
+                .is_some_and(|base| {
+                    matches!(
+                        self.lookup_value_binding_for_expr(program, base),
+                        super::ValueBindingLookup::NoSite
+                    )
+                });
+            if !has_unshadowed_empty_map || !matches!(ordinary, Type::Map(_, _)) {
+                return ordinary;
+            }
         }
         let raw = if let Some(ty) = self.local_inference.bindings.get(&span) {
             ty.clone()
@@ -583,20 +593,28 @@ fn local_seed_kind(
 }
 
 pub(super) fn empty_map_call(program: &ArenaProgram, initializer: ArenaExprOrRun) -> bool {
+    empty_map_call_receiver(program, initializer).is_some()
+}
+
+fn empty_map_call_receiver(
+    program: &ArenaProgram,
+    initializer: ArenaExprOrRun,
+) -> Option<crate::syntax::arena::ExprId> {
     let ArenaExprOrRun::Expr(expression) = initializer else {
-        return false;
+        return None;
     };
     let ArenaExprKind::Call { callee, args } = program.arena.expr(expression).kind else {
-        return false;
+        return None;
     };
     if !args.is_empty() {
-        return false;
+        return None;
     }
     let ArenaExprKind::Field { base, name } = program.arena.expr(callee).kind else {
-        return false;
+        return None;
     };
-    name == "empty"
-        && matches!(program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "map")
+    (name == "empty"
+        && matches!(program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "map"))
+        .then_some(base)
 }
 
 pub(super) fn finalize_callable(

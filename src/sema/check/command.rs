@@ -90,20 +90,24 @@ pub(super) fn valid_env_name(name: &str) -> bool {
 }
 
 impl Checker {
-    // Command names have no expression row. Record the checker's selected
-    // identity locally so constraint probes keep sharing immutable facts.
     fn record_command_binding_site(&mut self, name: Name, span: Span) {
         let id = self.lookup(name).and_then(|binding| binding.id);
         if let Some(id) = id {
-            self.resolved_command_sites.insert((span, name), id);
+            self.resolved_command_sites.entry((span, name)).or_insert(id);
         }
     }
 
     pub(super) fn check_command_word_reference(&mut self, text: &str, span: Span) -> Option<Type> {
         let (root, segments) = parse_command_word_reference(text)?;
         let name = Name::intern(root);
-        let mut ty = self.lookup(name)?.ty.clone();
         self.record_command_binding_site(name, span);
+        let mut ty = match self.lookup_value_binding_at(name, span) {
+            super::ValueBindingLookup::Found(binding) => binding.ty.clone(),
+            super::ValueBindingLookup::Missing => {
+                return Some(self.report_missing_identifier(name, span));
+            }
+            super::ValueBindingLookup::NoSite => return None,
+        };
         for segment in segments {
             ty = match segment {
                 CommandWordRefSegment::Field(name) => {
@@ -254,12 +258,15 @@ impl Checker {
                 .options
                 .interactive_commands
                 .is_some_and(|is_command| is_command(name.as_str().as_str()))
-            && self
-                .lookup(name)
-                .is_some_and(|binding| binding.ty == Type::Bool)
         {
-            self.reject_bool_statement(source, &Type::Bool, span);
-            return;
+            self.record_command_binding_site(name, span);
+            if matches!(
+                self.lookup_value_binding_at(name, span),
+                super::ValueBindingLookup::Found(binding) if binding.ty == Type::Bool
+            ) {
+                self.reject_bool_statement(source, &Type::Bool, span);
+                return;
+            }
         }
         if self.boundary.in_pure {
             self.error(
@@ -344,6 +351,7 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         name: Name,
+        statement: crate::syntax::arena::StmtId,
         span: Span,
     ) -> Type {
         if name == "_" {
@@ -355,13 +363,27 @@ impl Checker {
             return Type::Invalid;
         }
 
-        if let Some(expr) = self.resolved_bindings.at(span, name)
+        if let Some(expr) = self
+            .resolved_bindings
+            .tails
+            .get(&statement)
+            .copied()
             .and_then(|binding| self.prepared_constants.binding_values.get(&binding))
             && let Some(ty) = self.prepared_constants.types.get(expr)
         {
             let ty = ty.clone();
             self.record_expr_type(span, ty.clone());
             return ty;
+        }
+        let binding = match self.lookup_value_binding_for_tail(name, statement) {
+            super::ValueBindingLookup::Found(binding) => Some(binding),
+            super::ValueBindingLookup::Missing => {
+                return self.report_missing_identifier(name, span);
+            }
+            super::ValueBindingLookup::NoSite => None,
+        };
+        if let Some(binding) = binding {
+            return binding.ty.clone();
         }
         if self.procs.contains_key(&name) {
             if self.boundary.in_pure {
@@ -378,9 +400,6 @@ impl Checker {
                 ArenaRange::default(),
                 span,
             );
-        }
-        if let Some(binding) = self.lookup_value_binding(name, span) {
-            return binding.ty.clone();
         }
         if self
             .tag_variants
@@ -880,7 +899,8 @@ impl Checker {
                     self.expr_types.get(&arena.arena.expr(list).span).cloned()
                 }
                 ArenaCommandArgKind::SpliceName(name) => self
-                    .lookup(name)
+                    .lookup_value_binding_at(name, arena.arena.span(segment.target.span))
+                    .binding()
                     .and_then(|binding| self.type_constraints.resolve(&binding.ty).ok()),
                 ArenaCommandArgKind::Word(_) | ArenaCommandArgKind::Typed(_) => None,
             };
@@ -1410,4 +1430,62 @@ fn word_parts_text_arena(
         }
     }
     text
+}
+
+#[cfg(test)]
+mod binding_identity_tests {
+    use super::*;
+    use crate::sema::check::{CheckOptions, ResolvedBindings};
+    use crate::source::SourceId;
+    use crate::syntax::arena::ArenaStmtKind;
+    use crate::syntax::parser::Parser;
+    use std::sync::Arc;
+
+    #[test]
+    fn command_binding_capture_keeps_the_first_selected_identity() {
+        let source = "let flag = true\nlet decoy = false\nrun echo flag\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+
+        program.symbol_owner().with_current(|| {
+            let mut checker = Checker::new(CheckOptions::default());
+            checker.resolved_bindings = Arc::new(ResolvedBindings::collect(program));
+            checker.check_stmt_arena(program, source, statements[0]);
+            checker.check_stmt_arena(program, source, statements[1]);
+            let ArenaStmtKind::Command(command_stmt) = program.arena.stmt(statements[2]).kind else {
+                panic!("expected command statement");
+            };
+            let ArenaCommand::Run(run) = program.arena.command_stmt(command_stmt).command else {
+                panic!("expected run command");
+            };
+            let segment = &program.arena.run_segments(program.arena.run_form(run).segments)[0];
+            let arg = &program.arena.command_args(segment.args)[0];
+            let flag = Name::intern("flag");
+            let span = program.arena.span(arg.span);
+            checker.record_command_binding_site(flag, span);
+            let selected = checker.resolved_command_sites[&(span, flag)];
+            let decoy = checker.current_scope()[&Name::intern("decoy")].clone();
+            checker.push_scope();
+            checker.current_scope_mut().insert(flag, decoy);
+
+            checker.record_command_binding_site(flag, span);
+
+            assert_eq!(checker.resolved_command_sites[&(span, flag)], selected);
+            assert_eq!(
+                checker.lookup_value_binding(flag, span).and_then(|binding| binding.id),
+                Some(selected)
+            );
+            checker.scopes[0].remove(&flag);
+            checker.scopes[1].remove(&flag);
+
+            let ty = checker.check_command_arg_arena(program, source, arg, Some(&Type::Str));
+
+            assert_eq!(ty, Type::Str);
+            assert!(checker.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckUnresolvedName)
+            }));
+        });
+    }
 }

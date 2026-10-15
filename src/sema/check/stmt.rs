@@ -3458,7 +3458,7 @@ impl Checker {
                 self.check_command_stmt_arena(arena, source, command_id);
             }
             ArenaStmtKind::TailBareIdent(name) => {
-                let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
+                let ty = self.check_tail_bare_ident_arena(arena, source, name, id, stmt.span);
                 // `let _ = name` would bind a proc instead of calling it, so
                 // a bare word gets no mechanical discard.
                 self.reject_discarded_value(&ty, stmt.span, stmt.span, false, None);
@@ -3566,7 +3566,7 @@ impl Checker {
         &self,
         arena: &ArenaProgram,
         mut expr: ExprId,
-    ) -> Option<(Name, Vec<Name>, Type)> {
+    ) -> Option<(Name, Vec<Name>, Type, &Binding)> {
         let mut path = Vec::new();
         loop {
             let subject = match arena.arena.expr(expr).kind {
@@ -3583,8 +3583,11 @@ impl Checker {
             };
             if let Some(name) = subject {
                 path.reverse();
-                let ty = super::proof::projected_type(&self.lookup(name)?.ty, &path)?.clone();
-                return Some((name, path, ty));
+                let binding = self
+                    .lookup_value_binding_for_expr(arena, expr)
+                    .binding()?;
+                let ty = super::proof::projected_type(&binding.ty, &path)?.clone();
+                return Some((name, path, ty, binding));
             }
             match arena.arena.expr(expr).kind {
                 ArenaExprKind::Field { base, name } if path.len() < 128 => {
@@ -3602,8 +3605,9 @@ impl Checker {
         condition: ExprId,
     ) -> ConditionNarrowings {
         match arena.arena.expr(condition).kind {
-            ArenaExprKind::Ident(name) => self
-                .lookup(name)
+            ArenaExprKind::Ident(_) => self
+                .lookup_value_binding_for_expr(arena, condition)
+                .binding()
                 .and_then(|binding| binding.boolean_proof.as_ref())
                 .map(|proof| proof.as_ref().clone())
                 .unwrap_or_default(),
@@ -3659,10 +3663,9 @@ impl Checker {
             }
             ArenaExprKind::PatternTest { value, arms }
             | ArenaExprKind::PatternCondition { value, arms } => {
-                let Some((name, path, subject_ty)) = self.proof_subject_arena(arena, value) else {
-                    return ConditionNarrowings::default();
-                };
-                let Some(binding) = self.lookup(name) else {
+                let Some((name, path, subject_ty, binding)) =
+                    self.proof_subject_arena(arena, value)
+                else {
                     return ConditionNarrowings::default();
                 };
                 let pattern = arena.arena.match_expr_arms(arms)[0].pattern;
@@ -3735,12 +3738,12 @@ impl Checker {
         left: ExprId,
         right: ExprId,
     ) -> ConditionNarrowings {
-        let Some((name, path, inner)) =
+        let Some((name, path, inner, binding)) =
             self.null_compared_optional_binding_arena(arena, left, right)
         else {
             return ConditionNarrowings::default();
         };
-        let narrowing = self.lookup(name).unwrap().proof.fact(name, path, inner);
+        let narrowing = binding.proof.fact(name, path, inner);
         if matches!(
             arena.arena.expr(condition).kind,
             ArenaExprKind::Binary {
@@ -3765,17 +3768,17 @@ impl Checker {
         arena: &ArenaProgram,
         left: ExprId,
         right: ExprId,
-    ) -> Option<(Name, Vec<Name>, Type)> {
+    ) -> Option<(Name, Vec<Name>, Type, &Binding)> {
         let subject = match (arena.arena.expr(left).kind, arena.arena.expr(right).kind) {
             (_, ArenaExprKind::Null) => left,
             (ArenaExprKind::Null, _) => right,
             _ => return None,
         };
-        let (name, path, ty) = self.proof_subject_arena(arena, subject)?;
+        let (name, path, ty, binding) = self.proof_subject_arena(arena, subject)?;
         let Type::Optional(inner) = ty else {
             return None;
         };
-        Some((name, path, *inner))
+        Some((name, path, *inner, binding))
     }
 
     fn infer_record_membership_narrowing_arena(
@@ -3784,14 +3787,12 @@ impl Checker {
         field_expr: ExprId,
         record_expr: ExprId,
     ) -> ConditionNarrowings {
-        let Some((record_name, path, subject_ty)) = self.proof_subject_arena(arena, record_expr)
+        let Some((record_name, path, subject_ty, binding)) =
+            self.proof_subject_arena(arena, record_expr)
         else {
             return ConditionNarrowings::default();
         };
         let ArenaExprKind::Str(field_name_id) = arena.arena.expr(field_expr).kind else {
-            return ConditionNarrowings::default();
-        };
-        let Some(binding) = self.lookup(record_name) else {
             return ConditionNarrowings::default();
         };
         let Type::Record(mut fields) = subject_ty else {
@@ -4304,8 +4305,8 @@ impl Checker {
         }
         self.scopes = success_scopes;
         if let ArenaExprOrRun::Expr(subject) = initializer
-            && let Some((name, path, Type::Optional(_))) = self.proof_subject_arena(arena, subject)
-            && let Some(binding) = self.lookup(name)
+            && let Some((name, path, Type::Optional(_), binding)) =
+                self.proof_subject_arena(arena, subject)
         {
             let fact = binding.proof.fact(name, path, present);
             self.apply_narrowings(&[fact]);
@@ -4957,8 +4958,9 @@ impl Checker {
         }
         let boolean_proof = if !mutable && final_ty == Type::Bool {
             if let ArenaExprOrRun::Expr(expr) = initializer {
-                if let ArenaExprKind::Ident(name) = arena.arena.expr(expr).kind {
-                    self.lookup(name)
+                if matches!(arena.arena.expr(expr).kind, ArenaExprKind::Ident(_)) {
+                    self.lookup_value_binding_for_expr(arena, expr)
+                        .binding()
                         .and_then(|binding| binding.boolean_proof.clone())
                 } else {
                     Some(std::sync::Arc::new(
@@ -5199,7 +5201,7 @@ impl Checker {
         self.diagnostics.push(diagnostic);
     }
 
-    fn assignment_binding_scope(&self, name: Name, selected: &Binding) -> Option<usize> {
+    pub(super) fn binding_scope(&self, name: Name, selected: &Binding) -> Option<usize> {
         self.scopes.iter().rposition(|scope| {
             scope.get(&name).is_some_and(|candidate| {
                 candidate.id == selected.id
@@ -5251,7 +5253,7 @@ impl Checker {
             let value_span = expr_or_run_span_arena(arena, value);
             if !actual.can_escape_context_scope()
                 && self.boundary.context_scope_depths.last().is_some_and(|depth| {
-                    self.assignment_binding_scope(name, &binding)
+                    self.binding_scope(name, &binding)
                         .is_some_and(|owner| owner < *depth)
                 })
             {
@@ -5731,10 +5733,12 @@ impl Checker {
                 let statement = arena.arena.core_stmt_id(statement);
                 self.check_non_tail_stmt_arena(arena, source, statement);
                 if let ArenaStmtKind::TailBareIdent(name) = arena.arena.stmt(statement).kind {
-                    let ty = self
-                        .lookup(name)
-                        .map(|binding| binding.ty.clone())
-                        .unwrap_or(Type::Unknown);
+                    let ty = match self.lookup_value_binding_for_tail(name, statement) {
+                        super::ValueBindingLookup::Found(binding) => binding.ty.clone(),
+                        super::ValueBindingLookup::Missing | super::ValueBindingLookup::NoSite => {
+                            Type::Unknown
+                        }
+                    };
                     if !expr_ty_auto_propagates(&ty)
                         && !ty.matches_expected(&Type::Unit)
                         && ty != Type::Bool
@@ -6457,9 +6461,9 @@ impl Checker {
                 ty
             }
             ArenaStmtKind::TailBareIdent(name) => {
-                let ty = match self.tail_typed_callable(name, stmt.span, expected) {
+                let ty = match self.tail_typed_callable(name, id, stmt.span, expected) {
                     Some(ty) => ty,
-                    None => self.check_tail_bare_ident_arena(arena, source, name, stmt.span),
+                    None => self.check_tail_bare_ident_arena(arena, source, name, id, stmt.span),
                 };
                 let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
                 let ty = if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit())
@@ -7322,7 +7326,7 @@ mod assignment_binding_identity_tests {
                 .clone();
             assert!(matches!(selected.ty.unvalidated(), Type::Stream(_)));
             assert!(checker.expression_may_have_latent_stream_error(program, expression));
-            assert_eq!(checker.assignment_binding_scope(target_name, &selected), Some(0));
+            assert_eq!(checker.binding_scope(target_name, &selected), Some(0));
 
             checker.check_stmt_arena(program, source, statements[2]);
 
@@ -7377,7 +7381,7 @@ mod assignment_binding_identity_tests {
                 .clone();
             assert!(matches!(selected.ty.unvalidated(), Type::Stream(_)));
             assert!(checker.expression_may_have_latent_stream_error(program, expression));
-            assert_eq!(checker.assignment_binding_scope(target_name, &selected), Some(1));
+            assert_eq!(checker.binding_scope(target_name, &selected), Some(1));
 
             checker.check_stmt_arena(program, source, statements[2]);
 
@@ -7387,6 +7391,257 @@ mod assignment_binding_identity_tests {
             assert!(!checker.scopes[0][&target_name].latent_stream_error);
             assert!(checker.scopes[1][&target_name].latent_stream_error);
             assert!(!checker.scopes[2][&target_name].latent_stream_error);
+        });
+    }
+}
+
+#[cfg(test)]
+mod reader_binding_identity_tests {
+    use super::{Checker, Type};
+    use crate::sema::check::{CheckOptions, ResolvedBindings};
+    use crate::source::SourceId;
+    use crate::symbol::Name;
+    use crate::syntax::arena::{ArenaExprKind, ArenaExprOrRun, ArenaStmtKind};
+    use crate::syntax::parser::Parser;
+    use std::sync::Arc;
+
+    fn checker(program: &crate::syntax::arena::ArenaProgram) -> Checker {
+        let mut checker = Checker::new(CheckOptions::default());
+        checker.resolved_bindings = Arc::new(ResolvedBindings::collect(program));
+        checker
+    }
+
+    fn initializer_expr(
+        program: &crate::syntax::arena::ArenaProgram,
+        statement: crate::syntax::arena::StmtId,
+    ) -> crate::syntax::arena::ExprId {
+        let ArenaStmtKind::Let {
+            initializer: ArenaExprOrRun::Expr(expression),
+            ..
+        } = program.arena.stmt(statement).kind
+        else {
+            panic!("expected let initializer expression");
+        };
+        expression
+    }
+
+    #[test]
+    fn proof_subject_reads_the_expression_binding_identity() {
+        let source = "let subject = {field: 1}\nlet decoy = {field: \"wrong\"}\nlet result = subject.field\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+
+        program.symbol_owner().with_current(|| {
+            let mut checker = checker(program);
+            checker.check_stmt_arena(program, source, statements[0]);
+            checker.check_stmt_arena(program, source, statements[1]);
+            let subject_name = Name::intern("subject");
+            let decoy = checker.current_scope()[&Name::intern("decoy")].clone();
+            checker.push_scope();
+            checker.current_scope_mut().insert(subject_name, decoy);
+
+            let field = initializer_expr(program, statements[2]);
+            let (name, path, ty, _) = checker.proof_subject_arena(program, field).unwrap();
+
+            assert_eq!(name, subject_name);
+            assert_eq!(path, vec![Name::intern("field")]);
+            assert_eq!(ty, Type::Int);
+        });
+    }
+
+    #[test]
+    fn callable_selection_reads_the_expression_binding_identity() {
+        let source = "let target = 1\nlet decoy = 2\nlet result = target()\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+
+        program.symbol_owner().with_current(|| {
+            let mut checker = checker(program);
+            checker.check_stmt_arena(program, source, statements[0]);
+            checker.check_stmt_arena(program, source, statements[1]);
+            let target_name = Name::intern("target");
+            checker.current_scope_mut().get_mut(&target_name).unwrap().ty = Type::Callable(
+                Arc::new(crate::sema::types::TypedCallable {
+                    pure: true,
+                    sig: crate::sema::types::CallableType {
+                        params: Vec::new(),
+                        return_ty: Box::new(Type::Int),
+                        effects: Some(Vec::new()),
+                    },
+                }),
+            );
+            let decoy = checker.current_scope()[&Name::intern("decoy")].clone();
+            checker.push_scope();
+            checker.current_scope_mut().insert(target_name, decoy);
+
+            let call = initializer_expr(program, statements[2]);
+            let ArenaExprKind::Call { callee, .. } = program.arena.expr(call).kind else {
+                panic!("expected call initializer");
+            };
+
+            assert!(checker
+                .typed_callable_local_callee(program, source, callee)
+                .is_some());
+        });
+    }
+
+    #[test]
+    fn missing_expression_identity_does_not_fall_through_to_function() {
+        let source = "let target = 1\nlet decoy = 2\nlet result = target\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+
+        program.symbol_owner().with_current(|| {
+            let mut checker = checker(program);
+            checker.check_stmt_arena(program, source, statements[0]);
+            checker.check_stmt_arena(program, source, statements[1]);
+            let target_name = Name::intern("target");
+            let decoy = checker.current_scope()[&Name::intern("decoy")].clone();
+            checker.current_scope_mut().remove(&target_name);
+            checker.push_scope();
+            checker.current_scope_mut().insert(target_name, decoy);
+            checker.procs.insert(
+                target_name,
+                super::super::FunctionSig {
+                    effect_declaration: None,
+                    inferred_effects: false,
+                    explicit_return: true,
+                    is_alias: false,
+                    definition: None,
+                    definition_target: None,
+                    params: Vec::new(),
+                    return_ty: Type::Int,
+                    return_schema: None,
+                    effects: Some(Vec::new()),
+                },
+            );
+
+            let expression = initializer_expr(program, statements[2]);
+            assert!(matches!(
+                checker.lookup_value_binding_for_expr(program, expression),
+                super::super::ValueBindingLookup::Missing
+            ));
+            let ty = checker.check_expr_arena(program, source, expression, None);
+
+            assert_eq!(ty, Type::Unknown);
+            assert!(checker.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUnresolvedName)
+            }));
+            assert!(!checker
+                .selected_function_calls
+                .contains_key(&program.arena.expr(expression).span));
+        });
+    }
+
+    #[test]
+    fn missing_call_identity_does_not_fall_through_to_function() {
+        let source = "let target = 1\nlet decoy = 2\nlet result = target()\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+
+        program.symbol_owner().with_current(|| {
+            let mut checker = checker(program);
+            checker.check_stmt_arena(program, source, statements[0]);
+            checker.check_stmt_arena(program, source, statements[1]);
+            let target_name = Name::intern("target");
+            checker.current_scope_mut().remove(&target_name);
+            checker.procs.insert(
+                target_name,
+                super::super::FunctionSig {
+                    effect_declaration: None,
+                    inferred_effects: false,
+                    explicit_return: true,
+                    is_alias: false,
+                    definition: None,
+                    definition_target: None,
+                    params: Vec::new(),
+                    return_ty: Type::Int,
+                    return_schema: None,
+                    effects: Some(Vec::new()),
+                },
+            );
+
+            let call = initializer_expr(program, statements[2]);
+            let ty = checker.check_expr_arena(program, source, call, None);
+
+            assert_eq!(ty, Type::Unknown);
+            assert!(checker.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUnresolvedName)
+            }));
+            assert!(!checker
+                .selected_function_calls
+                .contains_key(&program.arena.expr(call).span));
+        });
+    }
+
+    #[test]
+    fn missing_tail_identity_does_not_fall_through_to_function_command() {
+        let source = "let target = 1\nlet decoy = 2\nproc sample() [] -> Int { target }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+        let body = program.arena.function_defs[0].body;
+        let tail = program
+            .arena
+            .stmt_ids(program.arena.block(body).statements)
+            .next()
+            .unwrap();
+        assert!(matches!(
+            program.arena.stmt(tail).kind,
+            ArenaStmtKind::TailBareIdent(name) if name == Name::intern("target")
+        ));
+
+        program.symbol_owner().with_current(|| {
+            let mut checker = checker(program);
+            checker.check_stmt_arena(program, source, statements[0]);
+            checker.check_stmt_arena(program, source, statements[1]);
+            let target_name = Name::intern("target");
+            let decoy = checker.current_scope()[&Name::intern("decoy")].clone();
+            checker.current_scope_mut().remove(&target_name);
+            checker.push_scope();
+            checker.current_scope_mut().insert(target_name, decoy);
+            checker.procs.insert(
+                target_name,
+                super::super::FunctionSig {
+                    effect_declaration: None,
+                    inferred_effects: false,
+                    explicit_return: true,
+                    is_alias: false,
+                    definition: None,
+                    definition_target: None,
+                    params: Vec::new(),
+                    return_ty: Type::Int,
+                    return_schema: None,
+                    effects: Some(Vec::new()),
+                },
+            );
+
+            let expected = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
+                pure: false,
+                sig: crate::sema::types::CallableType {
+                    params: Vec::new(),
+                    return_ty: Box::new(Type::Int),
+                    effects: Some(Vec::new()),
+                },
+            }));
+            let ty = checker.check_tail_stmt_arena(program, source, tail, Some(&expected));
+
+            assert_eq!(ty, Type::Unknown);
+            assert!(checker.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUnresolvedName)
+            }));
+            assert!(!checker.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckProcCommandSyntax)
+            }));
         });
     }
 }
