@@ -35,10 +35,24 @@ The whole repository lint and its budget still require a new passing check.
 A separate 9,860-sample userspace CPU profile found repeated whole-arena scans
 in grouping diagnostics. Grouping runs for each source in a shared arena;
 the implementation decodes foreign-source expressions and scans all statements
-and blocks. The isolated repair lane uses the existing source-row index and
-preserves statement sequences and diagnostic order. Its focused tests, review,
-and new timing evidence remain pending. Do not start another full-suite attempt
-before resolving the lint budget.
+and blocks. The repair is integrated as `436309362`: it uses the existing
+source-row index, preserves complete statement sequences and diagnostic order,
+and adds shared-versus-standalone diagnostic and fix equivalence coverage.
+All 13 focused bundle-view tests passed after a pinned-image build, and
+independent review found no P1 or P2 issue for parser-produced arenas.
+
+The combined candidate's first isolated lint check was clean: zero findings
+and 113 notes across 1,524 files. Readiness checks both passed; the measured
+33.77 seconds still fails the 15-second budget. This single measurement
+supports no speedup claim. Peak cgroup memory was 2,092,707,840 bytes with no
+OOM or swap events. The qualified candidate XSHT hash is
+`8eea2c0fadbbe34aa5a27f372f66482b805f0bf79b5ed166e0511393f783bb5d`;
+its compiled inputs match main `436309362`, while its build checkout is
+`c53f8765f06c5ad0ef22a9652981657ee4ac533f`. Evidence is under
+`.work/tmp/lint-preflight-acfa-main436/`. A further CPU profile has 3,257
+samples and zero findings on the same corpus; attribution is pending.
+Do not start another full-suite attempt before resolving the lint budget.
+The checker source changed, so the 7e93 W9 result requires new qualification.
 
 The shared-import cache trace passed on the sealed acfa products: one plain
 lint pass made four requests, prepared and checked three records, and reused
