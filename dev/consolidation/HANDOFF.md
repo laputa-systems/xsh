@@ -14,6 +14,31 @@ Preserve the older d02 record as historical evidence.
 
 ### Native-suite attempt
 
+The `4d92c010` attempt passed its pinned release build and both build
+readiness checks. The native monitor stopped at the first red row:
+`test_fat16_and_fat32_sparse_images ... TIMEOUT 2m`, line 1,845. The receipt
+records interruption and resolved cleanup. Its SHA-256 is
+`417bdeb17f9d72bf82808e394f182df504d7aff3af130d7189c318738e6304b9`.
+The native log SHA-256 is
+`9b0424ae25b9bec1be0a253c2a8296d80d1fb4642fcb86f69bfbd4423649eaa9`.
+Native timing is discarded. No later final gate ran.
+
+The exact FAT case passes in isolation using those sealed binaries and the
+pinned runtime. The full-suite timeout is not reproduced by that focused run.
+The FAT correction `cf94ead69` removes the per-cluster State/Layout helper
+chain from allocation accounting. It preserves the changes overlay, owner
+snapshot, FAT12 nibble decoding, FAT32 masking, and repair accounting. The exact
+FAT16/FAT32 case, FAT12 lost-cluster repair, and nondefault FAT16 geometry checks
+passed in the pinned runtime with sealed 4d92 binaries. Independent review found
+no P1 or P2 defect. Single baseline and candidate timing runs are diagnostic
+only. The full-suite timeout still requires verification on the new candidate.
+
+A bounded scheduler check confirmed 12 default workers under the final resource
+profile. Case timeouts begin after dequeue, so queue wait is excluded. The
+per-file cap remains enforced by `ParallelTestQueue`. No scheduler source
+changed. Preserve every sparse image check and its timeout. All nine passing
+full-suite runs remain open.
+
 The later `f1f23f01` attempt also passed the pinned release build and both
 build-readiness checks. Its native suite was interrupted with 7,029 passing
 rows, 101 skips, and three failing rows. The uptime pretty-output test failed;
