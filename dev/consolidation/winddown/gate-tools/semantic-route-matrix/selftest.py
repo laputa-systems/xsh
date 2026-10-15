@@ -1230,7 +1230,10 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         config = json.loads(generate.CONFIG.read_text())
         rows = generate.parse_schema((root / generate.SCHEMA_PATH).read_text())
         mappings = generate.validate_route_witness_mappings(root, config, rows)
-        self.assertEqual(len(mappings), 115)
+        expected = generate.expected_route_witness_mappings(
+            root, config["route_witness_source_commit"], rows
+        )
+        self.assertEqual(set(mappings), set(expected))
         candidates = [
             mapping for mapping in mappings.values()
             if mapping["mapping_kind"] != "artifact_capability"
@@ -1239,7 +1242,6 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             mapping for mapping in mappings.values()
             if mapping["mapping_kind"] == "artifact_capability"
         ]
-        self.assertEqual(len(candidates), 114)
         self.assertEqual(len(capabilities), 1)
         for mapping in candidates:
             for expectation in mapping["mode_expectations"].values():
@@ -1279,7 +1281,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
 
         wrong_route = copy.deepcopy(config)
         wrong_route["route_witness_mappings"][0]["mode_expectations"]["normal"]["route_id"] = "recursive_bridge_to_explicit_frames"
-        with self.assertRaisesRegex(generate.EvidenceError, "must remain unsupported"):
+        with self.assertRaisesRegex(generate.EvidenceError, "without a reviewed child source"):
             generate.validate_route_witness_mappings(root, wrong_route, rows)
 
         wrong_mode = copy.deepcopy(config)
@@ -1295,6 +1297,160 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         stale_source["route_witness_source_commit"] = "0" * 40
         with self.assertRaisesRegex(generate.EvidenceError, "candidate oracle source is absent"):
             generate.validate_route_witness_mappings(root, stale_source, rows)
+
+    def test_expression_route_witness_mappings_cover_the_schema_and_reject_mutations(self) -> None:
+        root = generate.HERE.parents[4]
+        rows = generate.parse_schema((root / generate.SCHEMA_PATH).read_text())
+        expected: dict[str, dict[str, str]] = {}
+        mappings: list[dict] = []
+        eager_tags = {item[0] for item in generate.EAGER_ATOM_PROVENANCE.values()}
+        for row in rows:
+            if row["kind"] != "Expr":
+                continue
+            if row["tag"] == "ExprEmptyMap":
+                test_id = "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map"
+                source_file = "tests/xsh/frame-apply-oracles.xsh"
+                mapping_kind = "artifact_capability"
+                normal_route = "explicit_frame_apply_path"
+                forced_route = "generic_operand_apply_path"
+            else:
+                source_file = (
+                    generate.SCALAR_ROUTE_ORACLE_FILE
+                    if row["tag"] in eager_tags
+                    else "tests/xsh/expression-route-oracles.xsh"
+                )
+                mapping_kind = "scalar" if row["tag"] in eager_tags else "statement_expression"
+                suffix = re.sub(r"(?<!^)(?=[A-Z])", "_", row["tag"]).lower().removeprefix("expr_")
+                test_id = f"{source_file}::test_expr_{suffix}"
+                normal_route = (
+                    "in_place_evaluator_path"
+                    if row["in_place"] == "Operands"
+                    else "explicit_frame_apply_path"
+                    if row["frame_strategy"] == "FrameApply"
+                    else "explicit_frame_control_path"
+                )
+                forced_route = (
+                    "explicit_frame_control_path"
+                    if row["frame_strategy"] == "FrameControl"
+                    else "eager_frame_apply_path"
+                    if row["eager_atom"]
+                    else "generic_operand_apply_path"
+                )
+            item = {
+                "tag": row["tag"],
+                "test_id": test_id,
+                "source_file": source_file,
+                "mapping_kind": mapping_kind,
+                "mode_expectations": {
+                    "normal": {
+                        "route_id": normal_route,
+                        "status": "supported_by_artifact_format",
+                    },
+                    "forced": {
+                        "route_id": forced_route,
+                        "status": "supported_by_artifact_format",
+                    },
+                },
+                "child_source": f"assert route_child_{row['ordinal']}\n",
+            }
+            expected[test_id] = {
+                "tag": row["tag"],
+                "source_file": source_file,
+                "mapping_kind": mapping_kind,
+            }
+            mappings.append(item)
+
+        statement = next(row for row in rows if row["kind"] == "Stmt")
+        statement_id = "tests/xsh/statement-route-oracles.xsh::test_stmt_print"
+        expected[statement_id] = {
+            "tag": statement["tag"],
+            "source_file": "tests/xsh/statement-route-oracles.xsh",
+            "mapping_kind": "statement_expression",
+        }
+        mappings.append({
+            **expected[statement_id],
+            "test_id": statement_id,
+            "mode_expectations": {
+                mode: {"route_id": None, "status": "unsupported_by_artifact_format"}
+                for mode in generate.ROUTE_WITNESS_EXPECTATION_MODES
+            },
+        })
+        scalar = next(row for row in rows if row["kind"] == "Int")
+        scalar_id = "tests/xsh/typed-scalar-route-oracles.xsh::test_int_int"
+        expected[scalar_id] = {
+            "tag": scalar["tag"],
+            "source_file": generate.SCALAR_ROUTE_ORACLE_FILE,
+            "mapping_kind": "scalar",
+        }
+        mappings.append({
+            **expected[scalar_id],
+            "test_id": scalar_id,
+            "mode_expectations": {
+                mode: {"route_id": None, "status": "unsupported_by_artifact_format"}
+                for mode in generate.ROUTE_WITNESS_EXPECTATION_MODES
+            },
+        })
+        config = {
+            "route_witness_source_commit": "a" * 40,
+            "route_witness_mappings": mappings,
+        }
+        with mock.patch.object(generate, "expected_route_witness_mappings", return_value=expected):
+            validated = generate.validate_route_witness_mappings(root, config, rows)
+            self.assertEqual(set(validated), set(expected))
+            self.assertEqual(
+                {mapping["tag"] for mapping in mappings if mapping.get("child_source")},
+                {row["tag"] for row in rows if row["kind"] == "Expr"},
+            )
+
+            for mutation, message in (
+                ("wrong_id", "absent from the pinned source commit"),
+                ("wrong_source", "tag/source mapping differs"),
+                ("wrong_tag", "tag/source mapping differs"),
+                ("wrong_mode_route", "unsupported route-witness capability claim"),
+                ("missing", "route-witness source map differs"),
+                ("duplicate", "duplicate route-witness test ID mapping"),
+            ):
+                changed_config = copy.deepcopy(config)
+                changed_expected = copy.deepcopy(expected)
+                binary = next(
+                    item for item in changed_config["route_witness_mappings"]
+                    if item["tag"] == "ExprBinary"
+                )
+                if mutation == "wrong_id":
+                    binary["test_id"] = "tests/xsh/expression-route-oracles.xsh::test_missing"
+                elif mutation == "wrong_source":
+                    binary["source_file"] = "tests/xsh/typed-scalar-route-oracles.xsh"
+                elif mutation == "wrong_tag":
+                    binary["tag"] = "ExprInt"
+                elif mutation == "wrong_mode_route":
+                    binary["mode_expectations"]["forced"]["route_id"] = "generic_operand_apply_path"
+                elif mutation == "missing":
+                    changed_config["route_witness_mappings"].remove(binary)
+                elif mutation == "duplicate":
+                    changed_config["route_witness_mappings"].append(copy.deepcopy(binary))
+                with mock.patch.object(
+                    generate,
+                    "expected_route_witness_mappings",
+                    return_value=changed_expected,
+                ):
+                    with self.assertRaisesRegex(generate.EvidenceError, message):
+                        generate.validate_route_witness_mappings(root, changed_config, rows)
+
+            missing_tag_config = copy.deepcopy(config)
+            missing_tag_expected = copy.deepcopy(expected)
+            missing_tag = next(
+                item for item in missing_tag_config["route_witness_mappings"]
+                if item["tag"] == "ExprBinary"
+            )
+            missing_tag_config["route_witness_mappings"].remove(missing_tag)
+            missing_tag_expected.pop(missing_tag["test_id"])
+            with mock.patch.object(
+                generate,
+                "expected_route_witness_mappings",
+                return_value=missing_tag_expected,
+            ):
+                with self.assertRaisesRegex(generate.EvidenceError, "expression route-witness child map differs"):
+                    generate.validate_route_witness_mappings(root, missing_tag_config, rows)
 
     def test_scalar_route_candidates_stay_pending_for_each_mode_and_receipt(self) -> None:
         config = json.loads(generate.CONFIG.read_text())
@@ -2321,13 +2477,14 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 root, run_dir, "normal"
             )
             rows = generate.parse_schema((root / generate.SCHEMA_PATH).read_text())
-            ordinal = next(row["ordinal"] for row in rows if row["tag"] == "ExprEmptyMap")
+            row = next(row for row in rows if row["tag"] == "ExprEmptyMap")
+            ordinal = row["ordinal"]
             source_bytes = generate.route_witness_source_bytes(
                 root, mapping, config["route_witness_source_commit"]
             )
             self.assertEqual(source_bytes, mapping["child_source"].encode("utf-8"))
             self.assertTrue(generate.route_witness_artifact_matches(
-                artifact_bytes, mapping, "normal", ordinal, source_bytes
+                artifact_bytes, mapping, row, "normal", ordinal, source_bytes
             ))
 
             artifact = json.loads(artifact_bytes)
@@ -2337,7 +2494,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             ):
                 changed = {**artifact, field: wrong}
                 self.assertFalse(generate.route_witness_artifact_matches(
-                    json.dumps(changed).encode(), mapping, "normal", ordinal, source_bytes
+                    json.dumps(changed).encode(), mapping, row, "normal", ordinal, source_bytes
                 ))
             for field, wrong in (
                 ("tag_name", "ExprPath"),
@@ -2348,27 +2505,27 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 changed = copy.deepcopy(artifact)
                 changed["records"][0][field] = wrong
                 self.assertFalse(generate.route_witness_artifact_matches(
-                    json.dumps(changed).encode(), mapping, "normal", ordinal, source_bytes
+                    json.dumps(changed).encode(), mapping, row, "normal", ordinal, source_bytes
                 ))
             duplicate_record = copy.deepcopy(artifact)
             duplicate_record["records"].append(copy.deepcopy(duplicate_record["records"][0]))
             self.assertFalse(generate.route_witness_artifact_matches(
-                json.dumps(duplicate_record).encode(), mapping, "normal", ordinal, source_bytes
+                json.dumps(duplicate_record).encode(), mapping, row, "normal", ordinal, source_bytes
             ))
 
             candidate_mappings = [
                 item for item in json.loads(generate.CONFIG.read_text())["route_witness_mappings"]
                 if item["mapping_kind"] != "artifact_capability"
             ]
-            self.assertEqual(len(candidate_mappings), 114)
             for candidate in candidate_mappings:
+                candidate_row = next(row for row in rows if row["tag"] == candidate["tag"])
                 for mode in generate.ROUTE_WITNESS_EXPECTATION_MODES:
                     self.assertFalse(generate.route_witness_artifact_matches(
-                        artifact_bytes, candidate, mode, ordinal, source_bytes
+                        artifact_bytes, candidate, candidate_row, mode, ordinal, source_bytes
                     ))
 
             proof = generate.route_witness_step_matches(
-                root, receipt_path, receipt, receipt["steps"][0], mapping,
+                root, receipt_path, receipt, receipt["steps"][0], mapping, row,
                 source_commit=config["route_witness_source_commit"],
                 expected_head="head", expected_tree="tree", expected_ordinal=ordinal,
                 mode="normal", expected_xsht_sha256="xsht-hash",
@@ -2379,7 +2536,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             missing_artifact = copy.deepcopy(receipt["steps"][0])
             del missing_artifact["route_witness_artifact"]
             self.assertIsNone(generate.route_witness_step_matches(
-                root, receipt_path, receipt, missing_artifact, mapping,
+                root, receipt_path, receipt, missing_artifact, mapping, row,
                 source_commit=config["route_witness_source_commit"],
                 expected_head="head", expected_tree="tree", expected_ordinal=ordinal,
                 mode="normal", expected_xsht_sha256="xsht-hash",
@@ -2387,7 +2544,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             wrong_artifact_hash = copy.deepcopy(receipt["steps"][0])
             wrong_artifact_hash["route_witness_artifact"]["sha256"] = "0" * 64
             self.assertIsNone(generate.route_witness_step_matches(
-                root, receipt_path, receipt, wrong_artifact_hash, mapping,
+                root, receipt_path, receipt, wrong_artifact_hash, mapping, row,
                 source_commit=config["route_witness_source_commit"],
                 expected_head="head", expected_tree="tree", expected_ordinal=ordinal,
                 mode="normal", expected_xsht_sha256="xsht-hash",
@@ -2395,13 +2552,13 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             escaped_artifact = copy.deepcopy(receipt["steps"][0])
             escaped_artifact["route_witness_artifact"]["path"] = "../outside.json"
             self.assertIsNone(generate.route_witness_step_matches(
-                root, receipt_path, receipt, escaped_artifact, mapping,
+                root, receipt_path, receipt, escaped_artifact, mapping, row,
                 source_commit=config["route_witness_source_commit"],
                 expected_head="head", expected_tree="tree", expected_ordinal=ordinal,
                 mode="normal", expected_xsht_sha256="xsht-hash",
             ))
             self.assertIsNone(generate.route_witness_step_matches(
-                root, receipt_path, receipt, receipt["steps"][0], mapping,
+                root, receipt_path, receipt, receipt["steps"][0], mapping, row,
                 source_commit=config["route_witness_source_commit"],
                 expected_head="stale-head", expected_tree="tree", expected_ordinal=ordinal,
                 mode="normal", expected_xsht_sha256="xsht-hash",
@@ -2416,7 +2573,12 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             artifacts = {}
             mapping = None
             config = None
-            ordinal = 49
+            row = next(
+                row
+                for row in generate.parse_schema((root / generate.SCHEMA_PATH).read_text())
+                if row["tag"] == "ExprEmptyMap"
+            )
+            ordinal = row["ordinal"]
             for mode in generate.ROUTE_WITNESS_EXPECTATION_MODES:
                 config, mapping, _, _, artifact_bytes = self.route_witness_receipt_fixture(
                     root, base / mode, mode
@@ -2426,7 +2588,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 )
                 self.assertEqual(source_bytes, mapping["child_source"].encode("utf-8"))
                 self.assertTrue(generate.route_witness_artifact_matches(
-                    artifact_bytes, mapping, mode, ordinal, source_bytes
+                    artifact_bytes, mapping, row, mode, ordinal, source_bytes
                 ))
                 artifacts[mode] = artifact_bytes
 
@@ -2439,7 +2601,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             ):
                 changed = {**normal_artifact, field: wrong}
                 self.assertFalse(generate.route_witness_artifact_matches(
-                    json.dumps(changed).encode(), mapping, "normal", ordinal,
+                    json.dumps(changed).encode(), mapping, row, "normal", ordinal,
                     mapping["child_source"].encode("utf-8"),
                 ))
             for field, wrong in (
@@ -2451,7 +2613,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 changed = copy.deepcopy(normal_artifact)
                 changed["records"][0][field] = wrong
                 self.assertFalse(generate.route_witness_artifact_matches(
-                    json.dumps(changed).encode(), mapping, "normal", ordinal,
+                    json.dumps(changed).encode(), mapping, row, "normal", ordinal,
                     mapping["child_source"].encode("utf-8"),
                 ))
 
@@ -2462,7 +2624,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             )
             self.assertEqual(changed_source, changed_mapping["child_source"].encode("utf-8"))
             self.assertFalse(generate.route_witness_artifact_matches(
-                artifacts["normal"], changed_mapping, "normal", ordinal, changed_source
+                artifacts["normal"], changed_mapping, row, "normal", ordinal, changed_source
             ))
 
             with mock.patch.object(
@@ -2472,6 +2634,127 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             ):
                 self.assertIsNone(generate.route_witness_source_bytes(
                     root, mapping, config["route_witness_source_commit"]
+                ))
+
+            expression_mapping = copy.deepcopy(next(
+                item
+                for item in config["route_witness_mappings"]
+                if item["tag"] == "ExprBinary"
+            ))
+            expression_mapping["child_source"] = "assert 1 + 2 == 3\n"
+            expression_mapping["mode_expectations"] = {
+                mode: {
+                    "route_id": "explicit_frame_control_path",
+                    "status": "supported_by_artifact_format",
+                }
+                for mode in generate.ROUTE_WITNESS_EXPECTATION_MODES
+            }
+            expression_row = next(
+                item
+                for item in generate.parse_schema((root / generate.SCHEMA_PATH).read_text())
+                if item["tag"] == "ExprBinary"
+            )
+            expression_source = generate.route_witness_source_bytes(
+                root,
+                expression_mapping,
+                config["route_witness_source_commit"],
+            )
+            self.assertEqual(
+                expression_source,
+                expression_mapping["child_source"].encode("utf-8"),
+            )
+            expression_source_hash = generate.sha256_bytes(expression_source)
+            expression_artifact = {
+                "version": 1,
+                "test_id": expression_mapping["test_id"],
+                "source_hash": expression_source_hash,
+                "records": [{
+                    "tag_name": "ExprBinary",
+                    "tag_ordinal": expression_row["ordinal"],
+                    "route": "explicit_frame_control_path",
+                    "mode": "normal",
+                }],
+            }
+            expression_artifact_bytes = json.dumps(expression_artifact).encode()
+            self.assertTrue(generate.route_witness_artifact_matches(
+                expression_artifact_bytes,
+                expression_mapping,
+                expression_row,
+                "normal",
+                expression_row["ordinal"],
+                expression_source,
+            ))
+            forced_expression_artifact = copy.deepcopy(expression_artifact)
+            forced_expression_artifact["records"][0]["mode"] = "forced"
+            self.assertTrue(generate.route_witness_artifact_matches(
+                json.dumps(forced_expression_artifact).encode(),
+                expression_mapping,
+                expression_row,
+                "forced",
+                expression_row["ordinal"],
+                expression_source,
+            ))
+            for field, wrong in (
+                ("test_id", "tests/xsh/expression-route-oracles.xsh::test_expr_other"),
+                ("source_hash", "0" * 64),
+            ):
+                changed = {**expression_artifact, field: wrong}
+                self.assertFalse(generate.route_witness_artifact_matches(
+                    json.dumps(changed).encode(),
+                    expression_mapping,
+                    expression_row,
+                    "normal",
+                    expression_row["ordinal"],
+                    expression_source,
+                ))
+            for field, wrong in (
+                ("tag_name", "ExprIf"),
+                ("tag_ordinal", expression_row["ordinal"] + 1),
+                ("route", "in_place_evaluator_path"),
+                ("mode", "forced"),
+            ):
+                changed = copy.deepcopy(expression_artifact)
+                changed["records"][0][field] = wrong
+                self.assertFalse(generate.route_witness_artifact_matches(
+                    json.dumps(changed).encode(),
+                    expression_mapping,
+                    expression_row,
+                    "normal",
+                    expression_row["ordinal"],
+                    expression_source,
+                ))
+            changed_expression_mapping = copy.deepcopy(expression_mapping)
+            changed_expression_mapping["child_source"] += "assert false\n"
+            changed_expression_source = generate.route_witness_source_bytes(
+                root,
+                changed_expression_mapping,
+                config["route_witness_source_commit"],
+            )
+            self.assertFalse(generate.route_witness_artifact_matches(
+                expression_artifact_bytes,
+                changed_expression_mapping,
+                expression_row,
+                "normal",
+                expression_row["ordinal"],
+                changed_expression_source,
+            ))
+            changed_expression_mapping["test_id"] = (
+                "tests/xsh/expression-route-oracles.xsh::test_expr_missing"
+            )
+            self.assertIsNone(generate.route_witness_source_bytes(
+                root,
+                changed_expression_mapping,
+                config["route_witness_source_commit"],
+            ))
+            with mock.patch.object(
+                generate.subprocess,
+                "run",
+                return_value=mock.Mock(stdout=b"stale reviewed source file"),
+            ):
+                self.assertIsNone(generate.route_witness_source_bytes(
+                    root,
+                    expression_mapping,
+                    config["route_witness_source_commit"],
                 ))
 
     def test_route_witness_receipts_credit_only_unique_exact_tuples(self) -> None:

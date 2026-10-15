@@ -53,10 +53,6 @@ ROUTE_WITNESS_SOURCE_FILES = {
     },
     "scalar": {SCALAR_ROUTE_ORACLE_FILE: None},
 }
-ROUTE_WITNESS_CAPABILITY = {
-    ("ExprEmptyMap", "normal"): "explicit_frame_apply_path",
-    ("ExprEmptyMap", "forced"): "generic_operand_apply_path",
-}
 ROUTE_WITNESS_EXPECTATION_MODES = ("normal", "forced")
 ROUTE_WITNESS_BEHAVIOR_ONLY_IDS = {
     "tests/xsh/expression-route-oracles.xsh::test_expr_if_non_in_place_selection": (
@@ -4440,16 +4436,12 @@ def expected_route_witness_mappings(
     source_ids = committed_xsh_test_ids(root, source_commit, source_files)
     behavior_only_ids = set(ROUTE_WITNESS_BEHAVIOR_ONLY_IDS)
     missing_behavior_only_ids = sorted(behavior_only_ids - source_ids)
-    if len(source_ids) != 117 or missing_behavior_only_ids:
+    if missing_behavior_only_ids:
         raise EvidenceError(
-            f"expected 117 source oracle IDs including the 3 behavior-only regressions at "
-            f"{source_commit}; found {len(source_ids)}, missing={missing_behavior_only_ids}"
+            f"behavior-only source oracle IDs are absent at {source_commit}: "
+            f"{missing_behavior_only_ids}"
         )
     route_source_ids = source_ids - behavior_only_ids
-    if len(route_source_ids) != 114:
-        raise EvidenceError(
-            f"expected 114 exact route-witness candidates at {source_commit}, found {len(route_source_ids)}"
-        )
 
     expected: dict[str, dict[str, str]] = {}
     for test_id in sorted(route_source_ids):
@@ -4475,6 +4467,28 @@ def expected_route_witness_mappings(
     return expected
 
 
+def route_witness_route_allowed(row: dict[str, Any], mode: str, route_id: str) -> bool:
+    if row.get("kind") != "Expr" or mode not in ROUTE_WITNESS_EXPECTATION_MODES:
+        return False
+    strategy = row.get("frame_strategy")
+    in_place = row.get("in_place")
+    eager_atom = row.get("eager_atom") is True
+    if strategy == "FrameControl":
+        frame_route = "explicit_frame_control_path"
+    elif strategy == "FrameApply":
+        if mode == "forced":
+            frame_route = "eager_frame_apply_path" if eager_atom else "generic_operand_apply_path"
+        else:
+            frame_route = "explicit_frame_apply_path"
+    else:
+        return False
+    if mode == "forced":
+        return route_id == frame_route
+    return route_id == frame_route or (
+        in_place == "Operands" and route_id == "in_place_evaluator_path"
+    )
+
+
 def validate_route_witness_mappings(
     root: pathlib.Path,
     config: dict[str, Any],
@@ -4492,11 +4506,12 @@ def validate_route_witness_mappings(
     by_id: dict[str, dict[str, Any]] = {}
     claims: set[tuple[str, str, str | None]] = set()
     tag_modes: set[tuple[str, str]] = set()
+    rows_by_tag = {row["tag"]: row for row in rows}
     for mapping in mappings:
         required = {"tag", "test_id", "source_file", "mapping_kind", "mode_expectations"}
         if not isinstance(mapping, dict):
             raise EvidenceError(f"route-witness mapping has an unexpected shape: {mapping}")
-        if mapping.get("mapping_kind") == "artifact_capability":
+        if mapping.get("mapping_kind") == "artifact_capability" or "child_source" in mapping:
             required.add("child_source")
         if set(mapping) != required:
             raise EvidenceError(f"route-witness mapping has an unexpected shape: {mapping}")
@@ -4508,8 +4523,15 @@ def validate_route_witness_mappings(
         if any(mapping.get(field) != expected[test_id][field] for field in ("tag", "source_file", "mapping_kind")):
             raise EvidenceError(f"route-witness tag/source mapping differs for {test_id}")
         tag = mapping["tag"]
-        if tag not in {row["tag"] for row in rows}:
+        row = rows_by_tag.get(tag)
+        if row is None:
             raise EvidenceError(f"route-witness mapping names an unknown schema tag: {tag}")
+        expression_tag = row["kind"] == "Expr"
+        has_child_source = "child_source" in mapping
+        if has_child_source:
+            child_source = mapping.get("child_source")
+            if not expression_tag or not isinstance(child_source, str) or not child_source or "\x00" in child_source:
+                raise EvidenceError(f"reviewed route-witness child source is malformed: {test_id}")
         expectations = mapping.get("mode_expectations")
         if not isinstance(expectations, dict) or set(expectations) != set(ROUTE_WITNESS_EXPECTATION_MODES):
             raise EvidenceError(f"route-witness mapping has incomplete mode expectations: {test_id}")
@@ -4519,15 +4541,18 @@ def validate_route_witness_mappings(
                 raise EvidenceError(f"route-witness mode expectation has an unexpected shape: {test_id} {mode}")
             route_id = expectation.get("route_id")
             status = expectation.get("status")
-            capability_route = ROUTE_WITNESS_CAPABILITY.get((tag, mode))
             if mapping["mapping_kind"] == "artifact_capability":
-                child_source = mapping.get("child_source")
-                if not isinstance(child_source, str) or not child_source or "\x00" in child_source:
-                    raise EvidenceError(f"reviewed route-witness child source is malformed: {test_id}")
-                if route_id != capability_route or status != "supported_by_artifact_format":
+                if not has_child_source or not expression_tag:
+                    raise EvidenceError(f"route-witness artifact capability is not an expression mapping: {test_id}")
+            if has_child_source:
+                if (
+                    not route_id
+                    or status != "supported_by_artifact_format"
+                    or not route_witness_route_allowed(row, mode, route_id)
+                ):
                     raise EvidenceError(f"unsupported route-witness capability claim: {test_id} {mode}")
             elif route_id is not None or status != "unsupported_by_artifact_format":
-                raise EvidenceError(f"candidate route-witness expectation must remain unsupported: {test_id} {mode}")
+                raise EvidenceError(f"route-witness expectation without a reviewed child source: {test_id} {mode}")
             claim = (tag, mode, route_id)
             if claim in claims or (tag, mode) in tag_modes:
                 raise EvidenceError(f"duplicate route-witness tuple claim: {tag} {mode} {route_id}")
@@ -4539,8 +4564,24 @@ def validate_route_witness_mappings(
     extra = sorted(set(by_id) - set(expected))
     if missing or extra:
         raise EvidenceError(f"route-witness source map differs: missing={missing}; extra={extra}")
-    if sum(mapping["mapping_kind"] != "artifact_capability" for mapping in mappings) != 114:
-        raise EvidenceError("route-witness candidate mapping count differs from 114")
+    expression_child_mappings = [
+        mapping
+        for mapping in mappings
+        if mapping["mapping_kind"] != "artifact_capability" and "child_source" in mapping
+    ]
+    if expression_child_mappings:
+        expected_expression_tags = {row["tag"] for row in rows if row["kind"] == "Expr"}
+        mapped_expression_tags = {
+            mapping["tag"]
+            for mapping in mappings
+            if mapping["tag"].startswith("Expr") and "child_source" in mapping
+        }
+        if mapped_expression_tags != expected_expression_tags:
+            raise EvidenceError(
+                "expression route-witness child map differs from schema: "
+                f"missing={sorted(expected_expression_tags - mapped_expression_tags)}; "
+                f"extra={sorted(mapped_expression_tags - expected_expression_tags)}"
+            )
     return by_id
 
 
@@ -4732,11 +4773,25 @@ def route_witness_source_bytes(
     source_file = mapping.get("source_file")
     test_id = mapping.get("test_id")
     child_source = mapping.get("child_source")
+    source_files = {
+        source_file
+        for files in ROUTE_WITNESS_SOURCE_FILES.values()
+        for source_file in files
+    } | {"tests/xsh/frame-apply-oracles.xsh"}
+    mapping_kind = mapping.get("mapping_kind")
     if (
-        mapping.get("mapping_kind") != "artifact_capability"
+        mapping_kind not in {"artifact_capability", "statement_expression", "scalar"}
+        or not isinstance(mapping.get("tag"), str)
+        or not mapping["tag"].startswith("Expr")
         or not isinstance(source_file, str)
-        or not isinstance(test_id, str)
+        or source_file not in source_files
+    ):
+        return None
+    if (
+        not isinstance(test_id, str)
         or not isinstance(child_source, str)
+        or not child_source
+        or "\x00" in child_source
     ):
         return None
     source_path = root / source_file
@@ -4769,16 +4824,34 @@ def route_witness_source_bytes(
 def route_witness_artifact_matches(
     artifact_bytes: bytes,
     mapping: dict[str, Any],
+    row: dict[str, Any],
     mode: str,
     expected_ordinal: int,
     source_bytes: bytes,
 ) -> bool:
     """Require one exact artifact record for a supported tag/route/mode tuple."""
-    expectation = mapping.get("mode_expectations", {}).get(mode, {})
-    route_id = expectation.get("route_id") if isinstance(expectation, dict) else None
-    if mode not in ROUTE_WITNESS_EXPECTATION_MODES or not route_id:
+    expectations = mapping.get("mode_expectations")
+    child_source = mapping.get("child_source")
+    if (
+        not isinstance(expectations, dict)
+        or not isinstance(row, dict)
+        or not isinstance(child_source, str)
+        or not child_source
+        or "\x00" in child_source
+    ):
         return False
-    if ROUTE_WITNESS_CAPABILITY.get((mapping.get("tag"), mode)) != route_id:
+    expectation = expectations.get(mode)
+    if not isinstance(expectation, dict):
+        return False
+    route_id = expectation.get("route_id")
+    if (
+        not route_id
+        or expectation.get("status") != "supported_by_artifact_format"
+        or mapping.get("tag") != row.get("tag")
+        or row.get("ordinal") != expected_ordinal
+        or source_bytes != child_source.encode("utf-8")
+        or not route_witness_route_allowed(row, mode, route_id)
+    ):
         return False
     try:
         artifact = json.loads(artifact_bytes, object_pairs_hook=duplicate_json_object)
@@ -4818,6 +4891,7 @@ def route_witness_step_matches(
     receipt: dict[str, Any],
     step: dict[str, Any],
     mapping: dict[str, Any],
+    row: dict[str, Any],
     *,
     source_commit: str,
     expected_head: str,
@@ -4829,9 +4903,18 @@ def route_witness_step_matches(
     """Validate the receipt, exact source, artifact digest, and one route tuple together."""
     if not isinstance(receipt, dict) or not isinstance(step, dict):
         return None
-    expectation = mapping.get("mode_expectations", {}).get(mode, {})
-    route_id = expectation.get("route_id") if isinstance(expectation, dict) else None
-    if not route_id or ROUTE_WITNESS_CAPABILITY.get((mapping.get("tag"), mode)) != route_id:
+    expectations = mapping.get("mode_expectations")
+    if not isinstance(expectations, dict) or not isinstance(row, dict):
+        return None
+    expectation = expectations.get(mode)
+    if not isinstance(expectation, dict):
+        return None
+    route_id = expectation.get("route_id")
+    if (
+        not route_id
+        or expectation.get("status") != "supported_by_artifact_format"
+        or not route_witness_route_allowed(row, mode, route_id)
+    ):
         return None
     try:
         if not receipt_step_matches(
@@ -4882,6 +4965,7 @@ def route_witness_step_matches(
     if not route_witness_artifact_matches(
         artifact_bytes,
         mapping,
+        row,
         mode,
         expected_ordinal,
         source_bytes,
@@ -4984,6 +5068,7 @@ def collect_route_witness_receipts(
                         receipt,
                         step,
                         mapping,
+                        row,
                         source_commit=config["route_witness_source_commit"],
                         expected_head=expected_head,
                         expected_tree=expected_tree,
@@ -5854,12 +5939,27 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                 mapping["mapping_kind"] == "artifact_capability"
                 for mapping in route_witness_mappings_by_id.values()
             ),
+            "child_source_mappings": sum(
+                "child_source" in mapping
+                for mapping in route_witness_mappings_by_id.values()
+            ),
             "validated_tuples": len(route_witness_reusable),
             "credited_tuples": len(route_witness_reusable),
-            "supported_route_ids": sorted(set(ROUTE_WITNESS_CAPABILITY.values())),
+            "supported_route_ids": sorted({
+                expectation["route_id"]
+                for mapping in route_witness_mappings_by_id.values()
+                for expectation in mapping["mode_expectations"].values()
+                if expectation["route_id"] is not None
+            }),
             "supported_tuples": [
-                {"tag": tag, "mode": mode, "route_id": route_id}
-                for (tag, mode), route_id in sorted(ROUTE_WITNESS_CAPABILITY.items())
+                {
+                    "tag": mapping["tag"],
+                    "mode": mode,
+                    "route_id": mapping["mode_expectations"][mode]["route_id"],
+                }
+                for mapping in route_witness_mappings_by_id.values()
+                for mode in ROUTE_WITNESS_EXPECTATION_MODES
+                if mapping["mode_expectations"][mode]["route_id"] is not None
             ],
             "source_commit": config["route_witness_source_commit"],
             "policy": (
@@ -5945,9 +6045,13 @@ def main() -> int:
                 for mapping in mappings.values()
             )
             capabilities = len(mappings) - candidates
+            child_sources = sum(
+                "child_source" in mapping
+                for mapping in mappings.values()
+            )
             print(
-                f"validated {candidates} uncredited candidate mappings and "
-                f"{capabilities} artifact-capability mappings; no route tuples credited"
+                f"validated {candidates} source candidate mappings, {child_sources} child-source mappings, "
+                f"and {capabilities} artifact-capability mappings; no receipts consumed"
             )
             return 0
         lock_path = root / SOURCE_LOCK_RELATIVE
