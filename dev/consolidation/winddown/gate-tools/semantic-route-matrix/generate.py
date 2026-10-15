@@ -4485,7 +4485,8 @@ def route_witness_route_allowed(row: dict[str, Any], mode: str, route_id: str) -
     if mode == "forced":
         return route_id == frame_route
     return route_id == frame_route or (
-        in_place == "Operands" and route_id == "in_place_evaluator_path"
+        in_place == "Operands"
+        and route_id in {"in_place_evaluator_path", "recursive_evaluator_path"}
     )
 
 

@@ -1402,6 +1402,80 @@ class SemanticRouteMatrixTests(unittest.TestCase):
                 {row["tag"] for row in rows if row["kind"] == "Expr"},
             )
 
+            for row in rows:
+                if row["kind"] != "Expr":
+                    continue
+                frame_route = (
+                    "explicit_frame_control_path"
+                    if row["frame_strategy"] == "FrameControl"
+                    else "explicit_frame_apply_path"
+                )
+                forced_route = (
+                    frame_route
+                    if row["frame_strategy"] == "FrameControl"
+                    else "eager_frame_apply_path"
+                    if row["eager_atom"]
+                    else "generic_operand_apply_path"
+                )
+                self.assertTrue(generate.route_witness_route_allowed(row, "normal", frame_route))
+                self.assertTrue(generate.route_witness_route_allowed(row, "forced", forced_route))
+                for recursive_route in (
+                    "in_place_evaluator_path",
+                    "recursive_evaluator_path",
+                ):
+                    self.assertEqual(
+                        generate.route_witness_route_allowed(row, "normal", recursive_route),
+                        row["in_place"] == "Operands",
+                    )
+                    self.assertFalse(
+                        generate.route_witness_route_allowed(row, "forced", recursive_route)
+                    )
+
+            recursive_row = next(
+                row for row in rows
+                if row["kind"] == "Expr" and row["in_place"] == "Operands"
+            )
+            recursive_config = copy.deepcopy(config)
+            recursive_mapping = next(
+                item for item in recursive_config["route_witness_mappings"]
+                if item["tag"] == recursive_row["tag"]
+            )
+            recursive_mapping["mode_expectations"]["normal"]["route_id"] = (
+                "recursive_evaluator_path"
+            )
+            with mock.patch.object(
+                generate,
+                "expected_route_witness_mappings",
+                return_value=expected,
+            ):
+                generate.validate_route_witness_mappings(root, recursive_config, rows)
+
+            for strategy in ("FrameApply", "FrameControl"):
+                scheduled_row = next(
+                    row for row in rows
+                    if row["kind"] == "Expr"
+                    and row["in_place"] == "Scheduled"
+                    and row["frame_strategy"] == strategy
+                )
+                scheduled_config = copy.deepcopy(config)
+                scheduled_mapping = next(
+                    item for item in scheduled_config["route_witness_mappings"]
+                    if item["tag"] == scheduled_row["tag"]
+                )
+                scheduled_mapping["mode_expectations"]["normal"]["route_id"] = (
+                    "recursive_evaluator_path"
+                )
+                with mock.patch.object(
+                    generate,
+                    "expected_route_witness_mappings",
+                    return_value=expected,
+                ):
+                    with self.assertRaisesRegex(
+                        generate.EvidenceError,
+                        "unsupported route-witness capability claim",
+                    ):
+                        generate.validate_route_witness_mappings(root, scheduled_config, rows)
+
             for mutation, message in (
                 ("wrong_id", "absent from the pinned source commit"),
                 ("wrong_source", "tag/source mapping differs"),
