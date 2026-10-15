@@ -14,6 +14,39 @@ Preserve the older d02 record as historical evidence.
 
 ### Native-suite attempt
 
+The later `f1f23f01` attempt also passed the pinned release build and both
+build-readiness checks. Its native suite was interrupted with 7,029 passing
+rows, 101 skips, and three failing rows. The uptime pretty-output test failed;
+the current lowering-tree and generated-stage-schema checks timed out at two
+minutes. This partial run is not acceptance evidence, and its timing is invalid.
+The native log SHA-256 is
+`ea653022965f5437c34bdf953fc65e10f320959629de0c87011a8c9ff4c54f43`.
+
+The uptime correction `9ede012c7` changes tests only. A deterministic fixture
+reproduced the old regex rejecting valid output when zero minutes are omitted.
+All 12 uptime tests passed after the correction. The trace correction
+`2d5fb9c7c` rejects malformed unquoted resumed records as incomplete traces,
+while preserving quoted and escaped pathname text. Its minimal regression
+failed before the fix. Eight focused trace cases passed after it, and independent
+review found no P1 or P2 issue.
+
+The scanner lane batches function-region queries per source. Repeated helper
+calls previously revalidated the entire typed token list at each argument
+boundary. The change removes those repeated handoffs and preserves runtime
+type validation. It changes no Rust implementation source. The integrated scanner is `c49b7d265`. Its digest-pinned focused run passed
+38 tests with zero failures. Both complete reports and allowance inventories
+match the retained baseline and current-source outputs byte for byte. The
+receipt is `.work/consolidation/final-scanner-parity-e372c17-a1/receipt.md`
+(SHA-256 `833ec50adb9f9ac0543568c5f781cefa539dded59638e4801d6f716ac20f714e`).
+The tested scanner digest is `e372c17b`; the integrated `a513c6a9` differs only
+by deletion of an already-removed stale comment. The successor provenance
+check passed with the updated scanner digest and original baseline proofs.
+Diagnostic CPU measurements do not establish a speedup.
+
+The duration-independent suite monitor now catches both millisecond and second
+failure rows, as well as timeouts. Run it in the same process namespace as the
+runner and stop an attempt on its first terminal failure.
+
 The first final attempt at `51ec8a03` passed the pinned release build and
 its readiness checks. Its full native suite was interrupted after finding
 `test_build_steps_run_cargo_under_the_preload_and_test_runs_do_not` failed.
@@ -35,11 +68,12 @@ and retains literal filename-boundary assertions. No production ls change is
 required. The cohort log SHA-256 is
 `928656af8b5d73f99162c70e5ab6c82eb39df07a7f1c6645b18d2ab1277defcf`.
 
-These two fixture corrections change only native tests under `core` and
+The cargo-step and dired corrections change only native tests under `core` and
 `dev/tests`. The compiled Rust sources, W9 helpers and controllers, and frozen
 W9 input corpus remain unchanged. Qualify W9 evidence through those exact
-paths instead of recapturing an unchanged compiler. Update the two review-owner
-OIDs in the next close record. The nine full-suite acceptance runs remain open.
+paths instead of recapturing an unchanged compiler. Update every changed review-owner
+OID in the next close record, including the successor scanner. Qualify the
+additional uptime, trace, and scanner changes through their focused evidence. The nine full-suite acceptance runs remain open.
 
 The opt3 native-suite attempt on the frozen d02 source reported 13,761 passed,
 22 failed, and 136 skipped. The log is
@@ -122,9 +156,11 @@ and 45 allowance entries across 15 paths. Its SHA-256 is
 The receipt binds the clean 7e93 source, scanner `fd39e7ed`, pinned image,
 and qualified d02 runtime. It is structural evidence, not current Rust
 performance evidence. The ten semantic review rows remain pending.
-Reuse this scan while its measured Rust source roots and scanner remain
-unchanged. Native-fixture edits require updated review-owner OIDs and scoped
-qualification, but do not change the measured Rust source.
+The scanner batching successor reproduces this entire report and allowance
+inventory exactly, as the parity receipt above records. Reuse that qualified
+report while the measured Rust roots remain unchanged. Native-fixture and
+development-tool edits require updated review-owner OIDs and scoped
+qualification. They do not change the measured Rust source.
 
 ### Start-source structural scan
 
