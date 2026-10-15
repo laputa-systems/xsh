@@ -1,6 +1,7 @@
 # Consolidation restart handoff
 
-Status: active and incomplete 2026-10-15.
+Status: winding down 2026-10-15. Integrate unfinished work, retain no linked
+worktrees, preserve required state in Git, and stop. Lean remains paused.
 
 ## Final-batch status, 2026-10-15
 

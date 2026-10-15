@@ -1,6 +1,10 @@
 # XSH Consolidation Campaign
 
-Status: active and incomplete on 2026-10-15. The implementation and focused
+Status: winding down on 2026-10-15. The owner requests all unfinished work
+integrated, no linked worktrees retained, and a reboot-safe handoff. Lean is
+paused. Start no new implementation or verification work.
+
+The implementation and focused
 repairs are integrated on `master`. The 31c selected-profile native suite
 passes. Its canonical batch stopped on a btop PTY assertion. The latest
 test-only repairs require the expected screen state and a completed frame
