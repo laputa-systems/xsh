@@ -48,21 +48,36 @@ work is authorized by this resume.
   reproduced before the repair; all five project tests pass against the
   merged source, including the added relative-entry case. [Merged-tree output](evidence/resume-a86d4-project-tests.log)
   preserves that focused pass. No test coverage was dropped.
+- Scheduler reference qualification is integrated through `6fc1478a1`.
+  The comparison helper validates the retained aggregate overlay against
+  the three original scheduler commits. Its derivation and resource-snapshot
+  checks pass. No scheduler comparison or speedup is established.
+- Assignment parity fixtures pass against the old collector: five tests cover
+  late writes, nested comparison candidates, target roots, excluded statement
+  regions, original scope visibility, and erroneous checked output. The
+  production traversal repair is pending. Its approved design is in
+  [lint rules](designs/lint-rules.md#assignment-safety-facts).
+- Verification `xsh` and `xsht` products were rebuilt at `2688d52fc` for the
+  assignment repair's output baseline. Repository and Laputa check and lint
+  each exit zero. Preserve their complete outputs for candidate comparison.
+  Compare diagnostics before the closing timing line, as the integration
+  harness does. These runs do not establish performance acceptance.
 
 ### Current queue
 
 The integrator owns `master`. The assignment-fact repair, current diagnostic
-feature-touch probe, and scheduler reference qualification have isolated
-worktrees under `.work/wt/`. Their branches are not accepted implementation
-until reviewed and verified. The feature scaffold is diagnostic source only
-and must never merge as a language feature. Source changes require a new
-canonical freeze after integration.
+feature-touch probe, and route-evidence helper recovery have isolated worktrees
+under `.work/wt/`. Their branches are not accepted implementation until
+reviewed and verified. The feature scaffold is diagnostic source only and
+must never merge as a language feature. Source changes require a new canonical
+freeze after integration.
 
 The assignment repair removes the independent lint prepass while preserving
-source-only rules, late writes, and diagnostic/fix ordering. The scheduler
-reference is recoverable from the retained aggregate overlay and ancestor
-commits; missing scratch patches do not require a new baseline. Keep its
-original default workers and outcome checks.
+source-only rules, late writes, and diagnostic/fix ordering. The feature-touch
+audit has found a latent stream-error classifier with a compiling wildcard
+that requires a separate exhaustive-classifier repair. Finish its manual-site
+inventory before accepting the feature-touch recount. Keep the scheduler
+comparison's original default workers and outcome checks.
 
 General inference implementation, its initial red/green witnesses, and the
 400-variable solver observation have not started. Consolidation acceptance
