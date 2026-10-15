@@ -42,6 +42,8 @@ Its scheme is `forall T. T -> T`. The checker infers the declaration before
 checking callers. Each call gets fresh type variables. A caller cannot change
 the scheme seen by another call or importing root.
 The `forall` notation describes checked metadata. It adds no source syntax.
+This first slice supports direct calls to rank-1 pure declarations. It does not
+make generic function values, aliases, or nested generic calls.
 
 The checker also accepts an open record projection:
 
@@ -166,15 +168,59 @@ The checker owns that scope. `TypeConstraints` may compare rigid IDs but never
 mutates them. They are not union-find cells. `Any` remains the ground
 `Type::Any` value. No conversion between these roles is implicit.
 
-Put immutable scheme data in `src/sema/schemes.rs`. Use `TypeScheme` for
-quantified binders and a `SchemeType` tree for its parameter and return types.
-The open-record tail in `SchemeType` refers to a `SchemeRowParameterId`, never
-a mutable `RowVariableId`. Use `CallInstantiation` for one call's solved type
-and row substitutions. Use `RowEvidence` for required and retained record
-fields. These records contain no mutable solver cell. `TypeScheme` construction
-rejects `Inference`, `Unknown`, and `Invalid`. Only explicit `Any` can represent
-a dynamic boundary. Keep all generalization, instantiation, and unification
-operations in `TypeConstraints`.
+Put immutable scheme data in `src/sema/schemes.rs`. `TypeScheme` is the one
+callable contract. It owns quantified binders, ordered parameter labels,
+parameter and return `SchemeType`s, schema expectations, default and rest
+flags, and the callable effect contract. `FunctionSig` in `src/sema/check.rs`
+owns declaration identity and checking metadata plus one `Arc<TypeScheme>`.
+It does not keep another parameter, return, or effect list. The existing
+`CallableType` and `CompactFunctionSig` remain ground projections. They do not
+represent generic functions.
+
+`CheckSession::check_modules` passes a checked module's `UserModuleSig` to
+later modules. Keep that as the only checker import handoff. Its concrete
+`FunctionSig` carries the immutable scheme used at the declaration.
+`CheckedModuleFacts` keeps the existing `UserModuleSig` cache. Do not add a
+second checker-side scheme table. For lowering, `CompactDeclOutput` publishes
+the same `Arc<TypeScheme>` under each qualified export.
+`CompactModuleGraph::from_file_unit` copies that reference into its qualified
+scheme index. It must not rebuild a generic contract from `CompactFunctionSig`
+or use `Any` as a placeholder.
+
+`SchemeType` has ground types, type binders, and record rows. Its open-row tail
+refers to a `SchemeRowParameterId`, never a mutable `RowVariableId`. Row
+binders retain their lacks-label constraints. `TypeScheme` construction rejects
+`Inference`, `Unknown`, and `Invalid`. An explicit `Any` may remain a ground
+contract type. It cannot create or anchor a quantified binder. Use
+`CallInstantiation` for one direct call's solved type and row substitutions.
+Use `RowEvidence` for required and retained record fields. These values contain
+no mutable solver cell. Keep generalization, instantiation, and unification in
+`TypeConstraints`.
+
+Publish generic function body types in an immutable `SchemeBodyFacts` record.
+Key `CompactDeclOutput.scheme_bodies` by the declaration's existing body
+`Span`. Each record holds the same `Arc<TypeScheme>` and maps that function's
+local `ExprId`s to `SchemeType`s under its binders. The checker abstracts
+solved representatives into those binders before it drops solver state. These
+facts do not replace ground `CompactBodyFacts.expr_types` for importing-root
+expressions. Publish them only for generalized declarations. They cannot
+contain solver IDs, rigid IDs, `Any`, `Unknown`, or `Invalid`.
+
+Store ground substitutions and row evidence in
+`CompactBodyFacts.call_instantiations`, keyed by call `ExprId`. Keep call
+targets and argument slots in the existing `selected_function_calls` and
+`argument_bindings` facts. Do not copy those decisions into
+`CallInstantiation`. For this slice, generic bodies contain parameter reads,
+required-label projections, and a tail returning one of those values.
+
+The lowerer consumes each `SchemeBodyFacts` once and emits the generic body
+once. Encode its binder-scoped types with the function in `FullProgram`.
+`FullVerifier` checks binder scope, body expression types, field projections,
+and the declared return scheme once under that binder environment. At each call
+it checks the existing target and argument slots, then validates the concrete
+type and row substitution. Reject an out-of-scope binder, missing required
+field, inconsistent parameter or return type, or escaped inference ID. The
+executor reads only the verified program and performs no inference.
 
 Unification operates on representatives and shared structural nodes. It checks
 the occurs condition before binding a type or row variable. Binding lowers the
@@ -210,55 +256,68 @@ inference.
 `src/syntax/parser/stmt.rs::parse_params_arena_only` currently emits
 `ParseExpectedParamType` for a required unannotated parameter.
 `ArenaParam` currently stores a mandatory `TypeExprId` plus `ty_defaulted`.
-Missing required annotations are represented by a fabricated unknown type
-expression after reporting the parse error. Change that syntax fact to an
-explicit optional annotation, preferably `Option<TypeExprId>`, and remove the
-overlapping `ty_defaulted` bit. `None` means the author omitted the annotation.
-It is distinct from explicit `Any`, `Unknown` used for recovery, and a solver
-metavariable. A default remains separately represented by `default`, so
-`None` with a default preserves default-derived parameter typing, while `None`
-without a default enters declaration inference. Malformed annotation syntax
-continues to be a parse error and must not become `None` recovery.
+Change the syntax fact to `annotation: Option<TypeExprId>` and remove
+`ty_defaulted`. `None` means the author omitted the annotation. It is distinct
+from explicit `Any`, parser recovery, and a solver metavariable. A default
+remains separately represented by `default`. `None` with a default keeps the
+existing default-derived typing. `None` without a default enters declaration
+inference only for pure definitions in this slice.
 
-`ArenaFunctionDef.return_ty_defaulted` already distinguishes an omitted return
-annotation from explicit `Any`. Retain that distinction: `infer_return.rs`
-relies on the flag, and an omitted proc return has the existing `Result[Unit]`
-default. Do not replace either case with `Any` or `Unknown`. The return-rule
-change here is limited to the approved unique rank-1 pure schemes, including
-exported identity. Unannotated recursive pure returns remain explicitly
-annotated in this first checkpoint.
+Pass the known declaration context into `parse_params_arena_only`. Accept a
+required omission without a parser diagnostic for pure definitions. Keep
+`ParseExpectedParamType` for proc and stream declarations, module contracts,
+and callable type expressions. Store `None` in the syntax tree even when that
+diagnostic is emitted. Do not fabricate an `Unknown` type expression for an
+omitted annotation. A malformed written annotation remains a parse error and
+does not become `None` recovery. Preserve `tests/xsh/mistakes.xsh`'s
+`proc add(a, b)` diagnostic.
 
-`parse_params_arena_only` is shared by function declarations and callable type
-expressions. Function declarations may carry `None`. Callable type expressions
-still require an explicit type and retain their current diagnostic. Update the
-arena builders, AST child enumeration, parser and type-expression validation,
-checker, CLI planner, frontend-size accounting, and lowering sites that read
-`param.ty` or `param.ty_defaulted`: currently `src/syntax/arena.rs`,
-`src/syntax/parser/{stmt,types}.rs`, `src/sema/{types,cli_entry}.rs`,
-`src/sema/check/{decl,infer_param,infer_return,stmt,types}.rs`,
-`src/runtime/eval/{lower.rs,lower/types.rs}`, and `src/frontend_stats.rs`.
-Existing `CallableParamType::defaulted` continues to mean an argument default,
-not an omitted annotation. CLI entry validation keeps its existing contract.
+`ArenaFunctionDef.return_ty_defaulted` distinguishes an omitted return
+annotation from explicit `Any`. Keep it because `infer_return.rs` reads it. Do
+not replace either case with `Unknown` or an inference metavariable.
+
+Keep omitted return behavior by declaration kind. An omitted pure return may be
+inferred for the acyclic rank-1 schemes in this slice. An omitted proc return
+continues to mean `Result[Unit]`. Stream returns and module-contract returns
+keep their existing requirements. An unannotated recursive pure return still
+requires an explicit annotation. `ArenaFunctionDef.return_ty_defaulted`
+continues to distinguish omission from explicit `Any`.
+
+Migrate every syntax-parameter reader in the same compileable change:
+`src/syntax/arena.rs`, `src/syntax/parser/stmt.rs`,
+`src/syntax/parser/types.rs`, `src/sema/types.rs`,
+`src/sema/cli_entry.rs`, `src/sema/check/{decl,infer_param,stmt,types}.rs`,
+`src/runtime/eval/lower.rs`, `src/runtime/eval/lower/types.rs`,
+`src/frontend_stats.rs`, and `tests/sema.rs`. Keep
+`CallableParamType::defaulted` as the argument-default fact. It does not encode
+an omitted annotation. CLI entry validation keeps its existing contract.
 
 `src/sema/check/infer_param.rs::infer_default_parameter_types` resolves
 defaulted parameter types from their defaults and signatures already in scope.
-It does not infer relationships from a function body. The return checks in
-`src/sema/check/infer_return.rs` reject unannotated exported and recursive
-pure functions.
+It does not infer relationships from a function body. The new pure declaration
+pass supplies body relationships for omitted required parameter types. Keep
+recursive pure functions monomorphic and explicitly returned in this slice.
 
 `src/sema/check/module_driver.rs::CheckSession` prepares reusable module
-records. `src/sema/check/module_record.rs::CheckedModuleFacts` retains each
-module's checked output and exported `UserModuleSig`. The compact path in
+records and passes each checked module's `UserModuleSig` to its importers.
+`UserModuleSig` remains the sole checker handoff. Its concrete `FunctionSig`
+contains the declaration's `Arc<TypeScheme>`. `CheckedModuleFacts` keeps that
+existing signature cache. Do not add another scheme cache.
+
 `src/sema/check/checked_declarations.rs` and
-`src/sema/check/compact.rs` publishes declaration signatures and body facts.
-`src/loader.rs::CompactModuleGraph` retains imported module signatures.
+`src/sema/check/compact.rs` publish the same scheme reference and
+`SchemeBodyFacts`. `CompactDeclOutput` indexes schemes by qualified export and
+body facts by body `Span`. `src/loader.rs::CompactModuleGraph::from_file_unit`
+copies those references for lowering. It keeps `CompactFunctionSig` as the
+existing ground signature projection.
 
 `src/runtime/eval/lower/calls.rs::lower_call` reads checked call targets,
-argument bindings, and expression types. `src/runtime/eval/indexed/semantic.rs::SemanticPools`
-encodes closed `Type` values and callable signatures. The verifier in
-`src/runtime/eval/indexed/full.rs` checks those pools and the encoded calls.
-`src/sema/types.rs::CallableType` carries parameter labels, concrete types,
-default and rest flags, return type, and optional effects.
+argument bindings, expression types, and call instantiations.
+`src/runtime/eval/indexed/semantic.rs::SemanticPools` encodes closed `Type`
+values and callable signatures. The verifier in
+`src/runtime/eval/indexed/full.rs` checks those pools and encoded calls.
+`src/sema/types.rs::CallableType` remains a concrete projection with parameter
+labels, types, default and rest flags, return type, and optional effects.
 `Checker::check_function_arena` also records `result_unit_function_tail` and
 compact `statement_positions`. These facts determine whether a body tail is a
 result value or a statement. Keep them fixed by the checked declaration and
@@ -307,16 +366,15 @@ the declaration body has a unique, closed rank-1 scheme.
 
 The loader and checker already separate reusable module declarations from
 entry-specific body facts. `CheckSession` caches `CheckedModuleFacts` by module
-identity. `CheckedDeclarations` records function signatures. `CompactDeclOutput`
-projects declarations, and `CompactBodyFacts` rekeys expression facts by
-`ExprId`. `CompactModuleGraph` carries exported `CompactFunctionSig` values.
-Store one immutable `TypeScheme` per declaration in `CheckedModuleFacts`, keyed
-by declaration identity. `CompactModuleGraph` carries that checked scheme under
-the qualified exported name. `CompactBodyFacts` stores one `CallInstantiation`
-per call `ExprId`. The declaration cache owns the scheme. The importing root
-owns its call instantiations. Keep `CompactFunctionSig` as a ground projection
-for existing concrete contracts. Never use `Any` in that projection to stand
-for a generic scheme.
+identity and passes the checked `UserModuleSig` to importers. `FunctionSig` in
+that signature carries the declaration's scheme. `CompactDeclOutput` publishes
+the same scheme reference under the qualified exported name and keeps each
+generic body fact under its source-qualified body `Span`. `CompactModuleGraph`
+copies the scheme reference for lowering. It does not reconstruct the scheme
+from `CompactFunctionSig`. The importing root owns one `CallInstantiation`
+per call `ExprId` in `CompactBodyFacts`. `CompactFunctionSig` remains the ground
+projection for existing concrete contracts. Never use `Any` in that projection
+to stand for a generic scheme.
 
 `src/runtime/eval/lower/calls.rs::lower_call` already consumes
 `selected_function_calls`, `argument_bindings`, and checked expression types.
@@ -327,22 +385,28 @@ Do not specialize a function body from the set or order of visible callers.
 The indexed semantic pool currently encodes closed types and callable
 signatures. Add quantified type and row binders to the generic function
 signature encoding, plus the call's checked substitution and row evidence.
-`FullVerifier` validates binder bounds, unique row labels, required fields,
-call target, argument slots, instantiated parameter and return types, and
-function body facts before execution. The executor reads the verified
-instruction stream and does no inference. Keep the existing monomorphic
-encoding for functions without quantified parameters.
+`FullVerifier` validates binder scope and lacks-label constraints, unique row
+labels, required fields, call target, argument slots, instantiated parameter
+and return types, and function body facts before execution. The executor reads
+the verified instruction stream and does no inference. Keep the existing
+monomorphic encoding for functions without quantified parameters.
 
 The native acceptance test runs each program through the ordinary loader,
-checker, lowerer, and indexed verifier, then executes it through `xsh`. A
-subprocess test proves execution after the compiler process has discarded its
-parser and checker state. A focused indexed-IR test forges a call substitution
-or row evidence and requires `FullVerifier` to reject it. Existing
-`builtin_templates_execute_checked_calls_after_frontend_drop_on_both_routes`
-is a useful source precedent for testing calls after frontend disposal. The
-new witness must exercise user schemes on the same ordinary prepared-program
-boundary. The Bool identity case must remain a Bool through the call and
-assertion. Lowering cannot choose its result from a runtime tag.
+checker, lowerer, and indexed verifier, then executes it through `xsh`. Add an
+in-process prepared-program test using the `fixture` pattern in
+`src/runtime/eval/indexed/full.rs`, following
+`builtin_templates_execute_checked_calls_after_frontend_drop_on_both_routes`.
+Explicitly drop parsed and compact declaration values before the helper returns
+`FullProgram`. Let checker and solver state leave scope before the test receives
+it. Call
+`FullVerifier::verify` on the returned program. Execute user identity and
+projection calls through both indexed invocation routes. This proves that the
+prepared program carries the required scheme and body facts after frontend
+state is gone. A subprocess test remains an ordinary-path acceptance test, not
+the disposal proof. A focused indexed-IR test forges a call substitution, row
+evidence, and scheme body fact and requires `FullVerifier` to reject each one.
+The Bool identity case must remain Bool through the call and assertion.
+Lowering cannot choose its result from a runtime tag.
 
 Importer outputs do not prove that the loader cached a quantified scheme.
 Add a checker test that inspects the cached export and asserts one quantified
@@ -352,33 +416,66 @@ Unify the instances with `Int` and `Str`, then assert that no inference
 variable escapes into checked facts. Run the Bool case through ordinary
 indexed execution after frontend disposal.
 
-## Exact implementation lanes
+## Exact implementation ownership
 
-Each lane owns its listed paths in an isolated worktree. The integrator owns
-shared-path integration and conflict resolution.
+Keep two inference lanes before acceptance. The representations cross parser,
+checker, lowerer, and verifier boundaries. One end-to-end owner keeps those
+interfaces compileable and gives every published scheme fact a consumer. The
+integrator owns shared-path merges.
 
-| Lane | Owned paths | Starts when |
-|---|---|---|
-| Capability witnesses | `tests/xsh/typing-capability-witnesses.xsh`, plus `tests/xsh/modules/typing-capability-identity.xsh`, `typing-capability-identity-reordered.xsh`, `typing-capability-import-int.xsh`, `typing-capability-import-text.xsh`, `typing-capability-root-int.xsh`, `typing-capability-root-text.xsh`, `typing-capability-root-joint.xsh`, and `typing-capability-root-bool.xsh` | The test owner keeps the acceptance fixtures. The red baseline records two pass and four fail. Inference lanes do not edit these files. |
-| Solver and solver tests | `src/sema/constraints.rs` only | Red baseline recorded. First replace aliases with ranked representatives, compression, provenance, and rollback. After the scheme record contract lands, extend this same `TypeConstraints` authority with row unification, levels, generalization, and instantiation. |
-| Parser representation | `src/syntax/arena.rs`, `src/syntax/parser/{stmt,types}.rs`, parser tests, and arena tests | Baseline recorded. Can proceed alongside the solver lane. |
-| Immutable scheme records | New `src/sema/schemes.rs` and its `src/sema/mod.rs` wiring | The role names in this design are reviewed. This lane can proceed alongside the alias prerequisite. It defines immutable scheme and call-evidence data only. It does not own mutable cells or unification. |
-| Checker and module publication | `src/sema/check.rs`, `src/sema/check/{decl,infer_param,infer_return,call,expr,stmt,types,module_driver,module_record,checked_declarations,compact,public_result,local_inference}.rs`, `src/sema/{types,cli_entry}.rs`, `src/loader.rs`, and `src/frontend_stats.rs` | Parser, solver, and scheme interfaces reviewed. Own function constraints, SCC monomorphism, scheme publication, per-call facts, and direct publication tests. |
-| Indexed lowering and verification | `src/runtime/eval/lower.rs`, `src/runtime/eval/lower/{calls,types}.rs`, `src/runtime/eval/indexed/semantic.rs`, `src/runtime/eval/indexed/full.rs`, and `src/runtime/eval/indexed/full/{schema,decode}.rs` | Checker fact types reviewed. Encode checked schemes and call evidence, then verify them before execution. |
-| Language contract docs | `docs/templates/SPEC.md`, `docs/templates/user-tour.md`, `docs/SPEC.md`, and `docs/user-tour.md` | Parser, checker, and indexed behavior accepted. Update templates before generated docs. |
+**Union-find prerequisite.** Own `src/sema/constraints.rs` only. Start after the
+frozen 400-alias red baseline is recorded. Preserve public methods and error
+variants, ranked representatives, rollback, provenance, and the 256 semantic-
+depth limit.
 
-The alias prerequisite, parser representation, and immutable scheme-record
-lanes can proceed now in separate worktrees. The solver extends the same
-authority after the scheme record contract lands. The checker lane follows the
-parser and solver interfaces. The indexed lane follows the published checker
-facts. Documentation follows accepted behavior.
+**Rank-1 compiler slice.** Own these paths together:
 
-Phase A currently edits some parser, checker, lowerer, and verifier paths.
-Inference owners may implement in their isolated worktrees while Phase A runs.
-They must not edit the consolidation worktree or shared master. The integrator
-merges overlapping paths after Phase A closes and reviews each boundary. This
-merge sequence does not block isolated implementation. The first inference
-slice does not depend on Lean. Lean remains paused.
+- Syntax and existing parser controls: `src/syntax/arena.rs`,
+  `src/syntax/parser.rs`, `src/syntax/parser/stmt.rs`,
+  `src/syntax/parser/types.rs`, `tests/sema.rs`, and
+  `tests/xsh/mistakes.xsh`.
+- Scheme and checker: `src/sema/mod.rs`, `src/sema/schemes.rs`,
+  `src/sema/check.rs`, `src/sema/types.rs`, `src/sema/cli_entry.rs`, and
+  `src/sema/check/{args,call,callable_alias,checked_declarations,command,compact,decl,expr,infer_effects,infer_param,infer_return,local_inference,module_driver,module_record,public_result,stmt,stream,typed_callable,types}.rs`.
+- Import and size accounting: `src/loader.rs` and `src/frontend_stats.rs`.
+- Lowering and verification: `src/runtime/eval/lower.rs`,
+  `src/runtime/eval/lower/calls.rs`, `src/runtime/eval/lower/types.rs`,
+  `src/runtime/eval/indexed/semantic.rs`,
+  `src/runtime/eval/indexed/full.rs`,
+  `src/runtime/eval/indexed/full/schema.rs`, and
+  `src/runtime/eval/indexed/full/decode.rs`.
+
+Start after the union-find prerequisite is accepted and the completed Clippy
+changes below are integrated or rebased. Own the full optional-annotation
+migration, scheme production and import, scheme body facts, call
+instantiation, lowering, verification, and focused Rust tests together. Do not
+split out parser-only or scheme-record-only lanes.
+
+**Language contract docs.** Own `docs/templates/SPEC.md`,
+`docs/templates/user-tour.md`, `docs/SPEC.md`, and `docs/user-tour.md` after the
+end-to-end behavior is accepted. Update templates before generated docs.
+
+The completed source-only Clippy commits own these paths:
+
+- `0015554d9`: `src/project.rs`, `src/syntax/grammar.rs`, and
+  `src/syntax/parser/{expr.rs,without.rs}`.
+- `b895269c6`: `src/sema/check.rs`,
+  `src/sema/check/{checked_declarations,expr,infer_effects,module_driver,module_record,resource,stmt,stream}.rs`,
+  and `src/sema/constants.rs`.
+- `fe6039eda`: `src/runtime/eval.rs`, `src/runtime/eval/lower.rs`,
+  `src/runtime/eval/lower/{patterns,pipeline,types}.rs`,
+  `src/runtime/eval/lowered_run.rs`,
+  `src/runtime/eval/lowered_run/module_net.rs`,
+  `src/runtime/eval/net_job.rs`, and `src/runtime/eval/route_witness.rs`.
+
+Integrate or rebase those commits before the rank-1 compiler lane starts.
+Preserve their changes and do not repeat their Clippy cleanup.
+
+The union-find lane can proceed independently while Phase A runs. The rank-1
+compiler lane follows its accepted API and the Clippy integration, then runs in
+an isolated worktree while Phase A continues. The integrator merges overlapping
+paths after Phase A closes and reviews each boundary. The first inference slice
+does not depend on Lean. Lean remains paused.
 
 ## Focused acceptance and instrumentation
 
@@ -400,11 +497,15 @@ Add checker tests named `checked_identity_scheme_is_rank1_and_reuses_one_binder`
 `captured_mutable_bindings_are_not_generalized`. Add solver tests for a
 400-variable alias chain, type and row occurs failures, failed-unification
 rollback after compression, isolated clone probes, rigid-variable rejection,
-and closed-row missing-field rejection. Add the indexed-verifier test
-`full_verifier_rejects_forged_generic_call_evidence`.
-Record each solver lane's removed and retained production decisions with its
-owner. Report added, removed, and net production lines at each checkpoint.
-Source growth and touched-line counts remain advisory.
+and closed-row missing-field rejection. Add verifier tests named
+`full_verifier_rejects_forged_generic_call_evidence` and
+`full_verifier_rejects_forged_generic_body_facts`. Add the in-process test
+`user_schemes_execute_after_frontend_drop_on_both_routes`.
+
+Each implementation owner records the production decisions it removes and the
+owner of each retained decision. Report added, removed, and net production
+lines at each checkpoint. Source growth and touched-line counts remain
+advisory.
 
 `TypeConstraints` has no operation counters in the current source. Record the
 pre-repair 400-variable result before replacing its algorithm. Add
