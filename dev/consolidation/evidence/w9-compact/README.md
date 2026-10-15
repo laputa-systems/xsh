@@ -55,3 +55,8 @@ The final pinned Rust harness run passed these four focused tests, each with one
 The four captured [unit-test logs](unit-tests/) combine each test's stdout and stderr; each contains its `test result` status. The last test prints expected panics while checking invalid symbol cases. Its test result is `ok`.
 
 The complete Python adapter runner module passed 67 tests. The exact-owner runner module passed 54. Both exited 0, for 121 passing tests total. They ran as `python3 dev/consolidation/<module>.py` with `PYTHONDONTWRITEBYTECODE=1` and `TMPDIR` under `.work/tmp`. Their captured [adapter output](python-tests/adapter.log), [adapter status](python-tests/adapter.status), [exact-owner output](python-tests/exact-owner.log), and [exact-owner status](python-tests/exact-owner.status) are retained.
+
+Both modules also pass after integration at `71f7cd689`, with 67 and 54 tests.
+Their [integrated adapter output](python-tests/integrated-71f7-adapter.log) and
+[integrated exact-owner output](python-tests/integrated-71f7-exact-owner.log)
+retain those results. Each command exits 0.

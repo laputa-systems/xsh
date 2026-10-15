@@ -1,0 +1,1414 @@
+[gate-git-safe-directory target=x86_64-unknown-linux-musl] git config --global --add safe.directory /work
+[test-products target=x86_64-unknown-linux-musl] cargo build --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi
+[test-rust-build target=x86_64-unknown-linux-musl] cargo test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test integration --test ambient_fs_policy --test symbol_plateau --test core_compat_boundaries --test core_compat_extra --no-run
+[test-rust target=x86_64-unknown-linux-musl] cargo test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test integration --test ambient_fs_policy --test symbol_plateau --test core_compat_boundaries --test core_compat_extra -- --skip split:: --skip runtime::coverage::
+
+running 1 test
+test ambient_filesystem_use_is_allowlisted ... ignored, temporarily disabled: netlink.rs ambient fs uses pending allowlist decision
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 23 tests
+test test_binary::tests::optimized_product_paths_are_accepted ... ok
+test test_binary::tests::other_profiles_are_rejected ... ok
+test test_deleted_dir ... ok
+test test_cat_rw_self_conflict_fails ... ok
+test test_cat_broken_pipe_nonzero_and_message ... ok
+test test_closes_file_descriptors ... ok
+test test_broken_pipe ... ok
+test test_cat_rw_self_succeeds ... ok
+test test_broken_pipe_no_error ... ok
+test test_large_tab_stop_without_tabs_does_not_allocate ... ok
+test test_child_when_pipe_in ... ok
+test test_uchild_when_no_capture_reading_from_infinite_source ... ok
+test test_dev_zero_closed_pipe ... ok
+test test_uu_mkfifo_diagnostics_plain_message_when_stderr_is_a_pipe ... ok
+test test_stdin_is_socket ... ok
+test test_comm_anonymous_pipes ... ok
+test test_uu_mkfifo_create_fifo_with_umask ... ok
+test test_validate_stdin_offset_bytes ... ok
+test test_uu_mkfifo_create_fifo_with_mode_and_umask ... ok
+test test_validate_stdin_offset_lines ... ok
+test test_dev_full ... ok
+test test_dev_random ... ok
+test test_dev_full_show_all ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.23s
+
+
+running 61 tests
+test date_clock::test_date_set_valid ... ignored, requires a disposable QEMU guest
+test date_clock::test_date_set_valid_3 ... ignored, requires a disposable QEMU guest
+test date_clock::test_date_set_valid_4 ... ignored, requires a disposable QEMU guest
+test descriptor::saved_descriptor_is_closed_on_exec ... ok
+test descriptor::exact_descriptor_creation_mode_ignores_umask_and_preserves_existing_files ... ok
+test fd::test_read_bytes ... ok
+test cp::test_cp_absolute_paths_from_deleted_cwd_new_target ... ok
+test cp::test_closes_file_descriptors ... ok
+test cp::test_cp_absolute_paths_from_deleted_cwd_existing_target ... ok
+test lifecycle::test_couldnt_rename ... ok
+test fd::test_bytes_oseek_bytes_trunc_oflag ... ok
+test fd::test_stats_are_reported_when_a_write_fails ... ok
+test lifecycle::test_kill_out_of_range_signal_is_rejected_not_sent ... ok
+test more::missing_raw_filename_is_not_lossy_filename ... ok
+test lifecycle::test_sigchld_ignored_by_parent ... ok
+test fd::test_stdin_stdout_not_rewound_even_when_connected_to_seekable_file ... ok
+test fd::test_multiple_processes_reading_stdin ... ok
+test fd::test_large_bs_does_not_fault_in_copy_buffer ... ok
+test more::invalid_arguments_fail ... ok
+test pty::btop_replay_initial_view_waits_for_frame_completion ... ok
+test more::file_errors ... ok
+test fd::test_block_stats_are_reported_when_a_write_fails ... ok
+test more::no_arguments_read_terminal_stdin ... ok
+test more::squeeze_option_displays_original_first_line ... ok
+test pty::btop_surface_delta_reconstructs_the_same_cells_as_a_fresh_full_frame ... ok
+test pty::btop_terminal_cleanup_runs_after_runtime_error_during_presentation ... ok
+test pty::btop_terminal_partial_start_failure_restores_input_terminal_attributes ... ok
+test more::basic_display ... ok
+test more::shared_valid_options_exit_at_short_file_eof ... ok
+test pty::cp_update_older_prompt_no ... ok
+test pty::cp_update_older_prompt_yes ... ok
+test lifecycle::test_uchild_when_run_no_wait_with_a_non_blocking_util ... ok
+test pty::env_terminal_all_streams ... ok
+test pty::dd_plain_terminal_diagnostic ... ok
+test pty::env_terminal_dimensions ... ok
+test pty::env_terminal_eot ... ok
+test pty::env_terminal_forwarded_input_eot ... ok
+test pty::env_sigpipe_after_reader_closes ... ok
+test pty::env_terminal_stderr_only ... ok
+test pty::env_terminal_written_input_eot ... ok
+test pty::env_terminal_stdout_only ... ok
+test pty::env_terminal_stdin_only ... ok
+test startup::absent_stdin_does_not_alias_loaded_source_and_can_be_reopened ... ok
+test startup::absent_stdout_can_be_redirected_and_inherited_by_exec ... ok
+test pty::expr_terminal_computed_operand ... ok
+test pty::expr_terminal_errors_without_position ... ok
+test startup::gnu_misc_no_fork_runs_initial_evaluation_when_threads_are_forbidden ... ok
+test startup::gnu_dd_misc_preserves_initial_stderr_absence ... ok
+test test_binary::tests::optimized_product_paths_are_accepted ... ok
+test test_binary::tests::other_profiles_are_rejected ... ok
+test startup::gnu_misc_close_stdout_preserves_initial_absence ... ok
+test startup::gnu_touch_dash_closed_stdout ... ok
+test pty::native_terminal_redirection_does_not_hang_up_its_session_leader ... ok
+test pty::btop_replay_ctrl_c_byte_exits_and_restores_terminal ... ok
+test pty::btop_replay_stdin_eof_restores_terminal_attributes ... ok
+test pty::btop_replay_finite_completion_restores_terminal_attributes ... ok
+test pty::btop_replay_write_failure_restores_input_terminal_attributes ... ok
+test pty::btop_replay_filter_sort_selection_and_resize_use_the_decoded_input ... ok
+test pty::btop_replay_updates_after_resize_and_quits_with_restored_terminal ... ok
+test pty::btop_input_to_present_latency_is_separate_from_replay_sample_interval ... ok
+test pty::btop_replay_network_and_cpu_view_keys_change_rendered_cells ... ok
+
+test result: ok. 58 passed; 0 failed; 3 ignored; 0 measured; 2 filtered out; finished in 2.68s
+
+
+running 223 tests
+test diagnostics::synthetic_diagnostic_fixture_output_is_stable ... ok
+test cli::xsh_reports_non_utf8_script_argument_without_panicking ... ok
+test cli::xsh_byte_entry_rejects_imported_readers_with_a_text_argument_contract ... ok
+test cli::xsh_text_main_rejects_invalid_utf8_before_top_level_effects ... ok
+test cli::xsh_rejects_mixed_byte_entry_signature_before_effects ... ok
+test cli::xsh_text_entry_imports_keep_their_text_argument_contract ... ok
+test cli::xsh_write_stderr_bytes_preserves_raw_bytes_and_output_order ... ok
+test cli::xsh_byte_main_explicit_dispatch_uses_the_same_contextual_arguments ... ok
+test cli::xsh_byte_main_opens_non_utf8_path_without_display_conversion ... ok
+test cli::xsh_byte_main_context_is_shared_by_imported_argument_readers ... ok
+test cli::xsht_trace_binds_utf8_words_as_bytes_for_a_byte_entry ... ok
+test cli::xsh_byte_main_receives_exact_os_arguments ... ok
+test grammar::context_scopes_cannot_supply_an_enclosing_scope_body ... ok
+test grammar::duration_pattern_tests_are_recognized ... ok
+test grammar::grammar_corpus_discovery_skips_work_tree ... ok
+test grammar::error_family_forms_are_parsed_and_recognized_alike ... ok
+test grammar::deeper_generated_counterexamples_have_sound_recognition ... ok
+test grammar::cd_scope_arguments_keep_command_word_interpolation ... ok
+test grammar::expression_suffixes_after_stages_allow_spaces ... ok
+test grammar::grammar_rules_are_defined_reachable_and_derivable ... ok
+test grammar::grammar_rejects_sources_the_parser_rejects ... ok
+test grammar::env_without_a_block_uses_proc_command_rules ... ok
+test grammar::bare_exit_and_fail_do_not_end_before_arm_commas ... ok
+test grammar::line_continuation_spellings_come_from_the_operator_table ... ok
+test grammar::inferred_variant_patterns_are_parsed_and_recognized_alike ... ok
+test grammar::grammar_generated_sentences_parse_without_diagnostics ... ok
+test grammar::bare_minus_command_arguments_preserve_source_adjacency ... ok
+test grammar::grouped_propagation_in_indices_is_recognized ... ok
+test grammar::last_status_statement_comparisons_are_recognized ... ok
+test grammar::match_else_arm_forms_are_parsed_and_recognized_alike ... ok
+test grammar::multiline_block_parameters_are_recognized ... ok
+test grammar::final_builder_blocks_can_belong_to_condition_heads ... ok
+test grammar::stage_arguments_can_precede_grouped_inline_expressions ... ok
+test grammar::run_option_values_leave_following_words_as_command_arguments ... ok
+test grammar::statement_keyword_forms_begin_with_their_keywords ... ok
+test grammar::command_dot_words_are_recognized ... ok
+test grammar::statement_start_conversions_are_parsed_and_recognized_alike ... ok
+test grammar::list_rest_bindings_use_binding_names ... ok
+test libc_hygiene::raw_fd_boundary_exception_matches_only_its_exact_ast_scope ... ok
+test libxsh_api::facade_keeps_source_identity_explicit ... ok
+test grammar::tempdir_cannot_steal_a_stream_stage_block ... ok
+test libxsh_api::facade_script_execution_preserves_script_output_contract ... ok
+test runtime::collections::list_and_map_accumulation_allocation_traffic_is_not_quadratic ... ok
+test libxsh_api::facade_exposes_frontend_execution_process_and_trace_contracts ... ok
+test libxsh_api::script_api_preserves_non_utf8_arguments_for_a_byte_entry ... ok
+test runtime::collections::named_stage_callable_construction_has_bounded_allocation_slope ... ok
+test runtime::linux::linux_real_read_only_surfaces_work_in_container ... ok
+test runtime::linux::run_cpumax_uses_real_cgroup_v2_when_available ... ok
+test runtime::linux::xsht_syscall_trace_includes_summary_when_ptrace_available ... ok
+test runtime::collections::map_reads_do_not_copy_the_map ... ok
+test runtime::modules::command_path_shorthand_can_be_target_and_compound_interpolation_displays ... ok
+test runtime::modules::dns_module_uses_explicit_server_for_a_and_aaaa_records ... ok
+test runtime::linux::xsht_syscall_trace_subprocess_spawn_reaches_exec ... ok
+test runtime::modules::helper_binaries_cover_raw_argv_env_path_and_glob_boundaries ... ok
+test runtime::modules::native_xsh_dns_explicit_server_transport ... ok
+test runtime::collections::record_reads_do_not_copy_the_record ... ok
+test grammar::mutated_fuzz_cli_source_is_a_grammar_sentence ... ok
+test runtime::modules::native_xsh_core_dns_clients ... ok
+test runtime::modules::native_xsh_net_batch_download_error_contract ... ok
+test runtime::modules::native_xsh_net_http_contracts ... ok
+test runtime::modules::native_xsh_net_download_many_over_https_http2 ... ok
+test runtime::modules::native_xsh_net_error_contracts ... ok
+test runtime::modules::native_xsh_net_job_trace_contract ... ok
+test grammar::slice_ranges_do_not_extend_pattern_names ... ok
+test runtime::modules::native_xsh_net_batch_contracts ... ok
+test runtime::modules::native_xsh_net_runtime_descriptors_do_not_survive_exec ... ok
+test runtime::modules::native_xsh_net_request_many_over_https_http2 ... ok
+test runtime::modules::native_xsh_net_single_calls_force_https_http1 ... ok
+test runtime::modules::native_xsh_net_job_cancel_keeps_https_http2_pool_healthy ... ok
+test runtime::modules::native_xsh_net_tls_contracts_over_tls12 ... ok
+test runtime::modules::native_xsh_net_uses_ssl_cert_dir_for_linux_trust ... ok
+test runtime::modules::native_xsh_net_tls_contracts_over_tls13 ... ok
+test runtime::modules::net_module_download_many_follows_redirects_and_keeps_atomic_destination_on_limit ... ok
+test runtime::modules::net_module_download_many_streams_ordered_files ... ok
+test grammar::reduced_mutant_counterexamples_have_sound_recognition ... ok
+test runtime::modules::net_module_download_many_negotiates_local_https_http2 ... ok
+test runtime::modules::net_module_request_many_negotiates_local_https_http2 ... ok
+test runtime::modules::net_module_request_many_returns_ordered_results ... ok
+test runtime::modules::net_module_request_many_verifies_local_https_over_tls13 ... ok
+test runtime::modules::net_module_reuses_tcp_connection_within_pool ... ok
+test runtime::modules::net_module_transfers_files_and_uses_named_pool ... ok
+test runtime::modules::path_interpolation_preserves_native_bytes_in_literals_and_compound_argv ... ok
+test runtime::modules::path_interpolation_preserves_real_native_filename_and_redirection_bytes ... ok
+test runtime::modules::net_module_verifies_local_https_with_custom_ca_over_tls12 ... ok
+test runtime::os::os_child_signal_disposition_is_reset_before_exec ... ok
+test runtime::os::os_detached_process_is_released_to_background_reaper ... ok
+test runtime::os::os_first_signal_wins_and_different_signal_escalates_without_reentry ... ok
+test runtime::os::os_hook_owned_wait_ignores_primary_signal_but_escalation_kills_it ... ok
+test grammar::command_argument_spacing_is_preserved ... ok
+test grammar::discarded_lookahead_attempts_do_not_change_generated_derivations ... ok
+test runtime::modules::native_xsh_net_timeout_contracts ... ok
+test runtime::os::os_selective_retry_sleep_honors_signal_abort_after_attempt_cleanup ... ok
+test runtime::os::os_signal_hook_failure_trace_payload_is_json ... ok
+test runtime::os::os_signal_hook_scope_snapshot_uses_registration_bindings ... ok
+test runtime::modules::native_xsh_net_job_progresses_while_synchronous_request_waits ... ok
+test runtime::modules::net_job_progresses_while_synchronous_request_waits ... ok
+test runtime::modules::net_module_request_many_refills_the_window_on_first_completion ... ok
+test runtime::os::os_wait_list_drains_after_timeout_and_duplicate_errors ... ok
+test runtime::os::os_trace_json_correlates_signal_spawn_wait_and_cancel_payloads ... ok
+test runtime::os::os_process_group_boundary_leaves_new_session_to_harness_cleanup ... ok
+test runtime::process::bytes_stdin_capture_drains_both_outputs_while_feeding_large_input ... ok
+test runtime::process::bytes_stdin_early_close_and_first_pipeline_keep_success_status ... ok
+test runtime::process::active_networking_does_not_block_process_spawn_boundaries ... ok
+test runtime::process::process_argv_words_command_argv_and_run_execute ... ok
+test runtime::process::bytes_stdin_owned_spawn_feeds_before_wait_and_closes_on_timeout_or_cancel ... ok
+test runtime::process::process_port_finds_visible_listener_and_example_prints_table ... ok
+test runtime::process::signal_hook_finishes_before_canceling_a_net_job_that_completed_during_the_hook ... ok
+test runtime::process::sigterm_cancels_live_net_jobs_without_a_signal_hook ... ok
+test runtime::os::os_byte_pipeline_cancellation_kills_owned_process_group ... ok
+test grammar::multiline_sets_and_command_word_boundaries_are_recognized ... ok
+test runtime::os::os_process_run_cancellation_kills_owned_process_group ... ok
+test runtime::process::sigterm_during_script_source_read_is_not_lost_before_execution ... ok
+test runtime::run::copied_products_check_and_run_script_backed_calls_in_static_and_loaded_modules ... ok
+test runtime::run::runtime_stats_preserves_parallel_script_output_and_reports_worker_traffic ... ok
+test runtime::stack_depth::small_stack_deep_expression_nesting_does_not_abort ... ok
+test runtime::os::os_nested_proc_scopes_cleanup_multiple_live_handles ... ok
+test runtime::stack_depth::small_stack_global_record_constructor_named_arguments_do_not_abort ... ok
+test runtime::stack_depth::small_stack_indexed_frames_run_defers_on_abort ... ok
+test runtime::stack_depth::small_stack_main_mutual_recursion_does_not_abort ... ok
+test runtime::stack_depth::small_stack_main_nested_blocks_do_not_abort ... ok
+test runtime::stack_depth::small_stack_mode_runs_simple_script ... ok
+test runtime::stack_depth::small_stack_main_self_recursion_does_not_abort ... ok
+test runtime::stack_depth::small_stack_nested_format_method_calls_do_not_abort ... ok
+test grammar::grammar_deeper_generated_sentences_parse_without_diagnostics ... ok
+test runtime::stack_depth::small_stack_nested_lowered_result_calls_do_not_abort ... ok
+test runtime::os::os_spawn_scope_cleanup_kills_live_handle_tree ... ok
+test runtime::stack_depth::small_stack_nested_result_record_materialization_does_not_abort ... ok
+test runtime::stack_depth::small_stack_xsht_native_test_body_does_not_abort ... ok
+test runtime::process::accepted_process_stream_signal_cancellation_reaps_between_pulls ... ok
+test runtime::process::sigint_cancels_byte_pipeline_and_process_tree ... ok
+test runtime::stack_depth::small_stack_par_map_worker_recursion_does_not_abort ... ok
+test runtime::streams::sigterm_cancels_traced_par_map_process_work_without_losing_trace_context ... ok
+test runtime::stack_depth::small_stack_projection_arguments_preserve_order_and_error_cleanup ... ok
+test runtime::unix::unix_spawn_with_tty_uses_tty_dir_and_new_session ... ok
+test sema::auto_propagated_result_unit_tail_is_not_a_statement_expression ... ok
+test runtime::stack_depth::small_stack_result_projections_in_native_arguments_do_not_abort ... ok
+test sema::boolean_guard_checked_facts_preserve_refinement_and_statement_position ... ok
+test runtime::unix::unix_kill_all_signals_exact_process_name ... ok
+test sema::callable_alias_signatures_agree_in_full_and_compact_facts ... ok
+test sema::checked_outputs_accept_default_control_flow_facts ... ok
+test sema::canonical_stream_stage_facts_distinguish_equal_spans_in_modules ... ok
+test sema::builtin_template_checked_facts_agree_on_full_and_compact_routes ... ok
+test sema::checker_cli_command_descriptors_keep_conditional_fields_and_dynamic_fallback_erased ... ok
+test sema::checker_cli_dynamic_full_descriptors_keep_the_outcome_envelope ... ok
+test sema::callable_alias_module_projection_contracts_preserve_full_compact_facts ... ok
+test sema::checker_cli_constant_descriptors_match_inline_and_compact_facts ... ok
+test sema::checker_cli_command_descriptors_match_inline_const_and_spread_shapes ... ok
+test sema::checker_record_proof_types_agree_on_full_and_compact_routes ... ok
+test runtime::stack_depth::small_stack_yield_delegation_late_error_unwinds_deep_chain ... ok
+test sema::checker_rejects_signal_hooks_in_interactive_input ... ok
+test sema::checker_cli_prepared_descriptor_context_uses_the_refined_result ... ok
+test sema::checker_records_value_and_statement_bool_positions ... ok
+test sema::checker_rejects_undefined_utility_names_as_interactive_proc_commands ... ok
+test sema::checker_rejects_use_of_an_unknown_module ... ok
+test sema::checker_retains_annotation_facts_and_reveal_notes ... ok
+test sema::compact_check_reads_import_source_for_boolean_module_command_flags ... ok
+test sema::compact_constructor_call_types_keep_each_checked_instance ... ok
+test sema::compact_count_and_json_adapter_facts_match_checked_pipeline_outputs ... ok
+test sema::constant_key_projection_guarded_access_keeps_optional_result_layers ... ok
+test sema::constant_key_projection_full_and_compact_facts_preserve_field_types ... ok
+test sema::checker_guarded_control_proofs_agree_on_full_and_compact_routes ... ok
+test sema::constant_key_projection_keeps_module_get_exports_and_callable_metadata ... ok
+test sema::compact_stream_stage_result_matrix_matches_canonical_checked_facts ... ok
+test sema::default_parameter_contract_headers_keep_checked_omitted_literal_types ... ok
+test sema::doc_only_module_does_not_attribute_orphan_docs_to_another_source ... ok
+test sema::context_scope_capture_tail_types_agree_in_full_and_compact_facts ... ok
+test sema::default_parameter_types_are_checked_declaration_facts_shared_with_compact ... ok
+test sema::duration_arithmetic_compact_and_full_checked_types_agree ... ok
+test sema::dynamic_boundary_record_facts_agree_across_checked_representations ... ok
+test sema::error_fallback_checked_facts_keep_nominal_error_and_value_tail ... ok
+test sema::flat_map_result_callback_requires_explicit_propagation_in_full_and_compact_checks ... ok
+test sema::imported_command_value_sites_keep_the_importing_module_source ... ok
+test sema::effect_inference_keeps_unknown_dynamic_and_test_boundaries ... ok
+test sema::named_stream_stage_callbacks_publish_implicit_call_facts ... ok
+test sema::inferred_require_full_and_compact_targets_preserve_schema_identity ... ok
+test runtime::stack_depth::small_stack_yield_delegation_pulls_and_cancels_deep_chains ... ok
+test sema::fold_complete_accumulator_contracts_match_full_and_compact_facts ... ok
+test sema::embedded_standard_library_diagnostics_are_not_reported_as_user_findings ... ok
+test runtime::process::sigterm_cancels_live_spawned_process_handles ... ok
+test sema::private_proc_effects_publish_matching_full_and_compact_facts ... ok
+test sema::private_pure_inference_publishes_exact_returns_and_annotations ... ok
+test sema::signature_cli_compact_metadata_keeps_typed_frames_without_callable_entries ... ok
+test sema::signature_cli_inferred_defaults_reuse_checked_parameter_facts ... ok
+test sema::typed_cause_full_and_compact_inference_retains_only_outer_error ... ok
+test sema::value_pipeline_holes_publish_the_checked_input_and_ordinary_call_types ... ok
+test sema_bundle_view::check_session_rejects_a_module_view_that_aliases_an_entry_range - should panic ... ok
+test sema::removed_record_require_identity_fix_uses_plain_values_and_exact_named_schema ... ok
+test sema::yield_delegation_keeps_checked_stream_sources_in_full_and_compact_facts ... ok
+test sema::typed_cause_flattened_handler_guidance_has_no_automatic_fix ... ok
+test sema_bundle_view::checked_entry_retains_record_constructor_instances_from_module_bodies ... ok
+test sema_bundle_view::grouping_diagnostics_match_standalone_sources_in_a_shared_arena ... ok
+test sema_bundle_view::embedded_module_records_do_not_depend_on_unimported_embedded_modules ... ok
+test sema::removed_record_require_refuses_unproved_or_different_contracts ... ok
+test sema_bundle_view::imported_wire_mapping_diagnostics_replay_once_from_session_records ... ok
+test sema_bundle_view::imported_module_bodies_publish_generic_type_instantiations ... ok
+test sema_bundle_view::suppressed_embedded_modules_keep_declaration_effect_facts ... ok
+test sema_bundle_view::internal_resource_diagnostics_follow_embedded_body_publication ... ok
+test sema_bundle_view::suppressed_embedded_modules_keep_resource_transfer_facts ... ok
+test sema_bundle_view::checker_preparation_is_scoped_to_each_root_in_a_shared_arena ... ok
+test sema_bundle_view::internal_module_dependencies_remain_dependency_first ... ok
+test stdlib_port::a_reference_to_a_private_helper_prepares_nothing ... ok
+test sema_bundle_view::wire_enum_and_cli_validation_use_the_selected_root ... ok
+test sema_bundle_view::suppressed_embedded_record_constructors_are_not_published ... ok
+test stdlib_port::copied_binary_runs_migrated_apis_without_repository_files ... ok
+test stdlib_port::linux_text_entries_select_expected_bindings ... ok
+test stdlib_port::os_release_entry_reads_the_fixed_paths ... ok
+test stdlib_port::a_resolved_dynamic_loading_route_prepares_the_complete_set ... ok
+test stdlib_port::preparation_is_proportional_to_referenced_standard_entries ... ok
+test stdlib_port::repeated_references_parse_an_embedded_module_once ... ok
+test stdlib_port::selection_ignores_names_that_are_not_script_backed_references ... ok
+test test_binary::tests::optimized_product_paths_are_accepted ... ok
+test test_binary::tests::other_profiles_are_rejected ... ok
+test stdlib_port::execution_does_not_prepare_embedded_modules ... ok
+test stdlib_port::prepared_script_diagnostics_do_not_depend_on_revealed_type_publication ... ok
+test sema::stream_callback_result_contracts_publish_matching_full_and_compact_types ... ok
+test stdlib_port::dynamic_loading_prepares_the_complete_set_before_execution ... ok
+test stdlib_port::a_loaded_module_calls_prepared_implementations ... ok
+test runtime::process::sigterm_cancels_scoped_run_and_process_tree_without_losing_cwd_trace ... ok
+test grammar::grammar_recognizes_every_parsed_repository_source ... ok
+test runtime::process::sigterm_drains_process_net_job_and_parallel_workers_with_trace_parentage ... ok
+test runtime::os::os_signal_hooks_run_from_loop_sleep_defer_and_wait_checkpoints ... ok
+test libc_hygiene::no_migratable_libc_calls ... ok
+test sema::checker_publication_options_preserve_repository_diagnostics ... ok
+
+test result: ok. 223 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 37.09s
+
+
+running 1 test
+test repeated_preparation_returns_to_a_stable_symbol_plateau ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+[test-debug-assertions-build target=x86_64-unknown-linux-musl] cargo test --locked --target x86_64-unknown-linux-musl -p xsh --lib --no-run
+[test-debug-assertions target=x86_64-unknown-linux-musl] cargo test --locked --target x86_64-unknown-linux-musl -p xsh --lib
+
+running 744 tests
+test diagnostic::code::tests::every_code_has_a_one_line_summary ... ok
+test diagnostic::code::tests::only_non_lint_codes_declare_fixable ... ok
+test diagnostic::tests::exposes_machine_readable_diagnostics ... ok
+test diagnostic::tests::short_unicode_crlf_context_preserves_its_existing_marker_width ... ok
+test diagnostic::tests::renders_source_context_without_terminal_color ... ok
+test diagnostic::tests::renders_multiple_diagnostics_deterministically ... ok
+test frontend_stats::tests::check_output_measurement_includes_resource_transfer_capacity ... ok
+test frontend_stats::tests::compact_declaration_measurement_includes_resource_transfer_capacity ... ok
+test frontend_stats::tests::default_file_stats_reconcile ... ok
+test diagnostic::tests::bounds_markers_when_locations_extend_past_trimmed_carriage_returns ... ok
+test diagnostic::tests::clipped_unicode_context_keeps_markers_and_machine_spans_aligned ... ok
+test host_impl::tests::command_spec_builds_process_invocation ... ok
+test diagnostic::code::tests::names_are_unique_family_prefixed_and_round_trip ... ok
+test host_impl::tests::tty_attrs_record_roundtrips_through_typed_facade ... ok
+test loader::tests::compact_file_unit_keeps_parse_diagnostics_attached ... ok
+test host_impl::tests::command_spec_rejects_invalid_os_strings ... ok
+test diagnostic::tests::clips_long_empty_end_and_multiline_labels_in_plain_and_color ... ok
+test loader::tests::only_loaded_missing_imports_record_filesystem_candidates ... ok
+test loader::tests::compact_file_unit_wraps_parsed_arena_without_checker_runtime_state ... ok
+test loader::tests::shared_workspace_loading_propagates_cancellation_during_recursive_imports ... ok
+test loader::tests::compact_file_unit_exposes_loaded_module_statements ... ok
+test loader::tests::batch_entry_loader_shares_imports_and_keeps_root_ranges ... ok
+test map_key::tests::scalar_map_keys_keep_domains_and_canonical_order ... ok
+test map_key::tests::scalar_map_native_bytes_are_lossless_and_borrowed ... ok
+test modules::cli::tests::arg_token_kind_strings_match_public_contract ... ok
+test modules::bytes::tests::byte_slice_helpers_cover_script_methods ... ok
+test modules::cli::tests::parse_scalar_arg_types_is_centralized ... ok
+test modules::cli::tests::parse_type_name_still_handles_list_wrappers ... ok
+test modules::elf::tests::parses_big_endian_elf32_and_android_dynamic_tags ... ok
+test modules::elf::tests::parses_dynamic_dependencies_from_elf64_little_endian ... ok
+test modules::elf::tests::rejects_truncated_elf ... ok
+test modules::elf::tests::reports_non_elf_without_error ... ok
+test loader::tests::workspace_loader_parses_shared_import_once_for_two_roots ... ok
+test modules::fs::tests::df_capacity_percent_matches_busybox_df ... ok
+test modules::elf::tests::uses_section_headers_when_program_dynamic_is_absent ... ok
+test modules::fs::tests::mount_listing_skips_only_a_permission_refusal ... ok
+test modules::fs::tests::unordered_directory_listing_is_lazy ... ok
+test modules::hash::tests::file_digest_retries_interrupted_reads ... ok
+test modules::ini::tests::decode_accepts_globals_sections_comments_colon_and_continuations ... ok
+test modules::ini::tests::decode_rejects_duplicates_case_insensitively ... ok
+test modules::ini::tests::decode_rejects_global_section_collisions ... ok
+test modules::linux::real::kernel::tests::meminfo_parser_preserves_units_duplicates_and_saturation ... ok
+test loader::tests::shared_workspace_reuses_same_context_and_separates_import_graphs ... ok
+test modules::fs::tests::mounts_include_root_and_positive_counters ... ok
+test diagnostic::code::tests::every_code_cited_in_docs_exists ... ok
+test modules::linux::real::kernel::tests::meminfo_parser_reports_errors_in_file_then_field_order ... ok
+test modules::linux::real::kernel::tests::meminfo_parser_rejects_non_decimal_field_spellings ... ok
+test modules::linux::real::netlink::tests::attributes_reject_malformed_lengths_and_retain_unknown_kinds ... ok
+test modules::linux::real::netlink::tests::dump_accumulator_reads_multipart_messages_across_datagrams ... ok
+test modules::linux::real::netlink::tests::dump_accumulator_rejects_bad_sequence_port_and_lengths ... ok
+test modules::linux::real::kernel::tests::module_rows_preserve_fields_and_report_malformed_input ... ok
+test modules::linux::real::netlink::tests::dump_accumulator_rejects_truncated_status_and_positive_error_codes ... ok
+test modules::linux::real::netlink::tests::live_raw_reply_capture_or_replay_uses_the_network_decoder ... ignored, requires XSH_NETLINK_CAPTURE_DIR or XSH_NETLINK_REPLAY_DIR in the pinned Linux test image
+test modules::linux::real::netlink::tests::dump_accumulator_reports_kernel_errors_and_interrupted_dumps ... ok
+test modules::linux::real::netlink::tests::malformed_one_link_does_not_discard_sibling_records ... ok
+test modules::linux::real::netlink::tests::malformed_entity_prevents_successful_enumeration_after_all_dumps_finish ... ok
+test modules::linux::real::netlink::tests::interfaces_pair_addresses_by_index_and_sort_by_name ... ok
+test modules::linux::real::netlink::tests::network_dump_keeps_enumeration_success_separate_from_field_issues ... ok
+test modules::linux::real::netlink::tests::receive_timeout_never_rounds_up_into_an_invalid_timeval ... ok
+test modules::linux::real::netlink::tests::oversized_link_counters_keep_the_link_and_report_field_failures ... ok
+test modules::linux::real::netlink::tests::raw_reply_bundle_replays_validated_datagrams_and_rejects_tampering ... ok
+test modules::linux::real::netlink::tests::truncated_address_attribute_does_not_discard_a_valid_neighbor ... ok
+test modules::linux::real::netlink::tests::routes_keep_network_byte_order_for_non_palindromic_addresses ... ok
+test modules::linux::tests::tests::depmod_rejects_missing_dependencies_without_rewriting_indices ... ok
+test modules::linux::real::netlink::tests::raw_multipart_dumps_replay_through_the_network_snapshot_decoder ... ok
+test modules::linux::tests::tests::blkid_reads_seed_filesystem_magic_fixtures ... ok
+test modules::linux::tests::tests::module_metadata_preserves_only_ordered_modinfo_fields ... ok
+test modules::linux::tests::tests::depmod_writes_alias_and_softdep_indices_and_preserves_declared_fields ... ok
+test modules::linux::tests::tests::module_metadata_fixtures_cover_modinfo_and_depmod ... ok
+test modules::linux::tests::tests::fsck_dispatches_to_filesystem_specific_checker ... ok
+test modules::linux::tests::tests::module_metadata_reads_elf32_big_endian_and_rejects_overflowing_tables ... ok
+test modules::linux::tests::tests::module_plan_reports_missing_dependencies_cycles_and_builtin_dependencies ... ok
+test frontend_stats::tests::arena_table_stats_report_hot_and_cold_table_usage ... ok
+test modules::linux::tests::tests::module_plan_resolves_alias_options_and_soft_dependencies_without_loading ... ok
+test frontend_stats::tests::json_output_is_stable ... ok
+test loader::tests::compact_module_graph_collects_resolved_declarations_before_evaluator_installation ... ok
+test modules::mime::tests::host_mime_types_override_builtins_by_extension ... ok
+test modules::mime::tests::parse_media_type_normalizes_type_and_params ... ok
+test modules::mime::tests::lookup_path_prefers_known_multi_extensions ... ok
+test modules::mime::tests::parse_media_type_rejects_malformed_values ... ok
+test modules::locale::tests::embedded_metadata_preserves_byte_domains_and_complete_months ... ok
+test modules::linux::tests::tests::open_files_reports_current_process_descriptors ... ok
+test frontend_stats::tests::source_measurements_are_deterministic_without_allocator_tracking ... ok
+test modules::linux::tests::tests::partition_writer_rejects_invalid_input_without_mutation ... ok
+test modules::system::tests::memory_parser_preserves_units_duplicates_and_error_order ... ok
+test modules::system::tests::memory_reports_total ... ok
+test modules::system::tests::os_release_parser_preserves_quotes_duplicates_and_defaults ... ok
+test modules::system::tests::os_release_reports_name ... ok
+test modules::regex::tests::invalid_regex_literals_are_diagnosed_even_in_unreachable_functions ... ok
+test modules::signature::tests::api_spec_adapter_exactly_mirrors_registry ... ok
+test modules::text::tests::text_helpers_cover_native_methods ... ok
+test modules::time::calendar_tests::calendar_nanosecond_precision_and_negative_epoch ... ok
+test modules::time::calendar_tests::calendar_format_flags_apply_before_bounded_padding ... ok
+test modules::time::calendar_tests::calendar_utc_fields_and_leap_day_round_trip ... ok
+test modules::time::tests::format_epoch_ms_utc_handles_epoch_leap_day_and_pre_epoch_values ... ok
+test modules::time::calendar_tests::calendar_validation_and_bounded_formats ... ok
+test modules::unix::tests::does_not_match_later_shell_argv_tokens ... ok
+test modules::unix::tests::matches_exact_process_name_and_argv0_basename ... ok
+test modules::unix::tests::matches_linux_comm_truncation_only_as_prefix ... ok
+test modules::unix::tests::skips_self_and_pid1 ... ok
+test project::tests::a_relative_entry_keeps_a_project_config_relative_to_the_working_directory ... ok
+test project::tests::an_entry_without_a_config_has_no_project_roots ... ok
+test project::tests::parent_components_cancel_before_the_walk ... ok
+test project::tests::a_malformed_config_is_an_error_not_an_empty_module_path ... ok
+test project::tests::project_module_roots_come_from_the_nearest_config_above_the_entry ... ok
+test modules::tests::module_signatures_keep_expected_boundaries ... ok
+test modules::regex::tests::checked_regex_literals_share_preparation_across_frontend_passes_and_clones ... ok
+test modules::linux::tests::tests::module_metadata_reads_supported_compressed_modules ... ok
+test modules::linux::tests::tests::partition_table_reads_and_writes_dos_and_gpt_file_images ... ok
+test runner::tests::compact_indexed_coverage_trace_preserves_function_definition_span ... ok
+test runner::tests::compact_indexed_runner_attempt_covers_implicit_rest_main ... ok
+test runner::tests::compact_indexed_runner_attempt_covers_extension_count_shape ... ok
+test runner::tests::compact_indexed_runner_attempt_covers_path_constructor_binding_inference ... ok
+test runner::tests::compact_indexed_runner_attempt_covers_named_helper_call ... ok
+test runner::tests::compact_indexed_runner_attempt_covers_archive_package_shape ... ok
+test modules::hash::tests::file_digests_read_in_bounded_chunks_with_byte_parity ... ok
+test runner::tests::compact_indexed_runner_attempt_covers_manifest_hash_shape ... ok
+test runner::tests::compact_indexed_runner_attempt_covers_path_parse_and_print ... ok
+test runner::tests::compact_indexed_runner_attempt_covers_path_constructor_param_default ... ok
+test frontend_stats::tests::indexed_execution_retained_columns_are_stable ... ok
+test runner::tests::compact_indexed_runner_attempt_covers_json_log_rollup_shape ... ok
+test runner::tests::diagnostic_attempt_reuses_loaded_entry_source ... ok
+test runner::tests::compact_indexed_runner_attempt_covers_range_flat_map_sum_collect ... ok
+test runner::tests::compact_indexed_runner_attempt_covers_result_unit_fallthrough ... ok
+test runner::tests::compact_indexed_runner_attempt_executes_covered_script ... ok
+test runner::tests::compact_indexed_runner_attempt_skips_standard_use ... ok
+test runner::tests::run_script_uses_compact_runner_by_default_for_covered_scripts ... ok
+test runner::tests::compact_indexed_runner_attempt_loads_user_module_without_compat_program ... ok
+test runtime::cgroup::tests::fake_root_writes_cpu_max_and_pid_then_cleans_up ... ok
+test runtime::eval::capture_transfer_tests::active_ancestor_stream_capture_does_not_queue_a_revisit ... ok
+test runtime::eval::capture_transfer_tests::active_capture_busy_flushes_before_error_cancellation ... ok
+test runtime::eval::capture_transfer_tests::dropped_stream_state_remains_available_for_scope_cleanup ... ok
+test runtime::eval::capture_transfer_tests::busy_capture_cleanup_closes_scope_and_releases_capabilities ... ok
+test runtime::eval::capture_transfer_tests::inactive_stream_owner_does_not_hide_local_prefix_resources ... ok
+test runtime::eval::capture_transfer_tests::poisoned_capture_visit_fails_scope_exit_without_leaking_scope_resources ... ok
+test runner::tests::prepared_benchmark_script_matches_normal_execution ... ok
+test runtime::eval::frame_scheduler_marker_tests::internal_frame_marker_accepts_only_the_reserved_enabled_value ... ok
+test runtime::eval::indexed::full::formal_bridge::tests::json_transport_rejects_container_nesting_beyond_the_fixed_limit ... ok
+test runtime::eval::indexed::full::formal_bridge::tests::json_transport_rejects_non_json_whitespace_and_bounds_input ... ok
+test runner::tests::runner_renders_shared_module_diagnostics_once ... ok
+test runtime::eval::capture_transfer_tests::unstarted_producer_drops_bound_captures_at_scope_exit ... ok
+test runner::tests::compact_indexed_runner_attempt_propagates_top_level_result_err ... ok
+test runtime::eval::capture_transfer_tests::started_producer_drops_bound_captures_when_cancelled ... ok
+test runtime::eval::indexed::full::schema::tests::eager_atom_classification_matches_schema_rows ... ok
+test runtime::eval::indexed::full::schema::tests::frame_apply_strategy_covers_the_ordered_value_cohorts ... ok
+test runtime::eval::indexed::full::schema::tests::frame_apply_strategy_covers_typed_integer_and_boolean_instructions ... ok
+test runtime::eval::indexed::full::schema::tests::instruction_classes_include_only_operations_that_never_run_script ... ok
+test runtime::eval::indexed::full::schema::tests::pattern_schema_preserves_all_tag_ordinals ... ok
+test runtime::eval::indexed::full::formal_bridge::tests::source_document_rejects_duplicate_and_unknown_fields ... ok
+test runtime::eval::indexed::full::schema::tests::route_witness_capabilities_follow_expression_schema_rows ... ok
+test modules::signature::tests::a_required_label_is_declared_only_where_the_checker_enforces_it ... ok
+test runtime::eval::indexed::full::tests::a_bounded_integer_keeps_its_bounds_in_a_lowered_program ... ok
+test runtime::eval::indexed::full::tests::a_propagation_row_carries_its_own_place ... ok
+test runtime::eval::indexed::full::tests::a_validated_scalar_parameter_carries_the_test_of_its_type ... ok
+test runtime::eval::indexed::full::tests::a_text_pattern_keeps_its_holes_apart_and_their_kinds_known ... ok
+test runtime::eval::indexed::full::tests::a_conversion_lowers_to_the_operation_the_checker_selected ... ok
+test runtime::eval::indexed::full::formal_bridge::tests::raw_transport_rejects_reserved_ids_and_invalid_driver_roots ... ok
+test runtime::eval::indexed::full::tests::borrowed_stage_body_reuses_its_validated_statement_block ... ok
+test runtime::eval::indexed::full::tests::borrowed_stage_list_views_reject_trailing_words ... ok
+test runtime::eval::indexed::full::tests::an_index_from_the_end_counts_from_one ... ok
+test runtime::eval::indexed::full::formal_bridge::tests::raw_transport_rejects_row_word_binder_and_path_corruption ... ok
+test runtime::eval::indexed::full::tests::accept_policy_operands_are_verified_on_capture_spawn_and_command_rows ... ok
+test runtime::eval::indexed::full::tests::absence_lookups_execute_nullable_and_integer_slots_after_frontend_drop ... ok
+test runtime::eval::indexed::full::formal_bridge::tests::private_scalar_projection_roundtrips_and_rejects_malformed_documents ... ok
+test runtime::eval::indexed::full::tests::checked_initializer_cycle_is_rejected_before_recursive_type_derivation ... ok
+test runtime::eval::indexed::full::tests::checked_function_target_rejects_a_same_signature_call_substitution ... ok
+test runtime::eval::indexed::full::tests::captured_assertion_errors_preserve_normal_completion ... ok
+test runtime::eval::indexed::full::tests::cardinality_peels_only_identity_argument_matches ... ok
+test runtime::eval::indexed::full::tests::collect_yields_lower_to_appends_that_the_verifier_ties_to_a_slot ... ok
+test runtime::eval::indexed::full::tests::cli_command_descriptor_plans_execute_both_indexed_routes ... ok
+test runtime::eval::indexed::full::tests::checked_json_type_name_uses_its_verified_bridge_operation ... ok
+test runtime::eval::indexed::full::tests::builtin_templates_execute_checked_calls_after_frontend_drop_on_both_routes ... ok
+test runtime::eval::indexed::full::tests::callable_field_assignments_match_the_record_field_producer_type ... ok
+test runtime::eval::indexed::full::tests::cli_descriptor_plans_share_preparation_and_execute_both_indexed_routes ... ok
+test runtime::eval::indexed::full::tests::compact_lowering_blocks_an_outer_assignment_without_its_checked_fact ... ok
+test runtime::eval::indexed::full::tests::compact_lowering_accepts_a_tag_binding_catch_all_return ... ok
+test runtime::eval::indexed::full::tests::compact_lowering_uses_only_the_selected_entry_view ... ok
+test runtime::eval::indexed::full::tests::constant_set_value_round_trips_and_rejects_a_repeated_element ... ok
+test runtime::eval::indexed::full::tests::compact_driver_executes_loaded_module_programs_directly ... ok
+test runtime::eval::indexed::full::tests::comparison_chain_verifier_rejects_short_chains_and_non_ordering_pairs ... ok
+test runtime::eval::indexed::full::tests::constant_key_projection_preserves_index_and_get_both_routes ... ok
+test runtime::eval::indexed::full::tests::context_scope_dynamic_outer_assignment_is_rejected_on_both_routes ... ok
+test runtime::eval::indexed::full::tests::context_scope_fatal_body_restores_state_on_both_routes ... ok
+test runtime::eval::indexed::full::tests::compact_entry_executes_after_all_frontend_and_adapter_scratch_is_dropped ... ok
+test runtime::eval::indexed::full::tests::compact_driver_executes_effects_after_arena_drop ... ok
+test runtime::eval::indexed::full::tests::context_scope_verifies_payload_and_preserves_native_environment_bytes ... ok
+test runtime::eval::indexed::full::tests::core_assert_verifier_rejects_invalid_message_presence_and_expression ... ok
+test runtime::eval::indexed::full::tests::core_assert_executes_lazy_context_and_preserves_diagnostics_on_both_routes ... ok
+test runtime::eval::indexed::full::tests::direct_if_children_are_marked_and_selected ... ok
+test runtime::eval::indexed::full::tests::context_scope_command_capture_tails_execute_after_frontend_drop_on_both_routes ... ok
+test runtime::eval::indexed::full::tests::default_parameter_verifier_rejects_missing_or_inconsistent_entry_metadata ... ok
+test runtime::eval::indexed::full::tests::driver_rejects_non_skippable_unlowered_top_level_statement ... ok
+test runtime::eval::indexed::full::tests::default_parameter_calls_preserve_both_indexed_execution_routes_after_frontend_drop ... ok
+test runtime::eval::indexed::full::tests::driver_tags_keep_row_ordinals ... ok
+test runtime::eval::indexed::full::tests::direct_scalar_iteration_runs_after_frontend_drop ... ok
+test runtime::eval::indexed::full::tests::driver_propagated_process_failure_records_process_propagation_and_trace_effects ... ok
+test runtime::eval::indexed::full::tests::direct_full_program_preserves_values_output_errors_and_traces ... ok
+test runtime::eval::indexed::full::tests::driver_verifier_rejects_invalid_signal_hook_option_tag ... ok
+test runtime::eval::indexed::full::tests::error_pattern_subject_optional_and_union_members_must_hold_the_error ... ok
+test runtime::eval::indexed::full::tests::driver_verifier_rejects_effect_sync_and_owner_corruption ... ok
+test runtime::eval::indexed::full::tests::duration_arithmetic_retains_checked_operands_after_frontend_drop_on_both_routes ... ok
+test runtime::eval::indexed::full::tests::fs_list_verifier_requires_the_filesystem_children_operation ... ok
+test runtime::eval::indexed::full::tests::full_indexed_layouts_keep_hot_rows_compact ... ok
+test runtime::eval::indexed::full::tests::enum_payload_alias_and_alternation_execute_after_frontend_drop_on_both_routes ... ok
+test runtime::eval::indexed::full::tests::frame_apply_child_keeps_selection_on_the_explicit_machine ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_loop_control_without_an_owner ... ok
+test runtime::eval::indexed::full::tests::function_headers_are_decoded_once_per_program ... ok
+test runtime::eval::indexed::full::tests::fs_root_methods_keep_opaque_identity_and_defaults_on_both_indexed_routes ... ok
+test runtime::eval::indexed::full::tests::in_place_height_limit_marks_128_and_rejects_129_and_ancestors ... ok
+test runtime::eval::indexed::full::tests::in_place_mark_cache_is_checked_against_independent_verification ... ok
+test runtime::eval::indexed::full::tests::instruction_schema_list_views_keep_real_typed_child_ids ... ok
+test runtime::eval::indexed::full::tests::instruction_schema_preserves_all_tag_ordinals_and_effects ... ok
+test runtime::eval::indexed::full::tests::instruction_schema_preserves_scalar_encoding_and_borrows_storage ... ok
+test runtime::eval::indexed::full::tests::instruction_schema_views_reject_malformed_fields_and_wrong_child_categories ... ok
+test runtime::eval::indexed::full::tests::in_place_marks_follow_verified_operands_and_selection_runs_directly ... ok
+test runtime::eval::indexed::full::tests::full_indexed_program_represents_every_indexed_fixture_function ... ok
+test runtime::eval::indexed::full::tests::empty_map_fold_inference_publishes_concrete_accumulator_types ... ok
+test runtime::eval::indexed::full::tests::lexical_ctx_indexed_execution_preserves_context_order_and_region_spans ... ok
+test runtime::eval::indexed::full::tests::inferred_require_targets_survive_frontend_drop_on_both_routes ... ok
+test runtime::eval::indexed::full::tests::list_position_cannot_resume_a_different_statement_list ... ok
+test runtime::eval::indexed::full::tests::locations_preserve_imported_source_identity ... ok
+test runtime::eval::indexed::full::tests::list_assignment_verifies_paths_and_executes_both_routes ... ok
+test runtime::eval::indexed::full::tests::list_patterns_validate_before_publishing_capture_slots ... ok
+test runtime::eval::indexed::full::tests::lowered_type_mappings_cover_every_storage_kind_and_policy_edge ... ok
+test runtime::eval::indexed::full::tests::lowered_value_tags_keep_wire_ordinals ... ok
+test runtime::eval::indexed::full::tests::list_splicing_verifies_payload_and_executes_both_indexed_routes ... ok
+test runtime::eval::indexed::full::tests::map_literals_verify_entry_flags_and_execute_both_indexed_routes ... ok
+test runtime::eval::indexed::full::tests::module_command_plan_metadata_rejects_corrupt_interpretation ... ok
+test runtime::eval::indexed::full::tests::loop_statement_cursor_preserves_iteration_order ... ok
+test runtime::eval::indexed::full::tests::local_collection_inference_publishes_concrete_indexed_call_and_slot_types ... ok
+test runtime::eval::indexed::full::tests::native_path_interpolation_executes_both_indexed_routes ... ok
+test runtime::eval::indexed::full::tests::pattern_schema_views_cover_all_rows_and_keep_fields_borrowed ... ok
+test runtime::eval::indexed::full::tests::pattern_tags_keep_wire_ordinals ... ok
+test runtime::eval::indexed::full::tests::pattern_aliases_compact_facts_preserve_captured_subject_and_element_types ... ok
+test modules::hash::tests::named_digests_preserve_chunk_boundaries_and_bounded_reads ... ok
+test runtime::eval::indexed::full::tests::pattern_views_reject_corruption_and_foreign_store_identities ... ok
+test runtime::eval::indexed::full::tests::owned_execution_keeps_list_position_store_identity ... ok
+test runtime::eval::indexed::full::tests::pattern_aliases_and_alternatives_publish_only_complete_capture_sets ... ok
+test runtime::eval::indexed::full::tests::pipeline_callback_break_cannot_target_an_enclosing_loop ... ok
+test runtime::eval::indexed::full::tests::prepared_regex_pool_rewinds_with_builder_checkpoint ... ok
+test runtime::eval::indexed::full::tests::prepared_constant_pool_reuses_data_and_rejects_invalid_values ... ok
+test runtime::eval::indexed::full::tests::positional_callable_record_constructor_rejects_a_forged_result_type ... ok
+test runtime::eval::indexed::full::tests::prepared_regex_pool_survives_frontend_and_evaluator_reuse ... ok
+test runtime::eval::indexed::full::tests::resource_transfer_marks_require_aligned_eligible_instructions ... ok
+test runtime::eval::indexed::full::tests::prepared_cli_plan_pool_rewinds_with_builder_checkpoint ... ok
+test runtime::eval::indexed::full::tests::record_proof_precise_types_and_unreachable_fallback_survive_frontend_drop ... ok
+test runtime::eval::indexed::full::tests::narrowed_union_receivers_are_lowered_from_the_checked_member ... ok
+test runtime::eval::indexed::full::tests::return_analysis_preserves_unknown_branch_fallthrough_before_literal_true ... ok
+test runtime::eval::indexed::full::tests::return_analysis_treats_abort_as_noncompleting ... ok
+test runtime::eval::indexed::full::tests::return_analysis_proves_constant_loops_and_rejects_forged_fallthrough ... ok
+test runtime::eval::indexed::full::tests::scoped_callable_alias_checks_its_function_reference_signature ... ok
+test runtime::eval::indexed::full::tests::stage_schema_views_match_all_owned_fields_and_leave_trailing_fields ... ok
+test runtime::eval::indexed::full::tests::stage_schema_views_reject_malformed_trailing_and_foreign_payloads ... ok
+test runtime::eval::indexed::full::tests::stage_tags_keep_wire_ordinals ... ok
+test runtime::eval::indexed::full::tests::stage_callable_ordinary_calls_execute_after_frontend_drop_on_both_routes ... ok
+test runtime::eval::indexed::full::tests::pipeline_return_analysis_respects_callback_demand ... ok
+test runtime::eval::indexed::full::tests::registered_callable_alias_export_matches_its_initializer_signature ... ok
+test runtime::eval::indexed::full::tests::tag_pattern_subject_union_requires_a_member_with_the_tag_type ... ok
+test runtime::eval::indexed::full::tests::stage_named_configuration_verifies_children_and_executes_both_indexed_routes ... ok
+test runtime::eval::indexed::full::tests::statement_block_position_rejects_a_foreign_store ... ok
+test runtime::eval::indexed::full::tests::statement_env_validates_all_names_before_evaluating_values ... ok
+test runtime::eval::indexed::full::tests::trimmed_else_if_scanner_lowers_to_scan_lines ... ok
+test runtime::eval::indexed::full::tests::try_capture_verifies_body_ownership_and_preserves_result_data_on_both_routes ... ok
+test runtime::eval::indexed::full::tests::typed_call_through_a_capture_names_the_capture_s_callable_type ... ok
+test runtime::eval::indexed::full::tests::typed_call_through_a_local_names_the_slot_s_callable_type ... ok
+test runtime::eval::indexed::full::tests::return_analysis_walks_each_instruction_a_bounded_number_of_times ... ok
+test runtime::eval::indexed::full::tests::typed_callable_call_result_facts_reject_a_different_producer_target ... ok
+test runtime::eval::indexed::full::tests::typed_call_through_a_parameter_names_the_parameter_s_type ... ok
+test runtime::eval::indexed::full::tests::typed_callable_call_result_rejects_a_forged_checked_return_type ... ok
+test runtime::eval::indexed::full::tests::typed_callable_driver_module_receiver_rejects_a_second_writer ... ok
+test runtime::eval::indexed::full::tests::typed_callable_container_method_arguments_match_their_receiver_types ... ok
+test runtime::eval::indexed::full::tests::typed_callable_calls_reject_corruption_in_a_lowered_program ... ok
+test runtime::eval::indexed::full::tests::typed_callable_driver_temporary_is_not_written_by_a_field_assignment ... ok
+test runtime::eval::indexed::full::tests::typed_callable_driver_temporary_is_not_written_by_an_integer_field_or_path_assignment ... ok
+test runtime::eval::indexed::full::tests::typed_callable_driver_temporary_without_a_writer_is_rejected ... ok
+test runtime::eval::indexed::full::tests::typed_callable_field_facts_reject_field_and_receiver_corruption ... ok
+test runtime::eval::indexed::full::tests::typed_callable_driver_temporary_module_fact_matches_its_source ... ok
+test runtime::eval::indexed::full::tests::typed_callable_driver_with_binding_matches_its_result_payload ... ok
+test runtime::eval::indexed::full::tests::typed_callable_function_ref_fact_matches_its_target_signature ... ok
+test runtime::eval::indexed::full::tests::typed_callable_guard_error_binding_matches_its_result_payload ... ok
+test runtime::eval::indexed::full::tests::typed_callable_fields_through_two_optional_path_guards_are_verified ... ok
+test runtime::eval::indexed::full::tests::typed_callable_local_fact_cannot_retype_a_string_branch_initializer ... ok
+test runtime::eval::indexed::full::tests::typed_callable_local_fact_cannot_retype_a_string_initializer ... ok
+test runtime::eval::indexed::full::tests::typed_callable_fields_through_narrowed_optional_records_are_verified ... ok
+test runtime::eval::indexed::full::tests::typed_callable_local_fact_cannot_retype_an_integer_slot ... ok
+test runtime::eval::indexed::full::tests::typed_callable_loop_slot_fact_matches_its_iteration_item_type ... ok
+test runtime::eval::indexed::full::tests::typed_callable_literal_containers_reject_forged_element_types ... ok
+test runtime::eval::indexed::full::tests::typed_callable_optional_binding_needs_its_null_arm_first_and_unguarded ... ok
+test runtime::eval::indexed::full::tests::typed_callable_optional_field_rejects_a_flipped_null_guard ... ok
+test runtime::eval::indexed::full::tests::typed_callable_module_receiver_facts_reject_another_import_slot ... ok
+test runtime::eval::indexed::full::tests::typed_callable_optional_field_rejects_an_outer_guard_across_a_loop_backedge ... ok
+test runtime::eval::indexed::full::tests::typed_callable_optional_field_rejects_a_forged_narrowed_parameter_type ... ok
+test runtime::eval::indexed::full::tests::typed_callable_optional_field_rejects_forged_short_circuit_guards ... ok
+test runtime::eval::indexed::full::tests::typed_callable_optional_field_rejects_preceding_overlapping_writes ... ok
+test runtime::eval::indexed::full::tests::typed_callable_optional_field_uses_block_order_after_reordering ... ok
+test runtime::eval::indexed::full::tests::typed_callable_optional_field_rejects_short_circuit_condition_writes ... ok
+test runtime::eval::indexed::full::tests::typed_callable_slot_fact_cannot_retype_an_integer_initializer ... ok
+test runtime::eval::indexed::full::tests::typed_callable_pattern_slot_facts_match_nominal_variant_fields ... ok
+test runtime::eval::indexed::full::tests::typed_callable_record_return_facts_reject_field_and_receiver_corruption ... ok
+test runtime::eval::indexed::full::tests::typed_callable_top_level_pipeline_stage_slot_is_proven_by_its_item_type ... ok
+test runtime::eval::indexed::full::tests::typed_callable_with_binding_cannot_be_retyped_from_an_any_initializer ... ok
+test runtime::eval::indexed::full::tests::typed_callable_with_error_binding_matches_its_result_payload ... ok
+test runtime::eval::indexed::full::tests::typed_callable_with_error_slot_cannot_alias_a_different_success_type ... ok
+test runtime::eval::indexed::full::tests::typed_cause_indexed_codec_preserves_metadata_and_verifies_optional_child ... ok
+test runtime::eval::indexed::full::tests::typed_map_keys_execute_both_indexed_routes ... ok
+test runtime::eval::indexed::full::tests::typed_optional_field_in_iteration_sources_uses_outer_null_proof ... ok
+test runtime::eval::indexed::full::tests::union_loop_item_receiver_without_a_fact_is_not_lowered ... ok
+test runtime::eval::indexed::full::tests::union_types_and_schemas_reject_corruption_in_a_lowered_program ... ok
+test runtime::eval::indexed::full::tests::validated_types_and_schemas_reject_corruption_in_a_lowered_program ... ok
+test runtime::eval::indexed::full::tests::verifier_checks_pattern_condition_capture_slots_and_branch_returns ... ok
+test runtime::eval::indexed::full::tests::verifier_checks_with_binding_slots_and_both_branch_returns ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_input_that_names_a_statement ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_a_deferred_action_whose_trigger_is_not_a_boolean ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_with_a_truncated_payload_after_input ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_with_no_input_payload ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_a_retry_backoff_without_its_three_durations ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_binding_and_missing_retry_selection_patterns ... ok
+test runtime::eval::indexed::full::tests::uint_mutation_checks_execute_both_indexed_routes_after_frontend_drop ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_empty_or_unknown_comprehension_qualifiers ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_block_ownership_and_missing_function_terminators ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_empty_record_update_path_and_bad_replacement_reference ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_cross_function_instruction_ownership ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_invalid_list_rest_patterns ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_nested_pattern_cycles_and_missing_children ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_incompatible_alternative_and_alias_capture_slots ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_optional_guard_with_failure_parameter ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_typed_callable_type_patterns ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_slot_pattern_function_stage_and_location_bounds ... ok
+test runtime::eval::indexed::full::tests::verifier_rejects_the_retired_function_defer_flag ... ok
+test runtime::eval::indexed::full::tests::wire_enum_preparation_survives_frontend_drop_and_executes_both_routes ... ok
+test runtime::eval::indexed::full::tests::yield_delegation_verifies_operands_and_preserves_nominal_error_payload ... ok
+test runtime::eval::indexed::semantic::tests::bounded_types_round_trip_and_reject_corruption ... ok
+test runtime::eval::indexed::full::tests::within_scope_verifies_its_kind_and_closes_its_deadline ... ok
+test runtime::eval::indexed::semantic::tests::compact_types_render_like_owned_semantic_types ... ok
+test runtime::eval::indexed::semantic::tests::erased_record_and_module_facts_remain_distinct_from_empty_shapes ... ok
+test runtime::eval::indexed::semantic::tests::equal_types_signatures_and_shapes_share_compact_ids ... ok
+test runtime::eval::indexed::semantic::tests::exact_module_types_keep_their_exactness_and_are_verified ... ok
+test runtime::eval::indexed::semantic::tests::malformed_semantic_ids_and_ranges_are_rejected ... ok
+test runtime::eval::indexed::semantic::tests::module_value_fields_resolve_exact_checked_callable_types ... ok
+test runtime::eval::indexed::semantic::tests::recovery_types_never_become_executable_facts ... ok
+test runtime::eval::indexed::semantic::tests::semantic_rewind_removes_rows_and_canonical_entries ... ok
+test runtime::eval::indexed::semantic::tests::nominal_types_round_trip_and_reject_corruption ... ok
+test runtime::eval::indexed::semantic::tests::set_types_round_trip_and_reject_corruption ... ok
+test runtime::eval::indexed::semantic::tests::typed_map_keys_semantic_pool_retains_both_types_and_rejects_float_keys ... ok
+test runtime::eval::indexed::semantic::tests::union_types_round_trip_in_member_order_and_reject_corruption ... ok
+test runtime::eval::indexed::semantic::tests::validated_types_round_trip_and_reject_corruption ... ok
+test runtime::eval::indexed::tests::corpus_source_read_errors_name_the_path ... ok
+test runtime::eval::indexed::tests::corpus_walk_reports_missing_paths ... ok
+test runtime::eval::json::tests::compact_map_checks_all_keys_before_values_and_pretty_walks_in_order ... ok
+test runtime::eval::indexed::tests::corpus_walk_skips_directory_links_and_includes_nested_sources ... ok
+test runtime::eval::json::tests::filesystem_entries_use_the_public_record_compatibility_diagnostic ... ok
+test runtime::eval::json::tests::missing_wire_variant_has_one_diagnostic_for_both_value_views ... ok
+test runtime::eval::lower::checked_constructor_fact_tests::checked_set_constructor_results_keep_static_builtin_lowering ... ok
+test runtime::eval::lower::checked_constructor_fact_tests::default_control_flow_facts_do_not_hide_captured_fallthrough ... ok
+test runtime::eval::lower::checked_constructor_fact_tests::missing_constructor_call_type_fact_blocks_lowering ... ok
+test runtime::eval::lower::checked_constructor_fact_tests::missing_constructor_identity_fact_blocks_lowering ... ok
+test runtime::eval::lower::checked_constructor_fact_tests::missing_qualified_constructor_identity_blocks_named_spread_lowering ... ok
+test runtime::eval::lower::checked_constructor_fact_tests::missing_qualified_function_identity_blocks_lowering ... ok
+test modules::signature::tests::every_registry_method_effect_is_enforced_by_the_checker ... ok
+test runtime::eval::lower::checked_constructor_fact_tests::missing_qualified_named_spread_function_identity_blocks_lowering ... ok
+test runtime::eval::lower::checked_constructor_fact_tests::missing_qualified_stage_callback_identity_blocks_lowering ... ok
+test runtime::eval::lower::checked_constructor_fact_tests::missing_stage_callback_identity_blocks_named_stage_lowering ... ok
+test runtime::eval::lower::checked_constructor_fact_tests::missing_user_function_identity_blocks_lowering ... ok
+test runtime::eval::lower::checked_constructor_fact_tests::runtime_module_function_calls_keep_dynamic_lowering ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::builtin_range_fact_is_owned_by_the_builtin_call ... ok
+test runtime::eval::indexed::full::tests::with_fallible_path_results_match_their_registered_types ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::direct_result_return_does_not_publish_a_propagation_fact ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::collection_cardinality_fact_is_owned_by_the_collect_call ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::exhaustive_match_fact_is_owned_by_the_match_expression ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::incomplete_error_match_does_not_publish_an_exhaustiveness_fact ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::fallible_pipeline_stage_fact_is_owned_by_the_range_stage ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::map_result_callback_does_not_publish_a_propagating_callback_fact ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::non_fallible_map_stage_does_not_publish_a_stage_error_fact ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::latent_stream_error_fact_is_owned_by_the_stream_call ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::preserving_collection_fact_keeps_an_empty_source_empty ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::propagating_error_fact_is_owned_by_the_effectful_call ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::safe_stream_call_does_not_publish_a_latent_error_fact ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::propagating_stage_callback_fact_is_owned_by_the_tee_stage ... ok
+test runtime::eval::lower::compact_expr_kind_tests::expression_counter_catalog_preserves_existing_indices_and_labels ... ok
+test runtime::eval::lower::checked_control_flow_fact_tests::shadowed_range_does_not_publish_the_builtin_cardinality_fact ... ok
+test runtime::eval::lower::names::tests::bare_function_values_publish_and_lower_the_checked_target ... ok
+test runtime::eval::lower::names::tests::mismatched_function_value_kind_fails_closed ... ok
+test runtime::eval::lower::names::tests::mismatched_function_value_target_fails_closed ... ok
+test runtime::eval::lower::names::tests::mismatched_shorthand_function_kind_fails_closed ... ok
+test runtime::eval::lower::names::tests::missing_function_value_target_does_not_reselect_by_spelling ... ok
+test runtime::eval::lower::names::tests::missing_typed_callable_tail_target_does_not_reselect_by_spelling ... ok
+test runtime::eval::lower::names::tests::typed_callable_tail_publishes_and_lowers_the_checked_target ... ok
+test runtime::eval::lower::names::tests::shorthand_function_values_retain_the_checked_span_target ... ok
+test runtime::eval::lower::types::mapping_tests::checked_type_mapping_keeps_its_recovery_policy ... ok
+test runtime::eval::lowered_ops::assertion_detail_tests::assertion_record_vec_details_bound_field_names ... ok
+test runtime::eval::lowered_ops::record_update_tests::record_update_detaches_shared_ancestors_and_retains_untouched_storage ... ok
+test runtime::eval::lowered_ops::slice_tests::nested_text_and_byte_slices_retain_immutable_backing_storage ... ok
+test runtime::eval::lowered_run::fs_root_identity_tests::opaque_fs_root_identity_rejects_records_and_foreign_evaluator_owners ... ok
+test runtime::eval::lowered_run::indexed_run::explicit_run::tests::complete_pipeline_decode_preserves_the_stage_count ... ok
+test runtime::eval::lowered_run::indexed_run::explicit_run::tests::continuation_retained_root_transfers_with_its_producer ... ok
+test runtime::eval::lower::pipeline::tests::missing_fold_parameter_binding_restores_outer_layout ... ok
+test runtime::eval::lowered_run::indexed_run::explicit_run::tests::continuation_transfers_materialized_fold_root_with_its_producer ... ok
+test runtime::eval::lowered_run::indexed_run::explicit_run::tests::empty_map_witnesses_capture_the_selected_dispatch_route ... ok
+test runtime::eval::lowered_run::indexed_run::explicit_run::tests::forced_frames_run_an_expression_loop ... ok
+test runtime::eval::lowered_run::indexed_run::explicit_run::tests::forced_discard_keeps_child_captures_and_skips_parent_defers ... ok
+test runtime::eval::lowered_run::indexed_run::explicit_run::tests::range_start_type_error_precedes_later_operand_effects ... ok
+test runtime::eval::lowered_run::indexed_run::tests::assignment_path_copies_only_shared_ancestors ... ok
+test runtime::eval::lowered_run::indexed_run::tests::assignment_path_reuses_unique_storage_and_preserves_aliases ... ok
+test runtime::eval::indexed::full::tests::tokei_showcase_contains_scan_bytes_fast_paths ... ok
+test runtime::eval::lowered_run::indexed_run::tests::calls_and_top_level_statements_share_script_bindings ... ok
+test runtime::eval::indexed::full::tests::tokei_showcase_contains_scan_lines_fast_paths ... ok
+test runtime::eval::indexed::full::tests::tokei_showcase_contains_direct_pure_calls ... ok
+test runtime::eval::lowered_run::lowered_module_support_authority_tests::lowered_module_support_tracks_public_body_rows_and_excludes_internal_rows ... ok
+test runtime::eval::lowered_run::record_binding_tests::record_binding_selects_all_fields_before_writing_any_slot ... ok
+test runtime::eval::lowered_run::route_witness_capture_tests::nonzero_child_without_an_artifact_preserves_its_result_without_coverage ... ok
+test runtime::eval::lowered_run::indexed_run::tests::direct_indexed_function_executes_without_decoding_its_body ... ok
+test runtime::eval::lowered_run::route_witness_capture_tests::successful_child_without_an_artifact_still_fails_capture ... ok
+test runtime::eval::lowered_run::scalar_cursor_tests::scalar_cursor_preserves_string_and_byte_view_bounds ... ok
+test runtime::eval::lowered_run::scalar_cursor_tests::scalar_cursor_retains_one_source_and_builds_only_reached_views ... ok
+test runtime::eval::lowered_run::stream_item_attribution_tests::receiving_evaluator_emits_carried_trace_without_wrapping_again ... ok
+test runtime::eval::modules::auth::tests::des_is_unsupported ... ok
+test runtime::eval::lowered_run::route_witness_capture_tests::nonzero_executed_child_retains_its_authenticated_route_witness ... ok
+test runtime::eval::modules::crypt::tests::md5_openssl_vector ... ok
+test runtime::eval::modules::crypt::tests::sha256_drepper_vector ... ok
+test runtime::eval::lowered_run::indexed_run::tests::parametric_records_keep_concrete_schemas_across_calls ... ok
+test runtime::eval::net_job::tests::borrowing_a_caller_owned_job_does_not_move_it_into_the_callee ... ok
+test runtime::eval::net_job::tests::detached_descendant_received_in_the_current_scope_moves_to_its_consumer ... ok
+test runtime::eval::net_job::tests::detached_producer_scopes_transfer_into_a_sibling_consumer ... ok
+test runtime::eval::net_job::tests::foreign_job_cancel_does_not_consume_a_matching_local_id ... ok
+test runtime::eval::net_job::tests::foreign_job_wait_does_not_consume_a_matching_local_id ... ok
+test runtime::eval::net_job::tests::middle_scope_job_assigned_from_deeper_scope_reaches_outer_owner ... ok
+test runtime::eval::net_job::tests::runtime_snapshot_counts_completed_mock_jobs_without_starting_a_driver ... ok
+test runtime::eval::net_job::tests::specialized_stats_blob_transfers_handles_in_its_map ... ok
+test runtime::eval::net_job::tests::typed_error_cause_transfers_its_nested_job ... ok
+test runtime::eval::lowered_run::indexed_run::tests::inferred_record_constructors_keep_concrete_facts_after_frontend_drop ... ok
+test runtime::eval::route_witness::tests::artifact_validation_rejects_malformed_and_wrong_mode_records ... ok
+test runtime::eval::route_witness::tests::artifact_round_trip_preserves_identity_tag_route_and_mode ... ok
+test runtime::eval::route_witness::tests::artifact_validation_rejects_unknown_and_inconsistent_tag_identities ... ok
+test runtime::eval::route_witness::tests::invalid_short_and_oversized_descriptors_fail_closed_and_close_the_fd ... ok
+test runtime::eval::route_witness::tests::descriptor_transport_round_trips_and_checks_the_loaded_source ... ok
+test runtime::eval::route_witness::tests::invalid_unopened_descriptor_marker_returns_inspection_error ... ok
+test runtime::eval::route_witness::tests::mismatched_descriptor_marker_leaves_an_unrelated_fd_untouched ... ok
+test runtime::eval::route_witness::tests::invocation_overlay_rejects_incomplete_duplicate_and_invalid_pairs ... ok
+test runtime::eval::route_witness::tests::separate_evaluation_sinks_do_not_share_records ... ok
+test runtime::eval::route_witness::tests::route_oracle_identity_resolves_schema_tags_without_guessing_frame_tests ... ok
+test runtime::eval::route_witness::tests::target_artifact_rejects_mixed_inconsistent_and_extra_records ... ok
+test runtime::eval::runtime_env_route_witness_tests::exact_harness_control_names_are_removed_after_environment_overlays ... ok
+test runtime::eval::runtime_env_route_witness_tests::route_witness_prefix_environment_names_are_ordinary_entries ... ok
+test runtime::eval::semantic_float_equality_tests::semantic_float_equality_is_ieee_and_representation_equality_stays_bitwise ... ok
+test runtime::eval::type_view::tests::borrowed_type_checks_allocate_nothing_for_nested_maps_records_and_modules ... ok
+test runtime::eval::type_view::tests::display_views_share_scalar_output_and_keep_lowered_outcomes ... ok
+test runtime::eval::type_view::tests::filesystem_entry_path_type_checks_keep_path_construction_failures ... ok
+test runtime::eval::type_view::tests::lowered_view_type_names_keep_internal_argument_and_slice_labels ... ok
+test runtime::eval::type_view::tests::process_error_type_name_matches_the_lowered_executor ... ok
+test runtime::process::tests::accepted_exit_codes_validate_bounds_and_keep_actual_status ... ok
+test runtime::process::tests::capture_allows_explicit_stdout_redirection ... ok
+test runtime::process::tests::child_dup_follows_the_childs_own_redirections ... ok
+test runtime::eval::route_witness::tests::unmarked_inherited_fd_at_or_above_198_is_not_inspected_or_consumed ... ok
+test runtime::process::tests::raw_wait_status_distinguishes_exit_signal_and_stop ... ok
+test runtime::process::tests::setpgid_race_filter_covers_exec_and_exit_races ... ok
+test runtime::run::tests::missing_target_returns_run_error_value_and_process_end ... ok
+test runtime::text_bytes::tests::count_lines_bytes_matches_str_count ... ok
+test runtime::text_bytes::tests::count_lines_matches_std ... ok
+test runtime::text_bytes::tests::find_bytes_matches_str_find ... ok
+test runtime::text_bytes::tests::trim_bytes_matches_str_trim_on_utf8 ... ok
+test runtime::process::tests::managed_cancel_reaps_process_group_child ... ok
+test runtime::value::error_cause::tests::typed_cause_preserves_original_span_context_and_full_process_status ... ok
+test runtime::value::resource_values::tests::resource_reachable_values_follow_error_payloads_and_process_causes ... ok
+test runtime::eval::modules::crypt::tests::sha512_drepper_vector ... ok
+test runtime::value::runtime_error_attribution_tests::stream_item_attribution_does_not_change_debug_or_equality ... ok
+test runtime::value::tests::dynamic_record_shapes_are_reclaimed_after_each_owner_drops ... ok
+test runtime::value::tests::extending_a_record_uses_the_dynamic_path ... ok
+test runtime::value::tests::preloaded_record_shapes_remain_interned_after_records_drop ... ok
+test runtime::value::tests::record_maps_intern_sorted_shapes_and_keep_dense_fields_on_mutation ... ok
+test runtime::value::tests::runtime_error_display_family_is_separate_from_declaration_identity ... ok
+test runtime::value::tests::runtime_errors_cache_compact_family_and_variant_names ... ok
+test runtime::value::tests::runtime_errors_own_dynamic_names_without_an_active_symbol_owner ... ok
+test runtime::value::tests::shaped_records_support_name_lookup ... ok
+test runtime::value::tests::value_layout_stays_within_the_compact_runtime_budget ... ok
+test runtime_stats::tests::json_keeps_script_output_separate_from_measurement ... ok
+test runtime_stats::tests::worker_stats_sum_thread_local_traffic ... ok
+test sema::builtin_templates::tests::concrete_inert_receiver_domains_do_not_become_fresh_holes ... ok
+test sema::builtin_templates::tests::discarded_unit_context_does_not_invent_an_empty_map_domain ... ok
+test sema::builtin_templates::tests::dynamic_list_receiver_cannot_acquire_a_concrete_item_proof ... ok
+test sema::builtin_templates::tests::explicit_dynamic_value_domain_anchors_an_empty_map ... ok
+test sema::builtin_templates::tests::map_empty_occurrences_have_independent_key_and_value_parameters ... ok
+test sema::builtin_templates::tests::nested_result_and_nominal_error_domains_survive_receiver_instantiation ... ok
+test sema::builtin_templates::tests::success_expectation_preserves_a_declared_result_envelope ... ok
+test sema::builtin_templates::tests::wider_destinations_preserve_concrete_builtin_result_domains ... ok
+test runner::tests::nesting_runs_at_the_limit_and_is_a_diagnostic_one_level_past_it ... ok
+test sema::check::assignment_facts::tests::assignment_fact_merge_requires_equal_complete_owner_summaries ... ok
+test sema::check::cache_trace::tests::trace_file_creation_rejects_existing_files_and_symlinks ... ok
+test sema::check::cache_trace::tests::trace_rows_include_a_distinct_cache_owner_and_complete_key ... ok
+test sema::check::args::required_label_tests::label_fix_inserts_before_grouping_and_preserves_operand_text ... ok
+test sema::check::call::error_constructor_tests::checker_publishes_the_field_each_error_argument_fills ... ok
+test sema::check::call::error_constructor_tests::malformed_error_constructors_publish_no_binding ... ok
+test sema::check::call::reveal_type_tests::reveal_type_option_only_publishes_revealed_types ... ok
+test sema::check::checked_declarations::tests::checked_cli_entry_survives_compact_projection ... ok
+test sema::check::call::reveal_type_tests::reveal_type_argument_diagnostics_are_independent_of_publication ... ok
+test sema::check::checked_declarations::tests::compact_declarations_preserve_one_checker_duplicate_diagnostic ... ok
+test sema::check::checked_declarations::tests::compact_schema_fields_keep_the_checker_resolved_alias_type ... ok
+test sema::check::command::binding_identity_tests::command_binding_capture_keeps_the_first_selected_identity ... ok
+test sema::check::checked_declarations::tests::generic_type_expression_facts_keep_both_constructions_and_the_template ... ok
+test sema::check::expr::arena_tests::builder_and_structured_pipeline_are_native ... ok
+test sema::check::expr::arena_tests::call_error_variant_constructor ... ok
+test sema::check::expr::arena_tests::call_constructors_and_unresolved_names ... ok
+test sema::check::expr::arena_tests::call_method_dispatch_and_path_constructor_method ... ok
+test sema::check::expr::arena_tests::call_module_apis_and_static_introspection ... ok
+test sema::check::expr::arena_tests::field_index_slice_env ... ok
+test sema::check::expr::arena_tests::comprehensions ... ok
+test sema::check::expr::arena_tests::fmt_string_and_display ... ok
+test runtime::eval::lower::arguments::named_spread_lowering_tests::named_spread_lowering_does_not_clone_program_or_body_facts ... ok
+test sema::check::expr::arena_tests::if_expr_and_try_and_require ... ok
+test sema::check::expr::arena_tests::list_and_record ... ok
+test sema::check::expr::arena_tests::missing_implicit_item_identity_reports_unresolved_item ... ok
+test sema::check::expr::arena_tests::literals_and_arithmetic ... ok
+test sema::check::expr::arena_tests::stmt_bare_loop_statement ... ok
+test sema::check::expr::arena_tests::match_expr_and_patterns ... ok
+test sema::check::expr::arena_tests::run_spawn_wait_are_native ... ok
+test sema::check::expr::arena_tests::stmt_commands_and_tail_bare_ident ... ok
+test sema::check::expr::arena_tests::stmt_declarations ... ok
+test sema::check::expr::arena_tests::stmt_control_flow ... ok
+test sema::check::expr::arena_tests::stmt_function_and_signal_hook_declarations ... ok
+test sema::check::expr::arena_tests::stmt_loop_and_retry_bodies_use_native_block_checking ... ok
+test sema::check::expr::arena_tests::unresolved_name_reports_identically ... ok
+test sema::check::expr::arena_tests::stmt_let_var_assign ... ok
+test runtime::eval::modules::auth::tests::verify_self_hash ... ok
+test sema::check::expr::arena_tests::stmt_return_yield_defer_break_continue_expr ... ok
+test sema::check::local_inference::tests::local_constraint_probe_does_not_copy_checked_expression_history ... ok
+test sema::check::local_inference::tests::local_constraint_probe_does_not_copy_completed_body_binding_history ... ok
+test sema::check::module_driver::tests::argument_domain_probe_resolves_entry_and_imported_nominal_signatures ... ok
+test sema::check::inferred_variant::pattern_tests::checker_publishes_what_a_variant_pattern_stands_for ... ok
+test sema::check::module_driver::tests::b2sum_publishes_cli_plans_from_its_imported_module ... ok
+test sema::check::module_driver::tests::byte_entry_resolves_imported_argument_alias_before_checking_module_bodies ... ok
+test sema::check::module_driver::tests::cached_embedded_resource_check_visits_its_owner_once ... ok
+test sema::check::module_driver::tests::check_body_publishes_supplied_record_constructor_fields ... ok
+test sema::check::inferred_variant::pattern_tests::unresolved_variant_patterns_publish_nothing ... ok
+test sema::check::module_driver::tests::deferred_effect_errors_do_not_publish_static_call_spans ... ok
+test sema::check::module_driver::tests::checking_two_entries_reuses_shared_module_preparation_per_session ... ok
+test sema::check::module_driver::tests::embedded_test_interpolation_publishes_nested_expression_types ... ok
+test sema::check::module_driver::tests::diamond_imported_cli_schemas_publish_owner_local_plan_keys ... ok
+test sema::check::module_driver::tests::imported_effects_flow_into_entry_inference ... ok
+test sema::check::module_driver::tests::imported_same_name_effects_do_not_replace_root_callable_projection ... ok
+test sema::check::module_driver::tests::wire_enum_lookup_facts_do_not_leak_into_empty_constant_publication ... ok
+test sema::check::module_record::tests::prepared_record_instances_follow_root_then_module_owner_order ... ok
+test sema::check::module_record::tests::probe_rounds_reuse_one_record_per_reachable_module_and_argument_domain ... ok
+test sema::check::module_record::tests::trace_counts_prepare_reuse_and_check_once_per_cache_owner ... ok
+test diagnostic::code::tests::every_code_is_referenced_outside_the_table ... ok
+test sema::check::removed_fs::tests::a_path_with_no_receiver_spelling_is_reported_without_a_rewrite ... ok
+test sema::check::removed_fs::tests::executable_still_takes_a_mode ... ok
+test sema::check::removed_fs::tests::a_call_in_any_position_becomes_the_method_call ... ok
+test sema::check::removed_fs::tests::the_remaining_arguments_are_checked_as_the_method_arguments ... ok
+test sema::check::resource::tests::match_tail_transfer_fact_uses_its_checked_arm_values ... ok
+test sema::check::resource::tests::run_assignment_to_an_outer_binding_publishes_and_compacts_its_transfer_fact ... ok
+test sema::check::resource::tests::transfer_facts_distinguish_outer_and_same_block_assignments ... ok
+test sema::check::resource::tests::w9_resource_scope_attribution ... ignored, manual source-specific resource traversal attribution
+test sema::check::scopecheck::tests::assignment_facts_follow_statement_regions_and_raw_sugar_operands ... ok
+test sema::check::scopecheck::tests::assignment_facts_keep_exact_source_and_statement_range_owners ... ok
+test sema::check::resource::tests::transfer_facts_retain_resource_and_scalar_results_through_compaction ... ok
+test sema::check::scopecheck::tests::checked_output_keeps_assignment_facts_when_semantic_checking_fails ... ok
+test sema::check::scopecheck::tests::empty_imported_module_without_source_identity_has_no_assignment_owner ... ok
+test sema::check::scopecheck::tests::sequential_with_initializers_publish_runtime_identity ... ok
+test sema::check::scopecheck::tests::sibling_blocks_keep_distinct_declaration_identities ... ok
+test sema::check::scopecheck::tests::unrelated_arena_roots_do_not_enter_lexical_facts ... ok
+test sema::check::stmt::assignment_binding_identity_tests::assignment_context_and_latent_updates_follow_site_identity ... ok
+test sema::check::stmt::assignment_binding_identity_tests::assignment_keeps_nearest_matching_binding_as_scope_owner ... ok
+test sema::check::stmt::assignment_binding_identity_tests::assignment_uses_site_identity_for_projection_mutation ... ok
+test sema::check::stmt::pipeline_flow_complexity_tests::nested_zip_flow_visits_grow_linearly ... ok
+test sema::check::scopecheck::tests::invalid_compound_module_statements_contribute_their_source_owner_facts ... ok
+test sema::check::stmt::reader_binding_identity_tests::callable_selection_reads_the_expression_binding_identity ... ok
+test sema::check::stmt::reader_binding_identity_tests::missing_expression_identity_does_not_fall_through_to_function ... ok
+test sema::check::stmt::reader_binding_identity_tests::missing_call_identity_does_not_fall_through_to_function ... ok
+test sema::check::stmt::reader_binding_identity_tests::proof_subject_reads_the_expression_binding_identity ... ok
+test sema::check::stmt::reader_binding_identity_tests::missing_tail_identity_does_not_fall_through_to_function_command ... ok
+test sema::check::stream::static_namespace_identity_tests::selected_inner_static_namespace_remains_nonstatic ... ok
+test sema::check::stream::static_namespace_identity_tests::root_static_namespace_ignores_different_id_shadow ... ok
+test sema::check::text_pattern::tests::a_typed_hole_converts_exactly_the_text_its_letter_names ... ok
+test sema::check::text_pattern::tests::each_hole_takes_the_shortest_text_and_the_last_takes_the_rest ... ok
+test sema::constants::instance_tests::record_constructor_prototypes_do_not_enter_the_concrete_instance_cache ... ok
+test sema::constants::instance_tests::record_schema_instances_share_canonical_resolved_arguments ... ok
+test sema::constants::prepared_constant_tests::cli_plan_merge_retains_one_equal_canonical_result ... ok
+test sema::constants::prepared_constant_tests::cli_plan_merge_rejects_conflicting_canonical_results - should panic ... ok
+test sema::constants::prepared_constant_tests::prepared_constants_check_unreachable_declarations_in_configured_sources ... ok
+test sema::constants::prepared_constant_tests::prepared_constants_follow_resolved_imports_in_shared_arena ... ok
+test sema::constraints::tests::aliases_share_one_solution_and_conflicts_retain_source_contributions ... ok
+test sema::constraints::tests::authoritative_dynamic_destination_accepts_concrete_contributions ... ok
+test sema::constants::prepared_constant_tests::prepared_constants_keep_only_configured_workspace_sources ... ok
+test sema::constraints::tests::checked_annotations_can_choose_types_that_ordinary_evidence_cannot_anchor ... ok
+test sema::constraints::tests::container_record_width_cannot_bypass_invariance_during_substitution ... ok
+test sema::constraints::tests::dynamic_values_cannot_satisfy_resolved_concrete_constraints ... ok
+test sema::constraints::tests::nested_conflicts_roll_back_earlier_variable_bindings ... ok
+test sema::constraints::tests::nested_dynamic_and_recovery_operands_do_not_establish_contracts ... ok
+test sema::constraints::tests::optional_evidence_and_reversed_alias_order_have_canonical_solutions ... ok
+test sema::constraints::tests::ground_record_resolution_preserves_depth_errors ... ok
+test sema::constraints::tests::probes_keep_existing_aliases_but_new_variables_cannot_cross_problems ... ok
+test sema::constraints::tests::optional_record_contributions_keep_one_shape_in_either_order ... ok
+test sema::constraints::tests::record_resolution_preserves_foreign_variable_errors ... ok
+test sema::constraints::tests::shared_nested_records_resolve_independently ... ok
+test sema::types::resource::tests::may_hold_resource_covers_exact_handles_containers_and_erased_payloads ... ok
+test sema::types::resource::tests::may_hold_resource_walks_nested_shapes_without_a_depth_limit ... ok
+test sema::types::tests::callable_effects_must_match_exactly ... ok
+test sema::types::tests::empty_module_does_not_satisfy_concrete_contract ... ok
+test sema::types::tests::enum_display_hides_only_filesystem_owned_identities ... ok
+test sema::types::tests::exact_module_contract_needs_an_exact_type_without_other_exports ... ok
+test sema::types::tests::module_contract_checks_callable_kind_and_signature_invariantly ... ok
+test sema::types::tests::module_contract_checks_member_kind_and_value_type ... ok
+test sema::types::tests::optional_module_export_must_match_when_present ... ok
+test sema::types::tests::process_error_accepts_only_its_variants_and_family ... ok
+test sema::types::tests::union_accepts_members_and_wider_unions_but_never_a_member ... ok
+test sema::types::tests::union_members_are_validated_and_asked_in_written_order ... ok
+test sema::types::tests::unrestricted_contract_entry_accepts_any_export_effects ... ok
+test sema::validated::tests::a_bounded_integer_fits_its_base_and_never_the_reverse ... ok
+test sema::validated::tests::a_nominal_type_fits_its_record_and_nothing_else_fits_it ... ok
+test sema::validated::tests::a_rel_path_fits_a_path_and_never_the_reverse ... ok
+test sema::validated::tests::a_rel_path_is_relative_and_never_climbs_above_its_start ... ok
+test sema::validated::tests::a_structure_of_validated_values_fits_the_structure_of_base_values ... ok
+test sema::validated::tests::a_union_cannot_list_a_validated_type_beside_its_base ... ok
+test sema::validated::tests::a_validated_type_fits_its_base_and_never_the_reverse ... ok
+test sema::validated::tests::a_validation_names_one_base_form_and_one_code ... ok
+test source::tests::cloned_source_maps_are_independent_when_mutated ... ok
+test source::tests::keeps_crlf_line_text_without_line_ending ... ok
+test source::tests::rejects_invalid_utf8_source ... ok
+test source::tests::reports_one_based_line_and_unicode_column ... ok
+test sema::records::tests::record_schema_adapter_exactly_mirrors_registry ... ok
+test stdlib::tests::catalog_entries_are_unique_and_parse_as_modules ... ok
+test stdlib::tests::cold_start_phase_profile ... ignored
+test stdlib::tests::every_binding_names_an_implementation_the_catalog_provides ... ok
+test sema::check::module_driver::tests::check_cli_preserves_constant_and_body_constructor_instances ... ok
+test stdlib::tests::every_script_binding_has_a_catalog_entry ... ok
+test stdlib::tests::labels_and_namespaces_are_unique_and_unrepresentable ... ok
+test symbol::tests::builtin_symbols_are_stable ... ok
+test symbol::tests::concurrent_owners_retain_dynamic_symbols_before_their_slots_can_be_reused ... ok
+test symbol::tests::dynamic_symbols_return_to_a_stable_plateau_after_owner_drop ... ok
+test symbol::tests::dynamic_symbols_round_trip ... ok
+test symbol::tests::nested_symbol_owner_scope_restores_parent ... ok
+test symbol::tests::oversized_dynamic_symbols_round_trip ... ok
+test symbol::tests::preloaded_symbols_cover_builtin_checker_names ... ok
+test symbol::tests::preloaded_symbols_cover_standard_api_registry ... ok
+test symbol::tests::preloaded_symbols_cover_standard_record_registry ... ok
+test symbol::tests::reused_dynamic_slots_resolve_to_their_current_spelling ... ok
+test syntax::arena::child_tests::auxiliary_children_preserve_nested_target_and_type_boundaries ... ok
+test syntax::arena::child_tests::builder_enumeration_keeps_nested_blocks_immediate ... ok
+test syntax::arena::child_tests::comprehensions_and_match_arms_include_bindings_patterns_and_guards_in_order ... ok
+test syntax::arena::child_tests::computed_record_fields_visit_each_key_before_its_value ... ok
+test syntax::arena::child_tests::declaration_defaults_and_types_remain_reachable_without_entering_the_body ... ok
+test syntax::arena::child_tests::logical_operands_keep_identity_and_do_not_repeat_bookkeeping_references ... ok
+test syntax::arena::child_tests::module_contract_defaults_follow_parameter_and_entry_order ... ok
+test syntax::arena::child_tests::named_call_arguments_visit_values_in_source_order_without_labels ... ok
+test syntax::arena::child_tests::patterns_include_literal_and_type_children_as_well_as_nested_patterns ... ok
+test syntax::arena::child_tests::run_options_environment_words_and_redirections_are_expression_children ... ok
+test syntax::arena::child_tests::sugar_views_reach_written_operands_or_the_expansion_once ... ok
+test syntax::arena::layout_tests::cold_tables_allocate_only_after_their_first_item ... ok
+test syntax::arena::layout_tests::compact_arena_rows_keep_fixed_layouts ... ok
+test syntax::arena::layout_tests::shared_arena_dense_span_overrides_preserve_expression_and_statement_spans ... ok
+test syntax::arena::layout_tests::shared_arena_sparse_span_overrides_preserve_primary_gaps_and_boundaries ... ok
+test syntax::arena::layout_tests::source_rows_list_exactly_the_rows_a_table_scan_would_select ... ok
+test syntax::arena::layout_tests::source_text_lookup_requires_the_matching_source_identity ... ok
+test syntax::highlight::tests::a_match_arm_statement_begins_with_its_statement_word ... ok
+test syntax::highlight::tests::atomically_head_words_are_keywords_only_in_an_atomically_statement ... ok
+test syntax::highlight::tests::bare_paths_are_paths_and_division_is_not ... ok
+test syntax::highlight::tests::calls_properties_and_types_are_told_apart ... ok
+test syntax::highlight::tests::collect_is_a_keyword_only_before_a_block ... ok
+test syntax::highlight::tests::command_words_variables_and_splices ... ok
+test syntax::highlight::tests::constants_are_not_keywords ... ok
+test syntax::highlight::tests::contextual_names_stay_plain_elsewhere ... ok
+test syntax::highlight::tests::continued_command_lines_keep_command_kinds ... ok
+test syntax::highlight::tests::declarations_name_functions_and_labels_are_properties ... ok
+test syntax::highlight::tests::doc_comments_differ_from_comments ... ok
+test syntax::highlight::tests::empty_source_has_no_runs ... ok
+test syntax::highlight::tests::every_kind_appears ... ok
+test syntax::highlight::tests::fail_after_the_else_of_a_guard_is_the_statement ... ok
+test syntax::highlight::tests::fail_words_are_keywords_only_in_a_fail_statement ... ok
+test syntax::highlight::tests::fstring_interpolation_is_highlighted_as_code ... ok
+test syntax::highlight::tests::kind_names_are_unique ... ok
+test syntax::highlight::tests::literals_have_their_own_kinds ... ok
+test syntax::highlight::tests::nested_fstrings_recurse ... ok
+test syntax::highlight::tests::repeat_head_words_are_keywords_only_in_a_repeat_statement ... ok
+test stdlib::embedded_fixture_tests::uptime_reads_whole_seconds ... ok
+test syntax::highlight::tests::runs_tile_malformed_source ... ok
+test syntax::highlight::tests::scope_statements_are_keywords_but_the_env_module_is_not ... ok
+test syntax::highlight::tests::spaces_inside_an_interpolation_are_not_string ... ok
+test syntax::highlight::tests::spec_colon_ignores_colons_inside_brackets ... ok
+test syntax::highlight::tests::subcommand_words_of_a_cli_entry_are_its_name ... ok
+test syntax::highlight::tests::tempdir_head_words_are_keywords_only_in_a_tempdir_head ... ok
+test syntax::highlight::tests::tempdir_is_a_keyword_only_before_a_name_and_block ... ok
+test syntax::highlight::tests::the_words_of_a_paced_head_are_keywords_only_there ... ok
+test syntax::highlight::tests::use_alias_and_pipeline_stages ... ok
+test syntax::highlight::tests::within_is_a_keyword_only_before_a_duration_and_block ... ok
+test syntax::highlight::tests::without_is_a_keyword_only_in_a_without_statement_head ... ok
+test syntax::lexer::tests::nesting_past_the_limit_stops_the_lexer_at_the_limit ... ok
+test syntax::lexer::tests::number_token_ends_where_the_lexer_stopped ... ok
+test syntax::lexer::tests::regex_tokens_preserve_raw_contents_and_full_delimiter_spans ... ok
+test syntax::lexer::tests::rejects_invalid_bytes_unicode_escape ... ok
+test syntax::lexer::tests::tokenizes_command_interpolation_boundaries ... ok
+test syntax::lexer::tests::tokenizes_keywords_identifiers_strings_comments_and_eof ... ok
+test syntax::literal::block_string_migration_tests::block_string_corpus_migrations_preserve_old_text_and_interpolation_boundaries ... ok
+test syntax::literal::block_string_tests::block_string_layout_never_rewrites_interpolation_code_or_nested_literals ... ok
+test syntax::literal::block_string_tests::block_string_layout_preserves_crlf_tabs_blank_prefixes_and_shared_breaks ... ok
+test syntax::literal::block_string_tests::block_string_layout_reports_original_byte_range_for_missing_margin ... ok
+test syntax::literal::block_string_tests::block_string_layout_requires_both_structural_boundaries_and_str_domain ... ok
+test syntax::literal::fmt_chunk_tests::fmt_chunks_report_one_issue_per_malformed_brace ... ok
+test syntax::literal::fmt_chunk_tests::fmt_literal_ends_after_nested_same_quote_strings_and_braces ... ok
+test syntax::parser::atomically::tests::the_destination_ends_at_the_as_before_the_name_and_the_body ... ok
+test sema::check::module_driver::tests::imported_module_cli_plans_are_published_with_entry_facts ... ok
+test runtime::eval::indexed::full::tests::context_scope_escape_walks_long_shared_error_causes_without_a_depth_limit ... ok
+test sema::check::module_driver::tests::cached_module_facts_match_fresh_checks_for_every_option_order ... ok
+test syntax::parser::atomically::tests::the_words_that_begin_a_statement_never_begin_a_command ... ok
+test syntax::parser::sugar::tests::a_block_after_a_stage_is_the_stage_block_in_a_head ... ok
+test syntax::parser::sugar::tests::a_guard_is_read_only_where_the_grammar_has_one ... ok
+test stdlib::tests::every_catalog_module_parses_checks_and_lowers ... ok
+test syntax::parser::sugar::tests::a_propagated_spawn_run_is_a_sentence_as_the_formatter_prints_it ... ok
+test runner::tests::nesting_far_past_the_limit_is_the_same_diagnostic ... ok
+test syntax::parser::sugar::tests::every_collect_sentence_of_the_grammar_parses_as_a_collect_expression ... ok
+test syntax::parser::sugar::tests::every_exit_sentence_of_the_grammar_parses ... ok
+test syntax::parser::sugar::tests::every_fail_sentence_of_the_grammar_parses ... ok
+test syntax::parser::sugar::tests::every_guard_fail_sentence_parses_as_a_guard_that_fails ... ok
+test syntax::parser::sugar::tests::every_atomically_sentence_of_the_grammar_parses_as_an_atomically_statement ... ok
+test syntax::parser::sugar::tests::every_print_sentence_parses_with_its_guard ... ok
+test syntax::parser::sugar::tests::every_guarded_expression_sentence_parses_as_a_guarded_expression ... ok
+test runtime::value::resource_values::tests::resource_reachable_values_walk_long_shared_causes_once_without_recursion ... ok
+test syntax::parser::sugar::tests::the_grammar_and_the_parser_agree_on_collect ... ok
+test syntax::parser::sugar::tests::the_grammar_and_the_parser_agree_on_paced_heads ... ok
+test syntax::parser::sugar::tests::the_grammar_recognizes_written_captured_run_forms ... ok
+test syntax::parser::sugar::tests::the_grammar_recognizes_written_guarded_statements ... ok
+test syntax::parser::sugar::tests::the_grammar_recognizes_written_resource_scopes ... ok
+test syntax::parser::sugar::tests::every_repeat_sentence_of_the_grammar_parses_as_a_repeat_statement ... ok
+test syntax::parser::tests::explains_dollar_names_in_expression_context ... ok
+test syntax::parser::tests::parses_bare_command_as_proc_not_run ... ok
+test syntax::parser::tests::parses_declarations_control_flow_and_records ... ok
+test syntax::parser::tests::parses_run_compound_word_and_result_operator ... ok
+test syntax::parser::tests::rejects_expression_string_interpolation ... ok
+test syntax::parser::tests::rejects_interpolation_in_path_strings ... ok
+test syntax::parser::tests::rejects_proc_without_signature ... ok
+test syntax::parser::without::tests::a_without_statement_is_a_lexical_block_carrying_its_bound ... ok
+test syntax::highlight::tests::runs_tile_every_corpus_file ... ok
+test syntax::parser::without::tests::without_stays_a_name_outside_the_statement_head ... ok
+test syntax::token::layout_tests::compact_token_rows_keep_fixed_layouts ... ok
+test syntax::parser::sugar::tests::every_tempdir_sentence_parses_as_a_scope_where_its_for_twin_parses ... ok
+test syntax::parser::sugar::tests::every_retry_sentence_of_the_grammar_parses_as_a_retry ... ok
+test syntax::parser::sugar::tests::the_grammar_recognizes_written_sugar_statements ... ok
+test runtime::value::error_cause::tests::typed_cause_long_shared_chains_clone_compare_and_drop_without_recursion ... ok
+test syntax::parser::sugar::tests::every_within_sentence_of_the_grammar_parses_as_a_within_scope ... ok
+test syntax::parser::sugar::tests::every_wait_until_sentence_of_the_grammar_parses_as_a_wait_until_statement ... ok
+test trace::error_causes::tests::typed_cause_long_chain_rendering_is_bounded_and_escaped ... ok
+test syntax::parser::without::tests::every_without_sentence_of_the_grammar_parses_as_a_bounded_block ... ok
+test syntax::parser::sugar::tests::every_resource_scope_sentence_parses_as_a_scope ... ok
+test runner::tests::a_wide_named_spread_is_prepared_within_a_fixed_stack ... ok
+test runtime::eval::lowered_run::indexed_run::explicit_run::tests::nested_machine_depth_is_restored_after_an_execution_error ... ok
+test runtime::eval::lower::checked_type_fact_tests::corpus_annotations_agree_with_binding_facts has been running for over 60 seconds
+test runtime::eval::lower::checked_type_fact_tests::corpus_annotations_agree_with_binding_facts ... ok
+
+test result: ok. 741 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 158.30s
+
+[test-xsht-build target=x86_64-unknown-linux-musl] cargo test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration --no-run
+[test-xsht target=x86_64-unknown-linux-musl] cargo test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration -- --skip syntax::formatter_is_idempotent_on_laputa_corpus --skip lint_format_invariance::formatting_preserves_lints_on_laputa_corpus --skip examples::example_corpus_is_formatted --skip examples::example_corpus_lints_without_warnings --skip lint_performance::repository_lint_is_clean_within_wall_budget
+
+running 116 tests
+test cli::test_help_describes_native_test_concurrency_bounds ... ok
+test api::fs_root_registry_holds_native_receiver_operations_and_retains_factories ... ok
+test cli::test_exact_requires_filter_for_execution_and_listing ... ok
+test api::api_inventory_is_standalone_and_documented ... ok
+test api::api_summary_reports_the_complete_queryable_surface ... ok
+test cli::test_list_returns_test_and_invalid_file_ids_in_sorted_order ... ok
+test cli::test_roots_resolve_shared_modules_in_their_nearest_config_context ... ok
+test cli::test_roots_share_imported_modules_during_parallel_discovery ... ok
+test cli::xsht_reports_non_utf8_argument_without_panicking ... ok
+test desugar::report_workers_join_started_items_before_propagating_a_failure ... ok
+test desugar::report_workers_preserve_order_and_visit_each_file_once ... ok
+test cli::test_roots_lower_contextual_nominal_imports_in_the_selected_scope ... ok
+test desugar::workspace_corpus_skips_work_tree ... ok
+test cli::native_test_route_witness_environment_fake_transport_does_not_activate_capture ... ok
+test cli::test_exact_filter_with_no_matching_tests_fails ... ok
+test examples::example_runtime_cases_cover_every_example_script ... ok
+test formal_bridge::formal_bridge_fixture_formats_idempotently_without_changing_function_binders ... ok
+test lint::absence_lookup_fallback_fix_refuses_eager_effects_failure_comments_and_named_order ... ok
+test lint::absence_lookup_immutable_fallback_fix_preserves_typed_parameter_and_alias ... ok
+test lint::absence_lookup_literal_fallback_fix_rechecks_and_converges ... ok
+test lint::absence_lookup_path_literal_fallback_fix_rechecks_and_converges ... ok
+test lint::block_string_concatenation_fix_retains_dynamic_interpolation_comments_crlf_and_consumers ... ok
+test lint::default_parameter_annotation_keeps_domains_context_and_ambiguous_defaults ... ok
+test lint::duration_arithmetic_conversion_refuses_custom_module_alias ... ok
+test lint::formatter_comparison_chain_preserves_grouping_and_precedence ... ok
+test lint::linter_env_strings_ignore_shadowed_env_bindings ... ok
+test lint::linter_map_entry_iteration_keeps_mutation_annotations_comments_and_unknown_methods ... ok
+test lint::linter_multi_clause_accumulators_keep_uncertain_loops ... ok
+test lint::linter_named_argument_pun_requires_checked_identifier_resolution ... ok
+test lint::linter_named_argument_spread_requires_checked_record_facts ... ok
+test lint::linter_owns_qualified_enum_symbols_without_a_caller_scope ... ok
+test lint::linter_prefer_guard_supports_value_actions_and_converges ... ok
+test lint::linter_prefer_slice_requires_checked_builtin_receiver ... ok
+test lint::linter_warns_for_redundant_tail_ok_return_without_type_info ... ok
+test lint::private_effects_removal_retains_bounds_entry_points_exports_and_recursion ... ok
+test lint::private_pure_return_removal_retains_context_and_result_boundaries ... ok
+test lint::regex_literal_formatting_retains_source_delimiters_and_raw_contents ... ok
+test lint::signature_cli_migration_retains_comments_and_advanced_cli_policy ... ok
+test cli::native_test_route_witness_captures_the_exact_oracle_in_both_modes ... ok
+test cli::native_test_route_witness_descriptor_survives_script_environment_values ... ok
+test lint_format_invariance::layout_perturbation_handles_blank_lines_inside_brackets ... ok
+test examples::example_corpus_runs_with_expected_output ... ok
+test lint_format_invariance::lint_corpus_copy_and_discovery_skip_work_tree ... ok
+test lint::value_pipeline_hole_lint_retains_effect_order_optional_calls_and_context ... ok
+test lint_performance::lint_gate_terminates_and_reaps_process_at_wall_deadline ... ok
+test syntax::arena_accessors_decode_compact_frontend_shapes ... ok
+test syntax::bare_command_fixture_is_proc_command ... ok
+test syntax::block_string_parser_preserves_original_expression_and_diagnostic_spans ... ok
+test syntax::boolean_guards_parse_as_sugar_and_cst_round_trip ... ok
+test syntax::braced_command_interpolation_is_accepted ... ok
+test syntax::computed_map_keys_retain_expression_nodes_and_original_spans ... ok
+test syntax::cst_groups_delimiters_and_maps_ast_spans ... ok
+test syntax::cst_preserves_source_text_tokens_and_trivia ... ok
+test syntax::embedded_and_quoted_dollar_command_interpolation_is_accepted ... ok
+test syntax::error_handler_headers_have_one_authoritative_parameter_range ... ok
+test syntax::fmt_interpolation_spans_index_the_original_source ... ok
+test syntax::formatter_is_idempotent_on_example_catalog ... ok
+test cli::copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_modules ... ok
+test syntax::formatter_reuses_parsed_program_without_changing_output ... ok
+test syntax::guarded_postfix_records_index_and_slice_flags_and_byte_spans ... ok
+test syntax::guarded_value_control_keeps_payload_and_condition_source_spans ... ok
+test syntax::identifier_subtraction_preserves_negative_command_arguments ... ok
+test syntax::formatter_keeps_command_call_args_bare_without_stealing_propagate_flag ... ok
+test syntax::line_continuation_tokens_cannot_begin_a_statement ... ok
+test syntax::list_literal_splices_retain_element_and_splice_spans ... ok
+test syntax::named_argument_spread_preserves_source_spans_and_formatter_round_trips ... ok
+test syntax::nested_command_word_interpolation_is_accepted ... ok
+test syntax::parser_accepts_assignment_targets ... ok
+test syntax::parser_accepts_builder_task_and_generic_entry_shapes ... ok
+test syntax::parser_accepts_byte_pipeline_and_redirections ... ok
+test examples::examples_have_timed_trace_output ... ok
+test syntax::parser_accepts_display_string_shorthand_interpolation ... ok
+test syntax::parser_accepts_env_assignments_blocks_and_membership ... ok
+test syntax::parser_accepts_ergonomic_sugar_pass_forms ... ok
+test syntax::parser_accepts_foundation_shapes ... ok
+test syntax::parser_accepts_grouped_multiline_run_invocation ... ok
+test syntax::parser_accepts_hyphenated_module_names_in_use_declarations ... ok
+test syntax::parser_accepts_keyword_expressions_mid_expression ... ok
+test syntax::parser_accepts_nominal_error_declarations_and_patterns ... ok
+test syntax::parser_accepts_path_literals_and_expr_env_blocks ... ok
+test syntax::parser_accepts_compact_sugar_forms ... ok
+test syntax::parser_accepts_raw_triple_and_nested_fmt_strings ... ok
+test syntax::parser_accepts_stage_11_and_12_shapes ... ok
+test syntax::parser_accepts_stage_13_module_exports_and_aliases ... ok
+test syntax::parser_accepts_structured_pipeline_stages ... ok
+test syntax::parser_and_desugar_accept_pipeline_call_shorthand ... ok
+test syntax::parser_context_scopes_keep_nested_expression_spans_and_body_modes ... ok
+test syntax::parser_keeps_bare_paths_contextual_with_division ... ok
+test syntax::parser_keeps_byte_pipeline_and_structured_pipeline_distinct ... ok
+test syntax::parser_marks_only_block_tail_plain_identifiers_as_tail_candidates ... ok
+test syntax::parser_multi_clause_comprehensions_share_qualifiers_and_source_spans ... ok
+test syntax::parser_nested_record_update_paths_keep_labels_spans_and_comments ... ok
+test syntax::parser_preserves_cpumax_and_timeout_run_segments ... ok
+test syntax::parser_named_argument_puns_keep_identifier_spans_and_formatting ... ok
+test syntax::parser_retains_module_and_export_doc_comment_spans ... ok
+test syntax::parser_retains_nested_renamed_record_binding_targets_and_spans ... ok
+test syntax::parser_seals_structured_pipeline_before_wrapping_in_value_expr_stage ... ok
+test syntax::parser_record_defaults_preserve_spans_and_stable_formatting ... ok
+test syntax::parser_value_pipeline_holes_retain_immediate_call_shape_and_formatting ... ok
+test syntax::parser_yield_delegation_retains_source_expression_and_unicode_byte_span ... ok
+test syntax::quoted_command_interpolation_spans_use_source_offsets ... ok
+test syntax::run_command_fixture_preserves_argv_boundary ... ok
+test syntax::standalone_dollar_command_interpolation_is_accepted ... ok
+test test_binary::tests::optimized_product_paths_are_accepted ... ok
+test test_binary::tests::other_profiles_are_rejected ... ok
+test syntax::regex_literals_parse_as_prepared_regex_atoms_with_raw_source_spans ... ok
+test cli::test_runner_cancellation_stops_run_script_descendants ... ok
+test cli::fmt_cancellation_during_one_large_file_is_prompt_and_writes_no_file ... ok
+test cli::lint_fix_cancellation_writes_no_file ... ok
+test cli::test_runner_admits_another_file_while_one_file_is_at_its_active_limit ... ok
+test cli::test_runner_times_out_hung_tests_and_stops_their_descendants ... ok
+test syntax::joined_token_pairs_lex_back_to_the_same_tokens ... ok
+test lint_format_invariance::formatting_preserves_lints_on_the_repository_corpus ... ok
+test desugar::the_desugared_corpus_checks_and_tests_like_the_corpus has been running for over 60 seconds
+test lint_format_invariance::layout_perturbation_preserves_lints_on_the_repository_corpus has been running for over 60 seconds
+test lint_format_invariance::lint_fix_commutes_with_formatting_on_corpus_files has been running for over 60 seconds
+test lint_format_invariance::lint_fix_commutes_with_formatting_on_corpus_files ... ok
+test lint_format_invariance::layout_perturbation_preserves_lints_on_the_repository_corpus ... ok
+test desugar::the_desugared_corpus_checks_and_tests_like_the_corpus ... ok
+
+test result: ok. 116 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 1743.01s
+
+[test-soundness-build target=x86_64-unknown-linux-musl] cargo test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh-fuzz --test soundness --no-run
+[test-soundness target=x86_64-unknown-linux-musl] cargo test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh-fuzz --test soundness
+
+running 14 tests
+test test_binary::tests::optimized_product_paths_are_accepted ... ok
+test test_binary::tests::other_profiles_are_rejected ... ok
+test sandbox_without_profile_destination_clears_caller_environment ... ok
+test sandbox_preserves_explicit_llvm_profile_destination_only ... ok
+test oracle_methods_match_the_registry ... ok
+test sandbox_kills_a_child_over_the_memory_limit ... ok
+test generated_string_replacement_uses_the_required_with_label ... FAILED
+test mutants_preserve_acceptance_and_ordinary_parse_diagnostics ... ok
+test cleanly_parsed_mutants_are_recognized_despite_check_or_import_errors ... ok
+test pipeline_stage_blocks_observe_loop_body_mutations ... ok
+test accepted_registry_probes_run_without_internal_or_type_errors ... ok
+test mutants_get_ordinary_diagnostics ... ok
+test generated_programs_are_grammar_sentences ... ok
+test well_typed_programs_run_and_match_the_reference_evaluator ... ok
+
+failures:
+
+---- generated_string_replacement_uses_the_required_with_label stdout ----
+
+thread 'generated_string_replacement_uses_the_required_with_label' (176693) panicked at crates/xsh-fuzz/tests/soundness.rs:203:5:
+error FzErr = Bad(message: Str)
+type R0 = {f0: Str?, f1: Str}
+proc fn0() {
+  ([-2.0].get(2) ?? 100.0) + 0.5
+}
+pure fn1(p0: Path, p1: Map[Int, Int], p2: Int) {
+  match [false, true] |> last() { Err(m2) => m2.message, Ok(m1) => "A" }
+}
+proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    if ctx "Aß" {
+      false
+    } {
+      let o3: Bool = true
+      out += [f"{o3}"]
+      let v4: Result[Bytes] = match -26 { 3 => Err(FzErr.Bad(message: "🦀")), 4 => Ok(b"\x00"), _ => Err(FzErr.Bad(message: "")) }
+      let v5: Int = [".ab"] + ["", "", "_cxz"] |> count
+      var v6: Float = -(["é_", "_:", "c"] |> take(4) |> drop(3) |> repeat(2) |> fold(100.0) { |x7, x8| 0.5 })
+    } else {
+      let v9 = -2.0
+    }
+    for i11 in if ctx "" {
+      false
+    } {
+      [6]
+    } else {
+      {
+        let v10: Int = -(-8 / 10)
+      }
+      if true {
+        [5, 29]
+      } else {
+        [25, 6]
+      }
+    } {
+      if 0.1 >= 3.0 {
+        var v12: Result[Bool] = Ok(if false {
+          true
+        } else {
+          false
+        })
+      }
+      let v13: Str = "azab🦀"
+      if ctx "/c" {
+        ctx "xa" {
+          true
+        }
+      } {
+        let v14 = [{["a"]: "", [""]: "", ["éy::"]: "b.c:"}, {[""]: "7yb.", ["x🦀🦀"]: "é::A"}, {[":ß"]: ""}].get(i11) ?? {[v13]: v13 for x15 in [true, true]}
+      }
+    }
+    let v16: Int = [5 for x17 in ["yA", "aébQ", "0"]].get(0) ?? 28
+    {
+      let v18: Int = 1ms / 1ms
+    }
+    let v19 = [".🦀" for x20 in [false]] |> sort
+    let v21 = 0.1 * -7.75
+    if if false {
+      !true
+    } else {
+      if false {
+        let v22 = v16 + v16 + v16 % 2
+        var v23 = [v22].get(1) ?? b" ".len()
+        for i24 in [[true, true, true], [true], [false]] {
+          v23 *= [-80298, -1690].get(-5) ?? v23
+        }
+        if true or false {
+          let v25 = {[27]: true for x26 in [[31], [6, 37, -93354]]}
+        } else {
+          let v27: Bool = if [20464, 21, 26] == [41126, 90487, 36] {
+            false
+          } else {
+            match v22 + v23 { 0 => true, m28 => false }
+          }
+        }
+      }
+      for i29 in {["cy"]: ["b", ".", ".7xyx"]} {
+        continue when !false
+        break when !false
+      }
+      true
+    } {
+      let v30 = [R0(f0: "-/_a", f1: ""), R0(f0: "é:ab", f1: "")]
+      if v21 > v21 {
+        let v31 = {...R0(f1: "abb", f0: "xya7"), f1: if false {
+          "aß "
+        } else {
+          ""
+        }}
+      } else {
+        var v32: Str = f"{"-xb:"[2..2]}{v16}"
+      }
+      var w33 = 0
+      while w33 < 1 {
+        w33 += 1
+        let v34 = {...R0(f1: "c:", f0: ""), f1: "7x"}
+        let v35 = [34].get(-5) ?? w33
+        var v36: List[Int] = []
+      }
+      let v37 = fn0() ?? v21
+    } else {
+      let v38: Int? = {
+        let v39 = 14 + v16
+        34
+      }
+      {
+        let v40: Int = ([4] + [9, 39]).get(match -16514 { 2 => v16, 2 => v16, _ => 27 }) ?? 40
+        assert b"\x0a00" == b"\x0a00"
+        var v41 = -v16
+      }
+      for i42 in "" {
+        var v43 = [-30839, 24, 13686] != [-9, -9, -3]
+      }
+    }
+    let v44: List[Bool] = [false, false, false] + [true]
+    if -7.75 != v21 {
+      var v45 = b"".len()
+      v45 = v16
+    }
+    let v46: Int = (27 + v16) % 3
+    var v47 = (if true {
+      v16
+    } else {
+      32
+    }) % -2
+    let v48 = (v44 |> map { |x52| "bxy " } |> map { |x51| 26 } |> fold(v47) { |x49, x50| 30 }) > v16
+    if ":Qa" <= "" {
+      for i55 in if true {
+        {
+          let v53: Result[List[Bool]] = Err(FzErr.Bad(message: "/z"))
+        }
+        [-1, 25, -2]
+      } else {
+        [55323 for x54 in "b"]
+      } {
+        let v56 = p"./.."
+        break when v48
+        let v57 = v21 / 0.5
+      }
+      let v58 = ctx " z:" {
+        v46
+      }
+    } else {
+      let v59: Int? = 7
+    }
+    var v60: Int = if if true {
+      v47 += v46
+      v48
+    } else {
+      v48
+    } {
+      v47
+    } else {
+      v46 * v16
+    }
+    let v61 = [37, 10, 35][3..1].get(v60) ?? v47 - v60
+    out += [f"{v16}"]
+    out += [f"{v46}"]
+    out += [f"{v47}"]
+    out += [f"{v48}"]
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+
+
+
+failures:
+    generated_string_replacement_uses_the_required_with_label
+
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 39.95s
+
+[container-ownership-repair target=x86_64-unknown-linux-musl] chown -R 1000:1000 /work/target

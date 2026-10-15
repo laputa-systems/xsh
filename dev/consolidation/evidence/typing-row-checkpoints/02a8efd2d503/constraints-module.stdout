@@ -1,0 +1,73 @@
+
+running 33 tests
+test sema::constraints::tests::aliases_share_one_solution_and_conflicts_retain_source_contributions ... ok
+test sema::constraints::tests::authoritative_dynamic_destination_accepts_concrete_contributions ... ok
+test sema::constraints::tests::checked_annotations_can_choose_types_that_ordinary_evidence_cannot_anchor ... ok
+test sema::constraints::tests::closed_rows_reject_a_missing_required_field ... ok
+test sema::constraints::tests::compatible_open_record_aliases_close_through_either_variable ... ok
+test sema::constraints::tests::constraint_type_ground_and_record_preserve_operand_direction ... FAILED
+test sema::constraints::tests::constraint_type_ground_and_variable_preserve_operand_direction ... FAILED
+test sema::constraints::tests::container_record_width_cannot_bypass_invariance_during_substitution ... ok
+test sema::constraints::tests::dynamic_values_cannot_satisfy_resolved_concrete_constraints ... ok
+test sema::constraints::tests::failed_constraint_does_not_compress_nested_alias_paths ... FAILED
+test sema::constraints::tests::failed_row_unification_rolls_back_row_lacks_and_fresh_tails ... ok
+test sema::constraints::tests::failed_row_unification_rolls_back_type_bindings ... ok
+test sema::constraints::tests::failed_unification_after_alias_walk_keeps_probes_independent ... ok
+test sema::constraints::tests::failed_unification_rolls_back_rank_binding_and_path_compression ... ok
+test sema::constraints::tests::flexible_row_tail_accepts_a_rigid_row_tail ... FAILED
+test sema::constraints::tests::flexible_type_variables_accept_rigid_type_identities ... ok
+test sema::constraints::tests::ground_record_resolution_preserves_depth_errors ... ok
+test sema::constraints::tests::alias_chain_of_400_variables_resolves_to_ground_type ... ok
+test sema::constraints::tests::indirect_recursive_type_equations_are_rejected ... ok
+test sema::constraints::tests::nested_conflicts_roll_back_earlier_variable_bindings ... ok
+test sema::constraints::tests::nested_dynamic_and_recovery_operands_do_not_establish_contracts ... ok
+test sema::constraints::tests::occurs_check_traverses_open_record_bindings_before_aliasing ... ok
+test sema::constraints::tests::optional_evidence_and_reversed_alias_order_have_canonical_solutions ... ok
+test sema::constraints::tests::probes_keep_existing_aliases_but_new_variables_cannot_cross_problems ... ok
+test sema::constraints::tests::optional_record_contributions_keep_one_shape_in_either_order ... ok
+test sema::constraints::tests::ranked_aliases_compress_per_clone_and_keep_canonical_identity ... ok
+test sema::constraints::tests::record_binding_resolution_propagates_enclosing_type_depth ... ok
+test sema::constraints::tests::record_resolution_preserves_foreign_variable_errors ... ok
+test sema::constraints::tests::rigid_type_variables_reject_ground_unification ... ok
+test sema::constraints::tests::row_occurs_rejects_a_recursive_tail ... ok
+test sema::constraints::tests::row_constraint_probes_keep_clones_independent ... ok
+test sema::constraints::tests::type_occurs_rejects_a_nested_recursive_binding ... ok
+test sema::constraints::tests::shared_nested_records_resolve_independently ... ok
+
+failures:
+
+---- sema::constraints::tests::constraint_type_ground_and_record_preserve_operand_direction stdout ----
+
+thread 'sema::constraints::tests::constraint_type_ground_and_record_preserve_operand_direction' (45) panicked at src/sema/constraints.rs:2485:13:
+assertion failed: constraints.constrain_types(&ConstraintType::Ground(expected),
+        &ConstraintType::Record(actual_row), span(4)).is_ok()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- sema::constraints::tests::constraint_type_ground_and_variable_preserve_operand_direction stdout ----
+
+thread 'sema::constraints::tests::constraint_type_ground_and_variable_preserve_operand_direction' (46) panicked at src/sema/constraints.rs:2432:9:
+assertion failed: adapted.constrain_types(&ConstraintType::Ground(expected),
+        &ConstraintType::Variable(variable_id(&actual_variable)),
+        span(4)).is_ok()
+
+---- sema::constraints::tests::failed_constraint_does_not_compress_nested_alias_paths stdout ----
+
+thread 'sema::constraints::tests::failed_constraint_does_not_compress_nested_alias_paths' (49) panicked at src/sema/constraints.rs:2508:9:
+assertion `left == right` failed
+  left: None
+ right: Some(TypeVariableId(423))
+
+---- sema::constraints::tests::flexible_row_tail_accepts_a_rigid_row_tail stdout ----
+
+thread 'sema::constraints::tests::flexible_row_tail_accepts_a_rigid_row_tail' (54) panicked at src/sema/constraints.rs:2536:64:
+called `Result::unwrap()` on an `Err` value: ConstraintConflict { expected: Record({}), actual: Record({}), initializer: Some(Span { source_id: SourceId(0), start: 1, len: 1 }), established: None, contribution: Span { source_id: SourceId(0), start: 2, len: 1 }, resolution_error: None }
+
+
+failures:
+    sema::constraints::tests::constraint_type_ground_and_record_preserve_operand_direction
+    sema::constraints::tests::constraint_type_ground_and_variable_preserve_operand_direction
+    sema::constraints::tests::failed_constraint_does_not_compress_nested_alias_paths
+    sema::constraints::tests::flexible_row_tail_accepts_a_rigid_row_tail
+
+test result: FAILED. 29 passed; 4 failed; 0 ignored; 0 measured; 731 filtered out; finished in 0.01s
+

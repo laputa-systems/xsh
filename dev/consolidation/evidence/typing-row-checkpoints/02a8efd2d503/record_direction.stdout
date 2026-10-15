@@ -1,0 +1,19 @@
+
+running 1 test
+test sema::constraints::tests::constraint_type_ground_and_record_preserve_operand_direction ... FAILED
+
+failures:
+
+---- sema::constraints::tests::constraint_type_ground_and_record_preserve_operand_direction stdout ----
+
+thread 'sema::constraints::tests::constraint_type_ground_and_record_preserve_operand_direction' (27) panicked at src/sema/constraints.rs:2485:13:
+assertion failed: constraints.constrain_types(&ConstraintType::Ground(expected),
+        &ConstraintType::Record(actual_row), span(4)).is_ok()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::constraints::tests::constraint_type_ground_and_record_preserve_operand_direction
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 763 filtered out; finished in 0.00s
+

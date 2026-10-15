@@ -63,8 +63,9 @@ work is authorized by this resume.
   [marker probe](evidence/w9-memory-format/README.md) localizes the kill to full
   pretty-Debug formatting after
   the checker returns. A compact-format diagnostic completes this input within
-  the same cap. Publication equivalence is still unproved, so the capture
-  remains unqualified. [OOM evidence](evidence/w9-reference-137/single-1655/cgroup-oom-observed.txt)
+  the same cap. This earlier capture remains unqualified. The latest checkpoint
+  below records the subsequent bounded equivalence proof and repair.
+  [OOM evidence](evidence/w9-reference-137/single-1655/cgroup-oom-observed.txt)
   retains the bound and kill. Partial ranges have no parity credit.
 - Capability branch `campaign/typing-capability-witnesses`, commit `b6d4a6d1a`,
   records six native witnesses: two existing rejection controls pass and four
@@ -86,6 +87,42 @@ work is authorized by this resume.
   It owns pure identity/projection schemes through parser, checker, imports,
   immutable body facts, lowering, and verification. Main has no inference
   implementation or red capability tests. Lean remains paused.
+
+### Latest canonical and solver checkpoints
+
+- The clean `45b4c1cd8` canonical attempt passes 305 process tests, 741 debug
+  unit tests, and all 116 selected XSHT integration tests. The complete
+  desugar comparison passes. Soundness then stops at the replacement-label
+  test: its accepted seed-4 program contains no `.replace(`. Thirteen other
+  soundness tests pass. [Raw batch evidence](evidence/canonical-45b4/README.md)
+  retains the failure and actual product hashes. Later canonical stages,
+  including the normal full native suite, remain unexecuted.
+- Reviewed compact W9 formatting is merged at `71f7cd689`. The bounded
+  same-object comparison proves canonical equality of pretty and compact
+  publication output. The affected Python modules pass 67 and 54 tests on the
+  integrated tree. [Evidence](evidence/w9-compact/README.md) retains the
+  1 GiB diagnostic, four Rust oracles, failed assertion correction, and review.
+  Five fresh harness roles build and pass listing checks at isolated source
+  `d20af40bc`. Its application source matches `45b4c1cd8`. A fresh full capture
+  is running. Full cohort parity remains unaccepted.
+- Isolated solver checkpoint `3545a21d6` passes all 29 constraint tests. Its
+  corrected rollback oracle expects the established canonical alias, with
+  the error and parent assertions retained. Independent review then finds
+  flexible-to-rigid row rejection, compression outside rollback, and two
+  operand-direction reversals. Test-only `d03fdc2b7` reproduces all four
+  failures. The initial compression probe had a bad parent-chain fixture;
+  the corrected probe reaches the failed constraint and observes compression.
+  [Raw checkpoint evidence](evidence/typing-row-checkpoints/README.md) retains
+  the red and green runs. Repairs are in progress. No inference code is
+  accepted on main.
+- The nine final native runs are the canonical normal suite, selected release
+  opt3 correctness suite, forced-frame suite, and three reference/candidate
+  scheduler pairs. The forced-frame gate requires the release suite receipt.
+  The profile-selection waiver preserves this correctness prerequisite.
+- The [ten-row review](evidence/acceptance-review-45b4/semantic.md) separates
+  current source review, executed tests, and pending runtime evidence. The
+  [defect review](evidence/acceptance-review-45b4/open-defects.md) reconciles
+  TODO claims without closing deferred features or historical reports.
 
 ### Verified since resume
 
@@ -352,7 +389,8 @@ The 633 selected-profile native suite passed 13,793 cases, with zero failures
 and 136 skips. Its observer completed 1,022 root Rust tests, then was
 interrupted for winddown. Canonical acceptance did not complete. Isolated lint
 exited zero but exceeded the existing 15-second budget. The historical extra
-AWK desugar outcome remains unexplained. No scheduler or comparative speedup
+AWK desugar outcome was unexplained at winddown. The current resume section
+records its reproduced cross-file mechanism. No scheduler or comparative speedup
 is claimed. [Retained receipts and recovery instructions](winddown/README.md)
 state the evidence limits.
 

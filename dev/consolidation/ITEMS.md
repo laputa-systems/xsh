@@ -8,9 +8,11 @@ into master on 2026-10-11. Private lanes and original baselines remain preserved
 **Status: active and incomplete, 2026-10-15.** Main integrates the reviewed
 curl, AWK, tail, and strict-Clippy repairs through `c1c6e4c87`. Forty focused
 Rust tests, 23 native tests, and eight paired repository/Laputa checks pass.
-Canonical acceptance and full W9 capture remain open. The W9 reference hits
-its 1 GiB cap during pretty-Debug formatting. A compact-format experiment
-completes the affected input, but publication equivalence is not yet proved.
+Canonical acceptance and full W9 capture remain open. Canonical `45b4` passes
+the complete desugar comparison, then fails the fuzz replacement-label seed
+oracle. Reviewed compact W9 formatting is integrated at `71f7cd689`; bounded
+canonical equality and 121 Python tests pass. Five fresh harness roles build,
+and a full capture is running. Full cohort parity remains unaccepted.
 The original-source AWK/curl reproducer establishes the cross-file fixture
 mutation. One isolated rank-1 inference lane is active. Lean remains paused.
 See [the current handoff](HANDOFF.md) for source pins and evidence.
@@ -21,7 +23,8 @@ fixture repairs pass the exact 197-file desugar check. The 31c profile suite
 passes. Its canonical btop PTY failure led to test-only frame acknowledgements
 and a deterministic regression. Focused checks pass. The final observer can
 reuse a separate Cargo cache without skipping acceptance commands. An earlier
-extra AWK outcome remains unexplained, and current final gates remain required.
+extra AWK outcome now has a source-pinned cross-file reproducer. Historical
+child output remains missing, and current final gates remain required.
 W9 parity passed 1,690 inputs and 6,760
 outcomes with zero mismatches on `2083821ed`. Independent review qualifies
 that result across the two-file route-witness repair `ae7cf8490`.
@@ -291,6 +294,9 @@ independently of agent concurrency, and only one full native corpus runs at a
 time. Historical final attempts do not accept the repaired source. Its lint
 preflight and focused checks pass; fresh W9 and structural qualification, nine
 passing full native suites, and remaining final acceptance are still required.
+The nine runs are canonical normal, selected release opt3 correctness,
+forced-frame, and three reference/candidate scheduler pairs. The profile-
+selection waiver preserves the selected release correctness run.
 
 The owner subsequently excluded `dev/compat` from check and lint while its
 campaign remains WIP. Project discovery excludes its XSH scripts; the

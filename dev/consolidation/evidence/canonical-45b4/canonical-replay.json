@@ -1,0 +1,381 @@
+{
+  "acceptance_credit": "none from this runner; the canonical gate result must be reviewed separately",
+  "cleanup": null,
+  "command": [
+    "cargo",
+    "run",
+    "--quiet",
+    "--target",
+    "x86_64-unknown-linux-musl",
+    "-p",
+    "xsh",
+    "--bin",
+    "xsh",
+    "--",
+    "dev/main.xsh",
+    "--",
+    "internal",
+    "gate-batch"
+  ],
+  "container_resources": {
+    "path": "container-resources.json",
+    "record": {
+      "cgroup_limits_and_peaks": {
+        "cpu_max": "1200000 100000",
+        "cpu_stat": {
+          "burst_usec": 0,
+          "core_sched.force_idle_usec": 0,
+          "nice_usec": 54789,
+          "nr_bursts": 0,
+          "nr_periods": 21230,
+          "nr_throttled": 2387,
+          "system_usec": 2762001037,
+          "throttled_usec": 1727249016,
+          "usage_usec": 10477297809,
+          "user_usec": 7715296772
+        },
+        "memory_current": "477827072",
+        "memory_events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0,
+          "sock_throttled": 0
+        },
+        "memory_max": "25769803776",
+        "memory_peak": "4780195840",
+        "memory_swap_current": "0",
+        "memory_swap_events": {
+          "fail": 0,
+          "high": 0,
+          "max": 0
+        },
+        "memory_swap_max": "0",
+        "memory_swap_peak": "0",
+        "pids_current": "2",
+        "pids_max": "max",
+        "pids_peak": "210"
+      },
+      "command": [
+        "cargo",
+        "run",
+        "--quiet",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "-p",
+        "xsh",
+        "--bin",
+        "xsh",
+        "--",
+        "dev/main.xsh",
+        "--",
+        "internal",
+        "gate-batch"
+      ],
+      "duration_seconds": 2123.197,
+      "exit_code": 3,
+      "final": {
+        "cgroup": {
+          "cpu_max": "1200000 100000",
+          "cpu_stat": {
+            "burst_usec": 0,
+            "core_sched.force_idle_usec": 0,
+            "nice_usec": 54789,
+            "nr_bursts": 0,
+            "nr_periods": 21230,
+            "nr_throttled": 2387,
+            "system_usec": 2762001037,
+            "throttled_usec": 1727249016,
+            "usage_usec": 10477297809,
+            "user_usec": 7715296772
+          },
+          "memory_current": "477827072",
+          "memory_events": {
+            "high": 0,
+            "low": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_group_kill": 0,
+            "oom_kill": 0,
+            "sock_throttled": 0
+          },
+          "memory_max": "25769803776",
+          "memory_peak": "4780195840",
+          "memory_swap_current": "0",
+          "memory_swap_events": {
+            "fail": 0,
+            "high": 0,
+            "max": 0
+          },
+          "memory_swap_max": "0",
+          "memory_swap_peak": "0",
+          "pids_current": "2",
+          "pids_max": "max",
+          "pids_peak": "210"
+        },
+        "process_rss_sum_bytes": 16646144,
+        "sampled_utc": "2026-10-15T23:18:01.624+00:00",
+        "visible_process_count": 2
+      },
+      "finished_utc": "2026-10-15T23:18:01+00:00",
+      "initial": {
+        "cgroup": {
+          "cpu_max": "1200000 100000",
+          "cpu_stat": {
+            "burst_usec": 0,
+            "core_sched.force_idle_usec": 0,
+            "nice_usec": 0,
+            "nr_bursts": 0,
+            "nr_periods": 0,
+            "nr_throttled": 0,
+            "system_usec": 19121,
+            "throttled_usec": 0,
+            "usage_usec": 43903,
+            "user_usec": 24781
+          },
+          "memory_current": "17158144",
+          "memory_events": {
+            "high": 0,
+            "low": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_group_kill": 0,
+            "oom_kill": 0,
+            "sock_throttled": 0
+          },
+          "memory_max": "25769803776",
+          "memory_peak": "17342464",
+          "memory_swap_current": "0",
+          "memory_swap_events": {
+            "fail": 0,
+            "high": 0,
+            "max": 0
+          },
+          "memory_swap_max": "0",
+          "memory_swap_peak": "0",
+          "pids_current": "2",
+          "pids_max": "max",
+          "pids_peak": "6"
+        },
+        "process_rss_sum_bytes": 19050496,
+        "sampled_utc": "2026-10-15T22:42:38.427+00:00",
+        "visible_process_count": 2
+      },
+      "oom_events": 0,
+      "oom_kill_events": 0,
+      "process_rss_peak_bytes": 4523253760,
+      "process_rss_peak_method": "sum of resident pages for visible container processes, sampled at 100 ms",
+      "received_signal": null,
+      "resource_sample_interval_ms": 100,
+      "resource_samples": 20975,
+      "schema_version": 1,
+      "spawn_error": null,
+      "started_utc": "2026-10-15T22:42:38+00:00",
+      "swap_events": {
+        "fail": 0,
+        "high": 0,
+        "max": 0
+      },
+      "timing_claim": "none"
+    },
+    "sha256": "f35da28a1f4f644eb1a95e3af15c9ec411b00140e12b6e8363f74a63c6ee1238"
+  },
+  "docker_argv": [
+    "docker",
+    "run",
+    "--rm",
+    "--init",
+    "--platform",
+    "linux/amd64",
+    "--privileged",
+    "--network",
+    "none",
+    "--cpus=12",
+    "--memory=24g",
+    "--memory-swap=24g",
+    "--cidfile",
+    "/home/josh/d/laputa-systems/xsh/.work/tmp/canonical-45b4/container.cid",
+    "--name",
+    "xsh-canonical-canonical-45b4",
+    "--volume",
+    "/home/josh/d/laputa-systems/xsh:/work:rw",
+    "--volume",
+    "/home/josh/d/laputa-systems/xsh/.work/target-final-canonical:/work/target:rw",
+    "--volume",
+    "/home/josh/d/laputa-systems/xsh/.work/tmp:/scratch:rw",
+    "--volume",
+    "xsh-cargo-registry:/root/.cargo/registry",
+    "--volume",
+    "xsh-consolidation-kache:/root/.cache/kache",
+    "--volume",
+    "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro",
+    "--volume",
+    "/home/josh/d/laputa-systems/xsh/dev/musl-linker.sh:/usr/local/bin/xsh-mold-linker:ro",
+    "--volume",
+    "/usr/local/bin/mold:/usr/local/bin/mold:ro",
+    "--volume",
+    "/home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro",
+    "--volume",
+    "/usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro",
+    "--workdir",
+    "/work",
+    "--env",
+    "TARGET=x86_64-unknown-linux-musl",
+    "--env",
+    "DIST_PROFILE=verification",
+    "--env",
+    "CARGO_TARGET_DIR=/work/target",
+    "--env",
+    "CARGO_BUILD_WARNINGS=deny",
+    "--env",
+    "CARGO_BUILD_JOBS=12",
+    "--env",
+    "CARGO_NET_OFFLINE=true",
+    "--env",
+    "CARGO_HOME=/root/.cargo",
+    "--env",
+    "XDG_CACHE_HOME=/root/.cache",
+    "--env",
+    "TMPDIR=/scratch",
+    "--env",
+    "HOST_UID=1000",
+    "--env",
+    "HOST_GID=1000",
+    "--env",
+    "RUSTC_WRAPPER=/usr/local/bin/kache",
+    "--env",
+    "XSH_DEV_BUILD_PRELOAD=/usr/lib/libjemalloc.so.2",
+    "--env",
+    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker",
+    "--env",
+    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol",
+    "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+    "/usr/bin/python3",
+    "/scratch/final-canonical-replay.py",
+    "capture",
+    "/scratch/canonical-45b4/container-resources.json",
+    "--",
+    "cargo",
+    "run",
+    "--quiet",
+    "--target",
+    "x86_64-unknown-linux-musl",
+    "-p",
+    "xsh",
+    "--bin",
+    "xsh",
+    "--",
+    "dev/main.xsh",
+    "--",
+    "internal",
+    "gate-batch"
+  ],
+  "duration_seconds": 2124.04,
+  "exit_code": 3,
+  "failure": null,
+  "finished_utc": "2026-10-15T23:18:02+00:00",
+  "image": {
+    "id": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+    "platform": "linux/amd64"
+  },
+  "kind": "canonical_gate_batch_replay",
+  "logs": {
+    "stderr": {
+      "path": "stderr.log",
+      "sha256": "c9a18e49073e8d579ee65a2c9deca5bbbbe9774a9c59752b45cdffeee45d0f43",
+      "size_bytes": 3931
+    },
+    "stdout": {
+      "path": "stdout.log",
+      "sha256": "ed7a65332ca3a2a072bb8f5839b3b35d8cf1791be73cba58f6a0285149fccca7",
+      "size_bytes": 115685
+    }
+  },
+  "network_comparison": {
+    "reason": "the batch test network uses are loopback or mocked; Cargo is offline",
+    "retained_prior_attempt": "Docker default bridge",
+    "this_run": "network none"
+  },
+  "prior_attempt": {
+    "disposition": "retained failed prior attempt; no result is inherited by this run",
+    "handoff": "dev/consolidation/HANDOFF.md",
+    "output": "dev/consolidation/evidence/resume-fff13082-canonical.log",
+    "resources": "dev/consolidation/evidence/resume-fff13082-resources.json",
+    "source_prefix": "fff13082f"
+  },
+  "products_after": {
+    "xsh-verification": {
+      "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh",
+      "sha256": "e0062e3280732626ebc3b2aa3eabe09ec3400156f112e0458e6694b9136ee9fa",
+      "size_bytes": 31681240
+    },
+    "xshi-verification": {
+      "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xshi",
+      "sha256": "5121c56402853320e396695d6854336067fa9754fcc957bdcdd98ffe74fcea53",
+      "size_bytes": 587320
+    },
+    "xsht-verification": {
+      "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht",
+      "sha256": "29c80afd1c5ca7243fc4dea60355a273cc5883ffa3d9f1d2949069f04e2093fa",
+      "size_bytes": 38769656
+    }
+  },
+  "profile": "verification",
+  "received_signal": null,
+  "release_profile": "reserved for later final performance checks",
+  "resource_limits": {
+    "cpus": 12,
+    "memory_bytes": 25769803776,
+    "network": "none",
+    "swap_bytes": 0
+  },
+  "run_name": "canonical-45b4",
+  "schema_version": 1,
+  "source_checks": [
+    {
+      "clean": true,
+      "head": "45b4c1cd8195f0f341c077a00a7b09dfa8c144ee",
+      "status": "",
+      "tree": "242bab51de7abddee264170235c485658dfb354c",
+      "where": "before"
+    },
+    {
+      "clean": true,
+      "head": "45b4c1cd8195f0f341c077a00a7b09dfa8c144ee",
+      "status": "",
+      "tree": "242bab51de7abddee264170235c485658dfb354c"
+    }
+  ],
+  "source_expected": {
+    "commit": "45b4c1cd8195f0f341c077a00a7b09dfa8c144ee",
+    "tree": "242bab51de7abddee264170235c485658dfb354c"
+  },
+  "started_utc": "2026-10-15T22:42:38+00:00",
+  "status": "failed-or-incomplete",
+  "timed_out": false,
+  "timing_claim": "none",
+  "tooling": {
+    "jemalloc": {
+      "path": "/usr/lib/libjemalloc.so.2",
+      "sha256": "2db538572b752a3ed5b6b8d9a76cc2966f0670ad481892cb423617c9e4345284",
+      "size_bytes": 404352
+    },
+    "kache": {
+      "path": "/home/josh/.cargo/bin/kache",
+      "sha256": "b826e99983057974663d6863eafbee4e1b25ca9373071406b15dd02961b2c37d",
+      "size_bytes": 26978672
+    },
+    "linker": {
+      "path": "/home/josh/d/laputa-systems/xsh/dev/musl-linker.sh",
+      "sha256": "583039d8ee08330c3eaab1970802181f1ed766f412bfe9d7493fb39135ebc727",
+      "size_bytes": 277
+    },
+    "mold": {
+      "path": "/usr/local/bin/mold",
+      "sha256": "78e4b6aec99fa067b81326f4b540893b92ae78e5b4176ab32be0565dcbd049d3",
+      "size_bytes": 48712704
+    }
+  }
+}

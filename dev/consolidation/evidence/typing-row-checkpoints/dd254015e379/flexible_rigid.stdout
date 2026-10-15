@@ -1,0 +1,18 @@
+
+running 1 test
+test sema::constraints::tests::flexible_type_variables_accept_rigid_type_identities ... FAILED
+
+failures:
+
+---- sema::constraints::tests::flexible_type_variables_accept_rigid_type_identities stdout ----
+
+thread 'sema::constraints::tests::flexible_type_variables_accept_rigid_type_identities' (18) panicked at src/sema/constraints.rs:1983:14:
+called `Result::unwrap()` on an `Err` value: ConstraintConflict { expected: Inference(TypeVariableId(1)), actual: Unknown, initializer: None, established: None, contribution: Span { source_id: SourceId(0), start: 2, len: 1 }, resolution_error: None }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::constraints::tests::flexible_type_variables_accept_rigid_type_identities
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 757 filtered out; finished in 0.00s
+

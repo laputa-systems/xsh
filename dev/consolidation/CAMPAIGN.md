@@ -49,8 +49,9 @@ test-only repairs require the expected screen state and a completed frame
 after each input or resize. Focused regressions pass. The observer can reuse
 a separate Cargo cache while retaining fresh receipts and the complete gate.
 The exact 197-file desugar comparison also passes after the earlier root
-permission and six-digit PID repairs. The historical extra AWK parity failure
-remains unexplained; final acceptance is still open. Fresh W9 parity on `2083821ed` passed
+permission and six-digit PID repairs. The later original-source AWK/curl replay
+establishes the cross-file mechanism. Historical child output remains missing,
+and final acceptance is still open. Fresh W9 parity on `2083821ed` passed
 1,690 inputs and 6,760 outcomes with zero mismatches. Independent review
 qualifies that result across the route-witness repair `ae7cf8490`.
 The earlier selected-profile native suite and clean 13.65-second lint pass
@@ -1140,7 +1141,7 @@ These are source observations, not newly executed build or performance results:
 - `src/sema/constraints.rs` uses variable bindings into recursive `Type` values. Representative traversal follows aliases with a visited set; it counts alias hops against `MAX_TYPE_DEPTH`. This is not the requested level-based, path-compressed inference graph.
 - `infer_default_parameter_types` can repeat statement-wide passes; `EffectGraph::solve_with` repeats scans of its nodes and edges. These are profiling/scaling targets, not permission to assert an unmeasured slowdown.
 - `CheckedDeclarations`, published call/type facts, shared module preparation, verifier-owned execution routing, and shared record-type storage are valuable foundations. Keep them.
-- The consolidation handoff retains passing historical native suites and focused repair evidence but explicitly leaves final acceptance open. In particular, do not erase the unexplained extra AWK desugar outcome because a later combined comparison passes.
+- The consolidation handoff retains passing historical native suites and focused repair evidence but explicitly leaves final acceptance open. Preserve the extra AWK desugar failure and its original-source cross-file reproducer. A later passing comparison does not recover missing historical child output or environment.
 - `formal/README.md` explicitly distinguishes its fragment results from Rust correspondence and universal obligations. Preserve that honesty and the existing full-core target.
 
 Revalidate these observations before changing code. When an observation no longer applies, record the current owner and its executable evidence; do not implement a duplicate repair.

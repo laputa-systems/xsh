@@ -1,0 +1,20 @@
+
+running 1 test
+test sema::constraints::tests::failed_constraint_does_not_compress_nested_alias_paths ... FAILED
+
+failures:
+
+---- sema::constraints::tests::failed_constraint_does_not_compress_nested_alias_paths stdout ----
+
+thread 'sema::constraints::tests::failed_constraint_does_not_compress_nested_alias_paths' (30) panicked at src/sema/constraints.rs:2519:9:
+assertion `left == right` failed
+  left: Some(TypeVariableId(2))
+ right: Some(TypeVariableId(8))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::constraints::tests::failed_constraint_does_not_compress_nested_alias_paths
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 763 filtered out; finished in 0.00s
+

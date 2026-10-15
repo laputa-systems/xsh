@@ -1,0 +1,44 @@
+   Compiling xsh v0.0.1 (/work)
+   Compiling xsht v0.0.1 (/work/crates/xsht)
+    Finished `verification` profile [optimized] target(s) in 0.60s
+   Compiling xsh v0.0.1 (/work)
+    Finished `verification` profile [optimized] target(s) in 48.81s
+  Executable tests/ambient_fs_policy.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/dc5d058a3e44a7eb/out/ambient_fs_policy-dc5d058a3e44a7eb)
+  Executable tests/core_compat_boundaries.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/31455098c0a3c506/out/core_compat_boundaries-31455098c0a3c506)
+  Executable tests/core_compat_extra.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/409440b2a43657bc/out/core_compat_extra-409440b2a43657bc)
+  Executable tests/integration.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/4a9d55a76cf51b08/out/integration-4a9d55a76cf51b08)
+  Executable tests/symbol_plateau.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/0d1af18a8111f93b/out/symbol_plateau-0d1af18a8111f93b)
+    Finished `verification` profile [optimized] target(s) in 0.07s
+     Running tests/ambient_fs_policy.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/dc5d058a3e44a7eb/out/ambient_fs_policy-dc5d058a3e44a7eb)
+     Running tests/core_compat_boundaries.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/31455098c0a3c506/out/core_compat_boundaries-31455098c0a3c506)
+     Running tests/core_compat_extra.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/409440b2a43657bc/out/core_compat_extra-409440b2a43657bc)
+     Running tests/integration.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/4a9d55a76cf51b08/out/integration-4a9d55a76cf51b08)
+     Running tests/symbol_plateau.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/0d1af18a8111f93b/out/symbol_plateau-0d1af18a8111f93b)
+   Compiling xsh v0.0.1 (/work)
+    Finished `test` profile [unoptimized] target(s) in 0.26s
+  Executable unittests src/lib.rs (target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+   Compiling xsh v0.0.1 (/work)
+   Compiling xsht v0.0.1 (/work/crates/xsht)
+    Finished `verification` profile [optimized] target(s) in 49.21s
+  Executable tests/integration.rs (target/x86_64-unknown-linux-musl/verification/build/xsht/958dd2b17d7d1726/out/integration-958dd2b17d7d1726)
+    Finished `verification` profile [optimized] target(s) in 0.04s
+     Running tests/integration.rs (target/x86_64-unknown-linux-musl/verification/build/xsht/958dd2b17d7d1726/out/integration-958dd2b17d7d1726)
+   Compiling xsh-fuzz v0.0.1 (/work/crates/xsh-fuzz)
+    Finished `verification` profile [optimized] target(s) in 3.53s
+  Executable tests/soundness.rs (target/x86_64-unknown-linux-musl/verification/build/xsh-fuzz/a93f27f92fa19b8e/out/soundness-a93f27f92fa19b8e)
+    Finished `verification` profile [optimized] target(s) in 0.04s
+     Running tests/soundness.rs (target/x86_64-unknown-linux-musl/verification/build/xsh-fuzz/a93f27f92fa19b8e/out/soundness-a93f27f92fa19b8e)
+error: test failed, to rerun pass `-p xsh-fuzz --test soundness`
+err: StageError.Failed
+executable: target/x86_64-unknown-linux-musl/debug/xsh
+at /work/dev/cargo_steps.xsh:129:5-130:1
+call path:
+  1. proc main at /work/dev/main.xsh:1:1-1:1
+  2. proc dispatch at /work/dev/main.xsh:372:10-372:40
+  3. proc /work/dev/internal.xsh.gate_batch at /work/dev/main.xsh:355:29-355:63
+  4. proc /work/dev/gates.xsh.batch at /work/dev/internal.xsh:107:3-107:19
+  5. proc /work/dev/test_workflows.xsh.full at /work/dev/gates.xsh:186:3-186:65
+  6. proc /work/dev/test_workflows.xsh.run_commands at /work/dev/test_workflows.xsh:197:3-197:53
+  7. proc /work/dev/cargo_steps.xsh.run_test at /work/dev/test_workflows.xsh:171:7-171:33
