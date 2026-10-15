@@ -3070,10 +3070,12 @@
     "ExprPipeline": {
       "ids": [
         "runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_input_that_names_a_statement",
-        "tests/xsh/expression-route-oracles.xsh::test_expr_pipeline"
+        "tests/xsh/expression-route-oracles.xsh::test_expr_pipeline",
+        "runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_with_no_input_payload",
+        "runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_with_a_truncated_payload_after_input"
       ],
       "proof_kind": "runtime",
-      "scope": "Native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_pipeline exercises ExprPipeline runtime behavior and carries the pending normal/forced route candidate. The Rust verifier oracle separately checks rejection when a present pipeline input names a statement. Neither oracle covers an absent or truncated pipeline payload."
+      "scope": "Native child oracle tests/xsh/expression-route-oracles.xsh::test_expr_pipeline exercises runtime behavior; its route candidate remains uncredited until an authenticated receipt is validated. Rust verifier tests independently reject a present pipeline input that names a statement, an absent input payload, and a truncated payload that contains only the input ID. Those tests cover verifier rejection and do not claim runtime routes."
     },
     "ExprPreparedConstant": {
       "ids": [
@@ -3948,30 +3950,7 @@
   "static_or_rejection_reasons": {},
   "static_or_rejection_tags": [],
   "static_oracle_id": "runtime::eval::indexed::full::tests::instruction_schema_views_reject_malformed_fields_and_wrong_child_categories",
-  "unmapped_paths": [
-    {
-      "modes": [
-        "normal",
-        "forced"
-      ],
-      "path": "absent_or_truncated_lowered_pipeline_input",
-      "reason": "No oracle exercises an absent or truncated pipeline payload; the existing pipeline corruption oracle covers a present input that references a statement and is rejected for the wrong category.",
-      "route_behaviors": {
-        "forced": {
-          "result_message": "verifier rejection before explicit-frame dispatch"
-        },
-        "normal": {
-          "result_message": "verifier rejection before indexed expression dispatch"
-        }
-      },
-      "source": [
-        "src/runtime/eval/indexed/full.rs::FullVerifier::verify",
-        "src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs::indexed_value_pipeline_input"
-      ],
-      "structural_note": "The verifier rejects this malformed input before normal or forced execution reaches it.",
-      "tag": "ExprPipeline"
-    }
-  ],
+  "unmapped_paths": [],
   "xsh_oracle_files": [
     "tests/xsh/expression-route-oracles.xsh",
     "tests/xsh/frame-apply-oracles.xsh",

@@ -932,6 +932,39 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             {"verification": generate.rust_test_command(rust_id)},
         )
 
+    def test_pipeline_verifier_rejections_are_separate_from_route_oracle(self) -> None:
+        root = generate.HERE.parents[4]
+        config = json.loads(generate.CONFIG.read_text())
+        pipeline = config["runtime_oracles"]["ExprPipeline"]
+        xsh_id = "tests/xsh/expression-route-oracles.xsh::test_expr_pipeline"
+        verifier_ids = {
+            "runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_input_that_names_a_statement",
+            "runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_with_no_input_payload",
+            "runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_with_a_truncated_payload_after_input",
+        }
+        rust_ids = generate.rust_test_ids(
+            root,
+            config["rust_oracle_files"],
+            config["rust_test_modules"],
+        )
+        self.assertTrue(verifier_ids <= rust_ids)
+        self.assertEqual(set(pipeline["ids"]), verifier_ids | {xsh_id})
+        self.assertEqual(pipeline["proof_kind"], "runtime")
+        self.assertIn("route candidate remains uncredited", pipeline["scope"])
+        self.assertFalse(
+            any(path["tag"] == "ExprPipeline" for path in config["unmapped_paths"])
+        )
+        route_mapping = next(
+            mapping for mapping in config["route_witness_mappings"]
+            if mapping["tag"] == "ExprPipeline"
+        )
+        self.assertEqual(route_mapping["test_id"], xsh_id)
+        for verifier_id in verifier_ids:
+            self.assertEqual(
+                generate.runtime_oracle_commands(verifier_id, rust_ids),
+                {"verification": generate.rust_test_command(verifier_id)},
+            )
+
     def route_witness_receipt_fixture(
         self,
         root: pathlib.Path,
