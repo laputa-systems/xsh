@@ -35,6 +35,11 @@ work is authorized by this resume.
   one worker in a disposable source copy. The historical individual case,
   transformed source, and child diagnostics remain unavailable. This passing
   pair does not explain or close the old mismatch.
+- A [bounded replay of the original 0ea source](evidence/awk-replay-0ea/README.md)
+  selected twelve stream/process shards under root with eight workers. Written
+  and freshly desugared forms both passed shard 001 and failed only the separate
+  root-sensitive shard 008. The historical extra failure remains unexplained.
+  AWK acceptance stays open. The replay is not a full-suite acceptance pass.
 - The first canonical batch at `fff13082f` passed 305 root integration cases,
   with four ignored. Its debug unit target passed 715, failed two, and ignored
   three. Both failures inherited `/work/xsht-config.ini` through disk-backed

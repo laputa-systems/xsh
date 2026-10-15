@@ -1,0 +1,21 @@
+running 12 tests
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_003 ... ok 3.5s
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_002 ... ok 3.6s
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_007 ... ok 3.6s
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_000 ... ok 3.7s
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_001 ... ok 3.7s
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_004 ... ok 3.7s
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_005 ... ok 3.7s
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_006 ... ok 3.8s
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_011 ... ok 764ms
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_008 ... FAILED 2.7s
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_010 ... ok 2.7s
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_009 ... ok 2.8s
+
+failures:
+
+---- core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_008 ----
+AssertionError.Failed: assertion failed: failures.is_empty(): 1 of 8 cases differ from the recorded GNU awk output:
+io_unreadable_file: stdout,stderr,status
+
+test result: FAILED. 11 passed; 1 failed; 0 skipped
