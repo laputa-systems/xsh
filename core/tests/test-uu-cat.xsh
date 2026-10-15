@@ -318,9 +318,10 @@ test test_uu_cat_domain_socket { |ctx|
   let c = linux.net_constants()
   let socket = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
   defer unix.close_fd(socket)
-  let socket_name = match s.root.strip_prefix(ctx.core_dir.parent()) {
-    Ok(relative_root) => f"{relative_root}/sock"
-    Err(_) => uu.at(s, "sock").display()
+  let socket_name = if let Ok(relative_root) = s.root.strip_prefix(ctx.core_dir.parent()) {
+    f"{relative_root}/sock"
+  } else {
+    uu.at(s, "sock").display()
   }
   linux.bind(socket, {family: "unix", address: socket_name})
   linux.listen(socket, 128)

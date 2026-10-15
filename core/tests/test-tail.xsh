@@ -16,7 +16,7 @@ proc numbers(from: Int, to: Int) -> Bytes {
   bytes.concat([bytes.from_text(f"{n}\n") for n in range(from, to + 1)])
 }
 
-proc tail_append(file: Path, data: Bytes) [fs, process, net, error] -> Result[Unit] {
+proc tail_append(file: Path, data: Bytes) [fs, process, net, error] {
   let fd = unix.open_fd(file, write: true, flags: ["append"])?
   defer unix.close_fd(fd)
   var offset = 0
@@ -30,7 +30,7 @@ proc tail_append(file: Path, data: Bytes) [fs, process, net, error] -> Result[Un
 
 proc tail_wait_for_bytes(file: Path, expected: Bytes) [fs, time, error] -> Result[Bool] {
   repeat 100 times {
-    if file.read_bytes()? == expected { return Ok(true) }
+    return Ok(true) when file.read_bytes()? == expected
     time.sleep(10ms)
   }
   Ok(false)
@@ -427,12 +427,12 @@ test test_tail_follows_descriptor_appends_and_zero_count { |ctx|
     var output = case.initial
     assert tail_wait_for_bytes(stdout, output)?, stdout.read_text()?
     for update in case.appends {
-      tail_append(update.file, update.data)?
+      tail_append(update.file, update.data)
       output = bytes.concat([output, update.data])
       assert tail_wait_for_bytes(stdout, output)?, stdout.read_text()?
     }
     assert output == case.expected
-    watcher.cancel(signal: "KILL", kill_after: 0ms)?
+    watcher.cancel(signal: "KILL", kill_after: 0ms)
     assert (wait follower?).exited_with(0)
     assert stdout.read_bytes()? == case.expected
     assert stderr.read_text()? == "tail: using notification mode\n"

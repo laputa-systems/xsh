@@ -7,7 +7,7 @@ pure check_failure(message: Str) -> SystemReportCheckError {
   .Invalid(message)
 }
 
-proc capture_metadata_bytes(bundle: FsRoot, max_bytes: Int = 2097152) [fs, error] -> Result[Bytes] {
+proc capture_metadata_bytes(bundle: FsRoot, max_bytes = 2097152) [fs, error] -> Result[Bytes] {
   let raw = bundle.read_result(p"capture.json", max_bytes:)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure("capture metadata is missing or incomplete"))
@@ -20,7 +20,7 @@ proc capture_metadata_bytes(bundle: FsRoot, max_bytes: Int = 2097152) [fs, error
 export proc require_capture_metadata_unchanged(
   bundle: FsRoot,
   expected: Bytes,
-  max_bytes: Int = 2097152,
+  max_bytes = 2097152,
 ) [fs, error] -> Result[Unit, Error] {
   guard capture_metadata_bytes(bundle, max_bytes:)? == expected else {
     return Err(check_failure("capture metadata changed during replay"))
@@ -3078,7 +3078,7 @@ proc reference_cache_text(
   root: FsRoot,
   source_path: Path,
   required: Bool,
-  max_bytes: Int = 4096,
+  max_bytes = 4096,
 ) [fs, error] -> Result[Str?] {
   let raw = root.read_result(source_path, max_bytes:)?
   return Ok(null) when raw.state == "absent" and ! required
@@ -6163,7 +6163,7 @@ proc reference_hwmon_number(
   root: FsRoot,
   source_path: Path,
   nonnegative: Bool,
-  alarm: Bool = false,
+  alarm = false,
 ) [fs, error] -> Result[HwmonNumberReference] {
   let source = reference_hwmon_text(root, source_path)?
   guard source.value != null else {
@@ -7139,7 +7139,7 @@ proc reference_cpuidle_text(
   root: FsRoot,
   source_path: Path,
   required: Bool,
-  max_bytes: Int = 4096,
+  max_bytes = 4096,
 ) [fs, error] -> Result[Str?] {
   let raw = root.read_result(source_path, max_bytes:)?
   return Ok(null) when raw.state == "absent" and ! required
@@ -15381,7 +15381,7 @@ export pure compare_block_queue_sources(
   }
 }
 
-pure reference_mount_decimal(value: Str, octal: Bool = false) -> Bool {
+pure reference_mount_decimal(value: Str, octal = false) -> Bool {
   return false when value == ""
 
   let digits = if octal { "01234567" } else { "0123456789" }
@@ -20711,7 +20711,7 @@ pure trace_resume_marker_is_unquoted(prefix: Str) -> Bool {
 
 pure reassemble_syscall_trace(trace: Str) -> SyscallTraceRecords {
   var pending: Map[Str] = {}
-  var lines: List[Str] = []
+  var lines = []
   var incomplete = false
 
   for line in trace.lines() {

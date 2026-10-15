@@ -178,7 +178,7 @@ on SIGINT [] {
 }
 
 pure padded_decimal(value: Int, width: Int) -> Str {
-  if width == 19 { return f"{value:019}" }
+  return f"{value:019}" when width == 19
   let digits = f"{value}"
   var padding = ""
   while padding.byte_len() + digits.byte_len() < width { padding += "0" }

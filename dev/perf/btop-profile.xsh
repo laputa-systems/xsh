@@ -5,7 +5,7 @@ use core.lib.btop_surface as surface
 use core.tests.support.btop as fixture
 use core.tests.support.btop_process_fixture as process_fixture
 
-proc main() [fs, time, io, error] -> Result[Unit] {
+proc main() [fs, time, io, error] {
   let root = fs.tempdir()?
   defer root.close()
   fixture.write_b3_frame(root, "frame", 0, [])
@@ -47,4 +47,4 @@ proc main() [fs, time, io, error] -> Result[Unit] {
   print f"btop preloaded 1k model+render+diff: seed={process_fixture.process_seed} runner=Alpine_x86_64_musl_release size=120x40 samples={samples.len()} p95_ns={p95_ns} p99_ns={p99_ns}"
 }
 
-main()?
+main()

@@ -298,7 +298,7 @@ main()?
     args: [],
     env: {
       PATH: f"{tools}:{inherited_path}",
-      CARGO_HOME: cargo_home.display(),
+      CARGO_HOME: cargo_home,
       XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       XSH_TEST_IMAGE_BUILD: "0",
       XSH_TEST_IMAGE: "xsh-test:cwd-regression",

@@ -932,7 +932,6 @@ test test_uu_ls_ls_indicator_style { |ctx|
   assert fs.cwd()? == repo
   let scratch = fp"{repo}/.work/tmp"
   let root = fs.tempdir_in(scratch)?
-  defer root.close()
   let sockets = root.host_path()?
   let socket_path = fp"{sockets}/sock"
   let constants = linux.net_constants()

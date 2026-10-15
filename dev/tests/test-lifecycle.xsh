@@ -273,7 +273,7 @@ match docker.run_internal(ctx, "dist", false, []) {{
     args: [],
     env: {
       PATH: tools,
-      CARGO_HOME: cargo_home.display(),
+      CARGO_HOME: cargo_home,
       XSH_MODULE_PATH: fp"{repository}/dev",
     },
   )?
