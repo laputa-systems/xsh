@@ -1512,7 +1512,7 @@ impl Evaluator {
                 };
             }
             FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
-                let (mut parts, mut fmt) =
+                let (parts, mut fmt) =
                     decode_fmt(execution, tag, payload, call_span)?;
                 for part in parts {
                     match part.map_err(|error| indexed_error(error, call_span))? {
@@ -1533,7 +1533,7 @@ impl Evaluator {
                 let mut map = BTreeMap::new();
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?;
-                let ExprView::MapLiteral(mut entries) = view else {
+                let ExprView::MapLiteral(entries) = view else {
                     unreachable!("map literal tag has a typed map view")
                 };
                 for entry in entries {
@@ -1581,7 +1581,7 @@ impl Evaluator {
             FullTag::ExprRecord => {
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?;
-                let ExprView::Record(mut entries) = view else {
+                let ExprView::Record(entries) = view else {
                     unreachable!("record literal tag has a typed record view")
                 };
                 let mut record = Vec::with_capacity(entries.len());
@@ -1609,7 +1609,7 @@ impl Evaluator {
             FullTag::ExprList => {
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?;
-                let ExprView::List(mut items) = view else {
+                let ExprView::List(items) = view else {
                     unreachable!("list literal tag has a typed list view")
                 };
                 let mut result = Vec::with_capacity(items.len());
@@ -1628,7 +1628,7 @@ impl Evaluator {
             FullTag::ExprListBuild => {
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?;
-                let ExprView::ListBuild(mut items) = view else {
+                let ExprView::ListBuild(items) = view else {
                     unreachable!("list build tag has a typed list build view")
                 };
                 let mut result = Vec::with_capacity(items.len());
