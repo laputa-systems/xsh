@@ -20683,6 +20683,32 @@ pure trace_task_id(prefix: Str) -> Str {
   (fields.get(1) ?? "").replace("]", with: "")
 }
 
+pure trace_resume_marker_is_unquoted(prefix: Str) -> Bool {
+  var quoted = false
+  var escaped = false
+  var descriptor_path = false
+
+  for character in prefix {
+    if quoted {
+      if escaped {
+        escaped = false
+      } else if character == "\\" {
+        escaped = true
+      } else if character == "\"" {
+        quoted = false
+      }
+    } else if descriptor_path {
+      descriptor_path = false when character == ">"
+    } else if character == "\"" {
+      quoted = true
+    } else if character == "<" {
+      descriptor_path = true
+    }
+  }
+
+  ! quoted and ! descriptor_path
+}
+
 pure reassemble_syscall_trace(trace: Str) -> SyscallTraceRecords {
   var pending: Map[Str] = {}
   var lines: List[Str] = []
@@ -20716,18 +20742,22 @@ pure reassemble_syscall_trace(trace: Str) -> SyscallTraceRecords {
     }
 
     let resumed_parts = line.split("<... ", maxsplit: 1)
-    if resumed_parts.len() == 2 and trace_task_prefix_is_valid(resumed_parts[0]) {
+    if resumed_parts.len() == 2 {
       let call_parts = (resumed_parts.get(1) ?? "").split(" resumed>", maxsplit: 1)
-      if call_parts.len() == 2 {
+      if call_parts.len() == 2 and trace_resume_marker_is_unquoted(resumed_parts[0]) {
         let syscall = call_parts[0].trim()
-        let key = f"{trace_task_id(resumed_parts[0])}:{syscall}"
-        let prefix = pending.get(key) ?? ""
-        if syscall == "" or prefix == "" {
+        if ! trace_task_prefix_is_valid(resumed_parts[0]) {
           incomplete = true
         } else {
-          let suffix = line.split(" resumed>", maxsplit: 1).get(1) ?? ""
-          lines += [f"{prefix}{suffix}"]
-          pending = pending.set(key, "")
+          let key = f"{trace_task_id(resumed_parts[0])}:{syscall}"
+          let prefix = pending.get(key) ?? ""
+          if syscall == "" or prefix == "" {
+            incomplete = true
+          } else {
+            let suffix = line.split(" resumed>", maxsplit: 1).get(1) ?? ""
+            lines += [f"{prefix}{suffix}"]
+            pending = pending.set(key, "")
+          }
         }
 
         continue

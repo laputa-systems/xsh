@@ -7072,6 +7072,22 @@ test test_system_report_trace_rejects_duplicate_and_trailing_fragments {
   assert "incomplete syscall trace" in report_checks.host_effect_trace_violations(trailing_pending)
 }
 
+test test_system_report_trace_rejects_unpaired_resume_with_malformed_task_prefix {
+  let malformed_resume = "garbage <... openat resumed>, 0) = 4"
+  assert report_checks.host_effect_trace_violations(malformed_resume) == ["incomplete syscall trace"]
+}
+
+test test_system_report_trace_keeps_resumed_markers_inside_quoted_paths {
+  let quoted_read = "42 openat(AT_FDCWD, \"/proc/<... openat resumed>/meminfo\", O_RDONLY) = 3"
+  assert report_checks.replay_host_read_violations(quoted_read) == ["saved-report replay read a live source"]
+
+  let quoted_write = "42 openat(AT_FDCWD, \"/tmp/<... openat resumed>/output\", O_WRONLY) = 3"
+  assert report_checks.host_effect_trace_violations(quoted_write) == ["writable file open"]
+
+  let escaped_quoted_write = """42 openat(AT_FDCWD, "/tmp/ümlaut/escaped\\"/<... openat resumed>/output", O_WRONLY) = 3"""
+  assert report_checks.host_effect_trace_violations(escaped_quoted_write) == ["writable file open"]
+}
+
 test test_system_report_fixture_definition_check_ignores_comments_and_partial_names {
   let source = """# test test_system_report_comment_only {}
 test test_system_report_existing {}
