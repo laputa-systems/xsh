@@ -271,11 +271,15 @@ test test_gnu_tail_tail_c_log { |ctx|
   if p"/dev/urandom".exists() { uu.succeeds(uu.invoke(s, "tail", ["-c", "4096", "/dev/urandom"], timeout: 10s)?) }
 }
 
-proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Path? = null, timeout = 10s) [fs, process, env, error] -> Result[uu.Ran, Error] {
+proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Path? = null, timeout = 10s, drop_dac_override = false) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let tail = uu.argv(s, "tail", [fp"{arg}" for arg in args])?
-  let words = if prefix[0] == p"timeout" {
+  let command = if prefix[0] == p"timeout" {
     uu.argv(s, "timeout", prefix[1..].extend(tail))?
   } else { prefix.extend(tail) }
+  let executable = if drop_dac_override { process.which("setpriv")? } else { command[0] }
+  let words = if drop_dac_override {
+    [p"setpriv", p"--bounding-set", p"-dac_override,-dac_read_search", p"--"].extend(command)
+  } else { command }
   let out = uu.at(s, "wrapped-out")
   let err = uu.at(s, "wrapped-err")
   let plan = if let source = input {
@@ -540,14 +544,17 @@ test test_gnu_tail_retry_log { |ctx|
 }
 # origin: gnu tail/wait.log
 test test_gnu_tail_wait_log { |ctx|
+  let running_as_root = unix.id()?.euid == 0
   for mode in modes() {
     let s = uu.scene(ctx)?
     uu.touch(s, "here")
     uu.touch(s, "unreadable")
     uu.set_mode(s, "unreadable", 0o222)
     for file in ["not_here", "unreadable"] {
-      let r = wrapped(s, [p"timeout", p"10"], fast(["-f", file], mode))?
+      let drop_dac_override = running_as_root and file == "unreadable"
+      let r = wrapped(s, [p"timeout", p"10"], fast(["-f", file], mode), timeout: 15s, drop_dac_override:)?
       assert r.status != 124
+      if file == "unreadable" { assert r.status == 1 }
     }
     for follow in ["-f", "-F"] {
       let r = wrapped(s, [p"timeout", p".1"], fast([follow, "here"], mode))?
