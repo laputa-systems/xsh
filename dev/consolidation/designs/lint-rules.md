@@ -49,20 +49,29 @@ timing after correctness; defer a stricter threshold to the performance phase.
 
 ## Assignment safety facts
 
-The checker publishes the assignment-name summary needed by lint stability and
-shadowing checks. Lint consumes that summary before dispatching hooks and
-removes its independent recursive assignment prepass. Produce the summary
-within existing checker work, without introducing another traversal.
+Remove lint's recursive assignment prepass. One assignment-name fact owns
+root-name projection and selected-source ownership. Checked lint receives its
+complete summary from existing checker work. Source-only lint records the same
+names during its existing common descent, without invoking the checker or
+adding a traversal. Both producers use the same target-root projection.
 
-Preserve the current selected-root ownership, unresolved assignment names,
-field and index root names, late assignments, and conservative suppression for
-the same spelling in another scope. Establish parity against the current
-collector before replacing it. Expression-contained blocks and other contexts
-excluded by that collector need explicit parity evidence. A change to lint
-findings or fixes beyond existing approved migrations remains a contract
-conflict, not an implicit part of this structural repair.
+Preserve unresolved assignment names, field and index root names, late
+assignments, and conservative suppression for the same spelling in another
+scope. Preserve the old collector's statement-region eligibility, including
+its exclusion of expression-owned blocks and defer descendants. Establish
+parity for these boundaries and for partial or erroneous checked output.
+Do not substitute binding identities for the existing spelling-based fact.
 
-Keep the fact scoped to its source and prepared entry. Shared imported records
-must not let one importer train another root's summary. Add only the narrow
-checked-fact interface needed by existing lint consumers. Retain current
-source-only lint behavior and diagnostic ordering.
+Source-only rules that need the completed summary retain conditional
+candidates at their original diagnostic positions. Finalize them after the
+common descent. Conditions retain the scope visibility observed at the
+original hook and test only the completed assignment names. Drop a diagnostic
+or remove its fix according to the original rule. Preserve surviving order,
+fix arbitration, and behavior when no checked output exists.
+
+Keep checker summaries scoped to their source and prepared entry. Importers
+must not train another root's facts. Publish only the narrow checked-fact
+interface needed by existing consumers. Do not add linter snapshots, another
+rule walk, per-rule assignment scans, or a fallback that fabricates checker
+facts. A remaining difference in diagnostics or fixes is a contract conflict,
+not an implicit part of this structural repair.
