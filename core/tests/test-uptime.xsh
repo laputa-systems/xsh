@@ -121,9 +121,15 @@ test test_uptime_fifo_operand_is_refused_without_opening_it { |ctx|
 test test_uptime_pretty_lists_units { |ctx|
   let result = uptime_run(ctx, ["-p"])?
   assert result.status == 0
-  assert rx"^up (\d+ weeks?, )?(\d+ days?, )?(\d+ hours?, )?\d+ minutes?\n$".matches(result.stdout), result.stdout
+  let pretty_units = rx"^up (?:\d+ weeks?(?:, \d+ days?)?(?:, \d+ hours?)?(?:, \d+ minutes?)?|\d+ days?(?:, \d+ hours?)?(?:, \d+ minutes?)?|\d+ hours?(?:, \d+ minutes?)?|\d+ minutes?)\n$"
+  assert pretty_units.matches(result.stdout), result.stdout
 
   let now = time.now() / 1000
+  let whole_hour = utmp_file(ctx, [utmp_record(BOOT, "~", "reboot", now - 9 * 86400 - 3600 - 5)?])?
+  let whole_hour_result = uptime_run(ctx, ["--pretty", whole_hour.display()])?
+  assert whole_hour_result.stdout == "up 1 week, 2 days, 1 hour\n", whole_hour_result.stdout
+  assert pretty_units.matches(whole_hour_result.stdout), whole_hour_result.stdout
+
   let file = utmp_file(ctx, [utmp_record(BOOT, "~", "reboot", now - 9 * 86400 - 3600 - 120 - 5)?])?
   assert uptime_run(ctx, ["--pretty", file.display()])?.stdout == "up 1 week, 2 days, 1 hour, 2 minutes\n"
 
