@@ -110,6 +110,14 @@ work is authorized by this resume.
   the repair and pass afterward. Two existing assignment and transfer tests
   also pass. The nearest active refinement remains the scope owner. Remaining
   AST, proof, call, and command consumers are under review.
+- Route-matrix recovery is integrated through `088da08c5`. Mapping validation
+  requires all 152 schema tags and reviewed child sources for all 92 expression
+  tags. The child sources match the completed probe table at `95488faf2`.
+  The 184 supported mode expectations credit zero receipts. The remaining
+  60 tags retain unsupported artifact mappings. Main and eager helper
+  selftests pass 61 and 46 cases on the merged source. The eager helper now
+  selects Rust commands for Rust verifier oracles. Pipeline runtime behavior,
+  wrong-category rejection, and the absent-or-truncated gap remain distinct.
 - Verification `xsh` and `xsht` products were rebuilt at `2688d52fc` for the
   assignment repair's output baseline. Repository and Laputa check and lint
   each exit zero. Preserve their complete outputs for candidate comparison.
