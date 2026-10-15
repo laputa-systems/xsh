@@ -576,14 +576,15 @@ pure time_test(node: Node, meta: fmt.Meta) -> Bool {
 }
 
 pure replace_marker(word: Bytes, value: Bytes) -> Bytes {
-  var out = []
-  var at = 0
-  while at < word.len() {
-    let found = search.find_fixed(word, b"{}", offset: at)
-    if found == null { out += [word[at..]]; break }
-    let offset = found ?? word.len()
-    out += [word[at..offset], value]
-    at = offset + 2
+  let out = collect {
+    var at = 0
+    while at < word.len() {
+      let found = search.find_fixed(word, b"{}", offset: at)
+      if found == null { yield word[at..]; break }
+      let offset = found ?? word.len()
+      yield @[word[at..offset], value]
+      at = offset + 2
+    }
   }
   bytes.concat(out)
 }
@@ -899,30 +900,38 @@ proc main(...operands: List[Bytes]) {
     if token == "--" { at += 1; break }
     break
   }
-  var roots = []
+  var has_root = false
   var last_token = ""
   var read_failed = false
-  if at < args.len() and args[at] == "-files0-from" {
-    if at + 1 >= args.len() { gnu.error("missing argument to `-files0-from'"); exit 1 }
-    let source = args[at + 1]
-    at += 2
-    last_token = "-files0-from"
-    let listed = if source == "-" { io.stdin_bytes() } else { Path.parse_bytes(gnu.argument_bytes(source, raw))?.read_bytes() }
-    if let Err(failure) = listed { gnu.cannot_open(source, failure); exit 1 }
-    let label = if source == "-" { "(standard input)" } else { source }
-    var number = 0
-    for name in search.records(listed ?? b"", 0) {
-      number += 1
-      if name.is_empty() { gnu.error(f"{gnu.quote(label)}:{number}: invalid zero-length file name"); read_failed = true; continue }
-      match Path.parse_bytes(name) { Ok(entry) => roots += [entry]; Err(failure) => { gnu.error(failure.message); exit 1 } }
+  let roots = collect {
+    if at < args.len() and args[at] == "-files0-from" {
+      if at + 1 >= args.len() { gnu.error("missing argument to `-files0-from'"); exit 1 }
+      let source = args[at + 1]
+      at += 2
+      last_token = "-files0-from"
+      let listed = if source == "-" { io.stdin_bytes() } else { Path.parse_bytes(gnu.argument_bytes(source, raw))?.read_bytes() }
+      if let Err(failure) = listed { gnu.cannot_open(source, failure); exit 1 }
+      let label = if source == "-" { "(standard input)" } else { source }
+      var number = 0
+      for name in search.records(listed ?? b"", 0) {
+        number += 1
+        if name.is_empty() { gnu.error(f"{gnu.quote(label)}:{number}: invalid zero-length file name"); read_failed = true; continue }
+        match Path.parse_bytes(name) {
+          Ok(entry) => { has_root = true; yield entry }
+          Err(failure) => { gnu.error(failure.message); exit 1 }
+        }
+      }
+      if ! has_root { exit if read_failed { 1 } else { 0 } }
+    } else {
+      while at < args.len() and ! starts_expression(args[at]) {
+        match Path.parse_bytes(gnu.argument_bytes(args[at], raw)) {
+          Ok(entry) => { has_root = true; yield entry }
+          Err(failure) => { gnu.error(failure.message); exit 1 }
+        }
+        at += 1
+      }
+      yield p"." unless has_root
     }
-    if roots.is_empty() { exit if read_failed { 1 } else { 0 } }
-  } else {
-    while at < args.len() and ! starts_expression(args[at]) {
-      match Path.parse_bytes(gnu.argument_bytes(args[at], raw)) { Ok(entry) => roots += [entry]; Err(failure) => { gnu.error(failure.message); exit 1 } }
-      at += 1
-    }
-    if roots.is_empty() { roots = [p"."] }
   }
   var expression_args: List[Str] = args[at..]
   if expression_args.is_empty() { expression_args = ["-true"] }

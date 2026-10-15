@@ -223,14 +223,15 @@ pure lex(data: Bytes, state: Lexer, delimiter: Int, replace: Bool, eof: Bool) ->
 
 pure substitute(text: Bytes, marker: Bytes, value: Bytes) -> Bytes {
   return text when marker.is_empty()
-  var out = []
-  var at = 0
-  while at < text.len() {
-    let found = search.find_fixed(text, marker, offset: at)
-    if found == null { out += [text[at..]]; break }
-    let offset = found ?? text.len()
-    out += [text[at..offset], value]
-    at = offset + marker.len()
+  let out = collect {
+    var at = 0
+    while at < text.len() {
+      let found = search.find_fixed(text, marker, offset: at)
+      if found == null { yield text[at..]; break }
+      let offset = found ?? text.len()
+      yield @[text[at..offset], value]
+      at = offset + marker.len()
+    }
   }
   bytes.concat(out)
 }

@@ -160,17 +160,19 @@ proc paragraph(lines: List[Bytes], width: Int, goal: Int, quick: Bool, first: St
   let words = lines |> flat-map(word_parts)
   return when words.is_empty()
   if quick {
-    var breaks = []
-    var begin = 0
-    while begin < words.len() {
-      var end = begin
-      var length = if begin == 0 { first.byte_len() } else { later.byte_len() }
-      while end < words.len() {
-        let added = words[end].data.len() + (if end > begin { spacing(words, end, uniform) } else { 0 })
-        break when length + added > width and end > begin
-        length += added; end += 1
+    let breaks = collect {
+      var begin = 0
+      while begin < words.len() {
+        var end = begin
+        var length = if begin == 0 { first.byte_len() } else { later.byte_len() }
+        while end < words.len() {
+          let added = words[end].data.len() + (if end > begin { spacing(words, end, uniform) } else { 0 })
+          break when length + added > width and end > begin
+          length += added; end += 1
+        }
+        yield end
+        begin = end
       }
-      breaks += [end]; begin = end
     }
     var line_start = 0
     for end in breaks {

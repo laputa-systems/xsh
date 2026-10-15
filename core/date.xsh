@@ -508,15 +508,24 @@ proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool, style: DateSty
 proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
   let prepared = gnu.prepare_arguments(raw)
   var style = date_style(locale_name())
-  var argv = []
-  for item in prepared.text {
-    if item.starts_with("-") and ! item.starts_with("--") and item.byte_len() > 2 {
-      var rest = item.byte_slice(1)
-      while rest != "" {
-        let first = rest.byte_slice(0, 1)
-        if first == "u" or first == "R" { argv += [f"-{first}"]; rest = rest.byte_slice(1) } else { argv += [f"-{rest}"]; break }
+  let argv = collect {
+    for item in prepared.text {
+      if item.starts_with("-") and ! item.starts_with("--") and item.byte_len() > 2 {
+        var rest = item.byte_slice(1)
+        while rest != "" {
+          let first = rest.byte_slice(0, 1)
+          if first == "u" or first == "R" {
+            yield f"-{first}"
+            rest = rest.byte_slice(1)
+          } else {
+            yield f"-{rest}"
+            break
+          }
+        }
+      } else {
+        yield item
       }
-    } else { argv += [item] }
+    }
   }
   var utc = false
   var date: Bytes = b"now"

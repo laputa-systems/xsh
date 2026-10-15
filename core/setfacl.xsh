@@ -131,20 +131,28 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
   var actions: List[Action] = []; var names = []; var works: List[Work] = []; var saw_files = false
   var mask_policy = "auto"; var defaults = false; var recursive = false; var traversal = "H"; var testing = false
   var restore = null; var stopped = false; var at = 0
-  var words = []
   var literal = false; var argument = false
-  for word in argv {
-    if argument { words += [word]; argument = false; continue }
-    if word in ["-m", "-M", "-x", "-X", "--modify", "--remove", "--modify-file", "--remove-file", "--set", "--set-file", "--restore"] { words += [word]; argument = true; continue }
-    if word == "--" { literal = true; words += [word]; continue }
-    if ! literal and word.starts_with("-") and ! word.starts_with("--") and word.byte_len() > 2 {
-      var index = 1
-      while index < word.byte_len() {
-        let ch = word.byte_slice(index, length: 1)
-        if ch in "mxMX" { words += ["-" + ch + word.byte_slice(index + 1)]; if index + 1 == word.byte_len() { argument = true }; break }
-        words += ["-" + ch]; index += 1
+  let words = collect {
+    for word in argv {
+      if argument { yield word; argument = false; continue }
+      if word in ["-m", "-M", "-x", "-X", "--modify", "--remove", "--modify-file", "--remove-file", "--set", "--set-file", "--restore"] { yield word; argument = true; continue }
+      if word == "--" { literal = true; yield word; continue }
+      if ! literal and word.starts_with("-") and ! word.starts_with("--") and word.byte_len() > 2 {
+        var index = 1
+        while index < word.byte_len() {
+          let ch = word.byte_slice(index, length: 1)
+          if ch in "mxMX" {
+            yield "-" + ch + word.byte_slice(index + 1)
+            if index + 1 == word.byte_len() { argument = true }
+            break
+          }
+          yield "-" + ch
+          index += 1
+        }
+      } else {
+        yield word
       }
-    } else { words += [word] }
+    }
   }
   while at < words.len() {
     let word = words[at]; at += 1

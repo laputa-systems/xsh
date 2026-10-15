@@ -204,15 +204,17 @@ export pure mark_ids(data: Bytes, uid: Int, gid: Int) -> Bytes {
   }
 }
 
-# Split into records and order them bytewise, so output that depends on
-# directory enumeration order can be compared as a set.
 pure sorted_records(data: Bytes, separator: Int) -> List[Str] {
-  var records = []
-  var start = 0
-  for at in range(data.len()) {
-    if data.byte_at(at) == separator { records += [hex(data[start..at])]; start = at + 1 }
+  let records = collect {
+    var start = 0
+    for at in range(data.len()) {
+      if data.byte_at(at) == separator {
+        yield hex(data[start..at])
+        start = at + 1
+      }
+    }
+    yield hex(data[start..]) when start < data.len()
   }
-  if start < data.len() { records += [hex(data[start..])] }
   records |> sort() |> collect()
 }
 

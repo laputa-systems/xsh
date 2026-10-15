@@ -322,11 +322,12 @@ export pure needs_stat(segments: List[Segment]) -> Bool {
 
 ## Expand a compiled format for an entry.
 export proc render(segments: List[Segment], entry: Entry) [fs, time, error] -> Result[Bytes, Error] {
-  var parts = []
-  for segment in segments {
-    break when segment.kind == "stop"
-    if segment.kind == "text" { parts += [segment.text]; continue }
-    parts += [directive_text(entry, segment)?]
+  let parts = collect {
+    for segment in segments {
+      break when segment.kind == "stop"
+      if segment.kind == "text" { yield segment.text; continue }
+      yield directive_text(entry, segment)?
+    }
   }
   Ok(bytes.concat(parts))
 }
