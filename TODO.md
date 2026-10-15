@@ -61,7 +61,7 @@ line always computes. Three things found while porting the rest:
 
 The strict W9 comparison on f105 passed for 1,690 inputs and 6,760 outcomes,
 with zero mismatches. That result is historical and does not qualify the newer
-integration. The later 47a c1 comparison failed with 24 mismatches. The narrow
+integration. The earlier C1 comparison failed with 24 mismatches. The narrow
 derived-reference retry correction at `1fd9e5f2f` passed a direct build and
 four positive and two negative fixture programs; its Rust unit build failed
 because the musl host does not support the `mini-internal` proc-macro. The

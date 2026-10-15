@@ -26,7 +26,7 @@ Those repairs cover process result context, FAT allocation reuse, sort key
 formatting, paired system-report trace parsing and quoted trace text, native
 test context, Docker fixture tools, and btop profile isolation. The integration
 log records the source changes in `04195d09b`, `a0e284bb0`, `2cbf52dcb`,
-`f90b80dbf`, `943aa0a86`, `279d3ea7a`, `d2a4d35c6`, `00890a066`,
+`f90b80dbf`, `943aa0a86`, `279d3ea7c`, `d2a4d35c6`, `00890a066`,
 `eaf07e6d0`, `e78f83400`, `98de1147a`, `19fcb0d91`, and `9b912a01d`.
 
 The focused GNU rm repair uses `child.path` from `fs.children` for recursion,
@@ -34,9 +34,8 @@ removing repeated child lookup by raw basename. Raw diagnostic names, enumeratio
 order, `lstat`, and prompts remain unchanged. Fourteen exact parity cases pass
 under UID 1000, including non-UTF-8 names, symlinks, protection, trailing
 slashes, verbose output, and errors. The unchanged 400,000-entry case also
-passes in isolation. The 42.4-versus-48.6-second timing pair is one diagnostic
-comparison, not a performance result: no limiter, repeated range, or user-path
-profile was established, so no speed claim follows. The current
+passes in isolation. The diagnostic runs lacked readiness checks and repeated,
+interleaved baseline/candidate measurements, so no speed claim follows. The current
 `core/tests/test-gnu-rm.xsh::test_gnu_rm_ext3_perf_log` still needs full stress
 acceptance; this focused repair does not establish a passing full suite. The
 nine serial full-suite runs must still verify the integrated source.
@@ -66,8 +65,8 @@ source changed between `5c` and `7232`.
 ### W9 publication status
 
 The f105 strict comparison remains a historical pass: 1,690 inputs, 6,760
-outcomes, and zero mismatches. It does not qualify the newer source. The later
-47a c1 comparison failed with 24 mismatches. The derived-reference retry
+outcomes, and zero mismatches. It does not qualify the newer source. The earlier
+C1 comparison failed with 24 mismatches. The derived-reference retry
 correction `1fd9e5f2f` passed a direct build and four positive and two negative
 fixture programs. Its Rust unit build failed because the musl host does not
 support the `mini-internal` proc-macro. No red run against the old `bb` reference
