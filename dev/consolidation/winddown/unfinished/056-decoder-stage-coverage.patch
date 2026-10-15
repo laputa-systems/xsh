@@ -1,0 +1,175 @@
+diff --git a/tests/xsh/decoder-stage-coverage.xsh b/tests/xsh/decoder-stage-coverage.xsh
+new file mode 100644
+index 0000000000000000000000000000000000000000..39d24184ca491fd61e03a5ec960d692164ba3751
+--- /dev/null
++++ b/tests/xsh/decoder-stage-coverage.xsh
+@@ -0,0 +1,169 @@
++test test_frozen_stage_decoder_paths_have_order_and_cleanup { |ctx|
++  let indexed_output = test.run_script(
++    ctx,
++    r"""
++proc main() [io] {
++  let values = [1, 2, 3, 4]
++    |> where { |n|
++      print f"where:{n}"
++      let keep = n % 2 == 0
++      keep
++    }
++    |> map { |n|
++      print f"map:{n}"
++      let doubled = n * 2
++      if doubled > 4 { doubled + 1 } else { doubled }
++    }
++    |> flat-map { |n|
++      print f"flat:{n}"
++      if n > 4 { [n, n + 10] } else { [n] }
++    }
++  print f"values={values[0]},{values[1]},{values[2]}"
++
++  let any_value = [1, 2, 3]
++    |> any { |n|
++      print f"any:{n}"
++      let found = n == 2
++      found
++    }
++  print f"any={any_value}"
++
++  let all_value = [1, 2, 3]
++    |> all { |n|
++      print f"all:{n}"
++      let accepted = n < 3
++      accepted
++    }
++  print f"all={all_value}"
++
++  let parallel = [1, 2, 3]
++    |> par-map(jobs: 2) { |n|
++      let doubled = n * 2
++      if n == 2 { doubled + 1 } else { doubled }
++    }
++  print f"parallel={parallel[0]},{parallel[1]},{parallel[2]}"
++}
++""",
++  )?
++  assert indexed_output.status == 0, indexed_output.stderr
++  assert indexed_output.stdout == """where:1
++where:2
++where:3
++where:4
++map:2
++map:4
++flat:4
++flat:9
++values=4,9,19
++any:1
++any:2
++any=true
++all:1
++all:2
++all:3
++all=false
++parallel=2,5,6
++"""
++  let closed = test.temp_path(ctx, name: "decoder-live-for-closed")
++  let serial_output = test.run_script(
++    ctx,
++    f"""
++stream numbers(closed: Path) [fs, io, error] -> Stream[Int] {{
++  defer closed.write("closed")?
++  for n in range(4) {{
++    print f"pull:{{n}}"
++    yield n
++  }}
++}}
++
++proc main() [fs, io, error] {{
++  for item in numbers(Path("{closed}"))
++    |> where {{ |n|
++      print f"where:{{n}}"
++      let keep = n % 2 == 1
++      keep
++    }}
++    |> map {{ |n|
++      print f"map:{{n}}"
++      let doubled = n * 2
++      doubled
++    }}
++    |> flat-map {{ |n|
++      print f"flat:{{n}}"
++      let expanded = [n, n + 10]
++      expanded
++    }} {{
++    print f"row:{{item}}"
++  }}
++  print Path("{closed}").read_text()?
++}}
++""",
++  )?
++  assert serial_output.status == 0, serial_output.stderr
++  assert serial_output.stdout == """pull:0
++where:0
++pull:1
++where:1
++map:1
++flat:2
++row:2
++row:12
++pull:2
++where:2
++pull:3
++where:3
++map:3
++flat:6
++row:6
++row:16
++closed
++"""
++  let any_closed = test.temp_path(ctx, name: "decoder-live-any-closed")
++  let all_closed = test.temp_path(ctx, name: "decoder-live-all-closed")
++  let terminal_output = test.run_script(
++    ctx,
++    f"""
++stream numbers(closed: Path) [fs, io, error] -> Stream[Int] {{
++  defer closed.write("closed")?
++  for n in range(5) {{
++    print f"pull:{{n}}"
++    yield n
++  }}
++}}
++
++proc main() [fs, io, error] {{
++  let found = numbers(Path("{any_closed}"))
++    |> any {{ |n|
++      print f"any:{{n}}"
++      let matches = if n == 1 {{ true }} else {{ false }}
++      matches
++    }}
++  print f"found={{found}}"
++  print Path("{any_closed}").read_text()?
++
++  let every = numbers(Path("{all_closed}"))
++    |> all {{ |n|
++      print f"all:{{n}}"
++      let accepted = if n < 1 {{ true }} else {{ false }}
++      accepted
++    }}
++  print f"every={{every}}"
++  print Path("{all_closed}").read_text()?
++}}
++""",
++  )?
++  assert terminal_output.status == 0, terminal_output.stderr
++  assert terminal_output.stdout == """pull:0
++any:0
++pull:1
++any:1
++found=true
++closed
++pull:0
++all:0
++pull:1
++all:1
++every=false
++closed
++"""
++}

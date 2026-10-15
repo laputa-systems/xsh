@@ -1,0 +1,14 @@
+diff --git a/ACTIVE-ASSIGNMENT.md b/ACTIVE-ASSIGNMENT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..76e4154aa75fb89f2bd9314cbab91f0c9e8829fb
+--- /dev/null
++++ b/ACTIVE-ASSIGNMENT.md
+@@ -0,0 +1,8 @@
++# Active assignment
++
++- Worktree: `/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-reuse-borrowed`
++- Base: `78052d1d` (includes prior W9 record reuse at `d15511a3` and fixture fix at `41c4a0f4`)
++- Native build image: `sha256:65dc744f6c560f189716ea193bd765149f4691c80392663e630813033ebc53a3`
++- Compile command: `/home/josh/d/laputa-systems/xsh-consolidation/.work/consolidation/infra/run-native.sh /home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-reuse-borrowed build cargo check --locked --target x86_64-unknown-linux-musl -p xsh --lib`
++- Scope: public borrowed immutable `CheckBundleView` with explicit root range and reachable modules; route all root-scoped checker preparation, resource analysis, source identity, and xsht lint root/module traversal through the view; replace worker and per-module `ArenaProgram` clones. Approved production paths include `src/frontend.rs`, `src/sema/check.rs`, `src/sema/check/{decl,infer_effects,local_inference,module_record,resource,scopecheck,stream}.rs`, `src/sema/{cli_entry,constants,stage_arguments,wire_enums}.rs`, `src/syntax/grouping.rs`, `crates/xsht/src/lint.rs`, `crates/xsht/src/lint_{callable_alias,cli_entry,implicit_message,prefer_fail,reachability,redundant_use_alias,tempdir_scope,try_capture}.rs`, and CLI view setup in `crates/xsht/src/cli/lint.rs`. Documentation: `docs/ARCHITECTURE.md`. Tests: `tests/sema_bundle_view.rs`, `crates/xsht/src/lint_try_capture_tests.rs`, and workspace tests in `crates/xsht/src/cli/lint.rs`. Preserve current W9 evidence and stay within the approved 2,000 touched-line / non-test net-zero limits.
++- Prior lane evidence from `ce448f8a` (reported by `/root`, no retained log path in this lane): the complete 46-test `sema::` integration filter passed in 130 seconds, including the >=1,000-source parity case. This borrowed-view lane has not yet compiled or run tests.

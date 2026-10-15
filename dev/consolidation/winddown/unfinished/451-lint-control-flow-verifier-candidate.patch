@@ -1,0 +1,946 @@
+diff --git a/src/runtime/eval/indexed/full.rs b/src/runtime/eval/indexed/full.rs
+index 426f84f6607b95017e7b8c747b8d29a3cf03514e..d760b91b3a8bb2039c0b763556db1442b260b6c9 100644
+--- a/src/runtime/eval/indexed/full.rs
++++ b/src/runtime/eval/indexed/full.rs
+@@ -5213,6 +5213,28 @@ impl<'a> FullDecoder<'a> {
+         Ok(checked)
+     }
+ 
++    fn checked_map_literal_matches_type(
++        &self,
++        mut entries: ListView<'a, (Option<BuildExprId>, BuildExprId, Span)>,
++        expected: &Type,
++    ) -> Result<(), IrVerifyError> {
++        let Type::Map(key_type, value_type) = expected else {
++            return Err(IrVerifyError::new(
++                "checked map literal has a non-map result type",
++            ));
++        };
++        for entry in &mut entries {
++            let (key, value, _) = entry?;
++            if let Some(key) = key {
++                self.checked_expression_matches_type(key.raw() as usize, key_type)?;
++                self.checked_expression_matches_type(value.raw() as usize, value_type)?;
++            } else {
++                self.checked_expression_matches_type(value.raw() as usize, expected)?;
++            }
++        }
++        Ok(())
++    }
++
+     fn checked_record_update_matches_type(
+         &self,
+         base: usize,
+@@ -5453,6 +5475,26 @@ impl<'a> FullDecoder<'a> {
+         instruction: usize,
+         expected: &Type,
+     ) -> Result<(), IrVerifyError> {
++        let actual_type = self
++            .expression_checked_type_id(instruction)?
++            .map(|type_id| self.store.semantic.to_type(type_id))
++            .transpose()?;
++        if expected.contains_typed_callable()
++            || actual_type
++                .as_ref()
++                .is_some_and(Type::contains_typed_callable)
++        {
++            if let schema::ExprView::MapLiteral(entries) = self.expression_view(instruction)? {
++                let map_type = actual_type
++                    .as_ref()
++                    .filter(|actual| actual.contains_typed_callable())
++                    .unwrap_or(expected);
++                self.checked_map_literal_matches_type(entries, map_type)?;
++                if actual_type.is_none() {
++                    return Ok(());
++                }
++            }
++        }
+         if !expected.contains_typed_callable()
+             && self.checked_expression_type_id(instruction)?.is_none()
+         {
+@@ -5732,6 +5774,9 @@ impl<'a> FullDecoder<'a> {
+                 }
+                 Ok(())
+             }
++            schema::ExprView::MapLiteral(entries) => {
++                self.checked_map_literal_matches_type(entries, expected)
++            }
+             schema::ExprView::IfExpr {
+                 mut branches,
+                 else_value,
+@@ -5795,7 +5840,6 @@ impl<'a> FullDecoder<'a> {
+             | schema::ExprView::PathFmtString { .. }
+             | schema::ExprView::Glob { .. }
+             | schema::ExprView::LastStatus { .. }
+-            | schema::ExprView::MapLiteral(_)
+             | schema::ExprView::RecordUpdate { .. }
+             | schema::ExprView::List(_)
+             | schema::ExprView::ListBuild(_)
+@@ -7277,12 +7321,28 @@ impl<'a> FullDecoder<'a> {
+             }
+             schema::ExprView::Try { value, .. } => {
+                 let value = value.raw() as usize;
+-                let Some(value_type) = self.expression_checked_type_id(value)? else {
+-                    return Err(IrVerifyError::new(
+-                        "checked try producer is missing its operand type",
+-                    ));
++                // A runtime require checks callable kind, not signature; prove
++                // callable record fields against their structural producers.
++                let value_type = match self.expression_view(value)? {
++                    schema::ExprView::Require { value, check, .. } => {
++                        let required_type = check.ty.materialize()?;
++                        if required_type.contains_typed_callable() {
++                            self.checked_expression_matches_type(
++                                value.raw() as usize,
++                                &required_type,
++                            )?;
++                        }
++                        Type::Result(Box::new(required_type), Box::new(Type::Error))
++                    }
++                    _ => {
++                        let Some(value_type) = self.expression_checked_type_id(value)? else {
++                            return Err(IrVerifyError::new(
++                                "checked try producer is missing its operand type",
++                            ));
++                        };
++                        self.store.semantic.to_type(value_type)?
++                    }
+                 };
+-                let value_type = self.store.semantic.to_type(value_type)?;
+                 let result = match value_type {
+                     Type::Result(ok, _) => *ok,
+                     Type::Validated(validated) => match validated.base() {
+@@ -7439,6 +7499,16 @@ impl<'a> FullDecoder<'a> {
+                     ));
+                 }
+             }
++            schema::ExprView::MapLiteral(entries) => {
++                self.checked_map_literal_matches_type(entries, &ty)?;
++            }
++            schema::ExprView::EmptyMap => {
++                if !matches!(ty, Type::Map(_, _)) {
++                    return Err(IrVerifyError::new(
++                        "checked empty map fact has a non-map result type",
++                    ));
++                }
++            }
+             schema::ExprView::RecordUpdate { base, updates, .. } => {
+                 self.checked_record_update_matches_type(
+                     base.raw() as usize,
+@@ -7613,8 +7683,6 @@ impl<'a> FullDecoder<'a> {
+             | schema::ExprView::PathFmtString { .. }
+             | schema::ExprView::Glob { .. }
+             | schema::ExprView::LastStatus { .. }
+-            | schema::ExprView::MapLiteral(_)
+-            | schema::ExprView::EmptyMap
+             | schema::ExprView::Range { .. }
+             | schema::ExprView::Tag { .. }
+             | schema::ExprView::ListPipeline { .. }
+@@ -9232,7 +9300,11 @@ impl<'a> FullDecoder<'a> {
+ 
+ struct FullVerifier;
+ 
+-fn indexed_block_can_return(store: &FullStore, block: IrBlockId) -> Result<bool, IrVerifyError> {
++fn indexed_block_can_return_with_decoder(
++    store: &FullStore,
++    block: IrBlockId,
++    decoder: Option<&FullDecoder<'_>>,
++) -> Result<bool, IrVerifyError> {
+     let block = store
+         .blocks
+         .get(block.index())
+@@ -9247,7 +9319,7 @@ fn indexed_block_can_return(store: &FullStore, block: IrBlockId) -> Result<bool,
+         ));
+     }
+     for instruction in instructions {
+-        if indexed_stmt_can_return(store, *instruction as usize)? {
++        if indexed_stmt_can_return_with_decoder(store, *instruction as usize, decoder)? {
+             return Ok(true);
+         }
+     }
+@@ -9282,7 +9354,16 @@ fn indexed_condition_bool_literal(
+     }
+ }
+ 
++#[cfg(test)]
+ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool, IrVerifyError> {
++    indexed_stmt_can_return_with_decoder(store, instruction, None)
++}
++
++fn indexed_stmt_can_return_with_decoder(
++    store: &FullStore,
++    instruction: usize,
++    decoder: Option<&FullDecoder<'_>>,
++) -> Result<bool, IrVerifyError> {
+     let tag = store
+         .tags
+         .get(instruction)
+@@ -9299,20 +9380,22 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
+     };
+     Ok(match tag {
+         FullTag::StmtReturn => true,
+-        FullTag::StmtCd => indexed_block_can_return(
++        FullTag::StmtCd => indexed_block_can_return_with_decoder(
+             store,
+             block(
+                 *payload
+                     .get(1)
+                     .ok_or_else(|| IrVerifyError::new("return-analysis cd payload is invalid"))?,
+             )?,
++            decoder,
+         )?,
+         FullTag::StmtEnv => {
+-            indexed_block_can_return(
++            indexed_block_can_return_with_decoder(
+                 store,
+                 block(*payload.get(1).ok_or_else(|| {
+                     IrVerifyError::new("return-analysis env payload is invalid")
+                 })?)?,
++                decoder,
+             )?
+         }
+         FullTag::StmtIf | FullTag::StmtIfBool | FullTag::StmtPatternIf => {
+@@ -9345,11 +9428,19 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
+                     match indexed_condition_bool_literal(store, condition)? {
+                         Some(false) => {}
+                         Some(true) => {
+-                            chain_can_return = indexed_block_can_return(store, block(body)?)?;
++                            chain_can_return = indexed_block_can_return_with_decoder(
++                                store,
++                                block(body)?,
++                                decoder,
++                            )?;
+                             chain_consumed = true;
+                         }
+                         None => {
+-                            if !indexed_block_can_return(store, block(body)?)? {
++                            if !indexed_block_can_return_with_decoder(
++                                store,
++                                block(body)?,
++                                decoder,
++                            )? {
+                                 chain_can_return = false;
+                             }
+                         }
+@@ -9375,7 +9466,11 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
+                 payload.get(1..).unwrap_or_default()
+             };
+             let else_returns = match else_payload {
+-                [1, body] => indexed_block_can_return(store, block(*body)?)?,
++                [1, body] => indexed_block_can_return_with_decoder(
++                    store,
++                    block(*body)?,
++                    decoder,
++                )?,
+                 [0] => false,
+                 _ => {
+                     return Err(IrVerifyError::new(
+@@ -9405,8 +9500,8 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
+             let else_body = *payload
+                 .get(else_index)
+                 .ok_or_else(|| IrVerifyError::new("return-analysis with handler is missing"))?;
+-            indexed_block_can_return(store, block(body)?)?
+-                && indexed_block_can_return(store, block(else_body)?)?
++            indexed_block_can_return_with_decoder(store, block(body)?, decoder)?
++                && indexed_block_can_return_with_decoder(store, block(else_body)?, decoder)?
+         }
+         FullTag::StmtMatch => {
+             let arms =
+@@ -9441,7 +9536,7 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
+                 let Some((&body, rest)) = rest.split_first() else {
+                     return Err(IrVerifyError::new("return-analysis match body is missing"));
+                 };
+-                all_return &= indexed_block_can_return(store, block(body)?)?;
++                all_return &= indexed_block_can_return_with_decoder(store, block(body)?, decoder)?;
+                 arm_words = rest;
+             }
+             if !arm_words.is_empty() {
+@@ -9470,11 +9565,15 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
+                         "return-analysis exact match body is missing",
+                     ));
+                 };
+-                all_return &= indexed_block_can_return(store, block(body)?)?;
++                all_return &= indexed_block_can_return_with_decoder(store, block(body)?, decoder)?;
+                 words = rest;
+             }
+             let fallback_returns = match words {
+-                [1, body, _span] => indexed_block_can_return(store, block(*body)?)?,
++                [1, body, _span] => indexed_block_can_return_with_decoder(
++                    store,
++                    block(*body)?,
++                    decoder,
++                )?,
+                 [0, _span] => false,
+                 _ => {
+                     return Err(IrVerifyError::new(
+@@ -9484,10 +9583,206 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
+             };
+             all_return && fallback_returns
+         }
++        FullTag::StmtWhile | FullTag::StmtWhileBool => {
++            let condition = *payload
++                .first()
++                .ok_or_else(|| IrVerifyError::new("return-analysis while condition is missing"))?;
++            let body = block(
++                *payload
++                    .get(1)
++                    .ok_or_else(|| IrVerifyError::new("return-analysis while body is missing"))?,
++            )?;
++            if store.blocks.get(body.index()).is_none() {
++                return Err(IrVerifyError::new("return-analysis while body is out of bounds"));
++            }
++            indexed_condition_bool_literal(store, condition)? == Some(true)
++                && !indexed_loop_has_reachable_break(decoder, instruction)?
++        }
++        FullTag::StmtLoop => {
++            let body = block(
++                *payload
++                    .first()
++                    .ok_or_else(|| IrVerifyError::new("return-analysis loop body is missing"))?,
++            )?;
++            if store.blocks.get(body.index()).is_none() {
++                return Err(IrVerifyError::new("return-analysis loop body is out of bounds"));
++            }
++            !indexed_loop_has_reachable_break(decoder, instruction)?
++        }
+         _ => false,
+     })
+ }
+ 
++fn indexed_loop_has_reachable_break(
++    decoder: Option<&FullDecoder<'_>>,
++    loop_instruction: usize,
++) -> Result<bool, IrVerifyError> {
++    let Some(decoder) = decoder else {
++        // A raw loop cannot prove non-fallthrough without its verified parents.
++        return Ok(true);
++    };
++    for instruction in decoder.instruction_range.clone() {
++        if !matches!(
++            decoder.store.tags.get(instruction),
++            Some(FullTag::StmtBreak | FullTag::StmtBreakValue)
++        ) {
++            continue;
++        }
++        if indexed_break_reaches_loop(decoder, instruction, loop_instruction)? {
++            return Ok(true);
++        }
++    }
++    Ok(false)
++}
++
++fn indexed_break_reaches_loop(
++    decoder: &FullDecoder<'_>,
++    instruction: usize,
++    loop_instruction: usize,
++) -> Result<bool, IrVerifyError> {
++    let mut child = instruction;
++    for _ in 0..=decoder.instruction_range.len() {
++        let Some(parent) = decoder.instruction_parent_of(child)? else {
++            return Ok(false);
++        };
++        if !indexed_child_reachable_from_parent(decoder, parent, child)? {
++            return Ok(false);
++        }
++        if parent == loop_instruction {
++            return Ok(true);
++        }
++        if matches!(
++            decoder.store.tags.get(parent),
++            Some(
++                FullTag::ExprLoop
++                    | FullTag::StmtLoop
++                    | FullTag::StmtWhile
++                    | FullTag::StmtWhileBool
++                    | FullTag::StmtPatternWhile
++                    | FullTag::StmtFor
++                    | FullTag::StmtForRecord
++                    | FullTag::StmtForStrLines
++            )
++        ) {
++            return Ok(false);
++        }
++        child = parent;
++    }
++    Err(IrVerifyError::new("return-analysis instruction parent cycle"))
++}
++
++/// A break in a statically unreachable branch does not leave its enclosing loop.
++fn indexed_child_reachable_from_parent(
++    decoder: &FullDecoder<'_>,
++    parent: usize,
++    child: usize,
++) -> Result<bool, IrVerifyError> {
++    let tag = *decoder
++        .store
++        .tags
++        .get(parent)
++        .ok_or_else(|| IrVerifyError::new("return-analysis parent is out of bounds"))?;
++    if tag == FullTag::ExprIf {
++        let schema::ExprView::IfExpr {
++            mut branches,
++            else_value,
++            ..
++        } = decoder.expression_view(parent)?
++        else {
++            unreachable!("if expression tag and generated view disagree")
++        };
++        let mut can_reach_next = true;
++        for branch in &mut branches {
++            let (condition, value) = branch?;
++            let condition = condition.raw();
++            let value = value.raw();
++            if child == condition as usize {
++                return Ok(can_reach_next);
++            }
++            let condition_value = indexed_condition_bool_literal(decoder.store, condition)?;
++            if child == value as usize {
++                return Ok(can_reach_next && condition_value != Some(false));
++            }
++            can_reach_next &= condition_value != Some(true);
++        }
++        return Ok(child == else_value.raw() as usize && can_reach_next);
++    }
++    if !matches!(tag, FullTag::StmtIf | FullTag::StmtIfBool) {
++        return Ok(true);
++    }
++    let payload = decoder
++        .store
++        .payload(decoder.store.data[parent].range())?;
++    let branch_id = IrBlockId::from_raw(
++        *payload
++            .first()
++            .ok_or_else(|| IrVerifyError::new("return-analysis if payload is invalid"))?,
++    )
++    .ok_or_else(|| IrVerifyError::new("return-analysis if branches are invalid"))?;
++    let branch_words = decoder
++        .store
++        .payload(decoder.store.blocks[branch_id.index()].instructions)?;
++    let Some((&len, mut words)) = branch_words.split_first() else {
++        return Err(IrVerifyError::new("return-analysis if branches are invalid"));
++    };
++    let mut can_reach_next = true;
++    for _ in 0..len {
++        let Some((&condition, rest)) = words.split_first() else {
++            return Err(IrVerifyError::new("return-analysis if condition is missing"));
++        };
++        let Some((&body, rest)) = rest.split_first() else {
++            return Err(IrVerifyError::new("return-analysis if body is missing"));
++        };
++        if child == condition as usize {
++            return Ok(can_reach_next);
++        }
++        let body_id = IrBlockId::from_raw(body)
++            .ok_or_else(|| IrVerifyError::new("return-analysis if body is invalid"))?;
++        let body = decoder
++            .store
++            .blocks
++            .get(body_id.index())
++            .ok_or_else(|| IrVerifyError::new("return-analysis if body is out of bounds"))?;
++        let body_words = decoder.store.payload(body.instructions)?;
++        let Some((&body_len, statements)) = body_words.split_first() else {
++            return Err(IrVerifyError::new("return-analysis if body is invalid"));
++        };
++        if statements.len() != body_len as usize {
++            return Err(IrVerifyError::new("return-analysis if body length is invalid"));
++        }
++        if statements.contains(&(child as u32)) {
++            let condition_value = indexed_condition_bool_literal(decoder.store, condition)?;
++            return Ok(can_reach_next && condition_value != Some(false));
++        }
++        can_reach_next &= indexed_condition_bool_literal(decoder.store, condition)? != Some(true);
++        words = rest;
++    }
++    if !words.is_empty() {
++        return Err(IrVerifyError::new("return-analysis if branches have trailing data"));
++    }
++    match payload.get(1..) {
++        Some([1, body]) => {
++            let body_id = IrBlockId::from_raw(*body)
++                .ok_or_else(|| IrVerifyError::new("return-analysis if else body is invalid"))?;
++            let body = decoder
++                .store
++                .blocks
++                .get(body_id.index())
++                .ok_or_else(|| IrVerifyError::new("return-analysis if else body is out of bounds"))?;
++            let body_words = decoder.store.payload(body.instructions)?;
++            let Some((&body_len, statements)) = body_words.split_first() else {
++                return Err(IrVerifyError::new("return-analysis if else body is invalid"));
++            };
++            if statements.len() != body_len as usize {
++                return Err(IrVerifyError::new("return-analysis if else body length is invalid"));
++            }
++            Ok(statements.contains(&(child as u32)) && can_reach_next)
++        }
++        Some([0]) => Ok(false),
++        _ => Err(IrVerifyError::new("return-analysis else payload is invalid")),
++    }
++}
++
+ impl FullVerifier {
+     fn verify_resource_transfer_sites(store: &FullStore) -> Result<(), IrVerifyError> {
+         if store.resource_transfers.len() != store.tags.len() {
+@@ -9958,7 +10253,8 @@ impl FullVerifier {
+                     "function {index} has an empty body"
+                 )));
+             }
+-            if !matches!(return_type, Type::Stream(_)) && !indexed_block_can_return(store, body_id)?
++            if !matches!(return_type, Type::Stream(_))
++                && !indexed_block_can_return_with_decoder(store, body_id, Some(&decoder))?
+             {
+                 return Err(IrVerifyError::new(format!(
+                     "function {index} body does not terminate with a return"
+@@ -13576,6 +13872,60 @@ assert results == [4]
+             .collect()
+     }
+ 
++    fn return_analysis_decoder<'a>(
++        program: &'a FullProgram,
++        function_name: &str,
++    ) -> FullDecoder<'a> {
++        let function_index = program
++            .store
++            .functions
++            .iter()
++            .position(|row| {
++                program
++                    .store
++                    .string(row.name)
++                    .is_ok_and(|name| name == function_name)
++            })
++            .expect("fixture function exists");
++        let function = &program.store.functions[function_index];
++        let owner = IrFunctionId::new(function_index)
++            .expect("fixture function id fits")
++            .raw();
++        let instruction_range = program
++            .store
++            .function_instruction_range(function_index)
++            .expect("fixture function range exists");
++        let decoder = FullDecoder {
++            store: &program.store,
++            owner,
++            instruction_range: instruction_range.clone(),
++            instruction_states: Some(RefCell::new(vec![0; instruction_range.len()])),
++            instruction_proof: Some(RefCell::new(in_place::InstructionProof::new(
++                instruction_range,
++            ))),
++            block_states: Some(OwnedBlockStates::new(owner, &owned_block_counts(&program.store))),
++            slot_count: function.slot_count,
++            pattern_ceiling: Cell::new(usize::MAX),
++            local_immutable_let_initializers: RefCell::default(),
++            proven_callable_writers: RefCell::default(),
++            function_signature_index: Some(Arc::new(program.symbol_owner().with_current(|| {
++                FunctionSignatureIndex::build(&program.store)
++                    .expect("fixture signatures are valid")
++            }))),
++            verified: false,
++        };
++        program.symbol_owner().with_current(|| {
++            let body = [function.body];
++            let mut cursor = FullCursor::new(&body);
++            Vec::<BuildStmtId>::verify(&decoder, &mut cursor).expect("fixture body verifies");
++            cursor.finish().expect("fixture body payload is consumed");
++            decoder
++                .finish_function()
++                .expect("fixture function proof is complete");
++        });
++        decoder
++    }
++
+     #[test]
+     fn list_position_cannot_resume_a_different_statement_list() {
+         let program = fixture(
+@@ -16678,6 +17028,66 @@ pure selected() -> Str {
+         assert!(indexed_stmt_can_return(&program.store, row).unwrap());
+     }
+ 
++    #[test]
++    fn return_analysis_proves_constant_loops_and_rejects_forged_fallthrough() {
++        let program = fixture(
++            "constant-loop-return.xsh",
++            "pure identity(value: Int) -> Int { return value }\n\
++             pure choose() -> Int {\n\
++               while true {\n\
++                 return identity(if false { break } else { 17 })\n\
++               }\n\
++               return 18\n\
++             }\n",
++        );
++        FullVerifier::verify(&program).unwrap();
++        let loop_instruction = [FullTag::StmtWhileBool, FullTag::StmtWhile]
++            .into_iter()
++            .find_map(|tag| {
++                function_instruction_indices(&program, "choose", tag)
++                    .into_iter()
++                    .next()
++            })
++            .expect("fixture loop exists");
++        let decoder = return_analysis_decoder(&program, "choose");
++        assert!(indexed_stmt_can_return_with_decoder(
++            &program.store,
++            loop_instruction,
++            Some(&decoder),
++        )
++        .unwrap());
++
++        let false_condition = function_instruction_indices(&program, "choose", FullTag::ExprBool)
++            .into_iter()
++            .find(|instruction| {
++                program.store.payload(program.store.data[*instruction].range()) == Ok(&[0][..])
++            })
++            .expect("if expression has a false condition");
++        let mut reachable_break = program.clone();
++        let false_payload = reachable_break.store.data[false_condition].range();
++        reachable_break.store.extra[false_payload.start as usize] = 1;
++        let decoder = return_analysis_decoder(&reachable_break, "choose");
++        assert!(!indexed_stmt_can_return_with_decoder(
++            &reachable_break.store,
++            loop_instruction,
++            Some(&decoder),
++        )
++        .unwrap());
++
++        let true_condition = program.store.payload(program.store.data[loop_instruction].range())
++            .expect("while payload is valid")[0] as usize;
++        let mut fallthrough_loop = program.clone();
++        let true_payload = fallthrough_loop.store.data[true_condition].range();
++        fallthrough_loop.store.extra[true_payload.start as usize] = 0;
++        let decoder = return_analysis_decoder(&fallthrough_loop, "choose");
++        assert!(!indexed_stmt_can_return_with_decoder(
++            &fallthrough_loop.store,
++            loop_instruction,
++            Some(&decoder),
++        )
++        .unwrap());
++    }
++
+     #[test]
+     fn verifier_checks_pattern_condition_capture_slots_and_branch_returns() {
+         let source =
+@@ -18300,6 +18710,284 @@ pure apply_field(holder: Holder, other: OtherHolder, holder_again: Holder, n: In
+         assert!(error.message.contains("multiple parents"), "{}", error.message);
+     }
+ 
++    #[test]
++    fn positional_callable_record_constructor_rejects_a_forged_result_type() {
++        let source = r#"type Scale = pure(n: Int) -> Int
++type RenamedScale = pure(value: Int) -> Int
++type Holder = {callback: Scale}
++type RenamedHolder = {callback: RenamedScale}
++pure double(n: Int) -> Int { n * 2 }
++pure identity(value: Int) -> Int { value }
++test test_typed_callable_record_field_is_called_like_a_method {
++  assert Holder(double).callback(4) == 8
++  assert RenamedHolder(identity).callback(4) == 4
++}
++"#;
++        let program = fixture("typed-callable-positional-record.xsh", source);
++        let callback_name = program_name(&program, "callback");
++        let callback_has_parameter_name = |ty: &Type, wanted: &str| {
++            let Type::Record(fields) = ty else {
++                return false;
++            };
++            let Some(Type::Callable(callable)) = fields.get(&callback_name) else {
++                return false;
++            };
++            callable
++                .sig
++                .params
++                .first()
++                .is_some_and(|param| param.name.as_str().as_str() == wanted)
++        };
++        let try_require_fact = |wanted_parameter_name: &str| {
++            program
++                .store
++                .checked_expr_types
++                .iter()
++                .enumerate()
++                .find_map(|(fact_index, fact)| {
++                    let instruction = fact.instruction as usize;
++                    if program.store.tags.get(instruction) != Some(&FullTag::ExprTry) {
++                        return None;
++                    }
++                    let try_payload = program
++                        .store
++                        .payload(program.store.data[instruction].range())
++                        .ok()?;
++                    let require = *try_payload.first()? as usize;
++                    if program.store.tags.get(require) != Some(&FullTag::ExprRequire) {
++                        return None;
++                    }
++                    let fact_type = program.store.semantic.to_type(fact.type_id).ok()?;
++                    callback_has_parameter_name(&fact_type, wanted_parameter_name)
++                        .then_some((instruction, require, fact_index, fact.type_id))
++                })
++        };
++        let (try_instruction, require, fact_index, _) = try_require_fact("n")
++            .expect("positional constructor propagation has the original callback type");
++        let (_, _, _, forged_type) = try_require_fact("value")
++            .expect("fixture has a second callable record with an incompatible parameter label");
++        let forged_callable = program
++            .store
++            .semantic
++            .field_type(forged_type, callback_name)
++            .expect("forged record field decodes")
++            .expect("forged record has a callback field");
++        let (typed_call, field_callee) = program
++            .store
++            .tags
++            .iter()
++            .enumerate()
++            .find_map(|(instruction, tag)| {
++                if *tag != FullTag::ExprTypedCall {
++                    return None;
++                }
++                let call_payload = program
++                    .store
++                    .payload(program.store.data[instruction].range())
++                    .ok()?;
++                let callee = *call_payload.first()? as usize;
++                if program.store.tags.get(callee) != Some(&FullTag::ExprField) {
++                    return None;
++                }
++                let field_payload = program
++                    .store
++                    .payload(program.store.data[callee].range())
++                    .ok()?;
++                (*field_payload.first()? as usize == try_instruction)
++                    .then_some((instruction, callee))
++            })
++            .expect("direct constructor field call has a typed-call instruction");
++        let field_fact_index = program
++            .store
++            .checked_expr_types
++            .binary_search_by_key(&(field_callee as u32), |fact| fact.instruction)
++            .expect("direct constructor field has a callable fact");
++
++        let mut forged = program.clone();
++        let require_payload = forged.store.data[require].range();
++        forged.store.extra[require_payload.start as usize + 1] = forged_type.raw();
++        forged.store.checked_expr_types[fact_index].type_id = forged_type;
++        forged.store.checked_expr_types[field_fact_index].type_id = forged_callable;
++        let call_payload = forged.store.data[typed_call].range();
++        forged.store.extra[call_payload.start as usize + 2] = forged_callable.raw();
++        let error = FullVerifier::verify(&forged).unwrap_err();
++        assert!(
++            error.message.contains("checked expression child type disagrees with its producer"),
++            "{}",
++            error.message
++        );
++    }
++
++    #[test]
++    fn typed_callable_literal_containers_reject_forged_element_types() {
++        let source = r#"type Scale = pure(n: Int) -> Int
++type Holder = {callback: Pure}
++pure double(n: Int) -> Int { n * 2 }
++pure label_length(text: Str) -> Int { text.byte_len() }
++pure typed_map_value() -> Int {
++  let callbacks: Map[Str, Scale] = {["double"]: double}
++  callbacks.len()
++}
++proc callback_from_literal_map() [error] -> Result[Int] {
++  let callbacks: Map[Str, Scale] = {["double"]: double}
++  with selected = callbacks.get("double") {
++    return Ok(selected(4))
++  } else { |failure| return Err(failure) }
++}
++pure map_value() -> Int {
++  let callbacks: Map[Str, Pure] = {["label"]: label_length}
++  callbacks.len()
++}
++pure noncallable_map_value() -> Int {
++  let callbacks: Map[Str, Int] = {["label"]: 1}
++  callbacks.len()
++}
++pure empty_map_value() -> Int {
++  let callbacks: Map[Str, Scale] = {}
++  callbacks.len()
++}
++pure list_value() -> Int {
++  let callbacks: List[Pure] = [label_length]
++  callbacks.len()
++}
++pure record_value() -> Pure {
++  let holder: Holder = {callback: label_length}
++  holder.callback
++}
++test test_typed_callable_literal_containers {
++  assert typed_map_value() == 1
++  assert callback_from_literal_map()? == 8
++  assert map_value() == 1
++  assert list_value() == 1
++}
++"#;
++        let program = fixture("typed-callable-literal-containers.xsh", source);
++        FullVerifier::verify(&program).unwrap();
++
++        let scale = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
++            pure: true,
++            sig: crate::sema::types::CallableType {
++                params: vec![crate::sema::types::CallableParamType {
++                    name: program_name(&program, "n"),
++                    ty: Type::Int,
++                    defaulted: false,
++                    rest: false,
++                }],
++                return_ty: Box::new(Type::Int),
++                effects: None,
++            },
++        }));
++        let mut record_fields = BTreeMap::new();
++        record_fields.insert(program_name(&program, "callback"), scale.clone());
++        let container_types = [
++            (
++                "map_value",
++                FullTag::ExprMapLiteral,
++                Type::Map(Box::new(Type::Str), Box::new(scale.clone())),
++            ),
++            (
++                "list_value",
++                FullTag::ExprList,
++                Type::List(Box::new(scale.clone())),
++            ),
++            ("record_value", FullTag::ExprRecord, Type::Record(record_fields)),
++        ];
++        for (function, tag, forged_type) in container_types {
++            let instructions = function_instruction_indices(&program, function, tag);
++            assert_eq!(instructions.len(), 1, "{function} has one {tag:?} producer");
++            let instruction = instructions[0];
++            assert!(
++                program
++                    .store
++                    .checked_expr_types
++                    .binary_search_by_key(&(instruction as u32), |fact| fact.instruction)
++                    .is_err()
++            );
++            let mut forged = program.clone();
++            let mut semantic = SemanticPoolBuilder::default();
++            let type_id = semantic
++                .intern_type(&mut forged.store.semantic, &forged_type)
++                .unwrap();
++            let fact = FullCheckedExprType {
++                instruction: instruction as u32,
++                type_id,
++                function_ref: None,
++                with_error_source: false,
++            };
++            let insert = forged
++                .store
++                .checked_expr_types
++                .partition_point(|existing| existing.instruction < fact.instruction);
++            forged.store.checked_expr_types.insert(insert, fact);
++
++            let error = FullVerifier::verify(&forged).unwrap_err();
++            assert!(
++                error.message.contains("checked function reference tail disagrees with its target signature"),
++                "{tag:?}: {}",
++                error.message
++            );
++        }
++
++        let noncallable_map = function_instruction_indices(
++            &program,
++            "noncallable_map_value",
++            FullTag::ExprMapLiteral,
++        );
++        assert_eq!(noncallable_map.len(), 1);
++        let mut forged = program.clone();
++        let mut semantic = SemanticPoolBuilder::default();
++        let type_id = semantic
++            .intern_type(
++                &mut forged.store.semantic,
++                &Type::Map(Box::new(Type::Str), Box::new(scale.clone())),
++            )
++            .unwrap();
++        let fact = FullCheckedExprType {
++            instruction: noncallable_map[0] as u32,
++            type_id,
++            function_ref: None,
++            with_error_source: false,
++        };
++        let insert = forged
++            .store
++            .checked_expr_types
++            .partition_point(|existing| existing.instruction < fact.instruction);
++        forged.store.checked_expr_types.insert(insert, fact);
++        let error = FullVerifier::verify(&forged).unwrap_err();
++        assert!(
++            error.message.contains("checked callable expression child has no structural producer proof"),
++            "{}",
++            error.message
++        );
++
++        let empty_map = function_instruction_indices(
++            &program,
++            "empty_map_value",
++            FullTag::ExprEmptyMap,
++        );
++        assert_eq!(empty_map.len(), 1);
++        let mut forged = program.clone();
++        let mut semantic = SemanticPoolBuilder::default();
++        let type_id = semantic
++            .intern_type(
++                &mut forged.store.semantic,
++                &Type::Map(Box::new(Type::Str), Box::new(scale)),
++            )
++            .unwrap();
++        let fact = FullCheckedExprType {
++            instruction: empty_map[0] as u32,
++            type_id,
++            function_ref: None,
++            with_error_source: false,
++        };
++        let insert = forged
++            .store
++            .checked_expr_types
++            .partition_point(|existing| existing.instruction < fact.instruction);
++        forged.store.checked_expr_types.insert(insert, fact);
++        FullVerifier::verify(&forged).unwrap();
++    }
++
+     #[test]
+     fn typed_callable_record_return_facts_reject_field_and_receiver_corruption() {
+         let source = r#"type Scale = pure(n: Int) -> Int
+diff --git a/tests/xsh/typed-callables.xsh b/tests/xsh/typed-callables.xsh
+index 18a006f793d5a778442ceb39e2333ffd984c57dd..22dc2adc02045b20a8655745cdc819cc73cd4fb5 100644
+--- a/tests/xsh/typed-callables.xsh
++++ b/tests/xsh/typed-callables.xsh
+@@ -90,6 +90,13 @@ proc callback_from_map(callbacks: Map[Scale]) [error] -> Result[Int] {
+   } else { |failure| return Err(failure) }
+ }
+ 
++proc callback_from_literal_map() [error] -> Result[Int] {
++  let callbacks: Map[Str, Scale] = {["double"]: double}
++  with selected = callbacks.get("double") {
++    return Ok(selected(4))
++  } else { |failure| return Err(failure) }
++}
++
+ proc callback_from_record(callbacks: CallbackRecord) [error] -> Result[Int] {
+   with selected = callbacks.get("double") {
+     return Ok(selected(4))
+@@ -307,6 +314,11 @@ test test_typed_callable_is_returned_passed_and_stored {
+ }
+ 
+ test test_typed_callable_record_field_is_called_like_a_method {
++  assert Holder(double).callback(4) == 8
++
++  let positional: Holder = Holder(double)
++  assert positional.callback(4) == 8
++
+   assert get_holder().callback(7) == 21
+ 
+   var holder: Holder = Holder(callback: double)
+@@ -542,6 +554,10 @@ test test_empty_typed_callable_map_is_a_valid_initializer {
+   assert empty_callback_count() == 0
+ }
+ 
++test test_typed_callable_map_literal_is_checked_and_called {
++  assert callback_from_literal_map()? == 8
++}
++
+ test test_registered_method_uses_computed_float_receiver {
+   assert floor_computed_float(1.6) == 2
+ }

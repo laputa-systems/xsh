@@ -1,0 +1,19 @@
+diff --git a/src/runtime/eval/indexed/full.rs b/src/runtime/eval/indexed/full.rs
+index ac9bb1e4b670584cbf353913d032c94a3eeee04c..f4da9315ad44381dbd75e6a98f7091be8ae75c3c 100644
+--- a/src/runtime/eval/indexed/full.rs
++++ b/src/runtime/eval/indexed/full.rs
+@@ -20398,7 +20398,13 @@ pure selected() -> Str {
+                 .message
+                 .contains("slot")
+         );
+-        assert!(indexed_stmt_can_return(&program.store, row).unwrap());
++        let decoder = return_analysis_decoder(&program, "selected");
++        assert!(indexed_stmt_can_return_with_decoder(
++            &program.store,
++            row,
++            Some(&decoder),
++        )
++        .unwrap());
+     }
+ 
+     #[test]

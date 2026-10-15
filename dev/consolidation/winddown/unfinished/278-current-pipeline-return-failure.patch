@@ -1,0 +1,20 @@
+diff --git a/src/runtime/eval/indexed/full.rs b/src/runtime/eval/indexed/full.rs
+index ac9bb1e4b670584cbf353913d032c94a3eeee04c..2f4722a066f2b0ec960d346c31d196b9492c11d8 100644
+--- a/src/runtime/eval/indexed/full.rs
++++ b/src/runtime/eval/indexed/full.rs
+@@ -20712,10 +20712,11 @@ pure selected() -> Str {
+         };
+         let _range = stages.next_with_id().unwrap().unwrap();
+         let map = stages.next_with_id().unwrap().unwrap();
+-        let StageView::MapBlock { slot, .. } =
+-            StageView::decode(DecodeContext::from_decoder(&decoder), map.id.raw()).unwrap()
+-        else {
+-            panic!("second pipeline stage is map");
++        let slot = match StageView::decode(DecodeContext::from_decoder(&decoder), map.id.raw())
++            .unwrap()
++        {
++            StageView::Map { slot, .. } | StageView::MapBlock { slot, .. } => slot,
++            _ => panic!("second pipeline stage is map"),
+         };
+         let callback_parameter = function_instruction_indices(
+             &program,

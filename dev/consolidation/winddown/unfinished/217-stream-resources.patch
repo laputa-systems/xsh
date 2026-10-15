@@ -1,0 +1,41 @@
+diff --git a/docs/templates/SPEC.md b/docs/templates/SPEC.md
+index 1fba25109a2a698b438939b1a1a66fbd80aa1491..0569ca92ad009792540e3efb898ee6b15442a675 100644
+--- a/docs/templates/SPEC.md
++++ b/docs/templates/SPEC.md
+@@ -2715,9 +2715,9 @@ locations. A primary cleanup failure in a function that returns a `Result` is
+ the `Err` that function returns, from any of its blocks, so its caller matches
+ or propagates it like any other; in any other function it is a failure of the
+ call, which `try` captures. A deferred block cannot `return`, `yield`, `break`, or `continue`
+-out of its body. Owned process handles and network jobs are cleaned up before
+-the block's defers run; roots and locks still owned by the block are released
+-after its defers (11.8).
++out of its body. Owned open streams, process handles, and network jobs are
++stopped before the block's defers run; roots and locks still owned by the block
++are released after its defers (11.8).
+ 
+ `errdefer action` or `errdefer { ... }` registers cleanup that runs only when
+ control leaves the enclosing block with an error:
+@@ -3843,14 +3843,15 @@ reachable from an outer value. Passing a handle as an argument lends it; it
+ does not transfer ownership.
+ 
+ Scope exit has two phases around its deferred actions. First, the scope stops
+-its owned activities: non-detached process handles are cancelled and reaped,
+-detached handles are released to a background reaper, and network jobs are
+-cancelled and drained. Then the scope's `defer` actions run. After them, the
+-scope closes its still-owned roots and unlocks its still-owned locks, newest
+-first; closing a temporary root also removes its directory. A defer can use
+-these capabilities and can release them early. An explicit `root.close()` or
+-`fs.unlock(lock)` returns an error for an already released capability, while
+-scope cleanup skips a capability released earlier.
++its owned activities: open streams are cancelled, non-detached process handles
++are cancelled and reaped, detached handles are released to a background
++reaper, and network jobs are cancelled and drained. Cancelling a suspended
++script producer runs that producer's own defers. Then the scope's `defer`
++actions run. After them, the scope closes its still-owned roots and unlocks its
++still-owned locks, newest first; closing a temporary root also removes its
++directory. A defer can use these capabilities and can release them early. An
++explicit `root.close()` or `fs.unlock(lock)` returns an error for an already
++released capability, while scope cleanup skips a capability released earlier.
+ Ordinary block cleanup drops capability-release errors. A `with` resource
+ scope (10.4) reports a release failure as its `Err` when the body reaches its
+ end. Activities created by a defer are stopped as the scope finishes.

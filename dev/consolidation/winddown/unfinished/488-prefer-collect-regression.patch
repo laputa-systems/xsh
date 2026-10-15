@@ -1,0 +1,344 @@
+diff --git a/crates/xsht/src/lint_prefer_collect.rs b/crates/xsht/src/lint_prefer_collect.rs
+index 7d993ba8c27e36aa138c4ceead3b9b8d9006d592..924c165b68cbb547b48425ee624ffbe890ab4274 100644
+--- a/crates/xsht/src/lint_prefer_collect.rs
++++ b/crates/xsht/src/lint_prefer_collect.rs
+@@ -565,41 +565,56 @@ fn mentions(text: &str, name: &str) -> bool {
+     })
+ }
+ 
+-/// Whether `text` may assign `name`: the word directly before an assignment
+-/// operator, or through an index or field access chain.
++/// Whether `text` may assign `name`: directly or through a selector chain.
++/// The lexer keeps string and comment contents out of the source scan.
+ fn assigns(text: &str, name: &str) -> bool {
+-    text.lines().any(|line| {
+-        let mut quoted_tokens = None;
+-        line.match_indices(name).any(|(at, _)| {
+-            let before = at.checked_sub(1).map(|index| line.as_bytes()[index]);
+-            let after = at + name.len();
+-            let rest = &line[after..];
+-            if before.is_some_and(is_word) || rest.bytes().next().is_some_and(is_word) {
+-                return false;
+-            }
+-            let access = rest.trim_start_matches(|byte| byte == ' ' || byte == '\t');
+-            if assignment(access) {
+-                return true;
+-            }
+-            if !access.starts_with('[') && !access.starts_with('.') {
+-                return false;
+-            }
+-            let quoted_tokens = quoted_tokens.get_or_insert_with(|| quoted_token_ranges(line));
+-            access_chain_assigns_at(line, after, quoted_tokens)
+-        })
++    let opaque_tokens = opaque_token_ranges(text);
++    text.match_indices(name).any(|(at, _)| {
++        let before = at.checked_sub(1).map(|index| text.as_bytes()[index]);
++        let after = at + name.len();
++        let rest = &text[after..];
++        if before.is_some_and(is_word)
++            || rest.bytes().next().is_some_and(is_word)
++            || opaque_token_at(&opaque_tokens, at).is_some()
++        {
++            return false;
++        }
++        let access = rest.trim_start_matches(|byte| byte == ' ' || byte == '\t');
++        if assignment(access) {
++            return true;
++        }
++        if !access.starts_with('[')
++            && !access.starts_with('.')
++            && member_continuation_start(text, after, &opaque_tokens).is_none()
++        {
++            return false;
++        }
++        access_chain_assigns_at(text, after, &opaque_tokens)
+     })
+ }
+ 
+-/// Reuses the quoted tokens from the physical line that contains `start`.
+-fn access_chain_assigns_at(line: &str, start: usize, quoted_tokens: &[(usize, usize)]) -> bool {
+-    let bytes = line.as_bytes();
++/// A string or comment token that must be skipped while reading source text.
++#[derive(Clone, Copy)]
++struct OpaqueTokenRange {
++    start: usize,
++    end: usize,
++    comment: bool,
++}
++
++/// Follows index contents across their open-bracket lines and fields across
++/// `.name` continuation lines. An unfinished index cannot prove an assignment.
++fn access_chain_assigns_at(
++    source: &str,
++    start: usize,
++    opaque_tokens: &[OpaqueTokenRange],
++) -> bool {
++    let bytes = source.as_bytes();
+     let mut offset = start;
+     let mut accessed = false;
+-    let mut quoted_token = quoted_tokens.partition_point(|(_, token_end)| *token_end <= start);
+-    if quoted_tokens
+-        .get(quoted_token)
+-        .is_some_and(|(token_start, token_end)| *token_start <= start && start < *token_end)
+-    {
++    let mut opaque_token = opaque_tokens.partition_point(|token| token.end <= start);
++    if opaque_tokens.get(opaque_token).is_some_and(|token| {
++        token.start <= start && start < token.end
++    }) {
+         return false;
+     }
+ 
+@@ -610,22 +625,31 @@ fn access_chain_assigns_at(line: &str, start: usize, quoted_tokens: &[(usize, us
+         {
+             offset += 1;
+         }
++        if bytes
++            .get(offset)
++            .is_some_and(|byte| matches!(*byte, b'\n' | b'\r'))
++        {
++            let Some(next) = member_continuation_start(source, offset, opaque_tokens) else {
++                break;
++            };
++            offset = next;
++        }
+         match bytes.get(offset) {
+             Some(&b'[') => {
+                 let mut depth = 1;
+                 offset += 1;
+                 while let Some(byte) = bytes.get(offset) {
+-                    while quoted_tokens
+-                        .get(quoted_token)
+-                        .is_some_and(|(start, _)| *start < offset)
++                    while opaque_tokens
++                        .get(opaque_token)
++                        .is_some_and(|token| token.end <= offset)
+                     {
+-                        quoted_token += 1;
++                        opaque_token += 1;
+                     }
+-                    if let Some((start, end)) = quoted_tokens.get(quoted_token)
+-                        && *start == offset
++                    if let Some(token) = opaque_tokens.get(opaque_token)
++                        && token.start <= offset
++                        && offset < token.end
+                     {
+-                        offset = *end;
+-                        quoted_token += 1;
++                        offset = token.end;
+                         continue;
+                     }
+                     match *byte {
+@@ -671,33 +695,92 @@ fn access_chain_assigns_at(line: &str, start: usize, quoted_tokens: &[(usize, us
+     }
+ 
+     accessed
+-        && assignment(line[offset..].trim_start_matches(|byte| byte == ' ' || byte == '\t'))
++        && assignment(source[offset..].trim_start_matches(|byte| byte == ' ' || byte == '\t'))
+ }
+ 
+-fn quoted_token_ranges(line: &str) -> Vec<(usize, usize)> {
+-    if !line.as_bytes().contains(&b'"') {
++/// The next member-access continuation, skipping only line breaks and comments.
++fn member_continuation_start(
++    source: &str,
++    start: usize,
++    opaque_tokens: &[OpaqueTokenRange],
++) -> Option<usize> {
++    let bytes = source.as_bytes();
++    let mut offset = start;
++    let mut crossed_line = false;
++    let mut opaque_token = opaque_tokens.partition_point(|token| token.end <= start);
++    loop {
++        while bytes
++            .get(offset)
++            .is_some_and(|byte| matches!(*byte, b' ' | b'\t'))
++        {
++            offset += 1;
++        }
++        if let Some(token) = opaque_tokens.get(opaque_token)
++            && token.start == offset
++            && token.comment
++        {
++            offset = token.end;
++            opaque_token += 1;
++            continue;
++        }
++        match bytes.get(offset) {
++            Some(&b'\n') => {
++                crossed_line = true;
++                offset += 1;
++            }
++            Some(&b'\r') if bytes.get(offset + 1) == Some(&b'\n') => {
++                crossed_line = true;
++                offset += 2;
++            }
++            Some(&b'.') if crossed_line => return Some(offset),
++            _ => return None,
++        }
++    }
++}
++
++fn opaque_token_at(tokens: &[OpaqueTokenRange], offset: usize) -> Option<OpaqueTokenRange> {
++    let index = tokens.partition_point(|token| token.end <= offset);
++    tokens
++        .get(index)
++        .copied()
++        .filter(|token| token.start <= offset && offset < token.end)
++}
++
++fn opaque_token_ranges(source: &str) -> Vec<OpaqueTokenRange> {
++    if !source
++        .as_bytes()
++        .iter()
++        .any(|byte| matches!(*byte, b'"' | b'#'))
++    {
+         return Vec::new();
+     }
+ 
+-    let lexed = xsh::frontend::syntax::lexer::Lexer::new(SourceId::new(0), line).lex_compact();
++    let lexed = xsh::frontend::syntax::lexer::Lexer::new(SourceId::new(0), source).lex_compact();
+     let tokens = lexed.token_table;
+     (0..tokens.len())
+         .filter_map(|index| {
+             let tag = tokens.tag_at(index)?;
+-            if !matches!(
+-                tag,
+-                xsh::frontend::syntax::token::TokenTag::String
+-                    | xsh::frontend::syntax::token::TokenTag::PathString
+-                    | xsh::frontend::syntax::token::TokenTag::GlobString
+-                    | xsh::frontend::syntax::token::TokenTag::EnvString
+-                    | xsh::frontend::syntax::token::TokenTag::FmtString
+-                    | xsh::frontend::syntax::token::TokenTag::PathFmtString
+-                    | xsh::frontend::syntax::token::TokenTag::Bytes
+-                    | xsh::frontend::syntax::token::TokenTag::Regex
+-            ) {
++            let comment = tag == xsh::frontend::syntax::token::TokenTag::Comment;
++            if !comment
++                && !matches!(
++                    tag,
++                    xsh::frontend::syntax::token::TokenTag::String
++                        | xsh::frontend::syntax::token::TokenTag::PathString
++                        | xsh::frontend::syntax::token::TokenTag::GlobString
++                        | xsh::frontend::syntax::token::TokenTag::EnvString
++                        | xsh::frontend::syntax::token::TokenTag::FmtString
++                        | xsh::frontend::syntax::token::TokenTag::PathFmtString
++                        | xsh::frontend::syntax::token::TokenTag::Bytes
++                        | xsh::frontend::syntax::token::TokenTag::Regex
++                )
++            {
+                 return None;
+             }
+-            Some((tokens.start_at(index)?, tokens.end_at(index, line)?))
++            Some(OpaqueTokenRange {
++                start: tokens.start_at(index)?,
++                end: tokens.end_at(index, source)?,
++                comment,
++            })
+         })
+         .collect()
+ }
+@@ -714,7 +797,7 @@ fn assignment(text: &str) -> bool {
+ #[cfg(test)]
+ mod tests {
+     use super::super::{LintOptions, Linter};
+-    use super::{access_chain_assigns_at, assigns, quoted_token_ranges};
++    use super::{access_chain_assigns_at, assigns, opaque_token_ranges};
+     use xsh::diagnostic::{Diagnostic, DiagnosticCode};
+     use xsh::frontend::check::Checker;
+     use xsh::frontend::source::SourceId;
+@@ -756,6 +839,15 @@ mod tests {
+         assert!(built_lists(source).is_empty(), "{source}");
+     }
+ 
++    #[test]
++    fn multiline_index_assignment_keeps_the_list_mutable() {
++        let source = "proc build(items: List[Int]) -> List[Int] {\n  var kept = []\n  for item in items {\n    kept += [item]\n  }\n  kept[\n    0\n  ] = 4\n  kept\n}\n";
++        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
++        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++        assert!(Checker::check_arena(&parsed.arena, source).diagnostics.is_empty());
++        assert!(built_lists(source).is_empty(), "{source}");
++    }
++
+     #[test]
+     fn assignment_after_a_tab_keeps_the_list_mutable() {
+         let source = "proc build(items: List[Int]) -> List[Int] {\n  var kept = []\n  for item in items {\n    kept += [item]\n  }\n  kept\t= [4]\n  kept\n}\n";
+@@ -791,12 +883,26 @@ mod tests {
+             ("[0] . field", "%="),
+         ] {
+             let access = format!("{access}{operator}2");
+-            let quoted_tokens = quoted_token_ranges(&access);
+-            assert!(access_chain_assigns_at(&access, 0, &quoted_tokens), "{access}");
++            let opaque_tokens = opaque_token_ranges(&access);
++            assert!(access_chain_assigns_at(&access, 0, &opaque_tokens), "{access}");
+             assert!(assigns(&format!("kept{access}"), "kept"), "{access}");
+         }
+     }
+ 
++    #[test]
++    fn access_chains_continue_inside_indexes_and_through_member_lines() {
++        for access in [
++            "[\n  0\n] = 4",
++            "\n  .field = 4",
++            "[0]\n  .field = 4",
++            "[\n  0\n]\n  .field = 4",
++        ] {
++            assert!(assigns(&format!("kept{access}"), "kept"), "{access}");
++        }
++        assert!(!assigns("kept[\n  0", "kept"));
++        assert!(!assigns("kept\n  [0] = 4", "kept"));
++    }
++
+     #[test]
+     fn quoted_index_expressions_do_not_corrupt_the_access_chain() {
+         let source = r#"proc build(items: List[Int]) -> List[Int] {
+@@ -817,7 +923,7 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn repeated_accesses_reuse_line_relative_quoted_tokens() {
++    fn repeated_accesses_reuse_quoted_tokens() {
+         let access = r#"kept["]".byte_len() - 1]"#;
+         let line = format!("{}; kept[\"[\".byte_len() - 1]=4", vec![access; 32].join("; "));
+         assert!(assigns(&line, "kept"), "{line}");
+diff --git a/tests/xsh/collect.xsh b/tests/xsh/collect.xsh
+index fef777f79c4ef84b622ab1653e9c2f130b25f691..1f42c3486dcaa01e601bad32752b8f756f3d1e3c 100644
+--- a/tests/xsh/collect.xsh
++++ b/tests/xsh/collect.xsh
+@@ -397,6 +397,37 @@ print f"{result[0]},{result[1]}"
+   assert ran.stdout == "99,2\n", ran.stderr
+ }
+ 
++test test_prefer_collect_keeps_a_list_mutable_after_multiline_index_assignment { |ctx|
++  let source = r"""proc build(items: List[Int]) -> List[Int] {
++  var kept = []
++  for item in items {
++    kept += [item]
++  }
++  kept[
++    0
++  ] = 99
++  kept
++}
++
++let result = build([1, 2])
++print f"{result[0]},{result[1]}"
++"""
++  let built = test.temp_file(ctx, name: "multiline-mutable-collect.xsh", contents: bytes.from_text(source))?
++  let checked = run.capture --text "xsht" check $built
++  assert checked.status.exited_with(0), checked.stderr
++
++  let linted = run.capture --text "xsht" lint --only lint.prefer-collect $built
++  assert linted.status.exited_with(0), linted.stdout + linted.stderr
++  assert !("warn[lint.prefer-collect]" in linted.stdout + linted.stderr), linted.stderr
++
++  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-collect $built
++  assert fixed.status.exited_with(0), fixed.stdout + fixed.stderr
++  assert built.read_text()? == source
++
++  let ran = run.capture --text "xsh" $built
++  assert ran.stdout == "99,2\n", ran.stderr
++}
++
+ test test_prefer_collect_uses_project_width_for_replacement_layout { |ctx|
+   let root = test.temp_dir(ctx, name: "collect-configured-width")?
+   fp"{root}/xsht-config.ini".write("[format]\nline-width = 40\n")

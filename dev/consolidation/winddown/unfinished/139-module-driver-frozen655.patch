@@ -1,0 +1,94 @@
+diff --git a/tests/sema.rs b/tests/sema.rs
+index 372c2df6a40fb68e9b67e17702ff2c9d7f55cd4d..515d73b75f61ded7a6c5bb2f783c97ce7222d9d4 100644
+--- a/tests/sema.rs
++++ b/tests/sema.rs
+@@ -80,6 +80,89 @@ fn checker_publication_options_preserve_repository_diagnostics() {
+     }
+ }
+ 
++#[test]
++fn temporary_repository_checker_digest() {
++    fn update(digest: &mut u64, bytes: &[u8]) {
++        for byte in bytes {
++            *digest = (*digest ^ u64::from(*byte)).wrapping_mul(0x100000001b3);
++        }
++    }
++
++    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
++    let sources = repository_xsh_sources();
++    let options = [
++        CheckOptions::default(),
++        CheckOptions {
++            reveal_types: true,
++            ..CheckOptions::default()
++        },
++        CheckOptions::for_execution(),
++        CheckOptions::for_check_cli(),
++    ];
++    let mut digest = 0xcbf29ce484222325;
++    for path in &sources {
++        let relative = path.strip_prefix(root).expect("corpus path is relative to the repository");
++        let name = relative.to_string_lossy();
++        let source = std::fs::read_to_string(path)
++            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
++        let mut file_digest = 0xcbf29ce484222325;
++        update(&mut file_digest, name.as_bytes());
++        update(&mut file_digest, source.as_bytes());
++        update(&mut digest, name.as_bytes());
++        update(&mut digest, source.as_bytes());
++        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
++        for (index, options) in options.iter().copied().enumerate() {
++            update(&mut digest, &[index as u8]);
++            let diagnostics = parsed.arena.symbol_owner().with_current(|| {
++                let checked = Checker::check_arena_with_options(&parsed.arena, &source, options);
++                let mut diagnostics = parsed.diagnostics.clone();
++                diagnostics.extend(checked.diagnostics);
++                diagnostics
++            });
++            let rendered = format!("{diagnostics:?}");
++            update(&mut digest, rendered.as_bytes());
++            update(&mut file_digest, &[index as u8]);
++            update(&mut file_digest, rendered.as_bytes());
++        }
++        println!("source={name} digest={file_digest:016x}");
++    }
++    println!("repository-sources={} checker-digest={digest:016x}", sources.len());
++}
++
++#[test]
++fn temporary_changed_source_diagnostics() {
++    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
++    let paths = std::fs::read_to_string(root.join(".work/module-driver-proof/frozen-parity/mismatched-sources.txt"))
++        .expect("mismatched source list exists")
++        .lines()
++        .map(PathBuf::from)
++        .collect::<Vec<_>>();
++    let options = [
++        CheckOptions::default(),
++        CheckOptions {
++            reveal_types: true,
++            ..CheckOptions::default()
++        },
++        CheckOptions::for_execution(),
++        CheckOptions::for_check_cli(),
++    ];
++    for relative in paths {
++        let source = std::fs::read_to_string(root.join(&relative))
++            .unwrap_or_else(|error| panic!("read {}: {error}", relative.display()));
++        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
++        println!("source={}", relative.display());
++        for (index, options) in options.iter().copied().enumerate() {
++            let diagnostics = parsed.arena.symbol_owner().with_current(|| {
++                let checked = Checker::check_arena_with_options(&parsed.arena, &source, options);
++                let mut diagnostics = parsed.diagnostics.clone();
++                diagnostics.extend(checked.diagnostics);
++                diagnostics
++            });
++            println!("option={index} diagnostics={diagnostics:?}");
++        }
++    }
++}
++
+ #[test]
+ fn embedded_standard_library_diagnostics_are_not_reported_as_user_findings() {
+     let source = "let value = json.encode_lines([1])?\n";

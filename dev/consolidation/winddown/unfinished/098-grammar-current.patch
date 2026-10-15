@@ -1,0 +1,1722 @@
+diff --git a/src/syntax/grammar.rs b/src/syntax/grammar.rs
+index 63257b1133be29437c3d463e3733444030351e97..b1a6e51954afbbc003e5db8b31072fbe2c7a1641 100644
+--- a/src/syntax/grammar.rs
++++ b/src/syntax/grammar.rs
+@@ -906,7 +906,9 @@ pub enum Class {
+     /// A member name after `.`: a label or a hyphenated identifier.
+     Member,
+     /// A token that can be part of a bare command word.
+-    WordPart,
++    WordPart(bool),
++    /// A closing parenthesis usable as a run boundary inside an expression group.
++    GroupedEnd(bool),
+     /// A token made only of bare-path characters.
+     PathPart,
+ }
+@@ -928,7 +930,8 @@ impl Class {
+                 token.tag,
+                 TokenTag::Ident | TokenTag::ProcIdent | TokenTag::Keyword
+             ),
+-            Self::WordPart => is_word_part(token.tag),
++            Self::WordPart(grouped) => is_word_part(token.tag, grouped),
++            Self::GroupedEnd(grouped) => grouped && token.tag == TokenTag::RParen,
+             Self::PathPart => {
+                 !token.text.is_empty()
+                     && token
+@@ -942,18 +945,15 @@ impl Class {
+ 
+ /// Whether a token can be part of a bare command word. Quoted strings,
+ /// `$name`, and `${` are word parts with their own productions. A `[` or `(`
+-/// touching a name makes it an index or call argument, so brackets are never
+-/// part of a bare word.
+-pub const fn is_word_part(tag: TokenTag) -> bool {
++/// touching a name makes it an index or call argument. Other brackets and
++/// opening braces are literal word text; an expression group owns its `)`.
++pub const fn is_word_part(tag: TokenTag, grouped: bool) -> bool {
+     !matches!(
+         tag,
+-        TokenTag::LBracket
+-            | TokenTag::RBracket
+-            | TokenTag::Eof
++        TokenTag::Eof
+             | TokenTag::Newline
+             | TokenTag::Comment
+             | TokenTag::Semicolon
+-            | TokenTag::LBrace
+             | TokenTag::RBrace
+             | TokenTag::At
+             | TokenTag::Question
+@@ -961,11 +961,10 @@ pub const fn is_word_part(tag: TokenTag) -> bool {
+             | TokenTag::PipeGt
+             | TokenTag::Amp
+             | TokenTag::LParen
+-            | TokenTag::RParen
+             | TokenTag::String
+             | TokenTag::DollarIdent
+             | TokenTag::DollarLBrace
+-    )
++    ) && !(grouped && matches!(tag, TokenTag::RParen))
+ }
+ 
+ /// A grammar terminal.
+@@ -1103,16 +1102,19 @@ pub fn name_statement_is_expression<'s>(mut peek: impl FnMut(usize) -> Option<Gr
+         || !name_is_dotted_command(&mut peek) && (name_has_postfix(&mut peek) || name_has_binary(&mut peek))
+ }
+ 
+-/// A block on a command's line selects its scoped form. Interpolation
+-/// braces belong to an argument and do not open that scope.
++/// A block on a command's line selects its scoped form. Braces and line breaks
++/// inside `${...}` belong to the argument, including nested expression blocks.
+ pub fn command_line_has_block<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>) -> bool {
+-    let mut interpolations = 0usize;
++    let mut interpolation_depth = 0usize;
+     for offset in 1.. {
+         match peek(offset).map(|token| token.tag) {
+-            Some(TokenTag::DollarLBrace) => interpolations += 1,
+-            Some(TokenTag::RBrace) if interpolations > 0 => interpolations -= 1,
+-            Some(TokenTag::LBrace) if interpolations == 0 => return true,
+-            None | Some(TokenTag::Newline | TokenTag::Semicolon | TokenTag::RBrace | TokenTag::Eof) => return false,
++            Some(TokenTag::DollarLBrace) => interpolation_depth += 1,
++            Some(TokenTag::LBrace) if interpolation_depth > 0 => interpolation_depth += 1,
++            Some(TokenTag::LBrace) => return true,
++            Some(TokenTag::RBrace) if interpolation_depth > 0 => interpolation_depth -= 1,
++            None | Some(TokenTag::Eof) => return false,
++            Some(TokenTag::Newline | TokenTag::Semicolon | TokenTag::RBrace)
++                if interpolation_depth == 0 => return false,
+             _ => {}
+         }
+     }
+@@ -1138,12 +1140,31 @@ pub fn name_statement_matches<'s>(form: NameStatementForm, mut peek: impl FnMut(
+     }
+ }
+ 
++/// Calls and indices shadow bare words only when their receiver chain is
++/// attached. Parser lookahead can scan a spaced dot while deciding whether
++/// the receiver itself is a typed argument; that dot starts the next argument.
++pub fn argument_starts_chain<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>, attached: bool) -> bool {
++    if !peek(0).is_some_and(|token| matches!(token.tag, TokenTag::Ident | TokenTag::String)) { return false }
++    let mut offset = 1;
++    loop {
++        let Some(token) = peek(offset) else { return false };
++        match token.tag {
++            TokenTag::Question if token.glued && peek(offset + 1).is_some_and(|next| next.glued && matches!(next.tag, TokenTag::Dot | TokenTag::LBracket)) => offset += 1,
++            TokenTag::Dot if (!attached || token.glued) && peek(offset + 1).is_some_and(|next| next.glued && Class::Label.matches(&next)) => offset += 2,
++            TokenTag::LParen | TokenTag::LBracket => return token.glued,
++            _ => return false,
++        }
++    }
++}
++
+ /// A production body in extended BNF.
+ #[derive(Clone, Debug)]
+ pub enum Item {
+     Term(Term),
+     /// Zero-width: the statement head selects the requested name form.
+     NameStatement(NameStatementForm),
++    /// Zero-width: an attached call or index does not own this command word.
++    WordStart,
+     Rule(&'static str),
+     Seq(Vec<Item>),
+     Alt(Vec<Item>),
+@@ -1165,6 +1186,8 @@ pub enum Item {
+     Peek(Vec<Vec<Term>>),
+     /// The item is written on one line: it contains no `NEWLINE`.
+     Line(Box<Item>),
++    /// Parentheses parsed as an expression own their closing delimiter.
++    Group(Box<Item>),
+ }
+ 
+ #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+diff --git a/src/syntax/grammar/earley.rs b/src/syntax/grammar/earley.rs
+index 3e74faf7e42f80f6af6a31618780dc489b06c1e6..c67ebf24b02a82275edd6248bc34b08b154ba9ce 100644
+--- a/src/syntax/grammar/earley.rs
++++ b/src/syntax/grammar/earley.rs
+@@ -16,6 +16,7 @@ enum Symbol {
+     Rule(u32),
+     Look(u32),
+     NameStatement(super::NameStatementForm),
++    WordStart,
+     End,
+ }
+ 
+@@ -64,12 +65,18 @@ struct Compiler<'g> {
+     lookaheads: Vec<Lookahead>,
+     names: Vec<String>,
+     rule_ids: FxHashMap<&'g str, u32>,
++    /// Rule bodies differ only where grouping owns a closing parenthesis.
++    grouped_ids: FxHashMap<&'g str, u32>,
++    grouped_requests: Vec<&'g str>,
+     productions: Vec<(u32, Vec<Symbol>)>,
+     single_line: Vec<u32>,
+ }
+ 
+ impl<'g> Compiler<'g> {
+-    fn terminal(&mut self, term: Term) -> u32 {
++    fn terminal(&mut self, mut term: Term, grouped: bool) -> u32 {
++        if grouped {
++            term.class = match term.class { super::Class::WordPart(_) => super::Class::WordPart(true), super::Class::GroupedEnd(_) => super::Class::GroupedEnd(true), class => class };
++        }
+         if let Some(id) = self.terminal_ids.get(&term) {
+             return *id;
+         }
+@@ -84,7 +91,14 @@ impl<'g> Compiler<'g> {
+         (self.names.len() - 1) as u32
+     }
+ 
+-    fn rule_id(&self, name: &str) -> u32 {
++    fn rule_id(&mut self, name: &'g str, grouped: bool) -> u32 {
++        if grouped {
++            if let Some(id) = self.grouped_ids.get(name) { return *id }
++            let id = self.fresh(format!("{name}#group"));
++            self.grouped_ids.insert(name, id);
++            self.grouped_requests.push(name);
++            return id;
++        }
+         *self
+             .rule_ids
+             .get(name)
+@@ -93,24 +107,25 @@ impl<'g> Compiler<'g> {
+ 
+     /// Appends the symbols of `item` to `out`, introducing helper rules for
+     /// alternation and repetition.
+-    fn flatten(&mut self, owner: &str, item: &Item, out: &mut Vec<Symbol>) {
++    fn flatten(&mut self, owner: &str, item: &Item, out: &mut Vec<Symbol>, grouped: bool) {
+         match item {
+             Item::Term(term) => {
+-                let id = self.terminal(*term);
++                let id = self.terminal(*term, grouped);
+                 out.push(Symbol::Terminal(id));
+             }
++            Item::WordStart => out.push(Symbol::WordStart),
+             Item::NameStatement(form) => out.push(Symbol::NameStatement(*form)),
+-            Item::Rule(name) => out.push(Symbol::Rule(self.rule_id(name))),
++            Item::Rule(name) => out.push(Symbol::Rule(self.rule_id(name, grouped))),
+             Item::Seq(items) => {
+                 for item in items {
+-                    self.flatten(owner, item, out);
++                    self.flatten(owner, item, out, grouped);
+                 }
+             }
+             Item::Alt(items) => {
+                 let id = self.fresh(format!("{owner}#alt"));
+                 for item in items {
+                     let mut rhs = Vec::new();
+-                    self.flatten(owner, item, &mut rhs);
++                    self.flatten(owner, item, &mut rhs, grouped);
+                     self.productions.push((id, rhs));
+                 }
+                 out.push(Symbol::Rule(id));
+@@ -119,14 +134,14 @@ impl<'g> Compiler<'g> {
+                 let id = self.fresh(format!("{owner}#opt"));
+                 self.productions.push((id, Vec::new()));
+                 let mut rhs = Vec::new();
+-                self.flatten(owner, inner, &mut rhs);
++                self.flatten(owner, inner, &mut rhs, grouped);
+                 self.productions.push((id, rhs));
+                 out.push(Symbol::Rule(id));
+             }
+             Item::Star(inner) | Item::Plus(inner) => {
+                 let id = self.fresh(format!("{owner}#rep"));
+                 let mut once = Vec::new();
+-                self.flatten(owner, inner, &mut once);
++                self.flatten(owner, inner, &mut once, grouped);
+                 let mut again = vec![Symbol::Rule(id)];
+                 again.extend(once.iter().copied());
+                 if matches!(item, Item::Star(_)) {
+@@ -143,12 +158,13 @@ impl<'g> Compiler<'g> {
+                 min_one,
+             } => {
+                 let expanded = list_items(inner, *lines, *min_one);
+-                self.flatten(owner, &expanded, out);
++                self.flatten(owner, &expanded, out, grouped);
+             }
++            Item::Group(inner) => self.flatten(owner, inner, out, true),
+             Item::Line(inner) => {
+                 let id = self.fresh(format!("{owner}#line"));
+                 let mut rhs = Vec::new();
+-                self.flatten(owner, inner, &mut rhs);
++                self.flatten(owner, inner, &mut rhs, grouped);
+                 self.productions.push((id, rhs));
+                 self.single_line.push(id);
+                 out.push(Symbol::Rule(id));
+@@ -156,7 +172,7 @@ impl<'g> Compiler<'g> {
+             Item::Not(sequences) | Item::Peek(sequences) => {
+                 let sequences = sequences
+                     .iter()
+-                    .map(|sequence| sequence.iter().map(|term| self.terminal(*term)).collect())
++                    .map(|sequence| sequence.iter().map(|term| self.terminal(*term, grouped)).collect())
+                     .collect();
+                 self.lookaheads.push(Lookahead {
+                     negative: matches!(item, Item::Not(_)),
+@@ -214,6 +230,8 @@ impl Recognizer {
+             lookaheads: Vec::new(),
+             names: Vec::new(),
+             rule_ids: FxHashMap::default(),
++            grouped_ids: FxHashMap::default(),
++            grouped_requests: Vec::new(),
+             productions: Vec::new(),
+             single_line: Vec::new(),
+         };
+@@ -226,12 +244,22 @@ impl Recognizer {
+             );
+         }
+         for rule in &compiler.grammar.rules {
+-            let id = compiler.rule_id(rule.name);
++            let id = compiler.rule_id(rule.name, false);
+             let mut rhs = Vec::new();
+-            compiler.flatten(rule.name, &rule.body, &mut rhs);
++            compiler.flatten(rule.name, &rule.body, &mut rhs, false);
+             compiler.productions.push((id, rhs));
+         }
+-        let program = compiler.rule_id(Grammar::START);
++        let mut request = 0;
++        while request < compiler.grouped_requests.len() {
++            let name = compiler.grouped_requests[request];
++            let body = &grammar.rules.iter().find(|rule| rule.name == name).expect("grouped rule exists").body;
++            let id = compiler.rule_id(name, true);
++            let mut rhs = Vec::new();
++            compiler.flatten(name, body, &mut rhs, true);
++            compiler.productions.push((id, rhs));
++            request += 1;
++        }
++        let program = compiler.rule_id(Grammar::START, false);
+         let start = compiler.fresh("start".to_string());
+         compiler
+             .productions
+@@ -264,7 +292,7 @@ impl Recognizer {
+                     let all = rhs.iter().all(|symbol| match symbol {
+                         Symbol::Terminal(_) | Symbol::End => false,
+                         Symbol::Rule(id) => empty[*id as usize],
+-                        Symbol::Look(_) | Symbol::NameStatement(_) => !strict,
++                        Symbol::Look(_) | Symbol::NameStatement(_) | Symbol::WordStart => !strict,
+                     });
+                     if all {
+                         empty[*lhs as usize] = true;
+@@ -300,7 +328,7 @@ impl Recognizer {
+                                 break;
+                             }
+                         }
+-                        Symbol::Look(_) | Symbol::NameStatement(_) | Symbol::End => {}
++                        Symbol::Look(_) | Symbol::NameStatement(_) | Symbol::WordStart | Symbol::End => {}
+                     }
+                 }
+                 let to = *lhs as usize * words;
+@@ -336,7 +364,7 @@ impl Recognizer {
+                             break;
+                         }
+                     }
+-                    Symbol::Look(_) | Symbol::NameStatement(_) | Symbol::End => {}
++                    Symbol::Look(_) | Symbol::NameStatement(_) | Symbol::WordStart | Symbol::End => {}
+                 }
+             }
+             production_may_be_empty[index] = empty;
+@@ -514,6 +542,9 @@ impl Recognizer {
+                             add((dot + 1, origin), &mut current);
+                         }
+                     }
++                    Symbol::WordStart => {
++                        if !super::argument_starts_chain(|offset| tokens.get(position + offset).copied(), true) { add((dot + 1, origin), &mut current); }
++                    }
+                     Symbol::NameStatement(form) => {
+                         if super::name_statement_matches(form, |offset| tokens.get(position + offset).copied())
+                         {
+diff --git a/src/syntax/grammar/generate.rs b/src/syntax/grammar/generate.rs
+index e698b129dc794bb41f744136c8c85c13fb316cb6..52493feb073298e39d2c3aff59652c6bc359eb31 100644
+--- a/src/syntax/grammar/generate.rs
++++ b/src/syntax/grammar/generate.rs
+@@ -46,6 +46,7 @@ pub struct Generator<'g> {
+     merged: bool,
+     /// Inside an item written on one line: optional line breaks are left out.
+     single_line: u32,
++    grouped: bool,
+     /// The rules the last candidate expanded.
+     expanded: FxHashSet<&'static str>,
+     /// For a targeted candidate, each rule's least number of expansions to
+@@ -54,6 +55,8 @@ pub struct Generator<'g> {
+     /// Whether the item being expanded is on the shortest way to the target;
+     /// the other items of a sequence are generated freely.
+     steering: bool,
++    /// Keep unrelated branches shallow while generating a targeted sentence.
++    targeted_generation: bool,
+ }
+ 
+ impl<'g> Generator<'g> {
+@@ -84,9 +87,11 @@ impl<'g> Generator<'g> {
+             state: 0,
+             merged: false,
+             single_line: 0,
++            grouped: false,
+             expanded: FxHashSet::default(),
+             toward: None,
+             steering: false,
++            targeted_generation: false,
+         }
+     }
+ 
+@@ -151,8 +156,10 @@ impl<'g> Generator<'g> {
+         }
+         self.toward = Some(distance);
+         self.steering = true;
++        self.targeted_generation = true;
+         let sentence = self.sentence(start, seed, depth);
+         self.steering = false;
++        self.targeted_generation = false;
+         let reached = self.toward.is_none();
+         self.toward = None;
+         sentence.filter(|_| reached)
+@@ -165,7 +172,9 @@ impl<'g> Generator<'g> {
+         self.state = seed.wrapping_mul(0x2545_F491_4F6C_DD1D) ^ 0x5851_F42D_4C95_7F2D;
+         self.merged = false;
+         self.single_line = 0;
++        self.grouped = false;
+         self.expanded.clear();
++        self.targeted_generation = self.toward.is_some();
+         let mut out = Vec::new();
+         let (name, body) = self
+             .rules
+@@ -173,12 +182,13 @@ impl<'g> Generator<'g> {
+             .map(|(name, body)| (*name, *body))
+             .unwrap_or_else(|| panic!("no rule `{start}`"));
+         self.expanded.insert(name);
+-        if self
++        let starts_at_target = self
+             .toward
+             .as_ref()
+-            .is_some_and(|distance| distance.get(name) == Some(&0))
+-        {
++            .is_some_and(|distance| distance.get(name) == Some(&0));
++        if starts_at_target {
+             self.toward = None;
++            self.targeted_generation = false;
+         }
+         self.expand(body, depth, &mut out);
+         (!self.merged).then(|| render(&out))
+@@ -213,15 +223,20 @@ impl<'g> Generator<'g> {
+             Item::Term(term) => self.emit(*term, out),
+             Item::Rule(name) => {
+                 self.expanded.insert(name);
+-                if self
++                let reached_target = self
+                     .toward
+                     .as_ref()
+-                    .is_some_and(|distance| distance.get(name) == Some(&0))
+-                {
++                    .is_some_and(|distance| distance.get(name) == Some(&0));
++                if reached_target {
+                     self.toward = None;
+                 }
+                 let body = self.rule(name);
++                let targeted_generation = self.targeted_generation;
++                if reached_target {
++                    self.targeted_generation = false;
++                }
+                 self.expand(body, depth.saturating_sub(1), out);
++                self.targeted_generation = targeted_generation;
+             }
+             Item::Seq(items) => {
+                 let steering = self.steering;
+@@ -235,37 +250,56 @@ impl<'g> Generator<'g> {
+                             .map(|item| item_distance(item, distance))
+                             .collect();
+                         let least = steps.iter().flatten().min()?;
+-                        steps.iter().position(|step| step == &Some(*least))
++                        Some(
++                            steps
++                                .iter()
++                                .enumerate()
++                                .filter_map(|(index, step)| (step == &Some(*least)).then_some(index))
++                                .collect::<Vec<_>>(),
++                        )
++                    })
++                    .map(|closest| {
++                        let index = self.below(closest.len());
++                        closest[index]
+                     });
+                 let mut index = 0;
+                 while index < items.len() {
+                     // A guarded item is the one after its lookahead.
+                     let guarded = usize::from(
+-                        matches!(items[index], Item::Not(_) | Item::Peek(_) | Item::NameStatement(_))
++                        matches!(items[index], Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) | Item::WordStart)
+                             && index + 1 < items.len(),
+                     );
+                     self.steering = steering && closest == Some(index + guarded);
++                    let item_depth = if self.targeted_generation && !self.steering {
++                        0
++                    } else {
++                        depth
++                    };
+                     match (&items[index], items.get(index + 1)) {
+                         (Item::NameStatement(form), Some(next)) => {
+-                            self.guarded(next, depth, out, |emitted| {
++                            self.guarded(next, item_depth, out, |emitted| {
+                                 super::name_statement_matches(*form, |offset| emitted.get(offset).map(|token| token.token(emitted.get(offset + 1))))
+                             });
+                             index += 2;
+                         }
++                        (Item::WordStart, Some(next)) => {
++                            self.guarded(next, item_depth, out, |emitted| !super::argument_starts_chain(|offset| emitted.get(offset).map(|token| token.token(emitted.get(offset + 1))), true));
++                            index += 2;
++                        }
+                         (Item::Not(sequences), Some(next)) => {
+-                            self.guarded(next, depth, out, |emitted| {
++                            self.guarded(next, item_depth, out, |emitted| {
+                                 !begins_with_any(emitted, sequences)
+                             });
+                             index += 2;
+                         }
+                         (Item::Peek(sequences), Some(next)) => {
+-                            self.guarded(next, depth, out, |emitted| {
++                            self.guarded(next, item_depth, out, |emitted| {
+                                 begins_with_any(emitted, sequences)
+                             });
+                             index += 2;
+                         }
+                         (item, _) => {
+-                            self.expand(item, depth, out);
++                            self.expand(item, item_depth, out);
+                             index += 1;
+                         }
+                     }
+@@ -322,7 +356,7 @@ impl<'g> Generator<'g> {
+                     })
+                 );
+                 if depth > 0 && !(line_break && self.single_line > 0) {
+-                    while count < 3 && self.chance(45) {
++                    while count < 3 && self.chance(20) {
+                         count += 1;
+                     }
+                 }
+@@ -337,7 +371,7 @@ impl<'g> Generator<'g> {
+             } => {
+                 let mut count = usize::from(*min_one || self.leads_toward(inner));
+                 if depth > 0 {
+-                    while count < 3 && self.chance(50) {
++                    while count < 3 && self.chance(20) {
+                         count += 1;
+                     }
+                 }
+@@ -357,6 +391,12 @@ impl<'g> Generator<'g> {
+                     self.emit(newline(), out);
+                 }
+             }
++            Item::Group(inner) => {
++                let grouped = self.grouped;
++                self.grouped = true;
++                self.expand(inner, depth, out);
++                self.grouped = grouped;
++            }
+             Item::Line(inner) => {
+                 self.single_line += 1;
+                 self.expand(inner, depth, out);
+@@ -364,7 +404,7 @@ impl<'g> Generator<'g> {
+             }
+             // A lookahead at the end of a sequence constrains what follows
+             // the enclosing rule; the recognizer filter enforces it.
+-            Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) => {}
++            Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) | Item::WordStart => {}
+         }
+     }
+ 
+@@ -377,17 +417,26 @@ impl<'g> Generator<'g> {
+         out: &mut Vec<Emitted>,
+         accept: impl Fn(&[Emitted]) -> bool,
+     ) {
++        // Discarded attempts contribute neither spelling failures nor rule
++        // coverage, and cannot satisfy a targeted derivation.
++        let merged = self.merged;
++        let expanded = self.expanded.clone();
++        let toward = self.toward.clone();
+         let mut attempt = Vec::new();
+         for _ in 0..64 {
++            self.merged = false;
++            self.expanded.clone_from(&expanded);
++            self.toward.clone_from(&toward);
+             attempt.clear();
+             let mut scratch: Vec<Emitted> = out.last().cloned().into_iter().collect();
+             let before = scratch.len();
+             self.expand(item, depth, &mut scratch);
+             attempt.extend(scratch.drain(before..));
+-            if accept(&attempt) {
++            if !self.merged && accept(&attempt) {
+                 break;
+             }
+         }
++        self.merged |= merged;
+         out.extend(attempt);
+     }
+ 
+@@ -484,8 +533,9 @@ impl<'g> Generator<'g> {
+                     (TokenTag::Ident, None, pick(self, &NAMES))
+                 }
+             }
+-            Class::WordPart => {
+-                let options: [(TokenTag, &str); 9] = [
++            Class::GroupedEnd(_) => (TokenTag::RParen, None, ")".to_string()),
++            Class::WordPart(grouped) => {
++                let options: [(TokenTag, &str); 13] = [
+                     (TokenTag::Ident, "w"),
+                     (TokenTag::Int, "1"),
+                     (TokenTag::Minus, "-"),
+@@ -495,8 +545,13 @@ impl<'g> Generator<'g> {
+                     (TokenTag::Dot, "."),
+                     (TokenTag::Plus, "+"),
+                     (TokenTag::ProcIdent, "x-y"),
++                    (TokenTag::LBracket, "["),
++                    (TokenTag::RBracket, "]"),
++                    (TokenTag::LBrace, "{"),
++                    (TokenTag::RParen, ")"),
+                 ];
+-                let (tag, text) = options[self.below(options.len())];
++                let length = options.len() - usize::from(grouped || self.grouped);
++                let (tag, text) = options[self.below(length)];
+                 (tag, None, text.to_string())
+             }
+             Class::PathPart => {
+@@ -547,18 +602,18 @@ fn item_distance(item: &Item, distance: &FxHashMap<&'static str, u32>) -> Option
+             .iter()
+             .filter_map(|item| item_distance(item, distance))
+             .min(),
+-        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) => {
++        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) | Item::Group(inner) => {
+             item_distance(inner, distance)
+         }
+         Item::List { item, .. } => item_distance(item, distance),
+-        Item::Term(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) => None,
++        Item::Term(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) | Item::WordStart => None,
+     }
+ }
+ 
+ /// The least number of rule expansions that derive `item`, if any.
+ fn item_height(item: &Item, heights: &FxHashMap<&'static str, u32>) -> Option<u32> {
+     match item {
+-        Item::Term(_) | Item::Opt(_) | Item::Star(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) => Some(0),
++        Item::Term(_) | Item::Opt(_) | Item::Star(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) | Item::WordStart => Some(0),
+         Item::Rule(name) => heights.get(name).copied(),
+         Item::Seq(items) => items.iter().try_fold(0, |height, item| {
+             item_height(item, heights).map(|item| height.max(item))
+@@ -567,7 +622,7 @@ fn item_height(item: &Item, heights: &FxHashMap<&'static str, u32>) -> Option<u3
+             .iter()
+             .filter_map(|item| item_height(item, heights))
+             .min(),
+-        Item::Plus(inner) | Item::Line(inner) => item_height(inner, heights),
++        Item::Plus(inner) | Item::Line(inner) | Item::Group(inner) => item_height(inner, heights),
+         Item::List { item, min_one, .. } => {
+             if *min_one {
+                 item_height(item, heights)
+diff --git a/src/syntax/grammar/productions.rs b/src/syntax/grammar/productions.rs
+index a0b60dcccff8e85f63d212ed949a7b97db387168..7c3d45775db79ca546e9a295a47584d9a19947db 100644
+--- a/src/syntax/grammar/productions.rs
++++ b/src/syntax/grammar/productions.rs
+@@ -63,6 +63,14 @@ fn postfix(command_argument: bool) -> Item {
+     }))
+ }
+ 
++fn postfix_starts() -> Vec<Vec<Term>> {
++    PostfixForm::ALL.map(|form| {
++        let mut lead: Vec<Term> = form.lead(true).collect();
++        if matches!(form, PostfixForm::Member | PostfixForm::SafeMember) { lead.push(term(Class::Member, false)); }
++        lead
++    }).to_vec()
++}
++
+ fn r(name: &'static str) -> Item {
+     Item::Rule(name)
+ }
+@@ -369,15 +377,6 @@ fn keyword_forms(keywords: impl IntoIterator<Item = Keyword>) -> Vec<StatementFo
+     forms
+ }
+ 
+-/// The words that continue a name as a conversion or a type test. After
+-/// `exit` or `fail` they make the word a binding of that name, so neither
+-/// statement takes a status or a message named `as` or `is`.
+-fn conversion_or_test_leads() -> Vec<Vec<Term>> {
+-    ["as", "is"]
+-        .map(|word| vec![word_term(word, false)])
+-        .to_vec()
+-}
+-
+ fn postfix_guard_leads() -> Vec<Vec<Term>> {
+     [Keyword::When, Keyword::Unless]
+         .map(|guard| vec![keyword_term(guard)])
+@@ -1253,12 +1252,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
+         rule(
+             Statements,
+             "exit_statement",
+-            seq([
++            seq([Item::NameStatement(NameStatementForm::Command), seq([
+                 w("exit"),
+-                not(conversion_or_test_leads()),
+                 line(r("expression")),
+                 opt(r("postfix_guard")),
+-            ]),
++            ])]),
+         ),
+         // `fail` is a contextual word: it begins the statement where a
+         // command named `fail` would be read, with its message or
+@@ -1266,15 +1264,14 @@ pub(super) fn rules() -> Vec<super::Rule> {
+         rule(
+             Statements,
+             "fail_statement",
+-            seq([
++            seq([Item::NameStatement(NameStatementForm::Command), seq([
+                 w("fail"),
+-                not(conversion_or_test_leads()),
+                 line(seq([
+                     r("expression"),
+                     opt(seq([w("because"), r("expression")])),
+                 ])),
+                 opt(r("postfix_guard")),
+-            ]),
++            ])]),
+         ),
+         // `until` directly after `wait` always begins this statement. Its
+         // limit and intervals are durations as a `within` scope writes one,
+@@ -1747,15 +1744,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
+                 r("set_literal"),
+                 r("set_comprehension"),
+                 block(),
+-                seq([t(T::LParen), nl(), r("expression_item"), nl(), t(T::RParen)]),
+-                seq([
+-                    t(T::LParen),
+-                    nl(),
+-                    r("run_form"),
+-                    opt(t(T::Question)),
+-                    nl(),
+-                    t(T::RParen),
+-                ]),
++                seq([t(T::LParen), Item::Group(Box::new(seq([nl(), r("expression_item"), nl()]))), t(T::RParen)]),
+                 r("if_expression"),
+                 r("match_expression"),
+                 seq([kw(Keyword::Loop), block()]),
+@@ -1766,7 +1755,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
+                     kw(Keyword::Try),
+                     r("run_form"),
+                     not([vec![tag_term(T::Question)]]),
+-                    alt([r("run_end"), Item::Peek(vec![vec![tag_term(T::RParen)]])]),
++                    r("run_end"),
+                 ]),
+                 r("retry_expression"),
+                 // The `?` before a `|>` belongs to the run form.
+@@ -1784,7 +1773,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
+                     alt([
+                         seq([
+                             r("run_form"),
+-                            alt([r("run_end"), Item::Peek(vec![vec![tag_term(T::RParen)]])]),
++                            r("run_end"),
+                         ]),
+                         r("operand"),
+                     ]),
+@@ -2477,12 +2466,14 @@ pub(super) fn rules() -> Vec<super::Rule> {
+                 seq([
+                     core_word(CoreCommand::Cd),
+                     not([vec![tag_term(T::Equals)]]),
++                    // An opening brace starts the directory block, not its path.
++                    not([vec![tag_term(T::LBrace)]]),
+                     r("command_argument"),
+                     block(),
+                 ]),
+                 seq([
+                     core_word(CoreCommand::Env),
+-                    line(plus(r("env_assignment"))),
++                    line(star(r("env_assignment"))),
+                     block(),
+                 ]),
+                 // The words that begin a `tempdir NAME at PATH` scope or an
+@@ -2562,6 +2553,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
+                         t(T::FmtString),
+                     ]),
+                     star(r("glued_postfix")),
++                    not(postfix_starts()),
+                 ]),
+                 r("word"),
+             ]),
+@@ -2582,6 +2574,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
+                     ]),
+                 ]),
+                 star(r("glued_postfix")),
++                not(postfix_starts()),
+             ]),
+         ),
+         rule(
+@@ -2592,7 +2585,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
+         rule(
+             Commands,
+             "word",
+-            seq([
++            seq([Item::WordStart, seq([
+                 alt([
+                     seq([
+                         not([
+@@ -2603,19 +2596,24 @@ pub(super) fn rules() -> Vec<super::Rule> {
+                             T::FmtString,
+                         ]
+                         .map(|tag| vec![tag_term(tag)])),
+-                        class(Class::WordPart),
++                        class(Class::WordPart(false)),
+                     ]),
+                     t(T::String),
+                     r("dollar_name"),
+                     seq([t(T::DollarLBrace), r("expression"), t(T::RBrace)]),
+                 ]),
+                 star(alt([
+-                    gclass(Class::WordPart),
++                    gclass(Class::WordPart(false)),
+                     g(T::String),
+                     seq([g(T::DollarIdent), star(r("dollar_suffix"))]),
+                     seq([g(T::DollarLBrace), r("expression"), t(T::RBrace)]),
+                 ])),
+-            ]),
++                not([
++                    vec![term(Class::WordPart(false), true)],
++                    vec![glued_tag_term(T::String)], vec![glued_tag_term(T::DollarIdent)],
++                    vec![glued_tag_term(T::DollarLBrace)], vec![glued_tag_term(T::LParen)],
++                ]),
++            ])]),
+         ),
+         rule(
+             Commands,
+@@ -2650,7 +2648,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
+                     T::PipeGt,
+                 ]
+                 .map(|tag| vec![tag_term(tag)])
+-                .to_vec(),
++                .into_iter().chain([vec![term(Class::GroupedEnd(false), false)]]).collect(),
+             ),
+         ),
+         rule(
+@@ -2672,13 +2670,17 @@ pub(super) fn rules() -> Vec<super::Rule> {
+                         word_term(option.name(), true),
+                     ]
+                 })),
++                // The parser reads a bare `--` as a malformed option, not a target.
++                not([vec![tag_term(T::Minus), glued_tag_term(T::Minus)]]),
+                 star(r("env_assignment")),
+                 alt([
+                     seq([
+                         t(T::LParen),
+                         t(T::Newline),
+                         r("command_argument"),
+-                        star(alt([t(T::Newline), r("redirection"), r("run_argument")])),
++                        star(alt([t(T::Newline), r("redirection"), seq([
++                            not([vec![tag_term(T::RParen)]]), r("run_argument"),
++                        ])])),
+                         t(T::RParen),
+                     ]),
+                     seq([
+@@ -2744,19 +2746,15 @@ pub(super) fn rules() -> Vec<super::Rule> {
+                         vec![glued_tag_term(T::LBracket)],
+                     ]),
+                     plus(r("glued_postfix")),
++                    not(postfix_starts()),
+                 ]),
+-                // `spawn`, `wait`, and `run` would read past the whitespace that
+-                // ends the option.
++                // Scalar values have dedicated branches so they stop before
++                // the command target.
+                 seq([
+-                    not([T::Int, T::Duration, T::Ident]
+-                        .map(|tag| vec![tag_term(tag)])
+-                        .into_iter()
+-                        .chain(
+-                            [Keyword::Spawn, Keyword::Wait, Keyword::Run]
+-                                .map(|keyword| vec![keyword_term(keyword)]),
+-                        )),
++                    not([T::Int, T::Duration, T::Ident].map(|tag| vec![tag_term(tag)])),
+                     r("primary"),
+                     star(r("glued_postfix")),
++                    not(postfix_starts()),
+                 ]),
+             ]),
+         ),
+@@ -2764,7 +2762,9 @@ pub(super) fn rules() -> Vec<super::Rule> {
+             Commands,
+             "run_argument",
+             seq([
++                        // A standalone `{` starts the command block instead of a word.
+                 not([
++                    vec![tag_term(T::LBrace)],
+                     vec![tag_term(T::Gt)],
+                     vec![tag_term(T::GtGt)],
+                     vec![tag_term(T::Lt)],
+diff --git a/src/syntax/grammar/reference.rs b/src/syntax/grammar/reference.rs
+index f2e6b667399219c0eba7b33cb9a5d781b4f333ff..35f57235b4cb8a35b0335dd8516fe24521088ccc 100644
+--- a/src/syntax/grammar/reference.rs
++++ b/src/syntax/grammar/reference.rs
+@@ -18,7 +18,8 @@ pub fn terminal_text(class: &Class) -> String {
+         Class::Name => "NAME".to_string(),
+         Class::Label => "LABEL".to_string(),
+         Class::Member => "MEMBER".to_string(),
+-        Class::WordPart => "WORD_PART".to_string(),
++        Class::WordPart(_) => "WORD_PART".to_string(),
++        Class::GroupedEnd(_) => "GROUP_END".to_string(),
+         Class::PathPart => "PATH_PART".to_string(),
+     }
+ }
+@@ -54,7 +55,7 @@ fn tag_name(tag: TokenTag) -> String {
+ }
+ 
+ /// The terminals named in EBNF text, with what each stands for.
+-pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 19] = [
++pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 20] = [
+     (
+         "IDENT",
+         "an identifier: `[A-Za-z_][A-Za-z0-9_]*`, not a keyword",
+@@ -91,6 +92,7 @@ pub const TERMINAL_DESCRIPTIONS: [(&str, &str); 19] = [
+         "any other token that can be part of a bare command word",
+     ),
+     ("PATH_PART", "a token made only of bare-path characters"),
++    ("GROUP_END", "a closing parenthesis owned by an expression group"),
+     ("KEYWORD", "a reserved keyword"),
+ ];
+ 
+@@ -106,6 +108,7 @@ pub fn render_item(item: &Item, nested: bool) -> String {
+             super::NameStatementForm::Command => "!name_expression".to_string(),
+             super::NameStatementForm::ProcCommand => "&proc_command".to_string(),
+         },
++        Item::WordStart => "&word_argument".to_string(),
+         Item::Rule(name) => (*name).to_string(),
+         Item::Seq(items) if items.is_empty() => "()".to_string(),
+         Item::Seq(items) if items.len() == 1 => render_item(&items[0], nested),
+@@ -143,6 +146,7 @@ pub fn render_item(item: &Item, nested: bool) -> String {
+         }
+         Item::Not(sequences) => format!("!{}", render_lookahead(sequences)),
+         Item::Peek(sequences) => format!("&{}", render_lookahead(sequences)),
++        Item::Group(inner) => format!("group({})", render_item(inner, false)),
+         Item::Line(inner) => format!("line({})", render_item(inner, false)),
+     }
+ }
+diff --git a/src/syntax/parser.rs b/src/syntax/parser.rs
+index 6de4e385ae27ecf7a0e076fd70ea27d8001df886..e24eb036e972ef3acf2699a0a4298bc45c055006 100644
+--- a/src/syntax/parser.rs
++++ b/src/syntax/parser.rs
+@@ -57,6 +57,8 @@ pub struct Parser<'a> {
+     pipe_is_boundary: bool,
+     trailing_statement_try: bool,
+     command_arg_expr: bool,
++    /// A spaced postfix after a run option value starts its command target.
++    run_option_value_expr: bool,
+     condition_expr: bool,
+     /// While the destination of `atomically replace DEST as NAME {` is
+     /// parsed, the token index of the `as` that ends it. A pattern test
+@@ -188,6 +190,7 @@ impl<'a> Parser<'a> {
+             pipe_is_boundary: false,
+             trailing_statement_try: true,
+             command_arg_expr: false,
++            run_option_value_expr: false,
+             condition_expr: false,
+             head_as_index: None,
+             block_depth: 0,
+@@ -558,23 +561,8 @@ impl<'a> Parser<'a> {
+     }
+ 
+     pub(in crate::syntax::parser) fn is_word_part_start(&self) -> bool {
+-        if self.parenthesized_expr_depth > 0 && self.current_tag() == TokenTag::RParen {
+-            return false;
+-        }
+-        !matches!(
+-            self.current_tag(),
+-            TokenTag::Eof
+-                | TokenTag::Newline
+-                | TokenTag::Comment
+-                | TokenTag::Semicolon
+-                | TokenTag::RBrace
+-                | TokenTag::At
+-                | TokenTag::Question
+-                | TokenTag::Pipe
+-                | TokenTag::PipeGt
+-                | TokenTag::Amp
+-                | TokenTag::LParen
+-        )
++        grammar::is_word_part(self.current_tag(), self.parenthesized_expr_depth > 0)
++            || matches!(self.current_tag(), TokenTag::String | TokenTag::DollarIdent | TokenTag::DollarLBrace)
+     }
+ 
+     pub(in crate::syntax::parser) fn lookahead_is_ctx_block(&self) -> bool {
+diff --git a/src/syntax/parser/command.rs b/src/syntax/parser/command.rs
+index 37d4146c0fbade7bc8e4ac2fcfac55f5685c5f1a..3cc611aac6a4455964d4dcb768c0f69c367e1909 100644
+--- a/src/syntax/parser/command.rs
++++ b/src/syntax/parser/command.rs
+@@ -379,7 +379,10 @@ impl<'a> Parser<'a> {
+         loop {
+             self.accept_line_continuations();
+             let save = self.index;
+-            if !(self.at(TokenKindMatch::Minus) && self.peek_tag(1) == Some(TokenTag::Minus)) {
++            if !(self.at(TokenKindMatch::Minus)
++                && self.peek_tag(1) == Some(TokenTag::Minus)
++                && self.peek_start(1) == Some(self.current_end()))
++            {
+                 break;
+             }
+             self.bump();
+@@ -438,10 +441,10 @@ impl<'a> Parser<'a> {
+                 Some(arena.push_ident_expr(value, span))
+             }
+             _ => {
+-                let previous = self.command_arg_expr;
+-                self.command_arg_expr = true;
+-                let expression = self.parse_expr_id_arena_only(arena);
+-                self.command_arg_expr = previous;
++                let previous = self.run_option_value_expr;
++                self.run_option_value_expr = true;
++                let expression = self.with_command_arg_expr(|parser| parser.parse_expr_id_arena_only(arena));
++                self.run_option_value_expr = previous;
+                 expression
+             }
+         }
+@@ -694,40 +697,7 @@ impl<'a> Parser<'a> {
+     /// `()` (call) or `[]` (index). These are unambiguous in command-arg
+     /// position — unlike bare field access (`a.b`) which could be a filename.
+     fn at_call_or_index_chain(&self) -> bool {
+-        if !matches!(self.current_tag(), TokenTag::Ident | TokenTag::String) {
+-            return false;
+-        }
+-        let mut pos = self.index + 1;
+-        loop {
+-            let tag = match self.token_table.tag_at(pos) {
+-                Some(tag) => tag,
+-                None => return false,
+-            };
+-            match tag {
+-                TokenTag::Question
+-                    if self.start_at(pos) == self.end_at(pos - 1)
+-                        && self.start_at(pos + 1) == self.end_at(pos)
+-                        && matches!(
+-                            self.token_table.tag_at(pos + 1),
+-                            Some(TokenTag::Dot | TokenTag::LBracket)
+-                        ) =>
+-                {
+-                    pos += 1;
+-                }
+-                TokenTag::Dot => {
+-                    if self.start_at(pos + 1) != self.end_at(pos)
+-                        || self.peek_label_name(pos + 1 - self.index).is_none()
+-                    {
+-                        return false;
+-                    }
+-                    pos += 2;
+-                }
+-                TokenTag::LParen | TokenTag::LBracket => {
+-                    return self.start_at(pos) == self.end_at(pos - 1);
+-                }
+-                _ => return false,
+-            }
+-        }
++        grammar::argument_starts_chain(|offset| self.grammar_token(offset), false)
+     }
+ 
+     pub(super) fn parse_command_arg_arena_only(
+diff --git a/src/syntax/parser/expr.rs b/src/syntax/parser/expr.rs
+index 4eee0cd0cebf4f842f7666799740b59395873891..3e5b52684a6f5a6a4882f8f0f3ea501777f77158 100644
+--- a/src/syntax/parser/expr.rs
++++ b/src/syntax/parser/expr.rs
+@@ -288,6 +288,9 @@ impl<'a> Parser<'a> {
+             value?
+         };
+         let value_end = self.previous_end();
++        if !self.at(TokenKindMatch::Comma) && !self.at_terminator() {
++            self.diagnostic_here("expected `,` or newline after match arm", DiagnosticCode::ParseExpectedTerminator);
++        }
+         if self.consume(TokenKindMatch::Comma).is_some() {
+             self.skip_newlines();
+         }
+@@ -422,7 +425,7 @@ impl<'a> Parser<'a> {
+                     && (self.lookahead_is_expr_call_or_postfix()
+                         || self.lookahead_is_expr_binary());
+                 self.index = brace;
+-                if !(expression || comprehension || conversion) {
++                if !(expression || comprehension || conversion || self.line_continuation_at(self.index + first + 1).is_some()) {
+                     return false;
+                 }
+             }
+@@ -478,22 +481,24 @@ impl<'a> Parser<'a> {
+                 {
+                     return offset > first;
+                 }
+-                // An entry may end its line before the `,` or `for`.
++                // An entry continues after an operator or onto a continuation
++                // line. A plain next statement still makes this a block.
+                 Some(TokenTag::Newline | TokenTag::Comment) if depth == 0 => {
+-                    return match self.peek_tag_skip_newlines(offset) {
+-                        Some(TokenTag::Comma) => true,
+-                        Some(TokenTag::Keyword) => {
+-                            let mut next = offset;
+-                            while matches!(
+-                                self.peek_tag(next),
+-                                Some(TokenTag::Newline | TokenTag::Comment)
+-                            ) {
+-                                next += 1;
++                    let mut previous = offset - 1;
++                    while previous > first && matches!(self.peek_tag(previous), Some(TokenTag::Newline | TokenTag::Comment)) { previous -= 1; }
++                    let pending = grammar::binary_operator_at(self.peek_tag(previous).expect("entry token"), self.peek_keyword(previous), self.peek_keyword(previous + 1)).is_some()
++                        || self.peek_name(previous).is_some_and(|name| name == "is" || name == "as");
++                    if !pending && self.line_continuation_at(self.index + offset).is_none() {
++                        return match self.peek_tag_skip_newlines(offset) {
++                            Some(TokenTag::Comma) => true,
++                            Some(TokenTag::Keyword) => {
++                                let mut next = offset;
++                                while matches!(self.peek_tag(next), Some(TokenTag::Newline | TokenTag::Comment)) { next += 1; }
++                                self.peek_keyword(next) == Some(Keyword::For)
+                             }
+-                            self.peek_keyword(next) == Some(Keyword::For)
+-                        }
+-                        _ => false,
+-                    };
++                            _ => false,
++                        };
++                    }
+                 }
+                 Some(TokenTag::Semicolon | TokenTag::Equals) if depth == 0 => return false,
+                 Some(TokenTag::Eof) | None => return false,
+@@ -839,6 +844,9 @@ impl<'a> Parser<'a> {
+             extended = true;
+             self.skip_postfix_newlines();
+             self.skip_pipeline_newlines();
++            if self.at_run_option_grouped_boundary(left.span.end()) {
++                break;
++            }
+             // A typed command argument ends at whitespace or a line break.
+             if command_arg_root
+                 && (self.current_start() > left.span.end()
+@@ -2499,7 +2507,10 @@ impl<'a> Parser<'a> {
+         let migration_start = self.current_start();
+         let mut named_arguments = Vec::new();
+         let mut migration_end = migration_start;
+-        while self.at(TokenKindMatch::Minus) && self.peek_tag(1) == Some(TokenTag::Minus) {
++        while self.at(TokenKindMatch::Minus)
++            && self.peek_tag(1) == Some(TokenTag::Minus)
++            && self.peek_start(1) == Some(self.current_end())
++        {
+             let start = self.current_start();
+             self.bump();
+             self.bump();
+@@ -2894,6 +2905,9 @@ impl<'a> Parser<'a> {
+         let mut left = self.parse_prefix_arena_only(arena)?;
+         loop {
+             self.skip_postfix_newlines();
++            if self.at_run_option_grouped_boundary(left.span.end()) {
++                break;
++            }
+             if self.at(TokenKindMatch::Dot) && self.peek_tag(1) != Some(TokenTag::Dot) {
+                 self.bump();
+                 let name = self.expect_member_name("expected field name after `.`")?;
+@@ -2953,12 +2967,29 @@ impl<'a> Parser<'a> {
+                     span,
+                     bare_ident: None,
+                 };
++            } else if arena_expr_accepts_builder_block(arena, left.id)
++                && self.at(TokenKindMatch::LBrace)
++            {
++                let block = self.parse_builder_block_arena_only(arena)?;
++                let span = self.span(left.span.start(), self.previous_end());
++                left = ArenaOnlyExpr {
++                    id: arena.push_builder_call_expr_id(left.id, block, span),
++                    span,
++                    bare_ident: None,
++                };
+             } else {
+                 break;
+             }
+         }
+         Some(left)
+     }
++
++    fn at_run_option_grouped_boundary(&self, previous_end: usize) -> bool {
++        self.run_option_value_expr
++            && self.current_start() > previous_end
++            && self.at(TokenKindMatch::LParen)
++            && matches!(self.peek_tag(1), Some(TokenTag::Newline | TokenTag::Comment))
++    }
+ }
+ 
+ fn arena_expr_accepts_builder_block(arena: &ArenaProgramBuilder<'_>, id: ExprId) -> bool {
+diff --git a/tests/grammar.rs b/tests/grammar.rs
+index 2ce96284d6068836eb156299857400a53bbb5c8b..598c3a321c8f920063d7d5d574d57f17843757d3 100644
+--- a/tests/grammar.rs
++++ b/tests/grammar.rs
+@@ -57,11 +57,11 @@ fn rule_references(item: &Item, out: &mut Vec<&'static str>) {
+         Item::Seq(items) | Item::Alt(items) => {
+             items.iter().for_each(|item| rule_references(item, out))
+         }
+-        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) => {
++        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) | Item::Group(inner) => {
+             rule_references(inner, out)
+         }
+         Item::List { item, .. } => rule_references(item, out),
+-        Item::Term(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) => {}
++        Item::Term(_) | Item::Not(_) | Item::Peek(_) | Item::NameStatement(_) | Item::WordStart => {}
+     }
+ }
+ 
+@@ -73,11 +73,11 @@ fn words(item: &Item, out: &mut Vec<&'static str>) {
+             terms.extend(sequences.iter().flatten().copied())
+         }
+         Item::Seq(items) | Item::Alt(items) => items.iter().for_each(|item| words(item, out)),
+-        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) => {
++        Item::Opt(inner) | Item::Star(inner) | Item::Plus(inner) | Item::Line(inner) | Item::Group(inner) => {
+             words(inner, out)
+         }
+         Item::List { item, .. } => words(item, out),
+-        Item::Rule(_) | Item::NameStatement(_) => {}
++        Item::Rule(_) | Item::NameStatement(_) | Item::WordStart => {}
+     }
+     out.extend(terms.into_iter().filter_map(|term| match term.class {
+         Class::Word(word) => Some(word),
+@@ -204,7 +204,21 @@ fn generated_sentences_parse(depths: &[u32], seeds: u64, targeted_depth: u32, ta
+     let failures = for_each_parallel(&jobs, |&(depth, seed, target)| {
+         let mut generator = Generator::new(grammar);
+         let source = match target {
+-            Some(target) => generator.targeted_sentence(Grammar::START, target, seed, depth)?,
++            Some(target) => {
++                // These expression rules have a shorter route through run
++                // option values, whose surrounding command context rejects
++                // the generated forms.
++                let start = match target {
++                    "collect_expression"
++                    | "builder_call"
++                    | "builder_block"
++                    | "builder_compound_entry"
++                    | "builder_entry"
++                    | "run_end" => "expression_statement",
++                    _ => Grammar::START,
++                };
++                generator.targeted_sentence(start, target, seed, depth)?
++            }
+             None => generator.sentence(Grammar::START, seed, depth)?,
+         };
+         // A candidate that misses a lookahead or lexes differently is not a
+@@ -421,11 +435,17 @@ fn env_without_a_block_uses_proc_command_rules() {
+     for source in ["env foo\n", "env . name\n", "env FOO=value { f() }\n"] {
+         assert_parser_and_grammar_agree(source, true);
+     }
++    assert_parser_and_grammar_agree("env value = ${ items |> each { |item| item } } { }\n", true);
+     for source in ["env . name {}\n", "env foo ({})\n"] {
+         assert_parser_and_grammar_agree(source, false);
+     }
+ }
+ 
++#[test]
++fn cd_scope_arguments_keep_command_word_interpolation() {
++    assert_parser_and_grammar_agree("cd +${ x +\n1 } { }\n", true);
++}
++
+ #[test]
+ fn bare_exit_and_fail_do_not_end_before_arm_commas() {
+     for source in ["match x { _ => fail , }\n", "match x { _ => exit, }\n"] {
+@@ -447,6 +467,21 @@ fn bare_minus_command_arguments_preserve_source_adjacency() {
+         assert_parser_and_grammar_agree(source, true);
+     }
+     assert_parser_and_grammar_agree("f - \n", false);
++    for source in [
++        "let result = values |> drop - - $?\n",
++        "run.bytes --accept= 5s --timeout= y --cpumax= a target ? |> drop - - $?\n",
++    ] {
++        assert_parser_and_grammar_agree(source, true);
++    }
++}
++
++#[test]
++fn run_option_values_leave_following_words_as_command_arguments() {
++    assert_parser_and_grammar_agree("run --accept= spawn - ! value? (\n@y ) ;\n", true);
++    assert_parser_and_grammar_agree(
++        "guard let items = run --accept= spawn process.command { } --timeout= 1h --cpumax= a (\ne\"HOME\" ) ? else { }\nexport stream b ( ) -> b { }\n",
++        true,
++    );
+ }
+ 
+ #[test]
+@@ -479,6 +514,416 @@ fn last_status_statement_comparisons_are_recognized() {
+     assert_parser_and_grammar_agree("$? * $? > 0\n", true);
+ }
+ 
++#[test]
++fn deeper_generated_counterexamples_have_sound_recognition() {
++    let recognizer = Recognizer::new(grammar());
++    let mut disagreements = Vec::new();
++    for (seed, accepted, source) in [
++        ("depth 12 seed 5571 target random", false, r####"fail - $? & - $? as Thing as value > ! Thing | ! $? as Thing as Thing as x * - $? as x and items * c - Thing * $? - Thing & $? * $? * $? | value not in Thing - $? == $? in $? not in $? | b + $? because - Thing / - $? * Thing? as x as Thing & ! y as c is value ? == - $? - - $? as value as c and - $? | $?? < ! $? > $? as b >= ! $? | - a as a as c | value as value as Thing as Thing and - b as items and $? + b not in c when a not in
++
++c == $? +
++
++
++$? in a not in c is
++Module [ a . c [ y ] ? ] ? ==
++
++a in $? |> c and
++$? is
++
++Map [ y ] == $? not in $? |> $? < b and $? not in a is _ is items is _ is c is
++y [ ] ? and x <=
++a ??
++$? in $? != $? != a |> bytes.chunks *
++
++$? &
++a not in Thing == $? in value not in
++Thing in $?
++"####),
++        ("depth 12 seed 8371 target random", false, r####"fail - x & ! $? or $? < value? ?? $? | $? | $? in $? & $? * $? % items | x % x - $? / $? * $? != $? & x + $? not in Thing - a is a . a [ Set [ Stream [ y ] [ ] ? ] [ value [ ] , Module [ a ] [ ] ? , pure ( ) -> c ] ] ? is c ? |> max as items % items | $? & b and b & a & b <= y | $? + $? % items <= $? - $? + Thing * c & $? | value & $? <= $? - $? or b / $? % value * $? > a < Thing and a | b / Thing - y + y and $? + items - $? in y - value and $? % $? % $? + $? + a / $? | value <= $? - b because $?? * - $? < x & $?? as y as value >= ! x & $? | $? * - $? as y < $? unless a is
++
++
++value is proc ( Thing : y , ) -> proc ( ) -> c as Thing |> count ( x > x or $? < c ? ) . require (
++
++) +
++value * x >= y - c * $? - $? -
++
++$? or x in a is _ is Result [ x ] !=
++
++items in $? == value and items - $? -
++
++
++$? |
++
++
++$? and items + $? is Thing . c [ ] and
++
++$? <=
++
++$? - $? ??
++
++$? not in y and $? != x +
++$? | $? - $? and
++
++
++y + b <=
++
++
++c or a + $? + $? +
++
++
++x <=
++
++
++x - y +
++
++$? |> bytes.chunks? %
++
++Thing - x & items &
++
++
++x - c > c & $? +
++
++Thing |> $? in $?
++"####),
++        ("depth 12 seed 9 target set_comprehension", true, r####"guard let items : y [ List [ proc (
++) [ ] -> proc ( ) -> proc ( ) -> Thing ] [ proc ( ) [ time ] -> proc (
++items : items , ... b : c , ) -> List [ value ] ? , Stream [ proc ( ... b : c , ... x : value ) -> y [ ] ] [ ] ] , pure ( ) -> items , NonEmpty [ pure ( a = c , x : proc (
++) -> value , value : pure ( ) -> b ) -> List [ proc ( ) -> value ] ? ] [ ] ? , proc ( a = $? and
++
++
++Thing or Thing > c ??
++
++
++$? and Thing |> $? >= value ) -> proc ( b = a |> flat-map ) [ error ] -> proc ( ) [
++io ] -> pure ( ) -> b ] ? = run --accept= {
++
++x or
++Thing <= y
++
++for x in $? >= b |> flat-map } --timeout= c --cpumax= $? y = e"HOME" (
++( $? < Thing |> each ( ) |> Thing >= $? ??
++$? |> $? > a and $? >= $? ?? items >= $? and
++Thing or value and $? >= $? and b ) 2>> b"x" ) | run.stream --bytes (
++( x - $? and
++
++
++$? - y | b >= value +
++value ?? b == c in value not in $? ?? c not in value and
++
++c is items . x ? or $? |
++
++
++c >
++
++
++$? >=
++
++
++items -
++
++value <
++$? +
++$? |
++
++c and value !=
++value not in
++$? ) ) ? else {
++; | x |
++}
++
++"####),
++        ("depth 12 seed 9 target set_lead", true, r####"guard let items : y [ List [ proc (
++) [ ] -> proc ( ) -> proc ( ) -> Thing ] [ proc ( ) [ time ] -> proc (
++items : items , ... b : c , ) -> List [ value ] ? , Stream [ proc ( ... b : c , ... x : value ) -> y [ ] ] [ ] ] , pure ( ) -> items , NonEmpty [ pure ( a = c , x : proc (
++) -> value , value : pure ( ) -> b ) -> List [ proc ( ) -> value ] ? ] [ ] ? , proc ( a = $? and
++
++
++Thing or Thing > c ??
++
++
++$? and Thing |> $? >= value ) -> proc ( b = a |> flat-map ) [ error ] -> proc ( ) [
++io ] -> pure ( ) -> b ] ? = run --accept= {
++
++x or
++Thing <= y
++
++for x in $? >= b |> flat-map } --timeout= c --cpumax= $? y = e"HOME" (
++( $? < Thing |> each ( ) |> Thing >= $? ??
++$? |> $? > a and $? >= $? ?? items >= $? and
++Thing or value and $? >= $? and b ) 2>> b"x" ) | run.stream --bytes (
++( x - $? and
++
++
++$? - y | b >= value +
++value ?? b == c in value not in $? ?? c not in value and
++
++c is items . x ? or $? |
++
++
++c >
++
++
++$? >=
++
++
++items -
++
++value <
++$? +
++$? |
++
++c and value !=
++value not in
++$? ) ) ? else {
++; | x |
++}
++"####),
++        ("depth 16 seed 3908 target random", false, r####"exit spawn run.stream --text c = fp"{a}/x" e"HOME" > & b"x" | run fp"{a}/x"? % - collect { } in - wait value. y?[ y ] & - $? as x . x ? as pure ( ) -> pure ( ) -> b |> sort-by
++"####),
++        ("depth 16 seed 7212 target random", false, r####"a-b p"p"
++continue unless ! [ b
++for b in $? ] | spawn run g"*.x" > & b"x" < b"x" g"*.x" | run.capture --text --cpumax= Thing Thing = e"HOME" (
++@g"*.x" ) | run.capture --text (
++@g"*.x" ) | run.capture --text --timeout= x --cpumax= 42 --accept= 10ms f"x" e"HOME"? as pure ( ) -> proc ( ) -> x as proc ( ... y : x , a : b
++) -> Thing as proc ( ) -> pure ( ) -> value - ! tempdir c at $? > $? {
++} . value (
++) ( ) + { } as Union [ Set [ a ] ] ? as proc (
++) [ process
++] -> pure ( ) -> items as proc ( ) [ net , fs , process ] -> proc ( ) -> y &
++! - ! value? <= ! items as b . c [ proc ( ) -> y , Module [ value ] ? , Thing [ ] , c [ ] ] ? >
++process.command { value ; } as pure ( ... x : x ) -> Set [ Thing ] [ ] as pure ( ... value : items , ... items : a , ... c : items ) -> proc ( ) -> Thing and
++$?? as pure ( ... value : a , b : c , items : x , ) -> proc ( ) -> a as Set [ Module [ a ] [ ] ] [ b , value ] &
++
++
++! ! ! - $?
++"####),
++        ("depth 16 seed 7311 target random", false, r####"cli main ( ... items : Thing . Thing , value = ! ! a as proc ( ) -> b as proc (
++) [ ] -> items is Thing is y . Thing [ ] as y ) [ process ] -> value ? { fail - $? >= - b and ! items > ! a % ! $? <= - $? / $? as value as a as b | - $? & c - ! $? as Thing / ! c & ! $? + - $? as x as a / y? % y? as x as items & ! $? because ! $? as x | ! $? & Thing as y >= $?? + $? as a & ! c as c > $? as x unless Thing * $? >= value >= $? or value & $? & b +
++
++$? - value is Map [ proc ( ) [ ] -> Thing , Result [ value ] ] [ ] and
++y is x . b ? is Union [ x . x , b ] and
++x % items - value <= x >= y } ; cli main ( ) { }
++"####),
++        ("depth 16 seed 8347 target random", true, r####"var { .. , x , .. } : proc ( b : proc ( ) -> Result [ NonEmpty [ pure ( ) -> items ] ? , Set [ items [ c ] ] ] [ ] ? = y | $? / a >= c &
++value & items >=
++
++$? %
++
++
++value |
++
++$? % Thing |> max %
++$? != Thing not in $? is
++
++( . a ) as items as Thing is Result [ items ] [ ] and a + $? + b + $? is
++
++_ is proc ( ) -> y and $? >= $? ) -> Stream [ pure ( ) -> Stream [ proc ( ) -> pure ( ) -> c ] [ ] ? ] ? = run.stream --bytes --accept= Thing[ y |> $? ? ] items = $a @value | run --cpumax= 2m --timeout= {
++
++
++value <= x and
++x ?
++
++, a >= $? and $? > $? and c |> $? |> flat-map (
++) |> x < $? ? }( b : a ? , ) --accept= 0o7 a = ( c |
++
++$? < c *
++
++$? or
++Thing % items / y and
++$? -
++y and $? >=
++$? / $? % $? % b and
++
++$? <=
++y /
++$? <= $? +
++$? &
++$? % a | $? or
++a + x in y |
++$? != $? -
++
++a in
++$? -
++
++c not in c |
++$? | Thing |
++$? not in Thing ??
++c in
++
++b |
++
++
++$? - $? ==
++Thing | $? ) (
++( $? in items & $? %
++
++
++value & x - b not in
++
++b |
++
++
++a | $? -
++a & $? or $? | a * c % Thing & value in b in
++
++
++c == $? % items not in $? not in
++items |
++a | $? +
++
++
++b / b and
++
++b %
++$? & b - $? %
++$? % a %
++
++
++$? >= value >
++
++
++$? and
++
++b - b |
++$? % $? <=
++$? +
++items ?? c <=
++$? %
++x % x > $? / a |> $? not in b != x in $? !=
++$? in b != a not in Thing ?? Thing >
++value and
++items < $? >=
++$? >=
++$? and $? <= $? ??
++value is c . a as c ?? c >
++b ) ) ?
++"####),
++        ("depth 16 seed 9215 target random", true, r####"on 1 [ process ,
++error ] { | value , x , items
++| enum y { y ( ) } ; tempdir value { } ; } run.bytes --timeout= { a <=
++
++
++x |
++
++c >=
++
++Thing and
++
++
++c == $? not in items in
++Thing and $? <= a and $? |> first >=
++
++$? >=
++
++$? and
++$? for b in $? in $? is
++
++
++x [ ] ? == $? not in items is b"x" as items as b as x or $? in $? ?? Thing is b [ ] and $? <= $? and $? is
++
++Set [ items ] [ ] ? and
++b not in c or
++a not in y is
++Module [ value ] [ ] ? and $? and
++
++
++$? <
++
++$? }?. require ( a . items [ x [ x [ a ] ? , b [ b ] ] ] ? )? --accept= x (
++( - - y as proc ( ) -> items %
++
++
++. value?[ .. ] (
++) ( ) as pure ( ) -> y is Thing . b . y { c , .. , ..
++} as c is
++value ? |> sort [ $? >= $? |> group-by { } ?. require ( ) or
++x or c ?? a >= $? ] ?. require ( ) or Thing *
++$? &
++y in items %
++$? /
++Thing / $? - $? / $? * $? not in
++
++
++a is items . value ? != $? &
++$? *
++value * y |
++c not in
++
++items / $? % $? is 1.5 ) ) ? |> tee ( )
++"####),
++        ("normal depth 7 seed 1419", false, r####"cli main ( ) [ ] { ; exit $? >= $? when Thing } run.status --cpumax= 2m --timeout= 0o7 --accept= a (
++""?.match?.y?[ .. ]
++) | run y = ( $? >= $? ) c = ( $? >= $? ) b = p"p"? (
++f"x"?[ .. ] ) < b"x" ( b ) )
++"####),
++    ] {
++        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
++        let tokens = lex_grammar_tokens(source).expect("counterexample lexes");
++        let recognizes = recognizer.recognize(&tokens).is_ok();
++        let parses = parsed.diagnostics.is_empty();
++        eprintln!("{seed}: parses={parses}, recognizes={recognizes}, expected={accepted}");
++        if parses != accepted || recognizes != accepted {
++            disagreements.push(seed);
++        }
++    }
++    assert!(disagreements.is_empty(), "counterexamples: {disagreements:?}");
++}
++
++#[test]
++fn discarded_lookahead_attempts_do_not_change_generated_derivations() {
++    use xsh::frontend::syntax::grammar::{Rule, Section, Term};
++    use xsh::frontend::syntax::token::TokenTag;
++    let terminal = |tag, glued| Item::Term(Term { class: Class::Tag(tag), glued });
++    let grammar = Grammar { rules: vec![
++        Rule { section: Section::Programs, name: "program", body: Item::Seq(vec![
++            Item::Not(vec![vec![Term { class: Class::Tag(TokenTag::Ident), glued: false }]]),
++            Item::Alt(vec![Item::Rule("discarded"), Item::Rule("retained")]),
++            terminal(TokenTag::Newline, false),
++        ]) },
++        Rule { section: Section::Expressions, name: "discarded", body: Item::Seq(vec![terminal(TokenTag::Ident, false), terminal(TokenTag::Ident, true)]) },
++        Rule { section: Section::Expressions, name: "retained", body: terminal(TokenTag::Int, false) },
++    ] };
++    let recognizer = Recognizer::new(&grammar);
++    for seed in 0..32 {
++        let mut generator = Generator::new(&grammar);
++        let source = generator.sentence(Grammar::START, seed, 4).expect("a retained derivation is spellable");
++        recognizer.recognize(&lex_grammar_tokens(&source).expect("retained derivation lexes")).expect("retained derivation is recognized");
++        assert!(generator.expanded_rules().contains("retained"));
++        assert!(!generator.expanded_rules().contains("discarded"));
++        assert!(generator.targeted_sentence(Grammar::START, "discarded", seed, 4).is_none());
++    }
++}
++
++#[test]
++fn multiline_sets_and_command_word_boundaries_are_recognized() {
++    for source in ["let values = {x or\ny for a in xs}\n", "let values = {x +\ny, 1}\n", "let values = {x\n+ y, 1}\n", "run --timeout={x or\ny for a in xs} f\n", "run --timeout={x +\ny, 1}(b: 1) f\n", "run --timeout= spawn (x) cmd\n", "env {}\n", "asrunsert seen == []\n", "f []\n", "f )\n", "pure f() { e { }\n", "let value = (spawn run fp\"{a}/x\")? % - collect {}\n", "f(spawn run a?)\n", "(f(spawn run a))\n", "let value = { f\ng }\n"] {
++        assert_parser_and_grammar_agree(source, true);
++    }
++    for source in ["fail - 1 because 2\n", "let value = spawn run fp\"{a}/x\"? % - collect {}\n", "continue unless spawn run e\"HOME\"? as pure () -> Int\n", "f(spawn run a)\n", "f a-b(1)\n", "run (\n cmd ) out )\n", "run --timeout=fp\"x\"[] cmd\n", "run --timeout= spawn (x)\n", "guard let items = run -- ? else { }\n", "{ } ; cd { { }\n", "let value = match x { E => \"\" 0 => 4 }\n"] {
++        assert_parser_and_grammar_agree(source, false);
++    }
++}
++
++#[test]
++fn reduced_mutant_counterexamples_have_sound_recognition() {
++    for (seed, accepted, source) in [
++        (198, true, r####"env {}
++"####),
++        (535, true, r####"asrunsert seen == []
++"####),
++        (420, false, r####"pure f()->R[]{match 3{0=>{match 0{0=>{(match 3{E=>""0=>4})}}}}}
++"####),
++        (500, true, r####"proc u()->t[]{{for i in{[""]:"",[""]:""}{}match 1{V=>{for i in[""or 3in 0]{R=if m{}else{for i in[]{}E{
++v=if([[]]){}else{if 0{}else{}}}}}}}}
++"####),
++        (678, true, r####"proc f()->t[]{{match(""){(2)=>{if.{e]}}}}}
++"####),
++    ] {
++        eprintln!("mutant seed {seed}");
++        assert_parser_and_grammar_agree(source, accepted);
++    }
++}
++
+ /// The continuation tokens the parser joins lines on are the grammar's.
+ #[test]
+ fn line_continuation_spellings_come_from_the_operator_table() {
+diff --git a/tests/xsh/parser-diagnostics.xsh b/tests/xsh/parser-diagnostics.xsh
+index 8e30554bf7ed64b62bc39df947ea88480fd2c756..afd8d1803037790ce058ff845baf159d95164e0b 100644
+--- a/tests/xsh/parser-diagnostics.xsh
++++ b/tests/xsh/parser-diagnostics.xsh
+@@ -220,3 +220,19 @@ test test_print_names_do_not_rescue_malformed_assignments { |ctx|
+     expect_rejected(ctx, source, "parse.expected-terminator")
+   }
+ }
++
++test test_value_match_arms_require_separators { |ctx|
++  expect_rejected(ctx, "let value = match x { E => \"\" 0 => 4 }\n", "parse.expected-terminator")
++}
++
++test test_fail_binary_heads_and_typed_run_suffixes_are_not_rescued { |ctx|
++  for source in ["fail - 1 because 2\n", "let value = spawn run fp\"{a}/x\"? % - collect {}\n"] {
++    expect_rejected(ctx, source, "parse.expected-terminator")
++  }
++  expect_rejected(ctx, "continue unless spawn run e\"HOME\"? as pure () -> Int\n", "parse.expected-expression")
++}
++
++test test_grouped_run_tails_end_at_the_closer { |ctx|
++  expect_rejected(ctx, "run (\n cmd ) out )\n", "parse.expected-terminator")
++  expect_rejected(ctx, "run --timeout=fp\"x\"[] cmd\n", "parse.expected-expression")
++}
+diff --git a/tests/xsh/parser-forms.xsh b/tests/xsh/parser-forms.xsh
+index b2e30d08436d02ba782e0cd693ce3e58d569ee55..4d256d198ad1e26a79a3db08582ba788fa40598c 100644
+--- a/tests/xsh/parser-forms.xsh
++++ b/tests/xsh/parser-forms.xsh
+@@ -135,7 +135,11 @@ test test_command_names_and_core_dot_arguments_preserve_spacing { |ctx|
+ }
+ 
+ test test_env_without_a_block_uses_proc_command_rules { |ctx|
+-  expect_parses(ctx, "env foo\nenv . name\nenv FOO=value { f() }\n")
++  expect_parses(ctx, "env foo\nenv . name\nenv FOO=value { f() }\nenv value = ${ items |> each { |item| item } } { }\n")
++}
++
++test test_cd_scope_arguments_keep_command_word_interpolation { |ctx|
++  expect_parses(ctx, "cd +${ x +\n1 } { }\n")
+ }
+ 
+ test test_stage_arguments_can_precede_grouped_inline_expressions { |ctx|
+@@ -145,6 +149,12 @@ test test_stage_arguments_can_precede_grouped_inline_expressions { |ctx|
+ test test_bare_minus_command_arguments_preserve_source_adjacency { |ctx|
+   expect_parses(ctx, "f -\nf -#comment\nf -1\nf - 1\n")
+   test.expect(ctx, "print -\nprint -#comment\n", status: 0, stdout: ["-", "-"])?
++  expect_parses(ctx, "let result = values |> drop - - $?\nrun.bytes --accept= 5s --timeout= y --cpumax= a target ? |> drop - - $?\n")
++}
++
++test test_run_option_values_leave_following_words_as_command_arguments { |ctx|
++  expect_parses(ctx, "run --accept= spawn - ! value? (\n@y ) ;\n")
++  expect_parses(ctx, "guard let items = run --accept= spawn process.command { } --timeout= 1h --cpumax= a (\ne\"HOME\" ) ? else { }\nexport stream b ( ) -> b { }\n")
+ }
+ 
+ test test_block_parameters_duration_patterns_and_last_status_parse { |ctx|
+@@ -256,3 +266,23 @@ test test_type_pattern_arms_follow_unbraced_arm_values { |ctx|
+     "pure describe(failure: Error) -> Str {\n  match failure {\n    is PermissionDenied => return \"permission_denied\"\n    is NotFound => return \"not_found\"\n    _ => return \"other\"\n  }\n}\n",
+   )
+ }
++
++test test_multiline_set_entries_continue_after_operators { |ctx|
++  for source in ["let values = {x or\ny for a in xs}\n", "let values = {x +\ny, 1}\n", "let values = {x\n+ y, 1}\n", "run --timeout={x or\ny for a in xs} f\n", "run --timeout={x +\ny, 1}(b: 1) f\n"] {
++    expect_parses(ctx, source)
++  }
++  test.expect(ctx, "let values = {x +\n1 for x in [1, 2]}\nprint \$values.len()\n", status: 0, stdout: ["2"])?
++}
++
++test test_command_words_and_empty_env_scopes_parse { |ctx|
++  for source in ["env {}\n", "asrunsert seen == []\n", "f []\n", "f )\n", "pure f() { e { }\n"] {
++    expect_parses(ctx, source)
++  }
++  expect_parses(ctx, "print [] )\n")
++}
++
++test test_value_match_arms_keep_separator_forms { |ctx|
++  for source in ["let value = match x { E => \"\", 0 => 4 }\n", "let value = match x { E => \"\"\n0 => 4 }\n", "let value = match x { E => { \"\" }, 0 => { 4 } }\n", "let value = match x { E => { \"\" }\n0 => { 4 } }\n"] {
++    expect_parses(ctx, source)
++  }
++}

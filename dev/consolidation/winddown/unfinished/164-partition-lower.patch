@@ -1,0 +1,846 @@
+diff --git a/src/frontend.rs b/src/frontend.rs
+index ad9aa9b7876d0f8b2ecf589d47d9f819f61d192e..a3c9c6e5704f1c96e4aaa51a96dbfa2dba84ce3b 100644
+--- a/src/frontend.rs
++++ b/src/frontend.rs
+@@ -11,7 +11,8 @@ pub mod check {
+         bind_static_arguments, expand_named_arguments,
+     };
+     pub use crate::sema::check::{
+-        AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, CheckedProjection,
++        AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, CheckedCommandArgument,
++        CheckedModuleCommand, CheckedProjection,
+         CheckedStreamStage, Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig,
+         CompactTypeDefInfo, Conversion, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo,
+         FunctionEffectFact, MessagePayloadConstructor, ProjectionOperation, RecordRequireMigration,
+diff --git a/src/runtime/eval/call_plan.rs b/src/runtime/eval/call_plan.rs
+index fdc3fa0bb48e25b07af9ed49c3582e93eaf7c4a9..8ccb185c1b58a0aba68b696f109c8ba25c6bb27d 100644
+--- a/src/runtime/eval/call_plan.rs
++++ b/src/runtime/eval/call_plan.rs
+@@ -77,7 +77,12 @@ impl ModuleCallPlan {
+             }
+             interpreted[slot] = true;
+         }
++        let mut previous_word: Option<Span> = None;
+         for conversion in &plan.word_conversions {
++            if previous_word.is_some_and(|previous| previous.source_id != conversion.span.source_id || previous.end() > conversion.span.start()) {
++                return Err("module command conversions do not follow source operand order".into());
++            }
++            previous_word = Some(conversion.span);
+             let Some(param) = signature.params.get(conversion.slot) else { return Err("module command conversion slot is out of bounds".into()); };
+             if !supplied[conversion.slot] || interpreted[conversion.slot]
+                 || command_word_scalar(&param.ty).as_ref() != Some(&conversion.scalar)
+@@ -114,8 +119,9 @@ impl ModuleCallPlan {
+             let raw = super::lowered_ops::lowered_str_value(value).ok_or_else(|| {
+                 RuntimeError::new("type-error", format!("command argument `{}` expects {:?}", plan.signature.params[conversion.slot].name, conversion.scalar)).with_span(conversion.span)
+             })?;
+-            let parsed = parse_scalar_word(raw, &conversion.scalar).map_err(|error| {
+-                RuntimeError::new("type-error", format!("command argument `{}` expects {:?}, got `{raw}`: {}", plan.signature.params[conversion.slot].name, conversion.scalar, error.message)).with_span(conversion.span)
++            let parsed = parse_scalar_word(raw, &conversion.scalar).map_err(|mut error| {
++                error.message = format!("command argument `{}` {}", plan.signature.params[conversion.slot].name, error.message);
++                error.with_span(conversion.span)
+             })?;
+             *value = match parsed {
+                 Value::Str(value) => LoweredValue::Str(value),
+diff --git a/src/runtime/eval/lower.rs b/src/runtime/eval/lower.rs
+index 601cd94c25d3a434fde6288420a1bfadf3896d01..391a1230ccaa8203186f39bbd0411ba0192b5dc0 100644
+--- a/src/runtime/eval/lower.rs
++++ b/src/runtime/eval/lower.rs
+@@ -5156,7 +5156,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                     span,
+                 };
+                 let path_from_bytes = |bytes| BuildExprRow::ModuleCall {
+-                    cli_plan: None,
++                    call_plan: None,
+                     op: RuntimeOp::PathParseBytes,
+                     args: vec![Some(bytes)],
+                     span,
+@@ -5171,7 +5171,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                         self,
+                         expr,
+                         BuildExprRow::ModuleCall {
+-                            cli_plan: None,
++                            call_plan: None,
+                             op: RuntimeOp::BytesFromText,
+                             args: vec![Some(value)],
+                             span,
+@@ -6025,7 +6025,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                     self,
+                     expr,
+                     BuildExprRow::ModuleCall {
+-                        cli_plan: None,
++                        call_plan: None,
+                         op: RuntimeOp::EnvGet,
+                         args: vec![Some(name)],
+                         span,
+@@ -6036,7 +6036,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                 self,
+                 expr,
+                 BuildExprRow::ModuleCall {
+-                    cli_plan: None,
++                    call_plan: None,
+                     op: RuntimeOp::EnvPathList,
+                     args: Vec::new(),
+                     span,
+diff --git a/src/runtime/eval/lower/api.rs b/src/runtime/eval/lower/api.rs
+index 7114f717b8e4e1ab07abb95ad603869a87893fbe..9901c2ea59ab1c800e10ecddbdea6a00884fdd5b 100644
+--- a/src/runtime/eval/lower/api.rs
++++ b/src/runtime/eval/lower/api.rs
+@@ -734,7 +734,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+         &self,
+         call: &LoweredModuleCallArgs,
+         args: &[ArenaCallArg],
+-    ) -> Option<Arc<crate::modules::cli::CliDescriptorPlan>> {
++    ) -> Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>> {
+         if call.semantic_rule == crate::modules::signature::SemanticRule::CliCommands {
+             let index = if call.args.len() == 2 { 1 } else { 2 };
+             let commands = crate::sema::arguments::ArgumentValueSource::Expression(
+@@ -750,7 +750,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                 .declarations
+                 .prepared_constants
+                 .cli_commands_plan(&self.program.arena, commands, fallback)?
+-                .ok();
++                .ok()
++                .map(|plan| Arc::new(super::super::ModuleCallPlan::SignatureCli(plan)));
+         }
+         if call.semantic_rule != crate::modules::signature::SemanticRule::CliDescriptor {
+             return None;
+@@ -760,5 +761,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+             .prepared_constants
+             .cli_descriptor_plan(&self.program.arena, schema, call.op == RuntimeOp::CliApplet)?
+             .ok()
++            .map(|plan| Arc::new(super::super::ModuleCallPlan::SignatureCli(plan)))
+     }
+ }
+diff --git a/src/runtime/eval/lower/calls.rs b/src/runtime/eval/lower/calls.rs
+index cfcca64a55626ec05c4087eec839e42c410a480b..06f3ee5b7b5313a6280b7310ff64eaeedf5d9152 100644
+--- a/src/runtime/eval/lower/calls.rs
++++ b/src/runtime/eval/lower/calls.rs
+@@ -55,7 +55,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+             self,
+             expr,
+             BuildExprRow::ModuleCall {
+-                cli_plan: None,
++                call_plan: None,
+                 op: plan.sig.op,
+                 args,
+                 span
+@@ -411,7 +411,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+             }
+             let mut arguments = vec![Some(push_build_row!(self, expr, BuildExprRow::Param(receiver_slot)))];
+             arguments.extend(order.into_iter().map(|argument| argument.map(|index| evaluated[index])));
+-            let call = push_build_row!(self, expr, BuildExprRow::ModuleCall { cli_plan: None, op: plan.sig.op, args: arguments, span });
++            let call = push_build_row!(self, expr, BuildExprRow::ModuleCall { call_plan: None, op: plan.sig.op, args: arguments, span });
+             return Some(self.wrap_argument_bindings(call, bindings, span));
+         }
+         if let Some(definition) = self.declarations.record_constructors.resolve_call(
+@@ -638,7 +638,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                             self,
+                             expr,
+                             BuildExprRow::ModuleCall {
+-                                cli_plan: None,
++                                call_plan: None,
+                                 op: RuntimeOp::ErrorFailure,
+                                 args: vec![Some(message)],
+                                 span,
+@@ -659,7 +659,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                             self,
+                             expr,
+                             BuildExprRow::ModuleCall {
+-                                cli_plan: None,
++                                call_plan: None,
+                                 op: RuntimeOp::PathParseBytes,
+                                 args: vec![Some(bytes)],
+                                 span,
+@@ -1015,7 +1015,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                             self,
+                             expr,
+                             BuildExprRow::ModuleCall {
+-                                cli_plan: self.prepared_cli_plan(&module_call, &args_vec),
++                                call_plan: self.prepared_cli_plan(&module_call, &args_vec),
+                                 op: module_call.op,
+                                 args: self.lower_module_argument_values(
+                                     &module_call.args,
+@@ -1132,7 +1132,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                         self,
+                         expr,
+                         BuildExprRow::ModuleCall {
+-                            cli_plan: None,
++                            call_plan: None,
+                             op: RuntimeOp::FsChmod,
+                             args,
+                             span,
+@@ -1151,7 +1151,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                         self,
+                         expr,
+                         BuildExprRow::ModuleCall {
+-                            cli_plan: None,
++                            call_plan: None,
+                             op: RuntimeOp::FsWrite,
+                             args,
+                             span,
+@@ -1242,7 +1242,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                         self,
+                         expr,
+                         BuildExprRow::ModuleCall {
+-                            cli_plan: self.prepared_cli_plan(&module_call, &args_vec),
++                            call_plan: self.prepared_cli_plan(&module_call, &args_vec),
+                             op: module_call.op,
+                             args: self.lower_module_argument_values(
+                                 &module_call.args,
+@@ -1263,7 +1263,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                             self,
+                             expr,
+                             BuildExprRow::ModuleCall {
+-                                cli_plan: None,
++                                call_plan: None,
+                                 op: RuntimeOp::PathParseBytes,
+                                 args:
+                                     self.lower_expr_ids(
+@@ -1406,7 +1406,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                             self,
+                             expr,
+                             BuildExprRow::ModuleCall {
+-                                cli_plan: self.prepared_cli_plan(&module_call, &args_vec),
++                                call_plan: self.prepared_cli_plan(&module_call, &args_vec),
+                                 op: module_call.op,
+                                 args: self.lower_module_argument_values(
+                                     &module_call.args,
+@@ -1494,7 +1494,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                             self,
+                             expr,
+                             BuildExprRow::ModuleCall {
+-                                cli_plan: None,
++                                call_plan: None,
+                                 op: call_args.op,
+                                 args: lowered,
+                                 span,
+@@ -1525,7 +1525,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                             self,
+                             expr,
+                             BuildExprRow::ModuleCall {
+-                                cli_plan: None,
++                                call_plan: None,
+                                 op,
+                                 args,
+                                 span,
+@@ -1830,7 +1830,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                         self,
+                         expr,
+                         BuildExprRow::ModuleCall {
+-                            cli_plan: None,
++                            call_plan: None,
+                             op: RuntimeOp::FsChmod,
+                             args,
+                             span,
+@@ -1854,7 +1854,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                         self,
+                         expr,
+                         BuildExprRow::ModuleCall {
+-                            cli_plan: None,
++                            call_plan: None,
+                             op: RuntimeOp::FsWrite,
+                             args,
+                             span,
+@@ -1962,7 +1962,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                         self,
+                         expr,
+                         BuildExprRow::ModuleCall {
+-                            cli_plan: None,
++                            call_plan: None,
+                             op,
+                             args,
+                             span,
+@@ -2005,7 +2005,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                             self,
+                             expr,
+                             BuildExprRow::ModuleCall {
+-                                cli_plan: None,
++                                call_plan: None,
+                                 op: call_args.op,
+                                 args: lowered,
+                                 span,
+@@ -2207,7 +2207,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                         self,
+                         expr,
+                         BuildExprRow::ModuleCall {
+-                            cli_plan: None,
++                            call_plan: None,
+                             op: RuntimeOp::EnvGet,
+                             args: vec![Some(self.lower_expr(
+                                 *value,
+@@ -2270,7 +2270,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                         self,
+                         expr,
+                         BuildExprRow::ModuleCall {
+-                            cli_plan: None,
++                            call_plan: None,
+                             op: bridge,
+                             args: args.into_iter().map(Some).collect(),
+                             span,
+diff --git a/src/runtime/eval/lower/commands.rs b/src/runtime/eval/lower/commands.rs
+index bd70e8e91b86f32fabcb4b8dfcc399311515935c..7bdec79749ccdc790575518c5215fcc425bdc0c2 100644
+--- a/src/runtime/eval/lower/commands.rs
++++ b/src/runtime/eval/lower/commands.rs
+@@ -5,7 +5,7 @@ use super::{
+     CoreCommand, ExprId, LoweredFmtPart, LoweredProcessCommandBuilderEntry, LoweredRunArg,
+     LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
+     LoweredRunRedirection, LoweredSpawnRun, LoweredType, Name, Rc, RefCell, RunKind, RuntimeOp,
+-    SlotScope, Span, StmtId, api_spec, build_expr, lower_literal_constant,
++    SlotScope, Span, StmtId, build_expr, lower_literal_constant,
+     parse_command_word_reference, print_flush_arg,
+ };
+ 
+@@ -86,7 +86,7 @@ fn lower_env_command_word_reference(
+                 Some(build_expr(
+                     scratch,
+                     BuildExprRow::ModuleCall {
+-                        cli_plan: None,
++                        call_plan: None,
+                         op: RuntimeOp::EnvPathList,
+                         args: vec![Some(name)],
+                         span,
+@@ -97,7 +97,7 @@ fn lower_env_command_word_reference(
+                 Some(build_expr(
+                     scratch,
+                     BuildExprRow::ModuleCall {
+-                        cli_plan: None,
++                        call_plan: None,
+                         op: RuntimeOp::EnvGet,
+                         args: vec![Some(name)],
+                         span,
+@@ -118,7 +118,7 @@ fn lower_env_command_word_reference(
+             Some(build_expr(
+                 scratch,
+                 BuildExprRow::ModuleCall {
+-                    cli_plan: None,
++                    call_plan: None,
+                     op,
+                     args: vec![Some(name)],
+                     span,
+@@ -359,27 +359,55 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+         item_slot: Option<usize>,
+     ) -> Option<BuildStmtId> {
+         let stmt = self.program.arena.command_stmt(id);
+-        let ArenaCommand::Proc { name, args } = stmt.command else {
++        let ArenaCommand::Proc { args, .. } = stmt.command else {
+             return None;
+         };
+-        let name_text = name.as_str();
+-        let (module, api) = super::super::standard_module_command_name(name_text.as_str())?;
+-        let op = api_spec().module_op(module, api)?;
++        let span = self.program.arena.span(stmt.span);
++        let checked = self.bodies.module_commands.get(&span)?.clone();
+         let args = self.program.arena.command_args(args).to_vec();
+-        let mut lowered = Vec::with_capacity(args.len());
+-        for arg in &args {
+-            lowered.push(self.lower_command_arg(arg, slots, current_function, item_slot)?);
++        if args.len() != checked.call.argument_slots.len() || args.len() != checked.arguments.len() {
++            return None;
+         }
+-        Some(push_build_row!(
+-            self,
+-            stmt,
+-            BuildStmtRow::Proc {
+-                op,
+-                args: lowered,
+-                propagate_result: stmt.propagate,
+-                span: self.program.arena.span(stmt.span),
+-            }
+-        ))
++        let mut values = vec![None; checked.call.sig.params.len()];
++        let mut bindings = Vec::new();
++        let mut conversions = Vec::new();
++        let mut flags = Vec::new();
++        for ((arg, &slot), kind) in args.iter().zip(&checked.call.argument_slots).zip(&checked.arguments) {
++            let arg_span = self.program.arena.span(arg.span);
++            let value = if matches!(kind, crate::sema::check::CheckedCommandArgument::BooleanFlag) {
++                flags.push(slot);
++                push_build_row!(self, expr, BuildExprRow::Bool(true))
++            } else {
++                let value = self.lower_command_arg(arg, slots, current_function, item_slot)?;
++                let binding = slots.reserve("module command argument");
++                bindings.push((value, binding));
++                let value = push_build_row!(self, expr, BuildExprRow::Param(binding));
++                match kind {
++                    crate::sema::check::CheckedCommandArgument::Word(ty) => {
++                        if let Some(scalar) = super::super::call_plan::command_word_scalar(ty) {
++                            conversions.push(super::super::call_plan::CommandWordConversion { slot, scalar, span: arg_span });
++                        }
++                        value
++                    }
++                    _ => self.checked_unsigned_value(value, &checked.call.sig.params.get(slot)?.ty, arg_span),
++                }
++            };
++            if values.get_mut(slot)?.replace(value).is_some() { return None; }
++        }
++        let plan = super::super::call_plan::CommandArgumentsPlan {
++            signature: checked.call.sig,
++            supplied_slots: values.iter().map(Option::is_some).collect(),
++            word_conversions: conversions,
++            flag_slots: flags,
++        };
++        let call = push_build_row!(self, expr, BuildExprRow::ModuleCall {
++            op: checked.call.sig.op,
++            call_plan: Some(Arc::new(super::super::ModuleCallPlan::CommandArguments(plan))),
++            args: values,
++            span,
++        });
++        let call = self.wrap_argument_bindings(call, bindings, span);
++        Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value: call, span }))
+     }
+ 
+     fn lower_command_arg(
+@@ -966,7 +994,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                         self,
+                         expr,
+                         BuildExprRow::ModuleCall {
+-                            cli_plan: None,
++                            call_plan: None,
+                             op: RuntimeOp::EnvPathList,
+                             args: Vec::new(),
+                             span,
+@@ -978,7 +1006,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                     self,
+                     expr,
+                     BuildExprRow::ModuleCall {
+-                        cli_plan: None,
++                        call_plan: None,
+                         op: RuntimeOp::EnvGet,
+                         args: vec![Some(name)],
+                         span,
+@@ -1003,7 +1031,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                             self,
+                             expr,
+                             BuildExprRow::ModuleCall {
+-                                cli_plan: None,
++                                call_plan: None,
+                                 op,
+                                 args: vec![Some(arg)],
+                                 span,
+@@ -1185,7 +1213,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+             self,
+             expr,
+             BuildExprRow::ModuleCall {
+-                cli_plan: None,
++                call_plan: None,
+                 op: RuntimeOp::EnvSet,
+                 args: vec![Some(name), Some(value)],
+                 span,
+diff --git a/src/runtime/eval/lower/control.rs b/src/runtime/eval/lower/control.rs
+index 18f666801ae28c5d1b874e767666821e084c456b..108f06d8b369b58e13abeeb3e47aa3f4482059cb 100644
+--- a/src/runtime/eval/lower/control.rs
++++ b/src/runtime/eval/lower/control.rs
+@@ -1165,7 +1165,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                     lowerer,
+                     expr,
+                     BuildExprRow::ModuleCall {
+-                        cli_plan: None,
++                        call_plan: None,
+                         op: kind.release_op().expect("checker accepts only resources with a with release"),
+                         args: vec![Some(value)],
+                         span,
+@@ -1370,7 +1370,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+                     lowerer,
+                     expr,
+                     BuildExprRow::ModuleCall {
+-                        cli_plan: None,
++                        call_plan: None,
+                         op,
+                         args: vec![Some(receiver)],
+                         span,
+diff --git a/src/runtime/eval/lowered_run/indexed_run.rs b/src/runtime/eval/lowered_run/indexed_run.rs
+index b98ab51af193321925ae21e72b6b05b6d47681f0..3a3ab8132a3de791eaa73d523e1a7870f261f8ad 100644
+--- a/src/runtime/eval/lowered_run/indexed_run.rs
++++ b/src/runtime/eval/lowered_run/indexed_run.rs
+@@ -51,7 +51,7 @@ use crate::runtime::eval::lower::{
+ };
+ use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
+ use crate::runtime::eval::{
+-    LoweredModuleExport, LoweredTopLevelSlot, LoweredTypeCheck, Propagation, ScanBytes, ScanCheck,
++    LoweredModuleExport, LoweredTopLevelSlot, LoweredTypeCheck, ModuleCallPlan, Propagation, ScanBytes, ScanCheck,
+     process_handle,
+ };
+ use smallvec::SmallVec;
+@@ -214,7 +214,7 @@ enum ProcessCommandEntry {
+ 
+ type IndexedModuleCall = (
+     RuntimeOp,
+-    Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
++    Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>>,
+     Vec<Option<u32>>,
+     Span,
+ );
+@@ -606,12 +606,16 @@ impl Evaluator {
+     fn eval_indexed_module_call_values(
+         &mut self,
+         op: RuntimeOp,
+-        values: super::NativeArgumentValues,
++        mut values: super::NativeArgumentValues,
+         span: Span,
+-        cli_plan: Option<&crate::modules::cli::CliDescriptorPlan>,
++        call_plan: Option<&crate::runtime::eval::call_plan::ModuleCallPlan>,
+     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
++        if let Some(plan) = call_plan {
++            plan.convert_command_words(&mut values.0)?;
++        }
++        let cli_descriptor = call_plan.and_then(ModuleCallPlan::cli_descriptor);
+         if !self.trace_enabled {
+-            return self.eval_lowered_module_call_values(op, values, span, cli_plan);
++            return self.eval_lowered_module_call_values(op, values, span, cli_descriptor);
+         }
+         let trace_name = crate::modules::signature::api_spec()
+             .op_trace_name(op)
+@@ -629,7 +633,7 @@ impl Evaluator {
+             trace_name.as_deref(),
+             TracePayload::None,
+         );
+-        let result = self.eval_lowered_module_call_values(op, values, span, cli_plan);
++        let result = self.eval_lowered_module_call_values(op, values, span, cli_descriptor);
+         self.trace_exit(
+             if rooted {
+                 TraceKind::MethodResult
+@@ -1954,7 +1958,7 @@ impl Evaluator {
+                 )))
+             }
+             FullTag::ExprModuleCall => {
+-                let (op, cli_plan, args, span) =
++                let (op, call_plan, args, span) =
+                     decode_module_call(execution, &mut payload, call_span)?;
+                 indexed_finish(payload, call_span)?;
+                 let mut values = Vec::with_capacity(args.len());
+@@ -1969,7 +1973,7 @@ impl Evaluator {
+                     }
+                 }
+                 let values = super::NativeArgumentValues::new(values);
+-                return self.eval_indexed_module_call_values(op, values, span, cli_plan.as_deref());
++                return self.eval_indexed_module_call_values(op, values, span, call_plan.as_deref());
+             }
+             FullTag::ExprProcessCommandArgv => {
+                 let target = indexed_raw(&mut payload, call_span)?;
+diff --git a/src/runtime/eval/lowered_run/indexed_run/explicit_run.rs b/src/runtime/eval/lowered_run/indexed_run/explicit_run.rs
+index 424f3f046bbc55dcd8da0258ec4aefae0b901805..c862ebba6aa5319524d7389d3a9b3764cf345be6 100644
+--- a/src/runtime/eval/lowered_run/indexed_run/explicit_run.rs
++++ b/src/runtime/eval/lowered_run/indexed_run/explicit_run.rs
+@@ -229,7 +229,7 @@ enum FrameContinuation {
+     },
+     ModuleArguments {
+         op: super::RuntimeOp,
+-        cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
++        call_plan: Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>>,
+         args: Vec<Option<u32>>,
+         position: usize,
+         values: Vec<Option<LoweredValue>>,
+@@ -3328,13 +3328,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
+                 );
+             }
+             FullTag::ExprModuleCall => {
+-                let (op, cli_plan, args, value_span) =
++                let (op, call_plan, args, value_span) =
+                     decode_module_call(&self.calls[index].execution, &mut payload, span)?;
+                 indexed_finish(payload, span)?;
+                 self.step_module_arguments(
+                     index,
+                     op,
+-                    cli_plan,
++                    call_plan,
+                     args,
+                     0,
+                     Vec::new(),
+@@ -3453,7 +3453,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
+             },
+             FrameContinuation::ModuleArguments {
+                 op,
+-                cli_plan,
++                call_plan,
+                 args,
+                 position,
+                 mut values,
+@@ -3465,7 +3465,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
+                     self.step_module_arguments(
+                         index,
+                         op,
+-                        cli_plan,
++                        call_plan,
+                         args,
+                         position + 1,
+                         values,
+@@ -5254,7 +5254,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
+         &mut self,
+         index: usize,
+         op: super::RuntimeOp,
+-        cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
++        call_plan: Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>>,
+         args: Vec<Option<u32>>,
+         mut position: usize,
+         mut values: Vec<Option<LoweredValue>>,
+@@ -5269,7 +5269,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
+                     span,
+                     FrameContinuation::ModuleArguments {
+                         op,
+-                        cli_plan,
++                        call_plan,
+                         args,
+                         position,
+                         values,
+@@ -5286,7 +5286,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
+             op,
+             super::super::NativeArgumentValues::new(values),
+             span,
+-            cli_plan.as_deref(),
++            call_plan.as_deref(),
+         )?;
+         self.push_value(
+             index,
+diff --git a/src/runtime/eval/lowered_run/indexed_run/operands.rs b/src/runtime/eval/lowered_run/indexed_run/operands.rs
+index 34f68c1e21c62c0a0098b15114851751f2498875..0aa3f26403914919730e72c8bb6286933b3b9535 100644
+--- a/src/runtime/eval/lowered_run/indexed_run/operands.rs
++++ b/src/runtime/eval/lowered_run/indexed_run/operands.rs
+@@ -143,14 +143,14 @@ pub(super) fn decode_match_expr<'a>(
+     Ok((value, decoded, value_span))
+ }
+ 
+-/// A module call's operation, CLI plan, optional argument operands, and span.
++/// A module call's operation, prepared plan, optional argument operands, and span.
+ pub(super) fn decode_module_call<'a>(
+     execution: &FullExecution<'a>,
+     payload: &mut FullPayload<'a>,
+     span: Span,
+ ) -> Result<IndexedModuleCall, RuntimeError> {
+     let op = indexed_decode::<RuntimeOp>(payload, execution, span)?;
+-    let cli_plan = indexed_decode::<Option<Arc<crate::modules::cli::CliDescriptorPlan>>>(
++    let call_plan = indexed_decode::<Option<Arc<crate::runtime::eval::call_plan::ModuleCallPlan>>>(
+         payload, execution, span,
+     )?;
+     let (_, mut encoded) = execution
+@@ -164,7 +164,7 @@ pub(super) fn decode_module_call<'a>(
+     indexed_finish(encoded, span)?;
+     Ok((
+         op,
+-        cli_plan,
++        call_plan,
+         args,
+         indexed_decode::<Span>(payload, execution, span)?,
+     ))
+diff --git a/src/sema/check.rs b/src/sema/check.rs
+index 32c9dab5f9396de3c2b1737e621006ac696669bd..2def93a1bb6a8f31131583019d0dba7a1ba1c68c 100644
+--- a/src/sema/check.rs
++++ b/src/sema/check.rs
+@@ -123,6 +123,21 @@ pub struct CheckedApiCall {
+     pub argument_slots: Vec<usize>,
+ }
+ 
++/// A command retains its selected API and source argument treatment; only
++/// literal boolean flags change into a value without evaluating an operand.
++#[derive(Clone, Debug)]
++pub struct CheckedModuleCommand {
++    pub call: CheckedApiCall,
++    pub arguments: Vec<CheckedCommandArgument>,
++}
++
++#[derive(Clone, Debug)]
++pub enum CheckedCommandArgument {
++    BooleanFlag,
++    Value,
++    Word(Type),
++}
++
+ /// A user callable call's or structured stage's source argument entries bound
+ /// to parameter slots. A stage's `callable_entry` is its named callable
+ /// descriptor; its slots describe the remaining configuration entries.
+@@ -189,6 +204,7 @@ pub struct CheckOutput {
+     pub standard_call_spans: BTreeMap<Span, (String, String)>,
+     pub statically_resolved_call_spans: BTreeSet<Span>,
+     pub api_calls: BTreeMap<Span, CheckedApiCall>,
++    pub module_commands: BTreeMap<Span, CheckedModuleCommand>,
+     /// Keyed by call expression or stage span.
+     pub argument_bindings: BTreeMap<Span, CheckedArguments>,
+     /// Ordinary blocks whose checked paths cannot reach their enclosing continuation.
+@@ -816,6 +832,7 @@ pub struct Checker {
+     standard_call_spans: BTreeMap<Span, (String, String)>,
+     statically_resolved_call_spans: BTreeSet<Span>,
+     api_calls: BTreeMap<Span, CheckedApiCall>,
++    module_commands: BTreeMap<Span, CheckedModuleCommand>,
+     argument_bindings: BTreeMap<Span, CheckedArguments>,
+     definitely_exiting_block_spans: BTreeSet<Span>,
+     handler_input_types: BTreeMap<Span, Type>,
+@@ -1003,6 +1020,7 @@ impl Checker {
+                 standard_call_spans: checker.standard_call_spans,
+                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
+                 api_calls: checker.api_calls,
++                module_commands: checker.module_commands,
+                 argument_bindings: checker.argument_bindings,
+                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
+                 handler_input_types: checker.handler_input_types,
+@@ -1195,6 +1213,7 @@ impl Checker {
+                 standard_call_spans: checker.standard_call_spans,
+                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
+                 api_calls: checker.api_calls,
++                module_commands: checker.module_commands,
+                 argument_bindings: checker.argument_bindings,
+                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
+                 handler_input_types: checker.handler_input_types,
+@@ -1275,6 +1294,7 @@ impl Checker {
+             standard_call_spans: BTreeMap::new(),
+             statically_resolved_call_spans: BTreeSet::new(),
+             api_calls: BTreeMap::new(),
++            module_commands: BTreeMap::new(),
+             argument_bindings: BTreeMap::new(),
+             definitely_exiting_block_spans: BTreeSet::new(),
+             handler_input_types: BTreeMap::new(),
+diff --git a/src/sema/check/args.rs b/src/sema/check/args.rs
+index b852a8cee3031e142ec19143a9daa7a2f1b4b813..5ce806618b6c4d8fbdc2267b10364cd894eae6bc 100644
+--- a/src/sema/check/args.rs
++++ b/src/sema/check/args.rs
+@@ -2,7 +2,8 @@
+ 
+ use super::expr::is_path_like_type;
+ use super::{
+-    Checker, FunctionParamSig, FxHashSet, ModuleFnSig, Span, Type,
++    CheckedApiCall, CheckedCommandArgument, CheckedModuleCommand, Checker, FunctionParamSig,
++    FxHashSet, ModuleFnSig, Span, Type,
+     command_arg_can_be_path_like_arena, command_bool_flag_name_arena,
+ };
+ use crate::diagnostic::DiagnosticCode;
+@@ -603,15 +604,16 @@ impl Checker {
+         arena: &ArenaProgram,
+         source: &str,
+         args: &[ArenaCommandArg],
+-        sig: &ModuleFnSig,
++        sig: &'static ModuleFnSig,
+         span: Span,
+     ) {
+         let mut positionals = Vec::new();
+         let mut flags = FxHashSet::default();
+-        for arg in args {
++        let mut bindings = vec![None; args.len()];
++        for (index, arg) in args.iter().enumerate() {
+             if let Some(flag) = command_bool_flag_name_arena(arena, source, arg) {
+                 let arg_span = arena.arena.span(arg.span);
+-                let Some(param) = sig.params.iter().find(|param| param.name == flag) else {
++                let Some(slot) = sig.params.iter().position(|param| param.name == flag) else {
+                     self.error(
+                         arg_span,
+                         "unknown module command flag",
+@@ -619,6 +621,7 @@ impl Checker {
+                     );
+                     continue;
+                 };
++                let param = &sig.params[slot];
+                 if !(param.defaulted && param.ty == Type::Bool) {
+                     self.error(
+                         arg_span,
+@@ -634,6 +637,7 @@ impl Checker {
+                         DiagnosticCode::CheckModuleCommandFlag,
+                     );
+                 }
++                bindings[index] = Some((slot, CheckedCommandArgument::BooleanFlag));
+                 continue;
+             }
+             if matches!(
+@@ -649,7 +653,7 @@ impl Checker {
+                 );
+                 continue;
+             }
+-            positionals.push(arg);
++            positionals.push((index, arg));
+         }
+ 
+         let required = sig.params.iter().filter(|param| !param.defaulted).count();
+@@ -664,16 +668,35 @@ impl Checker {
+         let positional_params = sig
+             .params
+             .iter()
+-            .filter(|param| !flags.contains(param.name))
++            .enumerate()
++            .filter(|(_, param)| !flags.contains(param.name))
+             .collect::<Vec<_>>();
+-        for (arg, param) in positionals.iter().zip(positional_params) {
++        for ((index, arg), (slot, param)) in positionals.iter().zip(positional_params) {
+             let actual = self.check_command_arg_arena(arena, source, arg, Some(&param.ty));
++            bindings[*index] = Some((slot, match arg.kind {
++                crate::syntax::arena::ArenaCommandArgKind::Word(_) => {
++                    CheckedCommandArgument::Word(param.ty.clone())
++                }
++                _ => CheckedCommandArgument::Value,
++            }));
+             if param.ty == Type::Path && command_arg_can_be_path_like_arena(arg, &actual) {
+                 continue;
+             }
+             let arg_span = arena.arena.span(arg.span);
+             self.expect_command_value_conversion(&param.ty, &actual, arg_span);
+         }
++        if let Some(bindings) = bindings.into_iter().collect::<Option<Vec<_>>>() {
++            let (argument_slots, arguments) = bindings.into_iter().unzip();
++            self.module_commands.insert(span, CheckedModuleCommand {
++                call: CheckedApiCall {
++                    receiver: None,
++                    sig,
++                    params: sig.params.iter().map(|param| param.ty.clone()).collect(),
++                    argument_slots,
++                },
++                arguments,
++            });
++        }
+     }
+ }
+ 
+diff --git a/src/sema/check/command.rs b/src/sema/check/command.rs
+index 7f28239d2be18d6c44a7d818fc502ffd366ee005..e347d08df86b2735e6c58b51697f8c700f3c1430 100644
+--- a/src/sema/check/command.rs
++++ b/src/sema/check/command.rs
+@@ -491,7 +491,6 @@ impl Checker {
+         let command_overloads = overloads
+             .iter()
+             .filter(|&x| module_sig_is_command_callable(x))
+-            .cloned()
+             .collect::<Vec<_>>();
+         if command_overloads.is_empty() {
+             self.error(
+@@ -510,7 +509,7 @@ impl Checker {
+         }
+         let command_args = arena.arena.command_args(args);
+         let sig = choose_module_command_sig_arena(arena, source, command_args, &command_overloads)
+-            .unwrap_or(&command_overloads[0]);
++            .unwrap_or(command_overloads[0]);
+         self.check_module_command_args_arena(arena, source, command_args, sig, span);
+         sig.return_ty.clone()
+     }
+@@ -1209,14 +1208,15 @@ pub(super) fn run_statement_asserts_success_by_default_arena(
+ }
+ 
+ #[allow(dead_code)]
+-pub(super) fn choose_module_command_sig_arena<'a>(
++pub(super) fn choose_module_command_sig_arena(
+     arena: &ArenaProgram,
+     source: &str,
+     args: &[ArenaCommandArg],
+-    overloads: &'a [ModuleFnSig],
+-) -> Option<&'a ModuleFnSig> {
++    overloads: &[&'static ModuleFnSig],
++) -> Option<&'static ModuleFnSig> {
+     overloads
+         .iter()
++        .copied()
+         .find(|sig| module_command_shape_matches_arena(arena, source, args, sig))
+ }
+ 
+diff --git a/src/sema/check/compact.rs b/src/sema/check/compact.rs
+index 4d980129529848c3645516439eb39a451b11cd5e..16ed5d089e91e3852556b3660649c667a0f40760 100644
+--- a/src/sema/check/compact.rs
++++ b/src/sema/check/compact.rs
+@@ -93,6 +93,7 @@ pub struct CompactBodyFacts {
+     /// Registered method and module function calls keyed by call expression;
+     /// a stage callable's plan is keyed by its callee.
+     pub api_calls: FxHashMap<ExprId, super::CheckedApiCall>,
++    pub module_commands: BTreeMap<Span, super::CheckedModuleCommand>,
+     /// User callable calls and structured stages keyed by their source span.
+     pub argument_bindings: BTreeMap<Span, super::CheckedArguments>,
+     pub statement_positions: FxHashMap<StmtId, super::StatementPosition>,
+@@ -139,6 +140,7 @@ impl CompactBodyFacts {
+         let arena = &program.arena;
+         let mut facts = Self {
+             argument_bindings: checked.argument_bindings.clone(),
++            module_commands: checked.module_commands.clone(),
+             ..Self::default()
+         };
+         let mut record_constructor_types = FxHashMap::default();

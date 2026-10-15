@@ -1,0 +1,16 @@
+diff --git a/ACTIVE-ASSIGNMENT.md b/ACTIVE-ASSIGNMENT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..6b1550a7c282bfdab6fea2704d2d089314045a1e
+--- /dev/null
++++ b/ACTIVE-ASSIGNMENT.md
+@@ -0,0 +1,10 @@
++# Active assignment
++
++- Worktree: `/home/josh/d/laputa-systems/xsh-consolidation-lanes/lint-rule-table-rootbfb`
++- Integration base: `bfb184606672c8bb6b3b54dc84374eecd15b0e12`
++- Native build image: `sha256:65dc744f6c560f189716ea193bd765149f4691c80392663e630813033ebc53a3`
++- W6 commits: `504de111` (complete lint table), `82aef7c6` (checker aliases), `798403ed` (typed callback dispatch and shared-walk facts)
++- Omit `10992d83`: root already carries its checked RunFact change through `35a132d5`.
++- Preserve root classifier commit `1ae2c671` and annotation child-vector change `ffabb4c7` from the integration base.
++- Verify the pinned optimized xsht library check, focused lint unit tests, and CLI rule listing in this tree. The known checked resource-transfer context-scope failure is assigned to `binding_adapter`; keep it separate from W6 results.
++- The source-matched comparison at `/home/josh/d/laputa-systems/xsh-consolidation/.work/consolidation/restart/lint2-assert-baseline-comparison.md` records that frozen655, 9ff2, cb5e, and bfb all produce the same grouped assertion replacements. On workspace views with an empty global statement root, grouping normalization previously lacked the selected module's source ID and skipped those replacements. The caller now passes the selected view's source ID to the existing parse-based normalizer; `assert_checked` remains intact and passes. The new `lint2-expressions.xsh` regression checks complex equality and Boolean predicates plus observable left-to-right effects.

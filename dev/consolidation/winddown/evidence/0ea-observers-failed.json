@@ -1,0 +1,2097 @@
+{
+  "artifact_pins": {
+    "file_hashes": {
+      "capture-container-resources.py": "5c8338200e9c544ea2e585d26cf038f3affef7a7068dd85ac1a38fc9e0501346",
+      "docker-observer-shim.py": "ad2a41c30ed2f54468023aa6d7682c1bdd9069aca31cd4fb51f1211144835775",
+      "final-observers.py": "b4a5ca227f0dd4fd1ffe024ebf7a8286efc237c853d910226233a69c3426157e",
+      "launch-plan.md": "0d820c87cce6559323640ab375f9e4cdf242657b8c19b7b65d1b1f7e1fd196cb",
+      "owned_containers.py": "06a9b1e5c9984a41d64b4b79f11ba5fdd67e6b5b2a11c0b63517a4439ccb5403",
+      "test_final_observers.py": "a2c0e904f316a878051e6a65f7a39dc3d30988bc2cfac12c8970760c067c9298"
+    },
+    "manifest_sha256": "4248762b9643367f1c34a5e718cae225532a330080a17d38deea52833912bca5"
+  },
+  "canonical_batch_rust_exclusions": [
+    "cp::privileged::test_cp_recursive_block_device_"
+  ],
+  "canonical_gate_batch_receipt": {
+    "command": [
+      "cargo",
+      "dev",
+      "gate",
+      "--batch"
+    ],
+    "is_single_broad_correctness_gate": true,
+    "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/receipt.json",
+    "sha256": "e8ac27196101a8df7c8146149ab3ea314ea3375844860efa2f5443dbb31f103b"
+  },
+  "error": "canonical cargo dev gate --batch did not produce an accepted stage",
+  "finished_utc": "2026-10-15T12:42:41+00:00",
+  "functional_close": {
+    "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/functional-close-0ea216732686b7851bfb8ba49b81b5ef6d2608b1.json",
+    "record": {
+      "bounded_layout_probe": {
+        "accepted": false,
+        "log": ".work/tmp/post122-layout-perturbation-a1/run.log",
+        "reason": "240-second focused-probe cap reached without a test result; canonical layout case remains required",
+        "status": 143
+      },
+      "campaign_complete": false,
+      "candidate_primary": {
+        "commit": "2083821edb768d2485479c7386289b82e43b1c7c",
+        "source_owner_trees": [
+          {
+            "oid": "aecf5beb2eac0e4f31852a5faf227a77d90b4dbb",
+            "path": "src"
+          },
+          {
+            "oid": "30793e1b58b3e209574d5ba5cab57c920ceacce0",
+            "path": "crates"
+          },
+          {
+            "oid": "b741da406a1f6d827004961de9925ade5e38539d",
+            "path": "tests"
+          },
+          {
+            "oid": "4ceede823293536661213a413b12a692461a86cb",
+            "path": "core"
+          },
+          {
+            "oid": "046719960b39fb48b30e9be24de21efc24be53f9",
+            "path": "examples"
+          },
+          {
+            "oid": "79cae4996a771fba9b7f599a3537d19c636d296c",
+            "path": "showcase"
+          },
+          {
+            "oid": "a63177a1755dc42f35ee649cb7b28fcd5df8b0aa",
+            "path": "tools"
+          },
+          {
+            "oid": "4482e793929c372044d5a172c71f755496e7c4d9",
+            "path": "dev/tests"
+          },
+          {
+            "oid": "3ff0ede0c9e2e09645aa3b118e8bb84d4339b741",
+            "path": "dev/consolidation_metrics.xsh"
+          },
+          {
+            "oid": "e312f846e3d4b77e811eabc8bd97dfd2f428dd01",
+            "path": "dev/consolidation_metrics_current.xsh"
+          },
+          {
+            "oid": "bdd5e7712634f23e3fe640c7b33b5e6f21f944b3",
+            "path": "dev/consolidation/metrics.xsh"
+          }
+        ],
+        "status": "clean and frozen during fresh W9 capture",
+        "tree": "97750b8ede98aecf352b4926912838be859dd417"
+      },
+      "close_commit": "0ea216732686b7851bfb8ba49b81b5ef6d2608b1",
+      "close_tree": "cb8cd5298918f7a9839284d894acca4dd9a4e346",
+      "commit": "0ea216732686b7851bfb8ba49b81b5ef6d2608b1",
+      "controller_suite": {
+        "command": "PYTHONPATH=dev/consolidation TMPDIR=/home/josh/d/laputa-systems/xsh/.work/tmp python3 -B -m unittest test_w9_publication_adapter test_w9_publication_sources test_w9_publication_reference_facts test_w9_publication_adapter_runner test_w9_publication_reference_correction",
+        "exit_code": 0,
+        "initial_attempt": {
+          "cause_and_fix": "The test fixture chose a scratch root two parents above the repository and attempted to write /home/josh/.work/wt; its root now resolves to <repo>/.work/wt.",
+          "errors": 35,
+          "exit_code": 1,
+          "log": {
+            "path": ".work/final-review-evidence/functional-close-7e93-controller-tests.log",
+            "sha256": "1abdf82a5e51db37676eb395c285cb515b064044597c99f5be98d3d6d796790b"
+          },
+          "tests": 190
+        },
+        "log": {
+          "path": ".work/final-review-evidence/functional-close-controller-suite-green.log",
+          "sha256": "3c700ec20aecd92732feb8401eac63370f6cefb71a719c92f4e03477ca55098d"
+        },
+        "source_qualification": "Historical 190-test controller suite executed at 51ec only; it was not rerun at 208 and is retained as historical, source-qualified evidence.",
+        "tests": 190
+      },
+      "current_cache_fixture": {
+        "module_counts": {
+          "path": ".work/tmp/final-cache-88d5/shared-import-a1/module-checks-per-pass.tsv",
+          "sha256": "d8efe0029629e0a81e07744b411c9a0a90c3ad42e4cf2b7fb783a0ef40771a60"
+        },
+        "private_duplicate_keys": 0,
+        "private_owners_intentionally_separate": true,
+        "qualification": "The checker/cache policy and no-append cache fixture are unchanged; the reviewed XSHT separator rule does not alter this fixture. This is bounded fixture evidence, not a new repository-wide trace.",
+        "qualified_to_current_close": true,
+        "shared_duplicate_keys": 0,
+        "source_commit": "88d5e6f082de10baac3c4aee5b2873e27e49d9fe"
+      },
+      "final_close_commit_owner": "root",
+      "final_close_commit_prerequisite": "Root accepted bounded W9 source qualification and focused repair evidence; final campaign gates remain pending.",
+      "final_follow_up": {
+        "applies_to_current_close": false,
+        "artifacts": [
+          {
+            "path": ".work/tmp/uptime-pretty-red.log",
+            "sha256": "4162b73fb8c05954e7a7f579d87575f807b9c3b691c74811e4ce4c8b9b9d0ca3"
+          },
+          {
+            "path": ".work/tmp/uptime-file-green.log",
+            "sha256": "517895082ee60e154a636893f48d828b19cf4022d9a82639179317f5b4fabb02"
+          },
+          {
+            "path": ".work/tmp/final-trace-d02-malformed-resume-red.log",
+            "sha256": "df8a1d767d6cd42e83d057eb8cdd00ab606561160d6c955160f2f7c83297c435"
+          },
+          {
+            "path": ".work/tmp/final-trace-d02-malformed-resume-green.log",
+            "sha256": "09b52d320b38bc8401f988801474cd57736130b050df510bdb78bc19e79f241c"
+          },
+          {
+            "path": ".work/tmp/final-trace-d02-marker-quotes-green.log",
+            "sha256": "a2e5af362679a7c07e7ac97afc80ff76a4ede32d4f83f16a367c9dfb5b3cdf3f"
+          },
+          {
+            "path": ".work/tmp/final-trace-d02-unfinished-write-green.log",
+            "sha256": "4b28c24914579c1183dddb490e54527b0c44359df0c9d8e404cb5ba6e52eff64"
+          },
+          {
+            "path": ".work/tmp/final-trace-d02-unfinished-read-green.log",
+            "sha256": "f6317e829f3bb18d9e79e140074c14b1635a97f52e7e2c8e85da08842e66f8db"
+          },
+          {
+            "path": ".work/tmp/final-trace-d02-interleaved-green.log",
+            "sha256": "aef64489d01db3820a3def7294fa1361c5391efcefee4380fd78b6b1fe236ab3"
+          },
+          {
+            "path": ".work/tmp/final-trace-d02-reverse-green.log",
+            "sha256": "4b5a268841e10f562cf5876e50def125dcb3f3dbe4791fd5fc71df0eade82e6d"
+          },
+          {
+            "path": ".work/tmp/final-trace-d02-orphans-green.log",
+            "sha256": "34988ea932cdc625c7519dfa6a43320b1411134a856b8fda68511445b6f98da6"
+          },
+          {
+            "path": ".work/tmp/final-trace-d02-existing-replay-green.log",
+            "sha256": "351c177278f37b2fddadbbc50407789520bddb0b8fe9ad3694485911cadd13bb"
+          },
+          {
+            "path": ".work/tmp/final-scanner-e372-qualified-38.log",
+            "sha256": "a9d8e0acdfa7917840542f153a711c29ac7ba0dcbd3927e9b39d3062ad2f2575"
+          },
+          {
+            "path": ".work/tmp/final-scanner-a513-successor-provenance.log",
+            "sha256": "94c81f9446d4422ee6f5487fe02610cfd95d6babe57d19f3ee9e432de08d4676"
+          },
+          {
+            "path": ".work/consolidation/final-scanner-parity-e372c17-a1/receipt.md",
+            "sha256": "833ec50adb9f9ac0543568c5f781cefa539dded59638e4801d6f716ac20f714e"
+          }
+        ],
+        "fat": {
+          "artifacts": [
+            {
+              "path": ".work/tmp/fat-core-4d92-focused-baseline.stdout",
+              "sha256": "12ab4558a766070db9a5e205a84319febca1b2237e7a279f67c7caa49123d8c8"
+            },
+            {
+              "path": ".work/tmp/fat-core-4d92-focused-baseline.stderr",
+              "sha256": "802c6b4f2e43a205878913b7a96b468ef671fd8335a98a4eacbfc2d6b6870477"
+            },
+            {
+              "path": ".work/wt/final-native-core-d02/.work/tmp/fat-check-4d92-candidate.stdout",
+              "sha256": "90d3a9e4cf38f6b89445a700b46aefa6cba238511e9c74994e401c9441249b06"
+            },
+            {
+              "path": ".work/wt/final-native-core-d02/.work/tmp/fat-check-4d92-candidate.stderr",
+              "sha256": "b53f5f1e67aeb44728bdc820ccdfd91a3a57aac1771db1e494bfdfd8aab656fe"
+            }
+          ],
+          "commit": "cf94ead69",
+          "failed": 0,
+          "focused_passed": 3,
+          "full_suite_timeout_reproduced_in_isolation": false,
+          "independent_review": "no P1/P2",
+          "lane_commit": "6fe6644853b49edacdc83f0dcb90d5f564dfb605",
+          "path": "core/lib/fat_check.xsh",
+          "quantified_speedup_claim": false,
+          "runtime_build_source": "4d92c0108b4c0903d72eb02d9132a9b4b1edb9ff",
+          "runtime_qualification": "explicit pinned 3b image and sealed xsh/xsht hashes; unchanged compiled Rust",
+          "scope": "private per-check accounting loop; no public API or test-bound changes"
+        },
+        "prior_profile_attempt": {
+          "acceptance": false,
+          "partial_passed": 7029,
+          "partial_skipped": 101,
+          "receipt": {
+            "path": ".work/consolidation/final-performance-gates/profile-cost-f1f23f01b67cd445e34970a3204473db07b006e2/receipt.json",
+            "sha256": "56cfdc9d455faecddb4bccb81001d4bca8cd45ba08b766a677631f2b849f42e6"
+          },
+          "source_commit": "f1f23f01b67cd445e34970a3204473db07b006e2",
+          "state": "interrupted",
+          "terminal_rows": 3,
+          "timing_eligible": false
+        },
+        "scanner": {
+          "artifacts": [
+            {
+              "path": ".work/wt/final-scanner-loop-d02/.work/tmp/final-scanner-1dd852-focused-38.log",
+              "sha256": "f471c0d702857ce0d2e0f8c8633e47a4e6fc364c8b7c11d677dd25728f2f1e8c"
+            },
+            {
+              "path": ".work/wt/final-scanner-loop-d02/.work/tmp/final-scanner-1dd852-stage-033.log",
+              "sha256": "42a0a4fa6e4663d2e3d3ae02ec3838866751c7da6bf7740a67cae212544a4e19"
+            },
+            {
+              "path": ".work/wt/final-scanner-loop-d02/.work/tmp/final-scanner-1dd852-lowering-033.log",
+              "sha256": "fc0e5ddc0352a95e34650aeae8d531b4c8fe6e0fcc7c071d29bf17696a202a02"
+            },
+            {
+              "path": ".work/consolidation/final-scanner-parity-1dd8526-a1/receipt.md",
+              "sha256": "ee4636a765d0d6b0e9a9bc152375bbff50ecc9e9b7e21657e71446d943f2118d"
+            },
+            {
+              "path": ".work/tmp/final-scanner-b1c356-successor-provenance.log",
+              "sha256": "94c81f9446d4422ee6f5487fe02610cfd95d6babe57d19f3ee9e432de08d4676"
+            }
+          ],
+          "batch_qualification": {
+            "commit": "c49b7d265",
+            "failed": 0,
+            "focused_passed": 38,
+            "integrated_sha256": "a513c6a962d409e6bc7bce047ef68cf5d076162942bca7048282f517338372bb",
+            "performance_claim": false,
+            "qualification": "integrated scanner deletes one stale comment from tested copy; all four full-report/inventory byte comparisons pass",
+            "successor_provenance": "pass",
+            "tested_sha256": "e372c17bb308e7d7d4c89cd0e0c298ceafbd09cd063d7cbe89c54641c8ee53bc"
+          },
+          "commit": "a8c650ecc",
+          "failed": 0,
+          "focused_passed": 38,
+          "independent_review": "no P1/P2",
+          "integrated_sha256": "b1c35615c700bbe63ad91b478ddaa4ccf1cdd3bdeab1638847019f8f222bc579",
+          "lane_commit": "d71155115093b9ef9c97e30d188e73b006a5da45",
+          "performance_claim": false,
+          "qualification": "integrated scanner deletes one stale comment from tested copy; all four full-report/inventory byte comparisons pass",
+          "stress": {
+            "cpu": 0.33,
+            "exact_passed": 2,
+            "memory_gib": 4,
+            "scope": "diagnostic preflight of existing scanner cases; no additional release gate or performance claim",
+            "timeout_seconds": 120
+          },
+          "successor_provenance": "pass",
+          "tested_sha256": "1dd852631bcdcad780eeccf6cd6f2c981b3b147c689bbcdc519a70dddc797102"
+        },
+        "source_policy": {
+          "action": "check-current",
+          "artifacts": [
+            {
+              "path": ".work/tmp/source-ratchet-loop-2e-final-current-native.log",
+              "sha256": "2cb861ab28404345baad2612a9c908181679863a07512e4afd661e52416229aa"
+            },
+            {
+              "path": ".work/tmp/source-ratchet-loop-2e-final-test_batch_automatic_checks_use_retained_repository_gates.log",
+              "sha256": "fc5df94950037ab3731d70aca57884553a32f1966c95af97dc36bb576c7a0ab9"
+            },
+            {
+              "path": ".work/tmp/source-ratchet-loop-2e-final-test_changed_paths_select_and_deduplicate_their_verification_owners.log",
+              "sha256": "ba9c7081528790b7b02e66b0abbad79b560d7cbb752040aa1fc9c23df8f529fc"
+            },
+            {
+              "path": ".work/tmp/source-ratchet-loop-2e-final-cli-report.log",
+              "sha256": "4ef61b7b8a7d70eb3473f959420d3b47b9d6518e42fc4a852773318021d11c41"
+            },
+            {
+              "path": ".work/tmp/source-ratchet-loop-2e-final-cli-missing.log",
+              "sha256": "059e2e999d0fc9aa38e1a82d920acfc8512d49839c694f67a3da605a7499d335"
+            },
+            {
+              "path": ".work/tmp/source-ratchet-loop-2e-final-cli-wrong-stage.log",
+              "sha256": "d3d2034c0d90cb9cd204ea30a9c8040bb85a14f2fab104deddd020db617b0cbf"
+            },
+            {
+              "path": ".work/tmp/source-policy-integrated-cli.log",
+              "sha256": "3341de85728e2ece2d7cdc9fc7808907a3a575a9653b3ac2fcd1dd2c8be7d4b6"
+            }
+          ],
+          "assertions": [
+            "exactly one zero-valued lowering_type_resolver_definitions metric",
+            "exactly one stage_variants metric at 46 with 46 evidence rows all from src/runtime/eval/indexed/full.rs"
+          ],
+          "cli_invalid_reports_rejected": 2,
+          "cli_valid_report_passed": true,
+          "commit": "2329af90a",
+          "current_ratchet_tests_sha256": "4bc151a50ec16b51fd4dcc31c0c7055aad4f2bea38c2945b9c40ac85b23c46fc",
+          "focused_native_passed": 39,
+          "gate_routing_passed": 2,
+          "generic_check_unchanged": true,
+          "independent_review": "no P1/P2 or coverage gap",
+          "integrated_corrected_baseline_provenance_passed": true,
+          "lane_commit": "1ca22df9d25b6437fb58dd49a6b76bc8bf4d3f07",
+          "native_scope": "representative scanner fixtures and policy positive/negative controls; two repository rescans removed from parallel per-case execution",
+          "owner": "existing serial batch-ratchets command; fresh measure_with_allowances with no --input",
+          "performance_claim": false,
+          "report_output_sha256": "7998c9dfcb176fd963a9c14e56d4664506d52e22a5388a7892281812c298b1d3"
+        },
+        "source_qualification": "Historical prior-source evidence only: all nested execution counts, hashes, and runtime qualifications belong to their recorded earlier commits and were not run against source 208. Do not use them to qualify the current close or refresh its gates.",
+        "trace": {
+          "commit": "2d5fb9c7c",
+          "contract": "unquoted resumed records with malformed task prefixes are incomplete; quoted path text is retained",
+          "failed": 0,
+          "focused_passed": 8,
+          "independent_review": "no P1/P2"
+        },
+        "uptime": {
+          "commit": "9ede012c7",
+          "failed": 0,
+          "passed": 12,
+          "production_change": false
+        }
+      },
+      "final_gate_plan": {
+        "full_suite_runs": 9,
+        "path": ".work/final-review-evidence/final-performance-gates/launch-plan.md",
+        "status": "Source-qualified for pin refresh; final gates on this freeze remain unrun."
+      },
+      "final_native_fixture_corrections": {
+        "cargo": {
+          "change": "explicit default flags in two preload-only observations",
+          "commit": "af51fc184",
+          "path": "dev/tests/test-cargo-steps.xsh",
+          "verification": "exact profile-environment red/green; override assertions retained"
+        },
+        "dired": {
+          "change": "colored/plain marker parity and literal name boundaries replace metadata-specific fixed offsets",
+          "commit": "b4724e4cf",
+          "focused_green": {
+            "failed": 0,
+            "passed": 3,
+            "path": ".work/tmp/ls-dired-green.log",
+            "sha256": "e877cc06407a95a6331ad35e477d44a0fe6cfd499097a31b0a826ad488d77f1c"
+          },
+          "gnu_oracle": {
+            "image": "sha256:1f11c32b03195c1b28c55e4579755659edae5c76dd76a69b4e4fb34c58fa8744",
+            "path": ".work/tmp/ls-dired-gnu-oracle.log",
+            "scope": "oracle-only comparison; campaign compilation and runtime use the pinned 3b image",
+            "sha256": "300a480f272a25501436fcfd986c2525e8647922ebbc0d7f2f86b28076769e2b",
+            "version": "GNU coreutils 9.10"
+          },
+          "path": "core/tests/test-uu-ls-2.xsh",
+          "production_change": false,
+          "verification": "exact red, GNU 9.10 oracle agrees with XSH, three focused cases green"
+        },
+        "focused_cohort": {
+          "failed": 1,
+          "failed_case": "test_uu_ls_ls_dired_normal_style_offsets",
+          "passed": 22,
+          "path": ".work/consolidation/final-performance-gates/profile-cost-51ec8a03ed5eaed6cd39eabe677741fea974334c/old-failure-cohort-51ec.log",
+          "scope": "51ec release products and exact profile environment; not a full native suite",
+          "sha256": "928656af8b5d73f99162c70e5ab6c82eb39df07a7f1c6645b18d2ab1277defcf"
+        },
+        "integrated_smoke": {
+          "failed": 0,
+          "passed": 2,
+          "path": ".work/consolidation/final-performance-gates/integrated-probes-f1f23f01b67cd445e34970a3204473db07b006e2/combined.log",
+          "runtime_build_source": "51ec8a03ed5eaed6cd39eabe677741fea974334c",
+          "scope": "current integrated test files with unchanged source-qualified release products; final release build and full suites remain pending",
+          "sha256": "a838c87335120ce949bdf757ae8907e40b81d1c39281fab72dfdebe3f2f9ba4d",
+          "source_commit": "f1f23f01b67cd445e34970a3204473db07b006e2"
+        },
+        "prior_profile_attempt": {
+          "acceptance": false,
+          "source_commit": "51ec8a03ed5eaed6cd39eabe677741fea974334c",
+          "state": "interrupted after cargo fixture failure",
+          "timing_eligible": false
+        }
+      },
+      "functional_complete": true,
+      "integration": {
+        "commit": "0ea216732686b7851bfb8ba49b81b5ef6d2608b1",
+        "status": "clean frozen primary; W9 transfer retained by post-122 source qualification",
+        "supersedes_prior_close": {
+          "commit": "122261c230e2f34907969424ad0c5f1e2b5cc65d",
+          "tree": "eeb0cc9ebf2cadc7e7af40c64983fce4dcedbaab"
+        },
+        "tree": "cb8cd5298918f7a9839284d894acca4dd9a4e346"
+      },
+      "latest_profile_attempt": {
+        "acceptance_for_current_close": false,
+        "receipt": {
+          "path": ".work/consolidation/final-performance-gates/profile-cost-122261c230e2f34907969424ad0c5f1e2b5cc65d/receipt.json",
+          "sha256": "9e564ca2bb895a68d838a40846b41c49b8fbec9a9f087951f7ad182d71ee5d9b"
+        },
+        "source_commit": "122261c230e2f34907969424ad0c5f1e2b5cc65d",
+        "source_tree": "eeb0cc9ebf2cadc7e7af40c64983fce4dcedbaab",
+        "state": "complete",
+        "timing_eligible_for_current_close": false
+      },
+      "native_fixture_verification": {
+        "artifacts": [
+          {
+            "path": ".work/tmp/netlink-module-loop-88d5-a1/run.log",
+            "sha256": "bcf7d74d9d309dfbd892ef3eb8e89cf9d45d8db4d5a9de7546856b0b0e731a14"
+          },
+          {
+            "path": ".work/tmp/netlink-module-loop-88d5-green-a2/run.log",
+            "sha256": "fffd24f4ab7f3d2cc1b3430e75db07652d4183e87af527dae58f851c56e35a49"
+          },
+          {
+            "path": ".work/tmp/netlink-focused-88d5-green-a3/run.log",
+            "sha256": "b9d10e13064455b708c9f230562c51b30e444a66ea110807238afb28d087b23f"
+          }
+        ],
+        "expected_errno": 9,
+        "forced_test_passes": 5,
+        "module_repetitions": 100,
+        "module_test_passes": 500,
+        "red_errno": 88,
+        "repair_commit": "f178ff28a8c3ca93545704b4bb3bcedf13e99b02",
+        "rust_unchanged": true,
+        "scoped_lint_findings": 0,
+        "source_base": "88d5e6f082de10baac3c4aee5b2873e27e49d9fe"
+      },
+      "payload_kind": "functional-close",
+      "post_122_focused_artifacts": [
+        {
+          "path": ".work/tmp/collect-layout-122-red-a2/build.log",
+          "sha256": "f3d8eb1366e74a4dfaae52de8cb853d13d7b7bc649fd34ad2f4f904715e14896"
+        },
+        {
+          "path": ".work/tmp/collect-layout-122-green-a2/build.log",
+          "sha256": "dd98066b88a0879e38cfdb017d3c4dcdfea3d2108072575d5f8f4e1a4fde7305"
+        },
+        {
+          "path": ".work/tmp/collect-layout-122-area-a1/build.log",
+          "sha256": "4476780cdf7675930e08adb278ce30342201d8069f628f859374f0d01af21a4a"
+        },
+        {
+          "path": ".work/tmp/collect-layout-122-independent-review.md",
+          "sha256": "6e0d7c3764f35efe0896a5f3d0f056e3c32d400a8500d3adae9a383893bff1d8"
+        },
+        {
+          "path": ".work/tmp/lint-budget-122-independent-review.md",
+          "sha256": "b4dc12bcc6fb3befee86af8813353471a4e4fcaf7f104152ea4f29706f238dde"
+        },
+        {
+          "path": ".work/tmp/lint-budget-122-order-red-a1/run.log",
+          "sha256": "9ec72dbf3101a8f15ebba94b9c87c960baea7976bd85c8a1483a74fa8ff87027"
+        },
+        {
+          "path": ".work/tmp/post122-repo-lint-a1/run.log",
+          "sha256": "91f28be66e07cecfc528f9f88ade8957aed2325f58f17e0587e027294699fa16"
+        },
+        {
+          "path": ".work/tmp/post122-invariance-a1/run.log",
+          "sha256": "46b67e61eebb70e230346f3a249ac91bbda9fe81f040e985ce52e0423e99c4a0"
+        },
+        {
+          "path": ".work/tmp/collect-corpus-scanner-122-lint-context/run.log",
+          "sha256": "a3367c83959ab6a58a14356a247ab7817997c211c4bb57b87d5078aad1bedea1"
+        },
+        {
+          "path": ".work/tmp/collect-corpus-scanner-122-ratchets-final/run.log",
+          "sha256": "9a2e48df38bd1cb3e095d840e94da075de134d94974267f440114096ca5a9780"
+        },
+        {
+          "path": ".work/consolidation/structural-0ea-a1/receipt.tsv",
+          "sha256": "611a0a95f6ba586332d5f87b99d61316d99a1265ea877101c7da74c517703cfa"
+        },
+        {
+          "path": ".work/tmp/awk-asort-122/probe.awk",
+          "sha256": "acc20b22492b55cb23e15408d9515be1594a6a6e61f9f0097fe56495dca61142"
+        },
+        {
+          "path": ".work/tmp/awk-asort-122/stdout",
+          "sha256": "c03a7b627c25d19250bb21f1b55b871b2265828c621c3234c47729589f909bea"
+        },
+        {
+          "path": ".work/tmp/awk-asort-122/expected.stdout",
+          "sha256": "c03a7b627c25d19250bb21f1b55b871b2265828c621c3234c47729589f909bea"
+        },
+        {
+          "path": ".work/tmp/lint-budget-122-lifecycle-a9/run.log",
+          "sha256": "b5584a33ff994c28f9740c5bf6adc1f543a50c248c8980596e5b5e620feb281b"
+        },
+        {
+          "path": ".work/tmp/lint-budget-122-gates-a9/run.log",
+          "sha256": "a6ce04ccf609f977019adc0c00bbd16527a7afb8c6d792ff67c0332237beb77f"
+        },
+        {
+          "path": ".work/tmp/lint-budget-122-cargo-steps-a9/run.log",
+          "sha256": "b31414754c1cdf5a0cdf7662757648856732ebe19f71be3ac30f038f31abd45e"
+        },
+        {
+          "path": ".work/tmp/test-date/run.log",
+          "sha256": "22fb7a9a18e81faf0e37d9d6b7a6f83d62db60f58cdbd21003d0322fe413b825"
+        },
+        {
+          "path": ".work/tmp/test-find-exec/run.log",
+          "sha256": "7cf019c465f459753b5630a05d9cea1dfa720591847837befde52f1b50cd4ad1"
+        },
+        {
+          "path": ".work/tmp/test-find-roots/run.log",
+          "sha256": "521915cd5d81b32bc06a17cdd42d4049c616d3a95b4acc7a00c07fac8412a4e6"
+        },
+        {
+          "path": ".work/tmp/test-fmt-wrap/run.log",
+          "sha256": "33999955b42af39abf29115146ddd71448c1a27be8869f5a5c2cbfa0f2458930"
+        },
+        {
+          "path": ".work/tmp/test-setfacl/run.log",
+          "sha256": "a98f0af4b62b75ccd3646ed5929dae2c732cd341a6c72e37f649c77611969b16"
+        },
+        {
+          "path": ".work/tmp/test-xargs/run.log",
+          "sha256": "45459ac0864255b4cd9c7d1ae7c2e4e8f81842c629b3f3d4b5ef23b2ab8081f1"
+        },
+        {
+          "path": ".work/tmp/test-find-render/run.log",
+          "sha256": "9ec1ccba3529584d28b02574ac10ca813c0a06d97235bd518dac0b9bdea9b8ee"
+        },
+        {
+          "path": ".work/tmp/test-find-fixture/run.log",
+          "sha256": "ec2eed8d75141095e137fbb97f63e4bff518d3bd3559135ab89d3a3243b1f08a"
+        },
+        {
+          "path": ".work/tmp/collect-text-122-test-awk-array-order/run.log",
+          "sha256": "66eb8ba8461f4fd016e740cd9f50583b6180d3ca711691593b45294f3625d92a"
+        },
+        {
+          "path": ".work/tmp/collect-text-122-test-cksum-lines/run.log",
+          "sha256": "185dd2cddd7bd21767e3f07d8ec115898119da30627f68c69335aa5b2fa1b9b9"
+        },
+        {
+          "path": ".work/tmp/collect-text-122-test-fileattrs-restore/run.log",
+          "sha256": "c0dde5fe5181779a10902a484d11c683e414d3daaa7569446db138e58118433d"
+        },
+        {
+          "path": ".work/tmp/collect-text-122-test-grep-nul/run.log",
+          "sha256": "9cb8bf7019b7d1bd3a76e611d1b78365d7ebb13186d59140fa0c96d1915c8195"
+        },
+        {
+          "path": ".work/tmp/collect-text-122-test-grep-lines/run.log",
+          "sha256": "b27deaec1c8c7ff8d6dcdec6ff53b58b1c23cafe39439a5e914d882374f314f5"
+        },
+        {
+          "path": ".work/tmp/collect-text-122-test-sed-translate-repro/run.log",
+          "sha256": "408ff69e39fbe7e7a00760d0e57d3d70761888cbf9ab80ce4ad714556ff0dc52"
+        },
+        {
+          "path": ".work/tmp/collect-text-122-test-sed-anchors/run.log",
+          "sha256": "ffe7c4beee612e8189a259ec2d8e89c2fac7570b557794799bf12876187f1c9f"
+        },
+        {
+          "path": ".work/tmp/collect-text-122-test-unexpand-columns/run.log",
+          "sha256": "9460350cd22e6f91ddba48ac6c7a17edaa17dbdd6efde6623378d5eb4649080e"
+        },
+        {
+          "path": ".work/tmp/collect-text-122-test-literal-flow/run.log",
+          "sha256": "d302af77afe244cf6702401d80f1848a184bb9b9adb76a0126d7102c0bff24bb"
+        },
+        {
+          "path": ".work/tmp/collect-text-122-test-sed-start-anchor/run.log",
+          "sha256": "39bbc06737788dc99b1bfb7711f1920abeb7fb6199067d7f3371d3ced9871285"
+        },
+        {
+          "path": ".work/tmp/collect-text-122-test-sed-rx-start-anchor/run.log",
+          "sha256": "1b96972ede9e22a8e222b7f8415781594aafeedf3e07455c05b7244813bfe728"
+        }
+      ],
+      "prior_canonical_attempt": {
+        "acceptance_for_current_close": false,
+        "receipt": {
+          "path": ".work/final-review-evidence/final-performance-gates/122261c230e2f34907969424ad0c5f1e2b5cc65d-observers/receipt.json",
+          "sha256": "ef23812aa8e09f653b020ec66abcd87ad423e538e4e68a9d70400dbe3e8c1c54"
+        },
+        "source_commit": "122261c230e2f34907969424ad0c5f1e2b5cc65d",
+        "source_tree": "eeb0cc9ebf2cadc7e7af40c64983fce4dcedbaab",
+        "state": "canonical gate batch failed; isolated repository lint passed"
+      },
+      "record_state": "accepted-functional-close",
+      "repair_verification": {
+        "all_runtime_tags_claim": false,
+        "artifacts": [
+          {
+            "path": ".work/tmp/route-repair-unit-ae7cf8-a1/run.log",
+            "sha256": "ef3eb09614b72c6bf79bcaa9c6a83e9f7e8e4fd25254b89e493886de63a4b09a"
+          },
+          {
+            "path": ".work/tmp/route-repair-unit-ae7cf8-a1/run.status",
+            "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+          },
+          {
+            "path": ".work/tmp/route-repair-verification-ae7cf8-a1/build.log",
+            "sha256": "6ea8b3c4025cbf392196bfee36575b79dfd734bb0a072aa64bc0a3f4690324b0"
+          },
+          {
+            "path": ".work/tmp/route-repair-native-witness-ae7cf8-a1/run.log",
+            "sha256": "ae765d387388782cccebd3b883aea3b6d45239bbd11f453bd45e1bd0fce4a652"
+          },
+          {
+            "path": ".work/tmp/route-repair-native-witness-ae7cf8-a1/run.status",
+            "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+          },
+          {
+            "path": ".work/tmp/route-repair-native-witness-ae7cf8-a1/binaries.after.txt",
+            "sha256": "c8841406e36108247495324aec3d41e89295ee7ea120d5f50f60327c23163d55"
+          },
+          {
+            "path": ".work/tmp/route-repair-native-witness-ae7cf8-a1/witnesses/forced/1/.tmpFNoir9/.tmpUb3raK/route-witness.json",
+            "sha256": "341617d0bf0a9d58cf4ac320739769843092031955971f962379a99d8be2fe74"
+          },
+          {
+            "path": ".work/tmp/route-repair-native-witness-ae7cf8-a1/witnesses/forced/2/.tmpBKncyG/.tmpiOOvOh/route-witness.json",
+            "sha256": "e6b30d9956c8e7e2db5bec509b3a0f08cd5be8fac7899f43a6005bb7ff4a90f6"
+          },
+          {
+            "path": ".work/tmp/route-repair-native-witness-ae7cf8-a1/witnesses/normal/1/.tmpRn1mAh/.tmpCZcs4O/route-witness.json",
+            "sha256": "293710d6902eba6c4a0b1f60d853b92695a10b2129cf9c4732651733a4b18181"
+          },
+          {
+            "path": ".work/tmp/route-repair-native-witness-ae7cf8-a1/witnesses/normal/2/.tmpmUmB2z/.tmp7ft0g0/route-witness.json",
+            "sha256": "e5b72558c32f75834f1e9b1fafb4b842db01f532de8b02c72146566dc00aa8e4"
+          }
+        ],
+        "authenticated_native_passed": 4,
+        "hygiene_passed": 2,
+        "route_tags_covered": 2,
+        "route_unit_passed": 12,
+        "source_commit": "ae7cf849071997e3ca2633f2efbb55b938da83a5"
+      },
+      "review_evidence": {
+        "open_rows": 10,
+        "status": "pending_review"
+      },
+      "source_qualification": {
+        "all_eleven_owner_oids_match": false,
+        "captured_commit": "2083821edb768d2485479c7386289b82e43b1c7c",
+        "captured_tree": "97750b8ede98aecf352b4926912838be859dd417",
+        "changed_owner_count": 6,
+        "changed_owners": [
+          "src",
+          "crates",
+          "tests",
+          "core",
+          "dev/tests",
+          "dev/consolidation_metrics_current.xsh"
+        ],
+        "disposition": "The 208 immutable-e240 W9 proof transfers through 122 to this freeze because src, the W9 controllers, helper, and input manifest are unchanged after 122. W9 does not cover the current mutable XSH script edits; final native suites and acceptance gates remain open.",
+        "final_commit": "0ea216732686b7851bfb8ba49b81b5ef6d2608b1",
+        "final_source_owner_trees": [
+          {
+            "oid": "0cf10754854e9f52a2b7ca8fc02ac3241c627b95",
+            "path": "src"
+          },
+          {
+            "oid": "58ddabbe75d5278f18d039861ab7390be8464fed",
+            "path": "crates"
+          },
+          {
+            "oid": "f0e1e019ce0b2dfab386c04a45e6e154fbdfe057",
+            "path": "tests"
+          },
+          {
+            "oid": "54f576663fb31595c1d57ce255eb7c8840379b12",
+            "path": "core"
+          },
+          {
+            "oid": "046719960b39fb48b30e9be24de21efc24be53f9",
+            "path": "examples"
+          },
+          {
+            "oid": "79cae4996a771fba9b7f599a3537d19c636d296c",
+            "path": "showcase"
+          },
+          {
+            "oid": "a63177a1755dc42f35ee649cb7b28fcd5df8b0aa",
+            "path": "tools"
+          },
+          {
+            "oid": "6e3fc95b7f5065b9d551652d20530a32d235f266",
+            "path": "dev/tests"
+          },
+          {
+            "oid": "3ff0ede0c9e2e09645aa3b118e8bb84d4339b741",
+            "path": "dev/consolidation_metrics.xsh"
+          },
+          {
+            "oid": "89aca84fd486800b168b4b53d52df6d7608755f9",
+            "path": "dev/consolidation_metrics_current.xsh"
+          },
+          {
+            "oid": "bdd5e7712634f23e3fe640c7b33b5e6f21f944b3",
+            "path": "dev/consolidation/metrics.xsh"
+          }
+        ],
+        "final_tree": "cb8cd5298918f7a9839284d894acca4dd9a4e346",
+        "historical_gate_receipts": {
+          "canonical_observers_122": {
+            "applies_to_current_close": false,
+            "receipt": {
+              "path": ".work/final-review-evidence/final-performance-gates/122261c230e2f34907969424ad0c5f1e2b5cc65d-observers/receipt.json",
+              "sha256": "ef23812aa8e09f653b020ec66abcd87ad423e538e4e68a9d70400dbe3e8c1c54"
+            },
+            "source_commit": "122261c230e2f34907969424ad0c5f1e2b5cc65d",
+            "source_tree": "eeb0cc9ebf2cadc7e7af40c64983fce4dcedbaab",
+            "stage_statuses": {
+              "canonical_gate_batch": 3,
+              "isolated_repository_lint": 0
+            },
+            "state": "failed"
+          },
+          "canonical_observers_208": {
+            "acceptance_for_current_close": false,
+            "receipt": {
+              "path": ".work/final-review-evidence/final-performance-gates/2083821edb768d2485479c7386289b82e43b1c7c-observers/receipt.json",
+              "sha256": "9a7430cbdfde0d6fcc06addd205fd6f0142e44a967b8c1bfb05139c0095cb7dc"
+            },
+            "source_commit": "2083821edb768d2485479c7386289b82e43b1c7c",
+            "state": "failed libc hygiene before native suite"
+          },
+          "profile_cost_122": {
+            "applies_to_current_close": false,
+            "receipt": {
+              "path": ".work/consolidation/final-performance-gates/profile-cost-122261c230e2f34907969424ad0c5f1e2b5cc65d/receipt.json",
+              "sha256": "9e564ca2bb895a68d838a40846b41c49b8fbec9a9f087951f7ad182d71ee5d9b"
+            },
+            "source_commit": "122261c230e2f34907969424ad0c5f1e2b5cc65d",
+            "source_tree": "eeb0cc9ebf2cadc7e7af40c64983fce4dcedbaab",
+            "state": "complete"
+          },
+          "profile_cost_88d5": {
+            "acceptance_for_current_close": false,
+            "receipt": {
+              "path": ".work/consolidation/final-performance-gates/profile-cost-88d5e6f082de10baac3c4aee5b2873e27e49d9fe/receipt.json",
+              "sha256": "0cf0afa4f9d8521e66bf4cb19f88eab287e70f862bc9fb794759c9b9685c0924"
+            },
+            "source_commit": "88d5e6f082de10baac3c4aee5b2873e27e49d9fe",
+            "state": "interrupted on native descriptor test race; build passed",
+            "timing_eligible_for_current_close": false
+          }
+        },
+        "native_fixture_transfer_review": {
+          "path": ".work/tmp/netlink-fixture-qualification-88d5.md",
+          "sha256": "5a13bdd27bace4ca14cd4227074d61507028e04a7298dab6e9c50e01a2ff8be2"
+        },
+        "post_122_source_review": {
+          "path": ".work/tmp/post-122-source-qualification.md",
+          "result": "qualified for W9 transfer; current native suites and gates remain required",
+          "sha256": "9927f237072c936fc8fe360a3cdbe4cc5340ee1e23ba1385d9faeb49a6ef8413"
+        },
+        "prior_close_comparison": {
+          "changed_rust_paths": [
+            "crates/xsht/src/lint_prefer_collect.rs"
+          ],
+          "commit": "122261c230e2f34907969424ad0c5f1e2b5cc65d",
+          "rust_source_unchanged": false
+        },
+        "source_owner_tree_pairs": [
+          {
+            "candidate_oid": "aecf5beb2eac0e4f31852a5faf227a77d90b4dbb",
+            "close_oid": "0cf10754854e9f52a2b7ca8fc02ac3241c627b95",
+            "path": "src"
+          },
+          {
+            "candidate_oid": "30793e1b58b3e209574d5ba5cab57c920ceacce0",
+            "close_oid": "58ddabbe75d5278f18d039861ab7390be8464fed",
+            "path": "crates"
+          },
+          {
+            "candidate_oid": "b741da406a1f6d827004961de9925ade5e38539d",
+            "close_oid": "f0e1e019ce0b2dfab386c04a45e6e154fbdfe057",
+            "path": "tests"
+          },
+          {
+            "candidate_oid": "4ceede823293536661213a413b12a692461a86cb",
+            "close_oid": "54f576663fb31595c1d57ce255eb7c8840379b12",
+            "path": "core"
+          },
+          {
+            "candidate_oid": "046719960b39fb48b30e9be24de21efc24be53f9",
+            "close_oid": "046719960b39fb48b30e9be24de21efc24be53f9",
+            "path": "examples"
+          },
+          {
+            "candidate_oid": "79cae4996a771fba9b7f599a3537d19c636d296c",
+            "close_oid": "79cae4996a771fba9b7f599a3537d19c636d296c",
+            "path": "showcase"
+          },
+          {
+            "candidate_oid": "a63177a1755dc42f35ee649cb7b28fcd5df8b0aa",
+            "close_oid": "a63177a1755dc42f35ee649cb7b28fcd5df8b0aa",
+            "path": "tools"
+          },
+          {
+            "candidate_oid": "4482e793929c372044d5a172c71f755496e7c4d9",
+            "close_oid": "6e3fc95b7f5065b9d551652d20530a32d235f266",
+            "path": "dev/tests"
+          },
+          {
+            "candidate_oid": "3ff0ede0c9e2e09645aa3b118e8bb84d4339b741",
+            "close_oid": "3ff0ede0c9e2e09645aa3b118e8bb84d4339b741",
+            "path": "dev/consolidation_metrics.xsh"
+          },
+          {
+            "candidate_oid": "e312f846e3d4b77e811eabc8bd97dfd2f428dd01",
+            "close_oid": "89aca84fd486800b168b4b53d52df6d7608755f9",
+            "path": "dev/consolidation_metrics_current.xsh"
+          },
+          {
+            "candidate_oid": "bdd5e7712634f23e3fe640c7b33b5e6f21f944b3",
+            "close_oid": "bdd5e7712634f23e3fe640c7b33b5e6f21f944b3",
+            "path": "dev/consolidation/metrics.xsh"
+          }
+        ],
+        "transfer_review": {
+          "accepted_by": "root",
+          "path": ".work/tmp/route-transport-w9-qualification-208.md",
+          "repair_commit": "ae7cf849071997e3ca2633f2efbb55b938da83a5",
+          "reviewer": "/root/final_instruction_semantic_review_8ca",
+          "sha256": "d8925858679246f6d21f9faf4bb0bb629517cc45321adce8f75b98c4acf75975"
+        },
+        "unchanged_owner_count": 5
+      },
+      "still_open": [
+        "Nine serialized full native suites and canonical correctness are pending on this freeze.",
+        "Current-source memory, size, scheduler, comparative, documentation, platform, structural and ten semantic review gates remain pending."
+      ],
+      "w4": {
+        "follow_up": {
+          "dev_tests": 4,
+          "language_tests": 14,
+          "logs": [
+            {
+              "path": ".work/wt/final-source-integration-0ab/.work/tmp/integrated-focused-green.log",
+              "result": "14 language invocations and one dev case passed before a Git ownership fixture error; aggregate exit 1",
+              "sha256": "eef914bfd4b761106a91612f83a215fac2ddf3c43de082d37dd411fdc24b50ec"
+            },
+            {
+              "path": ".work/wt/final-source-integration-0ab/.work/tmp/integrated-remaining-green.log",
+              "result": "three remaining dev cases passed under UID 1000; exit 0",
+              "sha256": "624d375bba84e42afd308b6a7ece86b51a944147922ca296b08d9ecaec583e75"
+            },
+            {
+              "path": ".work/wt/final-native-semantics-d02/.work/tmp/green-process-error-unit-direct-campaign-image-20261015.log",
+              "result": "one ProcessError unit passed, 713 filtered; pinned runtime only",
+              "sha256": "5c139e1bfa5d5a585d561c6ee9c406963d1d94ee2df32d8f04dd56b84cda77b1"
+            }
+          ],
+          "process_unit_image": "xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+          "process_unit_test": "one exact unit passed using an existing source-correct binary in the explicit pinned runtime; its original mutable-tag compilation is not pinned compiler provenance",
+          "source_qualified": true
+        },
+        "historical_counts": {
+          "focused_compiler_tests": 34,
+          "fresh_at_this_close": false,
+          "integration_tests": 62,
+          "native_tests": 242
+        },
+        "status": "accepted historical lowerer evidence; current functional close does not claim those suites were freshly rerun",
+        "w9_build_image": "xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+      },
+      "w9": {
+        "build_environment": {
+          "image": "xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+          "target": "x86_64-unknown-linux-musl"
+        },
+        "candidate_exact_owner": {
+          "build_receipt": {
+            "binary_sha256": "b965d8b5f981c5c01c7ca0fc78de8c7e1a68e35c34e1c3fbbb04721b2b4efcee",
+            "path": ".work/consolidation/w9-publication-adapter-v1-t3m0idbh/w9-publication-adapter-candidate-2083821edb76.receipt",
+            "sha256": "a873fe996358f2e82a2a47dd347b7d81784752d88687c228d830c3eef1f214fc"
+          },
+          "capture_receipt": {
+            "owner_count": 1690,
+            "path": ".work/consolidation/w9-exact-owner-candidate-2083821-a1/capture.receipt",
+            "sha256": "78285d7396b9459960ae71614f30b3ff09ca2ea4b5ccabde29554542f190820a"
+          }
+        },
+        "candidate_legacy": {
+          "build_receipt": {
+            "binary_sha256": "60988841febfc3f3b4ed81d53045caa1fa046aad79b3a7b3b1011c2720f71d44",
+            "path": ".work/consolidation/w9-publication-adapter-v1-vb186ouy/w9-publication-adapter-candidate-2083821edb76.receipt",
+            "sha256": "beac61fcf49f7fdc2272df7357984babd2b882aa0c2faaa682e57937a81ded00"
+          },
+          "capture_receipt": {
+            "input_count": 1690,
+            "outcome_count": 6760,
+            "path": ".work/consolidation/w9-adapter-2083821-a1/full-run/candidate/capture.receipt",
+            "sha256": "b35478fa84202438959616489b36f92a4a1b00df3891b3332df33de255c804ac"
+          }
+        },
+        "controllers": [
+          {
+            "path": "dev/consolidation/w9-publication-run.py",
+            "sha256": "3cec5ae293e0c063619fccd721907731d92a9b62d74831d6d0fad9cabe75750b"
+          },
+          {
+            "path": "dev/consolidation/w9_publication_adapter_runner.py",
+            "sha256": "40b405a87ce935a1ae2f03e8e05fc5a204f30f35f4e02dd0eb8145e8f10cd479"
+          },
+          {
+            "path": "dev/consolidation/w9_publication_adapter.py",
+            "sha256": "d838b480d31dee52ccb6be75bf3abafa87a96c3f6fb84f52aeddd6e45e55cb84"
+          },
+          {
+            "path": "dev/consolidation/w9_publication_sources.py",
+            "sha256": "1aaf70df35ed1a699ea940e2426a53fb7d192972367ce10923c6a7ffd1674475"
+          },
+          {
+            "path": "dev/consolidation/w9_publication_reference_facts.py",
+            "sha256": "bcf6e895e6403ccedc1da2c6ee33663156496f69f3f89229fc988e742142c9f7"
+          },
+          {
+            "path": "dev/consolidation/w9_publication_reference_correction.py",
+            "sha256": "5123994f865b8d17366383584eeb6eedd3aef16423d78fc66fc83823f8d8f5bf"
+          },
+          {
+            "path": "dev/consolidation/w9_publication_exact_owner_runner.py",
+            "sha256": "82762322643fd0ed3d858eec09133d84e8e2733b8e9d974dbadad6966036e7e4"
+          }
+        ],
+        "derived_reference": {
+          "build_receipt": {
+            "binary_sha256": "881fc9ce738039bbfe644d862c8754b9081ab8c555a95f7e4f36aaa8147f4fa3",
+            "path": ".work/consolidation/w9-publication-adapter-v1-i2azo5p9/w9-publication-adapter-derived-reference-1fd9e5f2f366.receipt",
+            "sha256": "2204ebd2ba7842ed828c884c3cf6a485e69911a3ee02e1f0b31c98b498cb43de"
+          },
+          "capture_receipt": {
+            "path": ".work/consolidation/w9-derived-reference-1fd9-7e93-a1/derived-reference/capture.receipt",
+            "sha256": "c66e4aae7a415bcb1f35c51d65ac087e6815ac91a0aed766e2a9d600678a95cf"
+          },
+          "correction_patch_sha256": "5f5de52a036b2410b93ead022d81b14f2ce5076b3263e581b18931cafcba1ad5",
+          "correction_receipt": {
+            "path": ".work/consolidation/w9-derived-reference-1fd9-7e93-a1/correction.receipt",
+            "sha256": "28075a8fa96d0cc93608054630eec3f58384a33bf3e496fd41fb75a34314df6c"
+          },
+          "source_commit": "1fd9e5f2f366833b786e57d1fc54bcd9a238731e",
+          "source_tree": "1d1661f02f3126c05fb5a7d9487f4fa0c3845556"
+        },
+        "immutable_reference": {
+          "exact_build_receipt": {
+            "path": ".work/consolidation/w9-publication-adapter-v1-zpn7q710/w9-publication-adapter-reference-e240efad273f.receipt",
+            "sha256": "02c177af6cb076652d5deb5fe24ca4dd1ca53e6e0f296b9ef04acfa73992a4b3"
+          },
+          "exact_capture_receipt": {
+            "owner_count": 1690,
+            "path": ".work/consolidation/w9-exact-owner-f105-reference-a1/capture.receipt",
+            "sha256": "6ade4c914ec42db29b78e256810e384672932c20df8d2f1047318d419f6ed38f"
+          },
+          "legacy_capture_receipt": {
+            "path": ".work/consolidation/w9-adapter-56580-a1/full-run/reference/capture.receipt",
+            "sha256": "2d86d253e765193d481f1dae4077438d17ece1aa636a1f864d324b135c9415f9"
+          }
+        },
+        "reference_correction_delta": {
+          "first_difference_input_index": 36,
+          "path": ".work/consolidation/w9-derived-reference-1fd9-7e93-compare-a1/comparison/original-to-derived-reference.tsv",
+          "sha256": "d9cef5bcf795020fb52486ecfc05b22008ea1690d201c90bf3f07666ef1d5768",
+          "total_difference_count_measured": false
+        },
+        "smoke": {
+          "attempt_status_sha256": "4d37132c252a469a4f904367d1f05df0df280045709883626b9b16ca895152ba",
+          "exact_sidecars_b3_verified": 14,
+          "mismatches": 0,
+          "owner_hash_results_sha256": "282fffb37127f51477c867298e777ba1b20a0401cbbc92bc035a61d78956cb44",
+          "path": ".work/consolidation/w9-smoke-7e93-a1",
+          "qualification": "Historical smoke on the 7e93 source only; the fresh 208 full capture and strict comparison supersede it.",
+          "results_sha256": "0746087ff1a9e987147d385c189099ec31ce2b6eaf987905e450d5af9d62d2d7",
+          "selected_input_indices": [
+            873,
+            877,
+            893,
+            1162,
+            1516,
+            1540,
+            1681
+          ],
+          "semantic_outcomes": 28,
+          "source_commit": "7e93dd4533d175f0385ae433651a98c98b5c20cd"
+        },
+        "source_binding": {
+          "commit": "2083821edb768d2485479c7386289b82e43b1c7c",
+          "corpus_blake3": "a7b1f70466c4e978222af3d329e9c71b0a15030480e24b8d7f77a5fa4f57f17d",
+          "coverage_scope": "The manifest uses immutable e240 fixture bodies. Later .xsh edits outside that fixture set are not covered by W9; current native gates remain open for them.",
+          "input_count": 1690,
+          "manifest_sha256": "1ec4e8eb67681591d25c69b395387ba4acbb4bfe1e4ab514a858e60ff1a56305",
+          "outcome_count": 6760,
+          "parity_harness_build_receipt": {
+            "binary": ".work/consolidation/w9-parity-harness-fbadeb3370623514",
+            "binary_sha256": "ad605c4c673194abe7a7a66ff8ac1a59480902b72f720ce5c7b4468842c8e7ab",
+            "path": ".work/consolidation/w9-source-2083821-a1/build.receipt.tsv",
+            "sha256": "82ea82dbfcaf513c68db3ba1424100f152a33870439a8525397077126ab99edc"
+          },
+          "profiles": [
+            "default",
+            "reveal",
+            "execution",
+            "check-cli"
+          ],
+          "range_count": 68,
+          "source_receipt": {
+            "path": ".work/consolidation/w9-source-2083821-a1/source.receipt.tsv",
+            "sha256": "4011687487f47394a4160999655787fd4e6f7a214eaab5e22a8a82e35f202e36"
+          },
+          "tree": "97750b8ede98aecf352b4926912838be859dd417"
+        },
+        "status": "Fresh full 208 candidate-versus-corrected-reference parity passed: 1,690 inputs, 6,760 outcomes, zero mismatches.",
+        "strict_comparison": {
+          "attempt_status": {
+            "detail": "corpus=1690 outcomes=6760 mismatches=0",
+            "path": ".work/consolidation/w9-derived-reference-compare-2083821-a1/attempt-status.txt",
+            "sha256": "762cdef8e141ac402b86ef8d7206953dc920c3b154b05c446c760995e57356bc",
+            "status": "complete"
+          },
+          "candidate_exact_capture_receipt": {
+            "path": ".work/consolidation/w9-exact-owner-candidate-2083821-a1/capture.receipt",
+            "sha256": "78285d7396b9459960ae71614f30b3ff09ca2ea4b5ccabde29554542f190820a"
+          },
+          "candidate_exact_owner_proof": {
+            "owner_count": 1690,
+            "path": ".work/consolidation/w9-derived-reference-compare-2083821-a1/exact-candidate/proof.receipt",
+            "sha256": "82d1dfd7913e76228b653f5a801d64765a23edd0e18acf3949390d3de42650c5"
+          },
+          "candidate_legacy_capture_receipt": {
+            "path": ".work/consolidation/w9-adapter-2083821-a1/full-run/candidate/capture.receipt",
+            "sha256": "b35478fa84202438959616489b36f92a4a1b00df3891b3332df33de255c804ac"
+          },
+          "command": "TMPDIR=/home/josh/d/laputa-systems/xsh/.work/tmp python3 -B dev/consolidation/w9_publication_adapter_runner.py compare-derived-captures --candidate-root /home/josh/d/laputa-systems/xsh --candidate-source-receipt /home/josh/d/laputa-systems/xsh/.work/consolidation/w9-source-2083821-a1/source.receipt.tsv --reference-source-root /home/josh/d/laputa-systems/xsh/.work/wt/w9-adapter-ref-e240 --derived-reference-source-root /home/josh/d/laputa-systems/xsh/.work/wt/w9-derived-retry-context-bb --derived-reference-correction-receipt /home/josh/d/laputa-systems/xsh/.work/consolidation/w9-derived-reference-1fd9-7e93-a1/correction.receipt --original-capture-receipt /home/josh/d/laputa-systems/xsh/.work/consolidation/w9-adapter-56580-a1/full-run/reference/capture.receipt --reference-exact-build-receipt /home/josh/d/laputa-systems/xsh/.work/consolidation/w9-publication-adapter-v1-zpn7q710/w9-publication-adapter-reference-e240efad273f.receipt --candidate-exact-build-receipt /home/josh/d/laputa-systems/xsh/.work/consolidation/w9-publication-adapter-v1-t3m0idbh/w9-publication-adapter-candidate-2083821edb76.receipt --candidate-capture-receipt /home/josh/d/laputa-systems/xsh/.work/consolidation/w9-adapter-2083821-a1/full-run/candidate/capture.receipt --reference-exact-capture-receipt /home/josh/d/laputa-systems/xsh/.work/consolidation/w9-exact-owner-f105-reference-a1/capture.receipt --candidate-exact-capture-receipt /home/josh/d/laputa-systems/xsh/.work/consolidation/w9-exact-owner-candidate-2083821-a1/capture.receipt --output /home/josh/d/laputa-systems/xsh/.work/consolidation/w9-derived-reference-compare-2083821-a1",
+          "comparison_attempt_status": {
+            "detail": "corpus=1690 outcomes=6760 mismatches=0",
+            "path": ".work/consolidation/w9-derived-reference-compare-2083821-a1/comparison/attempt-status.txt",
+            "sha256": "762cdef8e141ac402b86ef8d7206953dc920c3b154b05c446c760995e57356bc",
+            "status": "complete"
+          },
+          "input_count": 1690,
+          "mismatch_count": 0,
+          "mismatches": {
+            "path": ".work/consolidation/w9-derived-reference-compare-2083821-a1/comparison/mismatches.tsv",
+            "rows": 0,
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+          },
+          "original_to_derived_reference_delta": {
+            "first_difference_input_index": 36,
+            "path": ".work/consolidation/w9-derived-reference-compare-2083821-a1/comparison/original-to-derived-reference.tsv",
+            "sha256": "d9cef5bcf795020fb52486ecfc05b22008ea1690d201c90bf3f07666ef1d5768",
+            "total_difference_count_measured": false
+          },
+          "outcome_count": 6760,
+          "output_directory": ".work/consolidation/w9-derived-reference-compare-2083821-a1",
+          "process_exit_code": 0,
+          "reference_correction_delta_receipt": {
+            "path": ".work/consolidation/w9-derived-reference-compare-2083821-a1/comparison/derived-reference-comparison.receipt",
+            "role": "original-to-derived-reference-comparison",
+            "scope": "Authenticates the original-to-derived-reference correction delta only; candidate parity is bound by the completed terminal status, candidate capture receipt, both exact-owner proof receipts, and the empty mismatch report.",
+            "sha256": "bab4213695f1839e1c75a849e60d79ab8bbf96bd351f2c1a80e2777c88208761"
+          },
+          "reference_exact_capture_receipt": {
+            "path": ".work/consolidation/w9-exact-owner-f105-reference-a1/capture.receipt",
+            "sha256": "6ade4c914ec42db29b78e256810e384672932c20df8d2f1047318d419f6ed38f"
+          },
+          "reference_exact_owner_proof": {
+            "owner_count": 1690,
+            "path": ".work/consolidation/w9-derived-reference-compare-2083821-a1/exact-reference/proof.receipt",
+            "sha256": "7ead95cee8d1a65dc5f546ce510726f86ccae8a0bbdd7c28f938f0941a93b1e3"
+          },
+          "status": "complete",
+          "stdout_log_persisted": false,
+          "terminal_summary": "corpus=1690 outcomes=6760 mismatches=0",
+          "worker_mode": "three-worker"
+        }
+      }
+    },
+    "sha256": "d30872547c1e4fff6f1d636ee88f5d082b51c7018f32581e3e369d2047f0e8bb"
+  },
+  "gate_batch_docker_commands": [
+    {
+      "argv": [
+        "/usr/bin/docker",
+        "image",
+        "inspect",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+      ],
+      "effective_argv": [
+        "/usr/bin/docker",
+        "image",
+        "inspect",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+      ],
+      "instrumented": false,
+      "rejected": false,
+      "time_utc": "2026-10-15T12:09:50.703+00:00"
+    },
+    {
+      "argv": [
+        "/usr/bin/docker",
+        "run",
+        "--rm",
+        "--init",
+        "--platform",
+        "linux/amd64",
+        "--privileged",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh:/work",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/gate-batch-target:/work/target",
+        "-v",
+        "xsh-cargo-registry:/root/.cargo/registry",
+        "-w",
+        "/work",
+        "-e",
+        "TARGET=x86_64-unknown-linux-musl",
+        "-e",
+        "DIST_PROFILE=release",
+        "-e",
+        "CARGO_TARGET_DIR=/work/target",
+        "-e",
+        "CARGO_BUILD_WARNINGS=deny",
+        "-e",
+        "HOST_UID=1000",
+        "-e",
+        "HOST_GID=1000",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/dev/musl-linker.sh:/usr/local/bin/xsh-mold-linker:ro",
+        "-v",
+        "/usr/local/bin/mold:/usr/local/bin/mold:ro",
+        "-v",
+        "/home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro",
+        "-e",
+        "RUSTC_WRAPPER=/usr/local/bin/kache",
+        "-e",
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker",
+        "-e",
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "cargo",
+        "run",
+        "--quiet",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "-p",
+        "xsh",
+        "--bin",
+        "xsh",
+        "--",
+        "dev/main.xsh",
+        "--",
+        "internal",
+        "gate-batch"
+      ],
+      "effective_argv": [
+        "/usr/bin/docker",
+        "run",
+        "--cidfile",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/container.cid",
+        "--label",
+        "org.xsh.final-performance.owner=7bf52f1176337a80c777241a39b6054c",
+        "--label",
+        "org.xsh.final-performance.stage=canonical-gate-batch",
+        "--rm",
+        "--init",
+        "--platform",
+        "linux/amd64",
+        "--privileged",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh:/work",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/gate-batch-target:/work/target",
+        "-v",
+        "xsh-cargo-registry:/root/.cargo/registry",
+        "-w",
+        "/work",
+        "-e",
+        "TARGET=x86_64-unknown-linux-musl",
+        "-e",
+        "DIST_PROFILE=release",
+        "-e",
+        "CARGO_TARGET_DIR=/work/target",
+        "-e",
+        "CARGO_BUILD_WARNINGS=deny",
+        "-e",
+        "HOST_UID=1000",
+        "-e",
+        "HOST_GID=1000",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/dev/musl-linker.sh:/usr/local/bin/xsh-mold-linker:ro",
+        "-v",
+        "/usr/local/bin/mold:/usr/local/bin/mold:ro",
+        "-v",
+        "/home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro",
+        "-e",
+        "RUSTC_WRAPPER=/usr/local/bin/kache",
+        "-e",
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker",
+        "-e",
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "/usr/bin/python3",
+        "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py",
+        "/work/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/container-resources.json",
+        "--",
+        "/root/.cargo/bin/cargo",
+        "run",
+        "--quiet",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "-p",
+        "xsh",
+        "--bin",
+        "xsh",
+        "--",
+        "dev/main.xsh",
+        "--",
+        "internal",
+        "gate-batch"
+      ],
+      "instrumented": true,
+      "rejected": false,
+      "time_utc": "2026-10-15T12:09:50.748+00:00"
+    }
+  ],
+  "gate_batch_release_binaries": {
+    "xsh": {
+      "mode": "0o0755",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/gate-batch-target/x86_64-unknown-linux-musl/release/xsh",
+      "sha256": "1656bd4fd5bf60189800cf722ac711d6b50c7d511d398df2fa63af7b4c2115ed",
+      "size_bytes": 30262040
+    },
+    "xsh-test-helper": {
+      "mode": "0o0755",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/gate-batch-target/x86_64-unknown-linux-musl/release/xsh-test-helper",
+      "sha256": "63d30070f67251ab11a5f0712324ce5ef73c9462ec2b335f2af135369a569377",
+      "size_bytes": 655256
+    },
+    "xsht": {
+      "mode": "0o0755",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/gate-batch-target/x86_64-unknown-linux-musl/release/xsht",
+      "sha256": "368788482307f8f70da072087137e45cc406e83118114316ade740a3c9565d9b",
+      "size_bytes": 40717384
+    }
+  },
+  "locks": {
+    "cargo": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/cargo.lock",
+    "held_for_both_stages": true,
+    "native_suite": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock",
+    "performance": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/final-performance.lock"
+  },
+  "native_image": {
+    "architecture": "amd64",
+    "image_id": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+    "os": "linux"
+  },
+  "post_batch_supplemental_launcher": {
+    "after_stage": "canonical-gate-batch",
+    "broad_test_run_counts": {
+      "docs_gate": 0,
+      "focused_native_files": 0,
+      "full_native_suite": 0,
+      "native_extra": 0,
+      "rust_harness_runs": 0
+    },
+    "command": [
+      "python3",
+      "-B",
+      "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/launch.py",
+      "--execute",
+      "--expected-commit",
+      "$CLOSE",
+      "--expected-tree",
+      "$CLOSE_TREE",
+      "--out",
+      "$SUPPLEMENTAL_OUT"
+    ],
+    "execution_note": "Product and harness builds prepare the isolated contexts; the Clippy matrix is distinct. There are no broad Rust, native, docs, or full-suite test loops.",
+    "launcher": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/launch.py",
+    "linux_context_runs": 5,
+    "recursive_cp_filter_count": 1,
+    "separate_prerequisites": {
+      "clippy_commands": 3,
+      "product_builds": 4,
+      "rust_harness_builds": 3
+    }
+  },
+  "profile_cost_receipt": {
+    "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/receipt.json",
+    "sha256": "c6970747035af95211a4ad749e6264958ba78f2832c7f606fa17346aff4b0c5c"
+  },
+  "release_profile": {
+    "lto": "thin",
+    "name": "release-opt3",
+    "opt_level": 3,
+    "profile": "release"
+  },
+  "resource_policy": {
+    "gate_batch_limits": "record the pinned Docker command's actual cgroup limits without changing its canonical settings",
+    "isolated_lint_cpu_limit": 12,
+    "isolated_lint_cpuset": "0,1,2,3,4,5,6,7,8,9,10,11",
+    "isolated_lint_memory_limit": "24g",
+    "isolated_lint_swap_limit": "24g",
+    "rss_method": "container-local sum of resident pages sampled every 100 ms; retain kernel cgroup peak and events independently"
+  },
+  "run_id": "7bf52f1176337a80c777241a39b6054c",
+  "schema_version": 1,
+  "selected_release_binaries": {
+    "xsh": {
+      "mode": "0o0755",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsh",
+      "sha256": "f5fcfe0b0a6a41091a252df4f0c5fa5cb00464beca391dbe40f5686ec20d4063",
+      "size_bytes": 30203864
+    },
+    "xsh-test-helper": {
+      "mode": "0o0755",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsh-test-helper",
+      "sha256": "cf8005649749a43cc22aa5e40092a8f90365efc370b857fce5de2004adb2e621",
+      "size_bytes": 657104
+    },
+    "xsht": {
+      "mode": "0o0755",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsht",
+      "sha256": "5976010d15c3a16d7c6e3601a67b2be397ccb07e24e7bbca8d2b4110d758f64c",
+      "size_bytes": 40601328
+    }
+  },
+  "selected_release_binaries_after_gate_batch": {
+    "xsh": {
+      "mode": "0o0755",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsh",
+      "sha256": "f5fcfe0b0a6a41091a252df4f0c5fa5cb00464beca391dbe40f5686ec20d4063",
+      "size_bytes": 30203864
+    },
+    "xsh-test-helper": {
+      "mode": "0o0755",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsh-test-helper",
+      "sha256": "cf8005649749a43cc22aa5e40092a8f90365efc370b857fce5de2004adb2e621",
+      "size_bytes": 657104
+    },
+    "xsht": {
+      "mode": "0o0755",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsht",
+      "sha256": "5976010d15c3a16d7c6e3601a67b2be397ccb07e24e7bbca8d2b4110d758f64c",
+      "size_bytes": 40601328
+    }
+  },
+  "selected_release_binaries_after_lint": {
+    "xsh": {
+      "mode": "0o0755",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsh",
+      "sha256": "f5fcfe0b0a6a41091a252df4f0c5fa5cb00464beca391dbe40f5686ec20d4063",
+      "size_bytes": 30203864
+    },
+    "xsh-test-helper": {
+      "mode": "0o0755",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsh-test-helper",
+      "sha256": "cf8005649749a43cc22aa5e40092a8f90365efc370b857fce5de2004adb2e621",
+      "size_bytes": 657104
+    },
+    "xsht": {
+      "mode": "0o0755",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsht",
+      "sha256": "5976010d15c3a16d7c6e3601a67b2be397ccb07e24e7bbca8d2b4110d758f64c",
+      "size_bytes": 40601328
+    }
+  },
+  "source": {
+    "commit": "0ea216732686b7851bfb8ba49b81b5ef6d2608b1",
+    "git_tree": "cb8cd5298918f7a9839284d894acca4dd9a4e346",
+    "relative_output": ".work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers",
+    "root": "/home/josh/d/laputa-systems/xsh",
+    "status": "clean"
+  },
+  "stages": {
+    "canonical_gate_batch": {
+      "command": [
+        "cargo",
+        "dev",
+        "gate",
+        "--batch"
+      ],
+      "container_cleanup": {
+        "cidfile": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/container.cid",
+        "cleaned_container_ids": [],
+        "commands": [
+          {
+            "command": [
+              "docker",
+              "ps",
+              "--all",
+              "--quiet",
+              "--filter",
+              "label=org.xsh.final-performance.owner=7bf52f1176337a80c777241a39b6054c",
+              "--filter",
+              "label=org.xsh.final-performance.stage=canonical-gate-batch"
+            ],
+            "exit_code": 0,
+            "stderr": "",
+            "stdout": ""
+          },
+          {
+            "absent": true,
+            "command": [
+              "docker",
+              "inspect",
+              "0dc833dff915684db4bdd579ae9a40b6c4a7319ea692ec928597b40055a55c28"
+            ],
+            "exit_code": 1,
+            "stderr": "error: no such object: 0dc833dff915684db4bdd579ae9a40b6c4a7319ea692ec928597b40055a55c28\n",
+            "stdout": "[]\n"
+          }
+        ],
+        "container_ids": [
+          "0dc833dff915684db4bdd579ae9a40b6c4a7319ea692ec928597b40055a55c28"
+        ],
+        "resolved": true
+      },
+      "container_resource_error": "container command or its resource observer did not complete successfully",
+      "container_resources": null,
+      "deferred_signals": {
+        "counts": {},
+        "first": null
+      },
+      "environment": {
+        "CARGO_NET_GIT_FETCH_WITH_CLI": "true",
+        "CARGO_TARGET_DIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/gate-batch-target",
+        "CHARSET": "UTF-8",
+        "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION": "9001",
+        "CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS": "1",
+        "CODEX_CI": "1",
+        "CODEX_PERMISSION_PROFILE": ":workspace",
+        "CODEX_SANDBOX_NETWORK_DISABLED": "1",
+        "CODEX_SESSION_ID": "01a13328-39c4-76b2-86f6-3e3c1f691f00",
+        "CODEX_THREAD_ID": "01a13328-39c4-76b2-86f6-3e3c1f691f00",
+        "CODEX_VERSION": "0.162.1",
+        "COLORTERM": "truecolor",
+        "DIST_PROFILE": "release",
+        "DOCKER_PLATFORM": "linux/amd64",
+        "EDITOR": "/home/josh/usr/bin/e",
+        "GH_PAGER": "cat",
+        "GIT_PAGER": "cat",
+        "HOME": "/home/josh",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C",
+        "LC_COLLATE": "C",
+        "LC_CTYPE": "C.UTF-8",
+        "LOGNAME": "josh",
+        "LS_COLORS": "su=00:sg=00:ca=00:or=40;31;01:",
+        "NO_COLOR": "1",
+        "OLDPWD": "/home/josh/d/laputa-systems/laputa",
+        "PAGER": "less",
+        "PATH": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/host-bin:/home/josh/.cargo/bin:/home/josh/.codex/packages/standalone/releases/0.162.1-x86_64-unknown-linux-musl/codex-path:/home/josh/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PWD": "/home/josh/d/laputa-systems/xsh",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "SHELL": "/home/josh/.local/bin/ish",
+        "SHLVL": "1",
+        "SSH_CLIENT": "100.74.141.56 53687 22",
+        "SSH_CONNECTION": "100.74.141.56 59388 100.98.145.91 22",
+        "SSH_TTY": "/dev/pts/1",
+        "TARGET": "x86_64-unknown-linux-musl",
+        "TERM": "tmux-256color",
+        "TERM_PROGRAM": "tmux",
+        "TERM_PROGRAM_VERSION": "3.8",
+        "TMPDIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/tmp",
+        "TMUX": "/tmp/tmux-1000/default,30620,0",
+        "TMUX_PANE": "%26",
+        "TZ": "UTC",
+        "USER": "josh",
+        "XDG_CACHE_HOME": "/home/josh/.cache",
+        "XDG_CONFIG_HOME": "/home/josh/.config",
+        "XDG_DATA_HOME": "/home/josh/.local/share",
+        "XSH_OBSERVER_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/container.cid",
+        "XSH_OBSERVER_CONTAINER_RESOURCE": "/work/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/container-resources.json",
+        "XSH_OBSERVER_CONTAINER_SCRIPT": "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py",
+        "XSH_OBSERVER_DOCKER_LOG": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/docker-commands.jsonl",
+        "XSH_OBSERVER_REAL_DOCKER": "/usr/bin/docker",
+        "XSH_OBSERVER_RUN_ID": "7bf52f1176337a80c777241a39b6054c",
+        "XSH_TEST_IMAGE": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "XSH_TEST_IMAGE_BUILD": "0",
+        "_": "/usr/bin/python3",
+        "__DENV_DIR": "/home/josh/d/laputa-systems/xsh",
+        "__DENV_DIRTY": "1",
+        "__DENV_PID": "14389",
+        "__DENV_SHELL": "bash"
+      },
+      "name": "canonical-gate-batch",
+      "performance_gate": {
+        "after": {
+          "command": [
+            "perf-gate-ready",
+            "-1"
+          ],
+          "exit_code": 0,
+          "stderr": "",
+          "stdout": ""
+        },
+        "before": {
+          "command": [
+            "perf-gate-ready"
+          ],
+          "exit_code": 0,
+          "stderr": "",
+          "stdout": ""
+        }
+      },
+      "post_stage_validation": {
+        "docker_commands": [
+          {
+            "argv": [
+              "/usr/bin/docker",
+              "image",
+              "inspect",
+              "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+            ],
+            "effective_argv": [
+              "/usr/bin/docker",
+              "image",
+              "inspect",
+              "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+            ],
+            "instrumented": false,
+            "rejected": false,
+            "time_utc": "2026-10-15T12:09:50.703+00:00"
+          },
+          {
+            "argv": [
+              "/usr/bin/docker",
+              "run",
+              "--rm",
+              "--init",
+              "--platform",
+              "linux/amd64",
+              "--privileged",
+              "-v",
+              "/home/josh/d/laputa-systems/xsh:/work",
+              "-v",
+              "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/gate-batch-target:/work/target",
+              "-v",
+              "xsh-cargo-registry:/root/.cargo/registry",
+              "-w",
+              "/work",
+              "-e",
+              "TARGET=x86_64-unknown-linux-musl",
+              "-e",
+              "DIST_PROFILE=release",
+              "-e",
+              "CARGO_TARGET_DIR=/work/target",
+              "-e",
+              "CARGO_BUILD_WARNINGS=deny",
+              "-e",
+              "HOST_UID=1000",
+              "-e",
+              "HOST_GID=1000",
+              "-v",
+              "/home/josh/d/laputa-systems/xsh/dev/musl-linker.sh:/usr/local/bin/xsh-mold-linker:ro",
+              "-v",
+              "/usr/local/bin/mold:/usr/local/bin/mold:ro",
+              "-v",
+              "/home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro",
+              "-e",
+              "RUSTC_WRAPPER=/usr/local/bin/kache",
+              "-e",
+              "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker",
+              "-e",
+              "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol",
+              "-v",
+              "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro",
+              "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+              "cargo",
+              "run",
+              "--quiet",
+              "--target",
+              "x86_64-unknown-linux-musl",
+              "-p",
+              "xsh",
+              "--bin",
+              "xsh",
+              "--",
+              "dev/main.xsh",
+              "--",
+              "internal",
+              "gate-batch"
+            ],
+            "effective_argv": [
+              "/usr/bin/docker",
+              "run",
+              "--cidfile",
+              "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/container.cid",
+              "--label",
+              "org.xsh.final-performance.owner=7bf52f1176337a80c777241a39b6054c",
+              "--label",
+              "org.xsh.final-performance.stage=canonical-gate-batch",
+              "--rm",
+              "--init",
+              "--platform",
+              "linux/amd64",
+              "--privileged",
+              "-v",
+              "/home/josh/d/laputa-systems/xsh:/work",
+              "-v",
+              "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/gate-batch-target:/work/target",
+              "-v",
+              "xsh-cargo-registry:/root/.cargo/registry",
+              "-w",
+              "/work",
+              "-e",
+              "TARGET=x86_64-unknown-linux-musl",
+              "-e",
+              "DIST_PROFILE=release",
+              "-e",
+              "CARGO_TARGET_DIR=/work/target",
+              "-e",
+              "CARGO_BUILD_WARNINGS=deny",
+              "-e",
+              "HOST_UID=1000",
+              "-e",
+              "HOST_GID=1000",
+              "-v",
+              "/home/josh/d/laputa-systems/xsh/dev/musl-linker.sh:/usr/local/bin/xsh-mold-linker:ro",
+              "-v",
+              "/usr/local/bin/mold:/usr/local/bin/mold:ro",
+              "-v",
+              "/home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro",
+              "-e",
+              "RUSTC_WRAPPER=/usr/local/bin/kache",
+              "-e",
+              "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker",
+              "-e",
+              "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol",
+              "-v",
+              "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro",
+              "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+              "/usr/bin/python3",
+              "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py",
+              "/work/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/container-resources.json",
+              "--",
+              "/root/.cargo/bin/cargo",
+              "run",
+              "--quiet",
+              "--target",
+              "x86_64-unknown-linux-musl",
+              "-p",
+              "xsh",
+              "--bin",
+              "xsh",
+              "--",
+              "dev/main.xsh",
+              "--",
+              "internal",
+              "gate-batch"
+            ],
+            "instrumented": true,
+            "rejected": false,
+            "time_utc": "2026-10-15T12:09:50.748+00:00"
+          }
+        ],
+        "gate_batch_release_binaries": {
+          "xsh": {
+            "mode": "0o0755",
+            "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/gate-batch-target/x86_64-unknown-linux-musl/release/xsh",
+            "sha256": "1656bd4fd5bf60189800cf722ac711d6b50c7d511d398df2fa63af7b4c2115ed",
+            "size_bytes": 30262040
+          },
+          "xsh-test-helper": {
+            "mode": "0o0755",
+            "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/gate-batch-target/x86_64-unknown-linux-musl/release/xsh-test-helper",
+            "sha256": "63d30070f67251ab11a5f0712324ce5ef73c9462ec2b335f2af135369a569377",
+            "size_bytes": 655256
+          },
+          "xsht": {
+            "mode": "0o0755",
+            "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/gate-batch-target/x86_64-unknown-linux-musl/release/xsht",
+            "sha256": "368788482307f8f70da072087137e45cc406e83118114316ade740a3c9565d9b",
+            "size_bytes": 40717384
+          }
+        },
+        "selected_release_binaries": {
+          "xsh": {
+            "mode": "0o0755",
+            "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsh",
+            "sha256": "f5fcfe0b0a6a41091a252df4f0c5fa5cb00464beca391dbe40f5686ec20d4063",
+            "size_bytes": 30203864
+          },
+          "xsh-test-helper": {
+            "mode": "0o0755",
+            "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsh-test-helper",
+            "sha256": "cf8005649749a43cc22aa5e40092a8f90365efc370b857fce5de2004adb2e621",
+            "size_bytes": 657104
+          },
+          "xsht": {
+            "mode": "0o0755",
+            "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsht",
+            "sha256": "5976010d15c3a16d7c6e3601a67b2be397ccb07e24e7bbca8d2b4110d758f64c",
+            "size_bytes": 40601328
+          }
+        },
+        "source": {
+          "commit": "0ea216732686b7851bfb8ba49b81b5ef6d2608b1",
+          "git_tree": "cb8cd5298918f7a9839284d894acca4dd9a4e346",
+          "status": "clean"
+        }
+      },
+      "post_stage_validation_error": null,
+      "status": 3,
+      "stderr": {
+        "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/stderr.log",
+        "sha256": "f916319a46956fe8613b7ce53a93e0a4a6bd9d53bed04b637c03805330dc54df",
+        "size_bytes": 9218
+      },
+      "stderr_path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/stderr.log",
+      "stdout": {
+        "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/stdout.log",
+        "sha256": "1c15a9f029b9409826990670166c773f1526a7c3d8a22d03428dd6a4f884279b",
+        "size_bytes": 161384
+      },
+      "stdout_path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/canonical-gate-batch/stdout.log",
+      "timing_accepted": false,
+      "timing_discarded": true,
+      "wall_ns": null,
+      "wall_ns_discarded": 2002340965107
+    },
+    "isolated_repository_lint": {
+      "command": [
+        "/usr/bin/docker",
+        "run",
+        "--rm",
+        "--init",
+        "--cidfile",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/isolated-repository-lint/container.cid",
+        "--label",
+        "org.xsh.final-performance.owner=7bf52f1176337a80c777241a39b6054c",
+        "--label",
+        "org.xsh.final-performance.stage=isolated-repository-lint",
+        "--platform",
+        "linux/amd64",
+        "--cpuset-cpus",
+        "0,1,2,3,4,5,6,7,8,9,10,11",
+        "--cpus",
+        "12",
+        "--memory",
+        "24g",
+        "--memory-swap",
+        "24g",
+        "--network",
+        "none",
+        "--tmpfs",
+        "/tmp:rw,exec,nosuid,mode=1777",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh:/work:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release:/release:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/isolated-repository-lint:/observer:rw",
+        "-w",
+        "/work",
+        "-e",
+        "LC_ALL=C",
+        "-e",
+        "TZ=UTC",
+        "-e",
+        "TMPDIR=/tmp",
+        "-e",
+        "XSH_BIN=/release/xsh",
+        "-e",
+        "PATH=/release:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "/usr/bin/python3",
+        "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py",
+        "/observer/container-resources.json",
+        "--",
+        "/release/xsht",
+        "lint"
+      ],
+      "container_cleanup": {
+        "cidfile": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/isolated-repository-lint/container.cid",
+        "cleaned_container_ids": [],
+        "commands": [
+          {
+            "command": [
+              "docker",
+              "ps",
+              "--all",
+              "--quiet",
+              "--filter",
+              "label=org.xsh.final-performance.owner=7bf52f1176337a80c777241a39b6054c",
+              "--filter",
+              "label=org.xsh.final-performance.stage=isolated-repository-lint"
+            ],
+            "exit_code": 0,
+            "stderr": "",
+            "stdout": ""
+          },
+          {
+            "absent": true,
+            "command": [
+              "docker",
+              "inspect",
+              "e43c417ec6120cbed2c273383f3f3cd4db75178bf6a4023b920c433afa280bdd"
+            ],
+            "exit_code": 1,
+            "stderr": "error: no such object: e43c417ec6120cbed2c273383f3f3cd4db75178bf6a4023b920c433afa280bdd\n",
+            "stdout": "[]\n"
+          }
+        ],
+        "container_ids": [
+          "e43c417ec6120cbed2c273383f3f3cd4db75178bf6a4023b920c433afa280bdd"
+        ],
+        "resolved": true
+      },
+      "container_resource_error": null,
+      "container_resources": {
+        "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/isolated-repository-lint/container-resources.json",
+        "receipt": {
+          "cgroup_limits_and_peaks": {
+            "cpu_max": "1200000 100000",
+            "memory_current": "10137600",
+            "memory_events": {
+              "high": 0,
+              "low": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_group_kill": 0,
+              "oom_kill": 0,
+              "sock_throttled": 0
+            },
+            "memory_max": "25769803776",
+            "memory_peak": "1393786880",
+            "memory_swap_current": "0",
+            "memory_swap_events": {
+              "fail": 0,
+              "high": 0,
+              "max": 0
+            },
+            "memory_swap_max": "0",
+            "memory_swap_peak": "0",
+            "pids_current": "2",
+            "pids_max": "max",
+            "pids_peak": "15"
+          },
+          "command": [
+            "/release/xsht",
+            "lint"
+          ],
+          "final": {
+            "cgroup": {
+              "cpu_max": "1200000 100000",
+              "memory_current": "10137600",
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0,
+                "sock_throttled": 0
+              },
+              "memory_max": "25769803776",
+              "memory_peak": "1393786880",
+              "memory_swap_current": "0",
+              "memory_swap_events": {
+                "fail": 0,
+                "high": 0,
+                "max": 0
+              },
+              "memory_swap_max": "0",
+              "memory_swap_peak": "0",
+              "pids_current": "2",
+              "pids_max": "max",
+              "pids_peak": "15"
+            },
+            "process_rss_sum_bytes": 10944512,
+            "sampled_utc": "2026-10-15T12:09:19.159+00:00",
+            "visible_process_count": 2
+          },
+          "initial": {
+            "cgroup": {
+              "cpu_max": "1200000 100000",
+              "memory_current": "10272768",
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0,
+                "sock_throttled": 0
+              },
+              "memory_max": "25769803776",
+              "memory_peak": "11468800",
+              "memory_swap_current": "0",
+              "memory_swap_events": {
+                "fail": 0,
+                "high": 0,
+                "max": 0
+              },
+              "memory_swap_max": "0",
+              "memory_swap_peak": "0",
+              "pids_current": "2",
+              "pids_max": "max",
+              "pids_peak": "6"
+            },
+            "process_rss_sum_bytes": 10817536,
+            "sampled_utc": "2026-10-15T12:09:05.930+00:00",
+            "visible_process_count": 2
+          },
+          "oom_events": 0,
+          "oom_kill_events": 0,
+          "process_rss_peak_bytes": 1307951104,
+          "process_rss_peak_method": "sum of resident pages for visible container processes, sampled every 100 ms",
+          "received_signal": null,
+          "resource_sample_interval_ms": 100,
+          "resource_samples": 133,
+          "schema_version": 1,
+          "spawn_error": null,
+          "status": 0,
+          "swap_events": {
+            "fail": 0,
+            "high": 0,
+            "max": 0
+          },
+          "timing_discarded": false,
+          "wall_ns": 13229171180
+        },
+        "sha256": "8b9f5ddbdb0c3ab55d67e30b9db0cc84aeeabcd1dcb35bbb7cb0331545734ede"
+      },
+      "deferred_signals": {
+        "counts": {},
+        "first": null
+      },
+      "environment": {
+        "CARGO_NET_GIT_FETCH_WITH_CLI": "true",
+        "CARGO_TARGET_DIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/gate-batch-target",
+        "CHARSET": "UTF-8",
+        "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION": "9001",
+        "CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS": "1",
+        "CODEX_CI": "1",
+        "CODEX_PERMISSION_PROFILE": ":workspace",
+        "CODEX_SANDBOX_NETWORK_DISABLED": "1",
+        "CODEX_SESSION_ID": "01a13328-39c4-76b2-86f6-3e3c1f691f00",
+        "CODEX_THREAD_ID": "01a13328-39c4-76b2-86f6-3e3c1f691f00",
+        "CODEX_VERSION": "0.162.1",
+        "COLORTERM": "truecolor",
+        "DIST_PROFILE": "release",
+        "DOCKER_PLATFORM": "linux/amd64",
+        "EDITOR": "/home/josh/usr/bin/e",
+        "GH_PAGER": "cat",
+        "GIT_PAGER": "cat",
+        "HOME": "/home/josh",
+        "HOMEBREW_NO_ANALYTICS": "1",
+        "HOMEBREW_NO_AUTO_UPDATE": "1",
+        "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK": "1",
+        "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C",
+        "LC_COLLATE": "C",
+        "LC_CTYPE": "C.UTF-8",
+        "LOGNAME": "josh",
+        "LS_COLORS": "su=00:sg=00:ca=00:or=40;31;01:",
+        "NO_COLOR": "1",
+        "OLDPWD": "/home/josh/d/laputa-systems/laputa",
+        "PAGER": "less",
+        "PATH": "/home/josh/.cargo/bin:/home/josh/.codex/packages/standalone/releases/0.162.1-x86_64-unknown-linux-musl/codex-path:/home/josh/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "PWD": "/home/josh/d/laputa-systems/xsh",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "SHELL": "/home/josh/.local/bin/ish",
+        "SHLVL": "1",
+        "SSH_CLIENT": "100.74.141.56 53687 22",
+        "SSH_CONNECTION": "100.74.141.56 59388 100.98.145.91 22",
+        "SSH_TTY": "/dev/pts/1",
+        "TARGET": "x86_64-unknown-linux-musl",
+        "TERM": "tmux-256color",
+        "TERM_PROGRAM": "tmux",
+        "TERM_PROGRAM_VERSION": "3.8",
+        "TMPDIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/tmp",
+        "TMUX": "/tmp/tmux-1000/default,30620,0",
+        "TMUX_PANE": "%26",
+        "TZ": "UTC",
+        "USER": "josh",
+        "XDG_CACHE_HOME": "/home/josh/.cache",
+        "XDG_CONFIG_HOME": "/home/josh/.config",
+        "XDG_DATA_HOME": "/home/josh/.local/share",
+        "XSH_TEST_IMAGE": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "XSH_TEST_IMAGE_BUILD": "0",
+        "_": "/usr/bin/python3",
+        "__DENV_DIR": "/home/josh/d/laputa-systems/xsh",
+        "__DENV_DIRTY": "1",
+        "__DENV_PID": "14389",
+        "__DENV_SHELL": "bash"
+      },
+      "name": "isolated-repository-lint",
+      "performance_gate": {
+        "after": {
+          "command": [
+            "perf-gate-ready",
+            "-1"
+          ],
+          "exit_code": 0,
+          "stderr": "",
+          "stdout": ""
+        },
+        "before": {
+          "command": [
+            "perf-gate-ready"
+          ],
+          "exit_code": 0,
+          "stderr": "",
+          "stdout": ""
+        }
+      },
+      "post_stage_validation": {
+        "selected_release_binaries": {
+          "xsh": {
+            "mode": "0o0755",
+            "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsh",
+            "sha256": "f5fcfe0b0a6a41091a252df4f0c5fa5cb00464beca391dbe40f5686ec20d4063",
+            "size_bytes": 30203864
+          },
+          "xsh-test-helper": {
+            "mode": "0o0755",
+            "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsh-test-helper",
+            "sha256": "cf8005649749a43cc22aa5e40092a8f90365efc370b857fce5de2004adb2e621",
+            "size_bytes": 657104
+          },
+          "xsht": {
+            "mode": "0o0755",
+            "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-0ea216732686b7851bfb8ba49b81b5ef6d2608b1/opt3/target/x86_64-unknown-linux-musl/release/xsht",
+            "sha256": "5976010d15c3a16d7c6e3601a67b2be397ccb07e24e7bbca8d2b4110d758f64c",
+            "size_bytes": 40601328
+          }
+        },
+        "source": {
+          "commit": "0ea216732686b7851bfb8ba49b81b5ef6d2608b1",
+          "git_tree": "cb8cd5298918f7a9839284d894acca4dd9a4e346",
+          "status": "clean"
+        }
+      },
+      "post_stage_validation_error": null,
+      "status": 0,
+      "stderr": {
+        "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/isolated-repository-lint/stderr.log",
+        "sha256": "0fdd5b7c4d8cf6df55649f1a7f280bfb44b4d4945aeea34a5847697948408537",
+        "size_bytes": 58525
+      },
+      "stderr_path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/isolated-repository-lint/stderr.log",
+      "stdout": {
+        "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/isolated-repository-lint/stdout.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "size_bytes": 0
+      },
+      "stdout_path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/0ea216732686b7851bfb8ba49b81b5ef6d2608b1-observers/isolated-repository-lint/stdout.log",
+      "timing_accepted": true,
+      "timing_discarded": false,
+      "wall_ns": 13356376433
+    }
+  },
+  "started_utc": "2026-10-15T12:09:05+00:00",
+  "state": "failed",
+  "supplemental_isolated_tests": {
+    "context": "pinned x86_64 musl image, no network, nodev /tmp, privileged only for this test target",
+    "filter": "cp::privileged::test_cp_recursive_block_device_",
+    "owner": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/launch.py",
+    "stage": "core-compat-extra-privileged"
+  },
+  "target": "x86_64-unknown-linux-musl",
+  "timing_policy": "one run per observer; reject timing if either readiness check or the command fails; report no speedup claim"
+}

@@ -1,0 +1,193 @@
+[docker-image-inspect target=x86_64-unknown-linux-musl] docker image inspect sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+[
+    {
+        "Id": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "RepoTags": [
+            "xsh-test:consolidation-native",
+            "xsh-test:consolidation-x86_64"
+        ],
+        "RepoDigests": [
+            "xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+        ],
+        "Comment": "buildkit.dockerfile.v0",
+        "Created": "2026-10-11T05:07:54.056684865Z",
+        "Config": {
+            "Env": [
+                "PATH=/usr/local/bin:/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "CC=/usr/bin/clang-23",
+                "AR=/usr/local/bin/llvm-ar",
+                "RANLIB=/usr/bin/ranlib",
+                "LIBCLANG_PATH=/usr/lib/llvm23/lib",
+                "CC_AARCH64_UNKNOWN_LINUX_MUSL=/usr/bin/clang-23",
+                "CC_X86_64_UNKNOWN_LINUX_MUSL=/usr/bin/clang-23",
+                "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld",
+                "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld",
+                "CFLAGS_aarch64_unknown_linux_musl=--target=aarch64-unknown-linux-musl -B/usr/lib/xsh-crt/aarch64-unknown-linux-musl -I/usr/include",
+                "CFLAGS_x86_64_unknown_linux_musl=--target=x86_64-unknown-linux-musl -B/usr/lib/xsh-crt/x86_64-unknown-linux-musl -I/usr/include"
+            ],
+            "Cmd": [
+                "/bin/sh"
+            ],
+            "WorkingDir": "/"
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 4451600841,
+        "RootFS": {
+            "Type": "layers",
+            "Layers": [
+                "sha256:3783642dbaf4383d4c48f6ae3646ae3135d317f504a5e8ae5e0103b3c63af2d0",
+                "sha256:04fa387cbfc40b99218ae18d4d7779c048ebd643467a808e20e1fab1587e35b2",
+                "sha256:4a4f24f6bfb644270fc01dcd37532ad833d5cc15be59689e3dfaf302581d49f8",
+                "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+                "sha256:ff600508b23e49a4a23e998d385614151b3101e2e73fc79ca3f2e2bb9e1d2db2",
+                "sha256:391ba0362988c12ecd5583eb723f0c348af3127f29b1e46cc246e8e1d9b8f12f",
+                "sha256:be1927ef87c04f75d2a790ec9bd9edd16adb1585b5802346983da4bebc8f8caa",
+                "sha256:0f88858e9cbca6bcbb7115dcd268c9a37a8c2aad4a39bcd05e64466bc529e2ee",
+                "sha256:2c5337249365a69c5393c5db3fa87a29df5ae52e1d88977f4ff10c63b558cf2b",
+                "sha256:696fbef56ab86666c1f77e4f7773fe9051de506984cee6e114aa31a05ac978bf",
+                "sha256:d9ce0da3ef176a71a01baff529accb5b0614c7278588047c5307ee13b9db7f30",
+                "sha256:20e2ebf591001ee55f0f59006f2faef364c3ee54960d080b7fb6d726a2dc90af",
+                "sha256:19a2b205c3da815e5a7486375709d1d950548dc2437cd38f5ee92fff05352f16",
+                "sha256:5ba700f0abfd149033cb49a36faf4788a8a322c03bdeb512c66fb244e60e0288",
+                "sha256:ca04005267089e748bcce1e42f221a5b6f54422a141eac78cf5152974f73f81d"
+            ]
+        },
+        "Metadata": {
+            "LastTagTime": "2026-10-15T13:46:04.245402133Z"
+        },
+        "Descriptor": {
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "digest": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+            "size": 856
+        },
+        "Identity": {
+            "Pull": [
+                {
+                    "Repository": "docker.io/library/xsh-comparative-base"
+                }
+            ],
+            "Build": [
+                {
+                    "Ref": "l2xj77hfyjmcdb5ob1f6enwe1",
+                    "CreatedAt": "2026-10-11T13:54:44.495136853Z"
+                }
+            ]
+        }
+    }
+]
+[docker-gate-batch target=x86_64-unknown-linux-musl] docker run --rm --init --platform linux/amd64 --privileged -v /home/josh/d/laputa-systems/xsh:/work -v /home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/31c07c71f871428d255fe48e042725e703126b58-observers/gate-batch-target:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work -e TARGET=x86_64-unknown-linux-musl -e DIST_PROFILE=release -e CARGO_TARGET_DIR=/work/target -e CARGO_BUILD_WARNINGS=deny -e HOST_UID=1000 -e HOST_GID=1000 -v /home/josh/d/laputa-systems/xsh/dev/musl-linker.sh:/usr/local/bin/xsh-mold-linker:ro -v /usr/local/bin/mold:/usr/local/bin/mold:ro -v /home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro -e RUSTC_WRAPPER=/usr/local/bin/kache -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol -v /home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c cargo run --quiet --target x86_64-unknown-linux-musl -p xsh --bin xsh -- dev/main.xsh -- internal gate-batch
+[gate-git-safe-directory target=x86_64-unknown-linux-musl] git config --global --add safe.directory /work
+[test-products target=x86_64-unknown-linux-musl] cargo build --locked --profile release --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi
+[test-rust target=x86_64-unknown-linux-musl] cargo test --locked --profile release --target x86_64-unknown-linux-musl -p xsh --test integration --test ambient_fs_policy --test symbol_plateau --test core_compat_boundaries --test core_compat_extra -- --skip split:: --skip runtime::coverage::
+
+running 1 test
+test ambient_filesystem_use_is_allowlisted ... ignored, temporarily disabled: netlink.rs ambient fs uses pending allowlist decision
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 23 tests
+test test_binary::tests::optimized_product_paths_are_accepted ... ok
+test test_binary::tests::other_profiles_are_rejected ... ok
+test test_deleted_dir ... ok
+test test_broken_pipe ... ok
+test test_large_tab_stop_without_tabs_does_not_allocate ... ok
+test test_cat_broken_pipe_nonzero_and_message ... ok
+test test_closes_file_descriptors ... ok
+test test_uu_mkfifo_diagnostics_plain_message_when_stderr_is_a_pipe ... ok
+test test_cat_rw_self_conflict_fails ... ok
+test test_uchild_when_no_capture_reading_from_infinite_source ... ok
+test test_cat_rw_self_succeeds ... ok
+test test_broken_pipe_no_error ... ok
+test test_stdin_is_socket ... ok
+test test_dev_zero_closed_pipe ... ok
+test test_child_when_pipe_in ... ok
+test test_uu_mkfifo_create_fifo_with_umask ... ok
+test test_comm_anonymous_pipes ... ok
+test test_validate_stdin_offset_bytes ... ok
+test test_uu_mkfifo_create_fifo_with_mode_and_umask ... ok
+test test_validate_stdin_offset_lines ... ok
+test test_dev_full ... ok
+test test_dev_random ... ok
+test test_dev_full_show_all ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.32s
+
+
+running 60 tests
+test date_clock::test_date_set_valid ... ignored, requires a disposable QEMU guest
+test date_clock::test_date_set_valid_3 ... ignored, requires a disposable QEMU guest
+test date_clock::test_date_set_valid_4 ... ignored, requires a disposable QEMU guest
+test descriptor::saved_descriptor_is_closed_on_exec ... ok
+test descriptor::exact_descriptor_creation_mode_ignores_umask_and_preserves_existing_files ... ok
+test more::missing_raw_filename_is_not_lossy_filename ... ok
+test pty::btop_terminal_partial_start_failure_restores_input_terminal_attributes ... ok
+test lifecycle::test_couldnt_rename ... ok
+test cp::test_cp_absolute_paths_from_deleted_cwd_new_target ... ok
+test pty::btop_terminal_cleanup_runs_after_runtime_error_during_presentation ... ok
+test pty::btop_surface_delta_reconstructs_the_same_cells_as_a_fresh_full_frame ... ok
+test lifecycle::test_sigchld_ignored_by_parent ... ok
+test fd::test_read_bytes ... ok
+test lifecycle::test_kill_out_of_range_signal_is_rejected_not_sent ... ok
+test cp::test_closes_file_descriptors ... ok
+test fd::test_bytes_oseek_bytes_trunc_oflag ... ok
+test cp::test_cp_absolute_paths_from_deleted_cwd_existing_target ... ok
+test fd::test_stats_are_reported_when_a_write_fails ... ok
+test more::invalid_arguments_fail ... ok
+test pty::env_terminal_all_streams ... ok
+test pty::env_terminal_dimensions ... ok
+test pty::cp_update_older_prompt_no ... ok
+test pty::cp_update_older_prompt_yes ... ok
+test more::no_arguments_read_terminal_stdin ... ok
+test pty::env_terminal_eot ... ok
+test pty::env_terminal_forwarded_input_eot ... ok
+test more::file_errors ... ok
+test test_binary::tests::optimized_product_paths_are_accepted ... ok
+test test_binary::tests::other_profiles_are_rejected ... ok
+test pty::env_terminal_stderr_only ... ok
+test startup::absent_stdout_can_be_redirected_and_inherited_by_exec ... ok
+test pty::dd_plain_terminal_diagnostic ... ok
+test startup::absent_stdin_does_not_alias_loaded_source_and_can_be_reopened ... ok
+test pty::env_terminal_stdin_only ... ok
+test pty::env_terminal_stdout_only ... ok
+test pty::env_terminal_written_input_eot ... ok
+test fd::test_large_bs_does_not_fault_in_copy_buffer ... ok
+test fd::test_stdin_stdout_not_rewound_even_when_connected_to_seekable_file ... ok
+test pty::env_sigpipe_after_reader_closes ... ok
+test startup::gnu_misc_no_fork_runs_initial_evaluation_when_threads_are_forbidden ... ok
+test pty::expr_terminal_computed_operand ... ok
+test fd::test_multiple_processes_reading_stdin ... ok
+test fd::test_block_stats_are_reported_when_a_write_fails ... ok
+test more::squeeze_option_displays_original_first_line ... ok
+test pty::expr_terminal_errors_without_position ... ok
+test startup::gnu_misc_close_stdout_preserves_initial_absence ... ok
+test startup::gnu_dd_misc_preserves_initial_stderr_absence ... ok
+test startup::gnu_touch_dash_closed_stdout ... ok
+test more::basic_display ... ok
+test more::shared_valid_options_exit_at_short_file_eof ... ok
+test lifecycle::test_uchild_when_run_no_wait_with_a_non_blocking_util ... ok
+test pty::native_terminal_redirection_does_not_hang_up_its_session_leader ... ok
+test pty::btop_replay_stdin_eof_restores_terminal_attributes ... ok
+test pty::btop_replay_ctrl_c_byte_exits_and_restores_terminal ... ok
+test pty::btop_replay_write_failure_restores_input_terminal_attributes ... ok
+test pty::btop_replay_finite_completion_restores_terminal_attributes ... ok
+test pty::btop_replay_filter_sort_selection_and_resize_use_the_decoded_input ... ok
+test pty::btop_replay_updates_after_resize_and_quits_with_restored_terminal ... ok
+test pty::btop_input_to_present_latency_is_separate_from_replay_sample_interval ... ok
+test pty::btop_replay_network_and_cpu_view_keys_change_rendered_cells ... FAILED
+
+failures:
+
+---- pty::btop_replay_network_and_cpu_view_keys_change_rendered_cells stdout ----
+
+thread 'pty::btop_replay_network_and_cpu_view_keys_change_rendered_cells' (9586) panicked at tests/core_compat_extra/pty.rs:1090:5:
+assertion failed: (0..screen.rows).any(|row| screen.line(row).contains("CPU/core%"))
+
+
+failures:
+    pty::btop_replay_network_and_cpu_view_keys_change_rendered_cells
+
+test result: FAILED. 56 passed; 1 failed; 3 ignored; 0 measured; 2 filtered out; finished in 2.32s
+
+[container-ownership-repair target=x86_64-unknown-linux-musl] chown -R 1000:1000 /work/target

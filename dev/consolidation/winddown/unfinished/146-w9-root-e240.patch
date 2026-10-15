@@ -1,0 +1,64 @@
+diff --git a/tests/sema.rs b/tests/sema.rs
+index 372c2df6a40fb68e9b67e17702ff2c9d7f55cd4d..8dad2ca9076de3518560bfa240139f4dc41d0d61 100644
+--- a/tests/sema.rs
++++ b/tests/sema.rs
+@@ -80,6 +80,59 @@ fn checker_publication_options_preserve_repository_diagnostics() {
+     }
+ }
+ 
++include!("../.work/consolidation/w9-repository-parity.rs");
++
++#[test]
++fn imported_command_value_sites_keep_the_importing_module_source() {
++    use xsh::frontend::load::{entry_source_from_text, parse_load_entry_source_arena_only, project_module_roots};
++    use xsh::frontend::symbols::Name;
++
++    let root = tempfile::tempdir().expect("create imported-module fixture");
++    let entry_path = root.path().join("entry.xsh");
++    let module_path = root.path().join("helper.xsh");
++    let entry_source = "use helper\n";
++    let module_source = "##! Process-backed helper.\n## Capture output from a command.\nexport proc version() [process, error] {\n  let argv = [\"true\"]\n  let output = run.capture --text --timeout=30s @argv\n  print output.stdout.trim()\n}\n";
++    std::fs::write(&entry_path, entry_source).expect("write entry source");
++    std::fs::write(&module_path, module_source).expect("write imported module");
++
++    let entry_file = entry_path.to_str().expect("fixture path is UTF-8");
++    let (sources, parsed) = parse_load_entry_source_arena_only(
++        entry_file,
++        entry_source_from_text(entry_file, entry_source.to_owned()),
++        project_module_roots(&entry_path).expect("resolve module roots"),
++    );
++    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++    let entry_source_id = parsed.arena.source_text_source_id().expect("entry source identity");
++    let checked = Checker::check_arena_with_sources_and_options(
++        &parsed.arena,
++        &sources,
++        entry_source_id,
++        CheckOptions::default(),
++    );
++    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
++    let module_source_id = sources
++        .files()
++        .iter()
++        .find(|source| source.name() == module_path.to_str().unwrap())
++        .expect("imported source is loaded")
++        .id();
++    let argv = Name::intern("argv");
++    let (span, binding_id) = checked
++        .resolved_bindings
++        .value_sites
++        .iter()
++        .find_map(|((span, name), id)| (*name == argv).then_some((*span, *id)))
++        .expect("the imported command splice publishes its value site");
++    assert_eq!(span.source_id, module_source_id);
++    let declaration = checked
++        .resolved_bindings
++        .declarations
++        .get(&binding_id)
++        .expect("value-site binding declaration is published");
++    assert_eq!(declaration.span.source_id, module_source_id);
++    assert_eq!(sources.span_text(span), Some("@argv"));
++}
++
+ #[test]
+ fn embedded_standard_library_diagnostics_are_not_reported_as_user_findings() {
+     let source = "let value = json.encode_lines([1])?\n";

@@ -1,0 +1,46 @@
+snapshot	base_commit	original_branch	original_worktree	staged_patch
+006-aggregate-cursor-views-cold-layout	0c58051e5fe47c83534618ce7c69c712836089da		/home/josh/d/laputa-systems/xsh-consolidation-lanes/aggregate-cursor-views-cold-layout	
+007-aggregate-cursor-views-cold-layout-both	0c58051e5fe47c83534618ce7c69c712836089da		/home/josh/d/laputa-systems/xsh-consolidation-lanes/aggregate-cursor-views-cold-layout-both	
+020-approvedtodo-lint-repairs	e6aa1c0d720a62d187fbcfbd976d109fee95d957	lane/consolidation-lint-approvedtodo	/home/josh/d/laputa-systems/xsh-consolidation-lanes/approvedtodo-lint-repairs	
+037-check-session	a35dde3f5db49d4b8ade1465d1577408c5bccb44	lane/consolidation-check-session	/home/josh/d/laputa-systems/xsh-consolidation-lanes/check-session	
+050-coverage-baseline	a8102a6a966598987372442d3c68112b296148b9	lane/consolidation-coverage-baseline	/home/josh/d/laputa-systems/xsh-consolidation-lanes/coverage-baseline	
+056-decoder-stage-coverage	bfb184606672c8bb6b3b54dc84374eecd15b0e12	lane/decoder-stage-coverage	/home/josh/d/laputa-systems/xsh-consolidation-lanes/decoder-stage-coverage	
+075-error-facet-triage	bdd01efb19bafc4c31da1b02cb9f04fa0779fe42		/home/josh/d/laputa-systems/xsh-consolidation-lanes/error-facet-triage	
+077-error-family-oracle	b4d5ad377ea84d62c52fdc8ca5c8d42d8e01ca12	lane/consolidation-error-family-oracle	/home/josh/d/laputa-systems/xsh-consolidation-lanes/error-family-oracle	
+095-fuzz-grammar	854e48daeeefa806d0a7eb6831df1c77738330b9	lane/consolidation-fuzz-grammar	/home/josh/d/laputa-systems/xsh-consolidation-lanes/fuzz-grammar	
+097-grammar	deaddca0c315d918fd814476a9491499c6e36b96	lane/consolidation-grammar	/home/josh/d/laputa-systems/xsh-consolidation-lanes/grammar	
+098-grammar-current	5d2661a067dcffba1f9471d3840e594358750b0e	lane/consolidation-grammar-current	/home/josh/d/laputa-systems/xsh-consolidation-lanes/grammar-current	
+117-lint-probe-transport	fa11b1bd8cb44544267d7c7c4e7535ac193dce16	lane/consolidation-lint-probe-transport	/home/josh/d/laputa-systems/xsh-consolidation-lanes/lint-probe-transport	
+124-lint-rule-table-rootbfb	e7ee6cfb7b7eb61bb34ff518ac8c17539950e447	lane/consolidation-lint-table-rootbfb	/home/josh/d/laputa-systems/xsh-consolidation-lanes/lint-rule-table-rootbfb	
+127-local-typed-callee	c66c077a24da4285a8d2a9dd78313254f7e23d09	lane/consolidation-local-typed-callee	/home/josh/d/laputa-systems/xsh-consolidation-lanes/local-typed-callee	
+129-lower-bindings	d561e2c4db056ef58dbdfc9c522d5a942132d086	lane/consolidation-lower-bindings	/home/josh/d/laputa-systems/xsh-consolidation-lanes/lower-bindings	
+132-lower-bindings-joint	4b0ebefc49897cf73bffd5b54e0367490d6ee187	lane/consolidation-lower-bindings-joint	/home/josh/d/laputa-systems/xsh-consolidation-lanes/lower-bindings-joint	
+133-baseline	d561e2c4db056ef58dbdfc9c522d5a942132d086		/home/josh/d/laputa-systems/xsh-consolidation-lanes/lower-bindings/.work/lower-bindings/baseline	
+139-module-driver-frozen655	65594365d0eae3fad6234fdedf7797fe6bdee28c		/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-driver-frozen655	
+141-module-record-driver	40c9d79234c1253d45a2fc11a6b2dc05c2b5e671	lane/consolidation-module-record-driver	/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver	
+143-module-record-driver-proof-owner-v2	40c9d79234c1253d45a2fc11a6b2dc05c2b5e671		/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver-proof-owner-v2	
+144-candidate	a280f7d5bc1c3e8bc757c4aa6aee6aa05cb200cc		/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver/.work/consolidation/w9-corrected-pair/candidate	
+145-reference	e240efad273fe35d66d91f4037b6a8193527da2e		/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver/.work/consolidation/w9-corrected-pair/reference	
+146-w9-root-e240	e240efad273fe35d66d91f4037b6a8193527da2e		/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver/.work/consolidation/w9-root-e240	
+148-module-record-publication-proof-7dc	7dc881edec2cfe244dc6429abe73cb1212927e48		/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-publication-proof-7dc	
+149-module-record-reuse	ce448f8a4c7ab47a3e01f7d4bc386d264aa7ef93	lane/consolidation-module-record-reuse	/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-reuse	
+150-module-record-reuse-borrowed	ab22c9f8044b1c6709eaa0f10055cf813067b533	lane/consolidation-module-record-borrowed	/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-reuse-borrowed	
+151-module-record-reuse-session	985731b713f45f8b82151f1a4fbff6cacf066462	lane/consolidation-module-record-reuse-session	/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-reuse-session	
+164-partition-lower	0320b92748acc74fe16ec000fea8ba4ae3358e13	lane/consolidation-partition-lower	/home/josh/d/laputa-systems/xsh-consolidation-lanes/partition-lower	
+167-pattern-codec	b9d3bcf9d03294c6c539c0f434a84705c93ddf58	lane/consolidation-pattern-codec	/home/josh/d/laputa-systems/xsh-consolidation-lanes/pattern-codec	
+187-resources	76fa3df4222071b2e0cdd836467aac0ae5d40cb0	lane/consolidation-resources	/home/josh/d/laputa-systems/xsh-consolidation-lanes/resources	
+188-joint-assignment-probe	4b0ebefc49897cf73bffd5b54e0367490d6ee187		/home/josh/d/laputa-systems/xsh-consolidation-lanes/resources/.work/joint-assignment-probe	188-joint-assignment-probe.staged.patch
+217-stream-resources	e5d434213af122da61d10fb4405a8ad80e0ef83a	lane/consolidation-stream-resources	/home/josh/d/laputa-systems/xsh-consolidation-lanes/stream-resources	
+268-source	5e66b6b896a47d0c692739135d51200b007a2a67		/home/josh/d/laputa-systems/xsh-consolidation/.work/consolidation/w9-baseline-timing/source	
+276-current-binding-slots-failure	df8e507a0fc8caafd8a18853d0c1410f9b053667	fix/current-binding-slots-failure	/home/josh/d/laputa-systems/xsh/.work/wt/current-binding-slots-failure	
+278-current-pipeline-return-failure	df8e507a0fc8caafd8a18853d0c1410f9b053667	fix/current-pipeline-return-failure	/home/josh/d/laputa-systems/xsh/.work/wt/current-pipeline-return-failure	
+282-dead-tail-cleanup	b2151249de3ebd2c858d0102f8f0cbbe5c603b3e	lane/dead-tail-cleanup	/home/josh/d/laputa-systems/xsh/.work/wt/dead-tail-cleanup	
+307-float-fuzz-generation	8d802497814c075e16b2c91756893ed6554635db	lane/float-fuzz-generation	/home/josh/d/laputa-systems/xsh/.work/wt/float-fuzz-generation	
+329-lean-base-equality	aaa590c8ea9e764aec219362317716caa8bf290a	lane/lean-base-equality	/home/josh/d/laputa-systems/xsh/.work/wt/lean-base-equality	
+450-lint-control-flow-source-matched	6198897d17371f8f282e52419258612c291be75b	candidate/lint-control-flow-source-matched	/home/josh/d/laputa-systems/xsh/.work/wt/lint-control-flow-source-matched	
+451-lint-control-flow-verifier-candidate	405c9b00998bd8bf2a90a3ad04e0a6fe5e89a684	candidate/lint-control-flow-verifier	/home/josh/d/laputa-systems/xsh/.work/wt/lint-control-flow-verifier-candidate	
+475-native-scheduler-reference-2083821edb768d2485479c7386289b82e43b1c7c	2083821edb768d2485479c7386289b82e43b1c7c		/home/josh/d/laputa-systems/xsh/.work/wt/native-scheduler-reference-2083821edb768d2485479c7386289b82e43b1c7c	
+476-native-scheduler-reference-88d5e6f082de10baac3c4aee5b2873e27e49d9fe	633e6394df7e7492226a7c622cd3bad9f4eb2f86		/home/josh/d/laputa-systems/xsh/.work/wt/native-scheduler-reference-88d5e6f082de10baac3c4aee5b2873e27e49d9fe	
+477-native-scheduler-reference-8ca6da0801feb69f3dcc2d2a4167b74fc9a8a149	8ca6da0801feb69f3dcc2d2a4167b74fc9a8a149		/home/josh/d/laputa-systems/xsh/.work/wt/native-scheduler-reference-8ca6da0801feb69f3dcc2d2a4167b74fc9a8a149	
+488-prefer-collect-regression	97457277118d8003e0e7fb9178e517fcb8e9ccc4	lane/prefer-collect-regression	/home/josh/d/laputa-systems/xsh/.work/wt/prefer-collect-regression	
+513-route-trace-current	4e77085b88b607fc64d6eeae8f9c12db3c967ba3	lane/route-trace-current	/home/josh/d/laputa-systems/xsh/.work/wt/route-trace-current	

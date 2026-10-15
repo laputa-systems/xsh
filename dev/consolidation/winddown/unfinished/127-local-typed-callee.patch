@@ -1,0 +1,18 @@
+diff --git a/src/runtime/eval/lower/pipeline.rs b/src/runtime/eval/lower/pipeline.rs
+index e4c4f04257517e86ff449d303bbad0770cc593e7..403c6fff4d7799611442b49823704f9b902d5257 100644
+--- a/src/runtime/eval/lower/pipeline.rs
++++ b/src/runtime/eval/lower/pipeline.rs
+@@ -759,7 +759,12 @@ mod tests {
+             Vec::new(),
+         );
+         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+-        let mut declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
++        let source_id = sources.files()[0].id();
++        let mut declarations = crate::sema::check::Checker::check_compact_declarations(
++            &parsed.arena,
++            &sources,
++            source_id,
++        );
+         assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+         let stage = parsed
+             .arena

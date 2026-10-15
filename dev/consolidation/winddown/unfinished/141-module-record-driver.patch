@@ -1,0 +1,55 @@
+diff --git a/ACTIVE-ASSIGNMENT.md b/ACTIVE-ASSIGNMENT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..289167a5671e58da31a83a4609bd5496599c21fc
+--- /dev/null
++++ b/ACTIVE-ASSIGNMENT.md
+@@ -0,0 +1,49 @@
++# Active assignment: session-owned module records
++
++## Current integrator instruction — 2026-10-12
++
++The owner explicitly relaxed source budgets and prioritizes performance.
++All production/touched-line caps and strict source shrink mentioned below
++are historical advisory figures, not sealing or acceptance gates. Do not
++delay a reviewed functional lane or delete code merely to meet them. Keep
++exact accounting; structural, correctness, publication parity, ownership,
++documentation and performance contracts remain required.
++
++Root integrates on `/home/josh/d/laputa-systems/xsh` master (currently
++`e40235db`). This worktree's authoritative branch is the current
++`module-record-driver` checkout, not the old bases described below.
++Freeze its complete owned source, record the exact diff hash, and prove
++1,690 original inputs under four actual checking options against the
++immutable e240 reference. A run from a different pair-source hash does not
++prove the current owner source. Preserve all historical and failed captures;
++never restart an old run based only on checkpoint prose.
++
++When the latest owned source and focused checks are ready, commit the private
++lane without waiting for a line-budget approval. Root reviews and ports the
++owned changes onto master, preserving accepted GNU fixes and canonical W4
++definition-signature facts. Do not merge or push. This instruction supersedes
++the budget-related stop rules in the historical assignment below.
++
++## Historical assignment and evidence
++
++Base: `65594365d0eae3fad6234fdedf7797fe6bdee28c` (`Use borrowed bundle views for workspace lint`)
++
++Private foundation commit: `dc4af304d8f8795081ae47028bfca7c845315e98` (`Share checked module facts across workspace entries`). Parent asked that it remain private until full fact projection and entry-root lowering are verified.
++
++Source-matched prerequisite: private commit `d8ef181a` cherry-picks accepted `35a132d5` (`Publish checked RunForm types for transfer facts`). The original 655 base predates this required type publication; it is included in the current-root reference. The candidate `try-run.xsh` failure was reproduced before this prerequisite. After rebuilding the matched candidate pair, `try-run.xsh` passed 6/6.
++
++Goal: complete the W9 module-record driver so one source-session-owned immutable checked record is reused per source/module role and `ArgsDomain`. Check reachable dependencies first, solve each module's local effect fixed point, and check the entry root last. Preserve source-session and arena identities, original `BindingId`s, complete diagnostics/site facts/effect summaries, and fresh sessions after source edits. Reuse the shared workspace loader/cache for multi-entry `xsht check`, `xsht lint`, and `xsht test` where their loading model permits. Preserve W6 lint callback/table hunks and W5 explicit classifier behavior.
++
++Effect contract correction: each file may run its own effect probe/fixed-point solve followed by one final pass against already-solved import records. This is needed for local recursion/forward references and preserves effect-sensitive contexts such as `?`. Never probe the whole bundle repeatedly per entry, and never re-check a shared module through another entry. Cache the complete, publication-independent checked module record once per key.
++
++Approved interim budget: +850 production lexical lines and 3,500 touched lines for the full driver; final W9 net reduction is still required. Keep effect diagnostics in their original source order and preserve effect-dependent return inference; the body path must not fall back to whole-bundle probes. Parent separately granted +300 production lexical / 1,800 touched for nine residual W5 semantic classifier conversions, split as follows: `w5_checker_policy` owns six policies in `src/sema/check/resource.rs`, `src/sema/check/scopecheck.rs`, and `src/sema/constants.rs` (+200 / 1,200); this lane owns three declaration policies in `src/sema/check/decl.rs` (+100 / 600), preserving its W9 body-checking hunk.
++
++Current state: `dc4af` adds `CheckSession`, shared multi-entry arena loading, and check/lint bridges. Owner-local preparation composes dependency facts once per source/module/role/domain. The driver uses local module and root probe/solve/final checks while reusing one prepared and checked module record per key across roots. The frozen 1,415-source, four-option baseline digest is `dcd22124274b528e`; the final candidate digest matched it exactly with zero per-source differences. Deferred effect checks preserve the diagnostic note on `docs/snippets/spec/rejected/33-run-propagation-effect.xsh`. The earlier imported-effect runtime mismatch was stale-binary evidence: the optimized candidate and behavior lane both pass exact source hash `cd35f4af…e29c`.
++
++Initial owned scope: `src/sema/check.rs`, `src/sema/check/module_record.rs`, new `src/sema/check/module_driver.rs`, `src/sema/check/decl.rs`, `src/sema/check/infer_effects.rs`, `src/sema/check/local_inference.rs`, `src/sema/check/scopecheck.rs`, `src/sema/constants.rs`, `src/sema/wire_enums.rs`, `src/loader.rs`, `src/frontend.rs`, CLI workspace call sites in `crates/xsht/src/cli/check.rs`, `crates/xsht/src/cli/lint.rs`, and `crates/xsht/src/xsht/test.rs`, plus focused checker/workspace tests. Keep the W6 lint callback/table hunks isolated when touching `lint.rs`.
++
++Current modified W9 paths: `crates/xsht/src/cli/check.rs`, `crates/xsht/src/xsht/test.rs`, `src/runtime/eval.rs`, `src/runtime/eval/indexed/full.rs`, `src/runtime/eval/lower.rs`, `src/runtime/eval/lower/arguments.rs`, `src/runtime/eval/lower/names.rs`, `src/runtime/eval/lower/pipeline.rs`, `src/sema/check.rs`, `src/sema/check/decl.rs`, `src/sema/check/module_driver.rs`, and `src/sema/check/module_record.rs`. The three W5 declaration classifier hunks were isolated and committed as `63d79c2f`; the remaining `decl.rs` delta is W9 body-check cleanup. Other W5 classifier paths do not overlap. Keep all ACTIVE notes private and uncommitted.
++
++Final candidate checks after cleanup and classifiers, using the parent-approved replacement payload `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c` with the pinned wrapper: `cargo check --locked --target x86_64-unknown-linux-musl -p xsh --lib` passed; verification test harness compiled; module preparation/body/cache tests 5/5; `sema::` 47/47 in 86s; `sema_bundle_view::` 2/2; verification-profile xsh/xsht build passed (one existing `lint_files` dead-code warning). Native tests passed: `test-declarations.xsh` 16/16, `checker-modules.xsh` 20/20, `checker-streams.xsh` 15/15, `context-scopes.xsh` 25/25, `try-run.xsh` 6/6. `git diff --check` passes. Earlier candidate-specific stale-path prerequisite evidence remains described above; latest gates were run after `d8ef181a`.
++
++Canonical lexical metric across all 19 changed production paths against frozen 655 is +1,779 (crates/xsht +82; src +1,697). W9 alone is +1,706 after excluding the separately committed +73-line W5 classifier change, which is 856 lines above the +850 interim allowance. The full raw delta from 655 is 28 tracked paths, 3,114 insertions, and 515 deletions (3,629 touched), 129 lines above the 3,500 driver cap; this includes the foundation, source-matched prerequisite, and W5 classifier commit. Do not seal until parent names and approves a concrete deletion focus or the source is reduced into both budgets. The 1,415-source × four-option parity digest remains `dcd22124274b528e` with zero per-source differences, proven immediately before the deletion-only legacy-route cleanup; current cleanup removes dead whole-view collection/probe paths and has its focused gates above.

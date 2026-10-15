@@ -1,0 +1,153 @@
+diff --git a/crates/xsh-fuzz/src/generator.rs b/crates/xsh-fuzz/src/generator.rs
+index ad16f2d301d1505a2781a109e6e1ad84a42e7dec..107f7d8bfabad3f8eeaf3891987f37499be125ad 100644
+--- a/crates/xsh-fuzz/src/generator.rs
++++ b/crates/xsh-fuzz/src/generator.rs
+@@ -893,11 +893,9 @@ impl<'c> Gen<'c> {
+             } else {
+                 self.rng.range(-100_000, 100_000)
+             }),
+-            Ty::Float => Expr::Float(
+-                *self
+-                    .rng
+-                    .pick(&[0.5, 1.25, -2.0, 3.0, 0.1, 100.0, 0.001, -7.75, 2.5e3]),
+-            ),
++            Ty::Float => Expr::Float(*self.rng.pick(&[
++                0.0, -0.0, 0.5, 1.25, -2.0, 3.0, 0.1, 100.0, 0.001, -7.75, 2.5e3,
++            ])),
+             Ty::Str => Expr::Str(self.string()),
+             Ty::Bool => Expr::Bool(self.rng.chance(50)),
+             Ty::Path => Expr::Path(self.path_text()),
+@@ -1023,6 +1021,22 @@ impl<'c> Gen<'c> {
+         }
+     }
+ 
++    fn equality_operand_ty(&mut self) -> Ty {
++        self.rng
++            .pick(&[
++                Ty::Int,
++                Ty::Str,
++                Ty::Bool,
++                Ty::Path,
++                Ty::Bytes,
++                Ty::Float,
++                Ty::list(Ty::Int),
++                Ty::list(Ty::Float),
++                Ty::list(Ty::list(Ty::Float)),
++            ])
++            .clone()
++    }
++
+     fn production(&mut self, ty: &Ty, cx: bool, depth: usize) -> Option<Expr> {
+         let next = depth + 1;
+         match self.rng.below(20) {
+@@ -1513,17 +1527,7 @@ impl<'c> Gen<'c> {
+                     Expr::Binary(op, Box::new(left), Box::new(right))
+                 }
+                 2 => {
+-                    let operand = self
+-                        .rng
+-                        .pick(&[
+-                            Ty::Int,
+-                            Ty::Str,
+-                            Ty::Bool,
+-                            Ty::Path,
+-                            Ty::Bytes,
+-                            Ty::list(Ty::Int),
+-                        ])
+-                        .clone();
++                    let operand = self.equality_operand_ty();
+                     let op = *self.rng.pick(&[BinOp::Eq, BinOp::Ne]);
+                     let left = self.expr_or_literal(&operand, false, next);
+                     let right = self.expr_or_literal(&operand, false, next);
+@@ -2627,3 +2631,91 @@ impl<'c> Gen<'c> {
+         stmts.push(stmt);
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::{Gen, GenConfig, finish};
++    use crate::ast::{BinOp, Block, Elem, Expr, Program, Stmt, Ty};
++    use crate::rng::Rng;
++
++    #[test]
++    fn bool_equality_operand_types_include_float_and_nested_float_lists() {
++        let config = GenConfig::default();
++        let mut generated = Vec::new();
++        for seed in 0..128 {
++            let mut gen = Gen::new(Rng::new(seed), &config);
++            generated.push(gen.equality_operand_ty());
++        }
++
++        assert!(generated.contains(&Ty::Float));
++        assert!(generated.contains(&Ty::list(Ty::Float)));
++        assert!(generated.contains(&Ty::list(Ty::list(Ty::Float))));
++    }
++
++    #[test]
++    fn float_literals_include_both_signed_zeroes() {
++        let config = GenConfig::default();
++        let mut positive_zero = false;
++        let mut negative_zero = false;
++        for seed in 0..128 {
++            let mut gen = Gen::new(Rng::new(seed), &config);
++            let Expr::Float(value) = gen.literal(&Ty::Float, false, 0) else {
++                unreachable!()
++            };
++            if value == 0.0 {
++                if value.is_sign_negative() {
++                    negative_zero = true;
++                } else {
++                    positive_zero = true;
++                }
++            }
++        }
++
++        assert!(positive_zero);
++        assert!(negative_zero);
++    }
++
++    #[test]
++    fn signed_zero_equality_witnesses_are_filled_into_generated_assertions() {
++        let binary = |op, left, right| Expr::Binary(op, Box::new(left), Box::new(right));
++        let compare = |op| Stmt::AssertEq {
++            expr: binary(op, Expr::Float(0.0), Expr::Float(-0.0)),
++            expected: None,
++        };
++        let nested = |op| {
++            let list = |value| {
++                Expr::List(vec![Elem::Item(Expr::List(vec![Elem::Item(Expr::Float(
++                    value,
++                ))]))])
++            };
++            Stmt::AssertEq {
++                expr: binary(op, list(0.0), list(-0.0)),
++                expected: None,
++            }
++        };
++        let generated = finish(
++            0,
++            Program {
++                consts: Vec::new(),
++                records: Vec::new(),
++                enums: Vec::new(),
++                functions: Vec::new(),
++                body: Block {
++                    stmts: vec![
++                        compare(BinOp::Eq),
++                        compare(BinOp::Ne),
++                        nested(BinOp::Eq),
++                        nested(BinOp::Ne),
++                    ],
++                    tail: None,
++                },
++            },
++        )
++        .expect("finite signed-zero witnesses are evaluable");
++
++        assert!(generated.source.contains("assert (0.0 == -0.0) == true"));
++        assert!(generated.source.contains("assert (0.0 != -0.0) == false"));
++        assert!(generated.source.contains("assert ([[0.0]] == [[-0.0]]) == true"));
++        assert!(generated.source.contains("assert ([[0.0]] != [[-0.0]]) == false"));
++    }
++}

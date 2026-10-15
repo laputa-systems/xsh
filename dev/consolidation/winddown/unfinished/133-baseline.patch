@@ -1,0 +1,15 @@
+diff --git a/command-splice.xsh b/command-splice.xsh
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a9cf99f954324844cb38dc790238584d354e5b2
+--- /dev/null
++++ b/command-splice.xsh
+@@ -0,0 +1,9 @@
++proc emit(words = ["parameter"]) { run printf "%s\n" @words }
++const words = ["constant"]
++run printf "%s\n" @words
++if true {
++  let words = ["runtime"]
++  run printf "%s\n" @words
++}
++run printf "%s\n" @words
++emit()

@@ -1,0 +1,48 @@
+diff --git a/core/lib/awk.xsh b/core/lib/awk.xsh
+index 9719d8c6a38c61c716b3a114037e1659f1b7f512..bf49210dc65138e22279311e64919493247cc10a 100644
+--- a/core/lib/awk.xsh
++++ b/core/lib/awk.xsh
+@@ -449,7 +449,6 @@ pure expression_list(parser: Parser, end: Str) -> Result[Parsed[List[Int]]] {
+     return Err(unexpected(p)) unless is_at(p, ",")
+     p = skip_newlines(advance(p))
+   }
+-  Err(unexpected(p))
+ }
+ 
+ # Builtins may be written with a space before "(" (GNU awk); user functions may not.
+@@ -1942,7 +1941,6 @@ proc fill(source: Reader) -> Result[Reader] {
+     r.text += decoded.text
+     return Ok(r)
+   }
+-  Ok(r)
+ }
+ 
+ type Scan = {kind: Int, content: Str, next: Int, terminator: Str}
+@@ -2001,7 +1999,6 @@ proc read_record(source: Reader, separator: Str, ignore_case: Bool) -> Result[Re
+     return Ok({reader: r, record: null, terminator: ""}) when scanned.kind == 2
+     r = fill(r)?
+   }
+-  Ok({reader: r, record: null, terminator: ""})
+ }
+ 
+ #
+@@ -3187,7 +3184,6 @@ proc advance_main(start: MainState, standard_input: Reader, operands: Table, cou
+     }
+     state.finished = true
+   }
+-  Ok({state: state, stdin: stdin, record: null, terminator: "", filename: filename, bindings: bindings, argind: argind})
+ }
+ 
+ 
+diff --git a/core/sort.xsh b/core/sort.xsh
+index 7389c2fd2e8e331eea98ae6c2cfe83b3cc19e101..6c81450d0e7aed73c61ed2e6ac067df9b79a5540 100755
+--- a/core/sort.xsh
++++ b/core/sort.xsh
+@@ -1758,7 +1758,6 @@ proc advance_sort_merge_reader(reader: SortMergeReader, zero_terminated: Bool) [
+       pending_at = 0
+     }
+   }
+-  fail "sort merge reader ended unexpectedly"
+ }
+ 
+ ## Open all source streams only when their descriptor count stays within the process and batch limits.

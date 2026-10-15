@@ -1,0 +1,1394 @@
+diff --git a/crates/xsht/src/cli/lint.rs b/crates/xsht/src/cli/lint.rs
+index 81c07b2c45873409d50c9499bf08cb2c8ec55f05..7a4189626125984302557b5511f0c21cd6c4f804 100644
+--- a/crates/xsht/src/cli/lint.rs
++++ b/crates/xsht/src/cli/lint.rs
+@@ -7,7 +7,9 @@ use crate::xsht::config::FileToolConfig;
+ use crate::xsht::edit::{
+     SourceEdit, apply_cst_guarded_edits, apply_cst_guarded_migration_edits, migration_lint_code,
+ };
+-use crate::xsht::lint::{LintOptions, Linter, lint_code_selected};
++use crate::xsht::lint::{
++    LintOptions, Linter, ReturnProofContext, check_probe_candidate, lint_code_selected,
++};
+ use rustc_hash::{FxHashMap, FxHashSet};
+ use std::fs;
+ use std::path::{Path, PathBuf};
+@@ -611,6 +613,10 @@ fn lint_workspace_root(
+         };
+         let mut options = module.config.lint_options.clone();
+         options.checked_output = Some(Arc::clone(&checked));
++        options.return_proof = Some(crate::xsht::lint::ReturnProofContext {
++            file: module.path.to_string_lossy().into_owned(),
++            module_roots: module.module_roots.clone(),
++        });
+         let lint_started = Instant::now();
+         let mut linted = if key == root {
+             Linter::lint_view(&view, &module.text, options)
+@@ -1436,27 +1442,21 @@ fn validate_fixed_text(
+     config: &ResolvedLintConfig,
+     original_check_diagnostics: &[Diagnostic],
+ ) -> Result<Vec<RenderedDiagnostic>, FixedTextValidationError> {
+-    let symbols = SymbolOwner::new();
+-    let checked_program = symbols.with_current(|| {
+-        parse_load_check_text(
+-            file,
+-            text.to_string(),
+-            config.module_roots.clone(),
+-            CheckOptions::default(),
+-        )
+-    });
+-    if !checked_program.parsed.diagnostics.is_empty() {
++    let context = fixed_text_proof_context(file, config);
++    let snapshot = check_probe_candidate(&context, text)
++        .expect("single-entry fixed-text checks always return the entry");
++    if !snapshot.diagnostics.is_empty() {
+         return Err(FixedTextValidationError::Diagnostics(
+             render_diagnostics_with_keys(
+-                &checked_program.parsed.diagnostics,
+-                &checked_program.sources,
++                &snapshot.diagnostics,
++                &snapshot.sources,
+             ),
+         ));
+     }
+-    let checked = checked_program
++    let checked = snapshot
+         .checked
+         .as_ref()
+-        .expect("checked program after clean parse");
++        .expect("clean fixed-text entry has checker output");
+     if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
+         let diagnostics = if checked.diagnostics.is_empty() {
+             original_check_diagnostics
+@@ -1464,7 +1464,7 @@ fn validate_fixed_text(
+             &checked.diagnostics
+         };
+         return Err(FixedTextValidationError::Diagnostics(
+-            render_diagnostics_with_keys(diagnostics, &checked_program.sources),
++            render_diagnostics_with_keys(diagnostics, &snapshot.sources),
+         ));
+     }
+     let only = config.lint_options.only.as_deref();
+@@ -1476,10 +1476,21 @@ fn validate_fixed_text(
+         .collect::<Vec<_>>();
+     Ok(render_diagnostics_with_keys(
+         &selected,
+-        &checked_program.sources,
++        &snapshot.sources,
+     ))
+ }
+ 
++fn fixed_text_proof_context(file: &str, config: &ResolvedLintConfig) -> ReturnProofContext {
++    config
++        .lint_options
++        .return_proof
++        .clone()
++        .unwrap_or_else(|| ReturnProofContext {
++            file: file.to_string(),
++            module_roots: config.module_roots.clone(),
++        })
++}
++
+ fn apply_cst_fixes(
+     file: &str,
+     text: &str,
+@@ -1548,28 +1559,20 @@ fn apply_cst_fixes(
+             return Err(format!("xsht: safe fixes for {file} do not converge\n"));
+         }
+         candidate = next;
+-        let symbols = SymbolOwner::new();
+-        let mut program = symbols.with_current(|| {
+-            parse_load_check_text(
+-                file,
+-                candidate.clone(),
+-                config.module_roots.clone(),
+-                CheckOptions::default(),
+-            )
+-        });
+-        if !program.parsed.diagnostics.is_empty() {
+-            return Err(
+-                DiagnosticRenderer::new().render(&program.parsed.diagnostics, &program.sources)
+-            );
++        let context = fixed_text_proof_context(file, config);
++        let snapshot = check_probe_candidate(&context, &candidate)
++            .expect("single-entry fixed-text checks always return the entry");
++        if !snapshot.diagnostics.is_empty() {
++            return Err(DiagnosticRenderer::new()
++                .render(&snapshot.diagnostics, &snapshot.sources));
+         }
+         let checked = std::sync::Arc::new(
+-            program
++            snapshot
+                 .checked
+-                .take()
+-                .expect("checked program after clean parse"),
++                .expect("clean fixed-text entry has checker output"),
+         );
+         if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
+-            return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &program.sources));
++            return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &snapshot.sources));
+         }
+         // Only the selected codes are reported; the rest of the file's check
+         // diagnostics were there before and are not this run's subject.
+@@ -1581,7 +1584,7 @@ fn apply_cst_fixes(
+             .collect::<Vec<_>>();
+         remaining_diagnostics = Some(render_diagnostics_with_keys(
+             &selected_checks,
+-            &program.sources,
++            &snapshot.sources,
+         ));
+         if migrating_syntax {
+             return Ok(Some(ValidatedFixedText {
+@@ -1591,15 +1594,16 @@ fn apply_cst_fixes(
+         }
+         let mut options = config.lint_options.clone();
+         options.checked_output = Some(std::sync::Arc::clone(&checked));
++        options.return_proof = Some(context);
+         let linted = if is_module {
+-            Linter::lint_module(&program.parsed.arena, &candidate, options)
++            Linter::lint_module(&snapshot.program, &candidate, options)
+         } else {
+-            Linter::lint(&program.parsed.arena, &candidate, options)
++            Linter::lint(&snapshot.program, &candidate, options)
+         };
+-        fixes = collect_fix_spans_for_source(&linted.diagnostics, SourceId::new(0));
++        fixes = collect_fix_spans_for_source(&linted.diagnostics, snapshot.source_id);
+         fixes.extend(collect_fix_spans_for_source(
+             &selected_checks,
+-            SourceId::new(0),
++            snapshot.source_id,
+         ));
+         if fixes.is_empty() {
+             return Ok(Some(ValidatedFixedText {
+diff --git a/crates/xsht/src/lint.rs b/crates/xsht/src/lint.rs
+index 792a943df8b671565d9575cb47a0bca8413ece44..e0afd7881ee596f3b955fab6177f9732b6de8c48 100644
+--- a/crates/xsht/src/lint.rs
++++ b/crates/xsht/src/lint.rs
+@@ -152,8 +152,9 @@ use reachability::CallableReachability;
+ mod probes;
+ use probes::{
+     CheckedReturnRemovalFacts, CheckedLocalAnnotationFacts, standalone_annotation_imports_available,
+-    checked_return_removal_facts, checked_return_type_shape,
++    checked_source_effect_bodies, checked_return_type_shape,
+ };
++pub(crate) use probes::check_probe_candidate;
+ 
+ #[path = "lint_fixes.rs"]
+ mod fixes;
+@@ -507,6 +508,8 @@ struct Binding {
+ 
+ pub struct Linter<'a> {
+     arena: &'a AstArena,
++    effect_body_spans: Vec<Span>,
++    source_id: Option<xsh::frontend::source::SourceId>,
+     /// The source's parenthesized expressions, and where every expression is
+     /// written, built when the first rule asks for an expression's context.
+     paren_groups: &'a [(ExprId, Span)],
+@@ -743,6 +746,12 @@ impl<'a> Linter<'a> {
+         check_effects: impl FnOnce() -> xsh::frontend::check::CheckOutput,
+     ) -> LintOutput {
+         let program = view.program();
++        let (source_id, effect_body_spans) = checked_source_effect_bodies(
++            program,
++            view.statement_ids(),
++            source,
++        )
++        .map_or((None, Vec::new()), |(id, spans)| (Some(id), spans));
+         // Constructor facts intern qualified enum names after checking. Retain
+         // those names in the source program even when the caller is a worker.
+         let _symbols = program.symbol_owner().enter();
+@@ -806,6 +815,8 @@ impl<'a> Linter<'a> {
+         let mut linter = Self {
+             record_constructors: xsh::frontend::check::RecordConstructors::collect_view(view),
+             arena: &program.arena,
++            effect_body_spans,
++            source_id,
+             paren_groups: &program.paren_groups,
+             expr_positions: std::cell::OnceCell::new(),
+             duration_conversion_module_unshadowed: !view
+diff --git a/crates/xsht/src/lint_annotations.rs b/crates/xsht/src/lint_annotations.rs
+index fbb576912200229aabc23424121eb202ee76e87d..6b502baeee3e663148601705b59433e874a5f98f 100644
+--- a/crates/xsht/src/lint_annotations.rs
++++ b/crates/xsht/src/lint_annotations.rs
+@@ -2,7 +2,7 @@ use super::{
+     ArenaBindingTargetKind, ArenaExpr, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind,
+     ArenaTypeExprKind, ArenaTypeExprTag, BinaryOp, BindingTargetId, BlockId, Diagnostic,
+     DiagnosticCode, Effect, ExprId, FixHint, FunctionDefId, FxHashSet, Label, Linter, Name,
+-    Severity, Span, StmtId, Symbol, Type, TypeExprId, checked_return_removal_facts,
++    Severity, Span, StmtId, Symbol, Type, TypeExprId,
+     effects_annotation, effects_covers_any, inferred_proc_return,
+     is_map_empty_call, ok_call_arg, return_value_is_ok_unit, scan_after_type, scan_back_space,
+     scan_before_arrow, scan_before_colon, scan_effect_list_span, scan_return_stmt_span,
+@@ -67,7 +67,7 @@ impl<'a> Linter<'a> {
+             return;
+         }
+         if self.return_removal_before.is_none() {
+-            self.return_removal_before = Some(checked_return_removal_facts(
++            self.return_removal_before = Some(self.checked_return_removal_probe(
+                 self.source,
+                 ty_span.source_id,
+                 None,
+@@ -78,7 +78,7 @@ impl<'a> Linter<'a> {
+         };
+         let mut rewritten = self.source.to_string();
+         rewritten.replace_range(start..ty_span.end(), "");
+-        let after = checked_return_removal_facts(
++        let after = self.checked_return_removal_probe(
+             &rewritten,
+             ty_span.source_id,
+             Some((start, ty_span.end() - start)),
+@@ -127,7 +127,7 @@ impl<'a> Linter<'a> {
+             return;
+         }
+         if self.return_removal_before.is_none() {
+-            self.return_removal_before = Some(checked_return_removal_facts(
++            self.return_removal_before = Some(self.checked_return_removal_probe(
+                 self.source,
+                 span.source_id,
+                 None,
+@@ -138,7 +138,7 @@ impl<'a> Linter<'a> {
+         };
+         let mut rewritten = self.source.to_string();
+         rewritten.replace_range(start..span.end(), "");
+-        let after = checked_return_removal_facts(
++        let after = self.checked_return_removal_probe(
+             &rewritten,
+             span.source_id,
+             Some((start, span.end() - start)),
+@@ -208,23 +208,24 @@ impl<'a> Linter<'a> {
+         let start = self.source[..clause.start()].trim_end_matches(' ').len();
+         let span = Span::new(clause.source_id, start, clause.end());
+         if self.return_removal_before.is_none() {
+-            self.return_removal_before = Some(checked_return_removal_facts(
++            self.return_removal_before = Some(self.checked_return_removal_probe(
+                 self.source,
+                 span.source_id,
+                 None,
+             ));
+         }
+-        if let Some(before) = self.return_removal_before.as_ref().unwrap() {
+-            let mut rewritten = self.source.to_string();
+-            rewritten.replace_range(span.start()..span.end(), "");
+-            let after = checked_return_removal_facts(
+-                &rewritten,
+-                span.source_id,
+-                Some((span.start(), span.end() - span.start())),
+-            );
+-            if after.as_ref() != Some(before) {
+-                return;
+-            }
++        let Some(before) = self.return_removal_before.as_ref().unwrap().as_ref() else {
++            return;
++        };
++        let mut rewritten = self.source.to_string();
++        rewritten.replace_range(span.start()..span.end(), "");
++        let after = self.checked_return_removal_probe(
++            &rewritten,
++            span.source_id,
++            Some((span.start(), span.end() - span.start())),
++        );
++        if after.as_ref() != Some(before) {
++            return;
+         }
+         self.diagnostics.push(
+             Diagnostic::new(
+diff --git a/crates/xsht/src/lint_prefer_inferred_proc_return.rs b/crates/xsht/src/lint_prefer_inferred_proc_return.rs
+index 6cfa4e41e1940a3d95d028015957af27b8e9f957..4902d10fddad7db1ab973de04dd2a4e09122c378 100644
+--- a/crates/xsht/src/lint_prefer_inferred_proc_return.rs
++++ b/crates/xsht/src/lint_prefer_inferred_proc_return.rs
+@@ -12,16 +12,14 @@
+ //! empty collection), and an annotation wider or narrower than the body.
+ 
+ use super::{
+-    ArenaTypeExprKind, CheckedReturnRemovalFacts, Linter, checked_return_type_shape,
+-    scan_before_arrow, standalone_annotation_imports_available, type_expr_kind,
++    ArenaTypeExprKind, CheckedReturnRemovalFacts, Linter, scan_before_arrow,
++    standalone_annotation_imports_available, type_expr_kind,
+ };
+ use std::path::PathBuf;
+ use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
+-use xsh::frontend::check::{CheckOptions, CheckOutput, Checker};
++use xsh::frontend::check::{CheckOutput, Checker};
+ use xsh::frontend::source::{SourceId, Span};
+-use xsh::frontend::symbols::SymbolOwner;
+ use xsh::frontend::syntax::arena::FunctionDefId;
+-use xsh::frontend::syntax::node::Effect;
+ 
+ /// Where the linted text lives, so a proof check resolves its imports as the
+ /// real check did. Without one, only a file with no user imports is provable.
+@@ -82,8 +80,7 @@ impl Linter<'_> {
+             return;
+         };
+         let source_id = first.ty.source_id;
+-        let context = self.return_proof.as_ref();
+-        let Some(before) = proof_facts(self.source, source_id, &[], context) else {
++        let Some(before) = self.proof_facts(self.source, source_id, &[]) else {
+             return;
+         };
+         let proves = |removed: &[&ProcReturnCandidate]| {
+@@ -98,7 +95,7 @@ impl Linter<'_> {
+                     candidate.deletion.end() - candidate.deletion.start(),
+                 ));
+             }
+-            proof_facts(&rewritten, source_id, &ranges, context).as_ref() == Some(&before)
++            self.proof_facts(&rewritten, source_id, &ranges).as_ref() == Some(&before)
+         };
+         // An annotation only adds information to the inference of other
+         // definitions, so when the file is unchanged with every candidate
+@@ -136,6 +133,68 @@ impl Linter<'_> {
+     }
+ }
+ 
++impl Linter<'_> {
++    fn proof_facts(
++        &self,
++        source: &str,
++        source_id: SourceId,
++        removed: &[(usize, usize)],
++    ) -> Option<ProofFacts> {
++        #[cfg(test)]
++        tests::record_proof();
++        if let Some(context) = self.return_proof.as_ref() {
++            if removed.is_empty() && source == self.source {
++                if self.source_id != Some(source_id) {
++                    return None;
++                }
++                return proof_facts_from_output(
++                    self.checked_output.as_deref()?,
++                    source_id,
++                    &self.effect_body_spans,
++                    removed,
++                );
++            }
++            if self.source_id != Some(source_id) {
++                return None;
++            }
++            let snapshot = super::probes::check_probe_candidate(context, source)?;
++            if !snapshot.diagnostics.is_empty() {
++                return None;
++            }
++            return snapshot.program.symbol_owner().with_current(|| {
++                let checked = snapshot.checked.as_ref()?;
++                proof_facts_from_output(
++                    checked,
++                    snapshot.source_id,
++                    &snapshot.effect_body_spans,
++                    removed,
++                )
++            });
++        }
++
++        let parsed =
++            xsh::frontend::syntax::parser::Parser::parse_source_arena_only(source_id, source);
++        if !parsed.diagnostics.is_empty()
++            || !standalone_annotation_imports_available(&parsed.arena)
++        {
++            return None;
++        }
++        let checked = Checker::check_arena(&parsed.arena, source);
++        parsed.arena.symbol_owner().with_current(|| {
++            proof_facts_from_output(
++                &checked,
++                source_id,
++                &super::probes::checked_source_effect_bodies(
++                    &parsed.arena,
++                    parsed.arena.statement_ids(),
++                    source,
++                )?.1,
++                removed,
++            )
++        })
++    }
++}
++
+ /// Everything a proof compares between the file and the file without an
+ /// annotation.
+ #[derive(Eq, PartialEq)]
+@@ -159,48 +218,15 @@ pub(super) fn broad_result_unit(
+         })
+ }
+ 
+-/// The checked facts of `source`, or `None` when it does not check clean.
+-/// `removed` lists the `(start, length)` ranges, in the original text and in
+-/// order, that `source` lacks; facts are reported at original offsets so two
+-/// versions compare directly.
+-fn proof_facts(
+-    source: &str,
+-    source_id: SourceId,
++/// The checked facts and warnings owned by one source in a check snapshot.
++/// `removed` lists deleted ranges in original source order so candidate facts
++/// can be compared with the baseline despite shifted offsets.
++fn proof_facts_from_output(
++    checked: &CheckOutput,
++    entry_source: SourceId,
++    expected_effect_bodies: &[Span],
+     removed: &[(usize, usize)],
+-    context: Option<&ReturnProofContext>,
+ ) -> Option<ProofFacts> {
+-    #[cfg(test)]
+-    tests::record_proof();
+-    let (checked, entry_source, symbols): (CheckOutput, SourceId, SymbolOwner) = match context {
+-        Some(context) => {
+-            let entry = xsh::frontend::load::parse_load_check_text(
+-                &context.file,
+-                source.to_string(),
+-                context.module_roots.clone(),
+-                CheckOptions::default(),
+-            );
+-            if !entry.parsed.diagnostics.is_empty() {
+-                return None;
+-            }
+-            let symbols = entry.parsed.arena.symbol_owner().clone();
+-            (entry.checked?, entry.entry_source_id, symbols)
+-        }
+-        None => {
+-            let parsed =
+-                xsh::frontend::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+-            if !parsed.diagnostics.is_empty()
+-                || !standalone_annotation_imports_available(&parsed.arena)
+-            {
+-                return None;
+-            }
+-            let symbols = parsed.arena.symbol_owner().clone();
+-            (
+-                Checker::check_arena(&parsed.arena, source),
+-                source_id,
+-                symbols,
+-            )
+-        }
+-    };
+     // A warning the file already has does not disqualify it; the warnings
+     // themselves must then be the same before and after.
+     if checked
+@@ -219,7 +245,7 @@ fn proof_facts(
+             }
+         })
+     };
+-    // Imported modules are not edited; only the linted file's facts can move.
++    // Imported modules are not edited; only the linted file's warning spans move.
+     let here = |span: &Span| span.source_id == entry_source;
+     let mut warnings = checked
+         .diagnostics
+@@ -239,64 +265,13 @@ fn proof_facts(
+         })
+         .collect::<Vec<_>>();
+     warnings.sort();
+-    let checked_facts = symbols.with_current(|| {
+-        Some(CheckedReturnRemovalFacts {
+-            expressions: checked
+-                .expr_types
+-                .iter()
+-                .filter(|(span, _)| here(span))
+-                .map(|(span, ty)| {
+-                    (
+-                        original(span.start()),
+-                        original(span.end()),
+-                        checked_return_type_shape(ty),
+-                    )
+-                })
+-                .collect(),
+-            statements: checked
+-                .statement_positions
+-                .iter()
+-                .filter(|(span, _)| here(span))
+-                .map(|(span, position)| (original(span.start()), original(span.end()), *position))
+-                .collect(),
+-            returns: checked
+-                .function_return_types
+-                .iter()
+-                .filter(|(span, _)| here(span))
+-                .map(|(span, ty)| {
+-                    (
+-                        original(span.start()),
+-                        original(span.end()),
+-                        checked_return_type_shape(ty),
+-                    )
+-                })
+-                .collect(),
+-            parameters: checked
+-                .parameter_types
+-                .iter()
+-                .filter(|(span, _)| here(span))
+-                .map(|(span, ty)| {
+-                    (
+-                        original(span.start()),
+-                        original(span.end()),
+-                        checked_return_type_shape(ty),
+-                    )
+-                })
+-                .collect(),
+-            effects: checked
+-                .callable_effects
+-                .into_iter()
+-                .map(|(name, effects)| {
+-                    let effects = effects.map(|mut effects| {
+-                        effects.sort_by_key(Effect::as_str);
+-                        effects.dedup();
+-                        effects
+-                    });
+-                    (name, effects)
+-                })
+-                .collect(),
+-        })
+-    })?;
++    let checked_facts = super::probes::checked_return_removal_facts_from_output(
++        checked,
++        entry_source,
++        expected_effect_bodies,
++        removed,
++        false,
++    )?;
+     Some(ProofFacts {
+         checked: checked_facts,
+         warnings,
+diff --git a/crates/xsht/src/lint_probes.rs b/crates/xsht/src/lint_probes.rs
+index 352eb1ae2e1b142e4c0ab2e4ac08fe4a0f2fe90e..82ce38e3acc078163322fa44b4cdfa142e97b4f5 100644
+--- a/crates/xsht/src/lint_probes.rs
++++ b/crates/xsht/src/lint_probes.rs
+@@ -11,7 +11,14 @@ pub(super) struct CheckedReturnRemovalFacts {
+     pub(super) statements: Vec<(usize, usize, xsh::frontend::check::StatementPosition)>,
+     pub(super) returns: Vec<(usize, usize, String)>,
+     pub(super) parameters: Vec<(usize, usize, String)>,
+-    pub(super) effects: BTreeMap<String, Option<Vec<Effect>>>,
++    pub(super) effects: BTreeMap<(usize, usize), CheckedEffectContractFact>,
++}
++
++#[derive(Eq, PartialEq)]
++pub(super) struct CheckedEffectContractFact {
++    effective: Option<Vec<Effect>>,
++    required: Option<Vec<Effect>>,
++    unknown_chain: Vec<String>,
+ }
+ 
+ // Original facts are independent of each deletion. Keep their source coordinates
+@@ -21,6 +28,269 @@ pub(super) struct CheckedLocalAnnotationFacts {
+     pub(super) expressions: BTreeMap<(usize, usize), String>,
+ }
+ 
++pub(crate) struct CheckedProbeSnapshot {
++    pub(crate) program: std::sync::Arc<ArenaProgram>,
++    pub(crate) sources: std::sync::Arc<xsh::frontend::source::SourceMap>,
++    pub(crate) source_id: xsh::frontend::source::SourceId,
++    pub(crate) effect_body_spans: Vec<Span>,
++    pub(crate) diagnostics: Vec<xsh::diagnostic::Diagnostic>,
++    pub(crate) checked: Option<xsh::frontend::check::CheckOutput>,
++}
++
++pub(super) fn checked_source_effect_bodies(
++    program: &ArenaProgram,
++    statements: impl Iterator<Item = xsh::frontend::syntax::arena::StmtId>,
++    source: &str,
++) -> Option<(xsh::frontend::source::SourceId, Vec<Span>)> {
++    let mut source_id = None;
++    let mut bodies = Vec::new();
++    for statement in statements {
++        let span = program.arena.stmt(statement).span;
++        if span.end() > source.len()
++            || !source.is_char_boundary(span.start())
++            || !source.is_char_boundary(span.end())
++            || source_id.replace(span.source_id).is_some_and(|id| id != span.source_id)
++        {
++            return None;
++        }
++        let id = match program.arena.stmt(statement).kind {
++            ArenaStmtKind::Export(inner) => inner,
++            _ => statement,
++        };
++        let kind = program.arena.stmt(id).kind;
++        if let ArenaStmtKind::ProcDef(def) | ArenaStmtKind::StreamDef(def) | ArenaStmtKind::CliMain(def) = kind {
++            bodies.push(program.arena.span(program.arena.block(program.arena.function_def(def).body).span));
++        }
++    }
++    Some((source_id?, bodies))
++}
++
++pub(crate) fn check_probe_candidate(
++    context: &super::ReturnProofContext,
++    source: &str,
++) -> Option<CheckedProbeSnapshot> {
++    let workspace = xsh::frontend::load::parse_load_entries_shared_arena_only(vec![
++        xsh::frontend::load::ArenaEntryInput {
++            file: context.file.clone(),
++            bytes: source.as_bytes().to_vec(),
++            module_roots: context.module_roots.clone(),
++        },
++    ]);
++    if workspace.entries.len() != 1 {
++        return None;
++    }
++    let mut entries = workspace.entries.into_iter();
++    let entry = entries.next()?;
++    let source_id = entry.source_id;
++    if entry.file != context.file {
++        return None;
++    }
++    let source_name = if context.file.contains(std::path::MAIN_SEPARATOR) {
++        std::path::absolute(&context.file)
++            .ok()
++            .and_then(|path| path.to_str().map(str::to_owned))
++            .unwrap_or_else(|| context.file.clone())
++    } else {
++        context.file.clone()
++    };
++    let source_file = workspace.sources.get(source_id)?;
++    if source_file.id() != source_id
++        || source_file.name() != source_name
++        || source_file.text().as_bytes() != source.as_bytes()
++    {
++        return None;
++    }
++    let (entry_source_id, effect_body_spans) = checked_source_effect_bodies(
++        &workspace.program,
++        workspace.program.arena.stmt_ids(entry.statements),
++        source,
++    )?;
++    if entry_source_id != source_id {
++        return None;
++    }
++    let diagnostics = entry.diagnostics;
++    let checked = if diagnostics.is_empty() {
++        let session = xsh::frontend::check::CheckSession::new(
++            std::sync::Arc::clone(&workspace.program),
++            std::sync::Arc::clone(&workspace.sources),
++        );
++        Some(session.check(
++            entry.statements,
++            source_id,
++            xsh::frontend::check::CheckOptions::default(),
++        ))
++    } else {
++        None
++    };
++    Some(CheckedProbeSnapshot {
++        program: workspace.program,
++        sources: workspace.sources,
++        source_id,
++        effect_body_spans,
++        diagnostics,
++        checked,
++    })
++}
++
++pub(super) fn checked_local_annotation_facts_from_output(
++    checked: &xsh::frontend::check::CheckOutput,
++    source_id: xsh::frontend::source::SourceId,
++) -> Option<CheckedLocalAnnotationFacts> {
++    if checked.diagnostics.iter().any(|diagnostic| {
++        diagnostic.severity == Severity::Error
++    }) {
++        return None;
++    }
++    let owner = xsh::frontend::symbols::SymbolOwner::current()?;
++    owner.with_current(|| {
++        let mut bindings = BTreeMap::new();
++        for (span, ty) in &checked.local_binding_types {
++            if span.source_id == source_id {
++                bindings
++                    .entry(span.start())
++                    .or_insert_with(|| checked_return_type_shape(ty));
++            }
++        }
++        let expressions = checked
++            .expr_types
++            .iter()
++            .filter(|(span, _)| span.source_id == source_id)
++            .map(|(span, ty)| {
++                (
++                    (span.start(), span.end()),
++                    checked_return_type_shape(ty),
++                )
++            })
++            .collect();
++        Some(CheckedLocalAnnotationFacts {
++            bindings,
++            expressions,
++        })
++    })
++}
++
++fn source_facts<'a, T: 'a, R>(
++    facts: impl Iterator<Item = (&'a Span, &'a T)>,
++    source_id: xsh::frontend::source::SourceId,
++    removed: &[(usize, usize)],
++    mut project: impl FnMut(&T) -> R,
++) -> Vec<(usize, usize, R)> {
++    facts
++        .filter(|(span, _)| span.source_id == source_id)
++        .map(|(span, fact)| (
++            original_offset(span.start(), removed),
++            original_offset(span.end(), removed),
++            project(fact),
++        ))
++        .collect()
++}
++
++fn original_offset(offset: usize, removed: &[(usize, usize)]) -> usize {
++    removed.iter().fold(offset, |offset, &(start, length)| {
++        if offset >= start { offset + length } else { offset }
++    })
++}
++
++pub(super) fn checked_return_removal_facts_from_output(
++    checked: &xsh::frontend::check::CheckOutput,
++    source_id: xsh::frontend::source::SourceId,
++    expected_effect_bodies: &[Span],
++    removed: &[(usize, usize)],
++    source_diagnostics_forbidden: bool,
++) -> Option<CheckedReturnRemovalFacts> {
++    if checked.diagnostics.iter().any(|diagnostic| {
++        diagnostic.severity == Severity::Error
++            || (source_diagnostics_forbidden && diagnostic_mentions_source(diagnostic, source_id))
++    }) {
++        return None;
++    }
++    let source_effect_count = checked.function_effect_facts.keys()
++        .filter(|id| id.body.source_id == source_id).count();
++    if source_effect_count != expected_effect_bodies.len()
++        || expected_effect_bodies.iter().any(|body| !checked.function_effect_facts.keys().any(|id| id.body == *body)) {
++        return None;
++    }
++    let owner = xsh::frontend::symbols::SymbolOwner::current()?;
++    owner.with_current(|| {
++        Some(CheckedReturnRemovalFacts {
++            expressions: source_facts(checked.expr_types.iter(), source_id, removed, checked_return_type_shape),
++            statements: source_facts(checked.statement_positions.iter(), source_id, removed, |position| *position),
++            returns: source_facts(checked.function_return_types.iter(), source_id, removed, checked_return_type_shape),
++            parameters: source_facts(checked.parameter_types.iter(), source_id, removed, checked_return_type_shape),
++            effects: checked
++                .function_effect_facts
++                .iter()
++                .filter(|(id, _)| id.body.source_id == source_id)
++                .map(|(id, fact)| {
++                    let normalize = |effects: &Option<Vec<Effect>>| {
++                        effects.as_ref().map(|effects| {
++                            let mut effects = effects.clone();
++                            effects.sort_by_key(Effect::as_str);
++                            effects.dedup();
++                            effects
++                        })
++                    };
++                    (
++                        (
++                            original_offset(id.body.start(), removed),
++                            original_offset(id.body.end(), removed),
++                        ),
++                        CheckedEffectContractFact {
++                            effective: normalize(&fact.effective),
++                            required: normalize(&fact.required),
++                            unknown_chain: fact.unknown_chain.clone(),
++                        },
++                    )
++                })
++                .collect(),
++        })
++    })
++}
++
++fn diagnostic_mentions_source(
++    diagnostic: &xsh::diagnostic::Diagnostic,
++    source_id: xsh::frontend::source::SourceId,
++) -> bool {
++    diagnostic
++        .span
++        .into_iter()
++        .chain(diagnostic.labels.iter().map(|label| label.span))
++        .chain(diagnostic.fix_hints.iter().filter_map(|hint| hint.span))
++        .any(|span| span.source_id == source_id)
++}
++
++#[cfg(test)]
++mod effect_fact_completeness_tests {
++    use super::{checked_source_effect_bodies, checked_return_removal_facts_from_output};
++    use xsh::frontend::{
++        check::Checker,
++        source::SourceId,
++        syntax::parser::Parser,
++    };
++
++    #[test]
++    fn missing_source_effect_fact_refuses_a_proof_snapshot() {
++        let source = "proc local() [io] -> Str { print \"local\"; \"local\" }\n";
++        let source_id = SourceId::new(0);
++        let parsed = Parser::parse_source_arena_only(source_id, source);
++        assert!(parsed.diagnostics.is_empty());
++        let mut checked = Checker::check_arena(&parsed.arena, source);
++        let (_, bodies) = checked_source_effect_bodies(
++            &parsed.arena,
++            parsed.arena.statement_ids(),
++            source,
++        ).unwrap();
++        assert_eq!(bodies.len(), 1);
++        let missing = *checked.function_effect_facts.keys().next().unwrap();
++        checked.function_effect_facts.remove(&missing);
++
++        let facts = parsed.arena.symbol_owner().with_current(|| {
++            checked_return_removal_facts_from_output(&checked, source_id, &bodies, &[], true)
++        });
++        assert!(facts.is_none());
++    }
++}
++
+ // Standalone proof parses do not load user modules. An invalid unresolved
+ // top-level use always errors, so its source cannot supply a proof baseline.
+ pub(super) fn standalone_annotation_imports_available(program: &ArenaProgram) -> bool {
+@@ -69,22 +339,7 @@ pub(super) fn checked_local_annotation_facts(
+         return None;
+     }
+     parsed.arena.symbol_owner().with_current(|| {
+-        let mut bindings = BTreeMap::new();
+-        for (span, ty) in &checked.local_binding_types {
+-            bindings
+-                .entry(span.start())
+-                .or_insert_with(|| checked_return_type_shape(ty));
+-        }
+-        let expressions = checked
+-            .expr_types
+-            .iter()
+-            .filter(|(span, _)| span.source_id == source_id)
+-            .map(|(span, ty)| ((span.start(), span.end()), checked_return_type_shape(ty)))
+-            .collect();
+-        Some(CheckedLocalAnnotationFacts {
+-            bindings,
+-            expressions,
+-        })
++        checked_local_annotation_facts_from_output(&checked, source_id)
+     })
+ }
+ 
+@@ -105,69 +360,19 @@ pub(super) fn checked_return_removal_facts(
+     if !checked.diagnostics.is_empty() {
+         return None;
+     }
+-    let original_offset = |offset: usize| match removed {
+-        Some((start, length)) if offset >= start => offset + length,
+-        _ => offset,
+-    };
+     parsed.arena.symbol_owner().with_current(|| {
+-        Some(CheckedReturnRemovalFacts {
+-            expressions: checked
+-                .expr_types
+-                .iter()
+-                .map(|(span, ty)| {
+-                    (
+-                        original_offset(span.start()),
+-                        original_offset(span.end()),
+-                        checked_return_type_shape(ty),
+-                    )
+-                })
+-                .collect(),
+-            statements: checked
+-                .statement_positions
+-                .iter()
+-                .map(|(span, position)| {
+-                    (
+-                        original_offset(span.start()),
+-                        original_offset(span.end()),
+-                        *position,
+-                    )
+-                })
+-                .collect(),
+-            returns: checked
+-                .function_return_types
+-                .iter()
+-                .map(|(span, ty)| {
+-                    (
+-                        original_offset(span.start()),
+-                        original_offset(span.end()),
+-                        checked_return_type_shape(ty),
+-                    )
+-                })
+-                .collect(),
+-            parameters: checked
+-                .parameter_types
+-                .iter()
+-                .map(|(span, ty)| {
+-                    (
+-                        original_offset(span.start()),
+-                        original_offset(span.end()),
+-                        checked_return_type_shape(ty),
+-                    )
+-                })
+-                .collect(),
+-            effects: checked
+-                .callable_effects
+-                .into_iter()
+-                .map(|(name, effects)| {
+-                    let effects = effects.map(|mut effects| {
+-                        effects.sort_by_key(Effect::as_str);
+-                        effects.dedup();
+-                        effects
+-                    });
+-                    (name, effects)
+-                })
+-                .collect(),
+-        })
++        let removed = removed.into_iter().collect::<Vec<_>>();
++        checked_return_removal_facts_from_output(
++            &checked,
++            source_id,
++            &checked_source_effect_bodies(
++                &parsed.arena,
++                parsed.arena.statement_ids(),
++                source,
++            )?.1,
++            &removed,
++            true,
++        )
+     })
+ }
+ 
+@@ -247,16 +452,109 @@ pub(super) fn checked_return_type_shape(ty: &Type) -> String {
+ }
+ 
+ impl<'a> Linter<'a> {
++    pub(super) fn checked_return_removal_probe(
++        &self,
++        source: &str,
++        source_id: xsh::frontend::source::SourceId,
++        removed: Option<(usize, usize)>,
++    ) -> Option<CheckedReturnRemovalFacts> {
++        let Some(context) = self.return_proof.as_ref() else {
++            return checked_return_removal_facts(source, source_id, removed);
++        };
++        #[cfg(test)]
++        annotation_probe_tests::record_probe();
++        if removed.is_none() && source == self.source {
++            if self.source_id != Some(source_id) {
++                return None;
++            }
++            let checked = self.checked_output.as_deref()?;
++            let removed = removed.into_iter().collect::<Vec<_>>();
++            return checked_return_removal_facts_from_output(
++                checked,
++                source_id,
++                &self.effect_body_spans,
++                &removed,
++                true,
++            );
++        }
++        if self.source_id != Some(source_id) {
++            return None;
++        }
++        let snapshot = check_probe_candidate(context, source)?;
++        if !snapshot.diagnostics.is_empty() {
++            return None;
++        }
++        let removed = removed.into_iter().collect::<Vec<_>>();
++        snapshot.program.symbol_owner().with_current(|| {
++            let checked = snapshot.checked.as_ref()?;
++            checked_return_removal_facts_from_output(
++                checked,
++                snapshot.source_id,
++                &snapshot.effect_body_spans,
++                &removed,
++                true,
++            )
++        })
++    }
++
++    fn local_annotation_baseline_facts(
++        &self,
++        source_id: xsh::frontend::source::SourceId,
++    ) -> Option<CheckedLocalAnnotationFacts> {
++        if self.return_proof.is_none() {
++            return checked_local_annotation_facts(self.source, source_id);
++        }
++        if self.source_id != Some(source_id) {
++            return None;
++        }
++        #[cfg(test)]
++        local_annotation_probe_tests::record_original();
++        let checked = self.checked_output.as_deref()?;
++        checked_local_annotation_facts_from_output(checked, source_id)
++    }
++
++    fn local_annotation_candidate_facts(
++        &self,
++        source: &str,
++        source_id: xsh::frontend::source::SourceId,
++    ) -> Option<CheckedLocalAnnotationFacts> {
++        if let Some(context) = self.return_proof.as_ref() {
++            if self.source_id != Some(source_id) {
++                return None;
++            }
++            #[cfg(test)]
++            local_annotation_probe_tests::record_candidate();
++            let snapshot = check_probe_candidate(context, source)?;
++            if !snapshot.diagnostics.is_empty() {
++                return None;
++            }
++            return snapshot.program.symbol_owner().with_current(|| {
++                let checked = snapshot.checked.as_ref()?;
++                checked_local_annotation_facts_from_output(
++                    checked,
++                    snapshot.source_id,
++                )
++            });
++        }
++        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(source_id, source);
++        if !parsed.diagnostics.is_empty() {
++            return None;
++        }
++        #[cfg(test)]
++        local_annotation_probe_tests::record_candidate();
++        let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
++        parsed.arena.symbol_owner().with_current(|| {
++            checked_local_annotation_facts_from_output(&checked, source_id)
++        })
++    }
++
+     pub(super) fn local_annotation_removal_preserves_contract(
+         &mut self,
+         deletion: Span,
+         binding: Span,
+     ) -> bool {
+         if self.local_annotation_before.is_none() {
+-            self.local_annotation_before = Some(checked_local_annotation_facts(
+-                self.source,
+-                deletion.source_id,
+-            ));
++            self.local_annotation_before = Some(self.local_annotation_baseline_facts(deletion.source_id));
+         }
+         let Some(before) = self.local_annotation_before.as_ref().unwrap().as_ref() else {
+             return false;
+@@ -279,37 +577,11 @@ impl<'a> Linter<'a> {
+             .collect::<BTreeMap<_, _>>();
+         let mut rewritten = self.source.to_string();
+         rewritten.replace_range(deletion.range(), "");
+-        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+-            deletion.source_id,
+-            &rewritten,
+-        );
+-        if !parsed.diagnostics.is_empty() {
++        let Some(after) = self.local_annotation_candidate_facts(&rewritten, deletion.source_id)
++        else {
+             return false;
+-        }
+-        #[cfg(test)]
+-        local_annotation_probe_tests::record_candidate();
+-        let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &rewritten);
+-        if checked
+-            .diagnostics
+-            .iter()
+-            .any(|diagnostic| diagnostic.severity == Severity::Error)
+-        {
+-            return false;
+-        }
+-        parsed.arena.symbol_owner().with_current(|| {
+-            let shape = checked
+-                .local_binding_types
+-                .iter()
+-                .find(|(span, _)| span.start() == binding.start())
+-                .map(|(_, ty)| checked_return_type_shape(ty));
+-            let facts = checked
+-                .expr_types
+-                .iter()
+-                .filter(|(span, _)| span.source_id == deletion.source_id)
+-                .map(|(span, ty)| ((span.start(), span.end()), checked_return_type_shape(ty)))
+-                .collect::<BTreeMap<_, _>>();
+-            shape.as_ref() == Some(old_shape) && facts == old_facts
+-        })
++        };
++        after.bindings.get(&binding.start()) == Some(old_shape) && after.expressions == old_facts
+     }
+ 
+     pub(super) fn pipeline_rewrite_preserves_types(
+diff --git a/tests/xsh/lint-rule-repairs.xsh b/tests/xsh/lint-rule-repairs.xsh
+index 0513c9cc7b6adaab574d775659185a5736a8755d..c9281993c7d9d8a07051c70c7e9e6248ffa5cbb0 100644
+--- a/tests/xsh/lint-rule-repairs.xsh
++++ b/tests/xsh/lint-rule-repairs.xsh
+@@ -140,3 +140,294 @@ print load()?
+     assert "LoadError.Failed" in report and "no configuration" in report, report
+   }
+ }
++
++test test_argument_label_fix_uses_project_format_width_and_preserves_link_behavior { |ctx|
++  let project = test.temp_dir(ctx, name: "argument-label-width")?
++  fp"{project}/xsht-config.ini".write("[format]\nline-width = 40\n")
++  let file = fp"{project}/main.xsh"
++  let source = r"""let target_path_from_inputs = fp"{args[0]}"
++let link_path_destination = fp"{args[1]}"
++# Keep this explanation of why the target is linked.
++fs.symlink(target_path_from_inputs, link_path_destination)
++assert link_path_destination.is_symlink()?
++print "linked"
++"""
++  file.write(source)
++  let before_dir = test.temp_dir(ctx, name: "argument-label-before")?
++  let after_dir = test.temp_dir(ctx, name: "argument-label-after")?
++  let before = test.expect(
++    ctx,
++    source,
++    status: 0,
++    stdout: ["linked"],
++    args: [fp"{before_dir}/target", fp"{before_dir}/link"],
++  )?
++
++  let reported = cd(project) { run.capture --text "xsht" lint "main.xsh" }?
++  assert reported.status.exited_with(1), reported.stderr
++  assert reported.stderr.split("warn[lint.prefer-argument-label]").len() == 2, reported.stderr
++  assert "`fs.symlink` takes the target first and the link second" in reported.stderr, reported.stderr
++  let fixed = cd(project) { run.capture --text "xsht" lint --fix "main.xsh" }?
++  assert fixed.status.exited_with(0), fixed.stderr
++  let expected = r"""let target_path_from_inputs = fp"{args[0]}"
++let link_path_destination = fp"{args[1]}"
++# Keep this explanation of why the target is linked.
++link_path_destination.symlink(
++  to: target_path_from_inputs,
++)
++assert link_path_destination.is_symlink()?
++print "linked"
++"""
++  assert file.read_text()? == expected, file.read_text()?
++  assert "# Keep this explanation of why the target is linked." in expected
++
++  let checked = cd(project) { run.capture --text "xsht" check "main.xsh" }?
++  assert checked.status.exited_with(0), checked.stderr
++  let after = test.expect(
++    ctx,
++    file.read_text()?,
++    status: 0,
++    stdout: ["linked"],
++    args: [fp"{after_dir}/target", fp"{after_dir}/link"],
++  )?
++  assert before.stdout == after.stdout
++}
++
++test test_inferred_pure_return_removal_handles_an_imported_module { |ctx|
++  let project = test.temp_dir(ctx, name: "inferred-pure-return-import")?
++  fp"{project}/xsht-config.ini".write(
++    "module_path = .\n[lint]\nprefer-inferred-pure-returns = true\n",
++  )
++  fp"{project}/helper.xsh".write(
++    "##! Text helper.\n## Trims whitespace around a label.\nexport pure trim(value: Str) -> Str { value.trim() }\n",
++  )
++  let file = fp"{project}/main.xsh"
++  let source = "use helper\n\n# Keep the user-facing label free of surrounding spaces.\npure label(name: Str) -> Str { helper.trim(name) }\nprint label(\" ready \")\n"
++  file.write(source)
++  let before = cd(project) { run.capture --text "xsh" "main.xsh" }?
++  assert before.status.exited_with(0), before.stderr
++  let reported = cd(project) { run.capture --text "xsht" lint "main.xsh" }?
++  assert reported.status.exited_with(1), reported.stderr
++  assert reported.stderr.split("warn[lint.prefer-inferred-pure-return]").len() == 2, reported.stderr
++  assert "private pure return type can be inferred exactly" in reported.stderr, reported.stderr
++
++  let fixed = cd(project) { run.capture --text "xsht" lint --fix "main.xsh" }?
++  assert fixed.status.exited_with(0), fixed.stderr
++  let expected = "use helper\n\n# Keep the user-facing label free of surrounding spaces.\npure label(name: Str) { helper.trim(name) }\n\nprint label(\" ready \")\n"
++  assert file.read_text()? == expected, file.read_text()?
++  let checked = cd(project) { run.capture --text "xsht" check "main.xsh" }?
++  assert checked.status.exited_with(0), checked.stderr
++  let remaining = cd(project) { run.capture --text "xsht" lint "main.xsh" }?
++  assert remaining.status.exited_with(0), remaining.stderr
++  assert "lint.prefer-inferred-pure-return" not in remaining.stderr, remaining.stderr
++  let after = cd(project) { run.capture --text "xsh" "main.xsh" }?
++  assert after.status.exited_with(0), after.stderr
++  assert before.stdout == "ready\n", before.stdout
++  assert after.stdout == before.stdout, after.stdout
++}
++
++test test_imported_pure_return_probes_invalidate_each_changed_root { |ctx|
++  let project = test.temp_dir(ctx, name: "inferred-pure-return-candidates")?
++  fp"{project}/xsht-config.ini".write(
++    "module_path = .\n[lint]\nprefer-inferred-pure-returns = true\n",
++  )
++  fp"{project}/helper.xsh".write(
++    "##! Text helper.\n## Trims whitespace around a label.\nexport pure trim(value: Str) -> Str { value.trim() }\n",
++  )
++  let file = fp"{project}/main.xsh"
++  let source = "use helper\n\n# This result annotation supplies an expected element type.\npure names() -> List[Str] { [] }\n\npure label(name: Str) -> Str { helper.trim(name) }\nprint label(\" ready \")\n"
++  file.write(source)
++
++  let reported = cd(project) {
++    run.capture --text "xsht" lint --only lint.prefer-inferred-pure-return "main.xsh"
++  }?
++  assert reported.status.exited_with(1), reported.stderr
++  assert reported.stderr.split("warn[lint.prefer-inferred-pure-return]").len() == 2, reported.stderr
++
++  let fixed = cd(project) {
++    run.capture --text "xsht" lint --only lint.prefer-inferred-pure-return --fix "main.xsh"
++  }?
++  assert fixed.status.exited_with(0), fixed.stderr
++  let expected = "use helper\n\n# This result annotation supplies an expected element type.\npure names() -> List[Str] { [] }\n\npure label(name: Str) { helper.trim(name) }\nprint label(\" ready \")\n"
++  assert file.read_text()? == expected, file.read_text()?
++  let checked = cd(project) { run.capture --text "xsht" check "main.xsh" }?
++  assert checked.status.exited_with(0), checked.stderr
++  let before = cd(project) { run.capture --text "xsh" "main.xsh" }?
++  assert before.status.exited_with(0), before.stderr
++  assert before.stdout == "ready\n", before.stdout
++}
++
++test test_default_parameter_probe_keeps_imported_default_types { |ctx|
++  let project = test.temp_dir(ctx, name: "default-parameter-import")?
++  fp"{project}/xsht-config.ini".write("module_path = .\n")
++  fp"{project}/helper.xsh".write(
++    "##! Default provider.\n## Supplies the default label.\nexport pure name() -> Str { \"ready\" }\n",
++  )
++  let file = fp"{project}/main.xsh"
++  file.write(
++    "use helper\npure label(value: Str = helper.name()) -> Str { value }\nprint label()\n",
++  )
++
++  let reported = cd(project) {
++    run.capture --text "xsht" lint --only lint.default-param-type "main.xsh"
++  }?
++  assert reported.status.exited_with(1), reported.stderr
++  assert reported.stderr.split("warn[lint.default-param-type]").len() == 2, reported.stderr
++
++  let fixed = cd(project) {
++    run.capture --text "xsht" lint --only lint.default-param-type --fix "main.xsh"
++  }?
++  assert fixed.status.exited_with(0), fixed.stderr
++  assert file.read_text()? == "use helper\npure label(value = helper.name()) -> Str { value }\nprint label()\n"
++  let checked = cd(project) { run.capture --text "xsht" check "main.xsh" }?
++  assert checked.status.exited_with(0), checked.stderr
++}
++
++test test_local_annotation_probe_uses_imported_constraints { |ctx|
++  let project = test.temp_dir(ctx, name: "local-annotation-import")?
++  fp"{project}/xsht-config.ini".write("module_path = .\n")
++  fp"{project}/helper.xsh".write(
++    "##! Path helper.\n## Returns one path.\nexport pure paths() -> List[Path] { [p\"one\"] }\n",
++  )
++  let file = fp"{project}/main.xsh"
++  file.write(
++    r"""use helper
++proc gather() -> List[Path] {
++  var paths: List[Path] = []
++  for item_path in helper.paths() {
++    paths += [item_path]
++  }
++  paths
++}
++print ${gather().len()}
++""",
++  )
++
++  let reported = cd(project) {
++    run.capture --text "xsht" lint --only lint.needless-annotation "main.xsh"
++  }?
++  assert reported.status.exited_with(1), reported.stderr
++  assert reported.stderr.split("warn[lint.needless-annotation]").len() == 2, reported.stderr
++
++  let fixed = cd(project) {
++    run.capture --text "xsht" lint --only lint.needless-annotation --fix "main.xsh"
++  }?
++  assert fixed.status.exited_with(0), fixed.stderr
++  assert file.read_text()? == r"""use helper
++proc gather() -> List[Path] {
++  var paths = []
++  for item_path in helper.paths() {
++    paths += [item_path]
++  }
++  paths
++}
++print ${gather().len()}
++"""
++  let checked = cd(project) { run.capture --text "xsht" check "main.xsh" }?
++  assert checked.status.exited_with(0), checked.stderr
++}
++
++test test_private_effect_probe_uses_imported_effects { |ctx|
++  let project = test.temp_dir(ctx, name: "private-effect-import")?
++  fp"{project}/xsht-config.ini".write(
++    "module_path = .\n[lint]\nprefer-inferred-private-effects = true\n",
++  )
++  fp"{project}/helper.xsh".write(
++    "##! Effectful provider.\n## Prints before returning a label.\nexport proc fetch() [io] -> Str { print \"fetch\"; \"ready\" }\n",
++  )
++  let file = fp"{project}/main.xsh"
++  file.write("use helper\nproc label() [io] -> Str { helper.fetch() }\nprint label()\n")
++
++  let before = cd(project) { run.capture --text "xsh" "main.xsh" }?
++  assert before.status.exited_with(0), before.stderr
++  let reported = cd(project) {
++    run.capture --text "xsht" lint --only lint.prefer-inferred-private-effects "main.xsh"
++  }?
++  assert reported.status.exited_with(1), reported.stderr
++  assert "lint.prefer-inferred-private-effects" in reported.stderr, reported.stderr
++
++  let fixed = cd(project) {
++    run.capture --text "xsht" lint --only lint.prefer-inferred-private-effects --fix "main.xsh"
++  }?
++  assert fixed.status.exited_with(0), fixed.stderr
++  assert file.read_text()? == "use helper\nproc label() -> Str { helper.fetch() }\nprint label()\n"
++  let checked = cd(project) { run.capture --text "xsht" check "main.xsh" }?
++  assert checked.status.exited_with(0), checked.stderr
++  let after = cd(project) { run.capture --text "xsh" "main.xsh" }?
++  assert after.status.exited_with(0), after.stderr
++  assert before.stdout == "fetch\nready\n", before.stdout
++  assert after.stdout == before.stdout, after.stdout
++}
++
++test test_private_effect_probe_keeps_same_named_imported_callable_separate { |ctx|
++  let project = test.temp_dir(ctx, name: "private-effect-same-name")?
++  fp"{project}/xsht-config.ini".write(
++    "module_path = .\n[lint]\nprefer-inferred-private-effects = true\n",
++  )
++  fp"{project}/helper.xsh".write(
++    "##! Same-name provider.\n## Exposes a separate caller effect.\nexport proc label() [fs] -> Str { \"imported\" }\n",
++  )
++  let file = fp"{project}/main.xsh"
++  file.write(
++    "use helper\nproc label() [io] -> Str { print \"root\"; \"ready\" }\nprint label()\n",
++  )
++
++  let before = cd(project) { run.capture --text "xsh" "main.xsh" }?
++  assert before.status.exited_with(0), before.stderr
++  assert before.stdout == "root\nready\n", before.stdout
++  let reported = cd(project) {
++    run.capture --text "xsht" lint --only lint.prefer-inferred-private-effects "main.xsh"
++  }?
++  assert reported.status.exited_with(1), reported.stderr
++  assert reported.stderr.split("warn[lint.prefer-inferred-private-effects]").len() == 2, reported.stderr
++
++  let fixed = cd(project) {
++    run.capture --text "xsht" lint --only lint.prefer-inferred-private-effects --fix "main.xsh"
++  }?
++  assert fixed.status.exited_with(0), fixed.stderr
++  assert file.read_text()? == "use helper\nproc label() -> Str { print \"root\"; \"ready\" }\nprint label()\n"
++  let checked = cd(project) { run.capture --text "xsht" check "main.xsh" }?
++  assert checked.status.exited_with(0), checked.stderr
++  let after = cd(project) { run.capture --text "xsh" "main.xsh" }?
++  assert after.status.exited_with(0), after.stderr
++  assert after.stdout == before.stdout, after.stdout
++}
++
++test test_optional_fallback_fix_removes_the_grouping_with_it { |ctx|
++  let source = r"""# The guard keeps the optional value present for this arithmetic.
++pure increment(value: Int?) -> Int {
++  guard value != null else { return 0 }
++  (value ?? 0) + 1
++}
++print increment(1)
++print increment(null)
++"""
++  let before = test.expect(ctx, source, status: 0, stdout: ["2", "0"])?
++  let file = test.temp_file(ctx, name: "optional-fallback.xsh", contents: bytes.from_text(source))?
++  let reported = cd(file.parent()) { run.capture --text "xsht" lint $file }?
++  assert reported.status.exited_with(1), reported.stderr
++  assert reported.stderr.split("warn[lint.redundant-optional-fallback]").len() == 2, reported.stderr
++  assert "this Optional receiver is proved present" in reported.stderr, reported.stderr
++
++  let fixed = cd(file.parent()) { run.capture --text "xsht" lint --fix $file }?
++  assert fixed.status.exited_with(0), fixed.stderr
++  let expected = r"""# The guard keeps the optional value present for this arithmetic.
++pure increment(value: Int?) -> Int {
++  guard value != null else { return 0 }
++  value + 1
++}
++
++print increment(1)
++print increment(null)
++"""
++  assert file.read_text()? == expected, file.read_text()?
++  assert "check.redundant-parens" not in fixed.stderr, fixed.stderr
++  let checked = run.capture --text "xsht" check $file
++  assert checked.status.exited_with(0), checked.stderr
++  let remaining = cd(file.parent()) { run.capture --text "xsht" lint $file }?
++  assert remaining.status.exited_with(0), remaining.stderr
++  assert "check.redundant-parens" not in remaining.stderr, remaining.stderr
++  let after = test.expect(ctx, file.read_text()?, status: 0, stdout: ["2", "0"])?
++  assert before.stdout == "2\n0\n", before.stdout
++  assert after.stdout == before.stdout, after.stdout
++}

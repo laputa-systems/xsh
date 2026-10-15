@@ -1,0 +1,13 @@
+diff --git a/ACTIVE-ASSIGNMENT.md b/ACTIVE-ASSIGNMENT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..dd2479a86d09be6752fb759e2e7c4d08a0b8fe6f
+--- /dev/null
++++ b/ACTIVE-ASSIGNMENT.md
+@@ -0,0 +1,7 @@
++# Active assignment
++
++- Worktree: `/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-reuse-session`
++- Base: `985731b7` (fresh latest root at lane creation)
++- Native build image: `sha256:65dc744f6c560f189716ea193bd765149f4691c80392663e630813033ebc53a3`
++- Compile command: `/home/josh/d/laputa-systems/xsh-consolidation/.work/consolidation/infra/run-native.sh /home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-reuse-session build cargo check --locked --target x86_64-unknown-linux-musl -p xsh --lib`
++- Prior W9 evidence remains in `120f6293` and `ce448f8a` on the prior lane; no source changes are authorized here until the ownership/interface proposal is reviewed.

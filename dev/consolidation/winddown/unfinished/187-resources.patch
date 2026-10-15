@@ -1,0 +1,34 @@
+diff --git a/docs/templates/SPEC.md b/docs/templates/SPEC.md
+index 1fba25109a2a698b438939b1a1a66fbd80aa1491..98c5d71400b6def758bd0062d35741153ee7f737 100644
+--- a/docs/templates/SPEC.md
++++ b/docs/templates/SPEC.md
+@@ -3851,6 +3851,20 @@ first; closing a temporary root also removes its directory. A defer can use
+ these capabilities and can release them early. An explicit `root.close()` or
+ `fs.unlock(lock)` returns an error for an already released capability, while
+ scope cleanup skips a capability released earlier.
++For an exact local `ProcessHandle`, `NetJob`, `FsRoot`, or `FsLock`, a direct
++unconditional consuming operation also makes later uses of that same binding
++a check error. This catches stale uses before the runtime reports that a
++handle is no longer live:
++
++```xsh
++{{.spec.use_after_release.source}}
++```
++
++The check follows binding identity within its block. A release hidden in a
++branch, loop, deferred action, short-circuit expression, pipeline, or another
++function does not establish that the local was consumed. Reassigning a mutable
++local gives it a fresh live value. Alias locals, resources stored in containers,
++and values reached through projections are not tracked.
+ Ordinary block cleanup drops capability-release errors. A `with` resource
+ scope (10.4) reports a release failure as its `Err` when the body reaches its
+ end. Activities created by a defer are stopped as the scope finishes.
+diff --git a/docs/snippets/spec/rejected/38-use-after-release.xsh b/docs/snippets/spec/rejected/38-use-after-release.xsh
+new file mode 100644
+index 0000000000000000000000000000000000000000..50740aeb9209d99fb3b545b52b4f9d7ac2afc1c8
+--- /dev/null
++++ b/docs/snippets/spec/rejected/38-use-after-release.xsh
+@@ -0,0 +1,3 @@
++let root = fs.tempdir()?
++root.close()?
++assert root.exists(p".")? # error: check.use-after-release

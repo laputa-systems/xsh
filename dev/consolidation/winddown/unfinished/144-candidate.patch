@@ -1,0 +1,3541 @@
+diff --git a/src/modules/cli.rs b/src/modules/cli.rs
+index f7fd5b9d8b6c462046f7562cdd17b2a78e7ae1e3..b142148f727b8bf73fc92e3e561daccf5a51342d 100644
+--- a/src/modules/cli.rs
++++ b/src/modules/cli.rs
+@@ -11,7 +11,7 @@ mod gnu;
+ 
+ use gnu::GnuConfig;
+ 
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, Eq, PartialEq)]
+ struct OptionSpec {
+     value_ty: ArgValueType,
+     repeated: bool,
+@@ -383,7 +383,7 @@ impl ArgTokenKind {
+     }
+ }
+ 
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, Eq, PartialEq)]
+ struct CommandSpec {
+     canonical: String,
+     aliases: Vec<String>,
+@@ -411,7 +411,7 @@ pub(crate) enum ParsePolicy {
+ /// One normalized descriptor supplies both checked field types and argument
+ /// parsing policy. Prepared calls retain this plan without exposing it as a
+ /// language value; dynamic descriptors use the same normalization at runtime.
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, Eq, PartialEq)]
+ pub(crate) struct CliDescriptorPlan {
+     specs: BTreeMap<String, OptionSpec>,
+     gnu: Option<GnuConfig>,
+diff --git a/src/modules/cli/gnu.rs b/src/modules/cli/gnu.rs
+index 2ce5010a3b37fa91e1bac5e7a0f67133da3aaaa1..7d945eec792ce7e1ada75358679b01fa20206596 100644
+--- a/src/modules/cli/gnu.rs
++++ b/src/modules/cli/gnu.rs
+@@ -20,14 +20,14 @@ use std::sync::Arc;
+ 
+ const DEFAULT_STATUS: i64 = 1;
+ 
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, Eq, PartialEq)]
+ struct Unsupported {
+     long: bool,
+     name: String,
+     reason: String,
+ }
+ 
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, Eq, PartialEq)]
+ pub(super) struct GnuConfig {
+     prog: Option<String>,
+     status: i64,
+diff --git a/src/sema/check.rs b/src/sema/check.rs
+index d6b9af3c4ec2448fc418c114ccc0303f43713cc7..1dd41d2c8ac69377ba5e7dda6d9250d97e2fbca3 100644
+--- a/src/sema/check.rs
++++ b/src/sema/check.rs
+@@ -27,6 +27,7 @@ pub struct CheckBundleView<'a> {
+     pub(super) root_source_id: Option<SourceId>,
+     source_ids: FxHashSet<SourceId>,
+     all_sources: bool,
++    pub(super) entry_context: Option<Arc<()>>,
+ }
+ 
+ impl<'a> CheckBundleView<'a> {
+@@ -45,34 +46,16 @@ impl<'a> CheckBundleView<'a> {
+         sources: Option<&'a SourceMap>,
+         entry_source_id: Option<SourceId>,
+     ) -> Self {
+-        let mut reachable = FxHashSet::<Arc<str>>::default();
+-        let mut pending = Vec::new();
+-        Self::enqueue_imports(
+-            program,
+-            program.arena.stmt_ids(root_statements),
+-            &mut reachable,
+-            &mut pending,
+-        );
+-        while let Some(key) = pending.pop() {
+-            if let Some(module) = program
+-                .modules
+-                .iter()
+-                .find(|module| !module.internal && module.key == key.as_ref())
+-            {
+-                Self::enqueue_imports(
+-                    program,
+-                    program.module_statements(module),
+-                    &mut reachable,
+-                    &mut pending,
+-                );
+-            }
+-        }
+         let mut modules = Vec::new();
+         let mut visited = FxHashSet::default();
+         for module in program.modules.iter().filter(|module| module.internal) {
+-            if module.statements != root_statements {
+-                modules.push(module);
+-            }
++            Self::order_module(
++                program,
++                &module.key,
++                root_statements,
++                &mut visited,
++                &mut modules,
++            );
+         }
+         let mut roots = Vec::new();
+         let mut root_imports = FxHashSet::default();
+@@ -87,7 +70,6 @@ impl<'a> CheckBundleView<'a> {
+             Self::order_module(
+                 program,
+                 &key,
+-                &reachable,
+                 root_statements,
+                 &mut visited,
+                 &mut modules,
+@@ -116,6 +98,7 @@ impl<'a> CheckBundleView<'a> {
+             }),
+             source_ids,
+             all_sources: false,
++            entry_context: None,
+         }
+     }
+ 
+@@ -146,6 +129,7 @@ impl<'a> CheckBundleView<'a> {
+             }),
+             source_ids,
+             all_sources: false,
++            entry_context: None,
+         }
+     }
+ 
+@@ -169,6 +153,7 @@ impl<'a> CheckBundleView<'a> {
+             root_source_id: Some(source_id),
+             source_ids,
+             all_sources: false,
++            entry_context: None,
+         }
+     }
+ 
+@@ -181,24 +166,26 @@ impl<'a> CheckBundleView<'a> {
+             root_source_id: None,
+             source_ids: FxHashSet::default(),
+             all_sources: true,
++            entry_context: None,
+         }
+     }
+ 
+     fn order_module(
+         program: &'a ArenaProgram,
+         key: &str,
+-        reachable: &FxHashSet<Arc<str>>,
+         root_statements: ArenaRange,
+         visited: &mut FxHashSet<Arc<str>>,
+         ordered: &mut Vec<&'a ArenaUserModule>,
+     ) {
+-        let Some(module) = program.modules.iter().find(|module| {
+-            !module.internal && module.key == key && module.statements != root_statements
+-        }) else {
++        let Some(module) = program
++            .modules
++            .iter()
++            .find(|module| module.key == key && module.statements != root_statements)
++        else {
+             return;
+         };
+         let module_key: Arc<str> = Arc::from(module.key.as_str());
+-        if !reachable.contains(&module_key) || !visited.insert(module_key) {
++        if !visited.insert(module_key) {
+             return;
+         }
+         let mut dependencies = Vec::new();
+@@ -213,7 +200,6 @@ impl<'a> CheckBundleView<'a> {
+             Self::order_module(
+                 program,
+                 &dependency,
+-                reachable,
+                 root_statements,
+                 visited,
+                 ordered,
+@@ -549,6 +535,17 @@ impl CheckOutput {
+     }
+ 
+     pub(super) fn merge_module_facts(&mut self, mut module: Self) {
++        #[cfg(test)]
++        let phase_started = std::time::Instant::now();
++        // Each checked module owns command-word bindings resolved from its body.
++        // The entry record already owns aggregate constructor facts; module records
++        // also carry dependency views that would publish their instances repeatedly.
++        self.prepared_constants
++            .merge_cli_plan_facts(&module.prepared_constants);
++        self.resolved_bindings = Arc::new(
++            self.resolved_bindings
++                .merge_visible(&module.resolved_bindings),
++        );
+         self.checked_declarations
+             .types
+             .extend(module.checked_declarations.types);
+@@ -652,6 +649,11 @@ impl CheckOutput {
+         self.text_patterns.append(&mut module.text_patterns);
+         self.inferred_variant_patterns
+             .append(&mut module.inferred_variant_patterns);
++        #[cfg(test)]
++        module_driver::record_w9_phase(
++            "module_output_fact_merge",
++            phase_started.elapsed().as_nanos(),
++        );
+     }
+ }
+ 
+@@ -1748,7 +1750,7 @@ impl Checker {
+                 .into(),
+         );
+         debug_assert_eq!(
+-            records.root().args_domain,
++            records.root().args_domain(),
+             if self.byte_script_arguments {
+                 ArgsDomain::Bytes
+             } else {
+@@ -1860,7 +1862,7 @@ impl Checker {
+         self.checked_declarations.cli_entries = entries;
+         self.diagnostics.extend(diagnostics);
+         if !self.collecting_effects {
+-            let resource_check = resource::check(self, bundle);
++            let resource_check = resource::check_root_owner(self, bundle);
+             self.diagnostics.extend(resource_check.diagnostics);
+             self.resource_transfers = resource_check.transfers;
+         }
+diff --git a/src/sema/check/decl.rs b/src/sema/check/decl.rs
+index 474d7f0edb31f36039bf9b9689fa53fa57e8323f..3848cbd8b3ef210967abd0f8995b0e19839b6210 100644
+--- a/src/sema/check/decl.rs
++++ b/src/sema/check/decl.rs
+@@ -2,7 +2,7 @@
+ 
+ use super::{
+     BTreeMap, CheckBundleView, Checker, CheckedFunctionKind, CoreCommand, ErrorFamilyInfo,
+-    ErrorVariantInfo, FxHashSet, Name, QualifiedName, Span, TagVariantInfo, Type,
++    ErrorVariantInfo, FxHashMap, FxHashSet, Name, QualifiedName, Span, TagVariantInfo, Type,
+     TypeAnnRef, TypeDefBody, UserModuleSig, api_spec,
+ };
+ use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
+@@ -19,9 +19,77 @@ use std::sync::Arc;
+ #[cfg(test)]
+ thread_local! {
+     pub(super) static USER_MODULE_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
++    pub(super) static MODULE_TYPE_HEADER_PREPARATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+ }
+ 
+ impl Checker {
++    /// Resolve exported type headers before the entry selects its argument domain.
++    pub(super) fn module_type_headers(
++        view: &CheckBundleView<'_>,
++        records: &super::module_record::ModuleRecords,
++        options: super::CheckOptions,
++        type_program: Arc<ArenaProgram>,
++    ) -> FxHashMap<String, UserModuleSig> {
++        #[cfg(test)]
++        let phase_started = std::time::Instant::now();
++        let program = view.program();
++        let mut headers = FxHashMap::default();
++        for module in view.modules() {
++            #[cfg(test)]
++            MODULE_TYPE_HEADER_PREPARATIONS.with(|count| count.set(count.get() + 1));
++            let mut checker = Self::new(options);
++            checker.current_namespace = Some(module.name);
++            checker.user_modules = Arc::new(headers.clone());
++            records
++                .module(&module.key)
++                .expect("reachable module has a prepared record")
++                .prepared_facts()
++                .install(&mut checker, program);
++            let statements = program.module_statements(module).collect::<Vec<_>>();
++            checker.collect_type_imports_arena(program, statements.iter().copied());
++            let mut exported = Vec::new();
++            for &statement in &statements {
++                let stmt = program.arena.stmt(statement);
++                let (kind, span, is_exported) = match stmt.kind {
++                    ArenaStmtKind::Export(inner) => {
++                        let inner = program.arena.stmt(inner);
++                        (inner.kind, inner.span, true)
++                    }
++                    kind => (kind, stmt.span, false),
++                };
++                let ArenaStmtKind::TypeDef(id) = kind else {
++                    continue;
++                };
++                let def = program.arena.type_def(id);
++                checker.type_defs.insert(
++                    def.name,
++                    type_def_body_arena(type_program.clone(), id, Some(module.name)),
++                );
++                if is_exported {
++                    exported.push((id, def.name, span));
++                }
++            }
++            let mut header = UserModuleSig::default();
++            for (id, name, span) in exported {
++                let def = program.arena.type_def(id);
++                header.types.insert(
++                    name,
++                    type_def_body_arena(type_program.clone(), id, Some(module.name)),
++                );
++                if def.type_parameters.is_empty() {
++                    header.resolved_types.insert(name, checker.type_from_name(name, span));
++                }
++            }
++            headers.insert(module.key.clone(), header);
++        }
++        #[cfg(test)]
++        super::module_driver::record_w9_phase(
++            "module_type_headers",
++            phase_started.elapsed().as_nanos(),
++        );
++        headers
++    }
++
+     pub(super) fn collect_type_imports_arena(
+         &mut self,
+         program: &ArenaProgram,
+@@ -332,6 +400,8 @@ impl Checker {
+     ) -> UserModuleSig {
+         #[cfg(test)]
+         USER_MODULE_CHECKS.with(|checks| checks.set(checks.get() + 1));
++        #[cfg(test)]
++        let module_check_started = std::time::Instant::now();
+         let program = view.program;
+         self.current_namespace = Some(module.name);
+         self.module_depth += 1;
+@@ -460,6 +530,11 @@ impl Checker {
+         self.infer_default_parameter_types(program, source, stmt_ids);
+         self.infer_local_pure_returns(view, source, stmt_ids);
+         self.infer_default_parameter_types(program, source, stmt_ids);
++        #[cfg(test)]
++        super::module_driver::record_w9_phase(
++            "module_declaration_header_registration",
++            module_check_started.elapsed().as_nanos(),
++        );
+         let mut exports = UserModuleSig::default();
+         for &stmt_id in stmt_ids {
+             let stmt = program.arena.stmt(stmt_id);
+@@ -683,6 +758,11 @@ impl Checker {
+             }
+         }
+ 
++        #[cfg(test)]
++        super::module_driver::record_w9_phase(
++            "check_user_module_arena_total",
++            module_check_started.elapsed().as_nanos(),
++        );
+         exports
+     }
+ 
+diff --git a/src/sema/check/infer_effects.rs b/src/sema/check/infer_effects.rs
+index 7a91ff2cbe7e049dc375d070d0ddeda0732ef4e8..a7e397bd463e382ba6c1f1641499635091a6f485 100644
+--- a/src/sema/check/infer_effects.rs
++++ b/src/sema/check/infer_effects.rs
+@@ -85,68 +85,10 @@ pub(super) struct EffectGraph {
+ }
+ 
+ impl EffectGraph {
+-    pub(super) fn merge_declarations(&mut self, other: &Self) {
+-        for (&id, node) in &other.nodes {
+-            if let Some(existing) = self.nodes.get(&id) {
+-                assert_eq!(
+-                    existing, node,
+-                    "effect declaration {id:?} has conflicting owner records"
+-                );
+-            } else {
+-                self.nodes.insert(id, node.clone());
+-            }
+-        }
+-    }
+-
+-    pub(super) fn is_empty(&self) -> bool {
+-        self.nodes.is_empty()
+-    }
+-
+     pub(super) fn contains(&self, id: EffectDeclarationId) -> bool {
+         self.nodes.contains_key(&id)
+     }
+ 
+-    pub(super) fn declarations(view: &CheckBundleView<'_>) -> Self {
+-        let program = view.program;
+-        let mut graph = Self::default();
+-        let mut namespaces = super::FxHashMap::default();
+-        for module in view.modules.iter().copied() {
+-            for statement in program.arena.stmt_ids(module.statements) {
+-                namespaces.insert(program.arena.stmt(statement).span.source_id, module.name);
+-            }
+-        }
+-        for raw in 0..program.arena.stmt_tags.len() {
+-            let statement_id = StmtId::from_index(raw);
+-            let statement = program.arena.stmt(statement_id);
+-            if !view.contains_source(statement.span.source_id) {
+-                continue;
+-            }
+-            let definition = match statement.kind {
+-                ArenaStmtKind::ProcDef(definition)
+-                | ArenaStmtKind::StreamDef(definition)
+-                | ArenaStmtKind::CliMain(definition) => definition,
+-                _ => continue,
+-            };
+-            let def = program.arena.function_def(definition);
+-            let id = EffectDeclarationId {
+-                namespace: namespaces.get(&statement.span.source_id).copied(),
+-                body: program.arena.span(program.arena.block(def.body).span),
+-            };
+-            let declared = def
+-                .effects
+-                .map(|effects| program.arena.effects(effects).collect());
+-            // Exports, streams, and entry points infer like private procs: their
+-            // callers depend on body effects, while a native test has no callers.
+-            let inference_allowed = !def.test_declaration;
+-            let name = id
+-                .namespace
+-                .map(|namespace| format!("{namespace}.{}", def.name))
+-                .unwrap_or_else(|| def.name.to_string());
+-            graph.declare(id, name, inference_allowed, declared);
+-        }
+-        graph
+-    }
+-
+     pub(super) fn declarations_for_root(view: &CheckBundleView<'_>) -> Self {
+         Self::declarations_for_source(view, view.root_source_id(), None)
+     }
+@@ -164,6 +106,16 @@ impl EffectGraph {
+         Self::declarations_for_source(view, source_id, Some(module.name))
+     }
+ 
++    /// Return only declaration-level facts for an owner whose body is not checked.
++    pub(super) fn declaration_facts(&self) -> BTreeMap<EffectDeclarationId, FunctionEffectFact> {
++        let summaries = self
++            .nodes
++            .keys()
++            .map(|&identity| (identity, EffectSummary::default()))
++            .collect();
++        self.facts(&summaries)
++    }
++
+     fn declarations_for_source(
+         view: &CheckBundleView<'_>,
+         source_id: Option<crate::source::SourceId>,
+@@ -549,6 +501,7 @@ impl Checker {
+         let mut inserted = 0;
+         for check in checks {
+             let start = self.diagnostics.len();
++            let deferred_span = check.span;
+             let notes = check.notes.clone();
+             let saved_boundary = self.boundary.clone();
+             let saved_collecting = self.collecting_effects;
+@@ -612,6 +565,17 @@ impl Checker {
+             self.record_effects = saved_recording;
+             self.defer_effect_diagnostics = saved_deferred;
+             let mut generated = self.diagnostics.drain(start..).collect::<Vec<_>>();
++            if generated.iter().any(|diagnostic| {
++                diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)
++                    && diagnostic.labels.iter().any(|label| label.span == deferred_span)
++            }) {
++                // Deferred errors arrive after call checking has admitted static call facts.
++                self.statically_resolved_call_spans.retain(|call| {
++                    call.source_id != deferred_span.source_id
++                        || call.start() > deferred_span.start()
++                        || call.end() < deferred_span.end()
++                });
++            }
+             for diagnostic in &mut generated {
+                 diagnostic.notes.extend(notes.iter().cloned());
+             }
+diff --git a/src/sema/check/local_inference.rs b/src/sema/check/local_inference.rs
+index 434370e88e9ab614a93ca7ddcec167d4122efd9d..d8449987425ed8a096c88d73e852bef56c78e6a1 100644
+--- a/src/sema/check/local_inference.rs
++++ b/src/sema/check/local_inference.rs
+@@ -92,6 +92,8 @@ impl Checker {
+     /// Checked facts carry canonical types, never inference identities. A
+     /// failed material contract becomes a recovery fact after its diagnostic.
+     pub(super) fn resolve_checked_types(&mut self) {
++        #[cfg(test)]
++        let phase_started = std::time::Instant::now();
+         let mut reported = self
+             .diagnostics
+             .iter()
+@@ -231,6 +233,11 @@ impl Checker {
+                     *ty = Type::Invalid;
+                 }
+             }
++        #[cfg(test)]
++        super::module_driver::record_w9_phase(
++            "resolve_checked_types",
++            phase_started.elapsed().as_nanos(),
++        );
+         }
+     }
+ 
+diff --git a/src/sema/check/module_driver.rs b/src/sema/check/module_driver.rs
+index 1c080a7a43132350f815aca8d654b52822505e6b..d03dfa6bc671a0bd8c1a40f8f4a866d2d261a39f 100644
+--- a/src/sema/check/module_driver.rs
++++ b/src/sema/check/module_driver.rs
+@@ -1,22 +1,39 @@
+ use super::{
+     ArgsDomain, CheckBundleView, CheckOptions, CheckOutput, Checker, EffectSummary,
+-    FunctionEffectFact, UserModuleSig,
++    FunctionEffectFact, ResourceTransferFacts, UserModuleSig,
+ };
+ use crate::source::{SourceId, SourceMap};
+-use crate::syntax::arena::{ArenaProgram, ArenaUserModule};
++use rustc_hash::{FxHashMap, FxHashSet};
++use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, ArenaUserModule, TypeDefId};
+ use std::sync::{Arc, Mutex};
+-use rustc_hash::FxHashMap;
+ use super::module_record::{
+     CheckedModuleFacts, ModuleRecord, ModuleRecordCache, ModuleRecordKey, ModuleRecords,
+ };
+ use super::infer_effects::{EffectDeclarationId, EffectGraph};
+ 
++#[cfg(test)]
++thread_local! {
++    static ENTRY_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
++    static ENTRY_DOMAIN_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
++    static ENTRY_EFFECT_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
++    static MODULE_EFFECT_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
++    static W9_PHASE_NANOS: std::cell::RefCell<std::collections::BTreeMap<&'static str, u128>> = const { std::cell::RefCell::new(std::collections::BTreeMap::new()) };
++}
++
++#[cfg(test)]
++pub(super) fn record_w9_phase(name: &'static str, elapsed_nanos: u128) {
++    W9_PHASE_NANOS.with(|phases| {
++        *phases.borrow_mut().entry(name).or_default() += elapsed_nanos;
++    });
++}
++
+ /// Keeps the source and arena identities that own reusable checked module facts.
+ pub struct CheckSession {
+     program: Arc<ArenaProgram>,
+     type_program: Arc<ArenaProgram>,
+     sources: Arc<SourceMap>,
+     records: Arc<Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>>,
++    view_context: Arc<()>,
+ }
+ 
+ impl CheckSession {
+@@ -36,6 +53,7 @@ impl CheckSession {
+             type_program,
+             sources,
+             records: Arc::new(Mutex::new(FxHashMap::default())),
++            view_context: Arc::new(()),
+         }
+     }
+ 
+@@ -56,16 +74,23 @@ impl CheckSession {
+         root_statements: crate::syntax::arena::ArenaRange,
+         entry_source_id: SourceId,
+     ) -> CheckBundleView<'_> {
+-        CheckBundleView::for_root(
++        let mut view = CheckBundleView::for_root(
+             &self.program,
+             root_statements,
+             Some(&self.sources),
+             Some(entry_source_id),
+-        )
++        );
++        view.entry_context = Some(Arc::clone(&self.view_context));
++        view
+     }
+ 
+-    /// Check a scope borrowed from this session without resolving its imports again.
++    /// Check an entry-root view borrowed from this session without resolving its imports again.
+     pub fn check_view(&self, view: &CheckBundleView<'_>, options: CheckOptions) -> CheckOutput {
++        assert!(view
++            .entry_context
++            .as_ref()
++            .is_some_and(|context| Arc::ptr_eq(context, &self.view_context)),
++            "session checks require a view created by this session");
+         assert!(std::ptr::eq(view.program(), self.program.as_ref()));
+         assert!(view
+             .sources
+@@ -105,110 +130,229 @@ impl Checker {
+     ) -> CheckOutput {
+         let program = view.program;
+         program.symbol_owner().with_current(|| {
+-            let string_records = records.get_or_prepare(view, ArgsDomain::Str);
+-            let (mut module_signatures, mut summaries, mut module_outputs) = Self::check_modules(
++            let (args_domain, active_records) = if let Some(args_domain) =
++                records.checked_entry_domain(view)
++            {
++                (args_domain, records.get_or_prepare(view, args_domain))
++            } else {
++                let string_records = records.get_or_prepare(view, ArgsDomain::Str);
++                let module_headers = Self::module_type_headers(
++                    view,
++                    &string_records,
++                    options,
++                    type_program.clone(),
++                );
++                let is_byte_entry = Self::entry_uses_byte_arguments(
++                    view,
++                    source,
++                    options,
++                    type_program.clone(),
++                    &string_records,
++                    &module_headers,
++                );
++                if is_byte_entry {
++                    let byte_records = records.get_or_prepare(view, ArgsDomain::Bytes);
++                    (ArgsDomain::Bytes, byte_records)
++                } else {
++                    (ArgsDomain::Str, string_records)
++                }
++            };
++            #[cfg(test)]
++            let module_checks_started = std::time::Instant::now();
++            let (
++                module_signatures,
++                summaries,
++                module_outputs,
++                suppressed_resource_transfers,
++            ) = Self::check_modules(
+                 view,
+-                &string_records,
++                &active_records,
+                 options,
+                 type_program.clone(),
+                 sources,
+                 source,
+-                ArgsDomain::Str,
++                args_domain,
+             );
+-            let is_byte_entry = Self::entry_uses_byte_arguments(
+-                view,
+-                source,
+-                options,
+-                type_program.clone(),
+-                &string_records,
+-                &module_signatures,
+-            );
+-            let (args_domain, active_records) = if is_byte_entry {
+-                let byte_records = records.get_or_prepare(view, ArgsDomain::Bytes);
+-                (ArgsDomain::Bytes, byte_records)
+-            } else {
+-                (ArgsDomain::Str, string_records)
+-            };
+-            if args_domain == ArgsDomain::Bytes {
+-                (module_signatures, summaries, module_outputs) = Self::check_modules(
+-                    view,
+-                    &active_records,
+-                    options,
+-                    type_program.clone(),
+-                    sources,
+-                    source,
+-                    args_domain,
+-                );
+-            }
++            #[cfg(test)]
++            record_w9_phase("check_modules_total", module_checks_started.elapsed().as_nanos());
+ 
+             let byte_script_arguments = args_domain == ArgsDomain::Bytes;
+-            let (effect_graph, root_summaries) = Self::solve_file_effect_probes(
+-                |provisional| {
+-                    let mut probe = Self::new(options);
+-                    probe.byte_script_arguments = byte_script_arguments;
+-                    probe.define_standard_values();
+-                    probe.user_modules = Arc::new(module_signatures.clone());
+-                    probe.effect_graph = EffectGraph::declarations_for_root(view);
+-                    probe.effect_summaries = summaries.clone();
+-                    probe.effect_summaries.extend(provisional);
+-                    probe.authoritative_effect_graph = true;
+-                    probe.collecting_effects = true;
+-                    probe.record_effects = true;
+-                    probe.defer_effect_diagnostics = true;
+-                    probe.check_program_arena_with_type_program_and_sources(
+-                        view,
+-                        source,
+-                        type_program.clone(),
+-                        &active_records,
+-                    );
+-                    probe
+-                },
+-                &summaries,
+-            );
+-            let mut checker = Self::new(options);
+-            checker.byte_script_arguments = byte_script_arguments;
+-            checker.define_standard_values();
+-            checker.user_modules = Arc::new(module_signatures);
+-            checker.effect_graph = effect_graph;
+-            checker.effect_summaries = summaries;
+-            checker.effect_summaries.extend(root_summaries);
+-            checker.authoritative_effect_graph = true;
+-            checker.defer_effect_diagnostics = true;
+-            checker.check_program_arena_with_type_program_and_sources(
+-                view,
+-                source,
+-                type_program,
+-                &active_records,
+-            );
+-            checker.validate_deferred_effects();
+-            Self::update_signature_effects(
+-                &mut checker.procs,
+-                &checker.effect_graph.facts(&checker.effect_summaries),
+-            );
+-            Self::update_signature_effects(
+-                &mut checker.pures,
+-                &checker.effect_graph.facts(&checker.effect_summaries),
+-            );
+-            Self::update_signature_effects(
+-                &mut checker.streams,
+-                &checker.effect_graph.facts(&checker.effect_summaries),
+-            );
+-            checker.publish_command_binding_sites();
+-            let module_diagnostic_position = checker.module_diagnostic_position;
+-            let mut output = checker.into_output();
+-            Self::update_checked_function_effects(&mut output);
++            #[cfg(test)]
++            let entry_record_started = std::time::Instant::now();
++            let checked_entry = active_records.root().check_once(|| {
++                #[cfg(test)]
++                ENTRY_CHECKS.with(|checks| checks.set(checks.get() + 1));
++                let record_options = CheckOptions {
++                    reveal_types: true,
++                    embedded_bodies: true,
++                    ..options
++                };
++                #[cfg(test)]
++                let effect_solver_started = std::time::Instant::now();
++                let (effect_graph, root_summaries) = Self::solve_file_effect_probes(
++                    |provisional| {
++                        #[cfg(test)]
++                        ENTRY_EFFECT_PROBES.with(|checks| checks.set(checks.get() + 1));
++                        #[cfg(test)]
++                        let checker_new_started = std::time::Instant::now();
++                        let mut probe = Self::new(record_options);
++                        #[cfg(test)]
++                        record_w9_phase("entry_probe_checker_new", checker_new_started.elapsed().as_nanos());
++                        probe.byte_script_arguments = byte_script_arguments;
++                        if byte_script_arguments {
++                            #[cfg(test)]
++                            let standard_values_started = std::time::Instant::now();
++                            probe.define_standard_values();
++                            #[cfg(test)]
++                            record_w9_phase("entry_probe_standard_values", standard_values_started.elapsed().as_nanos());
++                        }
++                        probe.user_modules = Arc::new(module_signatures.clone());
++                        probe.effect_graph = EffectGraph::declarations_for_root(view);
++                        probe.effect_summaries = summaries.clone();
++                        probe.effect_summaries.extend(provisional);
++                        probe.authoritative_effect_graph = true;
++                        probe.collecting_effects = true;
++                        probe.record_effects = true;
++                        probe.defer_effect_diagnostics = true;
++                        #[cfg(test)]
++                        let body_started = std::time::Instant::now();
++                        probe.check_program_arena_with_type_program_and_sources(
++                            view,
++                            source,
++                            type_program.clone(),
++                            &active_records,
++                        );
++                        #[cfg(test)]
++                        record_w9_phase("entry_effect_probe_body", body_started.elapsed().as_nanos());
++                        probe
++                    },
++                    &summaries,
++                );
++                #[cfg(test)]
++                record_w9_phase("entry_effect_solver", effect_solver_started.elapsed().as_nanos());
++                #[cfg(test)]
++                let checker_new_started = std::time::Instant::now();
++                let mut checker = Self::new(record_options);
++                #[cfg(test)]
++                record_w9_phase("entry_checker_new", checker_new_started.elapsed().as_nanos());
++                checker.byte_script_arguments = byte_script_arguments;
++                if byte_script_arguments {
++                    #[cfg(test)]
++                    let standard_values_started = std::time::Instant::now();
++                    checker.define_standard_values();
++                    #[cfg(test)]
++                    record_w9_phase("entry_standard_values", standard_values_started.elapsed().as_nanos());
++                }
++                checker.user_modules = Arc::new(module_signatures);
++                checker.effect_graph = effect_graph;
++                checker.effect_summaries = summaries;
++                checker.effect_summaries.extend(root_summaries);
++                checker.authoritative_effect_graph = true;
++                checker.defer_effect_diagnostics = true;
++                #[cfg(test)]
++                let final_body_started = std::time::Instant::now();
++                checker.check_program_arena_with_type_program_and_sources(
++                    view,
++                    source,
++                    type_program,
++                    &active_records,
++                );
++                #[cfg(test)]
++                record_w9_phase("entry_final_check", final_body_started.elapsed().as_nanos());
++                checker.validate_deferred_effects();
++                let facts = checker.effect_graph.facts(&checker.effect_summaries);
++                Self::update_signature_effects(&mut checker.procs, &facts);
++                Self::update_signature_effects(&mut checker.pures, &facts);
++                Self::update_signature_effects(&mut checker.streams, &facts);
++                checker.publish_command_binding_sites();
++                #[cfg(test)]
++                let output_conversion_started = std::time::Instant::now();
++                let module_diagnostic_position = checker.module_diagnostic_position;
++                let mut output = checker.into_output();
++                Self::update_checked_function_effects(&mut output);
++                #[cfg(test)]
++                record_w9_phase("entry_output_conversion", output_conversion_started.elapsed().as_nanos());
++                CheckedModuleFacts {
++                    signature: None,
++                    output,
++                    module_diagnostic_position,
++                    suppressed_body_transfers: ResourceTransferFacts::default(),
++                }
++            });
++            #[cfg(test)]
++            record_w9_phase("entry_record_check_total", entry_record_started.elapsed().as_nanos());
++            #[cfg(test)]
++            let root_output_clone_started = std::time::Instant::now();
++            let mut output = checked_entry.output.clone();
++            #[cfg(test)]
++            record_w9_phase("root_output_clone", root_output_clone_started.elapsed().as_nanos());
++            let has_constant_declarations = active_records
++                .root()
++                .prepared_facts()
++                .resolved_bindings
++                .declarations
++                .values()
++                .any(|declaration| {
++                    matches!(declaration.kind, super::BindingKind::Constant(_))
++                });
++            if !has_constant_declarations {
++                // The legacy collector publishes no preparation facts when no
++                // constant declaration triggers collection for the bundle.
++                output.prepared_constants.clear_prepared_declaration_facts();
++            }
++            if !options.reveal_types {
++                output.reveal_types.clear();
++            }
++            output.embedded_bodies_checked = options.embedded_bodies;
+             let root_diagnostic_count = output.diagnostics.len();
++            // Whole-program checks publish imported-body facts before entry-body facts.
++            #[cfg(test)]
++            let publication_started = std::time::Instant::now();
++            let root_annotation_facts = std::mem::take(&mut output.annotation_facts);
++            let root_reveal_types = std::mem::take(&mut output.reveal_types);
+             let mut module_diagnostics = Vec::new();
+-            for module_output in module_outputs.drain(..) {
+-                module_diagnostics.extend(module_output.diagnostics.iter().cloned());
++            for mut module_output in module_outputs {
++                module_diagnostics.append(&mut module_output.diagnostics);
+                 output.merge_module_facts(module_output);
+             }
++            output.resource_transfers.extend(suppressed_resource_transfers);
++            // Keep declaration identities for suppressed embedded modules without
++            // exposing their body-derived effect facts.
++            for module in view.modules.iter().copied().filter(|module| {
++                module.internal && !Self::publish_embedded_record(view.program, module, options)
++            }) {
++                for (identity, fact) in EffectGraph::declarations_for_module(view, module)
++                    .declaration_facts()
++                {
++                    assert!(
++                        output.function_effect_facts.insert(identity, fact).is_none(),
++                        "suppressed embedded declarations have no checked module fact"
++                    );
++                }
++            }
++            let suppressed_embedded_types = Self::suppressed_embedded_types(view, options);
++            if !suppressed_embedded_types.is_empty() {
++                // Cached entry facts include the checked embedded-body superset. Keep
++                // option projection local so another session check can publish it.
++                output.checked_declarations.record_constructors = output
++                    .checked_declarations
++                    .record_constructors
++                    .retaining_instances(|definition| {
++                        !suppressed_embedded_types.contains(&definition)
++                    });
++            }
++            output.annotation_facts.extend(root_annotation_facts);
++            output.reveal_types.extend(root_reveal_types);
+             let all_diagnostics = std::mem::take(&mut output.diagnostics);
+             let root_diagnostics = &all_diagnostics[..root_diagnostic_count];
+-            let split = module_diagnostic_position.min(root_diagnostics.len());
++            let split = checked_entry
++                .module_diagnostic_position
++                .min(root_diagnostics.len());
+             output.diagnostics.extend_from_slice(&root_diagnostics[..split]);
+             output.diagnostics.extend(module_diagnostics);
+             output.diagnostics.extend_from_slice(&root_diagnostics[split..]);
++            #[cfg(test)]
++            record_w9_phase("checked_output_assembly", publication_started.elapsed().as_nanos());
+             output
+         })
+     }
+@@ -225,21 +369,25 @@ impl Checker {
+         FxHashMap<String, UserModuleSig>,
+         std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
+         Vec<CheckOutput>,
++        ResourceTransferFacts,
+     ) {
+         let mut signatures = FxHashMap::default();
+         let mut summaries = std::collections::BTreeMap::new();
+-        let mut outputs = Vec::new();
++        let mut outputs = FxHashMap::default();
++        // Suppressed embedded outputs still need the transfer-site facts used by lowering.
++        let mut suppressed_resource_transfers = ResourceTransferFacts::default();
+         for module in view.modules.iter().copied() {
+             let record = records
+                 .module(&module.key)
+                 .expect("reachable module has a prepared record")
+                 .clone();
+-            debug_assert_eq!(record.args_domain, args_domain);
++            debug_assert_eq!(record.args_domain(), args_domain);
+             let checked = record.check_once(|| {
+                 Self::check_module_record(
+                     view,
+                     module,
+                     &record,
++                            records.root(),
+                     CheckOptions {
+                         reveal_types: true,
+                         embedded_bodies: true,
+@@ -253,24 +401,57 @@ impl Checker {
+                 )
+             });
+             if !record.is_embedded() {
+-                signatures.insert(module.key.clone(), checked.signature.clone());
++                #[cfg(test)]
++                let signature_clone_started = std::time::Instant::now();
++                signatures.insert(
++                    module.key.clone(),
++                    checked
++                        .signature
++                        .as_ref()
++                        .expect("checked user module retains its exported signature")
++                        .clone(),
++                );
++                #[cfg(test)]
++                record_w9_phase("module_signature_clone", signature_clone_started.elapsed().as_nanos());
+             }
+             Self::extend_effect_summaries(&mut summaries, &checked.output.function_effect_facts);
+             if Self::publish_embedded_record(view.program, module, options) {
++                #[cfg(test)]
++                let module_output_clone_started = std::time::Instant::now();
+                 let mut output = checked.output.clone();
++                #[cfg(test)]
++                record_w9_phase("module_output_clone", module_output_clone_started.elapsed().as_nanos());
+                 if !options.reveal_types {
+                     output.reveal_types.clear();
+                 }
+-                outputs.push(output);
++                outputs.insert(module.key.clone(), output);
++            } else {
++                suppressed_resource_transfers.extend(checked.suppressed_body_transfers.clone());
+             }
+         }
+-        (signatures, summaries, outputs)
++        let publication_order = view
++            .program
++            .modules
++            .iter()
++            .filter(|module| module.internal && module.statements != view.root_statements)
++            .map(|module| module.key.clone())
++            .chain(
++                view.modules
++                    .iter()
++                    .filter(|module| !module.internal)
++                    .map(|module| module.key.clone()),
++            );
++        let outputs = publication_order
++            .filter_map(|key| outputs.remove(&key))
++            .collect();
++        (signatures, summaries, outputs, suppressed_resource_transfers)
+     }
+ 
+     fn check_module_record(
+         view: &CheckBundleView<'_>,
+         module: &ArenaUserModule,
+         record: &ModuleRecord,
++        bundle_record: &ModuleRecord,
+         options: CheckOptions,
+         type_program: Arc<ArenaProgram>,
+         sources: Option<&SourceMap>,
+@@ -278,6 +459,8 @@ impl Checker {
+         dependencies: &FxHashMap<String, UserModuleSig>,
+         dependency_summaries: &std::collections::BTreeMap<EffectDeclarationId, EffectSummary>,
+     ) -> CheckedModuleFacts {
++        #[cfg(test)]
++        let module_check_started = std::time::Instant::now();
+         let program = view.program;
+         let module_view = CheckBundleView::for_module_owner(
+             program,
+@@ -291,12 +474,26 @@ impl Checker {
+                 .expect("module source belongs to the session source map")
+                 .text()
+         });
+-        let byte_script_arguments = record.args_domain == ArgsDomain::Bytes;
++        let byte_script_arguments = record.args_domain() == ArgsDomain::Bytes;
++        #[cfg(test)]
++        let effect_solver_started = std::time::Instant::now();
+         let (effect_graph, local_summaries) = Self::solve_file_effect_probes(
+             |provisional| {
++                #[cfg(test)]
++                MODULE_EFFECT_PROBES.with(|checks| checks.set(checks.get() + 1));
++                #[cfg(test)]
++                let checker_new_started = std::time::Instant::now();
+                 let mut probe = Self::new(options);
++                #[cfg(test)]
++                record_w9_phase("module_probe_checker_new", checker_new_started.elapsed().as_nanos());
+                 probe.byte_script_arguments = byte_script_arguments;
+-                probe.define_standard_values();
++                if byte_script_arguments {
++                    #[cfg(test)]
++                    let standard_values_started = std::time::Instant::now();
++                    probe.define_standard_values();
++                    #[cfg(test)]
++                    record_w9_phase("module_probe_standard_values", standard_values_started.elapsed().as_nanos());
++                }
+                 probe.user_modules = Arc::new(dependencies.clone());
+                 probe.effect_graph = EffectGraph::declarations_for_module(&module_view, module);
+                 probe.effect_summaries = dependency_summaries.clone();
+@@ -305,8 +502,18 @@ impl Checker {
+                 probe.collecting_effects = true;
+                 probe.record_effects = true;
+                 probe.defer_effect_diagnostics = true;
++                #[cfg(test)]
++                let install_started = std::time::Instant::now();
+                 record.prepared_facts().install(&mut probe, program);
++                #[cfg(test)]
++                record_w9_phase("module_probe_prepared_install", install_started.elapsed().as_nanos());
++                // Keep constructor lookup maps scoped to imports while sharing publication order.
++                probe.record_constructors.replace_instance_facts(
++                    &bundle_record.prepared_facts().record_constructors,
++                );
+                 probe.diagnostics.clear();
++                #[cfg(test)]
++                let body_started = std::time::Instant::now();
+                 probe.check_user_module_arena(
+                     &module_view,
+                     record,
+@@ -314,22 +521,46 @@ impl Checker {
+                     source,
+                     module,
+                 );
++                #[cfg(test)]
++                record_w9_phase("module_effect_probe_body", body_started.elapsed().as_nanos());
+                 probe
+             },
+             dependency_summaries,
+         );
++        #[cfg(test)]
++        record_w9_phase("module_effect_solver", effect_solver_started.elapsed().as_nanos());
+ 
++        #[cfg(test)]
++        let checker_new_started = std::time::Instant::now();
+         let mut checker = Self::new(options);
++        #[cfg(test)]
++        record_w9_phase("module_checker_new", checker_new_started.elapsed().as_nanos());
+         checker.byte_script_arguments = byte_script_arguments;
+-        checker.define_standard_values();
++        if byte_script_arguments {
++            #[cfg(test)]
++            let standard_values_started = std::time::Instant::now();
++            checker.define_standard_values();
++            #[cfg(test)]
++            record_w9_phase("module_standard_values", standard_values_started.elapsed().as_nanos());
++        }
+         checker.user_modules = Arc::new(dependencies.clone());
+         checker.effect_graph = effect_graph;
+         checker.effect_summaries = dependency_summaries.clone();
+         checker.effect_summaries.extend(local_summaries);
+         checker.authoritative_effect_graph = true;
+         checker.defer_effect_diagnostics = true;
++        #[cfg(test)]
++        let install_started = std::time::Instant::now();
+         record.prepared_facts().install(&mut checker, program);
++        #[cfg(test)]
++        record_w9_phase("module_prepared_install", install_started.elapsed().as_nanos());
++        // Keep constructor lookup maps scoped to imports while sharing publication order.
++        checker.record_constructors.replace_instance_facts(
++            &bundle_record.prepared_facts().record_constructors,
++        );
+         checker.diagnostics.clear();
++        #[cfg(test)]
++        let final_body_started = std::time::Instant::now();
+         let signature = checker.check_user_module_arena(
+             &module_view,
+             record,
+@@ -337,17 +568,85 @@ impl Checker {
+             source,
+             module,
+         );
++        #[cfg(test)]
++        record_w9_phase("module_final_body_including_resolve", final_body_started.elapsed().as_nanos());
++        #[cfg(test)]
++        let explicit_resolve_started = std::time::Instant::now();
++        checker.resolve_checked_types();
++        #[cfg(test)]
++        record_w9_phase("explicit_module_resolve", explicit_resolve_started.elapsed().as_nanos());
++        #[cfg(test)]
++        let publish_tail_started = std::time::Instant::now();
++        #[cfg(test)]
++        let constructor_fact_publish_started = std::time::Instant::now();
++        let instances = checker
++            .record_constructor_instances
++            .iter()
++            .map(|(&span, fact)| (span, fact.clone()))
++            .collect::<Vec<_>>();
++        for (span, fact) in instances {
++            checker.publish_constructor_type_expressions(program, span, &fact);
++        }
++        #[cfg(test)]
++        record_w9_phase(
++            "module_constructor_fact_publication",
++            constructor_fact_publish_started.elapsed().as_nanos(),
++        );
++        #[cfg(test)]
++        let deferred_effect_validation_started = std::time::Instant::now();
+         checker.validate_deferred_effects();
+-        let resource_check = super::resource::check(&checker, &module_view);
++        #[cfg(test)]
++        record_w9_phase(
++            "module_deferred_effect_validation",
++            deferred_effect_validation_started.elapsed().as_nanos(),
++        );
++        #[cfg(test)]
++        let resource_check_started = std::time::Instant::now();
++        let mut resource_check = super::resource::check(&checker, &module_view);
++        let suppressed_body_transfers =
++            std::mem::take(&mut resource_check.suppressed_body_transfers);
++        #[cfg(test)]
++        record_w9_phase(
++            "module_resource_check",
++            resource_check_started.elapsed().as_nanos(),
++        );
+         checker.diagnostics.extend(resource_check.diagnostics);
+         checker.resource_transfers.extend(resource_check.transfers);
++        #[cfg(test)]
++        let signature_effect_publication_started = std::time::Instant::now();
+         let facts = checker.effect_graph.facts(&checker.effect_summaries);
+         let mut signature = signature;
+         Self::update_module_signature_effects(&mut signature, &facts);
+         checker.publish_command_binding_sites();
++        #[cfg(test)]
++        record_w9_phase(
++            "module_signature_and_binding_publication",
++            signature_effect_publication_started.elapsed().as_nanos(),
++        );
++        #[cfg(test)]
++        let constructor_maps_restore_started = std::time::Instant::now();
++        checker.record_constructors = record.prepared_facts().record_constructors.clone();
++        #[cfg(test)]
++        record_w9_phase(
++            "module_constructor_maps_restore",
++            constructor_maps_restore_started.elapsed().as_nanos(),
++        );
++        #[cfg(test)]
++        let output_conversion_started = std::time::Instant::now();
+         let mut output = checker.into_output();
+         Self::update_checked_function_effects(&mut output);
+-        CheckedModuleFacts { signature, output }
++        #[cfg(test)]
++        record_w9_phase("module_output_conversion", output_conversion_started.elapsed().as_nanos());
++        #[cfg(test)]
++        record_w9_phase("module_publish_validation_tail", publish_tail_started.elapsed().as_nanos());
++        #[cfg(test)]
++        record_w9_phase("module_record_check_total", module_check_started.elapsed().as_nanos());
++        CheckedModuleFacts {
++            signature: Some(signature),
++            output,
++            module_diagnostic_position: 0,
++            suppressed_body_transfers,
++        }
+     }
+ 
+     fn solve_file_effect_probes(
+@@ -390,6 +689,29 @@ impl Checker {
+         })
+     }
+ 
++    fn suppressed_embedded_types(
++        view: &CheckBundleView<'_>,
++        options: CheckOptions,
++    ) -> FxHashSet<TypeDefId> {
++        view.modules
++            .iter()
++            .filter(|module| {
++                module.internal && !Self::publish_embedded_record(view.program, module, options)
++            })
++            .flat_map(|module| view.program.module_statements(module))
++            .filter_map(|statement| {
++                let kind = match view.program.arena.stmt(statement).kind {
++                    ArenaStmtKind::Export(inner) => view.program.arena.stmt(inner).kind,
++                    kind => kind,
++                };
++                match kind {
++                    ArenaStmtKind::TypeDef(definition) => Some(definition),
++                    _ => None,
++                }
++            })
++            .collect()
++    }
++
+     fn entry_uses_byte_arguments(
+         view: &CheckBundleView<'_>,
+         source: &str,
+@@ -398,10 +720,15 @@ impl Checker {
+         records: &ModuleRecords,
+         modules: &FxHashMap<String, UserModuleSig>,
+     ) -> bool {
++        #[cfg(test)]
++        ENTRY_DOMAIN_PROBES.with(|checks| checks.set(checks.get() + 1));
++        #[cfg(test)]
++        let phase_started = std::time::Instant::now();
+         let program = view.program;
+         let mut checker = Self::new(options);
+         checker.user_modules = Arc::new(modules.clone());
+         records.install(&mut checker, program);
++        checker.record_constructors = checker.record_constructors.detached();
+         let statements = records.root().statements();
+         checker.collect_type_imports_arena(program, statements.iter().copied());
+         checker.collect_definitions_arena(
+@@ -410,12 +737,15 @@ impl Checker {
+             source,
+             statements.iter().copied(),
+         );
+-        checker.procs.get(&super::Name::intern("main")).is_some_and(|signature| {
++        let uses_bytes = checker.procs.get(&super::Name::intern("main")).is_some_and(|signature| {
+             matches!(signature.params.as_slice(), [parameter]
+                 if parameter.rest && !parameter.defaulted
+                     && matches!(&parameter.ty, super::Type::List(item)
+                         if item.as_ref() == &super::Type::Bytes))
+-        })
++        });
++        #[cfg(test)]
++        record_w9_phase("entry_domain_selection", phase_started.elapsed().as_nanos());
++        uses_bytes
+     }
+ 
+     fn extend_effect_summaries(
+@@ -516,6 +846,138 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn embedded_test_interpolation_publishes_nested_expression_types() {
++        let source = concat!(
++            "test test_nested_interpolation {\n",
++            "  let nested = f\"\"\"{ {name: \"demo\"}.name }\"\"\"\n",
++            "  assert nested == \"demo\"\n",
++            "}\n",
++        );
++        let mut sources = SourceMap::new();
++        let source_id = sources.add_file("entry.xsh", source);
++        let mut builder = ArenaProgramBuilder::with_token_capacity(32);
++        let parsed = Parser::parse_source_into_arena_builder(source_id, source, &mut builder);
++        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++        let program = Arc::new(builder.finish_with_statements(parsed.statements));
++        let session = CheckSession::new(Arc::clone(&program), Arc::new(sources));
++        let record_start = source
++            .find("{name: \"demo\"}")
++            .expect("record expression in interpolation");
++        let string_start = source.find("\"demo\"").expect("string literal in record");
++        for options in [CheckOptions::for_execution(), CheckOptions::for_check_cli()] {
++            let output = session.check(parsed.statements, source_id, options);
++            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
++            assert!(
++                matches!(
++                    output.expr_types.get(&crate::source::Span::new(
++                        source_id,
++                        record_start,
++                        record_start + "{name: \"demo\"}".len(),
++                    )),
++                    Some(crate::sema::check::Type::Record(fields))
++                        if fields.get(&crate::sema::check::Name::intern("name"))
++                            == Some(&crate::sema::check::Type::Str)
++                ),
++                "the interpolation's record literal retains its checked type"
++            );
++            assert_eq!(
++                output.expr_types.get(&crate::source::Span::new(
++                    source_id,
++                    string_start,
++                    string_start + "\"demo\"".len(),
++                )),
++                Some(&crate::sema::check::Type::Str),
++                "the interpolation's string literal retains its checked type"
++            );
++        }
++    }
++
++    #[test]
++    fn deferred_effect_errors_do_not_publish_static_call_spans() {
++        fn check(source: &str) -> (CheckOutput, crate::source::SourceId) {
++            let mut sources = SourceMap::new();
++            let source_id = sources.add_file("entry.xsh", source);
++            let mut builder = ArenaProgramBuilder::with_token_capacity(48);
++            let parsed = Parser::parse_source_into_arena_builder(source_id, source, &mut builder);
++            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++            let program = Arc::new(builder.finish_with_statements(parsed.statements));
++            let sources = Arc::new(sources);
++            let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
++            let view = session.view_for_root(parsed.statements, source_id);
++            let output = session.check_view(&view, CheckOptions::default());
++            (output, source_id)
++        }
++
++        fn call_span(
++            source: &str,
++            call: &str,
++            source_id: crate::source::SourceId,
++        ) -> crate::source::Span {
++            let start = source.find(call).expect("call expression");
++            crate::source::Span::new(source_id, start, start + call.len())
++        }
++
++        let missing_net_source = concat!(
++            "pure passthrough(value: Result[Int, Error]) -> Result[Int, Error] { value }\n",
++            "pure identity(value: Int) -> Int { value }\n",
++            "proc fifo_copy() [fs, process, env, time, error] -> Result[Int, Error] {\n",
++            "  let status = identity(1)\n",
++            "  passthrough(unix.write_fd(1, b\"\"))\n",
++            "}\n",
++        );
++        let (missing_net, source_id) = check(missing_net_source);
++        let inner_call = call_span(missing_net_source, "unix.write_fd(1, b\"\")", source_id);
++        let outer_call = call_span(
++            missing_net_source,
++            "passthrough(unix.write_fd(1, b\"\"))",
++            source_id,
++        );
++        let valid_sibling = call_span(missing_net_source, "identity(1)", source_id);
++        assert!(missing_net.diagnostics.iter().any(|diagnostic| {
++            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckEffectViolation)
++                && diagnostic.labels.iter().any(|label| label.span == inner_call)
++        }),
++            "the missing `net` effect must be reported at the call: {:?}",
++            missing_net.diagnostics
++        );
++        assert!(
++            missing_net.statically_resolved_call_spans.contains(&valid_sibling),
++            "an unrelated valid sibling call remains statically resolved"
++        );
++        assert!(
++            !missing_net.statically_resolved_call_spans.contains(&inner_call)
++                && !missing_net.statically_resolved_call_spans.contains(&outer_call),
++            "a deferred effect error invalidates inner and enclosing call spans: inner={}, outer={}",
++            missing_net.statically_resolved_call_spans.contains(&inner_call),
++            missing_net.statically_resolved_call_spans.contains(&outer_call),
++        );
++
++        let allowed_net_source = missing_net_source.replace(
++            "[fs, process, env, time, error]",
++            "[fs, process, env, time, error, net]",
++        );
++        let (allowed_net, source_id) = check(&allowed_net_source);
++        let inner_call = call_span(&allowed_net_source, "unix.write_fd(1, b\"\")", source_id);
++        let outer_call = call_span(
++            &allowed_net_source,
++            "passthrough(unix.write_fd(1, b\"\"))",
++            source_id,
++        );
++        let valid_sibling = call_span(&allowed_net_source, "identity(1)", source_id);
++        assert!(
++            allowed_net.diagnostics.is_empty(),
++            "{:?}",
++            allowed_net.diagnostics
++        );
++        assert!(
++            allowed_net.statically_resolved_call_spans.contains(&inner_call)
++                && allowed_net.statically_resolved_call_spans.contains(&outer_call)
++                && allowed_net.statically_resolved_call_spans.contains(&valid_sibling),
++            "statically named calls with a valid effect contract remain published"
++        );
++    }
++
+     #[test]
+     fn checking_two_entries_reuses_shared_module_preparation_per_session() {
+         let mut sources = SourceMap::new();
+@@ -593,7 +1055,7 @@ mod tests {
+         let byte_output = session.check(byte.statements, byte_source, CheckOptions::for_execution());
+         assert!(byte_output.diagnostics.is_empty(), "{:?}", byte_output.diagnostics);
+         assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 4);
+-        assert_eq!(session.records.lock().expect("module record cache poisoned").len(), 2);
++        assert_eq!(session.records.lock().expect("module record cache poisoned").len(), 6);
+         let incoming = |output: &CheckOutput| {
+             output
+                 .checked_declarations
+@@ -614,6 +1076,321 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn b2sum_publishes_cli_plans_from_its_imported_module() {
++        let mut sources = SourceMap::new();
++        let root_text = "use shared\nlet options = shared.options([])\n";
++        let module_text = "##! Shared CLI options.\n## Parse the shared applet options.\nexport pure options(argv: List[Str]) -> Result[Record, Error] { cli.applet(argv, {jobs: {kind: \"Int\", form: \"-j --jobs N\", default: 4}}) }\n";
++        let root_source = sources.add_file("entry.xsh", root_text);
++        let module_source = sources.add_file("shared.xsh", module_text);
++        let mut builder = ArenaProgramBuilder::with_token_capacity(128);
++        let root = Parser::parse_source_into_arena_builder(root_source, root_text, &mut builder);
++        let module = Parser::parse_source_into_arena_builder(module_source, module_text, &mut builder);
++        assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
++        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
++        let module_name = builder.symbol_owner().intern("shared");
++        builder.push_arena_module("shared".to_string(), module_name, module.statements);
++        for statement in builder.statement_ids(root.statements) {
++            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
++                builder.set_use_resolved(use_id, Arc::from("shared"));
++            }
++        }
++
++        let program = Arc::new(builder.finish_with_statements(root.statements));
++        let sources = Arc::new(sources);
++        let session = CheckSession::new(Arc::clone(&program), sources);
++        let output = session.check(
++            root.statements,
++            root_source,
++            CheckOptions::default(),
++        );
++        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
++        let module_plans = output
++            .prepared_constants
++            .cli_plans
++            .lock()
++            .expect("CLI plan cache poisoned")
++            .keys()
++            .filter(|(expression, _)| {
++                program.arena.expr(*expression).span.source_id == module_source
++            })
++            .count();
++        assert_eq!(module_plans, 1, "the imported applet plan must be published");
++    }
++
++    #[test]
++    fn wire_enum_lookup_facts_do_not_leak_into_empty_constant_publication() {
++        let source_text = concat!(
++            "enum State: Str { Ready = \"ready\" }\n",
++            "let state: State = Ready\n",
++        );
++        let mut sources = SourceMap::new();
++        let source_id = sources.add_file("entry.xsh", source_text);
++        let mut builder = ArenaProgramBuilder::with_token_capacity(64);
++        let parsed = Parser::parse_source_into_arena_builder(source_id, source_text, &mut builder);
++        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++        let program = Arc::new(builder.finish_with_statements(parsed.statements));
++        let session = CheckSession::new(Arc::clone(&program), Arc::new(sources));
++        let options = [
++            CheckOptions::default(),
++            CheckOptions {
++                reveal_types: true,
++                ..CheckOptions::default()
++            },
++            CheckOptions::for_execution(),
++            CheckOptions::for_check_cli(),
++        ];
++
++        for option in options {
++            let output = session.check(parsed.statements, source_id, option);
++            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
++            assert!(
++                output.prepared_constants.values.is_empty()
++                    && output.prepared_constants.types.is_empty()
++                    && output.prepared_constants.record_constructor_instances.is_empty()
++                    && output.prepared_constants.cli_wire_enums.mappings.is_empty(),
++                "an owner with no constants publishes the legacy empty prepared-constants facts"
++            );
++            assert!(
++                output
++                    .checked_declarations
++                    .wire_enums
++                    .mappings
++                    .keys()
++                    .any(|name| name.as_str() == "State"),
++                "wire-enum lookup facts remain available independently of constant publication"
++            );
++        }
++    }
++
++    #[test]
++    fn imported_module_cli_plans_are_published_with_entry_facts() {
++        use crate::frontend::load::{
++            entry_source_from_text, parse_load_entry_source_arena_only, project_module_roots,
++        };
++        use std::path::PathBuf;
++
++        let entry_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("core/b2sum.xsh");
++        let entry_file = entry_path.to_str().expect("entry path is UTF-8");
++        let entry_text = std::fs::read_to_string(&entry_path).expect("read b2sum source");
++        let entry = entry_source_from_text(entry_file, entry_text);
++        let entry_source = entry.source_id;
++        let (sources, parsed) = parse_load_entry_source_arena_only(
++            entry_file,
++            entry,
++            project_module_roots(&entry_path).expect("resolve core module roots"),
++        );
++        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++        let module_path = entry_path
++            .parent()
++            .expect("core source has a parent")
++            .join("lib/checksums.xsh");
++        let module_file = module_path.to_str().expect("module path is UTF-8");
++        let module_source = sources
++            .files()
++            .iter()
++            .find(|source| source.name() == module_file)
++            .expect("checksums module was loaded")
++            .id();
++        let root_statements = parsed.arena.statements;
++        let program = Arc::new(parsed.arena);
++        let session = CheckSession::new(Arc::clone(&program), Arc::new(sources));
++        let output = session.check(root_statements, entry_source, CheckOptions::default());
++        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
++        let module_plans = output
++            .prepared_constants
++            .cli_plans
++            .lock()
++            .expect("CLI plan cache poisoned")
++            .keys()
++            .filter(|(expression, _)| {
++                program.arena.expr(*expression).span.source_id == module_source
++            })
++            .count();
++        assert_eq!(module_plans, 1, "the imported applet plan must be published");
++    }
++
++    #[test]
++    fn diamond_imported_cli_schemas_publish_owner_local_plan_keys() {
++        let mut sources = SourceMap::new();
++        let root_text = "use left\nuse right\nlet left_options = left.options([])\nlet right_options = right.options([])\n";
++        let left_text = "##! Left branch.\nuse shared\n## Calls the shared applet descriptor.\nexport pure options(argv: List[Str]) -> Result[Record, Error] { cli.applet(argv, shared.options) }\n";
++        let right_text = "##! Right branch.\nuse shared\n## Calls the shared applet descriptor.\nexport pure options(argv: List[Str]) -> Result[Record, Error] { cli.applet(argv, shared.options) }\n";
++        let shared_text = "##! Shared CLI schema.\n## Defines a descriptor consumed by both branches.\nexport const options = {jobs: {kind: \"Int\", form: \"-j --jobs N\", default: 4}}\n";
++        let root_source = sources.add_file("entry.xsh", root_text);
++        let left_source = sources.add_file("left.xsh", left_text);
++        let right_source = sources.add_file("right.xsh", right_text);
++        let shared_source = sources.add_file("shared.xsh", shared_text);
++        let mut builder = ArenaProgramBuilder::with_token_capacity(192);
++        let root = Parser::parse_source_into_arena_builder(root_source, root_text, &mut builder);
++        let left = Parser::parse_source_into_arena_builder(left_source, left_text, &mut builder);
++        let right = Parser::parse_source_into_arena_builder(right_source, right_text, &mut builder);
++        let shared = Parser::parse_source_into_arena_builder(shared_source, shared_text, &mut builder);
++        assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
++        assert!(left.diagnostics.is_empty(), "{:?}", left.diagnostics);
++        assert!(right.diagnostics.is_empty(), "{:?}", right.diagnostics);
++        assert!(shared.diagnostics.is_empty(), "{:?}", shared.diagnostics);
++
++        for (key, module) in [
++            ("left", &left),
++            ("right", &right),
++            ("shared", &shared),
++        ] {
++            let module_name = builder.symbol_owner().intern(key);
++            builder.push_arena_module(key.to_string(), module_name, module.statements);
++        }
++        for (index, statement) in builder
++            .statement_ids(root.statements)
++            .into_iter()
++            .enumerate()
++        {
++            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
++                let key = if index == 0 { "left" } else { "right" };
++                builder.set_use_resolved(use_id, Arc::from(key));
++            }
++        }
++        for module in [&left, &right] {
++            for statement in builder.statement_ids(module.statements) {
++                if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
++                    builder.set_use_resolved(use_id, Arc::from("shared"));
++                }
++            }
++        }
++
++        let program = Arc::new(builder.finish_with_statements(root.statements));
++        let sources = Arc::new(sources);
++        let session = CheckSession::new(Arc::clone(&program), sources);
++        let output = session.check(
++            root.statements,
++            root_source,
++            CheckOptions::default(),
++        );
++        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
++        let published_plans = output
++            .prepared_constants
++            .cli_plans
++            .lock()
++            .expect("CLI plan cache poisoned");
++        assert_eq!(
++            published_plans.len(),
++            1,
++            "the shared canonical descriptor has one published plan"
++        );
++        let (expression, _) = published_plans.keys().next().expect("published plan");
++        assert_eq!(
++            program.arena.expr(*expression).span.source_id,
++            shared_source,
++            "the plan key remains owned by its canonical descriptor"
++        );
++    }
++
++    #[test]
++    fn cached_embedded_resource_check_visits_its_owner_once() {
++        let mut sources = SourceMap::new();
++        let entry_text = "1\n";
++        let module_text = "##! Managed resource example.\n## Reports a use after release.\nexport proc bad() [fs, error] -> Result[Unit] { let root = fs.tempdir()?; root.close()?; root.close()?; return Ok() }\n";
++        let entry_source = sources.add_file("entry.xsh", entry_text);
++        let module_source = sources.add_file("owned.xsh", module_text);
++        let mut builder = ArenaProgramBuilder::with_token_capacity(96);
++        let entry = Parser::parse_source_into_arena_builder(entry_source, entry_text, &mut builder);
++        let module = Parser::parse_source_into_arena_builder(module_source, module_text, &mut builder);
++        assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
++        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
++        let module_name = builder.symbol_owner().intern("owned");
++        builder.push_internal_arena_module("owned".to_string(), module_name, module.statements);
++
++        let program = Arc::new(builder.finish_with_statements(entry.statements));
++        let sources = Arc::new(sources);
++        let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
++        let view = session.view_for_root(entry.statements, entry_source);
++        super::super::resource::W9_RESOURCE_VISITS
++            .with(|visits| *visits.borrow_mut() = (0, Default::default()));
++
++        let default_output = session.check_view(&view, CheckOptions::default());
++        let default_resource_diagnostics = default_output
++            .diagnostics
++            .iter()
++            .filter(|diagnostic| {
++                diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUseAfterRelease)
++                    && diagnostic.labels.iter().any(|label| label.span.source_id == module_source)
++            })
++            .count();
++        assert_eq!(default_resource_diagnostics, 0, "{:?}", default_output.diagnostics);
++        let first_visits = super::super::resource::W9_RESOURCE_VISITS
++            .with(|visits| visits.borrow().clone());
++        assert_eq!(first_visits.1.get(&module_source), Some(&1));
++
++        let execution_output = session.check_view(&view, CheckOptions::for_execution());
++        let execution_resource_diagnostics = execution_output
++            .diagnostics
++            .iter()
++            .filter(|diagnostic| {
++                diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUseAfterRelease)
++                    && diagnostic.labels.iter().any(|label| label.span.source_id == module_source)
++            })
++            .count();
++        assert_eq!(execution_resource_diagnostics, 1, "{:?}", execution_output.diagnostics);
++        assert_eq!(
++            super::super::resource::W9_RESOURCE_VISITS.with(|visits| visits.borrow().clone()),
++            first_visits,
++            "reusing the checked embedded owner should not repeat resource analysis"
++        );
++    }
++
++    #[test]
++    fn byte_entry_resolves_imported_argument_alias_before_checking_module_bodies() {
++        let mut sources = SourceMap::new();
++        let root_text = "use shared\nproc main(...argv: shared.Arguments) {}\n";
++        let shared_text = "##! Byte argument aliases.\n## Shared declarations for the entry check.\n## Arguments accepted as byte strings.\nexport type Arguments = List[Bytes]\n## Return the imported script arguments.\nexport pure incoming() -> List[Bytes] { args }\n";
++        let root_source = sources.add_file("byte-entry.xsh", root_text);
++        let shared_source = sources.add_file("shared.xsh", shared_text);
++
++        let mut builder = ArenaProgramBuilder::with_token_capacity(128);
++        let root = Parser::parse_source_into_arena_builder(root_source, root_text, &mut builder);
++        let shared =
++            Parser::parse_source_into_arena_builder(shared_source, shared_text, &mut builder);
++        assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
++        assert!(shared.diagnostics.is_empty(), "{:?}", shared.diagnostics);
++        let shared_name = builder.symbol_owner().intern("shared");
++        builder.push_arena_module("shared".to_string(), shared_name, shared.statements);
++        for statement in builder.statement_ids(root.statements) {
++            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
++                builder.set_use_resolved(use_id, Arc::from("shared"));
++            }
++        }
++
++        let program = Arc::new(builder.finish_with_statements(root.statements));
++        let sources = Arc::new(sources);
++        let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
++        let view = session.view_for_root(root.statements, root_source);
++        let expected_module_checks = view.modules().count() * 2;
++        USER_MODULE_CHECKS.with(|checks| checks.set(0));
++
++        let output = session.check_view(&view, CheckOptions::for_execution());
++
++        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
++        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), expected_module_checks);
++        let declaration = output
++            .checked_declarations
++            .functions
++            .values()
++            .find(|declaration| declaration.name.as_str() == "incoming")
++            .expect("the imported function is projected into checked facts");
++        let incoming = declaration
++            .signature
++            .as_ref()
++            .expect("the imported function signature is projected into checked facts");
++        assert_eq!(
++            incoming.return_ty,
++            crate::sema::check::Type::List(Box::new(crate::sema::check::Type::Bytes))
++        );
++        assert_eq!(
++            declaration.body.source_id,
++            shared_source,
++            "the cached function fact keeps its source identity"
++        );
++    }
++
+     #[test]
+     fn imported_effects_flow_into_entry_inference() {
+         let mut sources = SourceMap::new();
+@@ -791,10 +1568,165 @@ mod tests {
+         assert_eq!(orders.len(), 24);
+         for order in orders {
+             let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
++            ENTRY_CHECKS.with(|checks| checks.set(0));
+             for index in order {
+                 let actual = session.check(root.statements, root_source, options[index]);
+                 assert_same_facts(&actual, &expected[index]);
+             }
++            assert_eq!(ENTRY_CHECKS.with(std::cell::Cell::get), 2);
++        }
++    }
++
++    #[test]
++    #[ignore = "manual source-specific attribution for session reuse"]
++    fn w9_session_reuse_performance_attribution() {
++        use crate::frontend::load::{
++            entry_source_from_text, parse_load_entry_source_arena_only, project_module_roots,
++        };
++        use crate::sema::check::decl::{MODULE_TYPE_HEADER_PREPARATIONS, USER_MODULE_CHECKS};
++        use crate::sema::check::module_record::{
++            MODULE_RECORD_CACHE_MISSES, OWNER_FACTS_PREPARATIONS,
++        };
++        use std::io::Write;
++        use std::path::PathBuf;
++        use std::time::Instant;
++
++        fn thread_cpu_nanos() -> Option<u128> {
++            #[cfg(target_os = "linux")]
++            {
++                let mut time = libc::timespec {
++                    tv_sec: 0,
++                    tv_nsec: 0,
++                };
++                let status = unsafe {
++                    libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time)
++                };
++                return (status == 0).then_some(
++                    (time.tv_sec as u128) * 1_000_000_000 + (time.tv_nsec as u128),
++                );
++            }
++            #[cfg(not(target_os = "linux"))]
++            {
++                None
++            }
++        }
++
++        fn records(session: &CheckSession) -> (usize, usize) {
++            let records = session.records.lock().expect("session record cache poisoned");
++            (
++                records.len(),
++                records
++                    .values()
++                    .filter(|record| record.has_checked_output())
++                    .count(),
++            )
++        }
++
++        let input_root = PathBuf::from(std::env::var("W9_PERF_INPUT_ROOT").expect("W9_PERF_INPUT_ROOT"));
++        let relative = PathBuf::from(std::env::var("W9_PERF_SOURCE").expect("W9_PERF_SOURCE"));
++        let path = input_root.join(&relative);
++        let file = path.to_str().expect("source path is UTF-8");
++        let source = std::fs::read_to_string(&path)
++            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
++        let entry = entry_source_from_text(file, source.clone());
++        let entry_source_id = entry.source_id;
++        let (sources, parsed) = parse_load_entry_source_arena_only(
++            file,
++            entry,
++            project_module_roots(&path).expect("resolve project module roots"),
++        );
++        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++        let root_statements = parsed.arena.statements;
++        let program = Arc::new(parsed.arena);
++        let sources = Arc::new(sources);
++        let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
++        let view = session.view_for_root(root_statements, entry_source_id);
++        let options = [
++            ("default", CheckOptions::default()),
++            (
++                "reveal",
++                CheckOptions {
++                    reveal_types: true,
++                    ..CheckOptions::default()
++                },
++            ),
++            ("execution", CheckOptions::for_execution()),
++            ("check-cli", CheckOptions::for_check_cli()),
++        ];
++        let timing_path = std::env::var("W9_SESSION_TIMING_OUTPUT")
++            .expect("W9_SESSION_TIMING_OUTPUT");
++        let mut timing = std::fs::File::create(&timing_path)
++            .unwrap_or_else(|error| panic!("create {timing_path}: {error}"));
++        writeln!(
++            timing,
++            "source\t{}\t{}\ninput_blake3\t{}",
++            relative.display(),
++            file,
++            blake3::hash(source.as_bytes()).to_hex()
++        )
++        .expect("write attribution header");
++
++        for (name, _) in options {
++            ENTRY_CHECKS.with(|count| count.set(0));
++            ENTRY_DOMAIN_PROBES.with(|count| count.set(0));
++            ENTRY_EFFECT_PROBES.with(|count| count.set(0));
++            MODULE_EFFECT_PROBES.with(|count| count.set(0));
++            USER_MODULE_CHECKS.with(|count| count.set(0));
++            MODULE_RECORD_CACHE_MISSES.with(|count| count.set(0));
++            OWNER_FACTS_PREPARATIONS.with(|count| count.set(0));
++            MODULE_TYPE_HEADER_PREPARATIONS.with(|count| count.set(0));
++        }
++
++        for (name, option) in options {
++            W9_PHASE_NANOS.with(|phases| phases.borrow_mut().clear());
++            let before_records = records(&session);
++            let before_modules = USER_MODULE_CHECKS.with(std::cell::Cell::get);
++            let before_entries = ENTRY_CHECKS.with(std::cell::Cell::get);
++            let before_domain_probes = ENTRY_DOMAIN_PROBES.with(std::cell::Cell::get);
++            let before_entry_probes = ENTRY_EFFECT_PROBES.with(std::cell::Cell::get);
++            let before_module_probes = MODULE_EFFECT_PROBES.with(std::cell::Cell::get);
++            let before_record_misses = MODULE_RECORD_CACHE_MISSES.with(std::cell::Cell::get);
++            let before_owner_preparations = OWNER_FACTS_PREPARATIONS.with(std::cell::Cell::get);
++            let before_headers = MODULE_TYPE_HEADER_PREPARATIONS.with(std::cell::Cell::get);
++            let wall_started = Instant::now();
++            let cpu_started = thread_cpu_nanos();
++            let output = session.check_view(&view, option);
++            let cpu_ended = thread_cpu_nanos();
++            let wall_elapsed = wall_started.elapsed().as_nanos();
++            let after_records = records(&session);
++            let serialized_started = Instant::now();
++            let publication = format!("{output:#?}");
++            let publication_hash = blake3::hash(publication.as_bytes()).to_hex();
++            let serialization_elapsed = serialized_started.elapsed().as_nanos();
++            let thread_cpu_elapsed = cpu_started
++                .zip(cpu_ended)
++                .map(|(start, end)| end.saturating_sub(start));
++            writeln!(
++                timing,
++                "profile\t{name}\tcheck_wall_ns={wall_elapsed}\tcheck_thread_cpu_ns={thread_cpu_elapsed:?}\tpublication_serialization_wall_ns={serialization_elapsed}\tpublication_sha256={publication_hash}\tmodule_body_checks={}\tentry_checks={}\tentry_domain_probes={}\tentry_effect_probes={}\tmodule_effect_probes={}\trecord_misses={}\towner_fact_preparations={}\ttype_headers={}\trecords={}..{}\tchecked_records={}..{}\tdiagnostics={}\treveal_types={}",
++                USER_MODULE_CHECKS.with(std::cell::Cell::get) - before_modules,
++                ENTRY_CHECKS.with(std::cell::Cell::get) - before_entries,
++                ENTRY_DOMAIN_PROBES.with(std::cell::Cell::get) - before_domain_probes,
++                ENTRY_EFFECT_PROBES.with(std::cell::Cell::get) - before_entry_probes,
++                MODULE_EFFECT_PROBES.with(std::cell::Cell::get) - before_module_probes,
++                MODULE_RECORD_CACHE_MISSES.with(std::cell::Cell::get) - before_record_misses,
++                OWNER_FACTS_PREPARATIONS.with(std::cell::Cell::get) - before_owner_preparations,
++                MODULE_TYPE_HEADER_PREPARATIONS.with(std::cell::Cell::get) - before_headers,
++                before_records.0,
++                after_records.0,
++                before_records.1,
++                after_records.1,
++                output.diagnostics.len(),
++                output.reveal_types.len(),
++            )
++            .expect("write attribution profile");
++            W9_PHASE_NANOS.with(|phases| {
++                for (phase, elapsed_nanos) in phases.borrow().iter() {
++                    writeln!(timing, "phase\t{name}\t{phase}\t{elapsed_nanos}")
++                        .expect("write phase attribution");
++                }
++            });
++            timing.flush().expect("flush attribution profile");
+         }
+     }
+ }
+diff --git a/src/sema/check/module_record.rs b/src/sema/check/module_record.rs
+index ee0a1491caf5136b85241e8ceef8c86526c955a2..a4c0f9850437d6c11c0375d406687c0734424f43 100644
+--- a/src/sema/check/module_record.rs
++++ b/src/sema/check/module_record.rs
+@@ -1,15 +1,20 @@
+ use super::{
+-    CheckBundleView, CheckOutput, Checker, Diagnostic, EffectGraph, RecordConstructors,
+-    ResolvedBindings, UserModuleSig,
++    CheckBundleView, CheckOutput, Checker, Diagnostic, RecordConstructors,
++    ResolvedBindings, ResourceTransferFacts, UserModuleSig,
+     infer_return::ReturnInferenceIndex, local_inference::LocalInference,
+ };
+ use crate::sema::constants::PreparedConstants;
+-use crate::sema::wire_enums::PreparedWireEnums;
+ use crate::syntax::arena::{ArenaProgram, ArenaStmtKind, ArenaUserModule, StmtId};
+ use rustc_hash::{FxHashMap, FxHashSet};
+ use crate::source::SourceId;
+ use std::sync::{Arc, Mutex, OnceLock};
+ 
++#[cfg(test)]
++thread_local! {
++    pub(super) static MODULE_RECORD_CACHE_MISSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
++    pub(super) static OWNER_FACTS_PREPARATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
++}
++
+ #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+ pub(super) enum ArgsDomain {
+     Str,
+@@ -34,9 +39,7 @@ pub(super) struct ModuleRecordKey {
+ }
+ 
+ pub(super) struct ModuleRecord {
+-    source_id: SourceId,
+-    role: ModuleRecordRole,
+-    pub(super) args_domain: ArgsDomain,
++    key: ModuleRecordKey,
+     statements: Arc<[StmtId]>,
+     owner_facts: Arc<PreparedModuleFacts>,
+     prepared_facts: Arc<PreparedModuleFacts>,
+@@ -44,24 +47,30 @@ pub(super) struct ModuleRecord {
+ }
+ 
+ pub(super) struct CheckedModuleFacts {
+-    pub(super) signature: UserModuleSig,
++    pub(super) signature: Option<UserModuleSig>,
+     pub(super) output: CheckOutput,
++    pub(super) module_diagnostic_position: usize,
++    pub(super) suppressed_body_transfers: ResourceTransferFacts,
+ }
+ 
+ impl ModuleRecord {
+     pub(super) fn source_id(&self) -> SourceId {
+-        self.source_id
++        self.key.source_id
+     }
+ 
+     pub(super) fn is_embedded(&self) -> bool {
+-        self.role == ModuleRecordRole::Embedded
++        self.key.role == ModuleRecordRole::Embedded
++    }
++
++    pub(super) fn args_domain(&self) -> ArgsDomain {
++        self.key.args_domain
+     }
+ 
+     pub(super) fn statements(&self) -> &[StmtId] {
+         &self.statements
+     }
+ 
+-    fn owner_facts(&self) -> &Arc<PreparedModuleFacts> {
++    pub(super) fn owner_facts(&self) -> &Arc<PreparedModuleFacts> {
+         &self.owner_facts
+     }
+ 
+@@ -76,6 +85,11 @@ impl ModuleRecord {
+         self.checked.get_or_init(|| Arc::new(check())).clone()
+     }
+ 
++    #[cfg(test)]
++    pub(super) fn has_checked_output(&self) -> bool {
++        self.checked.get().is_some()
++    }
++
+ }
+ 
+ #[derive(Clone)]
+@@ -91,9 +105,11 @@ impl ModuleRecords {
+         shared: &Mutex<FxHashMap<ModuleRecordKey, Arc<ModuleRecord>>>,
+         #[cfg(test)] preparations: &Mutex<FxHashMap<ModuleRecordKey, usize>>,
+     ) -> Self {
++        #[cfg(test)]
++        let phase_started = std::time::Instant::now();
+         let program = view.program;
+         let mut prepared = FxHashMap::<String, Arc<ModuleRecord>>::default();
+-        for module in preparation_order(view) {
++        for module in view.modules.iter().copied() {
+             let source_id = module_source_id(program, module);
+             let role = if module.internal {
+                 ModuleRecordRole::Embedded
+@@ -109,11 +125,11 @@ impl ModuleRecords {
+                 role,
+                 args_domain,
+             };
+-            let dependency_facts = Self::module_dependency_facts(view, module, &prepared);
+             let mut cache = shared.lock().expect("module record cache poisoned");
+             let record = cache
+                 .entry(key.clone())
+                 .or_insert_with(|| {
++                    let dependency_facts = Self::module_dependency_facts(view, module, &prepared);
+                     let module_view = CheckBundleView::for_module_owner(
+                         program,
+                         module,
+@@ -131,9 +147,7 @@ impl ModuleRecords {
+                         record_test_preparation(preparations, key.clone());
+                     }
+                     Arc::new(ModuleRecord {
+-                        source_id,
+-                        role,
+-                        args_domain,
++                        key: key.clone(),
+                         statements: program.module_statements(module).collect::<Vec<_>>().into(),
+                         owner_facts,
+                         prepared_facts: Arc::new(visible_facts),
+@@ -144,15 +158,7 @@ impl ModuleRecords {
+             prepared.insert(module.key.clone(), record);
+         }
+ 
+-        let mut dependency_facts = PreparedModuleFacts::default();
+-        for module in view.modules.iter().copied() {
+-            let record = prepared
+-                .get(&module.key)
+-                .expect("reachable module was prepared before entry facts");
+-            dependency_facts.merge_owner(program, record.owner_facts());
+-        }
+         let root_source_id = view.root_source_id().unwrap_or_else(|| SourceId::new(0));
+-        #[cfg(test)]
+         let root_key = ModuleRecordKey {
+             module_key: Arc::from("<entry>"),
+             source_id: root_source_id,
+@@ -161,29 +167,59 @@ impl ModuleRecords {
+             role: ModuleRecordRole::Entry,
+             args_domain,
+         };
+-        let root_view = CheckBundleView::for_module(
+-            program,
+-            view.root_statements,
+-            view.sources,
+-            Some(root_source_id),
+-        );
+-        let owner_facts = Arc::new(PreparedModuleFacts::prepare_owner(
+-            &root_view,
+-            &dependency_facts,
+-        ));
+-        let mut visible_facts = dependency_facts;
+-        visible_facts.merge_owner(program, &owner_facts);
+-        #[cfg(test)]
+-        record_test_preparation(preparations, root_key.clone());
+-        let root = Arc::new(ModuleRecord {
+-            source_id: root_source_id,
+-            role: ModuleRecordRole::Entry,
+-            args_domain,
+-            statements: view.statement_ids().collect::<Vec<_>>().into(),
+-            owner_facts,
+-            prepared_facts: Arc::new(visible_facts),
+-            checked: OnceLock::new(),
+-        });
++        let root = {
++            let mut cache = shared.lock().expect("module record cache poisoned");
++            cache
++                .entry(root_key.clone())
++                .or_insert_with(|| {
++                    let mut dependency_facts = PreparedModuleFacts::default();
++                    for module in view.modules.iter().copied() {
++                        let record = prepared
++                            .get(&module.key)
++                            .expect("reachable module was prepared before entry facts");
++                        dependency_facts.merge_owner(program, record.owner_facts());
++                    }
++                    let root_view = CheckBundleView::for_module(
++                        program,
++                        view.root_statements,
++                        view.sources,
++                        Some(root_source_id),
++                    );
++                    let owner_facts = Arc::new(PreparedModuleFacts::prepare_owner(
++                        &root_view,
++                        &dependency_facts,
++                    ));
++                    let mut wire_diagnostics = owner_facts.wire_diagnostics.clone();
++                    wire_diagnostics.extend(dependency_facts.wire_diagnostics.iter().cloned());
++                    let mut visible_facts = dependency_facts;
++                    visible_facts.merge_owner(program, &owner_facts);
++                    visible_facts.wire_diagnostics = wire_diagnostics;
++                    // The legacy collector visited entry constants before module constants.
++                    // Reassemble owner-local instances in that order for stable publication.
++                    let mut ordered_instances = owner_facts.record_constructors.detached();
++                    for module in view.modules.iter().copied() {
++                        let record = prepared
++                            .get(&module.key)
++                            .expect("reachable module was prepared before entry instances");
++                        ordered_instances.merge_instance_facts(
++                            &record.owner_facts.record_constructors,
++                        );
++                    }
++                    visible_facts
++                        .record_constructors
++                        .replace_instance_facts(&ordered_instances);
++                    #[cfg(test)]
++                    record_test_preparation(preparations, root_key.clone());
++                    Arc::new(ModuleRecord {
++                        key: root_key.clone(),
++                        statements: view.statement_ids().collect::<Vec<_>>().into(),
++                        owner_facts,
++                        prepared_facts: Arc::new(visible_facts),
++                        checked: OnceLock::new(),
++                    })
++                })
++                .clone()
++        };
+         let modules = view
+             .modules
+             .iter()
+@@ -197,6 +233,11 @@ impl ModuleRecords {
+                 )
+             })
+             .collect();
++        #[cfg(test)]
++        super::module_driver::record_w9_phase(
++            "module_records_prepare",
++            phase_started.elapsed().as_nanos(),
++        );
+         Self { root, modules }
+     }
+ 
+@@ -208,9 +249,7 @@ impl ModuleRecords {
+         let dependency_keys = module_dependency_keys(view.program, module);
+         let mut facts = PreparedModuleFacts::default();
+         for dependency in view.modules.iter().copied() {
+-            if dependency.key != module.key
+-                && (dependency.internal || dependency_keys.contains(&dependency.key))
+-            {
++            if dependency.key != module.key && dependency_keys.contains(&dependency.key) {
+                 let record = prepared
+                     .get(&dependency.key)
+                     .unwrap_or_else(|| {
+@@ -278,47 +317,13 @@ fn module_dependency_keys(program: &ArenaProgram, module: &ArenaUserModule) -> F
+         if !dependencies.insert(key.clone()) {
+             continue;
+         }
+-        if let Some(dependency) = program
+-            .modules
+-            .iter()
+-            .find(|candidate| !candidate.internal && candidate.key == key)
+-        {
++        if let Some(dependency) = program.modules.iter().find(|candidate| candidate.key == key) {
+             pending.extend(module_import_keys(program, dependency));
+         }
+     }
+     dependencies
+ }
+ 
+-fn preparation_order<'a>(view: &CheckBundleView<'a>) -> Vec<&'a ArenaUserModule> {
+-    fn visit<'a>(
+-        view: &CheckBundleView<'a>,
+-        module: &'a ArenaUserModule,
+-        active: &mut FxHashSet<String>,
+-        visited: &mut FxHashSet<String>,
+-        ordered: &mut Vec<&'a ArenaUserModule>,
+-    ) {
+-        if visited.contains(&module.key) || !active.insert(module.key.clone()) {
+-            return;
+-        }
+-        for key in module_import_keys(view.program, module) {
+-            if let Some(dependency) = view.modules.iter().copied().find(|candidate| candidate.key == key) {
+-                visit(view, dependency, active, visited, ordered);
+-            }
+-        }
+-        active.remove(&module.key);
+-        visited.insert(module.key.clone());
+-        ordered.push(module);
+-    }
+-
+-    let mut active = FxHashSet::default();
+-    let mut visited = FxHashSet::default();
+-    let mut ordered = Vec::with_capacity(view.modules.len());
+-    for module in view.modules.iter().copied() {
+-        visit(view, module, &mut active, &mut visited, &mut ordered);
+-    }
+-    ordered
+-}
+-
+ #[cfg(test)]
+ fn test_preparation_count(
+     counts: &Mutex<FxHashMap<ModuleRecordKey, usize>>,
+@@ -337,6 +342,7 @@ fn record_test_preparation(
+     counts: &Mutex<FxHashMap<ModuleRecordKey, usize>>,
+     key: ModuleRecordKey,
+ ) {
++    MODULE_RECORD_CACHE_MISSES.with(|count| count.set(count.get() + 1));
+     *counts
+         .lock()
+         .expect("module preparation counter poisoned")
+@@ -363,6 +369,25 @@ impl ModuleRecordCache {
+             preparations: Mutex::new(FxHashMap::default()),
+         }
+     }
++
++    /// Reuse a selected domain only after that entry has a checked record.
++    pub(super) fn checked_entry_domain(
++        &self,
++        view: &CheckBundleView<'_>,
++    ) -> Option<ArgsDomain> {
++        let key = |args_domain| ModuleRecordKey {
++            module_key: Arc::from("<entry>"),
++            source_id: view.root_source_id().unwrap_or_else(|| SourceId::new(0)),
++            start: view.root_statements.start,
++            len: view.root_statements.len,
++            role: ModuleRecordRole::Entry,
++            args_domain,
++        };
++        let shared = self.shared.lock().expect("module record cache poisoned");
++        [ArgsDomain::Str, ArgsDomain::Bytes]
++            .into_iter()
++            .find(|&domain| shared.get(&key(domain)).is_some_and(|record| record.checked.get().is_some()))
++    }
+ }
+ 
+ impl ModuleRecordCache {
+@@ -395,11 +420,9 @@ impl ModuleRecordCache {
+ pub(super) struct PreparedModuleFacts {
+     pub(super) resolved_bindings: Arc<ResolvedBindings>,
+     pub(super) return_inference_index: Arc<ReturnInferenceIndex>,
+-    pub(super) effect_declarations: EffectGraph,
+     pub(super) local_inference: LocalInference,
+     pub(super) record_constructors: RecordConstructors,
+     pub(super) prepared_constants: PreparedConstants,
+-    pub(super) wire_enums: PreparedWireEnums,
+     regex_diagnostics: Vec<Diagnostic>,
+     wire_diagnostics: Vec<Diagnostic>,
+ }
+@@ -409,6 +432,10 @@ impl PreparedModuleFacts {
+         view: &CheckBundleView<'_>,
+         dependencies: &PreparedModuleFacts,
+     ) -> Self {
++        #[cfg(test)]
++        let phase_started = std::time::Instant::now();
++        #[cfg(test)]
++        OWNER_FACTS_PREPARATIONS.with(|count| count.set(count.get() + 1));
+         let program = view.program;
+         let owner_bindings = ResolvedBindings::collect_bundle(view);
+         let mut visible_bindings = dependencies
+@@ -421,42 +448,48 @@ impl PreparedModuleFacts {
+         resolved_bindings.resolve_module_fields(program, &declarations);
+         let resolved_bindings = Arc::new(resolved_bindings);
+         let return_inference_index = Arc::new(ReturnInferenceIndex::collect(view));
+-        let effect_declarations = EffectGraph::declarations(view);
+         let local_inference = LocalInference::prepare(view);
+         let regex_diagnostics = Checker::prepare_regex_literals(view);
+         let mut record_constructors = RecordConstructors::collect_bundle(view);
++        let dependency_instance_count = dependencies.record_constructors.instance_count();
+         let mut visible_constructors = dependencies.record_constructors.clone();
+         visible_constructors.merge_visible(&record_constructors);
+-        let mut prepared_for_owner = PreparedConstants::collect_bundle_with_visible(
+-            view,
+-            &visible_constructors,
+-            &visible_bindings,
+-            &dependencies.prepared_constants,
++        let (mut prepared_for_owner, wire_diagnostics) =
++            PreparedConstants::collect_bundle_with_visible_and_diagnostics(
++                view,
++                &visible_constructors,
++                &visible_bindings,
++                &dependencies.prepared_constants,
++            );
++        record_constructors.merge_instance_facts(
++            &visible_constructors.instance_facts_after(dependency_instance_count),
+         );
+         record_constructors.apply_prepared_defaults_bundle(view, &prepared_for_owner);
+-        let (wire_enums, wire_diagnostics) = PreparedWireEnums::prepare_bundle(view, |expr| {
+-            prepared_for_owner.analyze_expression(&program.arena, expr)
+-        });
+-        prepared_for_owner.cli_wire_enums = wire_enums.clone();
+         prepared_for_owner.retain_owner_source(
+             program,
+             view.root_source_id().unwrap_or_else(|| SourceId::new(0)),
+             &visible_bindings,
+         );
+-        Self {
++        let facts = Self {
+             resolved_bindings,
+             return_inference_index,
+-            effect_declarations,
+             local_inference,
+             record_constructors,
+             prepared_constants: prepared_for_owner,
+-            wire_enums,
+             regex_diagnostics,
+             wire_diagnostics,
+-        }
++        };
++        #[cfg(test)]
++        super::module_driver::record_w9_phase(
++            "owner_facts_prepare",
++            phase_started.elapsed().as_nanos(),
++        );
++        facts
+     }
+ 
+     fn merge_owner(&mut self, program: &ArenaProgram, owner: &Self) {
++        #[cfg(test)]
++        let phase_started = std::time::Instant::now();
+         let mut bindings = self
+             .resolved_bindings
+             .merge_visible(&owner.resolved_bindings);
+@@ -465,41 +498,49 @@ impl PreparedModuleFacts {
+         self.resolved_bindings = Arc::new(bindings);
+         Arc::make_mut(&mut self.return_inference_index)
+             .merge_owner(&owner.return_inference_index);
+-        self.effect_declarations
+-            .merge_declarations(&owner.effect_declarations);
+         self.local_inference
+             .merge_prepared_owner(&owner.local_inference);
+         self.record_constructors
+             .merge_visible(&owner.record_constructors);
+         self.prepared_constants
+             .merge_visible(&owner.prepared_constants);
+-        self.wire_enums.merge_visible(&owner.wire_enums);
+         self.regex_diagnostics
+             .extend(owner.regex_diagnostics.iter().cloned());
+         self.wire_diagnostics
+             .extend(owner.wire_diagnostics.iter().cloned());
++        #[cfg(test)]
++        super::module_driver::record_w9_phase(
++            "owner_fact_merge",
++            phase_started.elapsed().as_nanos(),
++        );
+     }
+ 
+     pub(super) fn install(&self, checker: &mut Checker, program: &ArenaProgram) {
++        #[cfg(test)]
++        let phase_started = std::time::Instant::now();
+         checker.resolved_bindings = self.resolved_bindings.clone();
+         checker.return_inference_index = Some(self.return_inference_index.clone());
+-        if !checker.authoritative_effect_graph && checker.effect_graph.is_empty() {
+-            checker.effect_graph = self.effect_declarations.clone();
+-        }
+         checker.local_inference = self.local_inference.clone();
+         checker.record_constructors = self.record_constructors.clone();
+         checker.prepared_constants = self.prepared_constants.clone();
+-        checker.wire_enums = self.wire_enums.clone();
++        checker.wire_enums = self.prepared_constants.cli_wire_enums.clone();
+         checker.diagnostics.extend(self.regex_diagnostics.iter().cloned());
+         checker
+             .diagnostics
+             .extend(self.prepared_constants.diagnostics.iter().cloned());
+-        checker.diagnostics.extend(self.wire_diagnostics.iter().cloned());
++        checker
++            .diagnostics
++            .extend(self.wire_diagnostics.iter().cloned());
+         for (expression, fact) in &self.prepared_constants.record_constructor_instances {
+             checker
+                 .record_constructor_instances
+                 .insert(program.arena.expr(*expression).span, fact.clone());
+         }
++        #[cfg(test)]
++        super::module_driver::record_w9_phase(
++            "prepared_facts_install",
++            phase_started.elapsed().as_nanos(),
++        );
+     }
+ }
+ 
+@@ -510,6 +551,97 @@ mod tests {
+     use crate::syntax::arena::ArenaProgramBuilder;
+     use crate::syntax::parser::Parser;
+ 
++    #[test]
++    fn prepared_record_instances_follow_root_then_module_owner_order() {
++        let root_source = "type RootSpec = {value: Int}\nconst root_spec: RootSpec = {value: 1}\n";
++        let module_source = "##! Imported record values.\n## A module-owned schema.\nexport type ModuleSpec = {value: Int}\n## A typed module constant.\nexport const module_spec: ModuleSpec = {value: 2}\n";
++        let mut builder = ArenaProgramBuilder::with_token_capacity(96);
++        let root = Parser::parse_source_into_arena_builder(
++            SourceId::new(0),
++            root_source,
++            &mut builder,
++        );
++        let module = Parser::parse_source_into_arena_builder(
++            SourceId::new(1),
++            module_source,
++            &mut builder,
++        );
++        assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
++        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
++        let module_name = builder.symbol_owner().intern("owned");
++        builder.push_internal_arena_module("owned".to_string(), module_name, module.statements);
++
++        let program = builder.finish_with_statements(root.statements);
++        let _symbol_owner = program.symbol_owner().enter();
++        let view = CheckBundleView::for_root(
++            &program,
++            root.statements,
++            None,
++            Some(SourceId::new(0)),
++        );
++        let root_type = program
++            .statement_ids()
++            .find_map(|statement| match program.arena.stmt(statement).kind {
++                ArenaStmtKind::TypeDef(definition) => Some(definition),
++                _ => None,
++            })
++            .expect("entry schema");
++        let module = view.modules.first().expect("embedded module");
++        let module_type = program
++            .module_statements(module)
++            .find_map(|statement| match program.arena.stmt(statement).kind {
++                ArenaStmtKind::Export(inner) => match program.arena.stmt(inner).kind {
++                    ArenaStmtKind::TypeDef(definition) => Some(definition),
++                    _ => None,
++                },
++                _ => None,
++            })
++            .expect("module schema");
++        let mut cache = ModuleRecordCache::default();
++        let records = cache.get_or_prepare(&view, ArgsDomain::Str);
++        let constructor_facts = format!("{:?}", records.root().prepared_facts.record_constructors);
++        let root_instance = constructor_facts
++            .find(&format!("({root_type:?}, [], Record"))
++            .expect("entry type instance is prepared");
++        let module_instance = constructor_facts
++            .find(&format!("({module_type:?}, [], Record"))
++            .expect("module type instance is prepared");
++        assert!(
++            root_instance < module_instance,
++            "the entry owner's prepared instance must precede imported owner instances: {constructor_facts}"
++        );
++    }
++
++    #[test]
++    #[ignore]
++    fn w9_dump_owner_record_constructor_instances() {
++        let root = std::path::PathBuf::from(std::env::var("W9_INPUT_ROOT").unwrap());
++        let path = root.join("core/lspci.xsh");
++        let source = std::fs::read_to_string(&path).unwrap();
++        let file = path.to_string_lossy().into_owned();
++        let entry = crate::frontend::load::entry_source_from_text(&file, source);
++        let entry_source = entry.source_id;
++        let roots = crate::frontend::load::project_module_roots(&path).unwrap();
++        let (sources, parsed) = crate::frontend::load::parse_load_entry_source_arena_only(
++            &file, entry, roots,
++        );
++        let program = parsed.arena;
++        program.symbol_owner().with_current(|| {
++            let view = CheckBundleView::new(&program, Some(&sources), Some(entry_source));
++            let mut cache = ModuleRecordCache::default();
++            let records = cache.get_or_prepare(&view, ArgsDomain::Str);
++            for module in view.modules.iter().copied() {
++                let record = records.module(&module.key).unwrap();
++                eprintln!(
++                    "module {} owner={:?} prepared={:?}",
++                    module.key,
++                    record.owner_facts.record_constructors.instance_facts_after(0),
++                    record.prepared_facts.record_constructors.instance_facts_after(0),
++                );
++            }
++        });
++    }
++
+     #[test]
+     fn probe_rounds_reuse_one_record_per_reachable_module_and_argument_domain() {
+         let mut builder = ArenaProgramBuilder::with_token_capacity(128);
+@@ -588,8 +720,8 @@ mod tests {
+             !Arc::ptr_eq(shared, first_probe.module("embedded-shared").unwrap()),
+             "an embedded implementation has a separate record role from a user module"
+         );
+-        assert_eq!(shared.args_domain, ArgsDomain::Str);
+-        assert_eq!(byte_probe.module("shared").unwrap().args_domain, ArgsDomain::Bytes);
++        assert_eq!(shared.args_domain(), ArgsDomain::Str);
++        assert_eq!(byte_probe.module("shared").unwrap().args_domain(), ArgsDomain::Bytes);
+         assert!(Arc::ptr_eq(first_probe.facts(), next_probe.facts()));
+         assert!(!Arc::ptr_eq(first_probe.facts(), byte_probe.facts()));
+ 
+diff --git a/src/sema/check/resource.rs b/src/sema/check/resource.rs
+index 05a03e5e69b07ae002cc2323f989331443d93bd0..a8e9341d110d75df0ac25e39c91ea84d0b58af32 100644
+--- a/src/sema/check/resource.rs
++++ b/src/sema/check/resource.rs
+@@ -24,17 +24,38 @@ pub type ResourceTransferFacts = FxHashMap<ResourceTransferSite, bool>;
+ pub(super) struct ResourceCheck {
+     pub diagnostics: Vec<Diagnostic>,
+     pub transfers: ResourceTransferFacts,
++    /// Transfer facts that remain knowable when embedded bodies are suppressed.
++    pub suppressed_body_transfers: ResourceTransferFacts,
++}
++
++#[cfg(test)]
++thread_local! {
++    pub(super) static W9_RESOURCE_VISITS: std::cell::RefCell<(usize, std::collections::BTreeMap<crate::source::SourceId, usize>)> = std::cell::RefCell::new((0, std::collections::BTreeMap::new()));
+ }
+ 
+ pub(super) fn check(checker: &Checker, view: &CheckBundleView<'_>) -> ResourceCheck {
++    check_scopes(checker, view, view.modules.clone())
++}
++
++/// The entry owns its statement range; imported ranges are analyzed by their cached records.
++pub(super) fn check_root_owner(checker: &Checker, view: &CheckBundleView<'_>) -> ResourceCheck {
++    check_scopes(checker, view, Vec::new())
++}
++
++fn check_scopes<'a>(
++    checker: &Checker,
++    view: &CheckBundleView<'a>,
++    modules: Vec<&'a ArenaUserModule>,
++) -> ResourceCheck {
+     Analyzer {
+         checker,
+         program: view.program,
+         root_statements: view.root_statements,
+-        modules: view.modules.clone(),
++        modules,
+         blocks: FxHashSet::default(),
+         diagnostics: Vec::new(),
+         transfers: FxHashMap::default(),
++        suppressed_body_transfers: FxHashMap::default(),
+         diagnosed: FxHashSet::default(),
+     }
+     .run()
+@@ -48,11 +69,28 @@ struct Analyzer<'a> {
+     blocks: FxHashSet<BlockId>,
+     diagnostics: Vec<Diagnostic>,
+     transfers: ResourceTransferFacts,
++    suppressed_body_transfers: ResourceTransferFacts,
+     diagnosed: FxHashSet<(BindingId, Span)>,
+ }
+ 
+ impl Analyzer<'_> {
+     fn run(mut self) -> ResourceCheck {
++        #[cfg(test)]
++        W9_RESOURCE_VISITS.with(|visits| {
++            let mut visits = visits.borrow_mut();
++            visits.0 += 1;
++            for module in &self.modules {
++                let source = self
++                    .program
++                    .module_statements(module)
++                    .next()
++                    .map(|statement| self.program.arena.stmt(statement).span.source_id)
++                    .or_else(|| self.program.module_doc_for(module.statements).map(|span| span.source_id));
++                if let Some(source) = source {
++                    *visits.1.entry(source).or_default() += 1;
++                }
++            }
++        });
+         let root = self.program.arena.stmt_ids(self.root_statements).collect::<Vec<_>>();
+         self.analyze_scope(&root);
+         let modules = self.modules.iter().map(|module| {
+@@ -110,6 +148,7 @@ impl Analyzer<'_> {
+         ResourceCheck {
+             diagnostics: self.diagnostics,
+             transfers: self.transfers,
++            suppressed_body_transfers: self.suppressed_body_transfers,
+         }
+     }
+ 
+@@ -234,6 +273,8 @@ impl Analyzer<'_> {
+                     }
+                 } else {
+                     self.transfers.insert(ResourceTransferSite::Return(stmt), false);
++                    self.suppressed_body_transfers
++                        .insert(ResourceTransferSite::Return(stmt), false);
+                 }
+             }
+             ArenaStmtKind::Break { value: Some(expr) } => {
+@@ -243,6 +284,8 @@ impl Analyzer<'_> {
+             }
+             ArenaStmtKind::Break { value: None } => {
+                 self.transfers.insert(ResourceTransferSite::Break(stmt), false);
++                self.suppressed_body_transfers
++                    .insert(ResourceTransferSite::Break(stmt), false);
+             }
+             ArenaStmtKind::Yield(value) => {
+                 if let Some(holds) = self.expr_or_run_may_hold(value) {
+@@ -262,6 +305,8 @@ impl Analyzer<'_> {
+                     )
+                 {
+                     let holds = if declared_bindings.contains(&binding) {
++                        self.suppressed_body_transfers
++                            .insert(ResourceTransferSite::Assignment(stmt), false);
+                         Some(false)
+                     } else {
+                         self.expr_or_run_may_hold(value)
+@@ -276,6 +321,8 @@ impl Analyzer<'_> {
+     }
+ 
+     fn publish_block_transfer(&mut self, block: BlockId, statements: &[StmtId]) {
++        self.suppressed_body_transfers
++            .insert(ResourceTransferSite::BlockValue(block), false);
+         let holds = match statements.last() {
+             None => Some(false),
+             Some(stmt) => {
+@@ -630,6 +677,51 @@ mod tests {
+             .expect("test assignment exists")
+     }
+ 
++    #[test]
++    #[ignore = "manual source-specific resource traversal attribution"]
++    fn w9_resource_scope_attribution() {
++        use crate::frontend::load::{
++            entry_source_from_text, parse_load_entry_source_arena_only, project_module_roots,
++        };
++        use std::path::PathBuf;
++
++        let input_root = PathBuf::from(
++            std::env::var("W9_RESOURCE_INPUT_ROOT").expect("W9_RESOURCE_INPUT_ROOT"),
++        );
++        let relative = PathBuf::from(
++            std::env::var("W9_RESOURCE_SOURCE").expect("W9_RESOURCE_SOURCE"),
++        );
++        let path = input_root.join(&relative);
++        let file = path.to_str().expect("source path is UTF-8");
++        let source = std::fs::read_to_string(&path)
++            .unwrap_or_else(|error| panic!("read {}: {error}", path.display()));
++        let entry = entry_source_from_text(file, source);
++        let entry_source_id = entry.source_id;
++        let (sources, parsed) = parse_load_entry_source_arena_only(
++            file,
++            entry,
++            project_module_roots(&path).expect("resolve project module roots"),
++        );
++        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++        W9_RESOURCE_VISITS.with(|visits| *visits.borrow_mut() = (0, Default::default()));
++        let output = Checker::check_arena_with_sources_and_options(
++            &parsed.arena,
++            &sources,
++            entry_source_id,
++            super::super::CheckOptions::default(),
++        );
++        let visits = W9_RESOURCE_VISITS.with(|visits| visits.borrow().clone());
++        eprintln!("resource_analyzer_runs\t{}", visits.0);
++        for (source, count) in visits.1 {
++            let name = sources.get(source).expect("visited source belongs to input").name();
++            eprintln!("module_scope_visits\t{name}\t{count}");
++            assert_eq!(count, 1, "module resource scope visited more than once: {name}");
++        }
++        assert!(!output.diagnostics.iter().any(|diagnostic| {
++            diagnostic.code == Some(DiagnosticCode::CheckUseAfterRelease)
++        }));
++    }
++
+     #[test]
+     fn transfer_facts_retain_resource_and_scalar_results_through_compaction() {
+         let source = "proc transfer() [fs, error] -> Result[FsRoot] { let root = fs.tempdir()?; return root }\nproc tail() [fs, error] -> Result[FsRoot] { let root = fs.tempdir()?; root }\nproc scalar() -> Int { return 0 }\n";
+diff --git a/src/sema/constants.rs b/src/sema/constants.rs
+index 49ee33602c9e6c79609c2871a912da83ddc52b80..432c1335adbc1a39f1a4724f0d42e9d4aaad0878 100644
+--- a/src/sema/constants.rs
++++ b/src/sema/constants.rs
+@@ -459,6 +459,24 @@ pub struct RecordConstructors {
+ }
+ 
+ impl RecordConstructors {
++    pub(super) fn detached(&self) -> Self {
++        Self {
++            instances: Arc::new(Mutex::new(
++                self.instances
++                    .lock()
++                    .expect("record constructor cache lock poisoned")
++                    .clone(),
++            )),
++            definitions: self.definitions.clone(),
++            imports: self.imports.clone(),
++            exports: self.exports.clone(),
++            error_types: self.error_types.clone(),
++            namespaces: self.namespaces.clone(),
++            nominal_names: self.nominal_names.clone(),
++            defaults: self.defaults.clone(),
++        }
++    }
++
+     pub(super) fn merge_visible(&mut self, other: &Self) {
+         merge_owned_map(&mut self.definitions, &other.definitions);
+         merge_owned_map(&mut self.imports, &other.imports);
+@@ -467,7 +485,10 @@ impl RecordConstructors {
+         merge_owned_map(&mut self.namespaces, &other.namespaces);
+         merge_owned_map(&mut self.nominal_names, &other.nominal_names);
+         merge_owned_map(&mut self.defaults, &other.defaults);
++        self.merge_instance_facts(other);
++    }
+ 
++    pub(super) fn merge_instance_facts(&mut self, other: &Self) {
+         let incoming = other
+             .instances
+             .lock()
+@@ -492,6 +513,42 @@ impl RecordConstructors {
+         }
+     }
+ 
++    pub(super) fn instance_count(&self) -> usize {
++        self.instances
++            .lock()
++            .expect("record constructor cache lock poisoned")
++            .len()
++    }
++
++    pub(super) fn instance_facts_after(&self, first: usize) -> Self {
++        let instances = self
++            .instances
++            .lock()
++            .expect("record constructor cache lock poisoned");
++        assert!(first <= instances.len(), "record constructor cache prefix changed");
++        Self {
++            instances: Arc::new(Mutex::new(instances[first..].to_vec())),
++            ..Self::default()
++        }
++    }
++
++    pub(super) fn retaining_instances(
++        &self,
++        mut keep: impl FnMut(TypeDefId) -> bool,
++    ) -> Self {
++        let retained = self.detached();
++        retained
++            .instances
++            .lock()
++            .expect("record constructor cache lock poisoned")
++            .retain(|(definition, _, _)| keep(*definition));
++        retained
++    }
++
++    pub(super) fn replace_instance_facts(&mut self, facts: &Self) {
++        self.instances = Arc::clone(&facts.instances);
++    }
++
+     pub(crate) fn retained_type_facts(&self) -> (usize, usize) {
+         use std::mem::size_of;
+ 
+@@ -2044,6 +2101,67 @@ mod prepared_constant_tests {
+     use super::*;
+     use crate::source::SourceId;
+ 
++    fn cli_plan(default: i64) -> Arc<crate::modules::cli::CliDescriptorPlan> {
++        use crate::modules::cli::{CliDescriptorPlan, ParsePolicy};
++        use crate::runtime::value::{RecordMap, Value};
++
++        crate::symbol::SymbolOwner::new().with_current(|| {
++            let descriptor = RecordMap::from([(
++                Arc::from("jobs"),
++                Value::Record(RecordMap::from([
++                    (Arc::from("kind"), Value::Str(Arc::from("Int"))),
++                    (Arc::from("form"), Value::Str(Arc::from("-j --jobs N"))),
++                    (Arc::from("default"), Value::Int(default)),
++                ])),
++            )]);
++            Arc::new(
++                CliDescriptorPlan::normalize(
++                    descriptor,
++                    crate::source::Span::new(SourceId::new(0), 0, 1),
++                    ParsePolicy::Applet,
++                    &BTreeMap::new(),
++                )
++                .expect("valid descriptor plan"),
++            )
++        })
++    }
++
++    fn cli_plan_constants(
++        plan: Arc<crate::modules::cli::CliDescriptorPlan>,
++    ) -> PreparedConstants {
++        let constants = PreparedConstants::default();
++        constants
++            .cli_plans
++            .lock()
++            .expect("descriptor cache lock")
++            .insert((ExprId::from_index(0), true), Ok(plan));
++        constants
++    }
++
++    #[test]
++    fn cli_plan_merge_retains_one_equal_canonical_result() {
++        let plan = cli_plan(4);
++        let mut output = cli_plan_constants(Arc::clone(&plan));
++        let owner = cli_plan_constants(Arc::clone(&plan));
++        output.merge_cli_plan_facts(&owner);
++        let plans = output.cli_plans.lock().expect("descriptor cache lock");
++        assert_eq!(plans.len(), 1);
++        let retained = plans
++            .get(&(ExprId::from_index(0), true))
++            .expect("canonical plan was retained")
++            .as_ref()
++            .expect("plan is valid");
++        assert!(Arc::ptr_eq(retained, &plan));
++    }
++
++    #[test]
++    #[should_panic(expected = "canonical CLI descriptor plan")]
++    fn cli_plan_merge_rejects_conflicting_canonical_results() {
++        let mut output = cli_plan_constants(cli_plan(4));
++        let owner = cli_plan_constants(cli_plan(5));
++        output.merge_cli_plan_facts(&owner);
++    }
++
+     #[test]
+     fn prepared_constants_keep_only_configured_workspace_sources() {
+         use crate::syntax::arena::ArenaProgramBuilder;
+@@ -2197,6 +2315,18 @@ struct ConstantPreparation<'a> {
+ }
+ 
+ impl PreparedConstants {
++    pub(super) fn clear_prepared_declaration_facts(&mut self) {
++        self.values.clear();
++        self.types.clear();
++        self.record_constructor_instances.clear();
++        self.origins.clear();
++        self.tail_bindings.clear();
++        self.global_bindings.clear();
++        self.binding_values.clear();
++        self.diagnostics.clear();
++        self.cli_wire_enums = Default::default();
++    }
++
+     pub(super) fn merge_visible(&mut self, other: &Self) {
+         merge_owned_map(&mut self.values, &other.values);
+         merge_owned_map(&mut self.types, &other.types);
+@@ -2219,6 +2349,51 @@ impl PreparedConstants {
+             .merge_visible(&other.cli_wire_enums);
+     }
+ 
++    // Different importing owners can resolve the same immutable descriptor
++    // expression. Its canonical origin is one cache key, so equal results are
++    // one fact while conflicting results indicate inconsistent checking.
++    pub(super) fn merge_cli_plan_facts(&mut self, other: &Self) {
++        assert!(
++            !Arc::ptr_eq(&self.cli_plans, &other.cli_plans),
++            "CLI descriptor caches must remain source-owner scoped"
++        );
++        let other_plans = other.cli_plans.lock().expect("descriptor cache lock");
++        let mut plans = self.cli_plans.lock().expect("descriptor cache lock");
++        for (&key, plan) in other_plans.iter() {
++            if let Some(existing) = plans.get(&key) {
++                assert_eq!(
++                    existing, plan,
++                    "canonical CLI descriptor plan {key:?} has conflicting results"
++                );
++            } else {
++                plans.insert(key, plan.clone());
++            }
++        }
++
++        assert!(
++            !Arc::ptr_eq(&self.cli_command_plans, &other.cli_command_plans),
++            "CLI command descriptor caches must remain source-owner scoped"
++        );
++        let other_command_plans = other
++            .cli_command_plans
++            .lock()
++            .expect("command descriptor cache lock");
++        let mut command_plans = self
++            .cli_command_plans
++            .lock()
++            .expect("command descriptor cache lock");
++        for (&key, plan) in other_command_plans.iter() {
++            if let Some(existing) = command_plans.get(&key) {
++                assert_eq!(
++                    existing, plan,
++                    "canonical CLI command descriptor plan {key:?} has conflicting results"
++                );
++            } else {
++                command_plans.insert(key, plan.clone());
++            }
++        }
++    }
++
+     pub(super) fn retain_owner_source(
+         &mut self,
+         program: &ArenaProgram,
+@@ -2493,6 +2668,21 @@ impl PreparedConstants {
+         bindings: &crate::sema::check::ResolvedBindings,
+         visible_constants: &Self,
+     ) -> Self {
++        Self::collect_bundle_with_visible_and_diagnostics(
++            view,
++            constructors,
++            bindings,
++            visible_constants,
++        )
++        .0
++    }
++
++    pub(super) fn collect_bundle_with_visible_and_diagnostics(
++        view: &CheckBundleView<'_>,
++        constructors: &RecordConstructors,
++        bindings: &crate::sema::check::ResolvedBindings,
++        visible_constants: &Self,
++    ) -> (Self, Vec<crate::diagnostic::Diagnostic>) {
+         let program = view.program;
+         let arena = &program.arena;
+         let mut statements = bindings.declarations.values().filter_map(|declaration| {
+@@ -2502,7 +2692,6 @@ impl PreparedConstants {
+         }).collect::<Vec<_>>();
+         statements.sort_unstable();
+         statements.dedup();
+-        if statements.is_empty() { return visible_constants.clone(); }
+         let mut preparation = ConstantPreparation {
+             program, constructors, bindings,
+             active: FxHashSet::default(), prepared: visible_constants.clone(), steps: 0,
+@@ -2519,42 +2708,49 @@ impl PreparedConstants {
+                 );
+             }
+         }
+-        let mut references = bindings.expression_namespaces.keys().copied().filter(|&id| {
+-            view.contains_source(arena.expr(id).span.source_id)
+-                && matches!(arena.expr(id).kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
+-        }).collect::<Vec<_>>();
+-        references.sort_unstable();
+-        for id in references {
+-            preparation.steps = 0;
+-            if let Ok(value) = preparation.expression(id, bindings.expression_namespaces[&id], None, 0) {
+-                preparation.prepared.types.entry(id).or_insert_with(|| value.value_type());
+-                preparation.prepared.values.insert(id, value);
++        let has_visible_constants = !preparation.prepared.values.is_empty()
++            || !preparation.prepared.diagnostics.is_empty();
++        if has_visible_constants {
++            let mut references = bindings.expression_namespaces.keys().copied().filter(|&id| {
++                view.contains_source(arena.expr(id).span.source_id)
++                    && matches!(arena.expr(id).kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })
++            }).collect::<Vec<_>>();
++            references.sort_unstable();
++            for id in references {
++                preparation.steps = 0;
++                if let Ok(value) = preparation.expression(id, bindings.expression_namespaces[&id], None, 0) {
++                    preparation.prepared.types.entry(id).or_insert_with(|| value.value_type());
++                    preparation.prepared.values.insert(id, value);
++                }
+             }
+-        }
+-        for (&statement, &binding) in &bindings.tails {
+-            if view.contains_source(arena.stmt(statement).span.source_id)
+-                && let Some(declaration) = bindings.constant(binding)
+-                && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(declaration).kind
+-                && preparation.prepared.values.contains_key(&expr)
+-            {
+-                preparation.prepared.tail_bindings.insert(arena.stmt(statement).span, expr);
++            for (&statement, &binding) in &bindings.tails {
++                if view.contains_source(arena.stmt(statement).span.source_id)
++                    && let Some(declaration) = bindings.constant(binding)
++                    && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(declaration).kind
++                    && preparation.prepared.values.contains_key(&expr)
++                {
++                    preparation.prepared.tail_bindings.insert(arena.stmt(statement).span, expr);
++                }
+             }
+-        }
+-        for (&id, declaration) in &bindings.declarations {
+-            if let Some(statement) = bindings.constant(id)
+-                && view.contains_source(arena.stmt(statement).span.source_id)
+-                && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(statement).kind
+-            {
+-                preparation.prepared.binding_values.insert(id, expr);
+-                if declaration.global {
+-                    preparation.prepared.global_bindings.insert((declaration.namespace, declaration.name), expr);
++            for (&id, declaration) in &bindings.declarations {
++                if let Some(statement) = bindings.constant(id)
++                    && view.contains_source(arena.stmt(statement).span.source_id)
++                    && let ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(statement).kind
++                {
++                    preparation.prepared.binding_values.insert(id, expr);
++                    if declaration.global {
++                        preparation.prepared.global_bindings.insert((declaration.namespace, declaration.name), expr);
++                    }
+                 }
+             }
+         }
+-        preparation.prepared.cli_wire_enums = crate::sema::wire_enums::PreparedWireEnums::prepare_bundle(view,
+-            |expr| preparation.prepared.analyze_expression(arena, expr)).0;
++        let (wire_enums, wire_diagnostics) =
++            crate::sema::wire_enums::PreparedWireEnums::prepare_bundle(view, |expr| {
++                preparation.prepared.analyze_expression(arena, expr)
++            });
++        preparation.prepared.cli_wire_enums = wire_enums;
+         preparation.prepared.types.retain(|_, ty| !ty.contains_inference());
+-        preparation.prepared
++        (preparation.prepared, wire_diagnostics)
+     }
+ }
+ 
+diff --git a/tests/sema.rs b/tests/sema.rs
+index 372c2df6a40fb68e9b67e17702ff2c9d7f55cd4d..8dad2ca9076de3518560bfa240139f4dc41d0d61 100644
+--- a/tests/sema.rs
++++ b/tests/sema.rs
+@@ -80,6 +80,59 @@ fn checker_publication_options_preserve_repository_diagnostics() {
+     }
+ }
+ 
++include!("../.work/consolidation/w9-repository-parity.rs");
++
++#[test]
++fn imported_command_value_sites_keep_the_importing_module_source() {
++    use xsh::frontend::load::{entry_source_from_text, parse_load_entry_source_arena_only, project_module_roots};
++    use xsh::frontend::symbols::Name;
++
++    let root = tempfile::tempdir().expect("create imported-module fixture");
++    let entry_path = root.path().join("entry.xsh");
++    let module_path = root.path().join("helper.xsh");
++    let entry_source = "use helper\n";
++    let module_source = "##! Process-backed helper.\n## Capture output from a command.\nexport proc version() [process, error] {\n  let argv = [\"true\"]\n  let output = run.capture --text --timeout=30s @argv\n  print output.stdout.trim()\n}\n";
++    std::fs::write(&entry_path, entry_source).expect("write entry source");
++    std::fs::write(&module_path, module_source).expect("write imported module");
++
++    let entry_file = entry_path.to_str().expect("fixture path is UTF-8");
++    let (sources, parsed) = parse_load_entry_source_arena_only(
++        entry_file,
++        entry_source_from_text(entry_file, entry_source.to_owned()),
++        project_module_roots(&entry_path).expect("resolve module roots"),
++    );
++    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++    let entry_source_id = parsed.arena.source_text_source_id().expect("entry source identity");
++    let checked = Checker::check_arena_with_sources_and_options(
++        &parsed.arena,
++        &sources,
++        entry_source_id,
++        CheckOptions::default(),
++    );
++    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
++    let module_source_id = sources
++        .files()
++        .iter()
++        .find(|source| source.name() == module_path.to_str().unwrap())
++        .expect("imported source is loaded")
++        .id();
++    let argv = Name::intern("argv");
++    let (span, binding_id) = checked
++        .resolved_bindings
++        .value_sites
++        .iter()
++        .find_map(|((span, name), id)| (*name == argv).then_some((*span, *id)))
++        .expect("the imported command splice publishes its value site");
++    assert_eq!(span.source_id, module_source_id);
++    let declaration = checked
++        .resolved_bindings
++        .declarations
++        .get(&binding_id)
++        .expect("value-site binding declaration is published");
++    assert_eq!(declaration.span.source_id, module_source_id);
++    assert_eq!(sources.span_text(span), Some("@argv"));
++}
++
+ #[test]
+ fn embedded_standard_library_diagnostics_are_not_reported_as_user_findings() {
+     let source = "let value = json.encode_lines([1])?\n";
+diff --git a/tests/sema_bundle_view.rs b/tests/sema_bundle_view.rs
+index 5a203421585788e2384e143e0ad846f6570091cc..dddd6a8a3bd46ad99eef14b187d38cb3ac8e977e 100644
+--- a/tests/sema_bundle_view.rs
++++ b/tests/sema_bundle_view.rs
+@@ -4,7 +4,9 @@ use std::collections::BTreeSet;
+ use std::sync::Arc;
+ 
+ use xsh::diagnostic::DiagnosticCode;
+-use xsh::frontend::check::{CheckBundleView, CheckOptions, CheckOutput, Checker, Type};
++use xsh::frontend::check::{
++    AnnotationFactKind, CheckBundleView, CheckOptions, CheckOutput, CheckSession, Checker, Type,
++};
+ use xsh::frontend::source::{SourceId, SourceMap};
+ use xsh::frontend::syntax::arena::{ArenaProgram, ArenaProgramBuilder};
+ use xsh::frontend::syntax::node::Effect;
+@@ -19,6 +21,342 @@ fn prepared_sources(output: &CheckOutput, program: &ArenaProgram) -> BTreeSet<So
+         .collect()
+ }
+ 
++#[test]
++fn embedded_module_records_do_not_depend_on_unimported_embedded_modules() {
++    let mut sources = SourceMap::new();
++    let entry_source = "1\n";
++    let hash_source = "const hash_value = 1\n";
++    let json_source = "const json_value = 2\n";
++    let entry_id = sources.add_file("entry.xsh", entry_source);
++    let hash_id = sources.add_file("hash.xsh", hash_source);
++    let json_id = sources.add_file("json.xsh", json_source);
++    let mut builder = ArenaProgramBuilder::with_token_capacity(64);
++    let entry = Parser::parse_source_into_arena_builder(entry_id, entry_source, &mut builder);
++    let hash = Parser::parse_source_into_arena_builder(hash_id, hash_source, &mut builder);
++    let json = Parser::parse_source_into_arena_builder(json_id, json_source, &mut builder);
++    for parsed in [&entry, &hash, &json] {
++        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++    }
++    let hash_name = builder.symbol_owner().intern("hash");
++    builder.push_internal_arena_module("hash".to_string(), hash_name, hash.statements);
++    let json_name = builder.symbol_owner().intern("json");
++    builder.push_internal_arena_module("json".to_string(), json_name, json.statements);
++    let program = Arc::new(builder.finish_with_statements(entry.statements));
++    let view = CheckBundleView::for_root(&program, entry.statements, Some(&sources), Some(entry_id));
++    let output = Checker::check_bundle_view_with_type_program(
++        &view,
++        entry_source,
++        CheckOptions::default(),
++        Arc::clone(&program),
++    );
++    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
++}
++
++#[test]
++fn suppressed_embedded_record_constructors_are_not_published() {
++    let mut sources = SourceMap::new();
++    let entry_source = "1\n";
++    let module_source = "##! Embedded record constructors.\n## A generic record.\nexport type Box[T] = {value: T}\n## Constructs one box.\nexport pure make() -> Box[Int] { Box(value: 7) }\n";
++    let entry_id = sources.add_file("entry.xsh", entry_source);
++    let module_id = sources.add_file("embedded.xsh", module_source);
++    let mut builder = ArenaProgramBuilder::with_token_capacity(96);
++    let entry = Parser::parse_source_into_arena_builder(entry_id, entry_source, &mut builder);
++    let module = Parser::parse_source_into_arena_builder(module_id, module_source, &mut builder);
++    assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
++    assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
++    let module_name = builder.symbol_owner().intern("embedded");
++    builder.push_internal_arena_module("embedded".to_string(), module_name, module.statements);
++
++    let program = Arc::new(builder.finish_with_statements(entry.statements));
++    let module = program
++        .modules
++        .iter()
++        .find(|module| module.key == "embedded")
++        .expect("embedded module was registered");
++    let type_id = program
++        .module_statements(module)
++        .find_map(|statement| match program.arena.stmt(statement).kind {
++            xsh::frontend::syntax::arena::ArenaStmtKind::Export(inner) => {
++                match program.arena.stmt(inner).kind {
++                    xsh::frontend::syntax::arena::ArenaStmtKind::TypeDef(type_id) => Some(type_id),
++                    _ => None,
++                }
++            }
++            _ => None,
++        })
++        .expect("embedded module declares Box");
++    let sources = Arc::new(sources);
++    let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
++    let default_output = session.check(entry.statements, entry_id, CheckOptions::default());
++    assert!(!default_output.embedded_bodies_checked);
++    let instance = format!("({type_id:?}, [Int], Record");
++    assert!(
++        !format!("{:?}", default_output.checked_declarations.record_constructors)
++            .contains(&instance),
++        "default checks suppress the embedded constructor body; found {instance}"
++    );
++
++    let execution_output = session.check(
++        entry.statements,
++        entry_id,
++        CheckOptions::for_execution(),
++    );
++    assert!(execution_output.embedded_bodies_checked);
++    assert!(
++        format!("{:?}", execution_output.checked_declarations.record_constructors)
++            .contains(&instance),
++        "execution checks publish the embedded constructor body; expected {instance}"
++    );
++
++    let default_output = session.check(entry.statements, entry_id, CheckOptions::default());
++    assert!(!default_output.embedded_bodies_checked);
++    assert!(
++        !format!("{:?}", default_output.checked_declarations.record_constructors)
++            .contains(&instance),
++        "projecting a default check must not mutate the cached execution facts"
++    );
++}
++
++#[test]
++fn suppressed_embedded_modules_keep_declaration_effect_facts() {
++    let mut sources = SourceMap::new();
++    let entry_source = "1\n";
++    let module_source = "##! Embedded effect declarations.\n## Declares an effectful operation.\nexport proc read_data() [fs] -> Result[Unit] { return Ok() }\n";
++    let entry_id = sources.add_file("entry.xsh", entry_source);
++    let module_id = sources.add_file("embedded.xsh", module_source);
++    let mut builder = ArenaProgramBuilder::with_token_capacity(96);
++    let entry = Parser::parse_source_into_arena_builder(entry_id, entry_source, &mut builder);
++    let module = Parser::parse_source_into_arena_builder(module_id, module_source, &mut builder);
++    assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
++    assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
++    let module_name = builder.symbol_owner().intern("embedded");
++    builder.push_internal_arena_module("embedded".to_string(), module_name, module.statements);
++
++    let program = Arc::new(builder.finish_with_statements(entry.statements));
++    let sources = Arc::new(sources);
++    let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
++    let output = session.check(entry.statements, entry_id, CheckOptions::default());
++    let module_effect_facts = output
++        .function_effect_facts
++        .iter()
++        .filter(|(identity, _)| identity.body.source_id == module_id)
++        .map(|(_, fact)| fact)
++        .collect::<Vec<_>>();
++    assert_eq!(module_effect_facts.len(), 1, "{:?}", output.function_effect_facts);
++    assert_eq!(module_effect_facts[0].effective, Some(vec![Effect::Fs]));
++    assert_eq!(module_effect_facts[0].required, Some(Vec::new()));
++    assert!(!output.embedded_bodies_checked);
++}
++
++#[test]
++fn suppressed_embedded_modules_keep_resource_transfer_facts() {
++    let mut sources = SourceMap::new();
++    let entry_source = "1\n";
++    let module_source = "##! Embedded local transfer.\n## Assigns to a local variable.\nexport proc scalar() -> Int { var value = 0; value = 1; return value }\n";
++    let entry_id = sources.add_file("entry.xsh", entry_source);
++    let module_id = sources.add_file("embedded.xsh", module_source);
++    let mut builder = ArenaProgramBuilder::with_token_capacity(96);
++    let entry = Parser::parse_source_into_arena_builder(entry_id, entry_source, &mut builder);
++    let module_parse = Parser::parse_source_into_arena_builder(module_id, module_source, &mut builder);
++    assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
++    assert!(module_parse.diagnostics.is_empty(), "{:?}", module_parse.diagnostics);
++    let module_name = builder.symbol_owner().intern("embedded");
++    builder.push_internal_arena_module(
++        "embedded".to_string(),
++        module_name,
++        module_parse.statements,
++    );
++
++    let program = Arc::new(builder.finish_with_statements(entry.statements));
++    let module = program
++        .modules
++        .iter()
++        .find(|module| module.key == "embedded")
++        .expect("embedded module was registered");
++    let assignment = program
++        .module_statements(module)
++        .find_map(|statement| {
++            let definition = match program.arena.stmt(statement).kind {
++                xsh::frontend::syntax::arena::ArenaStmtKind::Export(inner) => {
++                    program.arena.stmt(inner).kind
++                }
++                kind => kind,
++            };
++            let xsh::frontend::syntax::arena::ArenaStmtKind::ProcDef(function) = definition else {
++                return None;
++            };
++            let body = program.arena.function_def(function).body;
++            program
++                .arena
++                .stmt_ids(program.arena.block(body).statements)
++                .find(|&statement| matches!(
++                    program.arena.stmt(statement).kind,
++                    xsh::frontend::syntax::arena::ArenaStmtKind::Assign { .. }
++                ))
++        })
++        .expect("embedded procedure assigns to a local");
++    let session = CheckSession::new(Arc::clone(&program), Arc::new(sources));
++    let output = session.check(entry.statements, entry_id, CheckOptions::default());
++    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
++    assert!(!output.embedded_bodies_checked);
++    assert_eq!(
++        output.resource_transfer(xsh::frontend::check::ResourceTransferSite::Assignment(assignment)),
++        Some(false),
++        "a suppressed embedded body still has a published local transfer result"
++    );
++}
++
++#[test]
++fn internal_module_dependencies_remain_dependency_first() {
++    let mut sources = SourceMap::new();
++    let entry_source = "use owner\n";
++    let owner_source = "use dependency\n";
++    let dependency_source = "use base\nconst value = 1\n";
++    let base_source = "const base_value = 0\n";
++    let entry_id = sources.add_file("entry.xsh", entry_source);
++    let owner_id = sources.add_file("owner.xsh", owner_source);
++    let dependency_id = sources.add_file("dependency.xsh", dependency_source);
++    let base_id = sources.add_file("base.xsh", base_source);
++    let mut builder = ArenaProgramBuilder::with_token_capacity(64);
++    let entry = Parser::parse_source_into_arena_builder(entry_id, entry_source, &mut builder);
++    let owner = Parser::parse_source_into_arena_builder(owner_id, owner_source, &mut builder);
++    let dependency =
++        Parser::parse_source_into_arena_builder(dependency_id, dependency_source, &mut builder);
++    let base = Parser::parse_source_into_arena_builder(base_id, base_source, &mut builder);
++    for parsed in [&entry, &owner, &dependency, &base] {
++        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++    }
++    let owner_name = builder.symbol_owner().intern("owner");
++    builder.push_internal_arena_module("owner".to_string(), owner_name, owner.statements);
++    let dependency_name = builder.symbol_owner().intern("dependency");
++    builder.push_internal_arena_module(
++        "dependency".to_string(),
++        dependency_name,
++        dependency.statements,
++    );
++    let base_name = builder.symbol_owner().intern("base");
++    builder.push_internal_arena_module("base".to_string(), base_name, base.statements);
++    for (statements, key) in [
++        (entry.statements, "owner"),
++        (owner.statements, "dependency"),
++        (dependency.statements, "base"),
++    ] {
++        for statement in builder.statement_ids(statements) {
++            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
++                builder.set_use_resolved(use_id, Arc::from(key));
++            }
++        }
++    }
++
++    let program = Arc::new(builder.finish_with_statements(entry.statements));
++    let view = CheckBundleView::for_root(&program, entry.statements, Some(&sources), Some(entry_id));
++    assert_eq!(
++        view.modules().map(|module| module.key.as_str()).collect::<Vec<_>>(),
++        ["base", "dependency", "owner"]
++    );
++    let _output = Checker::check_bundle_view_with_type_program(
++        &view,
++        entry_source,
++        CheckOptions::default(),
++        Arc::clone(&program),
++    );
++}
++
++#[test]
++fn checked_entry_retains_record_constructor_instances_from_module_bodies() {
++    let mut sources = SourceMap::new();
++    let entry_source = "use shared\n";
++    let shared_source = "##! Shared record constructors.\ntype Box[T] = {value: T}\n## Make values with two record instances.\nexport pure make() -> Int { let _ = Box(value: 1); let _ = Box(value: \"one\"); 1 }\n";
++    let entry_id = sources.add_file("entry.xsh", entry_source);
++    let shared_id = sources.add_file("shared.xsh", shared_source);
++    let mut builder = ArenaProgramBuilder::with_token_capacity(128);
++    let entry = Parser::parse_source_into_arena_builder(entry_id, entry_source, &mut builder);
++    let shared = Parser::parse_source_into_arena_builder(shared_id, shared_source, &mut builder);
++    assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
++    assert!(shared.diagnostics.is_empty(), "{:?}", shared.diagnostics);
++    let shared_name = builder.symbol_owner().intern("shared");
++    builder.push_arena_module("shared".to_string(), shared_name, shared.statements);
++    for statement in builder.statement_ids(entry.statements) {
++        if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
++            builder.set_use_resolved(use_id, Arc::from("shared"));
++        }
++    }
++
++    let program = Arc::new(builder.finish_with_statements(entry.statements));
++    let sources = Arc::new(sources);
++    let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
++    let view = session.view_for_root(entry.statements, entry_id);
++    let output = session.check_view(&view, CheckOptions::default());
++    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
++    let constructors = format!("{:?}", output.checked_declarations.record_constructors);
++    assert!(
++        constructors.contains("data: [(TypeDefId(1), [Int], Record"),
++        "the entry publication includes the integer record instance from the imported module body; found {constructors}"
++    );
++    assert!(
++        constructors.contains("(TypeDefId(1), [Str], Record"),
++        "the entry publication includes the string record instance from the imported module body; found {constructors}"
++    );
++}
++
++#[test]
++fn internal_resource_diagnostics_follow_embedded_body_publication() {
++    let mut sources = SourceMap::new();
++    let entry_source = "1\n";
++    let module_source = "##! Managed resource example.\n## Reports a use after release.\nexport proc bad() [fs, error] -> Result[Unit] { let root = fs.tempdir()?; root.close()?; root.close()?; return Ok() }\n";
++    let entry_id = sources.add_file("entry.xsh", entry_source);
++    let module_id = sources.add_file("owned.xsh", module_source);
++    let mut builder = ArenaProgramBuilder::with_token_capacity(96);
++    let entry = Parser::parse_source_into_arena_builder(entry_id, entry_source, &mut builder);
++    let module = Parser::parse_source_into_arena_builder(module_id, module_source, &mut builder);
++    assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
++    assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
++    let module_name = builder.symbol_owner().intern("owned");
++    builder.push_internal_arena_module("owned".to_string(), module_name, module.statements);
++
++    let program = Arc::new(builder.finish_with_statements(entry.statements));
++    let sources = Arc::new(sources);
++    let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
++    let count_resource_diagnostics = |output: &CheckOutput| {
++        output
++            .diagnostics
++            .iter()
++            .filter(|diagnostic| {
++                diagnostic.code == Some(DiagnosticCode::CheckUseAfterRelease)
++                    && diagnostic.labels.iter().any(|label| label.span.source_id == module_id)
++            })
++            .count()
++    };
++    let output = session.check(entry.statements, entry_id, CheckOptions::default());
++    assert!(!output.embedded_bodies_checked);
++    assert_eq!(count_resource_diagnostics(&output), 0, "{:?}", output.diagnostics);
++    let output = session.check(entry.statements, entry_id, CheckOptions::for_execution());
++    assert!(output.embedded_bodies_checked);
++    assert_eq!(count_resource_diagnostics(&output), 1, "{:?}", output.diagnostics);
++}
++
++#[test]
++#[should_panic(expected = "session checks require a view created by this session")]
++fn check_session_rejects_a_module_view_that_aliases_an_entry_range() {
++    let mut sources = SourceMap::new();
++    let entry_id = sources.add_file("entry.xsh", "1\n");
++    let source = sources.get(entry_id).unwrap().text();
++    let mut builder = ArenaProgramBuilder::with_token_capacity(16);
++    let entry = Parser::parse_source_into_arena_builder(entry_id, source, &mut builder);
++    let program = Arc::new(builder.finish_with_statements(entry.statements));
++    let sources = Arc::new(sources);
++    let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
++    let root_view = session.view_for_root(entry.statements, entry_id);
++    session.check_view(&root_view, CheckOptions::default());
++    let view = CheckBundleView::for_module(
++        &program,
++        entry.statements,
++        Some(&sources),
++        Some(entry_id),
++    );
++    session.check_view(&view, CheckOptions::default());
++}
++
+ #[test]
+ fn checker_preparation_is_scoped_to_each_root_in_a_shared_arena() {
+     let mut sources = SourceMap::new();
+@@ -213,3 +551,133 @@ fn wire_enum_and_cli_validation_use_the_selected_root() {
+         .keys()
+         .any(|name| name.as_str() == "AlphaState"));
+ }
++
++#[test]
++fn imported_module_bodies_publish_generic_type_instantiations() {
++    let mut sources = SourceMap::new();
++    let entry_source = "##! Entry.\nuse model\nproc main() { let root_values = [\"root\"] }\n";
++    let module_source = "##! Generic models.\n## Generic box.\nexport type Box[T] = {value: T}\n## Build one box.\nexport pure make() -> Box[Int] { let module_values = [\"module\"]; Box(value: 7) }\n";
++    let entry_id = sources.add_file("entry.xsh", entry_source);
++    let module_id = sources.add_file("model.xsh", module_source);
++    let mut builder = ArenaProgramBuilder::with_token_capacity(64);
++    let entry = Parser::parse_source_into_arena_builder(entry_id, entry_source, &mut builder);
++    let module = Parser::parse_source_into_arena_builder(module_id, module_source, &mut builder);
++    assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
++    assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
++    let model_name = builder.symbol_owner().intern("model");
++    builder.push_arena_module("model".to_string(), model_name, module.statements);
++    for statement in builder.statement_ids(entry.statements) {
++        if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
++            builder.set_use_resolved(use_id, Arc::from("model"));
++        }
++    }
++
++    let program = Arc::new(builder.finish_with_statements(entry.statements));
++    let session = CheckSession::new(program, Arc::new(sources));
++    let has_box_instantiation = |output: &CheckOutput| {
++        output
++            .resolved_type_expressions
++            .instantiations
++            .iter()
++            .any(|(span, instance)| {
++                span.source_id == module_id
++                    && module_source.get(span.start()..span.end()) == Some("Box(value: 7)")
++                    && instance.expressions.values().any(|ty| ty == &Type::Int)
++            })
++    };
++    let module_precedes_entry_bindings = |output: &CheckOutput| {
++        let binding_source = |fact: &xsh::frontend::check::AnnotationFact| match &fact.kind {
++            AnnotationFactKind::Binding { span, .. } => Some(span.source_id),
++            _ => None,
++        };
++        let module_binding = output
++            .annotation_facts
++            .iter()
++            .position(|fact| binding_source(fact) == Some(module_id));
++        let entry_binding = output
++            .annotation_facts
++            .iter()
++            .position(|fact| binding_source(fact) == Some(entry_id));
++        module_binding.zip(entry_binding).is_some_and(|(module, entry)| module < entry)
++    };
++
++    let first = session.check(entry.statements, entry_id, CheckOptions::default());
++    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
++    assert!(has_box_instantiation(&first));
++    assert!(module_precedes_entry_bindings(&first));
++    let cached = session.check(
++        entry.statements,
++        entry_id,
++        CheckOptions {
++            reveal_types: true,
++            ..CheckOptions::default()
++        },
++    );
++    assert!(cached.diagnostics.is_empty(), "{:?}", cached.diagnostics);
++    assert!(has_box_instantiation(&cached));
++    assert!(module_precedes_entry_bindings(&cached));
++}
++
++#[test]
++fn imported_wire_mapping_diagnostics_replay_once_from_session_records() {
++    use xsh::frontend::load::{
++        entry_source_from_text, parse_load_entry_source_arena_only, project_module_roots,
++    };
++
++    let root = tempfile::tempdir().expect("create imported enum fixture");
++    let entry_path = root.path().join("entry.xsh");
++    let module_path = root.path().join("helper.xsh");
++    let entry_source = "use helper\nenum EntryState: Str { Broken = unresolved_entry }\n";
++    let module_source = "##! Invalid imported enum.\n## The bad value must remain attached to this owner.\nexport enum BrokenState: Str { Broken = unresolved }\n";
++    std::fs::write(&entry_path, entry_source).expect("write entry source");
++    std::fs::write(&module_path, module_source).expect("write module source");
++
++    let entry_file = entry_path.to_str().expect("fixture path is UTF-8");
++    let entry = entry_source_from_text(entry_file, entry_source.to_owned());
++    let entry_source_id = entry.source_id;
++    let (sources, parsed) = parse_load_entry_source_arena_only(
++        entry_file,
++        entry,
++        project_module_roots(&entry_path).expect("resolve module roots"),
++    );
++    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++    let module_source_id = sources
++        .files()
++        .iter()
++        .find(|source| source.name() == module_path.to_str().unwrap())
++        .expect("imported module was loaded")
++        .id();
++
++    let root_statements = parsed.arena.statements;
++    let program = Arc::new(parsed.arena);
++    let sources = Arc::new(sources);
++    let session = CheckSession::new(Arc::clone(&program), Arc::clone(&sources));
++    let view = session.view_for_root(root_statements, entry_source_id);
++    let outputs = [
++        session.check_view(&view, CheckOptions::default()),
++        session.check_view(
++            &view,
++            CheckOptions {
++                reveal_types: true,
++                ..CheckOptions::default()
++            },
++        ),
++    ];
++
++    for output in &outputs {
++        let diagnostics = output
++            .diagnostics
++            .iter()
++            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckEnumWireMapping))
++            .collect::<Vec<_>>();
++        assert_eq!(diagnostics.len(), 2, "{:?}", output.diagnostics);
++        assert_eq!(
++            diagnostics
++                .iter()
++                .map(|diagnostic| diagnostic.labels[0].span.source_id)
++                .collect::<Vec<_>>(),
++            [entry_source_id, module_source_id],
++        );
++    }
++    assert_eq!(outputs[0].diagnostics, outputs[1].diagnostics);
++}
+diff --git a/tests/xsh/checker-modules.xsh b/tests/xsh/checker-modules.xsh
+index 9c8f2d75efe4a251551ba6a7ff3daaba9be1c634..28fb6fbc66e6b344195d96a46fb88ceda98d9f56 100644
+--- a/tests/xsh/checker-modules.xsh
++++ b/tests/xsh/checker-modules.xsh
+@@ -68,6 +68,26 @@ let text = path.read_text()?
+   expect_free_of(checked, ["check.unknown-module-api"])
+ }
+ 
++test test_imported_process_body_facts_reach_compact_lowering { |ctx|
++  let root = test.temp_dir(ctx, name: "module-process-body")?
++  fp"{root}/helper.xsh".write(r"""##! A process-backed imported helper.
++## Run a version query through the process capture API.
++export proc version() [process, error] {
++  let argv = ["git", "--version"]
++  let output = run.capture --text --timeout=30s @argv
++  print output.stdout.trim()
++}
++""")
++  let output = test.run_script(
++    ctx,
++    "use helper\nhelper.version()\n",
++    [],
++    {XSH_MODULE_PATH: root},
++  )?
++  assert output.success, output.stderr
++  assert output.stdout.starts_with("git version "), output.stdout
++}
++
+ test test_checker_accepts_error_bindings_and_preserves_error_fail_effect { |ctx|
+   let bindings = check(ctx, "\nproc keep_error() { let error = \"missing value\" }\n")?
+   expect_free_of(bindings, ["check.standard-module-shadow"])

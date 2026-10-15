@@ -1,0 +1,14 @@
+diff --git a/xsht-config.ini b/xsht-config.ini
+index 9aff5a5ecb02b246fe07440dd917c702af289c08..aea0f8a1c7be3390054475ba5028ab24daad931f 100644
+--- a/xsht-config.ini
++++ b/xsht-config.ini
+@@ -2,6 +2,9 @@ include = dev
+ module_path = .
+   dev
+ exclude = target/**/*.xsh
++  # Compatibility development scripts remain outside check and lint discovery
++  # while their independently owned campaign is in progress.
++  dev/compat/**/*.xsh
+   tools/archive-fat-trim-demo.xsh
+   tests/fixtures/**/*.xsh
+   # Catalog-owned embedded implementations. These are not user programs: they

@@ -1,0 +1,10 @@
+diff --git a/tests/sema.rs b/tests/sema.rs
+index e02d826f52a28144f1e600d4e0b20ae06331a129..ce8b27de6af4b1db29262867a4a36a1d9bab2312 100644
+--- a/tests/sema.rs
++++ b/tests/sema.rs
+@@ -1883,3 +1883,5 @@ fn stream_callback_result_contracts_publish_matching_full_and_compact_types() {
+         });
+     }
+ }
++
++include!(concat!(env!("CARGO_MANIFEST_DIR"), "/.work/consolidation/w9-repository-parity.rs"));

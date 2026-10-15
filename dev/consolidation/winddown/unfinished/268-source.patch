@@ -1,0 +1,7 @@
+diff --git a/.fdignore b/.fdignore
+new file mode 100644
+index 0000000000000000000000000000000000000000..0c98c1d2dafcd705058d4e0e12eff80975ed3f24
+--- /dev/null
++++ b/.fdignore
+@@ -0,0 +1 @@
++dev/compat/

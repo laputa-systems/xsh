@@ -1,0 +1,11 @@
+diff --git a/ACTIVE-ASSIGNMENT.md b/ACTIVE-ASSIGNMENT.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..e380702a6786d5396aefb5b27eb63bbd0e0760c4
+--- /dev/null
++++ b/ACTIVE-ASSIGNMENT.md
+@@ -0,0 +1,5 @@
++# Active assignment
++
++- Worktree: `/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-reuse`
++- Native build image: `sha256:65dc744f6c560f189716ea193bd765149f4691c80392663e630813033ebc53a3`
++- Compile command: `/home/josh/d/laputa-systems/xsh-consolidation/.work/consolidation/infra/run-native.sh /home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-reuse build cargo check --locked --target x86_64-unknown-linux-musl -p xsh --lib`

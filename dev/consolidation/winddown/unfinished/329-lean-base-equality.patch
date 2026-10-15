@@ -1,0 +1,724 @@
+diff --git a/formal/Xsh/Proofs/BaseMachine.lean b/formal/Xsh/Proofs/BaseMachine.lean
+index 1dab1a101d4d50d06f661145298a62eb9c19c962..c644516af69a4788d8aa01dae052ce195d35bbc0 100644
+--- a/formal/Xsh/Proofs/BaseMachine.lean
++++ b/formal/Xsh/Proofs/BaseMachine.lean
+@@ -53,6 +53,114 @@ theorem integer_checker_implies_supported_checker_fragment
+       | some rightTag =>
+         cases leftTag <;> cases rightTag <;>
+           simp [checkIntegerExpr, checkBaseExpr, inferBaseType?, leftType, rightType] at accepted ⊢
++  | scalarEquality operator left right =>
++    cases leftType : inferBaseType? names activations store left with
++    | none => simp [checkIntegerExpr, inferBaseType?, leftType] at accepted
++    | some leftTag =>
++      cases rightType : inferBaseType? names activations store right with
++      | none => simp [checkIntegerExpr, inferBaseType?, leftType, rightType] at accepted
++      | some rightTag =>
++        cases leftTag <;> cases rightTag <;>
++          simp [checkIntegerExpr, inferBaseType?, leftType, rightType] at accepted
++
++theorem inferred_expression_is_supported_checker_fragment
++    (names : LexicalEnvironment) (activations : ActivationEnvironment) (store : BaseStore)
++    (expression : BaseExpr) {type : BaseType}
++    (inferred : inferBaseType? names activations store expression = some type) :
++    checkBaseExpr names activations store expression = true := by
++  cases expression with
++  | integerLiteral value =>
++    cases valid : validateInt? value <;>
++      simp [inferBaseType?, checkBaseExpr, valid] at inferred ⊢
++  | scalarLiteral value =>
++    cases supported : scalarTypedValue? value <;>
++      simp [inferBaseType?, checkBaseExpr, supported] at inferred ⊢
++  | timeNow => rfl
++  | identifier name =>
++    cases found : lookupBaseValue names activations store name with
++    | error fault => simp [inferBaseType?, checkBaseExpr, found] at inferred
++    | ok typed =>
++      change (lookupBaseValue names activations store name).isOk = true
++      rw [found]
++      rfl
++  | negate operand =>
++    cases operandType : inferBaseType? names activations store operand with
++    | none => simp [inferBaseType?, operandType] at inferred
++    | some operandType =>
++      cases operandType <;>
++        simp [inferBaseType?, checkBaseExpr, checkIntegerExpr, operandType] at inferred ⊢
++  | binary operator left right =>
++    cases leftType : inferBaseType? names activations store left with
++    | none => simp [inferBaseType?, leftType] at inferred
++    | some leftTag =>
++      cases rightType : inferBaseType? names activations store right with
++      | none => simp [inferBaseType?, leftType, rightType] at inferred
++      | some rightTag =>
++        cases leftTag <;> cases rightTag <;>
++          simp [inferBaseType?, checkBaseExpr, checkIntegerExpr, leftType, rightType] at inferred ⊢
++  | scalarEquality operator left right =>
++    cases leftType : inferBaseType? names activations store left with
++    | none => simp [inferBaseType?, leftType] at inferred
++    | some leftTag =>
++      cases rightType : inferBaseType? names activations store right with
++      | none => simp [inferBaseType?, leftType, rightType] at inferred
++      | some rightTag =>
++        cases leftTag <;> cases rightTag <;>
++          simp [inferBaseType?, checkBaseExpr, leftType, rightType] at inferred ⊢
++
++theorem checked_scalar_equality_has_matching_operand_types
++    (names : LexicalEnvironment) (activations : ActivationEnvironment) (store : BaseStore)
++    (operator : ScalarEqualityOp) (left right : BaseExpr)
++    (accepted : checkBaseExpr names activations store (.scalarEquality operator left right) = true) :
++    ∃ type, inferBaseType? names activations store left = some type ∧
++      inferBaseType? names activations store right = some type := by
++  cases leftType : inferBaseType? names activations store left with
++  | none => simp [checkBaseExpr, leftType] at accepted
++  | some leftTag =>
++    cases rightType : inferBaseType? names activations store right with
++    | none => simp [checkBaseExpr, leftType, rightType] at accepted
++    | some rightTag =>
++      have tagsEqual : leftTag = rightTag :=
++        of_decide_eq_true (by simpa [checkBaseExpr, leftType, rightType] using accepted)
++      exact ⟨leftTag, leftType, by simpa [tagsEqual] using rightType⟩
++
++theorem checked_scalar_equality_infers_boolean
++    (names : LexicalEnvironment) (activations : ActivationEnvironment) (store : BaseStore)
++    (operator : ScalarEqualityOp) (left right : BaseExpr)
++    (accepted : checkBaseExpr names activations store (.scalarEquality operator left right) = true) :
++    inferBaseType? names activations store (.scalarEquality operator left right) =
++      some .boolean := by
++  obtain ⟨type, leftType, rightType⟩ :=
++    checked_scalar_equality_has_matching_operand_types names activations store
++      operator left right accepted
++  simp [inferBaseType?, leftType, rightType]
++
++theorem scalar_semantic_comparator_agrees
++    (left right : CompositeValue)
++    (leftScalar : (scalarTypedValue? left).isSome = true)
++    (rightScalar : (scalarTypedValue? right).isSome = true) :
++    scalarSemanticEqB left right = true ↔ left.semanticEq right := by
++  cases left <;> cases right <;>
++    simp [scalarTypedValue?, scalarSemanticEqB, CompositeValue.semanticEq,
++      float_value_eq_spec] at leftScalar rightScalar ⊢
++
++theorem scalar_semantic_neqb_is_boolean_complement (left right : CompositeValue) :
++    scalarSemanticNeqB left right = !(scalarSemanticEqB left right) := rfl
++
++theorem scalar_semantic_neqb_agrees
++    (left right : CompositeValue)
++    (leftScalar : (scalarTypedValue? left).isSome = true)
++    (rightScalar : (scalarTypedValue? right).isSome = true) :
++    scalarSemanticNeqB left right = true ↔ ¬ left.semanticEq right := by
++  constructor
++  · intro notEqual equal
++    have equalB := (scalar_semantic_comparator_agrees left right leftScalar rightScalar).2 equal
++    simp [scalarSemanticNeqB, equalB] at notEqual
++  · intro notEqual
++    cases equalB : scalarSemanticEqB left right with
++    | false => simp [scalarSemanticNeqB, equalB]
++    | true => exact False.elim (notEqual
++        ((scalar_semantic_comparator_agrees left right leftScalar rightScalar).1 equalB))
+ 
+ private theorem typed_integer_payload_is_present (value : BaseTypedValue)
+     (integerTag : value.typeTag = .integer) :
+@@ -121,10 +229,21 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
+       | integerLiteral value =>
+         simp only [step] at takesStep
+         cases takesStep
+-        cases result : checkedInt value <;>
++        cases result : checkedInt value with
++        | fault fault =>
+           cases continuation <;>
+             simp_all [wellFormed, updateState, controlOfIntegerResult,
+-              controlFitsContinuation, integerPayload?, typedInteger]
++              controlFitsContinuation, integerPayload?, typedInteger,
++              frameRequiresInteger, frameInputType?]
++        | value integer =>
++          cases continuation with
++          | nil => simp_all [wellFormed, updateState, controlOfIntegerResult]
++          | cons frame rest =>
++            cases frame <;>
++              simp_all [wellFormed, updateState, controlOfIntegerResult,
++                controlFitsContinuation, integerPayload?, typedInteger,
++                frameRequiresInteger, frameInputType?, frameOperandsChecked,
++                frameResultFitsRest, frameResultType, continuationChecked]
+       | scalarLiteral value =>
+         cases continuation with
+         | nil =>
+@@ -133,21 +252,16 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
+           cases result : scalarTypedValue? value <;>
+             simp_all [wellFormed, updateState, controlFitsContinuation]
+         | cons frame rest =>
+-          have expressionInteger :
+-              checkIntegerExpr names activations store (.scalarLiteral value) = true := by
+-            simpa [controlFitsContinuation] using controlFits
+           simp only [step] at takesStep
+           cases takesStep
+           cases result : scalarTypedValue? value with
+           | none => simp_all [wellFormed, updateState, controlFitsContinuation]
+           | some typed =>
+-            cases type : typed.typeTag with
+-            | integer =>
+-              have typedPayloadPresent := typed_integer_payload_is_present typed type
++            cases frame <;>
+               simp_all [wellFormed, updateState, controlFitsContinuation, integerPayload?,
+-                checkIntegerExpr, inferBaseType?]
+-            | null | boolean | float | duration | string | bytes =>
+-              simp_all [controlFitsContinuation, checkIntegerExpr, inferBaseType?]
++                checkIntegerExpr, inferBaseType?, frameRequiresInteger, frameInputType?,
++                frameOperandsChecked, frameResultFitsRest, frameResultType,
++                continuationChecked, scalarTypedValue?]
+       | timeNow =>
+         simp only [step] at takesStep
+         cases takesStep
+@@ -162,21 +276,16 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
+           cases result : lookupBaseValue names activations store name <;>
+             simp_all [wellFormed, updateState, controlFitsContinuation]
+         | cons frame rest =>
+-          have expressionInteger :
+-              checkIntegerExpr names activations store (.identifier name) = true := by
+-            simpa [controlFitsContinuation] using controlFits
+           simp only [step] at takesStep
+           cases takesStep
+           cases result : lookupBaseValue names activations store name with
+           | error fault => simp_all [wellFormed, updateState, controlFitsContinuation]
+           | ok typed =>
+-            cases type : typed.typeTag with
+-            | integer =>
+-              have typedPayloadPresent := typed_integer_payload_is_present typed type
++            cases frame <;>
+               simp_all [wellFormed, updateState, controlFitsContinuation, integerPayload?,
+-                checkIntegerExpr, inferBaseType?]
+-            | null | boolean | float | duration | string | bytes =>
+-              simp_all [controlFitsContinuation, checkIntegerExpr, inferBaseType?]
++                checkIntegerExpr, inferBaseType?, frameRequiresInteger, frameInputType?,
++                frameOperandsChecked, frameResultFitsRest, frameResultType,
++                continuationChecked]
+       | negate operand =>
+         have operandInteger : checkIntegerExpr names activations store operand = true := by
+           simpa [checkBaseExpr] using controlWellFormed
+@@ -185,7 +294,8 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
+         simp only [step] at takesStep
+         cases takesStep
+         simp [wellFormed, updateState, continuationChecked, controlFitsContinuation,
+-          operandChecked, operandInteger, continuationWellFormed]
++          operandChecked, operandInteger, continuationWellFormed, frameRequiresInteger,
++          frameInputType?, frameOperandsChecked, frameResultFitsRest, frameResultType]
+       | binary operator left right =>
+         have operandsInteger :
+             checkIntegerExpr names activations store left = true ∧
+@@ -196,15 +306,31 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
+         simp only [step] at takesStep
+         cases takesStep
+         simp [wellFormed, updateState, continuationChecked, controlFitsContinuation,
+-          leftChecked, operandsInteger, continuationWellFormed]
++          leftChecked, operandsInteger, continuationWellFormed, frameRequiresInteger,
++          frameInputType?, frameOperandsChecked, frameResultFitsRest, frameResultType]
++      | scalarEquality operator left right =>
++        obtain ⟨operandType, leftType, rightType⟩ :=
++          checked_scalar_equality_has_matching_operand_types names activations store
++            operator left right controlWellFormed
++        have leftChecked := inferred_expression_is_supported_checker_fragment
++          names activations store left leftType
++        simp only [step] at takesStep
++        cases takesStep
++        simp [wellFormed, updateState, continuationChecked, controlFitsContinuation,
++          leftChecked, continuationWellFormed, frameRequiresInteger, frameInputType?,
++          frameOperandsChecked, frameResultFitsRest, frameResultType,
++          inferBaseType?, leftType, rightType]
+     | returned value =>
+       cases continuation with
+       | nil => simp [step] at takesStep
+       | cons frame rest =>
+         cases frame with
+         | negate =>
+-          have restWellFormed : continuationChecked names activations store rest = true := by
+-            simpa [continuationChecked] using continuationWellFormed
++          have tailParts : frameResultFitsRest names activations store .negate rest = true ∧
++              continuationChecked names activations store rest = true := by
++            simpa [continuationChecked, frameOperandsChecked, Bool.and_eq_true] using
++              continuationWellFormed
++          have restWellFormed := tailParts.2
+           simp only [step] at takesStep
+           cases takesStep
+           cases payload : integerPayload? value with
+@@ -214,13 +340,18 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
+             cases result : IntegerOps.negate integer <;>
+               cases rest <;>
+                 simp_all [wellFormed, updateState, controlOfIntegerResult,
+-                  controlFitsContinuation, integerPayload?, typedInteger]
++                  controlFitsContinuation, integerPayload?, typedInteger,
++                  frameRequiresInteger, frameInputType?, frameOperandsChecked,
++                  frameResultFitsRest, frameResultType]
+         | binaryLeft operator right =>
+           have continuationParts :
+-              checkIntegerExpr names activations store right = true ∧
++              (checkIntegerExpr names activations store right = true ∧
++                frameResultFitsRest names activations store (.binaryLeft operator right) rest = true) ∧
+                 continuationChecked names activations store rest = true := by
+-            simpa [continuationChecked, Bool.and_eq_true] using continuationWellFormed
+-          have rightInteger := continuationParts.1
++            simpa [continuationChecked, frameOperandsChecked, Bool.and_eq_true] using
++              continuationWellFormed
++          have rightInteger := continuationParts.1.1
++          have resultFits := continuationParts.1.2
+           have restWellFormed := continuationParts.2
+           have rightChecked := integer_checker_implies_supported_checker_fragment
+             names activations store right rightInteger
+@@ -228,10 +359,15 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
+           cases takesStep
+           cases payload : integerPayload? value <;>
+             simp_all [wellFormed, updateState, continuationChecked,
+-              controlFitsContinuation]
++              controlFitsContinuation, frameRequiresInteger, frameInputType?,
++              frameOperandsChecked, frameResultFitsRest, frameResultType]
+         | binaryRight operator left =>
+-          have restWellFormed : continuationChecked names activations store rest = true := by
+-            simpa [continuationChecked] using continuationWellFormed
++          have tailParts : frameResultFitsRest names activations store
++                (.binaryRight operator left) rest = true ∧
++              continuationChecked names activations store rest = true := by
++            simpa [continuationChecked, frameOperandsChecked, Bool.and_eq_true] using
++              continuationWellFormed
++          have restWellFormed := tailParts.2
+           simp only [step] at takesStep
+           cases takesStep
+           cases payload : integerPayload? value with
+@@ -241,7 +377,43 @@ theorem wellFormed_preserved_fragment {config next : MachineConfig}
+             cases result : applyBinary operator left integer <;>
+               cases rest <;>
+                 simp_all [wellFormed, updateState, controlOfIntegerResult,
+-                  controlFitsContinuation, integerPayload?, typedInteger]
++                  controlFitsContinuation, integerPayload?, typedInteger,
++                  frameRequiresInteger, frameInputType?, frameOperandsChecked,
++                  frameResultFitsRest, frameResultType]
++        | scalarEqualityLeft operator right =>
++          have continuationParts :
++              ((inferBaseType? names activations store right).isSome = true ∧
++                frameResultFitsRest names activations store
++                  (.scalarEqualityLeft operator right) rest = true) ∧
++                continuationChecked names activations store rest = true := by
++            simpa [continuationChecked, frameOperandsChecked, Bool.and_eq_true] using
++              continuationWellFormed
++          have resultType : some value.typeTag = inferBaseType? names activations store right := by
++            have fits := controlFits
++            simpa [controlFitsContinuation, frameRequiresInteger, frameInputType?] using
++              (of_decide_eq_true fits)
++          have rightChecked := inferred_expression_is_supported_checker_fragment
++            names activations store right resultType.symm
++          simp only [step] at takesStep
++          cases takesStep
++          simp_all [wellFormed, updateState, controlFitsContinuation, continuationChecked,
++            frameRequiresInteger, frameInputType?, frameOperandsChecked,
++            frameResultFitsRest, frameResultType, rightChecked]
++        | scalarEqualityRight operator left =>
++          have tailParts : frameResultFitsRest names activations store
++                (.scalarEqualityRight operator left) rest = true ∧
++              continuationChecked names activations store rest = true := by
++            simpa [continuationChecked, frameOperandsChecked, Bool.and_eq_true] using
++              continuationWellFormed
++          have resultType : some value.typeTag = some left.typeTag := by
++            have fits := controlFits
++            simpa [controlFitsContinuation, frameRequiresInteger, frameInputType?] using
++              (of_decide_eq_true fits)
++          simp only [step] at takesStep
++          cases takesStep
++          simp_all [wellFormed, updateState, controlFitsContinuation, continuationChecked,
++            frameRequiresInteger, frameInputType?, frameOperandsChecked,
++            frameResultFitsRest, frameResultType, scalarEqualityResult]
+     | awaitingHost request => simp [step] at takesStep
+     | failed fault => simp [step] at takesStep
+ 
+@@ -262,6 +434,7 @@ theorem resumeHostRequest_preserved_fragment {config next : MachineConfig}
+         have continuationWellFormed :
+             continuationChecked names activations store continuation = true :=
+           wellFormedConfig.2.1
++        have controlFits := wellFormedConfig.2.2
+         simp only [resumeHostRequest] at resumed
+         cases accepted : checkedHostResponse? BaseHostRequest.timeNow response with
+         | none =>
+@@ -275,8 +448,35 @@ theorem resumeHostRequest_preserved_fragment {config next : MachineConfig}
+           have valueHasIntegerTag := checked_host_response_has_requested_type
+             BaseHostRequest.timeNow response value accepted
+           have valueHasIntegerPayload := typed_integer_payload_is_present value valueHasIntegerTag
+-          cases continuation <;>
+-            simp_all [wellFormed, updateState, controlFitsContinuation, integerPayload?]
++          cases continuation with
++          | nil => simp_all [wellFormed, updateState, controlFitsContinuation]
++          | cons frame rest =>
++            cases frame with
++            | negate =>
++              simp_all [wellFormed, updateState, controlFitsContinuation,
++                frameRequiresInteger, integerPayload?]
++            | binaryLeft operator right =>
++              simp_all [wellFormed, updateState, controlFitsContinuation,
++                frameRequiresInteger, integerPayload?]
++            | binaryRight operator left =>
++              simp_all [wellFormed, updateState, controlFitsContinuation,
++                frameRequiresInteger, integerPayload?]
++            | scalarEqualityLeft operator right =>
++              have rightType : some BaseType.integer = inferBaseType? names activations store right := by
++                have fit := controlFits
++                dsimp [controlFitsContinuation, frameRequiresInteger, frameInputType?,
++                  BaseHostRequest.responseType] at fit
++                exact of_decide_eq_true fit
++              simp [wellFormed, updateState, controlFitsContinuation,
++                frameRequiresInteger, frameInputType?, valueHasIntegerTag, rightType]
++            | scalarEqualityRight operator left =>
++              have leftType : BaseType.integer = left.typeTag := by
++                have fit := controlFits
++                dsimp [controlFitsContinuation, frameRequiresInteger, frameInputType?,
++                  BaseHostRequest.responseType] at fit
++                exact Option.some.inj (of_decide_eq_true fit)
++              simp [wellFormed, updateState, controlFitsContinuation,
++                frameRequiresInteger, frameInputType?, valueHasIntegerTag, leftType]
+ 
+ theorem machine_runner_never_stuck_fragment {fuel : Nat} {config : MachineConfig}
+     (wellFormedConfig : wellFormed config) :
+@@ -443,7 +643,8 @@ theorem pending_integer_frames_reject_noninteger_mutations_fragment :
+         (updateState floatUnderBinaryRight (.failed .expectedInteger) []) := by
+   simp [oldWellFormedInvariant, booleanUnderNegate, floatUnderBinaryRight,
+     typedBooleanValue, positiveZeroTypedValue, oldWellFormedInvariant, wellFormed,
+-    controlFitsContinuation, continuationChecked, integerPayload?, step, updateState]
++    controlFitsContinuation, continuationChecked, frameOperandsChecked, frameResultFitsRest,
++    frameRequiresInteger, frameInputType?, frameResultType, integerPayload?, step, updateState]
+ 
+ private def timeNowConfig : MachineConfig :=
+   initialConfig [] [] (fun _ => none) .timeNow
+@@ -581,6 +782,74 @@ theorem float_sign_bit_mutation_changes_machine_payload_fragment :
+   · simpa [positiveZeroTypedValue, negativeZeroTypedValue] using signed_zero_representation_differs
+   · simpa [positiveZeroTypedValue, negativeZeroTypedValue] using signed_zero_semantically_equal
+ 
++private def rawFloatBitsEqualMutant (left right : FloatBits) : Bool :=
++  decide (left.val = right.val)
++
++theorem scalar_literal_equality_runs_to_boolean_fragment
++    (operator : ScalarEqualityOp) (left right : CompositeValue)
++    (leftTyped rightTyped : BaseTypedValue)
++    (leftSupported : scalarTypedValue? left = some leftTyped)
++    (rightSupported : scalarTypedValue? right = some rightTyped) :
++    runFuel 5 (initialConfig [] [] (fun _ => none)
++      (.scalarEquality operator (.scalarLiteral left) (.scalarLiteral right))) =
++      .completed (.value (scalarEqualityResult operator leftTyped rightTyped)) := by
++  simp [runFuel, terminalOutcome, pendingHostWait?, initialConfig, step, updateState,
++    leftSupported, rightSupported]
++
++theorem scalar_equality_checker_requires_matching_supported_scalars_fragment :
++    inferBaseType? [] [] (fun _ => none)
++      (.scalarEquality .equal (.scalarLiteral positiveZeroValue)
++        (.scalarLiteral negativeZeroValue)) = some .boolean ∧
++    checkBaseExpr [] [] (fun _ => none)
++      (.scalarEquality .notEqual (.scalarLiteral (.integer exampleFive))
++        (.scalarLiteral (.integer exampleSix))) = true ∧
++    checkBaseExpr [] [] (fun _ => none)
++      (.scalarEquality .equal (.scalarLiteral (.list []))
++        (.scalarLiteral (.list []))) = false ∧
++    checkBaseExpr [] [] (fun _ => none)
++      (.scalarEquality .equal (.scalarLiteral (.integer exampleFive))
++        (.scalarLiteral (.boolean false))) = false := by
++  decide
++
++theorem scalar_equality_machine_matches_signed_zero_semantics_fragment :
++    runFuel 5 (initialConfig [] [] (fun _ => none)
++      (.scalarEquality .equal (.scalarLiteral positiveZeroValue)
++        (.scalarLiteral negativeZeroValue))) =
++      .completed (.value (typedBoolean true)) := by
++  have run := scalar_literal_equality_runs_to_boolean_fragment .equal
++    positiveZeroValue negativeZeroValue positiveZeroTypedValue negativeZeroTypedValue rfl rfl
++  have equal : scalarSemanticEqB positiveZeroTypedValue.value negativeZeroTypedValue.value = true := by
++    simpa [positiveZeroTypedValue, negativeZeroTypedValue, scalarSemanticEqB,
++      positiveZeroValue, negativeZeroValue] using
++      float_value_eq_signed_zeros
++  simpa [scalarEqualityResult, applyScalarEquality, typedBoolean, equal,
++    positiveZeroTypedValue, negativeZeroTypedValue] using run
++
++theorem scalar_inequality_machine_rejects_same_bit_nan_fragment :
++    runFuel 5 (initialConfig [] [] (fun _ => none)
++      (.scalarEquality .notEqual (.scalarLiteral (.float floatQuietNaN))
++        (.scalarLiteral (.float floatQuietNaN)))) =
++      .completed (.value (typedBoolean true)) := by
++  let nanTyped : BaseTypedValue := ⟨.float, .float floatQuietNaN, trivial⟩
++  have run := scalar_literal_equality_runs_to_boolean_fragment .notEqual
++    (.float floatQuietNaN) (.float floatQuietNaN) nanTyped nanTyped rfl rfl
++  have unequal : scalarSemanticNeqB nanTyped.value nanTyped.value = true := by
++    simpa [nanTyped, scalarSemanticNeqB, scalarSemanticEqB, floatValueNeq] using
++      float_value_neq_same_bit_nan
++  simpa [scalarEqualityResult, applyScalarEquality, typedBoolean, unequal, nanTyped] using run
++
++theorem signed_zero_witness_rejects_raw_bit_equality_mutant_fragment :
++    scalarSemanticEqB positiveZeroValue negativeZeroValue = true ∧
++      rawFloatBitsEqualMutant floatPositiveZero floatNegativeZero = false ∧
++      runFuel 5 (initialConfig [] [] (fun _ => none)
++        (.scalarEquality .equal (.scalarLiteral positiveZeroValue)
++          (.scalarLiteral negativeZeroValue))) =
++        .completed (.value (typedBoolean true)) := by
++  refine ⟨?_, ?_, scalar_equality_machine_matches_signed_zero_semantics_fragment⟩
++  · simpa [scalarSemanticEqB, positiveZeroValue, negativeZeroValue] using
++      float_value_eq_signed_zeros
++  · decide
++
+ private def scalarName : NameId := ⟨⟨31, by decide⟩⟩
+ private def scalarBinder : BinderId := ⟨⟨32, by decide⟩⟩
+ private def scalarCellId : CellId := ⟨1, scalarBinder⟩
+diff --git a/formal/Xsh/Semantics/BaseHostTrace.lean b/formal/Xsh/Semantics/BaseHostTrace.lean
+index 4fa40213120fcf48186a00b06439b506266f84b0..33d90d810fb17fe6f72ce23776e21753aedbf221 100644
+--- a/formal/Xsh/Semantics/BaseHostTrace.lean
++++ b/formal/Xsh/Semantics/BaseHostTrace.lean
+@@ -161,10 +161,38 @@ theorem accepted_host_response_preserves_wellFormed
+       have controlWaiting : control = .awaitingHost .timeNow := waiting
+       subst control
+       simp only [wellFormed] at wellFormedConfig
+-      rcases wellFormedConfig with ⟨_, continuationValid, _⟩
++      rcases wellFormedConfig with ⟨_, continuationValid, controlFits⟩
+       simp only [wellFormed, updateState]
+       refine ⟨trivial, continuationValid, ?_⟩
+-      cases continuation <;> simp [controlFitsContinuation, integerPayload]
++      cases continuation with
++      | nil => simp [controlFitsContinuation]
++      | cons frame rest =>
++        cases frame with
++        | negate =>
++          simp_all [controlFitsContinuation, frameRequiresInteger, integerPayload,
++            BaseHostRequest.responseType]
++        | binaryLeft operator right =>
++          simp_all [controlFitsContinuation, frameRequiresInteger, integerPayload,
++            BaseHostRequest.responseType]
++        | binaryRight operator left =>
++          simp_all [controlFitsContinuation, frameRequiresInteger, integerPayload,
++            BaseHostRequest.responseType]
++        | scalarEqualityLeft operator right =>
++          have rightType : some BaseType.integer = inferBaseType? names activations store right := by
++            have fit := controlFits
++            dsimp [controlFitsContinuation, frameRequiresInteger, frameInputType?,
++              BaseHostRequest.responseType] at fit
++            exact of_decide_eq_true fit
++          simp [controlFitsContinuation, frameRequiresInteger, frameInputType?,
++            BaseHostRequest.responseType, valueInteger, rightType]
++        | scalarEqualityRight operator left =>
++          have leftType : BaseType.integer = left.typeTag := by
++            have fit := controlFits
++            dsimp [controlFitsContinuation, frameRequiresInteger, frameInputType?,
++              BaseHostRequest.responseType] at fit
++            exact Option.some.inj (of_decide_eq_true fit)
++          simp [controlFitsContinuation, frameRequiresInteger, frameInputType?,
++            BaseHostRequest.responseType, valueInteger, leftType]
+ 
+ theorem rejected_host_response_preserves_wellFormed
+     {config : MachineConfig} {responseType : BaseType}
+@@ -180,7 +208,10 @@ theorem rejected_host_response_preserves_wellFormed
+     subst control
+     simp only [wellFormed, updateState]
+     refine ⟨trivial, continuationValid, ?_⟩
+-    cases continuation <;> rfl
++    cases continuation with
++    | nil => rfl
++    | cons frame rest =>
++      cases frame <;> simp [controlFitsContinuation, frameRequiresInteger]
+ 
+ theorem host_response_transition_preserves_wellFormed
+     {config next : MachineConfig} {responseType : BaseType}
+diff --git a/formal/Xsh/Semantics/BaseMachine.lean b/formal/Xsh/Semantics/BaseMachine.lean
+index 69ee1658c50de82b311808dffb6266d8deed4123..f34c5dd17407d4966d82794eebd26dc258585644 100644
+--- a/formal/Xsh/Semantics/BaseMachine.lean
++++ b/formal/Xsh/Semantics/BaseMachine.lean
+@@ -1,5 +1,6 @@
+ import Xsh.Syntax.Core
+ import Xsh.Values.Composite
++import Xsh.Values.FloatEquality
+ import Xsh.Values.IntegerOps
+ import Xsh.Semantics.Environments
+ 
+@@ -59,7 +60,32 @@ def scalarTypedValue? : CompositeValue → Option BaseTypedValue
+   | .bytes value => some ⟨.bytes, .bytes value, trivial⟩
+   | .list _ | .record _ | .tagged _ _ _ => none
+ 
+-/-- The checked expression fragment; arithmetic operands are integers only. -/
++/-- The checked expression fragment; arithmetic operands are integers and equality is scalar-only. -/
++inductive ScalarEqualityOp where
++  | equal
++  | notEqual
++  deriving DecidableEq
++
++/- This executable comparator is intentionally limited to scalar values. -/
++def scalarSemanticEqB : CompositeValue → CompositeValue → Bool
++  | .null, .null => true
++  | .boolean left, .boolean right => decide (left = right)
++  | .integer left, .integer right => decide (left = right)
++  | .float left, .float right => floatValueEq left right
++  | .duration left, .duration right => decide (left = right)
++  | .string left, .string right => decide (left = right)
++  | .bytes left, .bytes right => decide (left = right)
++  | _, _ => false
++
++def scalarSemanticNeqB (left right : CompositeValue) : Bool :=
++  !(scalarSemanticEqB left right)
++
++def applyScalarEquality (operator : ScalarEqualityOp)
++    (left right : CompositeValue) : Bool :=
++  match operator with
++  | .equal => scalarSemanticEqB left right
++  | .notEqual => scalarSemanticNeqB left right
++
+ inductive BaseExpr where
+   | integerLiteral (value : Int)
+   | scalarLiteral (value : CompositeValue)
+@@ -67,6 +93,7 @@ inductive BaseExpr where
+   | identifier (name : Xsh.Syntax.RawName)
+   | negate (operand : BaseExpr)
+   | binary (operator : IntegerBinaryOp) (left right : BaseExpr)
++  | scalarEquality (operator : ScalarEqualityOp) (left right : BaseExpr)
+ 
+ /-- Failures are terminal outcomes of this fragment; exhaustion belongs to the runner. -/
+ inductive BaseFault where
+@@ -92,7 +119,7 @@ def lookupBaseValue (names : LexicalEnvironment) (activations : ActivationEnviro
+       | none => .error (.missingCell cell)
+       | some stored => .ok stored.contents
+ 
+-/- Integer operators require integer operands; scalar literals and identifiers retain their tags. -/
++/- Integer operators require integers; scalar equality returns Bool for matching scalar types. -/
+ def inferBaseType? (names : LexicalEnvironment) (activations : ActivationEnvironment)
+     (store : BaseStore) : BaseExpr → Option BaseType
+   | .integerLiteral value =>
+@@ -112,6 +139,12 @@ def inferBaseType? (names : LexicalEnvironment) (activations : ActivationEnviron
+         inferBaseType? names activations store right with
+     | some .integer, some .integer => some .integer
+     | _, _ => none
++  | .scalarEquality _ left right =>
++    match inferBaseType? names activations store left,
++        inferBaseType? names activations store right with
++    | some leftType, some rightType =>
++      if leftType = rightType then some .boolean else none
++    | _, _ => none
+ 
+ def checkIntegerExpr (names : LexicalEnvironment) (activations : ActivationEnvironment)
+     (store : BaseStore) (expression : BaseExpr) : Bool :=
+@@ -129,6 +162,11 @@ def checkBaseExpr (names : LexicalEnvironment) (activations : ActivationEnvironm
+   | .negate operand => checkIntegerExpr names activations store operand
+   | .binary _ left right =>
+     checkIntegerExpr names activations store left && checkIntegerExpr names activations store right
++  | .scalarEquality _ left right =>
++    match inferBaseType? names activations store left,
++        inferBaseType? names activations store right with
++    | some leftType, some rightType => decide (leftType = rightType)
++    | _, _ => false
+ 
+ inductive BaseControl where
+   | evaluate (expression : BaseExpr)
+@@ -140,6 +178,8 @@ inductive BaseFrame where
+   | negate
+   | binaryLeft (operator : IntegerBinaryOp) (right : BaseExpr)
+   | binaryRight (operator : IntegerBinaryOp) (left : IntValue)
++  | scalarEqualityLeft (operator : ScalarEqualityOp) (right : BaseExpr)
++  | scalarEqualityRight (operator : ScalarEqualityOp) (left : BaseTypedValue)
+ 
+ structure MachineConfig where
+   names : LexicalEnvironment
+@@ -178,6 +218,16 @@ def integerPayload? (value : BaseTypedValue) : Option IntValue :=
+   | .integer, .integer integer => some integer
+   | _, _ => none
+ 
++def typedBoolean (value : Bool) : BaseTypedValue := {
++  typeTag := .boolean
++  value := .boolean value
++  wellTyped := trivial
++}
++
++def scalarEqualityResult (operator : ScalarEqualityOp)
++    (left right : BaseTypedValue) : BaseTypedValue :=
++  typedBoolean (applyScalarEquality operator left.value right.value)
++
+ structure BaseHostResponse where
+   value : BaseTypedValue
+ 
+@@ -230,6 +280,9 @@ def step (config : MachineConfig) : Option MachineConfig :=
+     | .binary operator left right =>
+       some (updateState config (.evaluate left)
+         (.binaryLeft operator right :: config.continuation))
++    | .scalarEquality operator left right =>
++      some (updateState config (.evaluate left)
++        (.scalarEqualityLeft operator right :: config.continuation))
+   | .returned value =>
+     match config.continuation with
+     | [] => none
+@@ -252,6 +305,11 @@ def step (config : MachineConfig) : Option MachineConfig :=
+            | some integer => controlOfIntegerResult (applyBinary operator left integer)
+            | none => .failed .expectedInteger)
+           rest)
++      | .scalarEqualityLeft operator right =>
++        some (updateState config (.evaluate right)
++          (.scalarEqualityRight operator value :: rest))
++      | .scalarEqualityRight operator left =>
++        some (updateState config (.returned (scalarEqualityResult operator left value)) rest)
+   | .awaitingHost _ => none
+   | .failed _ => none
+ 
+@@ -259,24 +317,62 @@ def initialConfig (names : LexicalEnvironment) (activations : ActivationEnvironm
+     (store : BaseStore) (expression : BaseExpr) : MachineConfig :=
+   ⟨names, activations, store, .evaluate expression, []⟩
+ 
++def frameInputType? (names : LexicalEnvironment) (activations : ActivationEnvironment)
++    (store : BaseStore) : BaseFrame → Option BaseType
++  | .negate => some .integer
++  | .binaryLeft _ _ | .binaryRight _ _ => some .integer
++  | .scalarEqualityLeft _ right => inferBaseType? names activations store right
++  | .scalarEqualityRight _ left => some left.typeTag
++
++def frameResultType : BaseFrame → BaseType
++  | .negate | .binaryLeft _ _ | .binaryRight _ _ => .integer
++  | .scalarEqualityLeft _ _ | .scalarEqualityRight _ _ => .boolean
++
++def frameRequiresInteger : BaseFrame → Bool
++  | .negate | .binaryLeft _ _ | .binaryRight _ _ => true
++  | .scalarEqualityLeft _ _ | .scalarEqualityRight _ _ => false
++
++def frameOperandsChecked (names : LexicalEnvironment) (activations : ActivationEnvironment)
++    (store : BaseStore) : BaseFrame → Bool
++  | .negate | .binaryRight _ _ | .scalarEqualityRight _ _ => true
++  | .binaryLeft _ right => checkIntegerExpr names activations store right
++  | .scalarEqualityLeft _ right => (inferBaseType? names activations store right).isSome
++
++def frameResultFitsRest (names : LexicalEnvironment) (activations : ActivationEnvironment)
++    (store : BaseStore) (frame : BaseFrame) : List BaseFrame → Bool
++  | [] => true
++  | next :: _ =>
++    frameInputType? names activations store next = some (frameResultType frame)
++
+ def continuationChecked (names : LexicalEnvironment) (activations : ActivationEnvironment)
+     (store : BaseStore) : List BaseFrame → Bool
+   | [] => true
+-  | .negate :: rest => continuationChecked names activations store rest
+-  | .binaryLeft _ right :: rest =>
+-    checkIntegerExpr names activations store right && continuationChecked names activations store rest
+-  | .binaryRight _ _ :: rest => continuationChecked names activations store rest
++  | frame :: rest =>
++    frameOperandsChecked names activations store frame &&
++      frameResultFitsRest names activations store frame rest &&
++      continuationChecked names activations store rest
+ 
+-/-- Pending arithmetic frames require integer controls until the frame is discharged. -/
++/-- Arithmetic frames keep their integer-only contract while equality frames accept scalar tags. -/
+ def controlFitsContinuation (names : LexicalEnvironment) (activations : ActivationEnvironment)
+     (store : BaseStore) (control : BaseControl) : List BaseFrame → Bool
+   | [] => true
+-  | _ :: _ =>
+-    match control with
+-    | .evaluate expression => checkIntegerExpr names activations store expression
+-    | .returned value => (integerPayload? value).isSome
+-    | .awaitingHost request => request.responseType == .integer
+-    | .failed _ => true
++  | frame :: _ =>
++    if frameRequiresInteger frame then
++      match control with
++      | .evaluate expression => checkIntegerExpr names activations store expression
++      | .returned value => (integerPayload? value).isSome
++      | .awaitingHost request => request.responseType == .integer
++      | .failed _ => true
++    else
++      match control with
++      | .failed _ => true
++      | _ =>
++        let actualType? := match control with
++          | .evaluate expression => inferBaseType? names activations store expression
++          | .returned value => some value.typeTag
++          | .awaitingHost request => some request.responseType
++          | .failed _ => none
++        decide (actualType? = frameInputType? names activations store frame)
+ 
+ def wellFormed (config : MachineConfig) : Prop :=
+   (match config.control with

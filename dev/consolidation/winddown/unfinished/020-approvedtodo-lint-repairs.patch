@@ -1,0 +1,132 @@
+diff --git a/tests/xsh/lint-rule-repairs.xsh b/tests/xsh/lint-rule-repairs.xsh
+index 0513c9cc7b6adaab574d775659185a5736a8755d..1df256a3e4ac68329d31b12753093f838357ab56 100644
+--- a/tests/xsh/lint-rule-repairs.xsh
++++ b/tests/xsh/lint-rule-repairs.xsh
+@@ -140,3 +140,127 @@ print load()?
+     assert "LoadError.Failed" in report and "no configuration" in report, report
+   }
+ }
++
++test test_argument_label_fix_uses_project_format_width_and_preserves_link_behavior { |ctx|
++  let project = test.temp_dir(ctx, name: "argument-label-width")?
++  fp"{project}/xsht-config.ini".write("[format]\nline-width = 40\n")
++  let file = fp"{project}/main.xsh"
++  let source = r"""let target_path_from_inputs = fp"{args[0]}"
++let link_path_destination = fp"{args[1]}"
++# Keep this explanation of why the target is linked.
++fs.symlink(target_path_from_inputs, link_path_destination)
++assert link_path_destination.is_symlink()?
++print "linked"
++"""
++  file.write(source)
++  let before_dir = test.temp_dir(ctx, name: "argument-label-before")?
++  let after_dir = test.temp_dir(ctx, name: "argument-label-after")?
++  let before = test.expect(
++    ctx,
++    source,
++    status: 0,
++    stdout: ["linked"],
++    args: [fp"{before_dir}/target", fp"{before_dir}/link"],
++  )?
++
++  let reported = cd(project) { run.capture --text "xsht" lint "main.xsh" }?
++  assert reported.status.exited_with(1), reported.stderr
++  assert reported.stderr.split("warn[lint.prefer-argument-label]").len() == 2, reported.stderr
++  assert "`fs.symlink` takes the target first and the link second" in reported.stderr, reported.stderr
++  let fixed = cd(project) { run.capture --text "xsht" lint --fix "main.xsh" }?
++  assert fixed.status.exited_with(0), fixed.stderr
++  let expected = r"""let target_path_from_inputs = fp"{args[0]}"
++let link_path_destination = fp"{args[1]}"
++# Keep this explanation of why the target is linked.
++link_path_destination.symlink(
++  to: target_path_from_inputs,
++)
++assert link_path_destination.is_symlink()?
++print "linked"
++"""
++  assert file.read_text()? == expected, file.read_text()?
++  assert "# Keep this explanation of why the target is linked." in expected
++
++  let checked = cd(project) { run.capture --text "xsht" check "main.xsh" }?
++  assert checked.status.exited_with(0), checked.stderr
++  let after = test.expect(
++    ctx,
++    file.read_text()?,
++    status: 0,
++    stdout: ["linked"],
++    args: [fp"{after_dir}/target", fp"{after_dir}/link"],
++  )?
++  assert before.stdout == after.stdout
++}
++
++test test_inferred_pure_return_removal_handles_an_imported_module { |ctx|
++  let project = test.temp_dir(ctx, name: "inferred-pure-return-import")?
++  fp"{project}/xsht-config.ini".write(
++    "module_path = .\n[lint]\nprefer-inferred-pure-returns = true\n",
++  )
++  fp"{project}/helper.xsh".write(
++    "##! Text helper.\n## Trims whitespace around a label.\nexport pure trim(value: Str) -> Str { value.trim() }\n",
++  )
++  let file = fp"{project}/main.xsh"
++  let source = "use helper\n\n# Keep the user-facing label free of surrounding spaces.\npure label(name: Str) -> Str { helper.trim(name) }\nprint label(\" ready \")\n"
++  file.write(source)
++  let before = cd(project) { run.capture --text "xsh" "main.xsh" }?
++  assert before.status.exited_with(0), before.stderr
++  let reported = cd(project) { run.capture --text "xsht" lint "main.xsh" }?
++  assert reported.status.exited_with(1), reported.stderr
++  assert reported.stderr.split("warn[lint.prefer-inferred-pure-return]").len() == 2, reported.stderr
++  assert "private pure return type can be inferred exactly" in reported.stderr, reported.stderr
++
++  let fixed = cd(project) { run.capture --text "xsht" lint --fix "main.xsh" }?
++  assert fixed.status.exited_with(0), fixed.stderr
++  let expected = "use helper\n\n# Keep the user-facing label free of surrounding spaces.\npure label(name: Str) { helper.trim(name) }\nprint label(\" ready \")\n"
++  assert file.read_text()? == expected, file.read_text()?
++  let checked = cd(project) { run.capture --text "xsht" check "main.xsh" }?
++  assert checked.status.exited_with(0), checked.stderr
++  let remaining = cd(project) { run.capture --text "xsht" lint "main.xsh" }?
++  assert remaining.status.exited_with(0), remaining.stderr
++  assert "lint.prefer-inferred-pure-return" not in remaining.stderr, remaining.stderr
++  let after = cd(project) { run.capture --text "xsh" "main.xsh" }?
++  assert after.status.exited_with(0), after.stderr
++  assert before.stdout == "ready\n", before.stdout
++  assert after.stdout == before.stdout, after.stdout
++}
++
++test test_optional_fallback_fix_removes_the_grouping_with_it { |ctx|
++  let source = r"""# The guard keeps the optional value present for this arithmetic.
++pure increment(value: Int?) -> Int {
++  guard value != null else { return 0 }
++  (value ?? 0) + 1
++}
++print increment(1)
++print increment(null)
++"""
++  let before = test.expect(ctx, source, status: 0, stdout: ["2", "0"])?
++  let file = test.temp_file(ctx, name: "optional-fallback.xsh", contents: bytes.from_text(source))?
++  let reported = cd(file.parent()) { run.capture --text "xsht" lint $file }?
++  assert reported.status.exited_with(1), reported.stderr
++  assert reported.stderr.split("warn[lint.redundant-optional-fallback]").len() == 2, reported.stderr
++  assert "this Optional receiver is proved present" in reported.stderr, reported.stderr
++
++  let fixed = cd(file.parent()) { run.capture --text "xsht" lint --fix $file }?
++  assert fixed.status.exited_with(0), fixed.stderr
++  let expected = r"""# The guard keeps the optional value present for this arithmetic.
++pure increment(value: Int?) -> Int {
++  guard value != null else { return 0 }
++  value + 1
++}
++
++print increment(1)
++print increment(null)
++"""
++  assert file.read_text()? == expected, file.read_text()?
++  assert "check.redundant-parens" not in fixed.stderr, fixed.stderr
++  let checked = run.capture --text "xsht" check $file
++  assert checked.status.exited_with(0), checked.stderr
++  let remaining = cd(file.parent()) { run.capture --text "xsht" lint $file }?
++  assert remaining.status.exited_with(0), remaining.stderr
++  assert "check.redundant-parens" not in remaining.stderr, remaining.stderr
++  let after = test.expect(ctx, file.read_text()?, status: 0, stdout: ["2", "0"])?
++  assert before.stdout == "2\n0\n", before.stdout
++  assert after.stdout == before.stdout, after.stdout
++}

@@ -1,0 +1,204 @@
+diff --git a/src/runtime/eval.rs b/src/runtime/eval.rs
+index 0ab2ff5504aa77054f098da2ad00a2fb146f17bf..d5791a23b3e7a489c283bd7e24164ec170f054b0 100644
+--- a/src/runtime/eval.rs
++++ b/src/runtime/eval.rs
+@@ -7037,6 +7037,8 @@ fn initial_env_without_route_witness() -> BTreeMap<Vec<u8>, Vec<u8>> {
+ }
+ 
+ fn check_env_name(name: &str, span: Span) -> Result<(), RuntimeError> {
++    route_witness::reject_reserved_env_name(name.as_bytes())
++        .map_err(|message| RuntimeError::new("env-name", message).with_span(span))?;
+     if valid_env_name(name) {
+         Ok(())
+     } else {
+diff --git a/src/runtime/eval/lowered_run.rs b/src/runtime/eval/lowered_run.rs
+index 6dcd3b0dd1707d071d5caa8f1c6bf36fa0ebf4f2..37841a778224a892845bd6733023a9c3b05da550 100644
+--- a/src/runtime/eval/lowered_run.rs
++++ b/src/runtime/eval/lowered_run.rs
+@@ -5896,6 +5896,9 @@ impl Evaluator {
+             callable; RuntimeOp::EnvSet if values.len() == 2 => {
+                 let value = values.pop().expect("checked value length");
+                 let name = lowered_str_arg_owned(values.pop(), "", "env", span)?;
++                super::route_witness::reject_reserved_env_name(name.as_bytes()).map_err(
++                    |message| RuntimeError::new("env-name", message).with_span(span),
++                )?;
+                 let value = value_to_env_bytes(value.into_value(), span)?;
+                 self.env.insert(name.into_bytes(), value);
+                 LoweredValue::Unit
+diff --git a/src/runtime/eval/lowered_run/indexed_run/explicit_run.rs b/src/runtime/eval/lowered_run/indexed_run/explicit_run.rs
+index 94997869b91552d0d908d7953ae11413f6b16c05..c469bb0274a3245f41b2afc5dd27f94e74e4c17a 100644
+--- a/src/runtime/eval/lowered_run/indexed_run/explicit_run.rs
++++ b/src/runtime/eval/lowered_run/indexed_run/explicit_run.rs
+@@ -3848,6 +3848,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
+                     {
+                         state.env_position = Some(operands.env.position());
+                         let RunEnvView { name, value, .. } = assignment;
++                        check_env_name(&name.as_str(), operands.span)?;
+                         let (mode, child, value_span) = run_arg_parts(value);
+                         state.pending = Some(ProcessExecutionOperand::Environment {
+                             name,
+diff --git a/src/runtime/eval/lowered_run/module_unix.rs b/src/runtime/eval/lowered_run/module_unix.rs
+index 6ed50890f8b3f80744c0ce103ca9dc637cb5294b..1f19e4ab72ab8c4bae4c0c93a0c606a23639b16d 100644
+--- a/src/runtime/eval/lowered_run/module_unix.rs
++++ b/src/runtime/eval/lowered_run/module_unix.rs
+@@ -333,6 +333,13 @@ macro_rules! with_unix_call_rows {
+                 let mut replacement = BTreeMap::new();
+                 for (key, value) in environment.iter() {
+                     let Some(key) = key.as_str() else { return Err(RuntimeError::new("type-error", "unix.exec_env expected Str keys").with_span($span)); };
++                    if let Err(message) =
++                        super::super::route_witness::reject_reserved_env_name(key.as_bytes())
++                    {
++                        return Ok(Value::err(Value::Error(Box::new(
++                            RuntimeError::new("unix-exec-env", message).with_span($span),
++                        ))));
++                    }
+                     let value: Vec<u8> = match value {
+                         LoweredValue::Str(value) => value.as_bytes().to_vec(),
+                         LoweredValue::Bytes(value) => value.to_vec(),
+diff --git a/src/runtime/eval/modules.rs b/src/runtime/eval/modules.rs
+index d6cb72dc985c9f54facbda09d0d7aae431a0cecb..4d867fa7b7ccc07bebf8c3ccc105911e7096e77c 100644
+--- a/src/runtime/eval/modules.rs
++++ b/src/runtime/eval/modules.rs
+@@ -48,6 +48,9 @@ impl Evaluator {
+         let mut env = self.env.snapshot_clone();
+         let mut env_overlay = BTreeMap::new();
+         for (name, value) in &plan.env {
++            super::route_witness::reject_reserved_env_name(name.as_bytes()).map_err(|message| {
++                RuntimeError::new("env-name", message).with_span(span)
++            })?;
+             if name.is_empty() || name.contains('\0') || name.contains('=') {
+                 return Err(RuntimeError::new(
+                     "env-name",
+diff --git a/src/runtime/eval/modules/host.rs b/src/runtime/eval/modules/host.rs
+index 005df41b15047bb35fb71e2f413b3ab471b1f4d6..8607a8ed827e82bb7b090d6d81095b5b6610239f 100644
+--- a/src/runtime/eval/modules/host.rs
++++ b/src/runtime/eval/modules/host.rs
+@@ -214,11 +214,10 @@ fn command_invocation(command: &CommandSpec) -> HostResult<ProcessInvocation> {
+                 "environment names cannot be empty or contain `=`",
+             ));
+         }
+-        if crate::runtime::eval::route_witness::is_private_env_name_bytes(&name_bytes) {
+-            return Err(HostError::new(
+-                "env-name",
+-                "environment names in the private route-witness namespaces are reserved",
+-            ));
++        if let Err(message) =
++            crate::runtime::eval::route_witness::reject_reserved_env_name(&name_bytes)
++        {
++            return Err(HostError::new("env-name", message));
+         }
+         env.insert(name_bytes.clone(), value_bytes.clone());
+         env_overlay.insert(name_bytes, value_bytes);
+diff --git a/src/runtime/eval/route_witness.rs b/src/runtime/eval/route_witness.rs
+index df47a03652ae873ac22e5963eb52dacb5b721754..0f97f4792c7d46b99d71ac1cec25d45d436e4dbb 100644
+--- a/src/runtime/eval/route_witness.rs
++++ b/src/runtime/eval/route_witness.rs
+@@ -34,6 +34,9 @@ const TRANSPORT_OUTPUT_DIR: &str =
+     "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_TRANSPORT_OUTPUT_DIR";
+ const TRANSPORT_SOURCE_HASH: &str =
+     "XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_TRANSPORT_SOURCE_HASH";
++/// Keeps script-controlled environment names out of the harness-only namespaces.
++pub(crate) const RESERVED_ENV_NAME_ERROR: &str =
++    "environment names in the private route-witness namespaces are reserved";
+ 
+ const ARTIFACT_FILE: &str = "route-witness.json";
+ const ARTIFACT_VERSION: u64 = 1;
+@@ -219,8 +222,18 @@ pub(crate) fn transport_env(
+ pub(crate) fn reject_reserved_env(
+     env: &std::collections::BTreeMap<String, Vec<u8>>,
+ ) -> Result<(), &'static str> {
+-    if env.keys().any(is_private_env_name) {
+-        Err("native-test env uses a reserved route-witness name")
++    for name in env.keys() {
++        if is_private_env_name(name) {
++            return Err("native-test env uses a reserved route-witness name");
++        }
++    }
++    Ok(())
++}
++
++/// Rejects a name that could forge route-witness transport or harness context.
++pub(crate) fn reject_reserved_env_name(name: &[u8]) -> Result<(), &'static str> {
++    if is_private_env_name_bytes(name) {
++        Err(RESERVED_ENV_NAME_ERROR)
+     } else {
+         Ok(())
+     }
+diff --git a/tests/xsh/stdlib/env.xsh b/tests/xsh/stdlib/env.xsh
+index d85f7a18ef1ae28a187d0f27daccd91cbb8e868d..b30a31dbfbc1a9d217a317f7cc05cda080998dba 100644
+--- a/tests/xsh/stdlib/env.xsh
++++ b/tests/xsh/stdlib/env.xsh
+@@ -470,6 +470,31 @@ test test_env_string_assignment_reaches_child_processes {
+   }
+ }
+ 
++test test_reserved_route_witness_names_are_rejected_at_environment_entries {
++  let normal_run = run.text XSH_ENV_ROUTE_WITNESS_NORMAL=overlay printenv XSH_ENV_ROUTE_WITNESS_NORMAL ?
++  assert normal_run == "overlay\n"
++  let rejected_run = try run.text XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_FORGED=forged printenv XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_FORGED
++  test.error_kind(rejected_run, "env-name")
++  let rejected_harness_run = try run.text XSHT_INTERNAL_ROUTE_WITNESS_FORGED=forged printenv XSHT_INTERNAL_ROUTE_WITNESS_FORGED
++  test.error_kind(rejected_harness_run, "env-name")
++
++  let normal_scope = env ({XSH_ENV_ROUTE_WITNESS_SCOPE: "scoped"}) {
++    e"XSH_ENV_ROUTE_WITNESS_SCOPE"?
++  }?
++  assert normal_scope == "scoped"
++  let rejected_scope = try {
++    env ({XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_FORGED: "forged"}) { true }
++  }
++  test.error_kind(rejected_scope, "env-name")
++  let rejected_harness_scope = try {
++    env ({XSHT_INTERNAL_ROUTE_WITNESS_FORGED: "forged"}) { true }
++  }
++  test.error_kind(rejected_harness_scope, "env-name")
++
++  let rejected_assignment = try { e"XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_FORGED" = "forged" }
++  test.error_kind(rejected_assignment, "env-name")
++}
++
+ test test_env_string_keeps_non_utf8_bytes_for_paths_and_children {
+   let raw = b"/tmp/xsh-estr-\xff" as Path
+   env XSH_ESTR_RAW_SCOPE=1 {
+diff --git a/tests/xsh/stdlib/process.xsh b/tests/xsh/stdlib/process.xsh
+index a09d054aac898fa7aef9185f978f259b76280f8d..45bafee4276d8ed57f239474fea923ec8bf166c9 100644
+--- a/tests/xsh/stdlib/process.xsh
++++ b/tests/xsh/stdlib/process.xsh
+@@ -56,6 +56,21 @@ test test_process_command_argv_requires_argv0 { |ctx|
+   )?
+ }
+ 
++test test_process_command_rejects_reserved_route_witness_environment {
++  let argv_command = process.command_argv(
++    "true",
++    ["true"],
++    env: {XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_FORGED: "forged"},
++  )
++  test.error_kind(process.run(argv_command), "env-name")
++
++  let builder = process.command {
++    env = {XSHT_INTERNAL_ROUTE_WITNESS_FORGED: "forged"}
++    run true
++  }
++  test.error_kind(process.run(builder), "env-name")
++}
++
+ test test_process_command_builder_rejects_invalid_run_entries_before_execution { |ctx|
+   for case in [
+     {entries: "", code: "check.builder-check"},
+diff --git a/tests/xsh/stdlib/unix_process.xsh b/tests/xsh/stdlib/unix_process.xsh
+index d24699683ed0ea5fc3571e0f095a2377e3ef4326..11e744804857e9334382973bbd9a15afad5d703c 100644
+--- a/tests/xsh/stdlib/unix_process.xsh
++++ b/tests/xsh/stdlib/unix_process.xsh
+@@ -472,9 +472,11 @@ test test_unix_exec_env_rejects_invalid_strings_before_redirection { |ctx|
+   let output = fp"{root}/must-not-exist"
+   let command = process.command_argv(p"/bin/true", ["true"], stdout: output)
+   let bad_key: Map[Str, Str] = {"BAD=KEY": "value"}
++  let reserved_key: Map[Str, Str] = {XSH_INTERNAL_TEST_FORCE_FRAMES_ROUTE_WITNESS_FORGED: "value"}
+   let bad_value: Map[Str, Str] = {VALID: "bad\u{0}value"}
+   let empty: Map[Str, Str] = {}
+   test.error_kind(unix.exec_env(command, bad_key), "unix-exec-env")
++  test.error_kind(unix.exec_env(command, reserved_key), "unix-exec-env")
+   test.error_kind(unix.exec_env(command, bad_value), "unix-exec-env")
+   test.error_kind(unix.exec_env(command, empty, argv0: "bad\u{0}name"), "unix-exec-env")
+   assert ! output.exists()?
