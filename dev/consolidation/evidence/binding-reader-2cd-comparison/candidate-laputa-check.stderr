@@ -1,0 +1,48 @@
+err[check.unresolved-name]: unresolved name `elf`
+  /laputa/pm/local.xsh:118:13
+        match elf.inspect(path_value) {
+              ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `elf`
+  /laputa/pm/local.xsh:151:11
+      match elf.inspect(path_value) {
+            ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `elf`
+  /laputa/pm/elfdeps.xsh:112:25
+        if let Ok(info) = elf.inspect(path_value) {
+                          ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `elf`
+  /laputa/pm/elfdeps.xsh:139:21
+    if let Ok(info) = elf.inspect(path_value) {
+                      ^^^ unresolved name
+err[check.unresolved-name]: unresolved name `hash`
+  /laputa/infra/asterinas/build-image.xsh:48:21
+      let image_sha = hash.sha256(image)?.hex()
+                      ^^^^ unresolved name
+
+err[check.null-safe-field]: `?.` requires an Optional or Result value
+  /laputa/infra/asterinas/build-image.xsh:48:21
+      let image_sha = hash.sha256(image)?.hex()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^ `?.` requires an Optional or Result value
+
+err[check.unresolved-name]: unresolved name `hash`
+  /laputa/infra/asterinas/build-image.xsh:66:21
+      let image_sha = hash.sha256(image)?.hex()
+                      ^^^^ unresolved name
+
+err[check.null-safe-field]: `?.` requires an Optional or Result value
+  /laputa/infra/asterinas/build-image.xsh:66:21
+      let image_sha = hash.sha256(image)?.hex()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^ `?.` requires an Optional or Result value
+err[check.unresolved-name]: unresolved name `hash`
+  /laputa/infra/asterinas/pack-initramfs.xsh:80:31
+    print f"Initramfs SHA-256: {hash.sha256(output)?.hex()}"
+                                ^^^^ unresolved name
+
+err[check.null-safe-field]: `?.` requires an Optional or Result value
+  /laputa/infra/asterinas/pack-initramfs.xsh:80:31
+    print f"Initramfs SHA-256: {hash.sha256(output)?.hex()}"
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^ `?.` requires an Optional or Result value
+xsht check: 316 files in 2.02s (thread time by stage: discover 0.01s, load 0.19s, check 9.15s, lower 4.70s)

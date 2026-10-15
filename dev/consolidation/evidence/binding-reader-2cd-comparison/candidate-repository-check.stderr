@@ -1,0 +1,257 @@
+err[check.unresolved-name]: unresolved name `system`
+  /work/core/lib/checksums.xsh:90:17
+    let machine = system.uname()?.machine
+                  ^^^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/lib/checksums.xsh:91:18
+    let features = unix.cpu_features()
+                   ^^^^ unresolved name
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/lib/btop_surface.xsh:46:3
+    tui.cell_right_pad(tui.cell_clip(tui.safe_single_line(value), width), width)
+    ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/lib/btop_surface.xsh:141:5
+      tui.cell_right_pad(tui.cell_slice(surface.lines[y], area.x, area.width), area.width)
+      ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/lib/btop_surface.xsh:174:27
+      if index > 0 { row += tui.safe_single_line(separator) }
+                            ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/lib/btop_surface.xsh:185:3
+    tui.cell_right_pad(marker + tui.cell_clip(tui.safe_single_line(value), width - 2), width)
+    ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/lib/btop_surface.xsh:204:14
+    let safe = tui.safe_single_line(value)
+               ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/lib/btop_surface.xsh:207:17
+    let visible = tui.cell_slice(safe, start, width)
+                  ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/lib/btop_surface.xsh:209:16
+    let before = tui.cell_slice(visible, 0, cursor_at)
+                 ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/lib/btop_surface.xsh:210:15
+    let after = tui.cell_slice(visible, cursor_at + 1, width - cursor_at - 1)
+                ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/lib/btop_surface.xsh:211:3
+    tui.cell_right_pad(before + "_" + after, width)
+    ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/lib/btop_render.xsh:38:3
+    tui.safe_single_line(value)
+    ^^^ unresolved name
+note: did you mean `ui`?
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/lib/btop_render.xsh:43:3
+    tui.cell_right_pad(tui.cell_clip(safe_line(value), width), width)
+    ^^^ unresolved name
+note: did you mean `ui`?
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/cat.xsh:322:22
+        guard let fd = unix.open_fd(source.path) else { |failure|
+                       ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/cat.xsh:329:27
+          guard let chunk = unix.read_fd(fd, tio.CHUNK) else { |failure|
+                            ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/cat.xsh:342:7
+        unix.close_fd(fd)
+        ^^^^ unresolved name
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/head.xsh:326:15
+        let _ = unix.seek_fd(0, tio.stdin_offset()? - held.len())?
+                ^^^^ unresolved name
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:286:12
+    let fd = unix.open_fd(fifo, nonblock: true)?
+             ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:289:13
+        match unix.read_fd(fd, tio.CHUNK) {
+              ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:293:13
+              unix.close_fd(fd)
+              ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `time`
+  /work/core/tail.xsh:301:7
+        time.sleep(interval)
+        ^^^^ unresolved name
+note: did you mean `tio`?
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:305:3
+    unix.close_fd(fd)
+    ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:381:17
+            match unix.open_fd(fp"{name}") {
+                  ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:405:17
+          let _ = unix.seek_fd(file.fd, 0)?
+                  ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:409:13
+        match unix.read_fd(file.fd, tio.CHUNK) {
+              ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:431:13
+              unix.close_fd(file.fd)
+              ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:444:22
+          let events = unix.poll_fd(1, [])?
+                       ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `time`
+  /work/core/tail.xsh:448:7
+        time.sleep(poll_pause(interval))
+        ^^^^ unresolved name
+note: did you mean `tio`?
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:456:24
+    for file in active { unix.close_fd(file.fd) }
+                         ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:512:12
+    let fd = unix.open_fd(target)?
+             ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:513:9
+    defer unix.close_fd(fd)
+          ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `time`
+  /work/core/tail.xsh:622:5
+      time.sleep(poll_pause(interval))
+      ^^^^ unresolved name
+note: did you mean `tio`?
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:766:20
+    if following and unix.isatty(0) and "-" in operands {
+                     ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:779:58
+    let buffer_initial = following and "-" in operands and unix.isatty(0) and ! unix.isatty(1)
+                                                           ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:779:79
+    let buffer_initial = following and "-" in operands and unix.isatty(0) and ! unix.isatty(1)
+                                                                                ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:820:22
+        guard let fd = unix.open_fd(source.path, nonblock: true) else { |failure|
+                       ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:897:22
+        guard let fd = unix.open_fd(source.path) else { |failure|
+                       ^^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `unix`
+  /work/core/tail.xsh:903:15
+        let _ = unix.seek_fd(fd, follow_offset)?
+                ^^^^ unresolved name
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/tests/test-btop-render.xsh:131:10
+    assert tui.cell_width(screen.lines[6]) == 120
+           ^^^ unresolved name
+note: did you mean `ui`?
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/tests/test-btop-render.xsh:178:29
+    assert "sda /mnt/data" in tui.cell_slice(screen.lines[14], 33, 32)
+                              ^^^ unresolved name
+note: did you mean `ui`?
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/tests/test-btop-render.xsh:179:35
+    assert "256M/1G R1K/s W2K/s" in tui.cell_slice(screen.lines[15], 33, 32)
+                                    ^^^ unresolved name
+note: did you mean `ui`?
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/tests/test-btop-render.xsh:180:28
+    assert "nvme0n1 /var" in tui.cell_slice(screen.lines[16], 33, 32)
+                             ^^^ unresolved name
+note: did you mean `ui`?
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/tests/test-btop-render.xsh:181:33
+    assert "1G/2G R1K/s W2K/s" in tui.cell_slice(screen.lines[17], 33, 32)
+                                  ^^^ unresolved name
+note: did you mean `ui`?
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/tests/test-btop-render.xsh:182:19
+    assert "IO " in tui.cell_slice(screen.lines[18], 33, 32)
+                    ^^^ unresolved name
+note: did you mean `ui`?
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/tests/test-btop-render.xsh:187:10
+    assert tui.cell_slice(io_screen.lines[18], 33, 32).starts_with("R ")
+           ^^^ unresolved name
+note: did you mean `ui`?
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/tests/test-btop-render.xsh:188:10
+    assert tui.cell_slice(io_screen.lines[19], 33, 32).starts_with("W ")
+           ^^^ unresolved name
+note: did you mean `ui`?
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/tests/test-btop-surface.xsh:39:10
+    assert tui.cell_width(panel.lines[0]) == 8
+           ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/tests/test-btop-surface.xsh:40:10
+    assert tui.cell_width(panel.lines[1]) == 8
+           ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/tests/test-btop-surface.xsh:41:10
+    assert tui.cell_width(panel.lines[2]) == 8
+           ^^^ unresolved name
+
+err[check.unresolved-name]: unresolved name `tui`
+  /work/core/tests/test-btop-surface.xsh:42:10
+    assert tui.cell_width(panel.lines[3]) == 8
+           ^^^ unresolved name
+xsht check: 1524 files in 26.83s (thread time by stage: discover 0.02s, load 1.33s, check 29.42s, lower 171.75s)

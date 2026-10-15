@@ -144,6 +144,12 @@ work is authorized by this resume.
   existing native item tests and match the constructor probe's baseline output.
   [Retained output](evidence/binding-reader-2cd/README.md) records the checks,
   source qualification, product hashes, and sizes. Canonical gates remain open.
+- The fresh 2cd repository/Laputa comparison fails diagnostic parity.
+  Imported standard modules receive lexical runtime IDs but no checker value
+  bindings, so the identity lookup rejects valid namespace calls. Baseline
+  2688 accepts the same source. [All eight command outputs](evidence/binding-reader-2cd-comparison/README.md)
+  retain the failed observation. A minimal imported `system`/`unix` source
+  reproduces it. Repair the namespace-only import facts before acceptance.
 - Verification `xsh` and `xsht` products were rebuilt at `2688d52fc` for the
   assignment repair's output baseline. Repository and Laputa check and lint
   each exit zero. Preserve their complete outputs for candidate comparison.
@@ -157,8 +163,9 @@ have isolated worktrees under `.work/wt/`. Each lane
 requires review and focused verification before integration. Source changes
 require a new canonical freeze.
 
-The checker audit's assignment and reader repairs are integrated. Requalify
-them on the final source. The invariants establish authority failures in
+The checker audit's assignment and reader repairs are integrated. The imported
+standard-module regression above is under repair in the isolated checker lane.
+Requalify the repaired facts and readers on the final source. The invariants establish authority failures in
 controlled checker states, not demonstrated user-visible failures. Existing
 nearest-visible-name proof filters retain their identity checks. Changing
 those filters could replace a real shadow and is outside this repair.
