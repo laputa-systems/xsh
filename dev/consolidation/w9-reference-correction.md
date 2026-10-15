@@ -10,10 +10,12 @@ The derived source includes the retry correction described by SPEC 8.8. An
 expected `Result[T, E]` now supplies `T` to the retry attempt body and `E` to
 its failure boundary. `ProcessError` accepts its declared variants and family,
 so a retry selector can match process failures without accepting another
-error family. `tests/xsh/retry.xsh` covers four typed positive selectors and
-two mismatched-family cases. The derived reference passes their focused
-`xsht check` runs. Its exact Rust type unit could not be built for the
-mini-internal musl target. No red run against parent `bb29697265b29540f7d3a944a2454d2a4152dcc7` was performed.
+error family. The annotated selectors in `tests/xsh/retry.xsh` retain their
+nominal error expectations. Four separate typed positive programs and two
+mismatched-family programs passed the focused `xsht check` checks. The exact
+Rust type unit could not build because the musl host could not compile the
+`mini-internal` proc-macro. No red run against parent
+`bb29697265b29540f7d3a944a2454d2a4152dcc7` was performed.
 
 Original e240 captures and exact-owner receipts remain unchanged. No fresh W9
 capture or full comparison has run with the retry-derived source. Keep the
