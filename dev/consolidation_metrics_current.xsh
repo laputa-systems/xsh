@@ -911,8 +911,9 @@ proc pipeline_stage_schema_variants(source_path: Str, lexed: Lexed, opening: Int
     invalid(source_path, (lexed.tokens.get(opening) ?? end_token).line, "malformed pipeline stage schema context")
   }
   cursor += 2
-  var context = []
-  while cursor < closing and lexed.tokens[cursor].text != ";" { context += [lexed.tokens[cursor].text]; cursor += 1 }
+  let context = collect {
+    while cursor < closing and lexed.tokens[cursor].text != ";" { yield lexed.tokens[cursor].text; cursor += 1 }
+  }
   let core_context = ["stage_builder", "stage_decoder", "stage_payload"]
   let view_context = [@core_context, "stage_view_context", "stage_view_input", "stage_view_value", "stage_view_expectations"]
   if (context != core_context and context != view_context) or (lexed.tokens.get(cursor) ?? end_token).text != ";" {
@@ -1559,27 +1560,28 @@ export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, er
   if has_pattern_owner and pattern_schema_rows.is_empty() and legacy_pattern_rows.is_empty() {
     return Err(MetricError.Invalid(path: "src/runtime/eval/indexed/full/schema.rs", line: 1, detail: "unrecognized pattern schema authority layout"))
   }
-  var sources: List[SourceCount] = []
   var item_allowances: List[ItemAllowance] = []
   var totals: Map[Int] = {}
   var occurrences: Map[List[Evidence]] = {}
-  for scan in scans {
-    let live = active.get(scan.count.path) ?? false
-    let count = if live { scan.count } else { {path: scan.count.path, physical: scan.count.physical, production: 0, retained_lines: [], excluded: [{start: 0, end: sizes[scan.count.path], line: 1, last_line: scan.count.physical}]} }
-    sources += [count]
-    let source_group = if count.path.starts_with("src/") { "source_lines_src" } else { "source_lines_xsht" }
-    totals[source_group] = (totals.get(source_group) ?? 0) + count.production
-    occurrences[source_group] = (occurrences.get(source_group) ?? []) + [{path: count.path, line: 1, detail: f"{count.production} retained physical lines"}]
-    for row in scan.metrics {
-      let found = if row.name == "blanket_dead_code_lines" and (inherited.get(count.path) ?? false) {
-        collect { for line in count.retained_lines { yield {path: count.path, line: line, detail: "inherited allow(dead_code) module scope"} } }
-      } else { row.evidence }
-      let amount = if row.name == "blanket_dead_code_lines" { found.len() } else { row.value }
-      totals[row.name] = (totals.get(row.name) ?? 0) + (if live { amount } else { 0 })
-      occurrences[row.name] = (occurrences.get(row.name) ?? []) + (if live { found } else { [] })
-    }
-    if live {
-      for item in scan.item_allowances { item_allowances += [{...item, inherited_module_scope: inherited.get(count.path) ?? false}] }
+  let sources: List[SourceCount] = collect {
+    for scan in scans {
+      let live = active.get(scan.count.path) ?? false
+      let count = if live { scan.count } else { {path: scan.count.path, physical: scan.count.physical, production: 0, retained_lines: [], excluded: [{start: 0, end: sizes[scan.count.path], line: 1, last_line: scan.count.physical}]} }
+      yield count
+      let source_group = if count.path.starts_with("src/") { "source_lines_src" } else { "source_lines_xsht" }
+      totals[source_group] = (totals.get(source_group) ?? 0) + count.production
+      occurrences[source_group] = (occurrences.get(source_group) ?? []) + [{path: count.path, line: 1, detail: f"{count.production} retained physical lines"}]
+      for row in scan.metrics {
+        let found = if row.name == "blanket_dead_code_lines" and (inherited.get(count.path) ?? false) {
+          collect { for line in count.retained_lines { yield {path: count.path, line: line, detail: "inherited allow(dead_code) module scope"} } }
+        } else { row.evidence }
+        let amount = if row.name == "blanket_dead_code_lines" { found.len() } else { row.value }
+        totals[row.name] = (totals.get(row.name) ?? 0) + (if live { amount } else { 0 })
+        occurrences[row.name] = (occurrences.get(row.name) ?? []) + (if live { found } else { [] })
+      }
+      if live {
+        for item in scan.item_allowances { item_allowances += [{...item, inherited_module_scope: inherited.get(count.path) ?? false}] }
+      }
     }
   }
   let metrics = collect { for name in totals.keys() |> sort { yield {name: name, value: totals[name], evidence: occurrences[name]} } }
