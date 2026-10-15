@@ -359,9 +359,10 @@ The ordinary core applet host-boundary targets run with
 The `linux-priv-tests` feature enables credential, device, and private mount
 namespace cases in the pinned Linux image; these require root and fail when a
 required capability is absent. Their scratch tmpfs must use `nodev` so a
-block-device copy regression cannot open a host device. The same tests accept
-`XSH_CORE_COMPAT_REFERENCE_DIR=/usr/local/bin` to exercise the installed GNU
-9.12 tools with identical descriptor and fixture setup. Bound the container to
+block-device copy regression cannot open a host device. For GNU 9.12 comparison,
+stage the qualified reference tools and set `XSH_CORE_COMPAT_REFERENCE_DIR`
+to their directory. The tests use the same descriptor and fixture setup.
+`Dockerfile.test` does not install GNU reference tools. Bound the container to
 1 GiB for the large virtual `dd` buffer case; its empty input must not commit
 the virtual allocation to physical memory.
 
@@ -397,8 +398,8 @@ network or host device passthrough. Supply a fresh 256-bit lowercase
 same value as `XSH_DISPOSABLE_QEMU_NONCE`. Before starting `date`, the tests
 require the matching nonce, QEMU's DMI identity, its emulated CMOS RTC, and
 guest root; they must never run in a container sharing the host clock. Run the
-same filter with
-`XSH_CORE_COMPAT_REFERENCE_DIR=/usr/local/bin` inside the guest for GNU 9.12.
+same filter with the qualified GNU 9.12 tools staged inside the guest and
+`XSH_CORE_COMPAT_REFERENCE_DIR` set to their directory.
 The retained btrfs reflink case is ignored in ordinary gates. Run it with
 `--ignored` only in the same disposable guest, with guest-kernel BTRFS and
 `btrfs-progs`; it checks the same nonce, QEMU identity, CMOS RTC, and root
