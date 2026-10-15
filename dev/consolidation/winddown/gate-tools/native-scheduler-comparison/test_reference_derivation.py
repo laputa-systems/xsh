@@ -44,7 +44,10 @@ def make_candidate(root):
         "GIT_COMMITTER_EMAIL": "scheduler-qualification@example.invalid",
     })
     subprocess.run(
-        ["git", "-C", str(root), "commit", "--quiet", "-m", "candidate source"],
+        [
+            "git", "-C", str(root), "commit", "--quiet", "-m",
+            "test(scheduler): create candidate source",
+        ],
         check=True,
         env=env,
     )
@@ -61,10 +64,11 @@ def cloned_reference(candidate, reference):
 def test_derivation_patch_pin_and_ancestry():
     head = run_git(repo_root, "rev-parse", "HEAD")
     path = repo_root / compare.REFERENCE_AGGREGATE_PATCH_RELATIVE
+    patch_bytes = path.read_bytes()
     expected = {
         str(path): {
             "sha256": compare.REFERENCE_AGGREGATE_PATCH_SHA256,
-            "size_bytes": 12732,
+            "size_bytes": len(patch_bytes),
         }
     }
     assert compare.capture_reference_derivation_patches(repo_root, head) == expected
