@@ -62,10 +62,9 @@ fn gnu_misc_no_fork_runs_initial_evaluation_when_threads_are_forbidden() {
     // RLIMIT_NPROC counts threads for the real UID. Drop root in this child
     // only, because the kernel exempts privileged processes from that limit.
     unsafe { command.pre_exec(|| {
-        if libc::geteuid() == 0 {
-            if libc::setgid(1000) == -1 || libc::setuid(1000) == -1 {
-                return Err(std::io::Error::last_os_error());
-            }
+        if libc::geteuid() == 0
+            && (libc::setgid(1000) == -1 || libc::setuid(1000) == -1) {
+            return Err(std::io::Error::last_os_error());
         }
         let limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
         if libc::setrlimit(libc::RLIMIT_NPROC, &limit) == -1 {

@@ -504,7 +504,7 @@ impl<'a, 'ast> Visit<'ast> for LibcVisitor<'a> {
                 .imports
                 .crate_aliases
                 .contains(&segments[0].ident.to_string())
-            && segments[1].ident.to_string() == "stat";
+            && segments[1].ident == "stat";
         if raw_stat_type {
             for segment in segments {
                 visit::visit_path_segment(self, segment);
