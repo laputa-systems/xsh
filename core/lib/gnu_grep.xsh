@@ -678,13 +678,14 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
     let data = if leftover.is_empty() { chunk } else { bytes.concat([leftover, chunk]) }
     let marks = delimiter_positions(data, ctx.eol, zap)
     var begin = 0
-    var records = []
-    for mark in marks {
-      records += [data[begin..mark]]
-      begin = mark + 1
+    let records = collect {
+      for mark in marks {
+        yield data[begin..mark]
+        begin = mark + 1
+      }
+      yield data[begin..] when eof and begin < data.len()
     }
-    leftover = data[begin..]
-    if eof and ! leftover.is_empty() { records += [leftover]; leftover = b"" }
+    leftover = if eof { b"" } else { data[begin..] }
     # Plain strings: one native search over the buffer finds which records
     # can match at all, so the rest skip per-record matching.
     let possible = collect {

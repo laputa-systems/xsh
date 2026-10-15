@@ -288,28 +288,29 @@ pure group_count(pattern: Bytes, extended: Bool) -> Int {
 # GNU `\`` and `\'` anchor to the whole pattern space; the host matcher lacks
 # them, so they are rewritten to `^` and `$` outside bracket expressions.
 pure rewrite_anchors(pattern: Bytes) -> AnchorScan {
-  var out = []
   var at = 0
   var start = false
   var end = false
-  while at < pattern.len() {
-    let byte = at_byte(pattern, at)
-    if byte == 92 and at + 1 < pattern.len() {
-      let next = at_byte(pattern, at + 1)
-      if next == 96 { out += [b"^"]; start = true } else if next == 39 { out += [b"$"]; end = true } else { out += [pattern[at..at + 2]] }
-      at += 2
-      continue
-    }
-    if byte == 91 {
-      let close = bracket_end(pattern, at, false)
-      if close >= 0 {
-        out += [pattern[at..close]]
-        at = close
+  let out = collect {
+    while at < pattern.len() {
+      let byte = at_byte(pattern, at)
+      if byte == 92 and at + 1 < pattern.len() {
+        let next = at_byte(pattern, at + 1)
+        if next == 96 { yield b"^"; start = true } else if next == 39 { yield b"$"; end = true } else { yield pattern[at..at + 2] }
+        at += 2
         continue
       }
+      if byte == 91 {
+        let close = bracket_end(pattern, at, false)
+        if close >= 0 {
+          yield pattern[at..close]
+          at = close
+          continue
+        }
+      }
+      yield pattern[at..at + 1]
+      at += 1
     }
-    out += [pattern[at..at + 1]]
-    at += 1
   }
   {pattern: bytes.concat(out), start: start, end: end}
 }
@@ -693,17 +694,18 @@ pure blank_command(op: Int) -> Instruction {
 # Decode a `y` operand: `\\` is a backslash and `\n` a newline; the delimiter's
 # escape was already removed by the scan.
 pure translate_operand(text: Bytes) -> List[Int] {
-  var out = []
-  var at = 0
-  while at < text.len() {
-    let byte = at_byte(text, at)
-    if byte == 92 and at + 1 < text.len() {
-      let next = at_byte(text, at + 1)
-      if next == 92 { out += [92]; at += 2; continue }
-      if next == 110 { out += [10]; at += 2; continue }
+  let out = collect {
+    var at = 0
+    while at < text.len() {
+      let byte = at_byte(text, at)
+      if byte == 92 and at + 1 < text.len() {
+        let next = at_byte(text, at + 1)
+        if next == 92 { yield 92; at += 2; continue }
+        if next == 110 { yield 10; at += 2; continue }
+      }
+      yield byte
+      at += 1
     }
-    out += [byte]
-    at += 1
   }
   out
 }

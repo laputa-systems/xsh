@@ -325,23 +325,27 @@ export proc unexpand(data: Bytes, spec: Tabs, all: Bool, column_start = 0, by_by
       }
       if at == start { out += [data[at..at + 1]]; at += 1; held = at; column += 1; continue }
       var pos = origin
-      var blanks = []
       var converted = false
-      while pos < column {
-        let next = next_stop(pos, spec)
-        var boundary = origin
-        var cursor = start
-        var aligned = false
-        while cursor < at and boundary < next {
-          let unit = if by_bytes { {size: 1, width: 1} } else { character(data, cursor) }
-          boundary = if data.byte_at(cursor) == 9 { next_stop(boundary, spec) } else { boundary + unit.width }
-          cursor += unit.size
-          if boundary == next { aligned = true }
-        }
-        if next > pos and next <= column and aligned and (leading or at - start > 1 or value == 9) {
-          blanks += [b"\t"]; pos = next; converted = true
-        } else {
-          blanks += [bytes.from_text(padding(column - pos))]; pos = column
+      let blanks = collect {
+        while pos < column {
+          let next = next_stop(pos, spec)
+          var boundary = origin
+          var cursor = start
+          var aligned = false
+          while cursor < at and boundary < next {
+            let unit = if by_bytes { {size: 1, width: 1} } else { character(data, cursor) }
+            boundary = if data.byte_at(cursor) == 9 { next_stop(boundary, spec) } else { boundary + unit.width }
+            cursor += unit.size
+            if boundary == next { aligned = true }
+          }
+          if next > pos and next <= column and aligned and (leading or at - start > 1 or value == 9) {
+            yield b"\t"
+            pos = next
+            converted = true
+          } else {
+            yield bytes.from_text(padding(column - pos))
+            pos = column
+          }
         }
       }
       out += if converted { blanks } else { [data[start..at]] }

@@ -2120,14 +2120,15 @@ pure merge_integers(values: List[Int]) -> List[Int] {
   let middle = values.len() / 2
   let left = merge_integers(values[..middle])
   let right = merge_integers(values[middle..])
-  var merged = []
-  var i = 0
-  var j = 0
-  while i < left.len() and j < right.len() {
-    if right[j] < left[i] { merged += [right[j]]; j += 1 } else { merged += [left[i]]; i += 1 }
+  let merged = collect {
+    var i = 0
+    var j = 0
+    while i < left.len() and j < right.len() {
+      if right[j] < left[i] { yield right[j]; j += 1 } else { yield left[i]; i += 1 }
+    }
+    while i < left.len() { yield left[i]; i += 1 }
+    while j < right.len() { yield right[j]; j += 1 }
   }
-  while i < left.len() { merged += [left[i]]; i += 1 }
-  while j < right.len() { merged += [right[j]]; j += 1 }
   merged
 }
 
@@ -3362,14 +3363,15 @@ pure merge_sort(items: List[SortItem], descending: Bool) -> List[SortItem] {
   let middle = items.len() / 2
   let left = merge_sort(items[..middle], descending)
   let right = merge_sort(items[middle..], descending)
-  var merged: List[SortItem] = []
-  var i = 0
-  var j = 0
-  while i < left.len() and j < right.len() {
-    if item_before(right[j], left[i], descending) { merged += [right[j]]; j += 1 } else { merged += [left[i]]; i += 1 }
+  let merged = collect {
+    var i = 0
+    var j = 0
+    while i < left.len() and j < right.len() {
+      if item_before(right[j], left[i], descending) { yield right[j]; j += 1 } else { yield left[i]; i += 1 }
+    }
+    while i < left.len() { yield left[i]; i += 1 }
+    while j < right.len() { yield right[j]; j += 1 }
   }
-  while i < left.len() { merged += [left[i]]; i += 1 }
-  while j < right.len() { merged += [right[j]]; j += 1 }
   merged
 }
 # Days since 1970-01-01 of a proleptic Gregorian date.

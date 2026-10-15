@@ -45,16 +45,16 @@ pure literal_statement_label(line: Str) -> Str {
 }
 
 pure literal_statement_flow(items: List[Str]) -> List[Str] {
-  var seen = []
-  for item in items {
-    match item {
-      "skip" => continue
-      "stop" => { seen += [item]; break }
-      else => seen += [item]
+  collect {
+    for item in items {
+      match item {
+        "skip" => continue
+        "stop" => { yield item; break }
+        else => yield item
+      }
+      yield "after"
     }
-    seen += ["after"]
   }
-  seen
 }
 
 proc propagated_text_match(input: Result[Str]) [error] -> Result[Str] {

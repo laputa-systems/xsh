@@ -246,12 +246,13 @@ pure last_byte_separator(line: Bytes) -> Separator? {
 }
 
 pure byte_lines(data: Bytes) -> List[Bytes] {
-  var result = []
-  var start = 0
-  for at in range(data.len()) {
-    if data.byte_at(at) == 10 { result += [data[start..at]]; start = at + 1 }
+  let result = collect {
+    var start = 0
+    for at in range(data.len()) {
+      if data.byte_at(at) == 10 { yield data[start..at]; start = at + 1 }
+    }
+    yield data[start..] when start < data.len()
   }
-  if start < data.len() { result += [data[start..]] }
   result
 }
 

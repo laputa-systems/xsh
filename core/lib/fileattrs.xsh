@@ -94,26 +94,27 @@ export pure encode(value: Bytes, encoding: Str) -> Result[Bytes, Error] {
 export pure unquote_bytes(raw: Bytes, quoted = false) -> Result[Bytes, Error] {
   var text = raw
   if quoted and text.len() >= 2 and text.byte_at(0) == 34 and text.byte_at(text.len() - 1) == 34 { text = text[1..text.len() - 1] }
-  var decoded = []
-  var at = 0
-  while at < text.len() {
-    let byte = text.byte_at(at) ?? 0
-    at += 1
-    if byte != 92 or at == text.len() { decoded += [byte]; continue }
-    let next = text.byte_at(at) ?? 0
-    if next == 92 or next == 34 { decoded += [next]; at += 1; continue }
-    if next >= 48 and next <= 55 {
-      var value = 0
-      var count = 0
-      while at < text.len() and count < 3 {
-        let digit = text.byte_at(at) ?? 0
-        break when digit < 48 or digit > 55
-        value = value * 8 + digit - 48
-        count += 1
-        at += 1
-      }
-      decoded += [value % 256]
-    } else { decoded += [byte] }
+  let decoded = collect {
+    var at = 0
+    while at < text.len() {
+      let byte = text.byte_at(at) ?? 0
+      at += 1
+      if byte != 92 or at == text.len() { yield byte; continue }
+      let next = text.byte_at(at) ?? 0
+      if next == 92 or next == 34 { yield next; at += 1; continue }
+      if next >= 48 and next <= 55 {
+        var value = 0
+        var count = 0
+        while at < text.len() and count < 3 {
+          let digit = text.byte_at(at) ?? 0
+          break when digit < 48 or digit > 55
+          value = value * 8 + digit - 48
+          count += 1
+          at += 1
+        }
+        yield value % 256
+      } else { yield byte }
+    }
   }
   bytes.from_ints(decoded)
 }
