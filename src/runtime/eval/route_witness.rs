@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -172,36 +172,28 @@ impl NativeTestRouteWitnessTransport {
         file.flush()?;
         file.seek(SeekFrom::Start(0))?;
         Ok(Self {
-            fd: duplicate_cloexec_fd(file.as_raw_fd())?,
+            fd: duplicate_cloexec_fd(file.as_fd())?,
             nonce,
         })
     }
 
     fn attach_to(&self, command: &mut Command) -> std::io::Result<()> {
-        let child_fd = duplicate_cloexec_fd(self.fd.as_raw_fd())?;
+        let child_fd = duplicate_cloexec_fd(self.fd.as_fd())?;
         let child_fd_number = child_fd.as_raw_fd();
         command.env(
             TRANSPORT_MARKER_ENV,
             format!("{child_fd_number}:{}", encode_nonce(&self.nonce)),
         );
-        // SAFETY: `fcntl(F_GETFD/F_SETFD)` only inspects and changes the
-        // descriptor flag in the forked child. The closure owns child_fd until
-        // spawn completes, and F_SETFD clears close-on-exec only in that child.
+        // SAFETY: both rustix fcntl operations are async-signal-safe, and
+        // child_fd remains owned until spawn completes.
         unsafe {
             command.pre_exec(move || {
-                let flags = libc::fcntl(child_fd.as_raw_fd(), libc::F_GETFD);
-                if flags == -1 {
-                    Err(std::io::Error::last_os_error())
-                } else if libc::fcntl(
-                    child_fd.as_raw_fd(),
-                    libc::F_SETFD,
-                    flags & !libc::FD_CLOEXEC,
-                ) == -1
-                {
-                    Err(std::io::Error::last_os_error())
-                } else {
-                    Ok(())
-                }
+                let flags = rustix::io::fcntl_getfd(child_fd.as_fd())?;
+                rustix::io::fcntl_setfd(
+                    child_fd.as_fd(),
+                    flags & !rustix::io::FdFlags::CLOEXEC,
+                )?;
+                Ok(())
             });
         }
         Ok(())
@@ -276,8 +268,10 @@ fn inherited_transport_descriptor(
     }
     // SAFETY: successful fstat initialized the stat structure.
     let metadata = unsafe { metadata.assume_init() };
-    if metadata.st_mode & libc::S_IFMT != libc::S_IFREG
-        || metadata.st_size < (TRANSPORT_MAGIC.len() + TRANSPORT_NONCE_BYTES) as libc::off_t
+    if rustix::fs::FileType::from_raw_mode(metadata.st_mode)
+        != rustix::fs::FileType::RegularFile
+        || metadata.st_size
+            < (TRANSPORT_MAGIC.len() + TRANSPORT_NONCE_BYTES) as libc::off_t
     {
         return Ok(None);
     }
@@ -421,22 +415,9 @@ pub(crate) fn take_invocation_context(
     Ok((context, script_overlay))
 }
 
-fn duplicate_cloexec_fd(source_fd: RawFd) -> std::io::Result<OwnedFd> {
-    // SAFETY: source_fd is borrowed from a live File, and F_DUPFD_CLOEXEC
-    // returns a new descriptor at or above the requested minimum.
-    let duplicated_fd = unsafe {
-        libc::fcntl(
-            source_fd,
-            libc::F_DUPFD_CLOEXEC,
-            FIRST_INHERITABLE_FD,
-        )
-    };
-    if duplicated_fd == -1 {
-        return Err(std::io::Error::last_os_error());
-    }
-    debug_assert!(duplicated_fd >= FIRST_INHERITABLE_FD);
-    // SAFETY: fcntl returned a new descriptor owned by this function.
-    Ok(unsafe { OwnedFd::from_raw_fd(duplicated_fd) })
+fn duplicate_cloexec_fd(source_fd: impl AsFd) -> std::io::Result<OwnedFd> {
+    rustix::io::fcntl_dupfd_cloexec(source_fd, FIRST_INHERITABLE_FD)
+        .map_err(std::io::Error::from)
 }
 
 fn decode_transport(
@@ -961,13 +942,10 @@ mod tests {
     }
 
     fn descriptor_is_same_file(fd: RawFd, expected: &std::fs::Metadata) -> bool {
-        let Ok(duplicate) = duplicate_cloexec_fd(fd) else {
+        let path = Path::new("/dev/fd").join(fd.to_string());
+        let Ok(actual) = std::fs::metadata(path) else {
             return false;
         };
-        let duplicate = std::fs::File::from(duplicate);
-        let actual = duplicate
-            .metadata()
-            .expect("inspect duplicated descriptor");
         actual.dev() == expected.dev() && actual.ino() == expected.ino()
     }
 
@@ -981,7 +959,7 @@ mod tests {
             source,
         )
         .expect("prepare descriptor");
-        let fd = duplicate_cloexec_fd(transport.fd.as_raw_fd())
+        let fd = duplicate_cloexec_fd(transport.fd.as_fd())
             .expect("duplicate test transport");
         let raw_fd = fd.into_raw_fd();
         let marker = descriptor_marker(raw_fd, &transport.nonce);
@@ -998,7 +976,7 @@ mod tests {
             source,
         )
         .expect("prepare second descriptor");
-        let fd = duplicate_cloexec_fd(transport.fd.as_raw_fd())
+        let fd = duplicate_cloexec_fd(transport.fd.as_fd())
             .expect("duplicate second test transport");
         let raw_fd = fd.into_raw_fd();
         let marker = descriptor_marker(raw_fd, &transport.nonce);
@@ -1046,7 +1024,7 @@ mod tests {
             let fd = owned_descriptor(&bytes);
             let raw = fd.as_raw_fd();
             let identity = std::fs::File::from(
-                duplicate_cloexec_fd(raw).expect("keep transport identity available"),
+                duplicate_cloexec_fd(fd.as_fd()).expect("keep transport identity available"),
             );
             let identity = identity.metadata().expect("inspect transport identity");
             assert!(ChildCaptureContext::from_owned_descriptor(fd, &[0; TRANSPORT_NONCE_BYTES]).is_err());
@@ -1058,42 +1036,47 @@ mod tests {
     }
 
     #[test]
-    fn unmarked_inherited_fd_198_is_not_inspected_or_consumed() {
+    fn invalid_unopened_descriptor_marker_returns_inspection_error() {
+        let marker = descriptor_marker(RawFd::MAX, &[0; TRANSPORT_NONCE_BYTES]);
+        let result = inherited_transport_descriptor(Some(std::ffi::OsStr::new(&marker)));
+        assert!(matches!(
+            result,
+            Err(message) if message.starts_with("failed to inspect route-witness descriptor: ")
+        ));
+    }
+
+    #[test]
+    fn unmarked_inherited_fd_at_or_above_198_is_not_inspected_or_consumed() {
         let unrelated = owned_descriptor(b"ordinary inherited descriptor");
-        let existing = unsafe { libc::fcntl(198, libc::F_GETFD) };
-        let _owner = if existing == -1 {
-            let duplicate = unsafe {
-                libc::fcntl(
-                    unrelated.as_raw_fd(),
-                    libc::F_DUPFD_CLOEXEC,
-                    198,
-                )
-            };
-            assert_eq!(duplicate, 198);
-            Some(unsafe { OwnedFd::from_raw_fd(duplicate) })
-        } else {
-            None
-        };
-        let before_flags = unsafe { libc::fcntl(198, libc::F_GETFD) };
-        let before_offset = unsafe { libc::lseek(198, 0, libc::SEEK_CUR) };
+        let inherited = rustix::io::fcntl_dupfd_cloexec(unrelated.as_fd(), 198)
+            .expect("duplicate an unrelated descriptor above the reserved range");
+        let before_flags = rustix::io::fcntl_getfd(inherited.as_fd())
+            .expect("inspect inherited descriptor flags");
+        let before_offset = rustix::fs::tell(inherited.as_fd()).expect("inspect file offset");
         assert!(inherited_transport_descriptor(None)
             .expect("an absent marker is normal")
             .is_none());
-        assert_eq!(unsafe { libc::fcntl(198, libc::F_GETFD) }, before_flags);
-        assert_eq!(unsafe { libc::lseek(198, 0, libc::SEEK_CUR) }, before_offset);
+        assert_eq!(
+            rustix::io::fcntl_getfd(inherited.as_fd()).expect("inspect inherited descriptor flags"),
+            before_flags,
+        );
+        assert_eq!(
+            rustix::fs::tell(inherited.as_fd()).expect("inspect file offset"),
+            before_offset,
+        );
     }
 
     #[test]
     fn mismatched_descriptor_marker_leaves_an_unrelated_fd_untouched() {
         let fd = owned_descriptor(b"ordinary inherited descriptor");
         let raw = fd.as_raw_fd();
-        let before = unsafe { libc::lseek(raw, 0, libc::SEEK_CUR) };
+        let before = rustix::fs::tell(fd.as_fd()).expect("inspect file offset");
         let marker = descriptor_marker(raw, &[0xff; TRANSPORT_NONCE_BYTES]);
         assert!(inherited_transport_descriptor(Some(std::ffi::OsStr::new(&marker)))
             .expect("a marker mismatch is unrelated")
             .is_none());
-        assert!(unsafe { libc::fcntl(raw, libc::F_GETFD) } != -1);
-        assert_eq!(unsafe { libc::lseek(raw, 0, libc::SEEK_CUR) }, before);
+        rustix::io::fcntl_getfd(fd.as_fd()).expect("unrelated descriptor remains open");
+        assert_eq!(rustix::fs::tell(fd.as_fd()).expect("inspect file offset"), before);
     }
 
     #[test]

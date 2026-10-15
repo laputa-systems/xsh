@@ -427,6 +427,9 @@ struct LibcVisitor<'a> {
     file_path: &'a str,
     migratable: &'a [(String, String)],
     imports: &'a Imports,
+    raw_fd_boundary: bool,
+    function_depth: usize,
+    module_depth: usize,
     violations: Vec<Violation>,
 }
 
@@ -456,6 +459,61 @@ impl<'a> LibcVisitor<'a> {
 }
 
 impl<'a, 'ast> Visit<'ast> for LibcVisitor<'a> {
+    fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
+        let previous_boundary = self.raw_fd_boundary;
+        self.raw_fd_boundary = self.file_path == "src/runtime/eval/route_witness.rs"
+            && self.module_depth == 0
+            && self.function_depth == 0
+            && item.sig.ident == "inherited_transport_descriptor";
+        self.function_depth += 1;
+        visit::visit_item_fn(self, item);
+        self.function_depth -= 1;
+        self.raw_fd_boundary = previous_boundary;
+    }
+
+    fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
+        let previous_boundary = self.raw_fd_boundary;
+        self.raw_fd_boundary = false;
+        self.function_depth += 1;
+        visit::visit_impl_item_fn(self, item);
+        self.function_depth -= 1;
+        self.raw_fd_boundary = previous_boundary;
+    }
+
+    fn visit_trait_item_fn(&mut self, item: &'ast syn::TraitItemFn) {
+        let previous_boundary = self.raw_fd_boundary;
+        self.raw_fd_boundary = false;
+        self.function_depth += 1;
+        visit::visit_trait_item_fn(self, item);
+        self.function_depth -= 1;
+        self.raw_fd_boundary = previous_boundary;
+    }
+
+    fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
+        self.module_depth += 1;
+        visit::visit_item_mod(self, item);
+        self.module_depth -= 1;
+    }
+
+    fn visit_type_path(&mut self, type_path: &'ast syn::TypePath) {
+        let segments = &type_path.path.segments;
+        let raw_stat_type = self.raw_fd_boundary
+            && type_path.qself.is_none()
+            && segments.len() == 2
+            && self
+                .imports
+                .crate_aliases
+                .contains(&segments[0].ident.to_string())
+            && segments[1].ident.to_string() == "stat";
+        if raw_stat_type {
+            for segment in segments {
+                visit::visit_path_segment(self, segment);
+            }
+        } else {
+            visit::visit_type_path(self, type_path);
+        }
+    }
+
     fn visit_path(&mut self, path: &'ast syn::Path) {
         let segs: Vec<_> = path.segments.iter().collect();
         if segs.len() >= 2
@@ -464,9 +522,10 @@ impl<'a, 'ast> Visit<'ast> for LibcVisitor<'a> {
                 .crate_aliases
                 .contains(&segs[0].ident.to_string())
         {
-            // `<FROM_CRATE>::X` (or `alias::X`).
             let symbol = segs[1].ident.to_string();
-            if let Some(sug) = self.suggestion_for(&symbol) {
+            let raw_fd_operation = self.raw_fd_boundary
+                && matches!(symbol.as_str(), "fstat" | "pread");
+            if !raw_fd_operation && let Some(sug) = self.suggestion_for(&symbol) {
                 let sug = sug.to_string();
                 self.flag(symbol, sug, segs[1].ident.span().start().line);
             }
@@ -498,6 +557,37 @@ fn path_key(path: &Path) -> String {
         .replace('\\', "/")
 }
 
+fn collect_libc_violations(
+    ast: &File,
+    file_path: &str,
+    migratable: &[(String, String)],
+) -> Vec<Violation> {
+    let mut uses = UseCollector {
+        file_path,
+        migratable,
+        imports: Imports {
+            crate_aliases: [FROM_CRATE.to_string()].into_iter().collect(),
+            ..Default::default()
+        },
+    };
+    uses.visit_file(ast);
+    let mut imports = uses.imports;
+    let mut violations = std::mem::take(&mut imports.import_violations);
+
+    let mut visitor = LibcVisitor {
+        file_path,
+        migratable,
+        imports: &imports,
+        raw_fd_boundary: false,
+        function_depth: 0,
+        module_depth: 0,
+        violations: Vec::new(),
+    };
+    visitor.visit_file(ast);
+    violations.extend(visitor.violations);
+    violations
+}
+
 // ── test ──────────────────────────────────────────────────────────────────────
 
 #[test]
@@ -524,26 +614,7 @@ fn no_migratable_libc_calls() {
             }
         };
 
-        let mut uses = UseCollector {
-            file_path: &key,
-            migratable: &migratable,
-            imports: Imports {
-                crate_aliases: [FROM_CRATE.to_string()].into_iter().collect(),
-                ..Default::default()
-            },
-        };
-        uses.visit_file(&ast);
-        let mut imports = uses.imports;
-        violations.append(&mut imports.import_violations);
-
-        let mut visitor = LibcVisitor {
-            file_path: &key,
-            migratable: &migratable,
-            imports: &imports,
-            violations: Vec::new(),
-        };
-        visitor.visit_file(&ast);
-        violations.extend(visitor.violations);
+        violations.extend(collect_libc_violations(&ast, &key, &migratable));
     }
 
     if !violations.is_empty() {
@@ -560,4 +631,80 @@ fn no_migratable_libc_calls() {
         );
         panic!("libc hygiene check failed (see stderr above)");
     }
+}
+
+#[test]
+fn raw_fd_boundary_exception_matches_only_its_exact_ast_scope() {
+    let migratable = ["stat", "fstat", "pread", "lseek"]
+        .into_iter()
+        .map(|symbol| (symbol.to_string(), format!("rustix::{symbol}()")))
+        .collect::<Vec<_>>();
+    let source = r#"
+fn inherited_transport_descriptor() {
+    let _: libc::stat;
+    let _ = libc::stat();
+    let _: std::mem::MaybeUninit<[u8; { libc::stat() }]>;
+    unsafe { libc::fstat(3, std::ptr::null_mut()); }
+    unsafe { libc::pread(3, std::ptr::null_mut(), 0, 0); }
+    unsafe { libc::lseek(3, 0, 0); }
+}
+
+fn another_function() {
+    let _: libc::stat;
+    unsafe { libc::fstat(3, std::ptr::null_mut()); }
+    unsafe { libc::pread(3, std::ptr::null_mut(), 0, 0); }
+}
+
+mod nested {
+    fn inherited_transport_descriptor() {
+        let _: libc::stat;
+        unsafe { libc::fstat(3, std::ptr::null_mut()); }
+        unsafe { libc::pread(3, std::ptr::null_mut(), 0, 0); }
+    }
+}
+
+impl Example {
+    fn inherited_transport_descriptor(&self) {
+        let _: libc::stat;
+        unsafe { libc::fstat(3, std::ptr::null_mut()); }
+        unsafe { libc::pread(3, std::ptr::null_mut(), 0, 0); }
+    }
+}
+"#;
+    let ast = syn::parse_file(source).expect("parse scanner fixture");
+    let exact_file = collect_libc_violations(
+        &ast,
+        "src/runtime/eval/route_witness.rs",
+        &migratable,
+    );
+    let mut exact_file_symbols = exact_file
+        .iter()
+        .map(|violation| violation.symbol.as_str())
+        .collect::<Vec<_>>();
+    exact_file_symbols.sort_unstable();
+    assert_eq!(
+        exact_file_symbols,
+        [
+            "fstat", "fstat", "fstat", "lseek", "pread", "pread", "pread", "stat", "stat",
+            "stat", "stat", "stat",
+        ],
+    );
+
+    let other_file = collect_libc_violations(
+        &ast,
+        "src/runtime/eval/other.rs",
+        &migratable,
+    );
+    let mut other_file_symbols = other_file
+        .iter()
+        .map(|violation| violation.symbol.as_str())
+        .collect::<Vec<_>>();
+    other_file_symbols.sort_unstable();
+    assert_eq!(
+        other_file_symbols,
+        [
+            "fstat", "fstat", "fstat", "fstat", "lseek", "pread", "pread", "pread", "pread",
+            "stat", "stat", "stat", "stat", "stat", "stat",
+        ],
+    );
 }
