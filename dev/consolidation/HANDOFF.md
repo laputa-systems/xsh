@@ -25,10 +25,21 @@ The native log SHA-256 is
 `9b1fbd702792d97f82f277851cd241d33584bab96437c53fb8b37b1fbb39a27d`.
 Native timing is discarded. No later final gate ran.
 
-The scanner owner is profiling the remaining lexer and source-counting work.
-A separate read-only review is checking those same paths for removable work.
-Use a bounded focused contention probe before restarting the full suite.
-Keep the original two-minute test bound and runtime type guards.
+The scanner traversal correction `a8c650ecc` reuses delimiter-stack slots and
+advances through sorted exclusion spans once per token pass. Retained-line
+accounting inserts each covered line once. Independent review found no P1 or
+P2 defect. All 38 focused checks passed, and both exact scanner checks passed
+at 0.33 CPU with their original two-minute bounds. These are diagnostic
+contention checks, not additional release gates or performance claims.
+
+The complete baseline and current-source reports and allowance inventories
+match the retained outputs byte for byte. The receipt is
+`.work/consolidation/final-scanner-parity-1dd8526-a1/receipt.md`
+(SHA-256 `ee4636a765d0d6b0e9a9bc152375bbff50ecc9e9b7e21657e71446d943f2118d`).
+The tested scanner is `1dd85263`; integrated `b1c35615` differs only by deletion
+of the stale sentinel comment. Its successor-provenance check passed with the
+original baseline proofs. A single lexer comparison supports no speedup claim.
+Seal the next close and refresh its pins before the next full-suite attempt.
 
 The `4d92c010` attempt passed its pinned release build and both build
 readiness checks. The native monitor stopped at the first red row:
