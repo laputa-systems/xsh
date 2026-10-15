@@ -3642,7 +3642,7 @@ impl ConstantPreparation<'_> {
                     }
                 }
                 let value = LiteralConstant::Record(Arc::new(values));
-                self.prepared.types.insert(id, Type::Record(field_types.into()));
+                self.prepared.types.insert(id, Type::Record(field_types));
                 self.pending_constructors
                     .push((id, inference.instance, value.clone()));
                 self.constructor_group_depth -= 1;

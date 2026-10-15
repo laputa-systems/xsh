@@ -577,13 +577,12 @@ impl Checker {
             source,
             view.statement_ids(),
         );
-        let uses_bytes = checker.procs.get(&super::Name::intern("main")).is_some_and(|signature| {
+        checker.procs.get(&super::Name::intern("main")).is_some_and(|signature| {
             matches!(signature.params.as_slice(), [parameter]
                 if parameter.rest && !parameter.defaulted
                     && matches!(&parameter.ty, super::Type::List(item)
                         if item.as_ref() == &super::Type::Bytes))
-        });
-        uses_bytes
+        })
     }
 
     fn extend_effect_summaries(
