@@ -920,6 +920,18 @@ ARENA_SHAPES = arena_shape_source()
 
 
 class SemanticRouteMatrixTests(unittest.TestCase):
+    def test_runtime_oracle_commands_select_native_or_rust_runner(self) -> None:
+        xsh_id = "tests/xsh/expression-route-oracles.xsh::test_expr_match"
+        rust_id = "runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_input_that_names_a_statement"
+        self.assertEqual(
+            generate.runtime_oracle_commands(xsh_id, {rust_id}),
+            generate.native_commands(xsh_id),
+        )
+        self.assertEqual(
+            generate.runtime_oracle_commands(rust_id, {rust_id}),
+            {"verification": generate.rust_test_command(rust_id)},
+        )
+
     def route_witness_receipt_fixture(
         self,
         root: pathlib.Path,
@@ -2672,7 +2684,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
     def test_unmapped_defensive_path_cannot_disappear_from_gap_report(self) -> None:
         path = {
             "tag": "ExprPipeline",
-            "path": "missing_lowered_pipeline_input",
+            "path": "absent_or_truncated_lowered_pipeline_input",
             "modes": ["normal", "forced"],
             "reason": "no corruption oracle",
             "source": ["serial_pipeline.rs:262"],

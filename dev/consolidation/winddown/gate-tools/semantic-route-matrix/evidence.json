@@ -2027,6 +2027,13 @@
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/expression-route-oracles.xsh::test_expr_dynamic_call is associated with ExprDynamicCall; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
     },
+    "ExprEmptyMap": {
+      "ids": [
+        "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map"
+      ],
+      "proof_kind": "runtime",
+      "scope": "Exact source oracle tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map exercises ExprEmptyMap behavior; route identity remains pending authenticated execution evidence."
+    },
     "ExprErr": {
       "ids": [
         "tests/xsh/expression-route-oracles.xsh::test_expr_err"
@@ -2152,6 +2159,13 @@
       ],
       "proof_kind": "runtime",
       "scope": "Exact source oracle tests/xsh/typed-scalar-route-oracles.xsh::test_expr_path is associated with ExprPath; normal/forced behavior remains pending authenticated execution evidence and does not prove route identity."
+    },
+    "ExprPipeline": {
+      "ids": [
+        "runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_input_that_names_a_statement"
+      ],
+      "proof_kind": "verifier_rejection",
+      "scope": "This Rust oracle changes an ExprPipeline input to reference a statement and checks the wrong-category verifier error; it does not cover absent or truncated payloads and does not claim a runtime route."
     },
     "ExprPathFmtString": {
       "ids": [
@@ -2998,7 +3012,6 @@
   "static_or_rejection_reasons": {
     "ExprAbort": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_abort exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
     "ExprArchiveTarCreate": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_archive_tar_create exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprEmptyMap": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_empty_map exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
     "ExprError": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_error exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
     "ExprFail": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_fail exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
     "ExprField": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_field exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
@@ -3027,7 +3040,6 @@
     "ExprPathRemove": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_remove exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
     "ExprPathResolve": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_resolve exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
     "ExprPathWrite": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_path_write exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
-    "ExprPipeline": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_pipeline exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
     "ExprRange": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_range exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
     "ExprSlice": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_slice exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
     "ExprStrByteAt": "No exact registered route oracle tests/xsh/expression-route-oracles.xsh::test_expr_str_byte_at exists in the current source inventory. This tag retains schema and dispatch source review only; no runtime behavior or route coverage is claimed.",
@@ -3038,7 +3050,6 @@
   "static_or_rejection_tags": [
     "ExprAbort",
     "ExprArchiveTarCreate",
-    "ExprEmptyMap",
     "ExprError",
     "ExprFail",
     "ExprField",
@@ -3067,7 +3078,6 @@
     "ExprPathRemove",
     "ExprPathResolve",
     "ExprPathWrite",
-    "ExprPipeline",
     "ExprRange",
     "ExprSlice",
     "ExprStrByteAt",
@@ -3082,8 +3092,8 @@
         "normal",
         "forced"
       ],
-      "path": "missing_lowered_pipeline_input",
-      "reason": "No corruption oracle currently exercises the verifier-rejected missing pipeline input.",
+      "path": "absent_or_truncated_lowered_pipeline_input",
+      "reason": "No oracle exercises an absent or truncated pipeline payload; the existing pipeline corruption oracle covers a present input that references a statement and is rejected for the wrong category.",
       "route_behaviors": {
         "forced": {
           "result_message": "verifier rejection before explicit-frame dispatch"
@@ -3093,8 +3103,8 @@
         }
       },
       "source": [
-        "src/runtime/eval/indexed/full.rs:21286",
-        "src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:262"
+        "src/runtime/eval/indexed/full.rs::FullVerifier::verify",
+        "src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs::indexed_value_pipeline_input"
       ],
       "structural_note": "The verifier rejects this malformed input before normal or forced execution reaches it.",
       "tag": "ExprPipeline"
