@@ -71,7 +71,6 @@ const PATTERN_SCHEMA_ORDINALS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9
 const REVIEW_SOURCE_PATHS = ["src", "crates", "tests", "core", "examples", "showcase", "tools", "dev/tests", "dev/consolidation_metrics.xsh", "dev/consolidation_metrics_current.xsh", "dev/consolidation/metrics.xsh"]
 const SOURCE_ADVISORY_METRICS = ["source_lines_src", "source_lines_xsht"]
 const FINAL_ZERO_METRICS = ["manual_payload_calls", "optional_raw_calls", "wide_arena_wildcards", "blanket_dead_code_lines"]
-# A missing lookahead token keeps delimiter and attribute scans within the token map.
 const end_token: Token = Token(text: "", start: 0, end: 0, line: 0, last_line: 0, literal: false)
 
 pure ident_start(value: Str) -> Bool {
