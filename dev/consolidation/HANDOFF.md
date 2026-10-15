@@ -42,15 +42,29 @@ work is authorized by this resume.
   can create parents. AWK's missing-parent case uses its private `@DIR@` tree.
   Tail's root unreadable fixture drops DAC override capabilities and gives the
   inner timeout time to return. No public API changes are introduced.
-- The required Clippy gate on unchanged `0d6` Rust failed. Its
-  [diagnostics](evidence/clippy-0d6/stderr.log) are retained. Six disjoint cleanup
-  lanes are combined in `campaign/clippy-integration-577b`; the first combined
-  run exposed ten follow-up findings. That integration is not accepted on main.
+- Reviewed Clippy cleanup is integrated at `c1c6e4c87`. The required all-target,
+  all-feature lint gate passes. Forty focused debug tests and 23 native tests
+  pass. Eight paired repository/Laputa check and lint invocations exit zero.
+  Their diagnostic bytes match after excluding only the final timing summary.
+  [The retained batch](evidence/clippy-4d7b/README.md) includes the two failed
+  lint iterations and the corrected fixture-mount run. These focused checks
+  do not close canonical acceptance.
+- Current structural measures retain all four hard zeros, 152 instruction
+  variants, 17 patterns, 46 stages, one predicate, and two storage mappings.
+  Production source is 268,504 lines, 25 above the qualified baseline.
+  The current eight-root trace records eight requests, one prepare, seven
+  reuses, one check, and seven check hits. These are cache events.
+  The synthetic compiler probe requires 35 XSH edits and 19 XSHT arms.
+  Its diagnostic commit `18c9a6c10` must never merge.
 - Five W9 harness builds qualified on `0d6`. Fresh capture failed in the e240
   reference worker on index 1655, `tests/xsh/system-report.xsh`; candidate capture
   did not start. Both an exact range replay and a single-file replay hit the
-  unchanged 1 GiB cgroup limit with one OOM kill and no swap. Serialization
-  allocation profiling is in progress. [OOM evidence](evidence/w9-reference-137/single-1655/cgroup-oom-observed.txt)
+  unchanged 1 GiB cgroup limit with one OOM kill and no swap. The
+  [marker probe](evidence/w9-memory-format/README.md) localizes the kill to full
+  pretty-Debug formatting after
+  the checker returns. A compact-format diagnostic completes this input within
+  the same cap. Publication equivalence is still unproved, so the capture
+  remains unqualified. [OOM evidence](evidence/w9-reference-137/single-1655/cgroup-oom-observed.txt)
   retains the bound and kill. Partial ranges have no parity credit.
 - Capability branch `campaign/typing-capability-witnesses`, commit `b6d4a6d1a`,
   records six native witnesses: two existing rejection controls pass and four
@@ -65,9 +79,13 @@ work is authorized by this resume.
   [failed candidate](evidence/typing-alias-failed-3b7c/constraints-module.stdout),
   and [green candidate](evidence/typing-alias-green-b556/constraints-module.stdout)
   remain separate. This prerequisite is isolated, not merged or a speedup claim.
-- First-slice design branch `campaign/typing-inference-design` retains `368eef5b3`.
-  Review requires explicit binder-scoped generic body facts, one imported-scheme
-  handoff, and coherent parser caller migration before broader interfaces freeze.
+- The reviewed [first inference slice](designs/inference.md) is integrated as
+  a design only. One implementation owner works in
+  `campaign/typing-rank1-integration`, starting at `63add2b2d`. That branch
+  combines the reviewed alias repair, Clippy changes, and red witnesses.
+  It owns pure identity/projection schemes through parser, checker, imports,
+  immutable body facts, lowering, and verification. Main has no inference
+  implementation or red capability tests. Lean remains paused.
 
 ### Verified since resume
 
@@ -304,8 +322,10 @@ consolidation source separately. Lean and Phase F remain paused.
 
 Prompt: "Resume consolidation acceptance from this handoff. Keep Lean paused.
 Follow the campaign's successor direction only after its prerequisites close."
-For a typing-only resume, require consolidation acceptance first, then judge
-Phases B–E independently of deferred Phase F. The explicit owner resume above authorizes consolidation and typing only.
+For an inference resume, continue the isolated first slice while consolidation
+acceptance runs. Shared integration and the accepted performance baseline still
+wait for consolidation acceptance. Judge Phases B–E independently of deferred
+Phase F. The owner authorized consolidation and typing only.
 
 First command, from the repository root:
 

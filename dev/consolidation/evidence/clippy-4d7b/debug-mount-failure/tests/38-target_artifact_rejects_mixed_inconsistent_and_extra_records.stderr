@@ -1,0 +1,4 @@
+
+thread 'runtime::eval::route_witness::tests::target_artifact_rejects_mixed_inconsistent_and_extra_records' (121) panicked at src/runtime/eval/route_witness.rs:871:38:
+create repository scratch directory: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

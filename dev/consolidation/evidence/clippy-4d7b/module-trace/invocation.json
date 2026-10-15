@@ -1,0 +1,78 @@
+{
+  "container_argv": [
+    "/candidate/xsht",
+    "lint",
+    "."
+  ],
+  "container_environment": {
+    "LD_PRELOAD": "",
+    "TMPDIR": "/scratch",
+    "XSH_W9_CACHE_TRACE": "/scratch/lint.tsv"
+  },
+  "host_argv": [
+    "docker",
+    "run",
+    "--rm",
+    "--platform",
+    "linux/amd64",
+    "--cpus=2",
+    "--cpuset-cpus=12",
+    "--name=xsh-module-trace-clippy4d7b",
+    "--memory=2g",
+    "--memory-swap=2g",
+    "--network",
+    "none",
+    "-v",
+    "/home/josh/d/laputa-systems/xsh/.work/target-clippy-integration/x86_64-unknown-linux-musl/verification:/candidate:ro",
+    "-v",
+    "/home/josh/d/laputa-systems/xsh/.work/tmp/consolidation-resume-w9:/fixture:ro",
+    "-v",
+    "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-clippy-integration/.work/tmp/module-trace-clippy4d7b:/scratch:rw",
+    "-w",
+    "/fixture",
+    "-e",
+    "TMPDIR=/scratch",
+    "-e",
+    "XSH_W9_CACHE_TRACE=/scratch/lint.tsv",
+    "-e",
+    "LD_PRELOAD=",
+    "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+    "/candidate/xsht",
+    "lint",
+    "."
+  ],
+  "host_cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-clippy-integration",
+  "host_environment": {
+    "HOME": "/home/josh",
+    "LC_ALL": "C",
+    "PATH": "/home/josh/.codex/packages/standalone/releases/0.162.1-x86_64-unknown-linux-musl/codex-path:/home/josh/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "TMPDIR": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-clippy-integration/.work/tmp/module-trace-clippy4d7b"
+  },
+  "host_environment_policy": "Docker allowlist; LD_PRELOAD omitted; TMPDIR points to scratch",
+  "image": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+  "mounts": [
+    {
+      "mode": "ro",
+      "source": "/home/josh/d/laputa-systems/xsh/.work/target-clippy-integration/x86_64-unknown-linux-musl/verification",
+      "target": "/candidate"
+    },
+    {
+      "mode": "ro",
+      "source": "/home/josh/d/laputa-systems/xsh/.work/tmp/consolidation-resume-w9",
+      "target": "/fixture"
+    },
+    {
+      "mode": "rw",
+      "source": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-clippy-integration/.work/tmp/module-trace-clippy4d7b",
+      "target": "/scratch"
+    }
+  ],
+  "resource_limits": {
+    "cpus": 2,
+    "cpuset": "12",
+    "memory_bytes": 2147483648,
+    "memory_swap_bytes": 2147483648,
+    "network": "none",
+    "platform": "linux/amd64"
+  }
+}

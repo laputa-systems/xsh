@@ -1,0 +1,108 @@
+error: this `if` statement can be collapsed
+   --> tests/core_compat_extra/pty.rs:113:5
+    |
+113 | /     if !write_after_spawn {
+114 | |         if let Some(terminal) = &mut terminals[0] { terminal.master.write_all(input).unwrap(); }
+115 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+113 ~     if !write_after_spawn
+114 ~         && let Some(terminal) = &mut terminals[0] { terminal.master.write_all(input).unwrap(); }
+    |
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+   --> tests/core_compat_extra/pty.rs:529:21
+    |
+529 |         let width = UnicodeWidthChar::width(character).expect("printable terminal character") as usize;
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `UnicodeWidthChar::width(character).expect("printable terminal character")`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_cast
+    = note: `-D clippy::unnecessary-cast` implied by `-D clippy::complexity`
+    = help: to override `-D clippy::complexity` add `#[allow(clippy::unnecessary_cast)]`
+
+error: this `if` statement can be collapsed
+   --> tests/core_compat_extra/lifecycle.rs:142:13
+    |
+142 | /             if libc::geteuid() == 0 {
+143 | |                 if libc::setgroups(0, std::ptr::null()) != 0
+144 | |                     || libc::setgid(65534) != 0 || libc::setuid(65534) != 0 {
+145 | |                     return Err(std::io::Error::last_os_error());
+146 | |                 }
+147 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+142 ~             if libc::geteuid() == 0
+143 ~                 && (libc::setgroups(0, std::ptr::null()) != 0
+144 ~                     || libc::setgid(65534) != 0 || libc::setuid(65534) != 0) {
+145 |                     return Err(std::io::Error::last_os_error());
+146 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+  --> tests/core_compat_extra/startup.rs:65:9
+   |
+65 | /         if libc::geteuid() == 0 {
+66 | |             if libc::setgid(1000) == -1 || libc::setuid(1000) == -1 {
+67 | |                 return Err(std::io::Error::last_os_error());
+68 | |             }
+69 | |         }
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+   |
+65 ~         if libc::geteuid() == 0
+66 ~             && (libc::setgid(1000) == -1 || libc::setuid(1000) == -1) {
+67 |                 return Err(std::io::Error::last_os_error());
+68 ~             }
+   |
+
+error: could not compile `xsh` (test "core_compat_extra_privileged") due to 4 previous errors
+error: could not compile `xsh` (test "core_compat_extra") due to 4 previous errors
+error: using a non-octal value to set unix file permissions
+   --> tests/grammar.rs:314:72
+    |
+314 |     std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0))
+    |                                                                        ^ help: consider using an octal literal instead: `0o0`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#non_octal_unix_permissions
+    = note: `-D clippy::non-octal-unix-permissions` implied by `-D clippy::correctness`
+    = help: to override `-D clippy::correctness` add `#[allow(clippy::non_octal_unix_permissions)]`
+
+error: this creates an owned instance just for comparison
+   --> tests/libc_hygiene.rs:507:16
+    |
+507 |             && segments[1].ident.to_string() == "stat";
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `segments[1].ident`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#cmp_owned
+    = note: `-D clippy::cmp-owned` implied by `-D clippy::perf`
+    = help: to override `-D clippy::perf` add `#[allow(clippy::cmp_owned)]`
+
+error: the borrowed expression implements the required traits
+   --> tests/sema.rs:924:57
+    |
+924 |         let declarations = compact_check(&parsed.arena, &source);
+    |                                                         ^^^^^^^ help: change this to: `source`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrows_for_generic_args
+    = note: `-D clippy::needless-borrows-for-generic-args` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::needless_borrows_for_generic_args)]`
+
+error: the borrowed expression implements the required traits
+   --> tests/sema.rs:959:57
+    |
+959 |         let declarations = compact_check(&parsed.arena, &source);
+    |                                                         ^^^^^^^ help: change this to: `source`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrows_for_generic_args
+
+error: could not compile `xsh` (test "integration") due to 4 previous errors

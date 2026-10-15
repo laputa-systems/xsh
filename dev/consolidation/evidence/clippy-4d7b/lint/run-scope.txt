@@ -1,0 +1,7 @@
+source=4d7b0d0d103ab2bff68bf0a019e7a172cb9ce6ae tree=bf7a566fbf2ca782a4473307746cec9be01d7ff1 clean base=577bebfb92aa381573a8df6bc7b3601ea42cb652
+image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c platform=linux/amd64
+cpuset=4-11 cpu_quota=8 memory=16g memory_swap=16g(no swap) network=none
+profile=Cargo default; no explicit profile
+preload=jemalloc for build container only; no test execution
+source mount=/work:ro target mount=/work/target:rw scratch mount=/scratch:rw
+command=cargo clippy --locked --offline --target x86_64-unknown-linux-musl --all-targets --all-features --quiet -- -D warnings

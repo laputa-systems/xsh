@@ -1,0 +1,1 @@
+/artifact/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 runtime::eval::indexed::full::tests::instruction_schema_list_views_keep_real_typed_child_ids --exact --nocapture

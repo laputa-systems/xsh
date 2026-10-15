@@ -1,0 +1,1 @@
+tests/xsh/typed-callables.xsh::test_typed_callable_map_literal_is_checked_and_called

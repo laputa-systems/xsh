@@ -1,0 +1,1 @@
+/artifact/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 runtime::eval::indexed::full::tests::pattern_schema_views_cover_all_rows_and_keep_fields_borrowed --exact --nocapture

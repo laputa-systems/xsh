@@ -1,0 +1,1 @@
+/artifact/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 project::tests::a_malformed_config_is_an_error_not_an_empty_module_path --exact --nocapture

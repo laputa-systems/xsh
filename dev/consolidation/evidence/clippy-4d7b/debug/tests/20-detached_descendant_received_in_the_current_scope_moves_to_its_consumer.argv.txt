@@ -1,0 +1,1 @@
+/artifact/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 runtime::eval::net_job::tests::detached_descendant_received_in_the_current_scope_moves_to_its_consumer --exact --nocapture

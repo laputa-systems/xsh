@@ -1,0 +1,1 @@
+/artifact/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 runtime::eval::route_witness::tests::descriptor_transport_round_trips_and_checks_the_loaded_source --exact --nocapture

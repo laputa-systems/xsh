@@ -1,0 +1,4 @@
+
+thread 'runtime::eval::route_witness::tests::artifact_validation_rejects_malformed_and_wrong_mode_records' (94) panicked at src/runtime/eval/route_witness.rs:871:38:
+create repository scratch directory: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

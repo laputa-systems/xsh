@@ -1,0 +1,8 @@
+name=xsh
+container_path=/work/target/x86_64-unknown-linux-musl/verification/xsh
+host_path=/home/josh/d/laputa-systems/xsh/.work/target-clippy-integration/x86_64-unknown-linux-musl/verification/xsh
+1be6688ba89fec73eb7c4d765b59e22a3338c23c9562cad36ad476bd0feb9847  /home/josh/d/laputa-systems/xsh/.work/target-clippy-integration/x86_64-unknown-linux-musl/verification/xsh
+name=xsht
+container_path=/work/target/x86_64-unknown-linux-musl/verification/xsht
+host_path=/home/josh/d/laputa-systems/xsh/.work/target-clippy-integration/x86_64-unknown-linux-musl/verification/xsht
+4f0b504db48df6add53e41ba82d1a40f0d11e4387ebd5349229b7e06d13bf07f  /home/josh/d/laputa-systems/xsh/.work/target-clippy-integration/x86_64-unknown-linux-musl/verification/xsht

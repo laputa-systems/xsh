@@ -1,0 +1,1 @@
+/target/x86_64-unknown-linux-musl/verification/xsht test -j 1 --exact tests/xsh/checker-streams.xsh::test_checker_rejects_list_comprehension_domains_and_conditions

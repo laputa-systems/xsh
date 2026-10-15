@@ -1,0 +1,1 @@
+/target/x86_64-unknown-linux-musl/verification/xsht test -j 1 --exact tests/xsh/parser-forms.xsh::test_record_literal_spans_lines

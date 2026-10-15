@@ -1,0 +1,1 @@
+/home/josh/d/laputa-systems/xsh/.work/target-clippy-integration/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 runtime::eval::route_witness::tests::target_artifact_rejects_mixed_inconsistent_and_extra_records --exact --nocapture

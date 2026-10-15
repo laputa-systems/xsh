@@ -1,0 +1,1 @@
+/home/josh/d/laputa-systems/xsh/.work/target-clippy-integration/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 runtime::eval::route_witness::tests::unmarked_inherited_fd_at_or_above_198_is_not_inspected_or_consumed --exact --nocapture

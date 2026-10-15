@@ -1,0 +1,5 @@
+root=/home/josh/d/laputa-systems/xsh/.work/wt/w9-memory-profile-ref-e240
+commit=cb2973d63e88d0e404544110b01e13515c7eca0c
+tree=e1e5565ba29e2502ca87f3a6fbacc6569e994b8e
+overlay_sha256=0b49d267584ae6b3777b5017394b71eb0d33132dee710fd792fe0c4862ea039e
+target_dir=/home/josh/d/laputa-systems/xsh/.work/tmp/w9-target-cb2973d63e88d0e404544110b01e13515c7eca0c-e1e5565ba29e2502ca87f3a6fbacc6569e994b8e-0b49d267584ae6b3777b5017394b71eb0d33132dee710fd792fe0c4862ea039e-derived-reference

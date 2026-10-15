@@ -1,0 +1,1 @@
+/artifact/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 runtime::eval::net_job::tests::runtime_snapshot_counts_completed_mock_jobs_without_starting_a_driver --exact --nocapture

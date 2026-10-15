@@ -1,0 +1,8 @@
+tests/xsh/nested-machine-bounds.xsh::caught_failure_restores_the_machine_depth
+tests/xsh/nested-machine-bounds.xsh::finite_recursion_through_deferred_blocks_uses_the_active_machine
+tests/xsh/nested-machine-bounds.xsh::nested_producer_collection_accepts_32_machines_and_rejects_33
+tests/xsh/nested-machine-bounds.xsh::nested_producer_pull_rejects_33rd_frame_machine
+tests/xsh/nested-machine-bounds.xsh::nested_started_callback_producer_cancel_cleans_at_32_machine_boundary
+tests/xsh/nested-machine-bounds.xsh::recursion_through_a_deferred_call_reports_stack_overflow
+tests/xsh/nested-machine-bounds.xsh::recursion_through_a_loop_expression_reports_stack_overflow
+tests/xsh/nested-machine-bounds.xsh::recursion_through_a_stage_block_reports_stack_overflow

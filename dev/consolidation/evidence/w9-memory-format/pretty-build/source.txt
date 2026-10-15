@@ -1,0 +1,5 @@
+root=/home/josh/d/laputa-systems/xsh/.work/wt/w9-memory-profile-ref-e240
+commit=cb2973d63e88d0e404544110b01e13515c7eca0c
+tree=e1e5565ba29e2502ca87f3a6fbacc6569e994b8e
+status=M tests/sema.rs
+tests_sema_sha256=085557962a721fbc89ffeedfccfdfb9ed0f9c45f31bd8f44eb0b441303c08a44

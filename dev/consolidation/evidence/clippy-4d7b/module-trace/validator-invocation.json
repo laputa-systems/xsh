@@ -1,0 +1,17 @@
+{
+  "argv": [
+    "awk",
+    "-F",
+    "\t",
+    "-f",
+    "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-clippy-integration/dev/consolidation/w9-cache-trace-validate.awk",
+    "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-clippy-integration/.work/tmp/module-trace-clippy4d7b/lint.tsv"
+  ],
+  "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-clippy-integration",
+  "environment": {
+    "HOME": "/home/josh",
+    "LC_ALL": "C",
+    "PATH": "/home/josh/.codex/packages/standalone/releases/0.162.1-x86_64-unknown-linux-musl/codex-path:/home/josh/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "TMPDIR": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-clippy-integration/.work/tmp/module-trace-clippy4d7b"
+  }
+}

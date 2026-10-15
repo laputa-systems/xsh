@@ -1,0 +1,1 @@
+tests/xsh/typed-callables.xsh::test_record_spread_keeps_a_compatible_callable_field

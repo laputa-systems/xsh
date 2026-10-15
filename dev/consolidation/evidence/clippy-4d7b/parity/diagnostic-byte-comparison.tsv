@@ -1,0 +1,4 @@
+repository	check	raw_stderr=different	run_time_summary_lines=1/1	diagnostics_without_summary=identical
+repository	lint	raw_stderr=different	run_time_summary_lines=1/1	diagnostics_without_summary=identical
+laputa	check	raw_stderr=different	run_time_summary_lines=1/1	diagnostics_without_summary=identical
+laputa	lint	raw_stderr=different	run_time_summary_lines=1/1	diagnostics_without_summary=identical

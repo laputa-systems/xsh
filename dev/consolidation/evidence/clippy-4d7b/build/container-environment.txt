@@ -1,0 +1,15 @@
+TARGET=x86_64-unknown-linux-musl
+CARGO_HOME=/root/.cargo
+RUSTUP_HOME=/root/.rustup
+XDG_CACHE_HOME=/root/.cache
+CARGO_TARGET_DIR=/work/target
+CARGO_BUILD_JOBS=8
+CARGO_BUILD_WARNINGS=deny
+CARGO_NET_OFFLINE=true
+RUSTC_WRAPPER=/usr/local/bin/kache
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol
+LD_PRELOAD=/usr/lib/libjemalloc.so.2
+TMPDIR=/scratch/clippy-focused-build-4d7b/tmp
+LC_ALL=C
+TZ=UTC

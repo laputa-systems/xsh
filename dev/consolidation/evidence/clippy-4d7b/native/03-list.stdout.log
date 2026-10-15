@@ -1,0 +1,1 @@
+tests/xsh/checker-streams.xsh::test_checker_rejects_list_comprehension_domains_and_conditions

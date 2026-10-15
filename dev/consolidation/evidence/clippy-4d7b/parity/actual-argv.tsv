@@ -1,0 +1,8 @@
+baseline-repository-check	/reference/xsht check .	workdir=/work
+baseline-repository-lint	/reference/xsht lint .	workdir=/work
+baseline-laputa-check	/reference/xsht check .	workdir=/laputa
+baseline-laputa-lint	/reference/xsht lint .	workdir=/laputa
+candidate-repository-check	/candidate/xsht check .	workdir=/work
+candidate-repository-lint	/candidate/xsht lint .	workdir=/work
+candidate-laputa-check	/candidate/xsht check .	workdir=/laputa
+candidate-laputa-lint	/candidate/xsht lint .	workdir=/laputa

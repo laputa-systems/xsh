@@ -1,0 +1,1 @@
+/target/x86_64-unknown-linux-musl/verification/xsht test -j 1 --exact tests/xsh/stdlib/unix_sessions.xsh::test_read_utmp_ignores_a_partial_trailing_record_and_names_failures

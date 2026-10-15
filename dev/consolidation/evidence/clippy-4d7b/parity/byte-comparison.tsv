@@ -1,0 +1,4 @@
+repository	check	identical	stdout=identical,stderr=different
+repository	lint	identical	stdout=identical,stderr=different
+laputa	check	identical	stdout=identical,stderr=different
+laputa	lint	identical	stdout=identical,stderr=different

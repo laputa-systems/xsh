@@ -1,0 +1,1 @@
+/home/josh/d/laputa-systems/xsh/.work/target-clippy-integration/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 runtime::eval::route_witness::tests::artifact_validation_rejects_unknown_and_inconsistent_tag_identities --exact --nocapture

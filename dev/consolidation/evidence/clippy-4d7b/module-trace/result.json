@@ -1,0 +1,26 @@
+{
+  "lint_exit_status": 0,
+  "performance_claim": null,
+  "post_check_errors": [],
+  "shared_user_str_key": {
+    "cache_kind": "shared",
+    "events": {
+      "check_hit": 7,
+      "checked": 1,
+      "prepared": 1,
+      "requested": 8,
+      "reuse": 7
+    },
+    "key_fields": [
+      "\"/fixture/shared.xsh\"",
+      "SourceId(1)",
+      "7",
+      "1",
+      "User",
+      "Str"
+    ],
+    "owner": "1"
+  },
+  "shared_user_str_key_error": null,
+  "validator_exit_status": 0
+}

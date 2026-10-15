@@ -1,0 +1,16 @@
+/home/josh/d/laputa-systems/xsh/dev/consolidation/w9-source-build.sh
+/home/josh/d/laputa-systems/xsh/.work/wt/w9-memory-profile-ref-e240
+build
+cargo
+test
+--locked
+--profile
+verification
+--target
+x86_64-unknown-linux-musl
+-p
+xsh
+--test
+integration
+--no-run
+--message-format=json-render-diagnostics

@@ -1,0 +1,3 @@
+running 1 tests
+tests/xsh/stage-list-stream-parity.xsh::test_stage_terminals_and_keyed_aggregates_match_list_and_live_stream_sources ... ok 0ms
+test result: ok. 1 passed; 0 failed; 0 skipped

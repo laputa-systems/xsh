@@ -1,0 +1,24 @@
+LD_PRELOAD=unset
+AR=/usr/local/bin/llvm-ar
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld
+CC=/usr/bin/clang-23
+CC_AARCH64_UNKNOWN_LINUX_MUSL=/usr/bin/clang-23
+CC_X86_64_UNKNOWN_LINUX_MUSL=/usr/bin/clang-23
+CFLAGS_aarch64_unknown_linux_musl=--target=aarch64-unknown-linux-musl -B/usr/lib/xsh-crt/aarch64-unknown-linux-musl -I/usr/include
+CFLAGS_x86_64_unknown_linux_musl=--target=x86_64-unknown-linux-musl -B/usr/lib/xsh-crt/x86_64-unknown-linux-musl -I/usr/include
+HOME=/root
+HOSTNAME=21c6d8248130
+LANG=C
+LC_ALL=C
+LIBCLANG_PATH=/usr/lib/llvm23/lib
+PATH=/usr/local/bin:/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+PWD=/work
+RANLIB=/usr/bin/ranlib
+SHLVL=1
+_=/usr/bin/env
+Cpus_allowed_list:	12-13
+/sys/fs/cgroup/cpuset.cpus.effective=12-13
+/sys/fs/cgroup/cpu.max=200000 100000
+/sys/fs/cgroup/memory.max=4294967296
+/sys/fs/cgroup/memory.swap.max=0

@@ -1,0 +1,1 @@
+/target/x86_64-unknown-linux-musl/verification/xsht test -j 1 --exact tests/xsh/typed-callables.xsh::test_record_spread_keeps_a_compatible_callable_field

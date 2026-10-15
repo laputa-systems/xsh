@@ -1,0 +1,3 @@
+shared caches=1 requests=16 records=9 cache_reuses=7 checks=9 check_hits=7
+shared module keys across multiple owners=0
+private repeated module keys across owners=0

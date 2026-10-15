@@ -17,8 +17,9 @@ after the documentation refresh. Lean remains paused.
 Judge these outcomes separately:
 
 1. Close the existing behavior-preserving consolidation acceptance on a
-   qualified source freeze. Retain failed receipts and the unexplained AWK
-   discrepancy. A later green comparison does not explain that discrepancy.
+   qualified source freeze. Retain failed receipts and the original-source
+   AWK/curl reproducer. Its cross-file fixture mutation explains the failure
+   mechanism without reconstructing missing historical child outputs.
 2. Deliver general rank-1 inference in a successor milestone. Establish
    red/green capability witnesses before solver changes: reusable function
    schemes, independent importer instantiation, open record rows, recursive
@@ -1152,7 +1153,7 @@ Freeze the relevant implementation and script state. Bind reports to the actual 
 
 Close the outstanding functional, normal/forced-route, structural, semantic-review, documentation, resource, scheduler, and comparative-performance requirements already specified by the campaign. Use only one full native suite at a time. Run timed gates alone with both readiness checks. Never report timing from a run that failed correctness, was interrupted, or failed readiness.
 
-For the unexplained AWK outcome, retain exact before/after source, environment, selected test identities, stdout/stderr/status, and worker configuration. Obtain a discriminating reproducer or bounded evidence identifying whether the cause is source semantics, fixture assumptions, harness scheduling, or environmental state. A later green run does not explain the earlier discrepancy. Do not invent a cause, weaken the oracle, or suppress a flaky-looking test. Apply the existing explicit nonclosure policy if a cause remains unestablished.
+The original-source AWK/curl reproducer identifies a cross-file fixture mutation. Retain its source, environment, selected tests, streams, statuses, and harness-order evidence. Missing historical child outputs remain missing. The fresh canonical batch must qualify the integrated curl and private-fixture repairs. The earlier green AWK-only replay remains insufficient evidence by itself.
 
 Keep upstream compatibility accounting separate from aggregate native-suite totals. Report pinned GNU/uutils/BusyBox origins, native ports, host-boundary exceptions, exclusions, skips, and actual upstream execution results as separate quantities. Do not manufacture a compatibility percentage from all native tests combined. Preserve the existing frozen denominators and explain every changed exclusion.
 

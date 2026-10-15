@@ -1,0 +1,1 @@
+tests/xsh/stdlib/compression.xsh::test_compression_detected_lzma_header_is_strict_and_named_lzma_is_lenient

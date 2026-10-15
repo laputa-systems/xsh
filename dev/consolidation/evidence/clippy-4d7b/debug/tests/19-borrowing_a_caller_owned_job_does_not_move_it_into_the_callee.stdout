@@ -1,0 +1,6 @@
+
+running 1 test
+test runtime::eval::net_job::tests::borrowing_a_caller_owned_job_does_not_move_it_into_the_callee ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 743 filtered out; finished in 0.00s
+

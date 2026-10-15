@@ -1,0 +1,133 @@
+error: unused attribute `expect`
+   --> src/runtime/eval/indexed/full/decode.rs:996:1
+    |
+996 | #[expect(clippy::large_enum_variant, reason = "boxing the borrowed Run view would allocate during indexed IR decoding")]
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the built-in attribute `expect` will be ignored, since it's applied to the macro invocation `enum_schema`
+   --> src/runtime/eval/indexed/full/decode.rs:997:1
+    |
+997 | enum_schema!(LoweredProcessCommandBuilderEntry => ProcessCommandBuilderEntryView ["process command builder entry tag is invalid"] {
+    | ^^^^^^^^^^^
+    = note: `-D unused-attributes` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(unused_attributes)]`
+
+error: use of deprecated type alias `libc::time_t`: This type is changed to 64-bit in musl 1.2.0, we'll follow that change in the future release. See #1848 for more info.
+   --> src/modules/time.rs:105:24
+    |
+105 |     let seconds: libc::time_t = seconds;
+    |                        ^^^^^^
+    |
+    = note: `-D deprecated` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(deprecated)]`
+
+error: variable does not need to be mutable
+    --> src/runtime/eval/lowered_run/indexed_run.rs:1515:22
+     |
+1515 |                 let (mut parts, mut fmt) =
+     |                      ----^^^^^
+     |                      |
+     |                      help: remove this `mut`
+     |
+     = note: `-D unused-mut` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(unused_mut)]`
+
+error: variable does not need to be mutable
+    --> src/runtime/eval/lowered_run/indexed_run.rs:1536:42
+     |
+1536 |                 let ExprView::MapLiteral(mut entries) = view else {
+     |                                          ----^^^^^^^
+     |                                          |
+     |                                          help: remove this `mut`
+
+error: variable does not need to be mutable
+    --> src/runtime/eval/lowered_run/indexed_run.rs:1584:38
+     |
+1584 |                 let ExprView::Record(mut entries) = view else {
+     |                                      ----^^^^^^^
+     |                                      |
+     |                                      help: remove this `mut`
+
+error: variable does not need to be mutable
+    --> src/runtime/eval/lowered_run/indexed_run.rs:1612:36
+     |
+1612 |                 let ExprView::List(mut items) = view else {
+     |                                    ----^^^^^
+     |                                    |
+     |                                    help: remove this `mut`
+
+error: variable does not need to be mutable
+    --> src/runtime/eval/lowered_run/indexed_run.rs:1631:41
+     |
+1631 |                 let ExprView::ListBuild(mut items) = view else {
+     |                                         ----^^^^^
+     |                                         |
+     |                                         help: remove this `mut`
+
+error: large size difference between variants
+    --> src/runtime/eval/indexed/full/decode.rs:831:9
+     |
+ 831 | /           pub(in crate::runtime::eval) enum $view<'a> {
+ 832 | |               $(
+ 833 | | /                 $variant $(($(<$tuple_ty as BorrowCodec>::View<'a>),*))?
+ 834 | | |                 $({$($field: <$field_ty as BorrowCodec>::View<'a>),*})?,
+     | | |                                                                     -
+     | | |                                                                     |
+     | | |_____________________________________________________________________the largest variant contains at least 232 bytes
+     | |                                                                       the second-largest variant contains at least 20 bytes
+ 835 | |               )*
+ 836 | |           }
+     | |___________^ the entire enum is at least 232 bytes
+...
+ 997 |   / enum_schema!(LoweredProcessCommandBuilderEntry => ProcessCommandBuilderEntryView ["process command builder entry tag is invali...
+ 998 |   |     Field { name: Name, value: BuildExprId, span: Span } = 0;
+ 999 |   |     Run { target: LoweredRunArg, args: Vec<LoweredRunArg>, env: Vec<LoweredRunEnv>,
+1000 |   |         timeout: Option<BuildExprId>, cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>,
+1001 |   |         span: Span } = 1;
+1002 |   | });
+     |   |__- in this macro invocation
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#large_enum_variant
+     = note: `-D clippy::large-enum-variant` implied by `-D clippy::perf`
+     = help: to override `-D clippy::perf` add `#[allow(clippy::large_enum_variant)]`
+     = note: this error originates in the macro `enum_schema` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider boxing the large fields or introducing indirection in some other way to reduce the total size of the enum
+     |
+ 834 -                 $({$($field: <$field_ty as BorrowCodec>::View<'a>),*})?,
+ 834 +                 $({$($field: Box<<$field_ty as BorrowCodec>::View<'a>>),*})?,
+     |
+
+error: returning the result of a `let` binding from a block
+    --> src/syntax/parser/expr.rs:2037:17
+     |
+2036 |                 let name = self.expect_label_name("expected record field label")?;
+     |                 ------------------------------------------------------------------ unnecessary `let` binding
+2037 |                 name
+     |                 ^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#let_and_return
+     = note: `-D clippy::let-and-return` implied by `-D clippy::style`
+     = help: to override `-D clippy::style` add `#[allow(clippy::let_and_return)]`
+help: return the expression directly
+     |
+2036 ~                 
+2037 ~                 self.expect_label_name("expected record field label")?
+     |
+
+error: could not compile `xsh` (lib) due to 9 previous errors
+error: unneeded `return` statement
+   --> src/runtime/eval/lower/pipeline.rs:802:26
+    |
+802 |                     _ => return None,
+    |                          ^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_return
+    = note: `-D clippy::needless-return` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::needless_return)]`
+help: remove `return`
+    |
+802 -                     _ => return None,
+802 +                     _ => None,
+    |
+
+error: could not compile `xsh` (lib test) due to 10 previous errors

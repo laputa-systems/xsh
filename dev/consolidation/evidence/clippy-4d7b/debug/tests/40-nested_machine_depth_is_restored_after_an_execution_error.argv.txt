@@ -1,0 +1,1 @@
+/artifact/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 runtime::eval::lowered_run::indexed_run::explicit_run::tests::nested_machine_depth_is_restored_after_an_execution_error --exact --nocapture

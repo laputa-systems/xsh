@@ -1,0 +1,1 @@
+/artifact/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 modules::linux::tests::tests::partition_table_reads_and_writes_dos_and_gpt_file_images --exact --nocapture

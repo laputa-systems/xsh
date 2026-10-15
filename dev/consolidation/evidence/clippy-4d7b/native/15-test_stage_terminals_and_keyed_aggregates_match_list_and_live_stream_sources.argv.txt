@@ -1,0 +1,1 @@
+/target/x86_64-unknown-linux-musl/verification/xsht test -j 1 --exact tests/xsh/stage-list-stream-parity.xsh::test_stage_terminals_and_keyed_aggregates_match_list_and_live_stream_sources

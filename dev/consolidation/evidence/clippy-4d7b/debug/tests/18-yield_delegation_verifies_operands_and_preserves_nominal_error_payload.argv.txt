@@ -1,0 +1,1 @@
+/artifact/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 runtime::eval::indexed::full::tests::yield_delegation_verifies_operands_and_preserves_nominal_error_payload --exact --nocapture

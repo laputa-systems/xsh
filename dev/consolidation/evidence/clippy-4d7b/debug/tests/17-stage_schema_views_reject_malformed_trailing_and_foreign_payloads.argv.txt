@@ -1,0 +1,1 @@
+/artifact/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 runtime::eval::indexed::full::tests::stage_schema_views_reject_malformed_trailing_and_foreign_payloads --exact --nocapture

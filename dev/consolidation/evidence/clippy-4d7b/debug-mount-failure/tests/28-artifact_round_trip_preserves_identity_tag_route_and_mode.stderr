@@ -1,0 +1,4 @@
+
+thread 'runtime::eval::route_witness::tests::artifact_round_trip_preserves_identity_tag_route_and_mode' (91) panicked at src/runtime/eval/route_witness.rs:871:38:
+create repository scratch directory: Os { code: 13, kind: PermissionDenied, message: "Permission denied" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

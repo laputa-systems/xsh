@@ -1,0 +1,1 @@
+tests/xsh/checker-records.xsh::test_checker_computed_map_literals_locate_key_errors_without_weakening_values

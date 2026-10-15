@@ -1,0 +1,1 @@
+tests/xsh/lowering-coverage.xsh::test_registered_calls_lower_named_entries_through_checked_bindings

@@ -1,0 +1,1 @@
+/artifact/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 runtime::eval::route_witness::tests::invalid_short_and_oversized_descriptors_fail_closed_and_close_the_fd --exact --nocapture
