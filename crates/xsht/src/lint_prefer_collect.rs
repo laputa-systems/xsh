@@ -103,7 +103,6 @@ struct BuiltList {
 
 /// One append to the list, as the `yield` that replaces it.
 struct Append {
-    /// The statement's text, without the line break that may end it.
     start: usize,
     end: usize,
     replacement: String,
@@ -535,7 +534,10 @@ impl Scan<'_> {
         };
         Some(Append {
             start: span.start(),
-            end: span.start() + self.text(span).trim_end().len(),
+            end: {
+                let statement = self.text(span).trim_end();
+                span.start() + statement.strip_suffix(';').unwrap_or(statement).len()
+            },
             replacement: format!("{prefix}{appended}"),
             top,
         })
@@ -1026,6 +1028,32 @@ proc build(items: List[Row]) -> List[Row] {
             "{source}\nformatted:\n{}",
             output.formatted
         );
+        let rewritten_written = rewritten(source);
+        let rewritten_formatted = rewritten(&output.formatted);
+        assert_eq!(
+            Formatter::new()
+                .format_source(SourceId::new(0), &rewritten_written)
+                .formatted,
+            rewritten_formatted
+        );
+    }
+
+    #[test]
+    fn inline_semicolon_appends_keep_prefer_collect_across_formatting() {
+        use super::super::super::format::Formatter;
+
+        let source = "proc records(data: Bytes, delimiter: Int) -> List[Bytes] {\n  var out = []\n  var start = 0\n  for at in range(data.len()) {\n    if data.byte_at(at) == delimiter { out += [data[start..at]]; start = at + 1 }\n  }\n  if start < data.len() { out += [data[start..]] }\n  out\n}\n";
+        let output = Formatter::new().format_source(SourceId::new(0), source);
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let written = built_lists(source);
+        let formatted = built_lists(&output.formatted);
+        assert_eq!(
+            written.len(),
+            1,
+            "{source}\nformatted:\n{}",
+            output.formatted
+        );
+        assert_eq!(formatted.len(), written.len(), "{}", output.formatted);
         let rewritten_written = rewritten(source);
         let rewritten_formatted = rewritten(&output.formatted);
         assert_eq!(
