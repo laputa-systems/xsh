@@ -55,6 +55,12 @@ complete summary from existing checker work. Source-only lint records the same
 names during its existing common descent, without invoking the checker or
 adding a traversal. Both producers use the same target-root projection.
 
+Produce checked summaries during the existing lexical preparation descent.
+That descent visits rejected module statements as well as valid declarations.
+Semantic checking alone skips some rejected subtrees and cannot publish the
+complete source fact. Keep assignment eligibility separate from lexical
+binding identity.
+
 Preserve unresolved assignment names, field and index root names, late
 assignments, and conservative suppression for the same spelling in another
 scope. Preserve the old collector's statement-region eligibility, including
