@@ -311,7 +311,7 @@ fn decode_nonce(encoded: &str) -> Option<[u8; TRANSPORT_NONCE_BYTES]> {
         return None;
     }
     let mut nonce = [0; TRANSPORT_NONCE_BYTES];
-    for (index, pair) in encoded.as_bytes().chunks_exact(2).enumerate() {
+    for (index, pair) in encoded.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         let high = hex_digit(pair[0])?;
         let low = hex_digit(pair[1])?;
         nonce[index] = high << 4 | low;
@@ -614,9 +614,9 @@ pub(crate) fn write_active_artifact_for_test(source: &[u8], forced: bool) -> Res
         .write_records(&[RouteWitnessRecord {
             tag: FullTag::ExprEmptyMap.into(),
             route: if forced {
-                RouteWitnessRoute::GenericOperandApplyPath
+                RouteWitnessRoute::GenericOperandApply
             } else {
-                RouteWitnessRoute::ExplicitFrameApplyPath
+                RouteWitnessRoute::ExplicitFrameApply
             },
             mode: if forced {
                 RouteWitnessMode::Forced
@@ -646,9 +646,9 @@ pub(in crate::runtime::eval) fn recursive_route(
     match tag.route_witness_capability()? {
         RouteWitnessCapability::RecursiveApply | RouteWitnessCapability::RecursiveControl => {
             Some(if in_place {
-                RouteWitnessRoute::InPlaceEvaluatorPath
+                RouteWitnessRoute::InPlaceEvaluator
             } else {
-                RouteWitnessRoute::RecursiveEvaluatorPath
+                RouteWitnessRoute::RecursiveEvaluator
             })
         }
         RouteWitnessCapability::ScheduledApply | RouteWitnessCapability::ScheduledControl => None,
@@ -662,15 +662,15 @@ pub(in crate::runtime::eval) fn frame_route(
     match tag.route_witness_capability()? {
         RouteWitnessCapability::RecursiveApply | RouteWitnessCapability::ScheduledApply => {
             Some(if forced && tag.is_eager_atom() {
-                RouteWitnessRoute::EagerFrameApplyPath
+                RouteWitnessRoute::EagerFrameApply
             } else if forced {
-                RouteWitnessRoute::GenericOperandApplyPath
+                RouteWitnessRoute::GenericOperandApply
             } else {
-                RouteWitnessRoute::ExplicitFrameApplyPath
+                RouteWitnessRoute::ExplicitFrameApply
             })
         }
         RouteWitnessCapability::RecursiveControl | RouteWitnessCapability::ScheduledControl => {
-            Some(RouteWitnessRoute::ExplicitFrameControlPath)
+            Some(RouteWitnessRoute::ExplicitFrameControl)
         }
     }
 }
@@ -686,31 +686,31 @@ fn capability_accepts_route(
             true,
         ) => matches!(
             route,
-            RouteWitnessRoute::GenericOperandApplyPath | RouteWitnessRoute::EagerFrameApplyPath
+            RouteWitnessRoute::GenericOperandApply | RouteWitnessRoute::EagerFrameApply
         ),
         (
             RouteWitnessCapability::RecursiveControl | RouteWitnessCapability::ScheduledControl,
             true,
         ) => {
-            route == RouteWitnessRoute::ExplicitFrameControlPath
+            route == RouteWitnessRoute::ExplicitFrameControl
         }
         (RouteWitnessCapability::RecursiveApply, false) => matches!(
             route,
-            RouteWitnessRoute::InPlaceEvaluatorPath
-                | RouteWitnessRoute::RecursiveEvaluatorPath
-                | RouteWitnessRoute::ExplicitFrameApplyPath
+            RouteWitnessRoute::InPlaceEvaluator
+                | RouteWitnessRoute::RecursiveEvaluator
+                | RouteWitnessRoute::ExplicitFrameApply
         ),
         (RouteWitnessCapability::RecursiveControl, false) => matches!(
             route,
-            RouteWitnessRoute::InPlaceEvaluatorPath
-                | RouteWitnessRoute::RecursiveEvaluatorPath
-                | RouteWitnessRoute::ExplicitFrameControlPath
+            RouteWitnessRoute::InPlaceEvaluator
+                | RouteWitnessRoute::RecursiveEvaluator
+                | RouteWitnessRoute::ExplicitFrameControl
         ),
         (RouteWitnessCapability::ScheduledApply, false) => {
-            route == RouteWitnessRoute::ExplicitFrameApplyPath
+            route == RouteWitnessRoute::ExplicitFrameApply
         }
         (RouteWitnessCapability::ScheduledControl, false) => {
-            route == RouteWitnessRoute::ExplicitFrameControlPath
+            route == RouteWitnessRoute::ExplicitFrameControl
         }
     }
 }
@@ -762,34 +762,34 @@ impl RouteWitnessMode {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum RouteWitnessRoute {
-    InPlaceEvaluatorPath,
-    RecursiveEvaluatorPath,
-    ExplicitFrameApplyPath,
-    ExplicitFrameControlPath,
-    GenericOperandApplyPath,
-    EagerFrameApplyPath,
+    InPlaceEvaluator,
+    RecursiveEvaluator,
+    ExplicitFrameApply,
+    ExplicitFrameControl,
+    GenericOperandApply,
+    EagerFrameApply,
 }
 
 impl RouteWitnessRoute {
     pub(crate) const fn name(self) -> &'static str {
         match self {
-            Self::InPlaceEvaluatorPath => "in_place_evaluator_path",
-            Self::RecursiveEvaluatorPath => "recursive_evaluator_path",
-            Self::ExplicitFrameApplyPath => "explicit_frame_apply_path",
-            Self::ExplicitFrameControlPath => "explicit_frame_control_path",
-            Self::GenericOperandApplyPath => "generic_operand_apply_path",
-            Self::EagerFrameApplyPath => "eager_frame_apply_path",
+            Self::InPlaceEvaluator => "in_place_evaluator_path",
+            Self::RecursiveEvaluator => "recursive_evaluator_path",
+            Self::ExplicitFrameApply => "explicit_frame_apply_path",
+            Self::ExplicitFrameControl => "explicit_frame_control_path",
+            Self::GenericOperandApply => "generic_operand_apply_path",
+            Self::EagerFrameApply => "eager_frame_apply_path",
         }
     }
 
     fn from_name(name: &str) -> Option<Self> {
         match name {
-            "in_place_evaluator_path" => Some(Self::InPlaceEvaluatorPath),
-            "recursive_evaluator_path" => Some(Self::RecursiveEvaluatorPath),
-            "explicit_frame_apply_path" => Some(Self::ExplicitFrameApplyPath),
-            "explicit_frame_control_path" => Some(Self::ExplicitFrameControlPath),
-            "generic_operand_apply_path" => Some(Self::GenericOperandApplyPath),
-            "eager_frame_apply_path" => Some(Self::EagerFrameApplyPath),
+            "in_place_evaluator_path" => Some(Self::InPlaceEvaluator),
+            "recursive_evaluator_path" => Some(Self::RecursiveEvaluator),
+            "explicit_frame_apply_path" => Some(Self::ExplicitFrameApply),
+            "explicit_frame_control_path" => Some(Self::ExplicitFrameControl),
+            "generic_operand_apply_path" => Some(Self::GenericOperandApply),
+            "eager_frame_apply_path" => Some(Self::EagerFrameApply),
             _ => None,
         }
     }
@@ -899,7 +899,7 @@ mod tests {
 
         first.record(
             FullTag::ExprEmptyMap,
-            RouteWitnessRoute::ExplicitFrameApplyPath,
+            RouteWitnessRoute::ExplicitFrameApply,
             RouteWitnessMode::Normal,
         );
 
@@ -1129,12 +1129,12 @@ mod tests {
         for (forced, route, mode) in [
             (
                 false,
-                RouteWitnessRoute::ExplicitFrameApplyPath,
+                RouteWitnessRoute::ExplicitFrameApply,
                 RouteWitnessMode::Normal,
             ),
             (
                 true,
-                RouteWitnessRoute::GenericOperandApplyPath,
+                RouteWitnessRoute::GenericOperandApply,
                 RouteWitnessMode::Forced,
             ),
         ] {
@@ -1186,7 +1186,7 @@ mod tests {
         capture
             .write_records(&[RouteWitnessRecord {
                 tag: FullTag::ExprEmptyMap.into(),
-                route: RouteWitnessRoute::ExplicitFrameApplyPath,
+                route: RouteWitnessRoute::ExplicitFrameApply,
                 mode: RouteWitnessMode::Forced,
             }])
             .expect("write valid artifact");
