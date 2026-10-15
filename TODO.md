@@ -79,12 +79,15 @@ for current W9 boundaries and receipts.
 
 ### Current consolidation acceptance gates
 
-The 7e93 structural check passed across 370 source files. All non-advisory
-metrics satisfy the no-rise ratchet, and all four required-zero metrics are zero.
-The start-source scanner rerun and its archived report are byte-identical.
-The ten semantic rows and final-close verifier remain open. Scanner digest
-`fd39e7ed` differs from the tested scanner `3b36990f` only by a comment; the
-archived baseline scanner digest begins `013a6257`. Source totals remain advisory.
+The repaired source passes the isolated clean lint preflight: 1,524 files,
+zero findings, 113 notes, and 13.51 seconds within the 15-second budget.
+Readiness passes before and after. Fresh W9 and structural qualification remain
+required after the Rust repairs. The earlier 7e93 structural check covered 370
+source files and satisfied all non-advisory metrics and required-zero targets.
+The start-source scanner rerun and archived report are byte-identical.
+The ten semantic rows and final-close verifier remain open. The current
+successor scanner digest begins `352d27af`; its 39 focused policy tests pass.
+Source totals remain advisory.
 The 8ca feature-touch probe records
 38 XSH and 18 XSHT compiler demands from isolated placeholder arms. It does not
 prove runtime reachability or feature-touch coverage on the current source. The

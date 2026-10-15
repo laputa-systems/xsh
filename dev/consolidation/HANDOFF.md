@@ -4,6 +4,29 @@ Status: active and incomplete 2026-10-15.
 
 ## Final-batch status, 2026-10-15
 
+### Lint preflight passes after the span lookup repair
+
+The repaired source at `fa1ea57e343685e26c812dac67682b338b7b0d9b` passes the
+isolated release lint preflight: 1,524 files, zero findings, and 113 notes in
+13.51 seconds, within the existing 15-second budget. Both readiness checks
+return zero. Peak cgroup memory is 1,401,036,800 bytes, with no OOM or swap
+events. This is one absolute-budget check, not a comparative speedup claim.
+Evidence is under `.work/tmp/lint-preflight-span-fa1ea5-a1/`; XSHT SHA-256 is
+`95e91270d0394648c33d1983357e794375fb13361d7bdd6f1cfc785c22296eef`.
+
+The private source lookup accepts a checked direct probe only when its stored
+index matches, retaining binary search for sparse entries. It adds no cached
+state and changes no source-span representation or public API. Independent
+review finds no concrete blocker. All six arena layout and source-span tests
+and all 13 shared-bundle tests pass in the pinned image. Logs are under
+`.work/tmp/span-lookup-integration-fa1ea5-a1/`. New fixture corrections retain
+the existing `usize` source index and newline-inclusive statement spans.
+
+Fresh W9 candidate parity and current structural measurement remain required
+after these Rust changes. The nine passing full native suites and other final
+acceptance gates remain open. Freeze the repaired source, reuse the immutable
+reference evidence, and refresh final launch pins after functional qualification.
+
 ### Clean lint still exceeds its budget
 
 The record repair is integrated as `8b9912a6f`. Its isolated release lint is

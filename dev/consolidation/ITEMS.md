@@ -5,10 +5,11 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `master` in `/home/josh/d/laputa-systems/xsh`; the owner merged consolidation
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
-**Status: active and incomplete, 2026-10-15.** The implementation is integrated
-on `master` at `7e93dd4533d175f0385ae433651a98c98b5c20cd`. Fresh W9 parity
-passed all 6,760 outcomes, and the current structural check passed. Final
-correctness, performance, and the ten semantic review rows remain open.
+**Status: active and incomplete, 2026-10-15.** The implementation and focused
+lint repairs are integrated on `master`. The repaired source passes the clean
+15-second lint preflight. The earlier `7e93dd4533d175f0385ae433651a98c98b5c20cd`
+W9 parity and structural check need new qualification after the Rust repairs.
+Final correctness, performance, and the ten semantic review rows remain open.
 [`HANDOFF.md`](HANDOFF.md) records current acceptance, integrated work, and
 remaining gates; the older grants and progress states below are planning and
 historical context, not a live lane queue. The campaign is active and
@@ -248,9 +249,9 @@ Campaign-owned worktrees and scratch are kept under the repository's ignored
 `.work/`; older paths below describe preserved historical evidence. No
 worktree or build cache goes in `/tmp`. Compilation is serialized
 independently of agent concurrency, and only one full native corpus runs at a
-time. The final-correctness launcher is prepared but not executed, the
-post-consolidation source freeze has not started, and Rust, full correctness,
-final structural, and performance acceptance remain pending.
+time. Historical final attempts do not accept the repaired source. Its lint
+preflight and focused checks pass; fresh W9 and structural qualification, nine
+passing full native suites, and remaining final acceptance are still required.
 
 The owner subsequently excluded `dev/compat` from check and lint while its
 campaign remains WIP. Project discovery excludes its XSH scripts; the

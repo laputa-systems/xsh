@@ -1,9 +1,11 @@
 # XSH Consolidation Campaign
 
-Status: active and incomplete on 2026-10-15. The implementation is integrated
-on `master` at `7e93dd4533d175f0385ae433651a98c98b5c20cd`. Fresh W9 parity
-passed all 6,760 outcomes, and the current structural check passed. The nine
-serialized full native suites and remaining final acceptance gates are pending.
+Status: active and incomplete on 2026-10-15. The implementation and focused
+lint repairs are integrated on `master`. The repaired source passes the clean
+15-second lint preflight. W9 parity and the structural check passed on the
+earlier `7e93dd4533d175f0385ae433651a98c98b5c20cd` snapshot; both require
+new qualification after the Rust repairs. The nine serialized full native
+suites and remaining final acceptance gates are pending.
 The current acceptance and remaining gates are in [`HANDOFF.md`](HANDOFF.md).
 The owner approved the entire campaign and all six designs on 2026-10-11,
 including the Codex model policy and completeness-first sequence. The start
