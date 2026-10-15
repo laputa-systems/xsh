@@ -160,9 +160,8 @@ mod tests {
                     "depth {depth} seed {seed}: {}\n{source}",
                     parsed.diagnostics[0].message
                 );
-                assert_eq!(
-                    parsed.arena.arena.block_effect_bounds.is_empty(),
-                    false,
+                assert!(
+                    !parsed.arena.arena.block_effect_bounds.is_empty(),
                     "depth {depth} seed {seed} is not a without statement:\n{source}"
                 );
             }
