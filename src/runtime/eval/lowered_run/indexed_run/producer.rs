@@ -506,7 +506,7 @@ impl Evaluator {
             .expect("a started producer owns its frame")
             .hydrate_captures(self, &producer.header, span)?;
         let program = Arc::clone(&producer.program);
-        let outcome = {
+        {
             let mut evaluator = IndexedProgramGuard::new(self, Arc::clone(&program));
             let call = CallFrame::from_state(
                 Arc::clone(&program),
@@ -529,8 +529,7 @@ impl Evaluator {
             // The cancelled body's `finish_call` closes the scope and pops the
             // traceback frame.
             frames.run_cancelled_producer(call, span)
-        };
-        outcome
+        }
     }
 
     fn push_producer_traceback_frame(&mut self, producer: &ScriptProducer) {

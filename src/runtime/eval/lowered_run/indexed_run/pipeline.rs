@@ -811,7 +811,6 @@ impl Evaluator {
         &mut self,
         predicate: &IndexedItemPredicate,
         item: &LoweredValue,
-        span: Span,
     ) -> Result<bool, RuntimeError> {
         match predicate {
             IndexedItemPredicate::StringCompare {
@@ -829,11 +828,11 @@ impl Evaluator {
                 Ok(if *op == BinaryOp::Eq { equal } else { !equal })
             }
             IndexedItemPredicate::And(left, right) => Ok(self
-                .eval_indexed_item_predicate(left, item, span)?
-                && self.eval_indexed_item_predicate(right, item, span)?),
+                .eval_indexed_item_predicate(left, item)?
+                && self.eval_indexed_item_predicate(right, item)?),
             IndexedItemPredicate::Or(left, right) => Ok(self
-                .eval_indexed_item_predicate(left, item, span)?
-                || self.eval_indexed_item_predicate(right, item, span)?),
+                .eval_indexed_item_predicate(left, item)?
+                || self.eval_indexed_item_predicate(right, item)?),
         }
     }
 

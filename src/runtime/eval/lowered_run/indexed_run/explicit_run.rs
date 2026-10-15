@@ -654,12 +654,12 @@ proc parent() {
             for (forced, expected_route, expected_mode) in [
                 (
                     false,
-                    RouteWitnessRoute::ExplicitFrameApplyPath,
+                    RouteWitnessRoute::ExplicitFrameApply,
                     RouteWitnessMode::Normal,
                 ),
                 (
                     true,
-                    RouteWitnessRoute::GenericOperandApplyPath,
+                    RouteWitnessRoute::GenericOperandApply,
                     RouteWitnessMode::Forced,
                 ),
             ] {
@@ -3132,8 +3132,8 @@ fn indexed_call_arguments<'e>(
     Ok(args)
 }
 
-fn call_argument_at<'e>(
-    execution: &'e FullExecution<'_>,
+fn call_argument_at(
+    execution: &FullExecution<'_>,
     instruction: u32,
     position: CallArgumentPosition,
     span: Span,
@@ -3148,7 +3148,7 @@ fn call_argument_at<'e>(
     let position = args.position();
     Ok(argument.map(|argument| {
         let operand = match argument {
-            CallArgView::Default(slot) => CallArgumentOperand::Default(slot as usize),
+            CallArgView::Default(slot) => CallArgumentOperand::Default(slot),
             CallArgView::Single(instruction) => CallArgumentOperand::Expression {
                 instruction: instruction.raw(),
                 mode: CallArgumentMode::Single,
@@ -3250,6 +3250,10 @@ fn take_consumed_receiver(
 }
 
 /// What one pull of a producer did.
+#[expect(
+    clippy::large_enum_variant,
+    reason = "boxing producer state would allocate on every yielded or delegated item",
+)]
 pub(super) enum ProducerStep {
     /// The body reached a `yield`; the value is the pulled item and the frame
     /// state is the continuation.
@@ -4055,7 +4059,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         &mut state.invocation,
                         ProcessInvocationBuilder::new(),
                     )
-                    .finish(&mut self.evaluator);
+                    .finish(self.evaluator);
                     if matches!(state.mode, ProcessExecutionMode::Pipeline { .. }) {
                         state.pipeline_head.get_or_insert(operands.kind);
                         state.invocations.push(invocation);
@@ -4286,13 +4290,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return None;
                 }
             }
-            StmtFlow::Break(_) | StmtFlow::Continue => {
+            StmtFlow::Break(_) | StmtFlow::Continue
                 if self
                     .innermost_loop(index)
-                    .is_some_and(|loop_boundary| loop_boundary > cleanup)
-                {
-                    return None;
-                }
+                    .is_some_and(|loop_boundary| loop_boundary > cleanup) =>
+            {
+                return None;
             }
             _ => {}
         }
@@ -4540,30 +4543,31 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 index: function_index,
             });
         }
-        if allow_dynamic && let LoweredFunctionKey::Qualified(qualified) = function {
-            if let Some(dynamic) = self.evaluator.indexed_dynamic_functions.get(&qualified) {
-                if dynamic.kind != kind {
-                    return Err(RuntimeError::new(
-                        "type-error",
-                        format!("callable {} has a different function kind", function.display_name()),
-                    )
-                    .with_span(span));
-                }
-                let view = dynamic
-                    .program
-                    .function_view(dynamic.function, dynamic.kind)
-                    .map_err(|error| indexed_error(error, span))?
-                    .ok_or_else(|| {
-                        RuntimeError::new("unresolved-lowered-call", function.display_name())
-                            .with_span(span)
-                    })?;
-                return Ok(ResolvedCall {
-                    program: ProgramOwner::Shared(Arc::clone(&dynamic.program)),
-                    function: dynamic.function,
-                    kind: dynamic.kind,
-                    index: view.index(),
-                });
+        if allow_dynamic
+            && let LoweredFunctionKey::Qualified(qualified) = function
+            && let Some(dynamic) = self.evaluator.indexed_dynamic_functions.get(&qualified)
+        {
+            if dynamic.kind != kind {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    format!("callable {} has a different function kind", function.display_name()),
+                )
+                .with_span(span));
             }
+            let view = dynamic
+                .program
+                .function_view(dynamic.function, dynamic.kind)
+                .map_err(|error| indexed_error(error, span))?
+                .ok_or_else(|| {
+                    RuntimeError::new("unresolved-lowered-call", function.display_name())
+                        .with_span(span)
+                })?;
+            return Ok(ResolvedCall {
+                program: ProgramOwner::Shared(Arc::clone(&dynamic.program)),
+                function: dynamic.function,
+                kind: dynamic.kind,
+                index: view.index(),
+            });
         }
         Err(RuntimeError::new("unresolved-lowered-call", function.display_name()).with_span(span))
     }
@@ -5285,17 +5289,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 span,
                 completion,
             } => {
-                if completion.is_some() {
+                let completion = if let Some(completion) = completion {
                     self.evaluator.service_pending_signal(span)?;
                     if self.evaluator.shutting_down() {
                         self.push_value(
                             index,
                             FrameValue::Value(LoweredValue::Unit),
-                            *completion.expect("expression loop has a continuation"),
+                            *completion,
                         );
                         return Ok(());
                     }
-                }
+                    Some(completion)
+                } else {
+                    None
+                };
                 self.calls[index].work.push(FrameWork::Loop {
                     body,
                     span,
@@ -5412,7 +5419,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             unreachable!("statement tag and borrowed row agree")
         };
         let check_start = checks.position();
-        while let Some(check) = checks.next() {
+        for check in checks.by_ref() {
             check.map_err(|error| indexed_error(error, span))?;
         }
         checks
@@ -5458,7 +5465,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             checks
                 .resume(check_start)
                 .map_err(|error| indexed_error(error, span))?;
-            while let Some(check) = checks.next() {
+            for check in checks.by_ref() {
                 let check = check.map_err(|error| indexed_error(error, span))?;
                 let matches = match check.condition {
                     ScanConditionView::TrimEmpty => {
@@ -6515,7 +6522,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         } else {
             let execution = self.calls[index].execution.thread_local();
             let value = super::indexed_frame_apply_value(
-                &mut self.evaluator,
+                self.evaluator,
                 &execution,
                 instruction,
                 Vec::new(),
@@ -6636,7 +6643,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::SpawnCommand => {
                 let super::ExprView::SpawnCommand { command, span } =
-                    super::ExprView::decode(&execution, tag, payload)
+                    super::ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("spawn-command tag has a command view")
@@ -6653,7 +6660,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::Wait => {
                 let super::ExprView::Wait { target, span } =
-                    super::ExprView::decode(&execution, tag, payload)
+                    super::ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("wait tag has a wait view")
@@ -6670,7 +6677,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::ProcessCommandBuilder => {
                 let (entries, builder_span) = process_command_builder_view(
-                    &execution,
+                    execution,
                     instruction,
                     span,
                 )?;
@@ -6691,7 +6698,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::ListPipeline => {
                 let (input, pipeline_span, stages) = indexed_value_pipeline_input(
-                    &execution,
+                    execution,
                     instruction,
                     span,
                 )?;
@@ -6708,7 +6715,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::ValueBlock => {
                 let super::ExprView::ValueBlock { body, span } =
-                    super::ExprView::decode(&execution, tag, payload)
+                    super::ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("value-block tag has a value-block view")
@@ -6723,7 +6730,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let super::ExprView::Loop {
                     body,
                     span: loop_span,
-                } = super::ExprView::decode(&execution, tag, payload)
+                } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("loop tag has a loop view")
@@ -6741,7 +6748,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     body,
                     span: retry_span,
                     schedule,
-                } = super::ExprView::decode(&execution, tag, payload)
+                } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("retry tag has a typed retry view")
@@ -6769,7 +6776,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::Capture => {
                 let super::ExprView::Capture { body, span } =
-                    super::ExprView::decode(&execution, tag, payload)
+                    super::ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("capture tag has a typed capture view")
@@ -6786,7 +6793,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     input,
                     body,
                     span: context_span,
-                } = super::ExprView::decode(&execution, tag, payload)
+                } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("context-scope tag has a typed view")
@@ -6808,7 +6815,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     message,
                     body,
                     span: context_span,
-                } = super::ExprView::decode(&execution, tag, payload)
+                } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("error-context tag has an error-context view")
@@ -6826,7 +6833,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::ComparisonChain => {
                 let (first, pairs) = decode_comparison_chain(
-                    &execution,
+                    execution,
                     tag,
                     payload,
                     span,
@@ -6848,7 +6855,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     left,
                     right,
                     span: value_span,
-                } = super::ExprView::decode(&execution, tag, payload)
+                } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("binary tag has a binary view")
@@ -6870,7 +6877,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     branches,
                     else_value,
                     span: value_span,
-                } = super::ExprView::decode(&execution, tag, payload)
+                } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("if-expression tag has an if-expression view")
@@ -6887,7 +6894,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::MatchExpr => {
                 let (value, arms, value_span) = decode_match_expr(
-                    &execution,
+                    execution,
                     tag,
                     payload,
                     span,
@@ -6905,7 +6912,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             ExprViewKind::PatternIf => {
-                let view = super::ExprView::decode(&execution, tag, payload)
+                let view = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (position, value_span) = match view {
                     super::ExprView::PatternIf {
@@ -6926,7 +6933,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             ExprViewKind::StrMatchExpr | ExprViewKind::TagMatchExpr => {
-                let view = super::ExprView::decode(&execution, tag, payload)
+                let view = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let value = match view {
                     super::ExprView::StrMatchExpr { value, .. }
@@ -6949,7 +6956,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             // call in the expression and consume native stack even when the outer loop itself is iterative.
             ExprViewKind::List | ExprViewKind::ListBuild => {
                 let mut items = indexed_list_literal_view(
-                    &execution,
+                    execution,
                     tag,
                     payload,
                     span,
@@ -6985,7 +6992,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::MapLiteral => {
                 let mut entries = indexed_map_literal_view(
-                    &execution,
+                    execution,
                     tag,
                     payload,
                     span,
@@ -7009,7 +7016,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::RecordUpdate => {
                 let (base, updates, update_span) = decode_record_updates(
-                    &execution,
+                    execution,
                     tag,
                     payload,
                     span,
@@ -7028,7 +7035,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::Record => {
                 let mut entries = indexed_record_literal_view(
-                    &execution,
+                    execution,
                     tag,
                     payload,
                     span,
@@ -7050,7 +7057,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             ExprViewKind::ListComp | ExprViewKind::MapComp => {
-                let view = ExprView::decode(&execution, tag, payload)
+                let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (map, key, value, mut qualifiers, value_span) = match view {
                     ExprView::ListComp {
@@ -7104,7 +7111,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::FmtString | ExprViewKind::PathFmtString => {
                 let (mut parts, fmt) = decode_fmt(
-                    &execution,
+                    execution,
                     tag,
                     payload,
                     span,
@@ -7126,7 +7133,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::ResultFallback => {
                 let super::ExprView::ResultFallback { left, right } =
-                    super::ExprView::decode(&execution, tag, payload)
+                    super::ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("result-fallback tag has a result-fallback view")
@@ -7144,7 +7151,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::Ok => {
                 let super::ExprView::Ok(value) =
-                    super::ExprView::decode(&execution, tag, payload)
+                    super::ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("ok tag has an ok view")
@@ -7158,7 +7165,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::ProcCallResult => {
                 let super::ExprView::ProcCallResult(value) =
-                    super::ExprView::decode(&execution, tag, payload)
+                    super::ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("proc-call-result tag has a proc-call-result view")
@@ -7172,7 +7179,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             ExprViewKind::Err => {
                 let super::ExprView::Err { value, cause } =
-                    super::ExprView::decode(&execution, tag, payload)
+                    super::ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("err tag has an err view")
@@ -7192,7 +7199,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let super::ExprView::Try {
                     value,
                     span: propagation,
-                } = super::ExprView::decode(&execution, tag, payload)
+                } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("try tag has a try view")
@@ -7217,7 +7224,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     check,
                     span: value_span,
                 } =
-                    super::ExprView::decode(&execution, tag, payload)
+                    super::ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("checked-value tag has a checked-value view")
@@ -7239,7 +7246,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     value,
                     check,
                     span: value_span,
-                } = super::ExprView::decode(&execution, tag, payload)
+                } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("require tag has a require view")
@@ -7262,7 +7269,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     name,
                     mut args,
                     span: value_span,
-                } = ExprView::decode(&execution, tag, payload)
+                } = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("method tag has a typed method view")
@@ -7285,7 +7292,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             .evaluator
                             .indexed_root_binds(&self.calls[index].slots, *slot)
                         && indexed_slot_read(
-                            &execution,
+                            execution,
                             receiver,
                             value_span,
                         )? == Some(*slot) =>
@@ -7309,7 +7316,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             ExprViewKind::DynamicCall | ExprViewKind::TypedCall => {
-                let view = ExprView::decode(&execution, tag, payload)
+                let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (callee, typed_pure, mut args, value_span) = match view {
                     ExprView::DynamicCall {
@@ -7349,24 +7356,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     base,
                     name,
                     span: value_span,
-                } = super::ExprView::decode(&execution, tag, payload)
+                } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("field tag has a field view")
                 };
                 let base = base.raw();
                 let name = name.to_string();
-                if !self.evaluator.force_frames {
-                    if let Some(base) = Evaluator::indexed_field_chain_ref(
-                        &execution,
+                if !self.evaluator.force_frames
+                    && let Some(base) = Evaluator::indexed_field_chain_ref(
+                        execution,
                         base,
                         &self.calls[index].slots,
                         value_span,
-                    )? && let Some(value) = super::lowered_record_field_value(base, &name)
-                    {
-                        self.push_value(index, FrameValue::Value(value), next);
-                        return Ok(());
-                    }
+                    )?
+                    && let Some(value) = super::lowered_record_field_value(base, &name)
+                {
+                    self.push_value(index, FrameValue::Value(value), next);
+                    return Ok(());
                 }
                 self.push_expr(
                     index,
@@ -7384,7 +7391,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     base,
                     index: instruction,
                     span: value_span,
-                } = super::ExprView::decode(&execution, tag, payload)
+                } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("index tag has an index view")
@@ -7405,7 +7412,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     base,
                     distance,
                     span: value_span,
-                } = super::ExprView::decode(&execution, tag, payload)
+                } = super::ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("index-from-end tag has an index-from-end view")
@@ -7427,7 +7434,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     call_plan,
                     mut args,
                     span: value_span,
-                } = ExprView::decode(&execution, tag, payload)
+                } = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("module call tag has a typed call view")
@@ -7452,7 +7459,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     function: qualified,
                     mut args,
                     span: value_span,
-                } = ExprView::decode(&execution, tag, payload)
+                } = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?
                 else {
                     unreachable!("external call tag has a typed call view")
@@ -7475,7 +7482,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
             }
             ExprViewKind::Call | ExprViewKind::SelfCall | ExprViewKind::DirectPureCall => {
-                let view = ExprView::decode(&execution, tag, payload)
+                let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, span))?;
                 let (function, mut args, value_span) = match view {
                     ExprView::Call {
@@ -7489,7 +7496,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         span,
                     } => (
                         function
-                            .key(&execution)
+                            .key(execution)
                             .map_err(|error| indexed_error(error, span))?,
                         args,
                         span,
