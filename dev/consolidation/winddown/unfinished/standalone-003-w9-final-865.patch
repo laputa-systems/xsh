@@ -1,0 +1,96 @@
+diff --git a/TODO-defects-disposition-draft.md b/TODO-defects-disposition-draft.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..b4e204c8c4ab80e6a21a9979e3437c7946213424
+--- /dev/null
++++ b/TODO-defects-disposition-draft.md
+@@ -0,0 +1,90 @@
++# Root TODO defects disposition draft
++
++Staging only. Do not apply this replacement at frozen primary HEAD `662e97263fe445d1a06718ae36f1ef3a8d80ca21`: the current handoff still marks final acceptance pending. Fill every bracketed result from the final-source handoff after acceptance; if any gate is incomplete or failed, keep that item open instead.
++
++## Current disposition at the frozen HEAD
++
++- **W9:** the earlier 1,690-input parity and cache counts are historical. The current-source shared-key probe reports no repeated shared module keys, but the official measurement stopped on two diagnostics that were later corrected; the remaining captures are partial. The pinned current-source build, full 1,690-input/four-profile publication, independent adapter review, and source-matched cache receipt remain open.
++- **Campaign acceptance:** final-source structural qualification and witness review, fixed-seed soundness, XSHT integration, full native correctness, repository and generated-doc checks, Linux privileged and supplemental checks, remaining semantic review, size, memory, and guarded performance gates remain open. The final report still needs cumulative fuzz seeds and upstream compatibility results.
++- **Lint:** the broad current-source acceptance gate remains open. The specific prefer-collect rejection report has no retained reproducer. Its preserved multiline-index fixture was invalid before lint and is now corrected; the exact native test passes 1/1 with the production-equivalent pair and prints `99,2`. Do not call this either reproduced or disproved.
++- **Host-load suite:** `13,437 passed / 56 failed / 138 skipped` is a historical result from snapshot `59a6dfbc` under host load, not a current failure count. The recorded targeted repairs do not replace the pending full current-source run.
++- **Nonblocking follow-ups:** each lint candidate probe reparses, reloads, and checks the import graph in a fresh arena; this preserves candidate-specific syntax and type facts and is an optimization follow-up, not a correctness defect. The vendored regex-lite 0.1.9 change replaces the capture-name `HashMap` with `BTreeMap`, allowing regex compilation without `getrandom`; its patch-specific build-time and binary-size impact remain unmeasured.
++
++## Proposed replacement for root `TODO.md` `## Defects` after acceptance
++
++Replace the section from `## Defects` up to (but not including) `## Laputa` only after all current-source gates pass and the final handoff records the corresponding evidence.
++
++```markdown
++## Defects
++
++The consolidation closed on frozen source `[SOURCE REVISION]`. The final
++handoff records passing current-source structural and witness review,
++fixed-seed soundness, XSHT integration, full native correctness, repository
++and generated-document checks, Linux privileged and supplemental checks,
++semantic review, size, memory, and guarded performance gates. The final report
++records `[CUMULATIVE FUZZ SEEDS]` and `[UPSTREAM COMPATIBILITY RESULTS]`.
++
++### W9 publication and cache evidence
++
++The pinned current-source helper build and independent adapter review passed.
++The publication run covered all 1,690 inputs in four profiles, for
++`[PUBLISHED OUTCOME COUNT]` outcomes. The source-matched cache receipt records
++`[FINAL XSH AND LAPUTA COUNTS]` and completed without diagnostics. Earlier
++publication and cache counts are historical and do not describe this freeze.
++
++### Lint migration
++
++The broad lint migration passed the current-source acceptance gate. Former
++per-rule finding counts and exclusions are historical. The earlier
++prefer-collect report remains unconfirmed: no source fixture showing an
++offered rewrite rejected by the checker was retained. The only preserved
++multiline-index regression failed before lint because it used unsupported
++syntax; the corrected supported form passes the exact native test and prints
++`99,2`. Move that unconfirmed report to the consolidation handoff's historical
++record, not the defect list. The other named lint findings have merged fixes
++and retained coverage.
++
++The optional callable-field verifier gap is closed. Positive tests cover
++calls through narrowed optional records and guarded paths; negative tests
++reject forged guards, writes, loop backedges, and reordered evidence in
++`src/runtime/eval/indexed/full.rs`.
++
++### Native suite
++
++The full native suite passed on frozen source `[SOURCE REVISION]` with
++`[PASS / FAIL / SKIP COUNTS]`. Earlier host-load counts and targeted shards
++remain historical records in the consolidation handoff; they are not current
++failure totals.
++```
++
++## Text to move outside `## Defects`
++
++Place under `## Iteration speed`:
++
++> Lint candidate probes parse, load, and check the import graph in a fresh
++> arena for each candidate, so rewritten source receives candidate-specific
++> syntax and checked facts. This is an intentional correctness boundary. Any
++> reduction in repeated work is a performance follow-up and must preserve that
++> isolation.
++
++Place under a new `## Maintained dependency patches` section, outside
++`## Defects`:
++
++> The vendored regex-lite 0.1.9 copy uses `BTreeMap` for capture names so
++> compiling a regex literal does not require `getrandom`; this keeps
++> `test_uu_shuf_getrandom_fail` green. Retain the patch until an upstream
++> release has the same property. Patch-specific build-time and binary-size
++> impact have not been measured.
++
++## Disposition map
++
++| Current entry | End state after acceptance |
++|---|---|
++| Earlier W9 parity and cache counts | Keep only as historical handoff evidence; replace with source-matched final results. |
++| Current consolidation acceptance gates | Close only with the full final-source gate results and final report fields. |
++| Broad lint migration | Close on current-source acceptance; preserve previous counts only as history. |
++| Prefer-collect checker-rejection report | Move to historical handoff with the reason: no reproducer was retained, and the preserved fixture failed before lint. |
++| Optional callable-field verifier gap | Closed by positive and negative retained tests. |
++| Host-load failures | Replace with final frozen-source suite result; retain old counts only as history. |
++| Fresh-graph lint candidate probes | Move to iteration-speed follow-up; fresh candidate facts are intentional. |
++| Vendored regex-lite patch | Move to maintained dependency notes; retain for `getrandom`-independent regex compilation and state patch-specific impact remains unmeasured. |

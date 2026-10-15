@@ -1,0 +1,223 @@
+diff --git a/src/sema/check/stmt.rs b/src/sema/check/stmt.rs
+index b8695ebf94f1b07adf064b6c2415098a333abf1a..cd8e87a4143c66846d55d2ccc1e1295f3205ce46 100644
+--- a/src/sema/check/stmt.rs
++++ b/src/sema/check/stmt.rs
+@@ -6853,6 +6853,123 @@ mod return_flow_tests {
+         assert!(diagnostics.is_empty(), "{diagnostics:?}");
+     }
+ 
++    #[test]
++    fn result_list_set_and_stream_sources_are_propagating_loop_exits() {
++        let source = "proc spin_list(source: Result[List[Int], Error]) [error] { loop { for item in source { continue } } }\nproc spin_set(source: Result[Set[Int], Error]) [error] { loop { for item in source { continue } } }\nproc spin_stream(source: Result[Stream[Int], Error]) [error] { loop { for item in source { continue } } }\n";
++        let diagnostics = diagnostics(source);
++        assert!(diagnostics.is_empty(), "{diagnostics:?}");
++    }
++
++    #[test]
++    fn result_list_set_and_stream_comprehensions_are_propagating_loop_exits() {
++        let source = "proc spin_list(source: Result[List[Int], Error]) [error] { loop { let items = [item for item in source] } }\nproc spin_set(source: Result[Set[Int], Error]) [error] { loop { let items = {item for item in source} } }\nproc spin_stream(source: Result[Stream[Int], Error]) [error] { loop { let items = [item for item in source] } }\n";
++        let diagnostics = diagnostics(source);
++        assert!(diagnostics.is_empty(), "{diagnostics:?}");
++    }
++
++    #[test]
++    fn pulled_stream_errors_can_exit_loops_and_captured_materializations() {
++        let source = "stream failing_rows() [error] -> Stream[Int] { yield 1; let _ = \"late\".parse_int()? }\nproc spin() [error] { loop { for item in failing_rows() { continue } } }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let values = failing_rows().collect(); return values.len() } }\n";
++        let diagnostics = diagnostics(source);
++        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
++        assert_eq!(
++            diagnostics[0].code,
++            Some(DiagnosticCode::CheckMissingReturn),
++            "{diagnostics:?}"
++        );
++    }
++
++    #[test]
++    fn a_zero_take_suppresses_a_lazy_stream_producer_error() {
++        let source = "stream failing_rows() [error] -> Stream[Int] { let _ = \"late\".parse_int()?; yield 1 }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = failing_rows() |> take(0); return 1 } }\n";
++        let diagnostics = diagnostics(source);
++        assert!(diagnostics.is_empty(), "{diagnostics:?}");
++    }
++
++    #[test]
++    fn demanded_named_stage_callbacks_contribute_error_paths() {
++        let source = "proc fail_item(item: Int) [error] -> Int { return item }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> map(fail_item); return 1 } }\n";
++        let diagnostics = diagnostics(source);
++        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
++        assert_eq!(
++            diagnostics[0].code,
++            Some(DiagnosticCode::CheckMissingReturn),
++            "{diagnostics:?}"
++        );
++    }
++
++    #[test]
++    fn zero_pull_suppresses_named_stage_callback_error_paths() {
++        let source = "proc fail_item(item: Int) [error] -> Int { return item }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> map(fail_item) |> take(0); return 1 } }\n";
++        let diagnostics = diagnostics(source);
++        assert!(diagnostics.is_empty(), "{diagnostics:?}");
++    }
++
++    #[test]
++    fn result_unit_named_stage_callbacks_propagate_only_when_demanded() {
++        let source = "proc maybe_fail(item: Int) -> Result[Unit, Error] { return Ok() }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> tee(maybe_fail); return 1 } }\nproc choose_zero_pull() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> tee(maybe_fail) |> take(0); return 1 } }\n";
++        let diagnostics = diagnostics(source);
++        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
++        assert_eq!(
++            diagnostics[0].code,
++            Some(DiagnosticCode::CheckMissingReturn),
++            "{diagnostics:?}"
++        );
++    }
++
++    #[test]
++    fn range_and_repeat_capacity_errors_precede_downstream_returns() {
++        let source = "proc choose_range() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [] |> range(0, 9223372036854775807) |> map { |item| return 1 } } }\nproc choose_repeat() [error] -> Int { let ignored: Result[Unit, Error] = try { let _ = [1] |> repeat(9223372036854775807) |> map { |item| return 1 } } }\n";
++        let diagnostics = diagnostics(source);
++        assert_eq!(diagnostics.len(), 2, "unexpected diagnostics: {diagnostics:?}");
++        assert!(diagnostics
++            .iter()
++            .all(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)));
++    }
++
++    #[test]
++    fn resource_scope_does_not_complete_after_its_body_returns() {
++        let source = "proc choose(root: FsRoot) [fs] -> Int { let ignored = with held = root { return 1 } }\n";
++        let diagnostics = diagnostics(source);
++        assert!(diagnostics.is_empty(), "{diagnostics:?}");
++    }
++
++    #[test]
++    fn list_set_and_map_comprehension_cardinality_is_known() {
++        let source = "pure choose_list() -> Int { for item in [item for item in [1]] { return item } }\npure choose_set() -> Int { for item in {item for item in [1]} { return item } }\npure choose_map() -> Int { for item in {key: key for key in [1]} { return item.value } }\npure choose_empty() -> Int { for item in [item for item in []] { return item } }\n";
++        let diagnostics = diagnostics(source);
++        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
++        assert_eq!(
++            diagnostics[0].code,
++            Some(DiagnosticCode::CheckMissingReturn),
++            "{diagnostics:?}"
++        );
++    }
++
++    #[test]
++    fn byte_literal_cardinality_distinguishes_empty_and_nonempty_sources() {
++        let source = "pure choose_nonempty() -> Int { for byte in b\"\\x01\" { return byte } }\npure choose_empty() -> Int { for byte in b\"\" { return byte } }\n";
++        let diagnostics = diagnostics(source);
++        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
++        assert_eq!(
++            diagnostics[0].code,
++            Some(DiagnosticCode::CheckMissingReturn),
++            "{diagnostics:?}"
++        );
++    }
++
++    #[test]
++    fn reduce_by_calls_its_callback_for_the_first_nonempty_item() {
++        let source = "pure choose() -> Int { let ignored = [1] |> reduce-by(sum: true) { |item| return item } }\n";
++        let diagnostics = diagnostics(source);
++        assert!(
++            !diagnostics
++                .iter()
++                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
++            "{diagnostics:?}"
++        );
++    }
++
+     #[test]
+     fn a_result_null_safe_field_is_a_propagating_loop_exit() {
+         let source = "type Holder = { value: Int }\nproc spin(source: Result[Holder, Error]) [error] { loop { let ignored = source?.value } }\n";
+@@ -6867,6 +6984,25 @@ mod return_flow_tests {
+         assert!(diagnostics.is_empty(), "{diagnostics:?}");
+     }
+ 
++    #[test]
++    fn a_result_null_safe_method_receiver_can_propagate_before_argument_return() {
++        let source = "pure choose(source: Result[Map[Str, Int], Error]) -> Int { let ignored: Result[Unit, Error] = try { let _ = source?.get(if true { return 1 } else { \"key\" }) } }\n";
++        let diagnostics = diagnostics(source);
++        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
++        assert_eq!(
++            diagnostics[0].code,
++            Some(DiagnosticCode::CheckMissingReturn),
++            "{diagnostics:?}"
++        );
++    }
++
++    #[test]
++    fn a_result_null_safe_method_receiver_can_exit_a_loop_before_argument_continue() {
++        let source = "proc spin(source: Result[Map[Str, Int], Error]) [error] { loop { let _ = source?.get(if true { continue } else { \"key\" }) } }\n";
++        let diagnostics = diagnostics(source);
++        assert!(diagnostics.is_empty(), "{diagnostics:?}");
++    }
++
+     #[test]
+     fn an_optional_null_safe_method_can_skip_its_arguments() {
+         let source = "pure choose(source: Map[Str, Int]?) -> Int { let ignored = source?.get(if true { return 1 } else { \"key\" }) }\n";
+@@ -7928,4 +8064,28 @@ mod return_flow_tests {
+             "{diagnostics:?}"
+         );
+     }
++
++    #[test]
++    fn exhaustive_result_and_error_family_matches_do_not_fall_through() {
++        let source = "error FlowFailure {\n  Missing\n  Changed\n}\npure choose_result(value: Result[Int, Error]) -> Int { match value { Ok(number) => { return number } Err(_) => { return 0 } } }\npure choose_failure(failure: FlowFailure) -> Int { match failure { FlowFailure.Missing => { return 1 } FlowFailure.Changed => { return 2 } } }\n";
++        let diagnostics = diagnostics(source);
++        assert!(
++            !diagnostics
++                .iter()
++                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckMissingReturn)),
++            "{diagnostics:?}"
++        );
++    }
++
++    #[test]
++    fn captured_materialization_of_a_pulled_stream_error_can_fall_through() {
++        let source = "stream failing_rows() [error] -> Stream[Int] { yield 1; let _ = \"late\".parse_int()? }\nproc choose() [error] -> Int { let ignored: Result[Unit, Error] = try { let values = failing_rows().collect(); return values.len() } }\n";
++        let diagnostics = diagnostics(source);
++        assert_eq!(diagnostics.len(), 1, "unexpected diagnostics: {diagnostics:?}");
++        assert_eq!(
++            diagnostics[0].code,
++            Some(DiagnosticCode::CheckMissingReturn),
++            "{diagnostics:?}"
++        );
++    }
+ }
+diff --git a/tests/xsh/guarded-control-proofs.xsh b/tests/xsh/guarded-control-proofs.xsh
+index 1ebb6514bb547e5302741b8ee275d505fba21e26..ef7af52a5ccee5f4c9ae1a224ff1412227482f63 100644
+--- a/tests/xsh/guarded-control-proofs.xsh
++++ b/tests/xsh/guarded-control-proofs.xsh
+@@ -148,3 +148,35 @@ print ${choose()}
+   assert output == """17
+ """
+ }
++
++test guarded_exhaustive_result_and_error_family_returns_lower_and_run { |ctx|
++  let source = r"""error FlowFailure {
++  Missing
++  Changed
++}
++pure choose_result(value: Result[Int, Error]) -> Int {
++  match value {
++    Ok(number) => { return number }
++    Err(_) => { return 0 }
++  }
++}
++pure choose_failure(failure: FlowFailure) -> Int {
++  match failure {
++    FlowFailure.Missing => { return 1 }
++    FlowFailure.Changed => { return 2 }
++  }
++}
++print ${choose_result(Ok(17))}
++print ${choose_failure(FlowFailure.Changed())}
++"""
++  let file = test.temp_file(ctx, name: "guarded-match-flow.xsh", contents: bytes.from_text(source))?
++  let checked = run.capture --text "xsht" check $file
++  let {status: checked_status, stderr: checked_diagnostics, ..} = checked
++  assert checked_status.exited_with(0), checked_diagnostics
++  let result = test.run_script(ctx, source)?
++  let {success: succeeded, stderr: diagnostics, stdout: output, ..} = result
++  assert succeeded, diagnostics
++  assert output == """17
++2
++"""
++}

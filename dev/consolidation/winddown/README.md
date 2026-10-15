@@ -7,7 +7,8 @@ Lean is paused. The current owner direction is
 
 ## Recover an unfinished overlay
 
-Find the snapshot in [the overlay index](unfinished/index.tsv). Each row gives
+Find the snapshot in [the linked overlay index](unfinished/index.tsv) or
+[the standalone overlay index](unfinished/standalone-index.tsv). Each row gives
 its original base commit, branch, worktree, and optional staged patch.
 The original worktree path identifies the snapshot. It is not required storage.
 
@@ -36,10 +37,24 @@ explicit tags in [the recovery-tag index](detached-refs.tsv). Recovery does
 not depend on any linked worktree. Inspect a commit with `git show COMMIT`.
 Create a new checkout only when resuming that work.
 
+[The standalone repository index](standalone-repositories.tsv) records another
+79 self-contained repositories and 11 of their linked checkouts found inside
+the disposable directory. [The imported-ref index](standalone-source-refs.tsv)
+names 92 additional source tips retained under explicit parked branches.
+Their histories include 136 commits previously absent from the primary
+repository. Local fetches retain the source without selecting it for execution.
+
 Automatic approval review rejected a mass archival merge because it would mark
-unintegrated alternatives as merged. The 824 non-ancestor branches remain
-visibly parked. They are not accepted implementation. The selected compiler
+unintegrated alternatives as merged. The 824 original non-ancestor branches
+and 92 imported source-tip branches remain visibly parked. They are not
+accepted implementation. The selected compiler
 source remains the source already integrated before winddown.
+
+The stale `strict-rust-0107` partial checkout contains no unique source: all
+1,817 regular source files match `0107c8158bf8576a6d28953143cab302d7abb17e`.
+The stale uutils checkout matches its external repository at
+`e7c9f3194280835c4487c2945c68d5f01ccacc8d`, apart from an empty generated ZIP.
+Neither partial tree is required storage.
 
 ## Read the retained evidence
 

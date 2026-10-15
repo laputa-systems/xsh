@@ -1,0 +1,6 @@
+snapshot	base_commit	original_branch	original_worktree	staged_patch
+standalone-000-feature-touch-865-probe	865fa9552d34849c3f4d9537c0b9624da32d8062		/home/josh/d/laputa-systems/xsh/.work/wt/feature-touch-865-probe	
+standalone-001-feature-touch-e23-replay	e23d5b05def140d00bb16e4f23d9bc586ca64cdc		/home/josh/d/laputa-systems/xsh/.work/wt/closure-batch-integration/.work/wt/feature-touch-e23-replay	
+standalone-002-feature-touch-e23-probe	e23d5b05def140d00bb16e4f23d9bc586ca64cdc		/home/josh/d/laputa-systems/xsh/.work/wt/feature-touch-e23-probe	
+standalone-003-w9-final-865	865fa9552d34849c3f4d9537c0b9624da32d8062		/home/josh/d/laputa-systems/xsh/.work/wt/w9-final-865	
+standalone-004-control-prefixed-regressions	0a310c314ac48b7ceaff3e86a045d2dbf2ba5ed2		/home/josh/d/laputa-systems/xsh/.work/wt/control-prefixed-regressions	

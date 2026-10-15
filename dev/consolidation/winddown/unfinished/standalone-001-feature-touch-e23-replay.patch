@@ -1,0 +1,564 @@
+diff --git a/crates/xsht/src/format.rs b/crates/xsht/src/format.rs
+index 23a16c6f1d6894992f09bd3c0e81c1160db1dd12..8d86dace454876413d82d0508c8f50e51d632722 100644
+--- a/crates/xsht/src/format.rs
++++ b/crates/xsht/src/format.rs
+@@ -2804,6 +2804,7 @@ impl<'a> Writer<'a> {
+         let arena = self.arena;
+         let child = |child: ExprId| grouping::child_context(arena, expr_id, context, child);
+         match &kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Null => output.push_str("null"),
+             ArenaExprKind::Bool(value) => output.push_str(if *value { "true" } else { "false" }),
+             ArenaExprKind::Int(value) => self.arena.int_literal(*value).write(output),
+@@ -5079,6 +5080,7 @@ impl<'a> Writer<'a> {
+     /// `("costs $5")` keep their parentheses.
+     fn command_typed_arg_can_be_bare(&self, expr_id: ExprId) -> bool {
+         match self.arena.expr(expr_id).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::FmtString(_)
+             | ArenaExprKind::PathFmtString(_)
+             | ArenaExprKind::PathStr(_)
+@@ -5143,6 +5145,7 @@ impl<'a> Writer<'a> {
+ 
+     fn command_chain_base_can_be_bare(&self, expr_id: ExprId) -> bool {
+         match self.arena.expr(expr_id).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Ident(_)
+             | ArenaExprKind::Str(_)
+             | ArenaExprKind::Int(_)
+diff --git a/crates/xsht/src/format_equivalence.rs b/crates/xsht/src/format_equivalence.rs
+index d7a019af602651c26d571004ca4d414bf557456e..bf1437fa3ad5a11417c5a032c7fdf133847cbbf0 100644
+--- a/crates/xsht/src/format_equivalence.rs
++++ b/crates/xsht/src/format_equivalence.rs
+@@ -804,6 +804,7 @@ impl CanonicalWriter<'_> {
+         self.mark(expr.span.start());
+         self.put("E(");
+         match &expr.kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Null => self.put("null;"),
+             ArenaExprKind::Bool(value) => self.debug(value),
+             ArenaExprKind::Int(value) => self.debug(self.arena.int_literal(*value)),
+diff --git a/crates/xsht/src/grep.rs b/crates/xsht/src/grep.rs
+index a1e40a9ba4625d0a08671c276b32851841ce1359..a603381004025784f144373b969dda1a94350a72 100644
+--- a/crates/xsht/src/grep.rs
++++ b/crates/xsht/src/grep.rs
+@@ -89,6 +89,7 @@ fn match_expr_structural(
+         return false;
+     }
+     match pattern {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::Null => true,
+         ArenaExprKind::Bool(a) => {
+             let ArenaExprKind::Bool(b) = target else { return false; };
+@@ -637,6 +638,7 @@ fn build_replacement_text(
+ ) -> Option<String> {
+     let expr = arena.expr(id);
+     match &expr.kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::Ident(name) if is_metavar(name.as_str().as_str()) => {
+             let span = m.bindings.get(name.as_str().as_str())?;
+             Some(target_source.get(span.start()..span.end())?.to_string())
+diff --git a/crates/xsht/src/lint.rs b/crates/xsht/src/lint.rs
+index 50946d28237aae4638bbda2e0f247cb957544ee0..8beb3c69085bff1a35d67aafcc03789855b2c48e 100644
+--- a/crates/xsht/src/lint.rs
++++ b/crates/xsht/src/lint.rs
+@@ -3335,6 +3335,7 @@ impl<'a> Linter<'a> {
+ 
+     fn can_bare_chain_base(&self, expr: ExprId) -> bool {
+         match self.arena.expr(expr).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Ident(_)
+             | ArenaExprKind::Str(_)
+             | ArenaExprKind::Int(_)
+@@ -4233,6 +4234,7 @@ impl<'a> Linter<'a> {
+             if self.scopes.iter().rev().find_map(|scope| scope.get(name.as_str().as_str()))
+                 .is_some_and(|binding| !binding.mutable));
+         let fallback_type = match fallback_node.kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Int(_)
+             | ArenaExprKind::Unary {
+                 op: UnaryOp::Neg, ..
+diff --git a/crates/xsht/src/lint_annotations.rs b/crates/xsht/src/lint_annotations.rs
+index c5e5b973598c6359761ef24031e14351185b284b..ebefface3a3158a40b43afc920099837ba7b2b88 100644
+--- a/crates/xsht/src/lint_annotations.rs
++++ b/crates/xsht/src/lint_annotations.rs
+@@ -655,6 +655,7 @@ impl<'a> Linter<'a> {
+     pub(super) fn expression_depends_on_expected_type(&self, expr: ExprId, removing_annotation: bool) -> bool {
+         let expression = self.arena.expr(expr);
+         match expression.kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Int(_) => self.expr_types.get(&expression.span) == Some(&Type::UInt),
+             // A string literal is a Path only because a Path was expected,
+             // and a validated path only because that type was.
+diff --git a/crates/xsht/src/lint_flow.rs b/crates/xsht/src/lint_flow.rs
+index 4a96c6c6350b03f066bd4061d050304e8c6928b7..395a43838c87da6f8ed5853199dd701ce68ee80b 100644
+--- a/crates/xsht/src/lint_flow.rs
++++ b/crates/xsht/src/lint_flow.rs
+@@ -297,6 +297,7 @@ pub(super) fn expr_or_run_flow(arena: &AstArena, value: &ArenaExprOrRun) -> Flow
+ pub(super) fn expr_flow(arena: &AstArena, expr: ExprId) -> FlowSummary {
+     let arena_expr = arena.expr(expr);
+     match arena_expr.kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::ValuePipelineCall { input, call, .. } => {
+             expr_flow(arena, input).then(expr_flow(arena, call))
+         }
+diff --git a/crates/xsht/src/lint_prefer_tempdir.rs b/crates/xsht/src/lint_prefer_tempdir.rs
+index ace569bb7c59983348beff421e8ee56b71097a31..048ce1fb286a65ae11f773081d9e7a71877b2532 100644
+--- a/crates/xsht/src/lint_prefer_tempdir.rs
++++ b/crates/xsht/src/lint_prefer_tempdir.rs
+@@ -475,6 +475,7 @@ fn owns_nothing(linter: &super::Linter<'_>, stmt: StmtId) -> bool {
+ pub(super) fn expr_owns_nothing(linter: &super::Linter<'_>, expr: ExprId) -> bool {
+     let arena = linter.arena;
+     let inert = match arena.expr(expr).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::Null
+         | ArenaExprKind::Bool(_)
+         | ArenaExprKind::Int(_)
+diff --git a/crates/xsht/src/lint_safety.rs b/crates/xsht/src/lint_safety.rs
+index 087d6012ad2b54a124d4251c44bebe886461fa90..2199d329413d621ba3fc6daf73123e3e3dd307a1 100644
+--- a/crates/xsht/src/lint_safety.rs
++++ b/crates/xsht/src/lint_safety.rs
+@@ -31,6 +31,7 @@ pub(super) fn pipeline_argument_expr(arg: &ArenaCallArg) -> Option<ExprId> {
+ 
+ pub(super) fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> bool {
+     match arena.expr(expr).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::Ident(_)
+         | ArenaExprKind::Int(_)
+         | ArenaExprKind::Str(_)
+@@ -440,6 +441,7 @@ pub(super) fn command_arg_references_name(arena: &AstArena, arg: &ArenaCommandAr
+ 
+ pub(super) fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
+     match arena.expr(expr).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::ValuePipelineCall { .. } => false,
+ 
+         ArenaExprKind::Null
+@@ -517,6 +519,7 @@ pub(super) fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
+ 
+ pub(super) fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
+     match arena.expr(expr).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::ValuePipelineCall { input, call, .. } => expr_may_have_effects(arena, input) || expr_may_have_effects(arena, call),
+ 
+         ArenaExprKind::Null
+@@ -720,6 +723,7 @@ pub(super) fn same_ordering_operand(arena: &AstArena, left: ExprId, right: ExprI
+ 
+ pub(super) fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> bool {
+     match arena.expr(value).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::Null
+         | ArenaExprKind::Bool(_)
+         | ArenaExprKind::Int(_)
+@@ -793,6 +797,7 @@ pub(super) fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> boo
+ impl<'a> Linter<'a> {
+     pub(super) fn pipeline_argument_stable(&self, value: ExprId) -> bool {
+         match self.arena.expr(value).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Ident(name) => {
+                 !self.assigned_names.contains(&name)
+                     && self
+diff --git a/crates/xsht/src/lint_try_capture.rs b/crates/xsht/src/lint_try_capture.rs
+index d12a096a4c6aed4d436b22ad34fa66a19d231d16..c4ccfd0f46451da3cdad886c075734af62a90d54 100644
+--- a/crates/xsht/src/lint_try_capture.rs
++++ b/crates/xsht/src/lint_try_capture.rs
+@@ -240,6 +240,7 @@ fn closed_scalar_expression(
+             *remaining -= 1;
+             let kind = program.arena.expr(expr).kind;
+             match kind {
++                ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+                 ArenaExprKind::Int(_)
+                 | ArenaExprKind::Str(_)
+                 | ArenaExprKind::Bool(_)
+diff --git a/crates/xsht/src/lint_walk.rs b/crates/xsht/src/lint_walk.rs
+index 244d85ce1334216e9c9e1298e3534c4595f5b3b1..8ae2f2a87099ab40b1bbcac10740200236e893dd 100644
+--- a/crates/xsht/src/lint_walk.rs
++++ b/crates/xsht/src/lint_walk.rs
+@@ -162,6 +162,7 @@ impl LintExprVisitor<'_, '_> {
+     fn walk_expr(&mut self, expr: ExprId) {
+         let arena = self.linter.arena;
+         match arena.expr(expr).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::ValuePipelineCall { .. }
+             | ArenaExprKind::List(_)
+             | ArenaExprKind::Set(_)
+diff --git a/src/runtime/eval/indexed/full.rs b/src/runtime/eval/indexed/full.rs
+index bdcd10c6c116f74332d4cbc1f9ddc633e2f54458..251630de262e8a6276fa1856a2bb66ed44a78968 100644
+--- a/src/runtime/eval/indexed/full.rs
++++ b/src/runtime/eval/indexed/full.rs
+@@ -5576,6 +5576,7 @@ impl<'a> FullDecoder<'a> {
+     /// independently established the relevant slot-write constraints.
+     fn function_ref_source(&self, instruction: usize) -> Result<Option<usize>, IrVerifyError> {
+         match self.expression_view(instruction)? {
++            schema::ExprView::FeatureTouchProbe { .. } => unreachable!(),
+             schema::ExprView::FunctionRef { .. } => Ok(Some(instruction)),
+             schema::ExprView::Null
+             | schema::ExprView::Unit
+@@ -5763,6 +5764,7 @@ impl<'a> FullDecoder<'a> {
+             ));
+         }
+         match self.expression_view(instruction)? {
++            schema::ExprView::FeatureTouchProbe { .. } => unreachable!(),
+             schema::ExprView::Param(slot) => {
+                 let actual = match self.checked_slot_type(slot) {
+                     Ok(Some(actual)) => Some(self.store.semantic.to_type(actual)?),
+@@ -6470,6 +6472,7 @@ impl<'a> FullDecoder<'a> {
+         instruction: usize,
+     ) -> Result<Option<Arc<str>>, IrVerifyError> {
+         Ok(match self.expression_view(instruction)? {
++            schema::ExprView::FeatureTouchProbe { .. } => unreachable!(),
+             schema::ExprView::Str(value) => Some(Arc::from(value)),
+             schema::ExprView::PreparedConstant(PreparedConstantValue(LoweredValue::Str(value))) => {
+                 Some(value.clone())
+@@ -6576,6 +6579,7 @@ impl<'a> FullDecoder<'a> {
+             return Ok(Some(ty));
+         }
+         match self.expression_view(instruction)? {
++            schema::ExprView::FeatureTouchProbe { .. } => unreachable!(),
+             schema::ExprView::Str(_) => Ok(Some(Type::Str)),
+             schema::ExprView::FmtString(_) => Ok(Some(Type::Str)),
+             schema::ExprView::Bytes(_) => Ok(Some(Type::Bytes)),
+@@ -7166,6 +7170,7 @@ impl<'a> FullDecoder<'a> {
+         };
+         let view = self.expression_view(instruction)?;
+         match view {
++            schema::ExprView::FeatureTouchProbe { .. } => unreachable!(),
+             schema::ExprView::Int(_) if matches!(ty, Type::Int | Type::UInt) => {}
+             schema::ExprView::Float(_) if ty == Type::Float => {}
+             schema::ExprView::Duration(_) if ty == Type::Duration => {}
+@@ -8116,6 +8121,7 @@ impl<'a> FullDecoder<'a> {
+             return Ok(None);
+         }
+         let field_expression = match self.expression_view(instruction)? {
++            schema::ExprView::FeatureTouchProbe { .. } => unreachable!(),
+             schema::ExprView::Field { .. } => true,
+             schema::ExprView::Null
+             | schema::ExprView::Unit
+@@ -9819,6 +9825,7 @@ impl<'a> FullDecoder<'a> {
+             return Ok(());
+         }
+         let (value, mut arms) = match self.expression_view(condition)? {
++            schema::ExprView::FeatureTouchProbe { .. } => unreachable!(),
+             schema::ExprView::MatchExpr { value, arms, .. } => (value, arms),
+             schema::ExprView::Null
+             | schema::ExprView::Unit
+@@ -10315,6 +10322,7 @@ impl<'a> FullDecoder<'a> {
+             return Ok(None);
+         }
+         match self.expression_view(instruction)? {
++            schema::ExprView::FeatureTouchProbe { .. } => unreachable!(),
+             schema::ExprView::Param(slot) => self.checked_slot_type(slot),
+             schema::ExprView::Field { base, .. } => match self.derive_typed_callee_type(instruction) {
+                 Ok(type_id) => Ok(Some(type_id)),
+diff --git a/src/runtime/eval/indexed/full/schema.rs b/src/runtime/eval/indexed/full/schema.rs
+index efed011f4128c7055d41a186264c8d7b3a0d78f4..8b2a1fe1cbee9659fec5a835cc3e6e2596862293 100644
+--- a/src/runtime/eval/indexed/full/schema.rs
++++ b/src/runtime/eval/indexed/full/schema.rs
+@@ -1233,6 +1233,9 @@ instruction_schema! {
+         /// what its proc returns, so the checker types the call `Result[Any]`
+         /// and this makes every proc honor that.
+         ProcCallResult(value: BuildExprId) => ExprProcCallResult = 114 [0; Scheduled; FrameControl];
++        FeatureTouchProbe {
++            child: BuildExprId,
++        } => ExprFeatureTouchProbe = 158 [0; Scheduled; FrameControl];
+     }
+     BuildStmtRow => StmtView [Stmt] {
+         Let {
+diff --git a/src/runtime/eval/lower.rs b/src/runtime/eval/lower.rs
+index 1f8760a8528cec7c91a22d037fbd5af2309f2d81..504f0da41007ba03f8b71e8bb567e077e689cef4 100644
+--- a/src/runtime/eval/lower.rs
++++ b/src/runtime/eval/lower.rs
+@@ -1620,6 +1620,7 @@ compact_expr_kind_catalog! {
+     ArenaExprKind::SetComp { .. } => (49, "set_comp");
+     ArenaExprKind::Collect { .. } => (50, "collect");
+     ArenaExprKind::ResourceScope { .. } => (51, "resource_scope");
++    ArenaExprKind::FeatureTouchProbe { .. } => (52, "feature_touch_probe");
+ }
+ 
+ fn compact_checked_type_is_concrete(ty: &Type) -> bool {
+@@ -4943,6 +4944,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+         .flatten()
+         .filter(Type::has_unsigned_constraint);
+         let lowered = match self.program.arena.expr(id).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Field { .. } | ArenaExprKind::Call { .. }
+                 if self.bodies.inferred_variants.contains_key(&id) =>
+             {
+diff --git a/src/runtime/eval/lower/patterns.rs b/src/runtime/eval/lower/patterns.rs
+index 5bc5298933499072b2aac1555f194d7ed2ca2354..779b09b5d9ec8d9dc86df947e2582f5757669c04 100644
+--- a/src/runtime/eval/lower/patterns.rs
++++ b/src/runtime/eval/lower/patterns.rs
+@@ -649,6 +649,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
+ 
+     fn lower_pattern_literal(&self, id: ExprId) -> Option<BuildPatternId> {
+         match self.program.arena.expr(id).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Unary {
+                 op: UnaryOp::Neg,
+                 expr,
+diff --git a/src/runtime/eval/lower/values.rs b/src/runtime/eval/lower/values.rs
+index 30b67f6ff8fcbe377ec2935f49458525f0886db6..739c985c44987cb830e76511e73cb2d5d8b6d271 100644
+--- a/src/runtime/eval/lower/values.rs
++++ b/src/runtime/eval/lower/values.rs
+@@ -82,6 +82,7 @@ pub(super) fn lower_const_param_default(
+         return lowered_value_matches(kind, &value).then_some(value);
+     }
+     let value = match arena.expr(expr).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::Null => LoweredValue::Null,
+         ArenaExprKind::Bool(value) => LoweredValue::Bool(value),
+         ArenaExprKind::Int(value) => LoweredValue::Int(arena.int_literal(value).value()?),
+diff --git a/src/runtime/eval/lowered_run/indexed_run/explicit_run.rs b/src/runtime/eval/lowered_run/indexed_run/explicit_run.rs
+index 55920f4ac9c3bf80932f171d364ab1c51090c6a2..9c07026b73b2fc7aebdbed1af5b0faba0e5fb0ca 100644
+--- a/src/runtime/eval/lowered_run/indexed_run/explicit_run.rs
++++ b/src/runtime/eval/lowered_run/indexed_run/explicit_run.rs
+@@ -6631,6 +6631,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
+         next: FrameContinuation,
+     ) -> Result<(), RuntimeError> {
+         match view_kind {
++            ExprViewKind::FeatureTouchProbe => unreachable!(),
+             ExprViewKind::RunCapture | ExprViewKind::SpawnRun | ExprViewKind::RunPipeline => {
+                 self.start_process_run(index, instruction, tag, span, next)?;
+             }
+diff --git a/src/sema/check/expr.rs b/src/sema/check/expr.rs
+index ef518a84078a6d9655b8a5666a7b2b450abe8405..e5204f11bbbd9c75ddd9b6fc9e5458d20919650f 100644
+--- a/src/sema/check/expr.rs
++++ b/src/sema/check/expr.rs
+@@ -73,6 +73,7 @@ impl Checker {
+     ) -> Option<super::super::constants::SchemaExpectation> {
+         use super::super::constants::{SchemaComponent, SchemaExpectation};
+         match arena.arena.expr(expression).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Ident(name) => self
+                 .lookup_value_binding(name, arena.arena.expr(expression).span)?
+                 .schema_expectation.clone(),
+@@ -115,6 +116,7 @@ impl Checker {
+                 Some(result)
+             }
+             ArenaExprKind::Call { callee, .. } => match arena.arena.expr(callee).kind {
++                ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+                 ArenaExprKind::Ident(name) => self
+                     .procs
+                     .get(&name)
+@@ -596,6 +598,7 @@ impl Checker {
+             return ty;
+         }
+         let ty = match &expr.kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Null => Type::Null,
+             ArenaExprKind::Bool(_) => Type::Bool,
+             ArenaExprKind::Int(value) => {
+diff --git a/src/sema/check/removed_fs.rs b/src/sema/check/removed_fs.rs
+index c794fa85a6f5c2017909a798a28a63bff13fc71c..37fd7816d4fd3ff1fac174f644d0f754ce5a9617 100644
+--- a/src/sema/check/removed_fs.rs
++++ b/src/sema/check/removed_fs.rs
+@@ -37,6 +37,7 @@ pub fn call_receiver_text(arena: &AstArena, source: &str, operand: ExprId) -> Op
+             .then(|| format!("p\"{written}\""))
+     };
+     match operand.kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::Ident(_)
+         | ArenaExprKind::Field { .. }
+         | ArenaExprKind::NullSafeField { .. }
+diff --git a/src/sema/check/resource.rs b/src/sema/check/resource.rs
+index ff82a1a7196ca2305fb8bb803eec85fbaad79601..a4872f025e348c64f434bfe5395bef02577f3775 100644
+--- a/src/sema/check/resource.rs
++++ b/src/sema/check/resource.rs
+@@ -575,6 +575,7 @@ impl Analyzer<'_> {
+         while let Some(expr) = pending.pop() {
+             let node = self.program.arena.expr(expr);
+             let lazy = match node.kind {
++                ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+                 ArenaExprKind::Binary { op, .. } => matches!(
+                     op,
+                     crate::syntax::node::BinaryOp::ResultFallback
+diff --git a/src/sema/check/scopecheck.rs b/src/sema/check/scopecheck.rs
+index b4e0d3242e0f4efcca536aad0c4bf8af6046eb9c..210fe07bd1ee16917281db0ae36972147f24a195 100644
+--- a/src/sema/check/scopecheck.rs
++++ b/src/sema/check/scopecheck.rs
+@@ -484,6 +484,7 @@ impl ScopeChecker<'_> {
+         let node = self.program.arena.expr(expression);
+         self.facts.expression_namespaces.insert(expression, self.namespace);
+         match node.kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Ident(name) => {
+                 if let Some(id) = self.lookup(name) {
+                     self.facts.expressions.insert(expression, id);
+diff --git a/src/sema/check/stmt.rs b/src/sema/check/stmt.rs
+index e6f80ab5df7fc8e783ede9857ee20faa8c76d609..80130143defb3d41472d1a388c7b68eecd355bfc 100644
+--- a/src/sema/check/stmt.rs
++++ b/src/sema/check/stmt.rs
+@@ -1623,6 +1623,7 @@ fn expression_cardinality_uncached(
+     facts: &FlowFacts<'_>,
+ ) -> StreamCardinality {
+     match arena.arena.expr(expr).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::List(elements) => list_literal_cardinality(arena, elements, facts),
+         ArenaExprKind::ListComp { qualifiers, .. }
+         | ArenaExprKind::SetComp { qualifiers, .. }
+@@ -1925,6 +1926,7 @@ fn expr_control_flow_inner(
+     facts: &FlowFacts<'_>,
+ ) -> ControlFlow {
+     match arena.arena.expr(id).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::Call { callee, .. }
+             if matches!(arena.arena.expr(callee).kind,
+                 ArenaExprKind::Field { name, .. } if name.as_str() == "collect") =>
+@@ -5868,6 +5870,7 @@ impl Checker {
+ 
+     fn expr_definitely_exits_arena(&self, arena: &ArenaProgram, expr: ExprId) -> bool {
+         match arena.arena.expr(expr).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::ValueBlock(block) => self.block_definitely_exits_arena(arena, block),
+             ArenaExprKind::Null
+             | ArenaExprKind::Bool(_)
+@@ -6080,6 +6083,7 @@ impl Checker {
+                     && self.return_inference_block_returns(arena, else_block)
+             }
+             ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
++                ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+                 ArenaExprKind::ErrorContext { block, .. } => {
+                     self.return_inference_block_returns(arena, block)
+                 }
+@@ -6706,6 +6710,7 @@ impl Checker {
+             return true;
+         }
+         match &arena.arena.expr(value).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::ErrorContext { block, .. }
+             | ArenaExprKind::ContextScope { block, .. }
+             | ArenaExprKind::TempDirScope { block, .. }
+@@ -6831,6 +6836,7 @@ fn should_record_binding_annotation_arena(
+ // block boundaries. Their Unit success payload still leaves the Result as data.
+ pub(super) fn tail_expr_uses_result_context_arena(arena: &ArenaProgram, expr: ExprId) -> bool {
+     match arena.arena.expr(expr).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::Capture(_)
+         | ArenaExprKind::ContextScope { .. }
+         | ArenaExprKind::TempDirScope { .. }
+@@ -7018,6 +7024,7 @@ fn whole_paren_group(text: &str) -> Option<&str> {
+ 
+ fn statement_tail_needs_value_context_arena(arena: &ArenaProgram, expr: ExprId) -> bool {
+     match arena.arena.expr(expr).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::ValueBlock(_)
+         | ArenaExprKind::ErrorContext { .. }
+         | ArenaExprKind::Require { schema: None, .. } => true,
+diff --git a/src/sema/constants.rs b/src/sema/constants.rs
+index f265028bb0437796ef8be48900f6d241530f3a6c..fa37de11e4d93a27073270793fc17e3828373fc3 100644
+--- a/src/sema/constants.rs
++++ b/src/sema/constants.rs
+@@ -189,6 +189,7 @@ impl LiteralConstant {
+             return Some(value.clone());
+         }
+         let value = match arena.expr(expr).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Null => Self::Null,
+             ArenaExprKind::Bool(value) => Self::Bool(value),
+             ArenaExprKind::Int(value) => Self::Int(arena.int_literal(value).value()?),
+@@ -3136,6 +3137,7 @@ impl ConstantPreparation<'_> {
+             return Err((expr.span, "constant preparation limit exceeded".into()));
+         }
+         let value = match expr.kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Ident(_) => {
+                 if let Some((family, variant, fields)) = self.tag_constructor(id, namespace) {
+                     if !fields.is_empty() {
+diff --git a/src/syntax/arena.rs b/src/syntax/arena.rs
+index 0bed56185709cb9ba624bdce3b5c556424430eca..e79cc767df4e8fc630c8c9c397a48906aa00877c 100644
+--- a/src/syntax/arena.rs
++++ b/src/syntax/arena.rs
+@@ -4872,6 +4872,7 @@ impl AstArena {
+     pub fn for_each_expr_child(&self, id: ExprId, mut visit: impl FnMut(ArenaChild)) {
+         use ArenaChild as Child;
+         match self.expr(id).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_)
+             | ArenaExprKind::Float(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Str(_)
+             | ArenaExprKind::PathStr(_) | ArenaExprKind::GlobStr(_) | ArenaExprKind::Bytes(_)
+@@ -5804,6 +5805,7 @@ impl AstArena {
+         let tag = self.expr_tags[id.index()];
+         let data = self.expr_data[id.index()];
+         match tag {
++            ArenaExprTag::FeatureTouchProbe => unreachable!(),
+             ArenaExprTag::Null => ArenaExprKind::Null,
+             ArenaExprTag::BoolFalse => ArenaExprKind::Bool(false),
+             ArenaExprTag::BoolTrue => ArenaExprKind::Bool(true),
+@@ -7752,6 +7754,7 @@ pub enum ArenaExprTag {
+     Collect,
+     ResourceScope,
+     ResourceStatementScope,
++    FeatureTouchProbe,
+ }
+ 
+ #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+@@ -7998,6 +8001,9 @@ pub enum ArenaExprKind {
+         block: BlockId,
+         value_body: bool,
+     },
++    FeatureTouchProbe {
++        child: ExprId,
++    },
+ }
+ 
+ #[derive(Clone, Debug, Eq, PartialEq)]
+@@ -9022,6 +9028,7 @@ impl ArenaLowerer<'_> {
+ 
+     fn encode_expr_kind(&mut self, kind: ArenaExprKind) -> (ArenaExprTag, ArenaExprData) {
+         match kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Null => (ArenaExprTag::Null, ArenaExprData::ZERO),
+             ArenaExprKind::Bool(false) => (ArenaExprTag::BoolFalse, ArenaExprData::ZERO),
+             ArenaExprKind::Bool(true) => (ArenaExprTag::BoolTrue, ArenaExprData::ZERO),
+diff --git a/src/syntax/grouping.rs b/src/syntax/grouping.rs
+index 08a1439e9a8551bffc87a74b87bf0a62b7ba2f14..a8e23533200331d8378a6ad21249ce14c43f65a2 100644
+--- a/src/syntax/grouping.rs
++++ b/src/syntax/grouping.rs
+@@ -317,6 +317,7 @@ impl Context {
+ 
+ fn binding_power(kind: &ArenaExprKind) -> u8 {
+     match kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::Pipeline { .. }
+         | ArenaExprKind::StructuredPipeline { .. }
+         | ArenaExprKind::ValuePipelineCall { .. }
+@@ -476,6 +477,7 @@ fn reads_inline(arena: &AstArena, expr: ExprId) -> bool {
+     let mut current = expr;
+     loop {
+         current = match arena.expr(current).kind {
++            ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+             ArenaExprKind::Record(_)
+             | ArenaExprKind::MapComp { .. }
+             | ArenaExprKind::Set(_)
+@@ -905,6 +907,7 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
+     }
+     let statement = matches!(lead, Lead::Statement { .. } | Lead::ArmStatement);
+     match kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::ValueBlock(_) if lead == Lead::ArmStatement => true,
+         ArenaExprKind::Record(fields) if lead == Lead::ArmStatement => !matches!(
+             arena
+@@ -1031,6 +1034,7 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child:
+     };
+     let open = Context::open;
+     match arena.expr(parent).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::Binary {
+             op, left: operand, ..
+         } if operand == child => left(
+@@ -1272,6 +1276,7 @@ fn is_condition(arena: &AstArena, parent: ExprId, child: ExprId) -> bool {
+ /// `child_context` derives from `parent`'s.
+ fn for_each_operand(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(ExprId)) {
+     match arena.expr(parent).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         ArenaExprKind::Binary { left, right, .. } => {
+             visit(left);
+             visit(right);
+@@ -1344,6 +1349,7 @@ fn for_each_operand(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Expr
+ /// Every expression child of `parent`.
+ pub fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(ExprId)) {
+     match arena.expr(parent).kind {
++        ArenaExprKind::FeatureTouchProbe { .. } => unreachable!(),
+         // These match-shaped forms keep their written value; their arms are
+         // not expression children in the source.
+         ArenaExprKind::PatternTest { value, .. }

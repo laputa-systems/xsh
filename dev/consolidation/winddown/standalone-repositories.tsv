@@ -1,0 +1,91 @@
+original_repository	commit	original_branch
+wt/final-dev-lint-closure	b2406df6f6e262efcf1ba6a4ed8eadb768a666de	fix/final-dev-lint-closure
+wt/closure-final-lint-wildcard	c215127eedff0be333dbbdc669ff3139bd2ff93a	
+wt/oracle-simple-fixture-repair	7be1bf8a2d53fff8c540f3e1cff3796e94116fe6	lane/oracle-simple-fixture-repair
+wt/final-native-core-follow-d02	ad301cbcabbb9f266aaf2707878f463336ab1e8b	campaign/final-native-core-follow-d02
+wt/w9-reference-reuse-56580	cc3971ee34a39a0bd5c37af46166ab4c1ce487c0	
+wt/iteration-metrics-loop	af50d6c0995b90a032f19f3b1067a3655f2c7c1b	lane/iteration-metrics-loop
+wt/feature-touch-865-probe	865fa9552d34849c3f4d9537c0b9624da32d8062	
+wt/w2-mark-scheduler	14084e4d7bb792b5aa8045b3a117b2ae29ee956e	lane/w2-mark-scheduler
+wt/w9-parallel-comparison-43250	7d753c196617200e2dc3bec68c5c99864564d55c	campaign/w9-parallel-comparison
+wt/w9-adapter-source-fix-662	4516a2b740210cb26f3157c5521e17412c86fe13	
+wt/w9-publication-helper-fix	53d2252f990fb47b5003500383666224669ee6c6	w9-publication-helper-fix
+wt/final-native-core-d02	6fe6644853b49edacdc83f0dcb90d5f564dfb605	campaign/final-native-core-d02
+wt/w10-final-gate-controller	56079e577573fdab6cb985f943d26957b9e0c3b2	
+wt/closure-optional-field-proof	f21bf2014421adc840c6d6118f3652d17eedb7fd	
+wt/w9-adapter-owner-sidecar	5e3f969a3b577f3972d03971a14f4d3569dad926	lane/w9-adapter-owner-sidecar
+wt/formal-2aa	2aa2069c80c7ae63e2a353cb598923e92bd5e9da	
+wt/iteration-artifact-reuse	7c445deccf345aeb9197a0d6cf65fc58b6958fdd	perf/docker-context
+wt/w2-remaining-closure	d5285636d850fc1e9f041842ab89a7e845032812	lane/w2-remaining-closure
+wt/final-source-integration-0ab	7e93dd4533d175f0385ae433651a98c98b5c20cd	campaign/final-source-integration-0ab
+wt/w9-retry-reference-controller-d02	a89822728ec0f91b7fc8525427bf222029bd95e1	campaign/w9-retry-reference-controller-d02
+wt/w9-comparison-speed-387	b99da15c77029a81008a83a80477d245a4f146f9	campaign/w9-comparison-speed-387
+wt/w9-next-controller-56580	38714b76dc019ac69fc0ea6b660c1a019d9f5844	campaign-w9-controller-cc397
+wt/route-oracle-final-matrix-20261014	0db33401f48a4a67277211542c3696625df4281c	
+wt/final-closure-docs	901cfd55a5a23b2a235a44ba5cca3b81bb4849d1	
+wt/dns-full-ir-regression	9a9abb4c5c9d0b0625a966ccbe400b4a31b79d1c	master
+wt/oracle-scalar-fixture-repair	227c3d3fc94e0be84bd4cb20f517ab58c207cbc9	fix/oracle-scalar-fixture-repair
+wt/w4-authority-integration-56580	0ab236324ff8aac7b31ebd3abb66b68f45b76a2d	lane/w4-authority-integration
+wt/w4-function-reference-56580	4012280aff01d994ae56895c321e8a0b3209b779	lane/w4-function-reference-56580
+wt/w9-publication-adapter-865	44e103a51946ddfdac7962c5beb6911948402333	master
+wt/w10-lint-shared-import	5e0997de46b2086ded1815a5bea9d24de0e3ca35	
+wt/w9-lint-shared-import	daea1b001ddf0b80ff1a324f19f73b8c5d841e31	
+wt/closure-batch-integration	8c0352f02e5a76e809e669d5bc214209a97fe4b2	closure-batch-integration
+wt/closure-batch-integration/.work/wt/feature-touch-e23-replay	e23d5b05def140d00bb16e4f23d9bc586ca64cdc	
+wt/final-trace-fixture-d02	4674275882b57ba7a2bc618e50dcf47aac2db2bf	campaign/final-trace-fixture-d02
+wt/control-native-test-migration	c3c695010e3b9f1ae85a846e81365eb136134f7b	control-native-test-migration
+wt/iteration-gate-selector	c65542b7bb541c7c888dc92b4fb5fb9a4214df5d	lane/iteration-gate-selector
+wt/w5-semantic-wildcards	dfeb9518571151fb73bfde1167fc2f9fc3643808	lane/w5-semantic-wildcards
+wt/iteration-gate-product-selection	c258ab1c4870421c73e17f556ade5654cfee0ce3	lane/iteration-gate-product-selection
+wt/w9-span-normalization-56580	371b58a97a40ebc2ecfe346441cbbcf27965da83	
+wt/docs-tooling-refresh	89810d391b6997646dd8f58a604dd1e0290eb8ff	codex/docs-tooling-refresh
+wt/w9-statement-span-fix-56580	213585aac8c5b18d949513d5ea298f034ba037d8	campaign/w9-statement-span-fix-56580
+wt/w9-derived-retry-context-bb	1fd9e5f2f366833b786e57d1fc54bcd9a238731e	campaign/w9-derived-retry-context-bb
+wt/final-sort-loop-d02	4d559b68ef4c34fb4ee107214739da65d4b66363	campaign/final-sort-loop-d02
+wt/w7-final-grammar-closure	1429a6591c3dca15465fa692b6858aa1153d0bc2	lane/w7-final-grammar-closure
+wt/w9-final-source-runner	75c87cb4ce103c1cddb161882c9457560c730811	
+wt/w10-semantic-review-145	662e97263fe445d1a06718ae36f1ef3a8d80ca21	
+wt/w9-exact-owners-56580	5136ced917619c98ba3fd6198f8f094b33979e07	lane/w9-exact-owners
+wt/w4-constructor-identity-56580	8fe4415af1737e8f0bb2cacbd5aee2a7fd7fda8b	lane/w4-constructor-identity
+wt/w9-binding-initializer-56580	ea11fa772890e7d01a4c8e3bf913fc802cbe4f4d	w9-binding-initializer-56580
+wt/w9-correction-controller-387	99e1679e60b04f98539637211821470785311473	campaign/w9-correction-controller-387
+wt/w9-adapter-ref-e240	e240efad273fe35d66d91f4037b6a8193527da2e	
+wt/final-contract-fixture-lints	5531c49b5594d0e808233ea27029cdffe124846a	lane/final-contract-fixture-lints
+wt/final-structural-6ec	61023ec747f10ff2206258c7ddaa10b29de6d83f	lane/w9-adapter-parser-projection
+wt/closure-direct-if-route	b4c5aa141c87a52f8d9754c4eedfa7b604c6e5e3	lane/closure-direct-if-route
+wt/final-native-btop-d02	7e41c034246fbddc2042108635a1bb1e52d46922	campaign/final-native-btop-d02
+wt/w9-combined-preflight	daea1b001ddf0b80ff1a324f19f73b8c5d841e31	
+wt/final-structural-865	865fa9552d34849c3f4d9537c0b9624da32d8062	
+wt/final-workflow-doc-fix	a4c693bc9a0ad55e018e9279866be76a1659ba32	
+wt/checks-inventory-generator-fix	04c31d1686a55f2e1b681aee4401a1e05f96d94b	lane/checks-inventory-generator-fix
+wt/feature-probe-0ab	0ab236324ff8aac7b31ebd3abb66b68f45b76a2d	feature-probe-0ab
+wt/oracle-statement-fixture-repair	0445b5bff94263078ba9f430c5316f7c20c06a82	fix/oracle-statement-fixture-repair
+wt/w10-final-docs	ad25af015e19d4a17a4b2c158fc61a15fad47b5e	w10-final-docs
+wt/formal-125a	125a9394cd38befe68b1a499b7f8e25a234f290c	
+wt/final-route-fixture-lints	55c361e119f35ac77d6a2fb3d5c29e56eda04ec1	lane/final-route-fixture-lints
+wt/closure-float-fuzz-failure	f796a58f18656121b7891d994d4201d1c02694ef	
+wt/final-batch-docs-d02	52a232c9a4cc1103085444ea856142342a2b7ea8	campaign/final-batch-docs-d02
+wt/formal-711	71103196374480822599499e8add51a6d0abfeae	
+wt/final-wait-try-fix	2d774417774816316ac281d502951d75c2f566a5	master
+wt/w10-live-structural-close	75c87cb4ce103c1cddb161882c9457560c730811	
+wt/scanner-parity-baseline-5e66	5e66b6b896a47d0c692739135d51200b007a2a67	
+wt/current-structural-scan-5e099	5e0997de46b2086ded1815a5bea9d24de0e3ca35	
+wt/feature-touch-current-probe	04aff21c19f98ff08385dfe92f5db47cf2849031	probe/feature-touch-current
+wt/iteration-runtime-crate-boundary	75c87cb4ce103c1cddb161882c9457560c730811	master
+wt/iteration-remove-xsht-devedge	dcae98dce8bd9dc98593841eb4ed66556ed58cb5	lane/iteration-remove-xsht-devedge
+wt/route-oracle-final-closure	2b8f8e4d3f7e1267c9dd2dfea094240db35ca2ad	lane/route-oracle-final-closure
+wt/w9-reference-loop-flow-e240	8acb914f971394b51395742baed688f67488d049	campaign/w9-reference-loop-flow-e240
+wt/float-equality-ieee	03a92e19c7e56f3d2b58b8743bda42b654813dab	lane/float-ieee
+wt/oracle-control-fixture-repair	82db1c8f56e599c716f1db70cb33c9c18b123f00	
+wt/final-native-tooling-d02	01faddfe29a4e69e0327bcfac002d1f2f743bc64	campaign/final-native-tooling-d02
+wt/dns-artifact-lookup-fix	4f440ee924e7b2f364935206998d8bd0127e405f	lane/dns-artifact-lookup-fix
+wt/feature-touch-e23-probe	e23d5b05def140d00bb16e4f23d9bc586ca64cdc	
+wt/closure-prefer-collect-failures	d8e385590a7c532af741621f21b1a6cbf656d4ff	
+wt/formal-0107	0107c8158bf8576a6d28953143cab302d7abb17e	
+wt/w9-final-865	865fa9552d34849c3f4d9537c0b9624da32d8062	
+wt/final-control-flow-fact-oracles	98050294599e5fb69719901c95e8764bc389bb90	master
+wt/w9-derived-reference-e240	bb29697265b29540f7d3a944a2454d2a4152dcc7	campaign/w9-derived-reference-e240
+wt/final-native-semantics-d02	5c4542d18082385fa2bb505380313da73eae21c5	campaign/final-native-semantics-d02
+wt/while-let-runtime-regression	679513aa7ecd6c6b3ad48c7f7e36c76a40f3bb1a	fix/while-let-capture-publication
+wt/control-prefixed-regressions	0a310c314ac48b7ceaff3e86a045d2dbf2ba5ed2	
+wt/final-scanner-loop-d02	d71155115093b9ef9c97e30d188e73b006a5da45	campaign/final-scanner-loop-d02
