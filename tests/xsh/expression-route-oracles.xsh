@@ -270,3 +270,368 @@ test test_expr_proc_call_result {
   let handle: Proc = route_proc_target
   assert handle.call(20)?.require(Int)? == 21
 }
+
+test test_expr_function_ref { |ctx|
+  test.expect(
+    ctx,
+    "pure increment(value: Int) -> Int { value + 1 }\nlet alias = increment\nassert alias(41) == 42\n",
+    status: 0,
+  )?
+}
+
+test test_expr_field { |ctx|
+  test.expect(
+    ctx,
+    "type Item = {value: Int}\npure read_item(item: Item) -> Int { item.value }\nassert read_item({value: 41}) == 41\n",
+    status: 0,
+  )?
+}
+
+test test_expr_abort { |ctx|
+  test.expect(
+    ctx,
+    "proc terminate() { exit 23 }\nterminate()\n",
+    status: 23,
+  )?
+}
+
+test test_expr_archive_tar_create { |ctx|
+  let root = test.temp_dir(ctx, name: "route-archive-create")?
+  fp"{root}/member".write("payload")
+  let archive_file = fp"{root}/payload.tar"
+  test.expect(
+    ctx,
+    "let root = Path(args[0])\narchive.tar_create(fp\"{root}/payload.tar\", root, [p\"member\"])\nassert fp\"{root}/payload.tar\".exists()?\n",
+    status: 0,
+    args: [root],
+  )?
+  assert archive_file.exists()?
+}
+
+test test_expr_error { |ctx|
+  test.expect(
+    ctx,
+    "error RouteError = Failed(message: Str)\nlet result: Result[Int, RouteError] = Err(RouteError.Failed(message: \"failed\"))\nassert result is Err(_)\n",
+    status: 0,
+  )?
+}
+
+test test_expr_fail { |ctx|
+  test.expect(
+    ctx,
+    "let result = error.fail(\"expected failure\")\nmatch result { Err(problem) => assert problem.message == \"expected failure\"; Ok(_) => assert false }\n",
+    status: 0,
+  )?
+}
+
+test test_expr_fs_files { |ctx|
+  let root = test.temp_dir(ctx, name: "route-fs-files")?
+  fp"{root}/visible.txt".write("text")
+  fp"{root}/ignored.bin".write("bytes")
+  test.expect(
+    ctx,
+    "let root = Path(args[0])\nlet files = fs.files(root, gitignore: false, stat: false, hidden: false, exts: [\"txt\"])?.collect()\nassert files.len() == 1 and files[0].name == \"visible.txt\"\n",
+    status: 0,
+    args: [root],
+  )?
+}
+
+test test_expr_fs_list { |ctx|
+  let root = test.temp_dir(ctx, name: "route-fs-list")?
+  fp"{root}/entry".write("payload")
+  test.expect(
+    ctx,
+    "let root = Path(args[0])\nlet children = fs.children(root, ordered: true)?.collect()\nassert children.len() == 1 and children[0].name == \"entry\"\n",
+    status: 0,
+    args: [root],
+  )?
+}
+
+test test_expr_fs_mkdir { |ctx|
+  let root = test.temp_dir(ctx, name: "route-fs-mkdir")?
+  let target = fp"{root}/scoped"
+  test.expect(
+    ctx,
+    "let directory = Path(args[0])\ntempdir scratch at directory { assert scratch.exists()? }\nassert !directory.exists()?\n",
+    status: 0,
+    args: [target],
+  )?
+  assert ! target.exists()?
+}
+
+test test_expr_fs_remove { |ctx|
+  let root = test.temp_dir(ctx, name: "route-fs-remove")?
+  let file = fp"{root}/blocker"
+  file.write("not a directory")
+  let target = fp"{file}/child"
+  test.expect(
+    ctx,
+    "let target = Path(args[0])\nlet result = tempdir scratch at target { assert false }\ntest.error_kind(result, \"fs-remove\")\n",
+    status: 0,
+    args: [target],
+  )?
+  assert file.read_text()? == "not a directory"
+}
+
+test test_expr_fs_temp_dir { |ctx|
+  test.expect(
+    ctx,
+    "let root = fs.tempdir()?\ndefer root.close()?\nlet host_path = root.host_path()?\nassert host_path.exists()?\n",
+    status: 0,
+  )?
+}
+
+test test_expr_fs_walk { |ctx|
+  let root = test.temp_dir(ctx, name: "route-fs-walk")?
+  fp"{root}/entry".write("payload")
+  test.expect(
+    ctx,
+    "let root = Path(args[0])\nlet walked = fs.walk(root, gitignore: false, stat: false, hidden: false)?.collect()\nassert walked.len() == 2\nassert walked |> any .name == \"entry\"\n",
+    status: 0,
+    args: [root],
+  )?
+}
+
+test test_expr_glob { |ctx|
+  let root = test.temp_dir(ctx, name: "route-glob")?
+  fp"{root}/match.txt".write("payload")
+  test.expect(
+    ctx,
+    "let root = Path(args[0])\ncd root { let matches = g\"*.txt\"; assert matches == [p\"match.txt\"] }\n",
+    status: 0,
+    args: [root],
+  )?
+}
+
+test test_expr_index { |ctx|
+  test.expect(
+    ctx,
+    "proc selected_index() [io] -> Int { return 1 }\nlet values = [10, 20]\nassert values[selected_index()] == 20\n",
+    status: 0,
+  )?
+}
+
+test test_expr_index_from_end { |ctx|
+  test.expect(
+    ctx,
+    "proc last(values: List[Str]) -> Str { return values[-1] }\nassert last([\"first\", \"last\"]) == \"last\"\n",
+    status: 0,
+  )?
+}
+
+test test_expr_last_status { |ctx|
+  test.expect(
+    ctx,
+    "run.status false\nlet status = $?\nassert status.exited_with(1)\n",
+    status: 0,
+  )?
+}
+
+test test_expr_list { |ctx|
+  test.expect(
+    ctx,
+    "let values = [10, 20]\nassert values.len() == 2 and values[0] == 10 and values[1] == 20\n",
+    status: 0,
+  )?
+}
+
+test test_expr_list_build { |ctx|
+  test.expect(
+    ctx,
+    "proc middle() -> List[Int] { return [2, 3] }\nlet values = [1, @middle(), 4]\nassert values.len() == 4 and values[1] == 2 and values[2] == 3\n",
+    status: 0,
+  )?
+}
+
+test test_expr_path_du { |ctx|
+  let root = test.temp_dir(ctx, name: "route-path-du")?
+  fp"{root}/entry".write("payload")
+  test.expect(
+    ctx,
+    "let target = Path(args[0])\nassert target.du()? >= 0\n",
+    status: 0,
+    args: [root],
+  )?
+}
+
+test test_expr_path_executable { |ctx|
+  test.expect(
+    ctx,
+    "let executable = Path(args[0])\nassert executable.executable()?\n",
+    status: 0,
+    args: [ctx.xsh_bin],
+  )?
+}
+
+test test_expr_path_exists { |ctx|
+  let root = test.temp_dir(ctx, name: "route-path-exists")?
+  let file = fp"{root}/entry"
+  file.write("payload")
+  test.expect(
+    ctx,
+    "let target = Path(args[0])\nassert target.exists()?\n",
+    status: 0,
+    args: [file],
+  )?
+}
+
+test test_expr_path_from { |ctx|
+  test.expect(
+    ctx,
+    "let candidate = Path(\"folder/file\")\nassert candidate == p\"folder/file\"\n",
+    status: 0,
+  )?
+}
+
+test test_expr_path_metadata { |ctx|
+  let root = test.temp_dir(ctx, name: "route-path-metadata")?
+  let file = fp"{root}/entry"
+  file.write("payload")
+  test.expect(
+    ctx,
+    "let target = Path(args[0])\nassert target.metadata()?.size == 7\n",
+    status: 0,
+    args: [file],
+  )?
+}
+
+test test_expr_path_mkdir { |ctx|
+  let root = test.temp_dir(ctx, name: "route-path-mkdir")?
+  let target = fp"{root}/created"
+  test.expect(
+    ctx,
+    "let target = Path(args[0])\ntarget.mkdir()?\nassert target.exists()?\n",
+    status: 0,
+    args: [target],
+  )?
+  assert target.exists()?
+}
+
+test test_expr_path_read_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "route-path-read-bytes")?
+  let file = fp"{root}/entry"
+  file.write(b"raw\0bytes")
+  test.expect(
+    ctx,
+    "let target = Path(args[0])\nassert target.read_bytes()? == b\"raw\\0bytes\"\n",
+    status: 0,
+    args: [file],
+  )?
+}
+
+test test_expr_path_read_text { |ctx|
+  let root = test.temp_dir(ctx, name: "route-path-read-text")?
+  let file = fp"{root}/entry"
+  file.write("payload")
+  test.expect(
+    ctx,
+    "let target = Path(args[0])\nassert target.read_text()? == \"payload\"\n",
+    status: 0,
+    args: [file],
+  )?
+}
+
+test test_expr_path_readlink { |ctx|
+  let root = test.temp_dir(ctx, name: "route-path-readlink")?
+  fp"{root}/target".write("payload")
+  fp"{root}/link".symlink(to: p"target")
+  test.expect(
+    ctx,
+    "let link = Path(args[0])\nassert link.readlink()? == p\"target\"\n",
+    status: 0,
+    args: [fp"{root}/link"],
+  )?
+}
+
+test test_expr_path_remove { |ctx|
+  let root = test.temp_dir(ctx, name: "route-path-remove")?
+  let file = fp"{root}/entry"
+  file.write("payload")
+  test.expect(
+    ctx,
+    "let target = Path(args[0])\ntarget.remove(missing_ok: false)?\nassert !target.exists()?\n",
+    status: 0,
+    args: [file],
+  )?
+  assert ! file.exists()?
+}
+
+test test_expr_path_resolve { |ctx|
+  let root = test.temp_dir(ctx, name: "route-path-resolve")?
+  let file = fp"{root}/entry"
+  file.write("payload")
+  test.expect(
+    ctx,
+    "let target = Path(args[0])\nassert target.resolve()?.name() == \"entry\"\n",
+    status: 0,
+    args: [file],
+  )?
+}
+
+test test_expr_path_write { |ctx|
+  let root = test.temp_dir(ctx, name: "route-path-write")?
+  let file = fp"{root}/entry"
+  test.expect(
+    ctx,
+    "let target = Path(args[0])\ntarget.write(\"payload\")?\nassert target.read_text()? == \"payload\"\n",
+    status: 0,
+    args: [file],
+  )?
+  assert file.read_text()? == "payload"
+}
+
+test test_expr_pipeline { |ctx|
+  test.expect(
+    ctx,
+    "let values = [1, 2, 3] |> map { |value| value * 2 }\nassert values.len() == 3 and values[1] == 4\n",
+    status: 0,
+  )?
+}
+
+test test_expr_range { |ctx|
+  test.expect(
+    ctx,
+    "let values = range(2, 5).collect()\nassert values == [2, 3, 4]\n",
+    status: 0,
+  )?
+}
+
+test test_expr_slice { |ctx|
+  test.expect(
+    ctx,
+    "let values = [10, 20, 30, 40]\nlet selected = values[1..3]\nassert selected.len() == 2 and selected[0] == 20 and selected[1] == 30\n",
+    status: 0,
+  )?
+}
+
+test test_expr_str_byte_at { |ctx|
+  test.expect(
+    ctx,
+    "assert \"é\".byte_at(1) == 169\n",
+    status: 0,
+  )?
+}
+
+test test_expr_str_byte_len { |ctx|
+  test.expect(
+    ctx,
+    "assert \"é\".byte_len() == 2\n",
+    status: 0,
+  )?
+}
+
+test test_expr_str_predicate { |ctx|
+  test.expect(
+    ctx,
+    "assert \"alpha\".starts_with(\"al\")\n",
+    status: 0,
+  )?
+}
+
+test test_expr_tag { |ctx|
+  test.expect(
+    ctx,
+    "enum Choice { Selected(Int) }\nlet selected: Choice = Selected(42)\nmatch selected { Selected(value) => assert value == 42 }\n",
+    status: 0,
+  )?
+}
