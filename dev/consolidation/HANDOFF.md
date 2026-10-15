@@ -4,7 +4,7 @@ Status: active and incomplete 2026-10-15.
 
 ## Final-batch status, 2026-10-15
 
-The accepted implementation is on `master` at
+The W9-verified implementation snapshot is
 `7e93dd4533d175f0385ae433651a98c98b5c20cd`, tree
 `87f513713960cc9ffd25850e8d160da3b87fd90a`. Fresh full W9 comparison and
 the current structural check passed on that clean, frozen source. The
@@ -13,6 +13,33 @@ functional-close record and refresh the active launch pins before starting it.
 Preserve the older d02 record as historical evidence.
 
 ### Native-suite attempt
+
+The first final attempt at `51ec8a03` passed the pinned release build and
+its readiness checks. Its full native suite was interrupted after finding
+`test_build_steps_run_cargo_under_the_preload_and_test_runs_do_not` failed.
+An exact reproduction showed that the fixture expected default compiler flags
+while inheriting the final runner's valid override. The fixture correction
+`af51fc184` explicitly selects defaults for its preload-only checks. The
+custom-flag assertions remain intact, and the exact test passed after correction.
+The interrupted suite is not acceptance or performance evidence.
+
+A separate 23-case regression cohort used those sealed release binaries and
+the exact final-runner environment. It passed 22 cases, including FAT, both
+source-ratchet checks, the 400,000-entry rm case, sort's large buffer-size case,
+the system-report replay, and all three current btop tests. Its only failure
+was `test_uu_ls_ls_dired_normal_style_offsets`. GNU coreutils 9.10 produced
+the same offsets as XSH under the same `compat` owner/group mapping:
+`57 60 108 112`. The test's fixed `55 58 104 108` offsets assumed different
+listing metadata. The correction compares colored and plain marker offsets
+and retains literal filename-boundary assertions. No production ls change is
+required. The cohort log SHA-256 is
+`928656af8b5d73f99162c70e5ab6c82eb39df07a7f1c6645b18d2ab1277defcf`.
+
+These two fixture corrections change only native tests under `core` and
+`dev/tests`. The compiled Rust sources, W9 helpers and controllers, and frozen
+W9 input corpus remain unchanged. Qualify W9 evidence through those exact
+paths instead of recapturing an unchanged compiler. Update the two review-owner
+OIDs in the next close record. The nine full-suite acceptance runs remain open.
 
 The opt3 native-suite attempt on the frozen d02 source reported 13,761 passed,
 22 failed, and 136 skipped. The log is
@@ -95,8 +122,9 @@ and 45 allowance entries across 15 paths. Its SHA-256 is
 The receipt binds the clean 7e93 source, scanner `fd39e7ed`, pinned image,
 and qualified d02 runtime. It is structural evidence, not current Rust
 performance evidence. The ten semantic review rows remain pending.
-Reuse this scan for a docs-only close while all eleven source owners and
-the scanner remain unchanged.
+Reuse this scan while its measured Rust source roots and scanner remain
+unchanged. Native-fixture edits require updated review-owner OIDs and scoped
+qualification, but do not change the measured Rust source.
 
 ### Start-source structural scan
 
