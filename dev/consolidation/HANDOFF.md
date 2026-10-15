@@ -99,6 +99,17 @@ work is authorized by this resume.
   Baseline probes pass for 36 new tags and all twelve scalar expression tags
   in both modes. Abort's candidate check passes as recorded above. These probes
   do not close the source-pinned route matrix.
+- The original expression-oracle migration is integrated at `95488faf2`.
+  Forty-one cases now capture direct children. Their original behavior
+  assertions remain where a different child is needed for one target record.
+  All 82 baseline probes pass with one authenticated record each. The existing
+  Match child also passes in both modes. Final candidate replay remains open.
+- Assignment identity repair `0957cb97d` selects the shared binding at the
+  assignment site. Context ownership, latent-stream updates, and projection
+  invalidation retain that identity. Three decoy-stack invariants fail before
+  the repair and pass afterward. Two existing assignment and transfer tests
+  also pass. The nearest active refinement remains the scope owner. Remaining
+  AST, proof, call, and command consumers are under review.
 - Verification `xsh` and `xsht` products were rebuilt at `2688d52fc` for the
   assignment repair's output baseline. Repository and Laputa check and lint
   each exit zero. Preserve their complete outputs for candidate comparison.
@@ -107,18 +118,29 @@ work is authorized by this resume.
 
 ### Current queue
 
-The integrator owns `master`. The current diagnostic feature-touch probe,
-remaining native-oracle migrations, and route-matrix work have isolated
-worktrees under `.work/wt/`. Their branches are not accepted implementation
-until reviewed and verified. The feature scaffold is diagnostic source only and
-must never merge as a language feature. Source changes require a new canonical
-freeze after integration.
+The integrator owns `master`. Binding-identity repairs, route-matrix recovery,
+and W9 receipt recovery have isolated worktrees under `.work/wt/`. Each lane
+requires review and focused verification before integration. Source changes
+require a new canonical freeze.
 
-Finish the compiler replay and source-pinned manual-site inventory before
-accepting the feature-touch recount. Existing expression route cases are being
-migrated to direct children with preserved behavior assertions. Their combined
-source requires explicit matrix requalification. Keep the scheduler comparison's
-original default workers and outcome checks.
+The checker audit found AST-backed consumers that still select values by name
+instead of the shared `BindingId`. Repair assignment, proof, call, and command
+consumers while preserving recovery-only fallback and nearest active refinements.
+The audit establishes an authority gap, not a demonstrated user-visible failure.
+
+The diagnostic compiler replay at `52c0f5399` found 35 XSH and 19 XSHT source
+sites requiring explicit decisions for a synthetic expression variant. The
+two earlier classifier survivors now require compiler decisions. Replay the
+probe after the checker repairs. Its synthetic source must never merge.
+
+The archived W9 corpus is recovered. Its 1,690 file paths, bytes, modes, and
+manifest match the pinned e240 source. The original legacy capture is missing.
+Fresh captures must bind the same source and cohort before exact-owner proof
+and candidate comparison. Historical ownership receipts cannot replace the
+missing outcomes. Receipt recovery is in progress and establishes no parity.
+
+The migrated expression children require explicit matrix requalification.
+Keep the scheduler comparison's original default workers and outcome checks.
 
 General inference implementation, its initial red/green witnesses, and the
 400-variable solver observation have not started. Consolidation acceptance
