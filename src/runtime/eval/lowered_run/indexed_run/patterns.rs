@@ -237,21 +237,20 @@ impl Evaluator {
                 } else {
                     false
                 };
-                if matched && bind && let Some(rest) = rest {
-                    if let PatternView::Bind { slot } = indexed_pattern_view(
-                        execution,
-                        rest.raw(),
-                        span,
-                    )? {
-                        let Some(items) = items else {
-                            return Err(RuntimeError::new(
-                                "indexed-ir",
-                                "indexed IR verification failed: matched list pattern lost its subject list",
-                            )
-                            .with_span(span));
-                        };
-                        slots[slot] = LoweredValue::List(items[index..].to_vec());
-                    }
+                if matched
+                    && bind
+                    && let Some(rest) = rest
+                    && let PatternView::Bind { slot } =
+                        indexed_pattern_view(execution, rest.raw(), span)?
+                {
+                    let Some(items) = items else {
+                        return Err(RuntimeError::new(
+                            "indexed-ir",
+                            "indexed IR verification failed: matched list pattern lost its subject list",
+                        )
+                        .with_span(span));
+                    };
+                    slots[slot] = LoweredValue::List(items[index..].to_vec());
                 }
                 matched
             }
@@ -300,7 +299,7 @@ impl Evaluator {
             }
             PatternView::Wildcard => true,
             PatternView::Text {
-                mut holes,
+                holes,
                 mut kinds,
                 segments,
             } => {
@@ -316,7 +315,7 @@ impl Evaluator {
                 let texts = subject.and_then(|subject| split_text(&segments, subject));
                 let mut matched = texts.is_some();
                 let mut index = 0;
-                while let Some(hole) = holes.next() {
+                for hole in holes {
                     let hole = hole.map_err(|error| indexed_error(error, span))?;
                     let kind = kinds
                         .next()
