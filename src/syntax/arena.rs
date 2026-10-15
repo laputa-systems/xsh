@@ -155,7 +155,7 @@ mod layout_tests {
     use super::{
         ArenaByteSpan, ArenaColdVec, ArenaExprData, ArenaExprTag, ArenaStmtData, ArenaStmtTag,
         ArenaText, ArenaTextSource, ArenaTypeExprData, ArenaTypeExprTag, AstArena, ExprId,
-        PatternId, SourceId, StmtId, TypeExprId, vec_capacity_bytes,
+        PatternId, SourceId, Span, StmtId, TypeExprId, vec_capacity_bytes,
     };
     use std::mem::size_of;
 
@@ -252,6 +252,93 @@ mod layout_tests {
             None,
         );
         assert_eq!(arena.text_value(&text, "--src--"), None);
+    }
+
+    fn parse_shared_sources(sources: &[(u32, &'static str)]) -> super::ArenaProgram {
+        use super::ArenaProgramBuilder;
+        use crate::syntax::parser::Parser;
+
+        let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+        let mut statements = None;
+        for &(source_id, source) in sources {
+            let parsed = Parser::parse_source_into_arena_builder(
+                SourceId::new(source_id),
+                source,
+                &mut builder,
+            );
+            assert!(parsed.diagnostics.is_empty());
+            statements = Some(parsed.statements);
+        }
+        builder.finish_with_statements(statements.expect("at least one source"))
+    }
+
+    fn expression_spans(program: &super::ArenaProgram) -> Vec<Span> {
+        (0..program.arena.expr_tags.len())
+            .map(|index| program.arena.expr(ExprId::from_index(index)).span)
+            .collect()
+    }
+
+    fn statement_spans(program: &super::ArenaProgram) -> Vec<Span> {
+        (0..program.arena.stmt_tags.len())
+            .map(|index| program.arena.stmt(StmtId::from_index(index)).span)
+            .collect()
+    }
+
+    #[test]
+    fn shared_arena_dense_span_overrides_preserve_expression_and_statement_spans() {
+        let program = parse_shared_sources(&[(7, "1\n"), (2, "22\n"), (2, "333\n")]);
+
+        assert_eq!(
+            expression_spans(&program),
+            [
+                Span::new(SourceId::new(7), 0, 1),
+                Span::new(SourceId::new(2), 0, 2),
+                Span::new(SourceId::new(2), 0, 3),
+            ]
+        );
+        assert_eq!(
+            statement_spans(&program),
+            [
+                Span::new(SourceId::new(7), 0, 1),
+                Span::new(SourceId::new(2), 0, 2),
+                Span::new(SourceId::new(2), 0, 3),
+            ]
+        );
+    }
+
+    #[test]
+    fn shared_arena_sparse_span_overrides_preserve_primary_gaps_and_boundaries() {
+        let program = parse_shared_sources(&[
+            (7, "1\n"),
+            (2, "22\n"),
+            (7, "333\n"),
+            (2, "4444\n"),
+            (7, "55555\n"),
+        ]);
+
+        assert_eq!(
+            expression_spans(&program),
+            [
+                Span::new(SourceId::new(7), 0, 1),
+                Span::new(SourceId::new(2), 0, 2),
+                Span::new(SourceId::new(7), 0, 3),
+                Span::new(SourceId::new(2), 0, 4),
+                Span::new(SourceId::new(7), 0, 5),
+            ]
+        );
+        assert_eq!(
+            statement_spans(&program),
+            [
+                Span::new(SourceId::new(7), 0, 1),
+                Span::new(SourceId::new(2), 0, 2),
+                Span::new(SourceId::new(7), 0, 3),
+                Span::new(SourceId::new(2), 0, 4),
+                Span::new(SourceId::new(7), 0, 5),
+            ]
+        );
+        let rows = program.arena.source_rows();
+        assert_eq!(rows.expr_ids(SourceId::new(9)).count(), 0);
+        assert_eq!(rows.stmt_ids(SourceId::new(9)).count(), 0);
     }
 }
 
@@ -5578,8 +5665,19 @@ impl AstArena {
     }
 
     fn span_source_id_for(&self, index: usize, overrides: &[ArenaSpanSource]) -> SourceId {
+        if overrides.is_empty() {
+            return self.span_source_id.expect("arena span without source id");
+        }
+        let span_index = raw_index(index);
+        let first_override = overrides[0].span;
+        if let Some(override_index) = span_index.checked_sub(first_override)
+            && let Some(source) = overrides.get(override_index as usize)
+            && source.span == span_index
+        {
+            return source.source_id;
+        }
         overrides
-            .binary_search_by_key(&raw_index(index), |source| source.span)
+            .binary_search_by_key(&span_index, |source| source.span)
             .ok()
             .map(|override_index| overrides[override_index].source_id)
             .or(self.span_source_id)
