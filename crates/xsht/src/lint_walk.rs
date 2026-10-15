@@ -867,24 +867,40 @@ impl<'a> Linter<'a> {
         let collect_assignment = previous_collection && self.checked_output.is_none();
         let kind = self.arena.stmt(stmt_id).kind;
         self.assignment_collection_enabled = collect_assignment
-            && matches!(
-                kind,
+            && match kind {
                 ArenaStmtKind::Export(_)
-                    | ArenaStmtKind::Assign { .. }
-                    | ArenaStmtKind::ProcDef(_)
-                    | ArenaStmtKind::CliMain(_)
-                    | ArenaStmtKind::PureDef(_)
-                    | ArenaStmtKind::StreamDef(_)
-                    | ArenaStmtKind::SignalHook(_)
-                    | ArenaStmtKind::If { .. }
-                    | ArenaStmtKind::While { .. }
-                    | ArenaStmtKind::For { .. }
-                    | ArenaStmtKind::Loop { .. }
-                    | ArenaStmtKind::Sugar { .. }
-                    | ArenaStmtKind::With { .. }
-                    | ArenaStmtKind::Guard { .. }
-                    | ArenaStmtKind::Match { .. }
-            );
+                | ArenaStmtKind::Assign { .. }
+                | ArenaStmtKind::ProcDef(_)
+                | ArenaStmtKind::CliMain(_)
+                | ArenaStmtKind::PureDef(_)
+                | ArenaStmtKind::StreamDef(_)
+                | ArenaStmtKind::SignalHook(_)
+                | ArenaStmtKind::If { .. }
+                | ArenaStmtKind::While { .. }
+                | ArenaStmtKind::For { .. }
+                | ArenaStmtKind::Loop { .. }
+                | ArenaStmtKind::Sugar { .. }
+                | ArenaStmtKind::With { .. }
+                | ArenaStmtKind::Guard { .. }
+                | ArenaStmtKind::Match { .. } => true,
+                ArenaStmtKind::Use(_)
+                | ArenaStmtKind::TypeDef(_)
+                | ArenaStmtKind::ErrorDef(_)
+                | ArenaStmtKind::Const { .. }
+                | ArenaStmtKind::Let { .. }
+                | ArenaStmtKind::Var { .. }
+                | ArenaStmtKind::Return(_)
+                | ArenaStmtKind::Yield(_)
+                | ArenaStmtKind::YieldDelegate(_)
+                | ArenaStmtKind::Defer(..)
+                | ArenaStmtKind::Assert { .. }
+                | ArenaStmtKind::Break { .. }
+                | ArenaStmtKind::Continue
+                | ArenaStmtKind::Exit(_)
+                | ArenaStmtKind::Command(_)
+                | ArenaStmtKind::TailBareIdent(_)
+                | ArenaStmtKind::Expr(_) => false,
+            };
         if collect_assignment
             && let ArenaStmtKind::Assign { target, .. } = kind
             && let Some(name) = xsh::frontend::check::assignment_target_root_name(self.program, target)
