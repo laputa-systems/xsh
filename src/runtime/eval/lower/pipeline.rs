@@ -799,7 +799,7 @@ mod tests {
                         .iter()
                         .find(|stage| stage.kind == StreamStageKind::Fold)
                         .cloned(),
-                    _ => return None,
+                    _ => None,
                 }
             })
             .expect("the fixture contains a fold stage");
