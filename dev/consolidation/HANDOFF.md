@@ -5,7 +5,7 @@ worktrees, preserve required state in Git, and stop. Lean remains paused.
 
 ## Direction after resume
 
-Read [the owner steering](../../xsh-typing-consolidation-steering.md) and
+Read [the owner steering](CAMPAIGN.md#typing-and-formal-successor-requirements) and
 [the campaign's sequencing decision](CAMPAIGN.md#owner-steering-2026-10-15).
 Finish the current winddown first. After an explicit resume, close existing
 consolidation acceptance before starting the general-inference successor.

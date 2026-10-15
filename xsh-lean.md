@@ -3,7 +3,7 @@
 **Status:** Paused by the owner on 2026-10-15 during consolidation winddown.
 Preserve existing foundations and unfinished work in Git. Start no new Lean
 lanes. On explicit resume, follow
-[the typing consolidation steering](xsh-typing-consolidation-steering.md):
+[the typing and formal successor requirements](dev/consolidation/CAMPAIGN.md#typing-and-formal-successor-requirements):
 complete one connected compiler proof milestone while retaining the full-core
 obligations and post-consolidation source-freeze requirement.
 

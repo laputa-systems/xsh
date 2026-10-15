@@ -3,7 +3,7 @@
 This directory preserves unfinished work and selected verification evidence
 before removing every linked worktree. Consolidation acceptance is incomplete.
 Lean is paused. The current owner direction is
-[the typing consolidation steering](../../../xsh-typing-consolidation-steering.md).
+[the typing and formal successor requirements](../CAMPAIGN.md#typing-and-formal-successor-requirements).
 
 ## Recover an unfinished overlay
 
