@@ -1,15 +1,15 @@
 # XSH Consolidation Campaign
 
-Status: active and incomplete on 2026-10-15. This batch was prepared against
-source snapshot `d02dd3d8d9d01def71c102b1e90a66188626c0e2`. Before this docs
-commit, the implementation candidate was at `9b912a01d` on private branch
-`campaign/final-source-integration-0ab`; current-source acceptance is pending.
+Status: active and incomplete on 2026-10-15. The implementation is integrated
+on `master` at `7e93dd4533d175f0385ae433651a98c98b5c20cd`. Fresh W9 parity
+passed all 6,760 outcomes, and the current structural check passed. The nine
+serialized full native suites and remaining final acceptance gates are pending.
 The current acceptance and remaining gates are in [`HANDOFF.md`](HANDOFF.md).
 The owner approved the entire campaign and all six designs on 2026-10-11,
 including the Codex model policy and completeness-first sequence. The start
 commit remains `5e66b6b896a47d0c692739135d51200b007a2a67`. The owner moved
-integration to `master` on 2026-10-11. The private source candidate still needs
-a fresh source freeze and receipt bindings before final acceptance.
+integration to `master` on 2026-10-11. Final launch pins must bind the new
+functional-close record before acceptance runs start.
 Implementation and gate evidence are tracked in `ITEMS.md` and the handoff log.
 
 The campaign runs unattended: once started it never waits for the owner.
@@ -984,11 +984,12 @@ owner's request. The campaign is not complete.
   [`HANDOFF.md`](HANDOFF.md#final-batch-status-2026-10-15). The focused GNU rm
   repair passes 14 exact parity cases and the isolated 400,000-entry case; full
   stress acceptance and the nine serial native suites remain open.
-- W9's f105 comparison is historical; 47a c1 failed with 24 mismatches. The
-  correction-controller pin fix `19fcb0d91` passed eight tests and live source
-  validation. Fresh full current-source parity remains pending.
+- Fresh W9 parity passed on 7e93: 1,690 inputs, 6,760 outcomes, zero
+  mismatches, and both exact-owner proofs complete. The three-worker controller
+  passed. Preserve the historical f105 pass and 47a c1 failure separately.
 - The start-source scanner rerun matches its archived report and allowance
-  inventory byte for byte. The final structural ratchet remains open. Frozen-
+  inventory byte for byte. The 7e93 structural check passed every non-advisory
+  metric and all four hard zeros. Final semantic review remains open. Frozen-
   source LLVM and API measurements meet the pre-refactor coverage prerequisite;
   no current-source coverage claim is made.
 - The source-qualified documentation generator passed without changing files;
@@ -1002,6 +1003,6 @@ owner's request. The campaign is not complete.
 - The Lean inventory remains separate from Rust conformance. The owner waived
   profile-selection measurement; ordinary verification stays opt3 without LTO
   and with 64 codegen units, while release acceptance uses opt3 with thin LTO
-  and 16. Current-source W9 parity, full correctness, platform, structural,
+  and 16. Full correctness, platform, final structural acceptance,
   memory, size, scheduler, and comparative gates remain open.
   Consolidation is not complete.

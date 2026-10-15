@@ -4,14 +4,13 @@ Status: active and incomplete 2026-10-15.
 
 ## Final-batch status, 2026-10-15
 
-This batch was prepared against source snapshot
-`d02dd3d8d9d01def71c102b1e90a66188626c0e2`. Before this docs commit, the
-accepted implementation batch was at `9b912a01d` on private branch
-`campaign/final-source-integration-0ab`. It includes the retry-controller pin
-fix `19fcb0d91`, retry-check documentation `958d69b27`, and focused GNU rm
-repair `9b912a01d`. Final acceptance requires a fresh source freeze and receipt
-bindings; a fresh full W9 comparison and the post-repair serial suite remain
-pending.
+The accepted implementation is on `master` at
+`7e93dd4533d175f0385ae433651a98c98b5c20cd`, tree
+`87f513713960cc9ffd25850e8d160da3b87fd90a`. Fresh full W9 comparison and
+the current structural check passed on that clean, frozen source. The
+post-repair nine-suite final acceptance run remains pending. Seal a new
+functional-close record and refresh the active launch pins before starting it.
+Preserve the older d02 record as historical evidence.
 
 ### Native-suite attempt
 
@@ -58,21 +57,46 @@ The exact Rust `ProcessError` unit also passed against an existing source-correc
 binary in that pinned runtime: one passed, 713 filtered. The log is
 `.work/wt/final-native-semantics-d02/.work/tmp/green-process-error-unit-direct-campaign-image-20261015.log`.
 The earlier build3 compilation used mutable `xsh-test`; no immutable compiler
-image ID was retained, so it does not qualify a pinned build. Fresh W9 and
-release builds must record the explicit 3b compiler image. No Rust production
+image ID was retained, so it does not qualify a pinned build. The fresh W9
+builds recorded the explicit 3b compiler image. Final release builds must use
+that same image. No Rust production
 source changed between `5c` and `7232`.
 
 ### W9 publication status
 
-The f105 strict comparison remains a historical pass: 1,690 inputs, 6,760
-outcomes, and zero mismatches. It does not qualify the newer source. The earlier
-C1 comparison failed with 24 mismatches. The derived-reference retry
+The fresh strict comparison passed on 7e93: 1,690 inputs, 6,760 outcomes,
+and zero mismatches. Both exact-owner proofs cover all 1,690 inputs. The
+three-worker controller completed successfully and released its locks. Evidence
+is in `.work/consolidation/w9-derived-reference-1fd9-7e93-compare-a1/`.
+The candidate capture receipt SHA-256 is
+`9598f00b763e5a62b9553858882b07b08bc09a9bf48ea87c0e945c9a5bbc133e`.
+The derived capture receipt SHA-256 is
+`c66e4aae7a415bcb1f35c51d65ac087e6815ac91a0aed766e2a9d600678a95cf`.
+The separate original-to-derived report records its first difference at input
+index 36. It does not measure the total number of reference differences.
+The seven-input smoke also passed 28 outcomes and 14 sidecar hash checks.
+
+The f105 comparison remains historical. The earlier C1 comparison failed with
+24 mismatches. The derived-reference retry
 correction `1fd9e5f2f` passed a direct build and four positive and two negative
 fixture programs. Its Rust unit build failed because the musl host does not
 support the `mini-internal` proc-macro. No red run against the old `bb` reference
 was recorded. The correction-controller pin fix `19fcb0d91` passed eight tests
-and live source validation. No fresh full comparison on the current integration
-has run.
+and live source validation. The fresh pinned builds and full comparison above
+qualify the corrected reference against the current implementation.
+
+### Current structural check
+
+The single scan in `.work/consolidation/structural-7e93-a1/` passed with
+exit status 0. All non-advisory metrics satisfy the no-rise ratchet, and all
+four required-zero metrics are zero. The report covers 370 Rust source files
+and 45 allowance entries across 15 paths. Its SHA-256 is
+`7998c9dfcb176fd963a9c14e56d4664506d52e22a5388a7892281812c298b1d3`.
+The receipt binds the clean 7e93 source, scanner `fd39e7ed`, pinned image,
+and qualified d02 runtime. It is structural evidence, not current Rust
+performance evidence. The ten semantic review rows remain pending.
+Reuse this scan for a docs-only close while all eleven source owners and
+the scanner remain unchanged.
 
 ### Start-source structural scan
 
@@ -136,7 +160,7 @@ The owner retained ordinary verification at opt3 without LTO and with 64
 codegen units. Final release acceptance uses opt3 with thin LTO and 16 codegen
 units. The owner waived profile-selection measurement; no fastest-profile claim
 is required. Nine full native suites remain serialized. The final current-source
-W9 comparison, canonical correctness and documentation checks, platform,
+canonical correctness and documentation checks, platform,
 structural, memory, size, scheduler, and comparative gates remain open.
 
 ## Full publication acceptance, 2026-10-14

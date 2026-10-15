@@ -59,15 +59,16 @@ line always computes. Three things found while porting the rest:
 
 ## Defects
 
-The strict W9 comparison on f105 passed for 1,690 inputs and 6,760 outcomes,
-with zero mismatches. That result is historical and does not qualify the newer
-integration. The earlier C1 comparison failed with 24 mismatches. The narrow
+The fresh strict W9 comparison on 7e93 passed for 1,690 inputs and 6,760
+outcomes with zero mismatches. Both exact-owner proofs cover 1,690 inputs.
+The earlier f105 pass remains historical. The C1 comparison failed with 24
+mismatches before the narrow
 derived-reference retry correction at `1fd9e5f2f` passed a direct build and
 four positive and two negative fixture programs; its Rust unit build failed
 because the musl host does not support the `mini-internal` proc-macro. The
 correction-controller pin fix `19fcb0d91` passed eight tests and live source
-validation. A fresh full comparison on the current integration remains
-required; the [handoff](dev/consolidation/HANDOFF.md#final-batch-status-2026-10-15)
+validation. The fresh full comparison now qualifies the corrected reference;
+the [handoff](dev/consolidation/HANDOFF.md#final-batch-status-2026-10-15)
 records the direct unit and compiler-image qualification.
 
 The source-qualified 8ca cache receipt is also historical. It records XSH check
@@ -78,10 +79,10 @@ for current W9 boundaries and receipts.
 
 ### Current consolidation acceptance gates
 
-The 8ca structural report covers 370 source files, matches the 11 non-source
-values from 6ec, and leaves all four required-zero metrics at zero. These are
-historical results. The start-source scanner rerun and its archived report are
-byte-identical; the final-source structural ratchet remains open. Scanner digest
+The 7e93 structural check passed across 370 source files. All non-advisory
+metrics satisfy the no-rise ratchet, and all four required-zero metrics are zero.
+The start-source scanner rerun and its archived report are byte-identical.
+The ten semantic rows and final-close verifier remain open. Scanner digest
 `fd39e7ed` differs from the tested scanner `3b36990f` only by a comment; the
 archived baseline scanner digest begins `013a6257`. Source totals remain advisory.
 The 8ca feature-touch probe records
@@ -105,7 +106,7 @@ Sixty focused lint tests are source-qualified from an earlier run and do not
 replace the final lint gate. These reviews do not close the ten acceptance
 rows.
 
-The final full W9 comparison on the current source, canonical fixed-seed,
+The canonical fixed-seed,
 integration, normal and forced runtime, repository, documentation, Linux
 privileged, size, memory, scheduler, comparative, and guarded performance gates
 remain pending.
