@@ -111,8 +111,8 @@ xshi [-c COMMAND] [--config PATH] [--no-config] [-V|--version] [-h|--help]
 - Interactive startup reads the profile, then the config (§7), then starts
   denv for the initial directory.
 - `XSHI_HOSTNAME` replaces the machine's short name in the prompt.
-- `XSHI_ALLOW_NON_TTY_FOR_TESTS=1` runs the read-eval loop from piped stdin
-  with no terminal control. It exists for tests of shell semantics that need no
+- Setting `XSHI_ALLOW_NON_TTY_FOR_TESTS` to any value runs the read-eval loop
+  from piped stdin with no terminal control. It exists for tests of shell semantics that need no
   screen and is not a supported interface.
 - Exit codes reach the parent unmasked to the OS's range (`exit 300` exits
   `44`).
@@ -418,22 +418,11 @@ prompt marker.
 
 ## 14. Tests
 
-| Layer | Where | Runs |
-| --- | --- | --- |
-| units: line buffer, input, render math, completion, prompt, listing, denv, aliases, config, history store | `crates/xshi/src/**` (`ported_tests.rs`, `history/tests.rs`) | `cargo test -p xshi --features laputa-asterinas --lib` |
-| CLI boundary and repeated input preparation | `crates/xshi/tests/{cli,stdlib_preparation}.rs` | `cargo test --profile verification --target "$TARGET" -p xshi --features laputa-asterinas --test cli --test stdlib_preparation` |
+[Testing](TESTING.md#interactive-parity) owns the interactive test commands,
+feature requirements, and limits of the historical PTY transcripts.
 
-The interactive implementation is opt-in through `laputa-asterinas`; ordinary
-builds retain the disabled stub. Linux gates run in the pinned test image as
-described in `TESTING.md`. The files in
-`tests/fixtures/interactive-parity/<os>/` are historical PTY transcripts from
-`ish`; they record terminal frames and session effects, but cannot be replayed
-in this repository because their driver is absent. The available gates do not
-establish end-to-end terminal parity.
-
-History concurrency (many shells appending, syncing, compacting, and resetting),
-torn and stale files, and 200,000-line logs are exercised in
-`history/tests.rs` against real files.
+History concurrency, torn and stale files, and large logs are exercised against
+real files in `crates/xshi/src/interactive/history/tests.rs`.
 
 ## 15. Deferrals
 

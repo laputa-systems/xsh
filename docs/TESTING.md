@@ -11,20 +11,11 @@ advisory; its provenance and ownership are documented in the
 
 ## Native tests first
 
-Language behavior is specified in the native XSH corpus: a `test NAME { ... }`
-declaration in the nearest `tests/xsh/*.xsh` module, `tests/xsh/stdlib/*.xsh`
-for standard modules, `core/tests/test-*.xsh` for applets,
-`dev/tests/test-*.xsh` for repository automation, and
-`showcase/tests/test-*.xsh` for showcase programs. Use `test.run_script`,
-`test.run_xsh`, `test.run_xsht_trace`, temporary resources, and mocks to reach
-process and CLI behavior from XSH.
-
-Use Rust tests for host boundaries native XSH cannot reach: fixture servers,
-exact process or byte lifecycles, PTYs, privileges, platform behavior,
-allocation accounting, and small-stack limits. Keep language assertions in
-XSH. When a Rust test needs XSH source to reach the host boundary, invoke a
-disk-backed native test; embed the source only when the in-process Rust API
-must inspect or construct it.
+Use native XSH tests for language and command behavior. Use Rust tests for
+host boundaries the native harness cannot reach, such as PTYs, privileges,
+allocation accounting, and small-stack limits. When a Rust test needs XSH
+source, invoke a disk-backed native test unless the Rust API must inspect or
+construct the source.
 
 | Suite | Location |
 |---|---|
@@ -526,3 +517,43 @@ settings, and treat single-run latency changes as inconclusive.
 - `xsht runtime-stats --json REPORT SCRIPT` reports construction, controller,
   and `par-map` worker allocation; pair memory claims with a host RSS check.
   It and `xsht frontend-stats` are not listed in `xsht --help`.
+
+### Profile btop
+
+`dev/perf/btop-profile.xsh` measures twenty preloaded model/render/diff
+samples with 1,000 processes at 120 by 40. It reports latency without asserting
+a performance target. Run it from the repository root with the Linux test
+image. Use a release `xsh` binary built from the source revision you are
+profiling. Set `XSH_BIN` to its absolute path.
+The command checks host readiness before the profile and checks again
+afterward, even if the profile times out or fails:
+
+```sh
+set -e
+repo=$(pwd -P)
+: "${XSH_BIN:?set XSH_BIN to the matching release xsh binary}"
+test -x "$XSH_BIN"
+profile_status=0
+post_status=0
+mkdir -p .work/tmp
+perf-gate-ready
+timeout 120s docker run \
+  --rm --init --platform linux/amd64 --network none \
+  --cpus=1 --memory=4g --memory-swap=4g \
+  --tmpfs /tmp:rw,nodev,exec,mode=1777 \
+  -v "$repo:/work" \
+  -v "$XSH_BIN:/main-xsh:ro" \
+  -w /work \
+  -e TMPDIR=/work/.work/tmp \
+  -e TARGET=x86_64-unknown-linux-musl \
+  xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c \
+  /main-xsh dev/perf/btop-profile.xsh || profile_status=$?
+perf-gate-ready -1 || post_status=$?
+test "$profile_status" -eq 0
+test "$post_status" -eq 0
+```
+
+`perf-gate-ready` must exit successfully before you run the profile. The
+`XSH_BIN` must target `x86_64-unknown-linux-musl` and match the source revision
+you are profiling. The image digest pins the `Dockerfile.test` environment for
+`linux/amd64`.

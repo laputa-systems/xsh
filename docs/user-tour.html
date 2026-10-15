@@ -5,7 +5,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>A Tour of XSH</title>
+<title>A tour of XSH</title>
 <script>
 (function () {
   var root = document.documentElement;
@@ -319,16 +319,6 @@ tr:last-child td { border-bottom: 0; }
 <div class="layout">
 <nav class="toc" id="toc" aria-label="Contents">
 <ol>
-<li><a href="#the-archaeological-site">The Archaeological Site</a>
-</li>
-<li><a href="#what-shell-got-right">What Shell Got Right</a>
-</li>
-<li><a href="#what-shell-got-wrong">What Shell Got Wrong</a>
-</li>
-<li><a href="#one-glue-language">One Glue Language</a>
-</li>
-<li><a href="#what-xsh-is-not">What XSH Is Not</a>
-</li>
 <li><a href="#running-a-script">Running a Script</a>
 </li>
 <li><a href="#values-at-a-glance">Values at a Glance</a>
@@ -385,46 +375,10 @@ tr:last-child td { border-bottom: 0; }
 </ol>
 </nav>
 <main id="top">
-<header class="hero"><h1>A Tour of XSH</h1></header>
-<div class="lede"><p>XSH is a clean-slate systems scripting language for a modern Linux userspace.</p></div>
-<p>It is not a POSIX shell replacement in the compatibility sense, and it is not an interactive terminal interface. It is a language for writing the glue that holds a system together: package managers, build recipes, init systems, service supervisors, installer scripts, maintenance tools, and distribution policy.</p>
-<section class="chapter">
-<h2 id="the-archaeological-site"><a class="anchor" href="#the-archaeological-site">The Archaeological Site</a></h2>
-<p>The modern Linux userspace is an archaeological site. Beneath every build lies sedimentary layers of languages accumulated over decades: shell scripts call m4 macros, configure scripts emit Makefiles, Makefiles invoke compilers through wrapper scripts, and those wrappers are often written in Perl, Python, awk, sed, or a private DSL that nobody meant to become infrastructure.</p>
-<p>This is Unix sludge: the entropic product of many weak languages duct-taped together because no single glue language was powerful enough for the whole job.</p>
-<p>XSH starts from a different premise. The system deserves one strong language for glue, one that can speak fluently to processes, files, paths, byte streams, structured data, and system state without turning every boundary into a quoting puzzle.</p>
-</section>
-<section class="chapter">
-<h2 id="what-shell-got-right"><a class="anchor" href="#what-shell-got-right">What Shell Got Right</a></h2>
-<p>The old Unix shell succeeded because it made operating-system pieces feel composable. Processes, files, pipes, environment variables, working directories, exit statuses, and argument vectors became everyday building blocks. A small script could assemble existing programs into something larger than any one of them.</p>
-<p>That idea is still right.</p>
-<p>XSH keeps the useful model: coarse-grained reuse, explicit process boundaries, pipeline-shaped data flow, ordinary source files, and scripts that can grow into tools. It treats the Unix process model as an asset, not as historical baggage. The expensive work should be visible as a process, a file operation, or a typed host API, not hidden behind a scheduler or runtime trick.</p>
-</section>
-<section class="chapter">
-<h2 id="what-shell-got-wrong"><a class="anchor" href="#what-shell-got-wrong">What Shell Got Wrong</a></h2>
-<p>The traditional shell encoded too much composition in strings and ambient state. It made parsing dynamic, word splitting implicit, quoting fragile, error flow surprising, and standards vague enough that every serious script eventually became a local dialect.</p>
-<p>XSH rejects that sludge:</p>
-<ul><li>no implicit eval;</li>
-<li>no hidden word splitting;</li>
-<li>no untyped text as the only interface between programs;</li>
-<li>no ad hoc DSL stacking where a script generates another language to generate another language;</li>
-<li>no pretending that decades of compatibility quirks are a design philosophy.</li></ul>
-<p>The goal is not to preserve the old spellbook. The goal is to carry forward the part of Unix that was worth preserving.</p>
-</section>
-<section class="chapter">
-<h2 id="one-glue-language"><a class="anchor" href="#one-glue-language">One Glue Language</a></h2>
-<p>XSH is not trying to be a general-purpose application language. It is trying to be the best possible language for orchestration: starting processes, shaping argv, moving through directories, reading and writing files, transforming text and bytes, crossing JSON boundaries, inspecting host state, and making expected failures visible.</p>
-<p>Shell is the language of heterogeneity. It must speak to everything. XSH says that heterogeneity should be handled with clarity rather than incantation.</p>
-<p>For old Unix hands, the promise is familiar: small pieces, composed well. The difference is that XSH gives that promise a modern type system, structured errors, typed paths, structured streams, and a runtime that can trace what happened.</p>
-<p>That is the worthy successor: not a clone of the old shell, and not a small application runtime wearing shell syntax, but a clean language for the work the old shell proved was essential.</p>
-</section>
-<section class="chapter">
-<h2 id="what-xsh-is-not"><a class="anchor" href="#what-xsh-is-not">What XSH Is Not</a></h2>
-<p>XSH does not compete with runtimes designed for fine-grained concurrency, long-lived application services, or interactive terminal interfaces. Keep those jobs in a service runtime, a dedicated TUI framework, or a specialized tool; use XSH to compose the host-facing work around them.</p>
-<p>The rest of this tour shows what that means in practice. Most sections start from a shell script you have probably written, point at the place it breaks, and then show the XSH version. Read it top to bottom once before you write your first script; after that, <a href="SPEC.md"><code>docs/SPEC.md</code></a> and <code>xsht api</code> are the references.</p>
-<p>The three command-line products have separate roles: <code>xsh</code> runs <code>.xsh</code> scripts, <code>xsht</code> provides the toolchain, and <code>xshi</code> is an interactive shell. The interactive implementation requires the <code>laputa-asterinas</code> Cargo feature in the <code>xshi</code> crate; see the <a href="SPEC-INTERACTIVE.md">interactive SPEC</a>. This tour covers <code>.xsh</code> programs run by <code>xsh</code>.</p>
+<header class="hero"><h1>A tour of XSH</h1></header>
+<div class="lede"><p>Write a checked script that runs commands, handles typed data, and reports failures. This tour builds toward a service preflight check and a small project with a library, a command, and tests.</p></div>
+<p><code>xsh</code> runs <code>.xsh</code> scripts, <code>xsht</code> provides the toolchain, and <code>xshi</code> is an interactive shell. This tour covers <code>xsh</code> programs. See the <a href="SPEC-INTERACTIVE.md">interactive SPEC</a> for <code>xshi</code>.</p>
 <p>Every <code>xsh</code> block below is a complete program that passes <code>xsht check</code>. Blocks marked <code># platform: linux</code> read <code>/proc</code> or other Linux-only interfaces.</p>
-</section>
 <section class="chapter">
 <h2 id="running-a-script"><a class="anchor" href="#running-a-script">Running a Script</a></h2>
 <figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-comment">#!/usr/bin/env -S xsh --</span>

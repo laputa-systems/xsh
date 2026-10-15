@@ -1,12 +1,9 @@
 # XSH
 
-XSH is a clean-slate systems scripting language for the glue that holds a
-Linux userspace together: installers, maintenance jobs, build recipes, service
-checks, and init policy. It keeps what the shell got right (processes, pipes,
-files, exit statuses, small tools composed well) and drops what it got wrong:
-no word splitting, no implicit eval, no `set -e` traps, no scraping columns out
-of text. Values are typed, paths are paths, failures are visible in the code,
-and a script is checked before its first command runs.
+XSH is a systems scripting language for installers, maintenance jobs, build
+recipes, and service checks. It has typed values and paths, explicit error
+handling, process pipelines, and structured host data. Scripts are checked
+before execution.
 
 ```xsh
 for owner in process.port(8080)? |> where .state == "LISTEN" {
@@ -22,8 +19,11 @@ to `xsh` and `xsht`, and put both in a directory on your `PATH`.
 Make them executable with `chmod +x xsh xsht`.
 
 ```bash
-xsh examples/streams.xsh       # run a script
-xsht check examples/           # type-check without running
+cat > hello.xsh <<'EOF'
+print "hello from xsh"
+EOF
+xsh hello.xsh                 # prints: hello from xsh
+xsht check hello.xsh          # type-check without running
 ```
 
 `xsh` runs scripts. `xsht` provides `check`, `test`, `fmt`, `lint`, `trace`,

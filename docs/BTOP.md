@@ -111,96 +111,12 @@ parser's signed 64-bit start-time policy while preserving the system-report
 JSON bound. Monitor battery fields remain private to the live collector and do
 not widen system-report JSON.
 
-## Host release evidence
-
-The archived host release gates completed through G4a. The baseline passed
-404/404 host tests. The final release build passed; completion checks passed
-for btop (121/121), input (7/7), UI (9/9), renderer (8/8), graphs (5/5), PTY
-(11/11), and repository contracts (5/5). Native-origin checks passed for
-BusyBox (638/638), GNU (514/514), and uutils (5653/5653); the documentation
-check passed 3 checks and the campaign-ledger test passed 1. Coverage
-assertions recorded 4 G0 passes plus one externally blocked lane, then 29 G1,
-25 G2, 54 G3, and 24 G4a passes, with no failed assertions. The optional
-reference build was not attempted.
-
-The pinned Linux ARM64 baseline and final lanes did not reach tests: Docker
-could not execute the ARM64 `cargo` binary on the x86_64 runner without ARM64
-binfmt support. No suite failure set or time-to-suite-start was measured.
-Linux ARM64 is outside the supported product scope; ARM64 macOS remains in
-scope. All Linux evidence is therefore host-only. No live battery hardware was
-available, so battery and sensor behavior was fixture-tested only.
-
-Archived performance observations are gate evidence, not speedup claims:
-
-- The process-join median was 8.163 ms at 1,000 processes and 16.623 ms at
-  2,000 (seed 424242, five interleaved repeats), a 2.04x ratio within the 3.0x
-  maximum gate. The record does not include a spread or host-load guard.
-- The 1,000-process model/render/diff profile at 120 by 40, with 20 samples,
-  measured p95 2.631 s and p99 2.692 s against a 50 ms p95 target. This target
-  was missed; the record has no range or host-load guard.
-- A PTY probe with 100 key events at 80 by 24 and a 60 s replay interval
-  measured input-to-present p95 2.955 ms and p99 3.014 ms. It has no baseline
-  or range, so it does not establish a change in latency.
-
-## Run the preloaded profile
-
-The native test suite keeps behavior and scaling assertions. The 20-sample
-preloaded profile runs separately as `dev/perf/btop-profile.xsh` because it
-prints performance evidence without asserting behavior or latency. Run it from
-the repository root with the Linux test image. Use a release `xsh` binary built
-from the source revision you are profiling. Set `XSH_BIN` to its absolute path.
-The command checks host readiness before the profile and checks again
-afterward, even if the profile times out or fails:
-
-```sh
-set -e
-repo=$(pwd -P)
-: "${XSH_BIN:?set XSH_BIN to the matching release xsh binary}"
-test -x "$XSH_BIN"
-profile_status=0
-post_status=0
-perf-gate-ready
-timeout 120s docker run \
-  --rm --init --platform linux/amd64 --network none \
-  --cpus=1 --memory=4g --memory-swap=4g \
-  --tmpfs /tmp:rw,nodev,exec,mode=1777 \
-  -v "$repo:/work" \
-  -v "$XSH_BIN:/main-xsh:ro" \
-  -w /work \
-  -e TMPDIR=/work/.work/tmp \
-  -e TARGET=x86_64-unknown-linux-musl \
-  xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c \
-  /main-xsh dev/perf/btop-profile.xsh || profile_status=$?
-perf-gate-ready -1 || post_status=$?
-test "$profile_status" -eq 0
-test "$post_status" -eq 0
-```
-
-`perf-gate-ready` must exit successfully before you run the profile. The
-`XSH_BIN` must target `x86_64-unknown-linux-musl` and match the source revision
-you are profiling. The image digest pins the `Dockerfile.test` environment for
-`linux/amd64`.
-
-## Campaign completion summary
-
-The fixed, read-only Linux monitor now has the pinned default panels, graphs,
-palette, process tree, sorting and view controls, mounted-disk capacity and
-I/O, and schema-3 replay. It has no settings file or configuration interface.
-The archived G0–G4a host gates passed their behavioral assertions; the Linux
-ARM64 blocker and performance-target miss remain as described above.
-
-The historical follow-on plan deferred process actions and detail views until
-the G4a gate passed; multi-battery and power edges, ZFS, and GPU collection
-until G4b plus eligible hardware or an explicit decoder-only decision; and
-endurance, fault injection, and bounded fuzzing until after G4a. It also
-required Linux product qualification before live macOS collection, since
-replay alone does not qualify a live collector. These were recorded follow-on
-decisions, not a current commitment: the completion ledger says no further
-in-scope product work remains.
-
 ## Current limits
 
-Linux ARM64 has no qualification from this run, live battery behavior has not
-been verified, and the 120-by-40 model/render/diff p95 target remains unmet.
-GPU collection, process actions and detail views, and non-Linux live btop
+Live collection supports Linux. Linux ARM64 has no qualification from the
+monitor's verification run, and live battery behavior was tested only with
+fixtures. The archived 120-by-40 model/render/diff profile missed its latency
+target. GPU collection, process actions and detail views, and non-Linux live
 collectors are outside this monitor surface.
+
+See [Testing](TESTING.md#profile-btop) to run the preloaded profile.

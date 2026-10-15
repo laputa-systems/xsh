@@ -26,5 +26,6 @@ the topic owner below.
 | builds, test gates, profiles, platforms, generated docs | [Testing](docs/TESTING.md) |
 | tooling and configuration | [XSHT](docs/XSHT.md) |
 | formatter policy | [XSHT-FMT](docs/XSHT-FMT.md) |
-| core commands and system reporting | [Core](core/README.md), [system report](core/SYSTEM-REPORT.md), [btop](core/BTOP.md) |
+| core commands and system reporting | [Core](docs/CORE.md), [system report](docs/SYSTEM-REPORT.md), [btop](docs/BTOP.md) |
 | substantial example and showcase programs | [Examples](examples/README.md), [Showcase](docs/SHOWCASE.md) |
+| formal models and proof coverage | [Formal verification](formal/README.md) |
