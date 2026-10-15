@@ -849,9 +849,18 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     dest = fp"{output}"
   }
   if let target = dest {
-    if settings.create_dirs {
-      let parent = target.parent()
-      let _ = parent.mkdir()
+    let parent = target.parent()
+    match parent.exists() {
+      Ok(true) => {}
+      Ok(false) => {
+        if !settings.create_dirs {
+          return output_write_failure(settings, url, method)
+        }
+        if let Err(_) = parent.mkdir(parents: true) {
+          return output_write_failure(settings, url, method)
+        }
+      }
+      Err(_) => return output_write_failure(settings, url, method)
     }
   }
 
@@ -894,6 +903,17 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     if settings.retry_delay == null { wait_ms = wait_ms * 2 }
   }
   0
+}
+
+proc output_write_failure(settings: Settings, url: Str, method: Str) [fs, io, error] -> Int {
+  show_error(settings, 23, "client returned ERROR on write")
+  if settings.write_out != null {
+    let outcome: Outcome = Outcome(
+      status: 0, reason: "", headers: [], bytes: 0, url:, redirects: 0, millis: 0, code: 23,
+    )
+    finish_write_out(settings, outcome, method)
+  }
+  23
 }
 
 # Strip a gzip content coding from a buffered body through a scratch file,

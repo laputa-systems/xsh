@@ -507,6 +507,14 @@ test test_curl_output_names { |ctx|
   assert named.status == 0
   assert fp"{named.dir}/name.txt".read_text()? == "named name.txt\n"
 
+  let target_dir = fp"{named.dir}/target-dir"
+  target_dir.mkdir()
+  let linked_dir = fp"{named.dir}/linked-dir"
+  linked_dir.symlink(to: target_dir)
+  let linked = curl(ctx, ["-s", "-o", f"{linked_dir}/linked.txt", f"{fixture.base}/ok"], dir: named.dir)?
+  assert linked.status == 0, linked.stderr
+  assert fp"{target_dir}/linked.txt".read_text()? == "hello\n"
+
   let nameless = curl(ctx, ["-O", f"{fixture.base}/"])?
   assert nameless.status == 0
   assert fp"{nameless.dir}/curl_response".read_text()? == "root\n"
@@ -635,9 +643,19 @@ test test_curl_write_failure_exits_23 { |ctx|
   guard let fixture = server else { test.skip(SKIP); return }
   defer fixture.handle.cancel(kill_after: 100ms)
 
-  let result = curl(ctx, ["-sS", "-o", "/nonexistent/dir/out", f"{fixture.base}/ok"])?
+  let root = test.temp_dir(ctx, name: "curl-write-failure")?
+  let parent = fp"{root}/missing"
+  let output = fp"{parent}/out"
+  let result = curl(ctx, ["-sS", "-o", f"{output}", f"{fixture.base}/ok"])?
   assert result.status == 23
   assert result.stderr.starts_with("curl: (23) client returned ERROR on write"), result.stderr
+  assert !parent.exists()?
+
+  let file_parent = fp"{root}/file-parent"
+  file_parent.write("")
+  let invalid = curl(ctx, ["-sS", "-o", f"{file_parent}/out", f"{fixture.base}/ok"])?
+  assert invalid.status == 23
+  assert invalid.stderr.starts_with("curl: (23) client returned ERROR on write"), invalid.stderr
 }
 
 test test_curl_retry_repeats_transient_failures { |ctx|
