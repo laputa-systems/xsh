@@ -390,7 +390,12 @@ test test_uu_ls_ls_dired_normal_style_offsets { |ctx|
   let r = invoke(s, ["--dired", "-l", "--quoting-style=literal", "--color=always", "d"], vars: {LS_COLORS: "no=35:di=36"})?
   uu.succeeds(r)
   assert rx"^  total [0-9]+$".matches(r.stdout.utf8()?.lines()[0])
-  uu.stdout_contains(r, "//DIRED// 55 58 104 108\n")
+  let plain = invoke(s, ["--dired", "-l", "--quoting-style=literal", "--color=never", "d"])?
+  uu.succeeds(plain)
+  let colored_markers = [line for line in r.stdout.utf8()?.lines() if line.starts_with("//DIRED//")]
+  let plain_markers = [line for line in plain.stdout.utf8()?.lines() if line.starts_with("//DIRED//")]
+  assert colored_markers == plain_markers
+  assert offset_names(plain.stdout, "//DIRED//")? == ["box", "note"]
   # GNU's offsets index the uncolored listing even when normal style emits SGR prefixes.
   let uncolored = bytes.from_text(rx"\x1b\[[0-9;]*m".replace(r.stdout as Str, with: ""))
   assert offset_names(uncolored, "//DIRED//")? == ["box", "note"]
