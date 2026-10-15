@@ -424,25 +424,29 @@ impl Evaluator {
                 span,
             })
         })?;
-        if let Some(output_dir) = route_witness_output
-            && matches!(
+        if let Some(output_dir) = route_witness_output {
+            let child_succeeded = matches!(
                 &value,
                 Value::Record(record)
                     if record.get("success") == Some(&Value::Bool(true))
-            )
-        {
-            super::route_witness::validate_artifact(
-                output_dir.path(),
-                &self
-                    .route_witness_invocation
-                    .as_ref()
-                    .expect("route-witness output has its invocation context")
-                    .test_id,
-                source.as_bytes(),
-                self.force_frames,
-            )
-            .map_err(|message| RuntimeError::new(error_kind, message).with_span(span))?;
-            let _ = output_dir.keep();
+            );
+            if child_succeeded
+                || super::route_witness::artifact_exists(output_dir.path())
+                    .map_err(|message| RuntimeError::new(error_kind, message).with_span(span))?
+            {
+                super::route_witness::validate_artifact(
+                    output_dir.path(),
+                    &self
+                        .route_witness_invocation
+                        .as_ref()
+                        .expect("route-witness output has its invocation context")
+                        .test_id,
+                    source.as_bytes(),
+                    self.force_frames,
+                )
+                .map_err(|message| RuntimeError::new(error_kind, message).with_span(span))?;
+                let _ = output_dir.keep();
+            }
         }
         match lowered_runtime_value(value, span)? {
             LoweredValue::Record(record) => Ok(take_shared(record)),
@@ -497,6 +501,137 @@ fn script_expectation_failure(
         text("stdout"),
         text("stderr"),
     ))
+}
+
+#[cfg(all(test, feature = "native-tests"))]
+mod route_witness_capture_tests {
+    use super::*;
+    use crate::runtime::eval::route_witness::InvocationContext;
+
+    fn scratch() -> tempfile::TempDir {
+        let scratch = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&scratch).expect("create repository scratch directory");
+        tempfile::tempdir_in(scratch).expect("create native test fixture")
+    }
+
+    fn child_result(success: bool, status: i64) -> Value {
+        Value::Record(RecordMap::from([
+            (Arc::from("success"), Value::Bool(success)),
+            (Arc::from("status"), Value::Int(status)),
+            (Arc::from("stdout"), Value::Str(Arc::from("child stdout\n"))),
+            (Arc::from("stderr"), Value::Str(Arc::from("child stderr\n"))),
+        ]))
+    }
+
+    fn run_child(
+        write_artifact: bool,
+        success: bool,
+        status: i64,
+        forced: bool,
+    ) -> (
+        tempfile::TempDir,
+        PathBuf,
+        Result<BTreeMap<Arc<str>, LoweredValue>, RuntimeError>,
+    ) {
+        let fixture = scratch();
+        let output_dir = fixture.path().join("route-witnesses");
+        std::fs::create_dir(&output_dir).expect("create route-witness parent");
+        let source = "let empty: Map[Str, Int] = {}\n";
+        let test_id = "tests/xsh/expression-route-oracles.xsh::test_expr_empty_map";
+        let host = Arc::new(move |request: NativeTestRunRequest| {
+            if write_artifact {
+                crate::runtime::eval::route_witness::write_active_artifact_for_test(
+                    request.source.as_bytes(),
+                    request.force_frames,
+                )
+                .expect("write authentic child artifact through active transport");
+            }
+            Ok(child_result(success, status))
+        });
+        let mut evaluator = Evaluator::new(Vec::new()).with_native_test_host(host);
+        evaluator.force_frames = forced;
+        evaluator.route_witness_invocation = Some(InvocationContext {
+            test_id: test_id.to_string(),
+            output_dir: output_dir.clone(),
+        });
+        let ctx = RecordMap::from([(
+            Arc::from("temp_root"),
+            Value::Path(PathValue::new(path_bytes(fixture.path())).expect("valid fixture path")),
+        )]);
+        let span = Span::new(crate::source::SourceId::new(0), 0, 1);
+        let output = evaluator.lowered_native_test_run(
+            NativeTestRunKind::Xsh,
+            &ctx,
+            source,
+            &[],
+            &[],
+            &BTreeMap::new(),
+            &[],
+            "child.xsh",
+            span,
+            "test-run-xsh",
+        );
+        (fixture, output_dir, output)
+    }
+
+    #[test]
+    fn nonzero_executed_child_retains_its_authenticated_route_witness() {
+        for forced in [false, true] {
+            let (_fixture, output_dir, output) = run_child(true, false, 23, forced);
+            let output = output.expect("native test host result is preserved");
+
+            assert_eq!(output.get("success"), Some(&LoweredValue::Bool(false)));
+            assert_eq!(output.get("status"), Some(&LoweredValue::Int(23)));
+            assert_eq!(
+                output.get("stdout"),
+                Some(&LoweredValue::Str(Arc::from("child stdout\n")))
+            );
+            assert_eq!(
+                output.get("stderr"),
+                Some(&LoweredValue::Str(Arc::from("child stderr\n")))
+            );
+
+            let retained = std::fs::read_dir(&output_dir)
+                .expect("inspect route-witness output")
+                .map(|entry| entry.expect("read route-witness output entry").path())
+                .collect::<Vec<_>>();
+            assert_eq!(retained.len(), 1);
+            assert!(crate::runtime::eval::route_witness::artifact_path(&retained[0]).is_file());
+        }
+    }
+
+    #[test]
+    fn nonzero_child_without_an_artifact_preserves_its_result_without_coverage() {
+        let (_fixture, output_dir, output) = run_child(false, false, 2, false);
+        let output = output.expect("native test host result is preserved");
+
+        assert_eq!(output.get("success"), Some(&LoweredValue::Bool(false)));
+        assert_eq!(output.get("status"), Some(&LoweredValue::Int(2)));
+        assert_eq!(
+            output.get("stdout"),
+            Some(&LoweredValue::Str(Arc::from("child stdout\n")))
+        );
+        assert_eq!(
+            output.get("stderr"),
+            Some(&LoweredValue::Str(Arc::from("child stderr\n")))
+        );
+        assert_eq!(
+            std::fs::read_dir(output_dir)
+                .expect("inspect route-witness output")
+                .count(),
+            0,
+        );
+    }
+
+    #[test]
+    fn successful_child_without_an_artifact_still_fails_capture() {
+        let (_fixture, _output_dir, error) = run_child(false, true, 0, false);
+
+        assert!(error
+            .expect_err("successful child must write route-witness artifact")
+            .message
+            .contains("failed to read route-witness artifact"));
+    }
 }
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {

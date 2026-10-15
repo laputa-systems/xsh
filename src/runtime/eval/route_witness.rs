@@ -584,6 +584,49 @@ pub(crate) fn validate_artifact(
     Ok(())
 }
 
+pub(crate) fn artifact_path(output_dir: &Path) -> PathBuf {
+    output_dir.join(ARTIFACT_FILE)
+}
+
+pub(crate) fn artifact_exists(output_dir: &Path) -> Result<bool, String> {
+    match fs::symlink_metadata(artifact_path(output_dir)) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!("failed to inspect route-witness artifact: {error}")),
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn write_active_artifact_for_test(source: &[u8], forced: bool) -> Result<(), String> {
+    let capture = ACTIVE_TRANSPORTS.with(|transports| {
+        let transports = transports.borrow();
+        let Some(Some(transport)) = transports.last() else {
+            return Err("route-witness transport is not active".to_string());
+        };
+        ChildCaptureContext::from_owned_descriptor(
+            duplicate_cloexec_fd(transport.fd.as_fd())
+                .map_err(|error| format!("failed to duplicate route-witness descriptor: {error}"))?,
+            &transport.nonce,
+        )?
+        .validate_source(source)
+    })?;
+    capture
+        .write_records(&[RouteWitnessRecord {
+            tag: FullTag::ExprEmptyMap.into(),
+            route: if forced {
+                RouteWitnessRoute::GenericOperandApplyPath
+            } else {
+                RouteWitnessRoute::ExplicitFrameApplyPath
+            },
+            mode: if forced {
+                RouteWitnessMode::Forced
+            } else {
+                RouteWitnessMode::Normal
+            },
+        }])
+        .map_err(|error| format!("failed to write route-witness artifact: {error}"))
+}
+
 fn route_oracle_tag(test_id: &str) -> Result<FullTag, String> {
     let (_, test_name) = test_id
         .rsplit_once("::")
@@ -835,7 +878,7 @@ mod tests {
         source: &[u8],
         records: &str,
     ) -> PathBuf {
-        let path = output_dir.join(ARTIFACT_FILE);
+        let path = artifact_path(output_dir);
         fs::write(
             &path,
             format!(
