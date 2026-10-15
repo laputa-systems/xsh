@@ -1,0 +1,110 @@
+run.txt
+source_commit=619810fb96ca5dbcb4b521012e6fe5a43d0eb0c2
+source_match_base=ffce9a643094c7435c3c30ed367475ea41df57f4
+harness=/home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf
+harness_sha256=2199a07818f273b8eff9fa2286760ce5e00b1e4e09ba1717d8503f60812c7afa
+image=xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+platform=linux/amd64
+container_flags=--rm --cpus=8 --memory=16g --memory-swap=16g --network=none --user 1000:1000
+TMPDIR=/home/josh/d/laputa-systems/xsh/.work/tmp/module-final-xsht-unit-runtime (disk-backed host .work/tmp bind)
+LD_PRELOAD=unset on host and in container
+test_args=<fully-qualified-name> --exact --nocapture
+
+harness.sha256
+2199a07818f273b8eff9fa2286760ce5e00b1e4e09ba1717d8503f60812c7afa  /home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf
+
+
+lint_fix_checks_the_converged_source_once
+argv.txt:
+filter=xsht::cli::lint::tests::lint_fix_checks_the_converged_source_once
+docker run --rm --platform linux/amd64 --cpus=8 --memory=16g --memory-swap=16g --network=none --user 1000:1000 -v /home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf:/test:ro -v /home/josh/d/laputa-systems/xsh/.work/tmp/module-final-xsht-unit-runtime:/scratch:rw -w /scratch -e TMPDIR=/scratch xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c /bin/sh -c 'unset LD_PRELOAD; exec /test "$@"' sh xsht::cli::lint::tests::lint_fix_checks_the_converged_source_once --exact --nocapture
+
+status:
+0
+
+stdout:
+
+running 1 test
+test xsht::cli::lint::tests::lint_fix_checks_the_converged_source_once ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 411 filtered out; finished in 0.04s
+
+
+stderr:
+
+
+lint_fix_repairs_missing_effects_from_imported_module_proc
+argv.txt:
+filter=xsht::cli::lint::tests::lint_fix_repairs_missing_effects_from_imported_module_proc
+docker run --rm --platform linux/amd64 --cpus=8 --memory=16g --memory-swap=16g --network=none --user 1000:1000 -v /home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf:/test:ro -v /home/josh/d/laputa-systems/xsh/.work/tmp/module-final-xsht-unit-runtime:/scratch:rw -w /scratch -e TMPDIR=/scratch xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c /bin/sh -c 'unset LD_PRELOAD; exec /test "$@"' sh xsht::cli::lint::tests::lint_fix_repairs_missing_effects_from_imported_module_proc --exact --nocapture
+
+status:
+0
+
+stdout:
+
+running 1 test
+test xsht::cli::lint::tests::lint_fix_repairs_missing_effects_from_imported_module_proc ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 411 filtered out; finished in 0.01s
+
+
+stderr:
+
+
+lint_four_workers_preserve_shared_import_diagnostics_and_source_bytes
+argv.txt:
+filter=xsht::cli::lint::tests::lint_four_workers_preserve_shared_import_diagnostics_and_source_bytes
+docker run --rm --platform linux/amd64 --cpus=8 --memory=16g --memory-swap=16g --network=none --user 1000:1000 -v /home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf:/test:ro -v /home/josh/d/laputa-systems/xsh/.work/tmp/module-final-xsht-unit-runtime:/scratch:rw -w /scratch -e TMPDIR=/scratch xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c /bin/sh -c 'unset LD_PRELOAD; exec /test "$@"' sh xsht::cli::lint::tests::lint_four_workers_preserve_shared_import_diagnostics_and_source_bytes --exact --nocapture
+
+status:
+0
+
+stdout:
+
+running 1 test
+test xsht::cli::lint::tests::lint_four_workers_preserve_shared_import_diagnostics_and_source_bytes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 411 filtered out; finished in 0.03s
+
+
+stderr:
+
+
+lint_workspace_legacy_root_enum_helper_migration_rechecks
+argv.txt:
+filter=xsht::cli::lint::tests::lint_workspace_legacy_root_enum_helper_migration_rechecks
+docker run --rm --platform linux/amd64 --cpus=8 --memory=16g --memory-swap=16g --network=none --user 1000:1000 -v /home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf:/test:ro -v /home/josh/d/laputa-systems/xsh/.work/tmp/module-final-xsht-unit-runtime:/scratch:rw -w /scratch -e TMPDIR=/scratch xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c /bin/sh -c 'unset LD_PRELOAD; exec /test "$@"' sh xsht::cli::lint::tests::lint_workspace_legacy_root_enum_helper_migration_rechecks --exact --nocapture
+
+status:
+0
+
+stdout:
+
+running 1 test
+test xsht::cli::lint::tests::lint_workspace_legacy_root_enum_helper_migration_rechecks ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 411 filtered out; finished in 0.01s
+
+
+stderr:
+
+
+lint_workspace_migrates_imported_enums_and_refuses_unrelated_import_errors
+argv.txt:
+filter=xsht::cli::lint::tests::lint_workspace_migrates_imported_enums_and_refuses_unrelated_import_errors
+docker run --rm --platform linux/amd64 --cpus=8 --memory=16g --memory-swap=16g --network=none --user 1000:1000 -v /home/josh/d/laputa-systems/xsh/.work/target-lint-flow/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf:/test:ro -v /home/josh/d/laputa-systems/xsh/.work/tmp/module-final-xsht-unit-runtime:/scratch:rw -w /scratch -e TMPDIR=/scratch xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c /bin/sh -c 'unset LD_PRELOAD; exec /test "$@"' sh xsht::cli::lint::tests::lint_workspace_migrates_imported_enums_and_refuses_unrelated_import_errors --exact --nocapture
+
+status:
+0
+
+stdout:
+
+running 1 test
+test xsht::cli::lint::tests::lint_workspace_migrates_imported_enums_and_refuses_unrelated_import_errors ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 411 filtered out; finished in 0.02s
+
+
+stderr:
+

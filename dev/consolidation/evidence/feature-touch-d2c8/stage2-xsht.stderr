@@ -1,0 +1,8 @@
+warning: File system loop found: /home/josh/d/laputa-systems/xsh/.work/wt/feature-touch-final-replay/core/tests/data/grep/fx/dl/alias/up/alias points to an ancestor /home/josh/d/laputa-systems/xsh/.work/wt/feature-touch-final-replay/core/tests/data/grep/fx/dl/alias
+warning: File system loop found: /home/josh/d/laputa-systems/xsh/.work/wt/feature-touch-final-replay/core/tests/data/grep/fx/dl/alias/up/real/up points to an ancestor /home/josh/d/laputa-systems/xsh/.work/wt/feature-touch-final-replay/core/tests/data/grep/fx/dl/alias/up
+warning: File system loop found: /home/josh/d/laputa-systems/xsh/.work/wt/feature-touch-final-replay/core/tests/data/grep/fx/dl/real/up/alias/up points to an ancestor /home/josh/d/laputa-systems/xsh/.work/wt/feature-touch-final-replay/core/tests/data/grep/fx/dl/real/up
+warning: File system loop found: /home/josh/d/laputa-systems/xsh/.work/wt/feature-touch-final-replay/core/tests/data/grep/fx/dl/real/up/real/up points to an ancestor /home/josh/d/laputa-systems/xsh/.work/wt/feature-touch-final-replay/core/tests/data/grep/fx/dl/real/up
+   Compiling xsh v0.0.1 (/home/josh/d/laputa-systems/xsh/.work/wt/feature-touch-final-replay)
+   Compiling syscalls v0.8.1
+    Checking xsht v0.0.1 (/home/josh/d/laputa-systems/xsh/.work/wt/feature-touch-final-replay/crates/xsht)
+error: could not compile `xsht` (lib) due to 19 previous errors

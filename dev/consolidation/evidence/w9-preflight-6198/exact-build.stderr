@@ -1,0 +1,28 @@
+W9 exact-owner proof failed: pinned reference adapter harness build failed: Compiling xsh-registry v0.0.1 (/home/josh/d/laputa-systems/xsh/.work/wt/w9-harness-overlay-mc8phjd2/source/crates/xsh-registry)
+   Compiling xsh-net v0.0.1 (/home/josh/d/laputa-systems/xsh/.work/wt/w9-harness-overlay-mc8phjd2/source/crates/xsh-net)
+   Compiling xsh-applets v0.0.1 (/home/josh/d/laputa-systems/xsh/.work/wt/w9-harness-overlay-mc8phjd2/source/crates/xsh-applets)
+   Compiling xsh-root v0.0.1 (/home/josh/d/laputa-systems/xsh/.work/wt/w9-harness-overlay-mc8phjd2/source/crates/xsh-root)
+   Compiling xsh v0.0.1 (/home/josh/d/laputa-systems/xsh/.work/wt/w9-harness-overlay-mc8phjd2/source)
+   Compiling xsht v0.0.1 (/home/josh/d/laputa-systems/xsh/.work/wt/w9-harness-overlay-mc8phjd2/source/crates/xsht)
+warning: unused import: `std::io::Read as _`
+    --> tests/../.work/consolidation/w9-publication-adapter.rs:1409:9
+     |
+1409 |     use std::io::Read as _;
+     |         ^^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `OFlags`
+    --> tests/../.work/consolidation/w9-publication-adapter.rs:1550:27
+     |
+1550 |     use rustix::fs::{Dir, OFlags};
+     |                           ^^^^^^
+
+warning: unused import: `std::os::unix::ffi::OsStrExt as _`
+    --> tests/../.work/consolidation/w9-publication-adapter.rs:1553:9
+     |
+1553 |     use std::os::unix::ffi::OsStrExt as _;
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: `xsh` (test "integration") generated 3 warnings (run `cargo fix --test "integration" -p xsh` to apply 3 suggestions)
+error: warnings are denied by `build.warnings` configuration

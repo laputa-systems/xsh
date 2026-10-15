@@ -1,0 +1,36 @@
+src/runtime/eval/indexed/full.rs	5579	        match self.expression_view(instruction)? {
+src/runtime/eval/indexed/full.rs	5766	        match self.expression_view(instruction)? {
+src/runtime/eval/indexed/full.rs	6474	        Ok(match self.expression_view(instruction)? {
+src/runtime/eval/indexed/full.rs	6580	        match self.expression_view(instruction)? {
+src/runtime/eval/indexed/full.rs	7170	        match view {
+src/runtime/eval/indexed/full.rs	8121	        let field_expression = match self.expression_view(instruction)? {
+src/runtime/eval/indexed/full.rs	9824	        let (value, mut arms) = match self.expression_view(condition)? {
+src/runtime/eval/indexed/full.rs	10320	        match self.expression_view(instruction)? {
+src/runtime/eval/lower/patterns.rs	651	        match self.program.arena.expr(id).kind {
+src/runtime/eval/lower/values.rs	84	    let value = match arena.expr(expr).kind {
+src/runtime/eval/lower.rs	1542	            match kind {
+src/runtime/eval/lower.rs	1548	            match kind {
+src/runtime/eval/lower.rs	4945	        let lowered = match self.program.arena.expr(id).kind {
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6633	        match view_kind {
+src/sema/check/scopecheck.rs	587	        match node.kind {
+src/sema/check/expr.rs	73	        match arena.arena.expr(expression).kind {
+src/sema/check/expr.rs	117	            ArenaExprKind::Call { callee, .. } => match arena.arena.expr(callee).kind {
+src/sema/check/expr.rs	662	        let ty = match &expr.kind {
+src/sema/check/removed_fs.rs	39	    match operand.kind {
+src/sema/check/resource.rs	577	            let lazy = match node.kind {
+src/sema/check/stmt.rs	1626	    match arena.arena.expr(expr).kind {
+src/sema/check/stmt.rs	1928	    match arena.arena.expr(id).kind {
+src/sema/check/stmt.rs	5016	        match arena.arena.expr(expression).kind {
+src/sema/check/stmt.rs	5928	        match arena.arena.expr(expr).kind {
+src/sema/check/stmt.rs	6140	            ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
+src/sema/check/stmt.rs	6766	        match &arena.arena.expr(value).kind {
+src/sema/check/stmt.rs	6879	    match arena.arena.expr(expr).kind {
+src/sema/check/stmt.rs	7066	    match arena.arena.expr(expr).kind {
+src/sema/constants.rs	191	        let value = match arena.expr(expr).kind {
+src/sema/constants.rs	3139	        let value = match expr.kind {
+src/syntax/grouping.rs	319	    match kind {
+src/syntax/grouping.rs	478	        current = match arena.expr(current).kind {
+src/syntax/grouping.rs	907	    match kind {
+src/syntax/grouping.rs	1033	    match arena.expr(parent).kind {
+src/syntax/grouping.rs	1274	    match arena.expr(parent).kind {
+src/syntax/grouping.rs	1346	    match arena.expr(parent).kind {

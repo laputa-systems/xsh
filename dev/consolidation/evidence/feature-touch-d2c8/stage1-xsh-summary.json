@@ -1,0 +1,8 @@
+{
+  "stage": "stage1-xsh",
+  "exit_code": 101,
+  "e0004_occurrences": 36,
+  "primary_spans": 36,
+  "normalized_sites": 35,
+  "warnings": []
+}

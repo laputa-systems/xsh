@@ -1,0 +1,98 @@
+crates/xsht/src/format.rs	5208	command_chain_has_call_or_index	ArenaExprKind::Call,ArenaExprKind::Field,ArenaExprKind::Index,ArenaExprKind::NullSafeField	false
+crates/xsht/src/format.rs	5062	expr_is_multiline_literal	ArenaExprKind::FmtString,ArenaExprKind::PathFmtString,ArenaExprKind::Record,ArenaExprKind::Regex,ArenaExprKind::Str	false
+crates/xsht/src/format.rs	3299	is_name_path	ArenaExprKind::Field,ArenaExprKind::Ident	false
+crates/xsht/src/format.rs	4816	label_path	ArenaExprKind::Field,ArenaExprKind::Ident	false
+crates/xsht/src/format.rs	4487	try_write_stable_call_chain	ArenaExprKind::Call,ArenaExprKind::Field	break
+crates/xsht/src/format.rs	4704	write_breakable_expr_now	ArenaExprKind::If,ArenaExprKind::ListComp,ArenaExprKind::MapComp,ArenaExprKind::Match,ArenaExprKind::SetComp	output.push_str(&inline)
+crates/xsht/src/format.rs	4744	write_expr_safe_multiline_preferred	ArenaExprKind::If,ArenaExprKind::ListComp,ArenaExprKind::MapComp,ArenaExprKind::Match,ArenaExprKind::SetComp	self.write_expr_safe(expr_id, output)
+crates/xsht/src/format.rs	4791	write_list_comp_multiline	ArenaExprKind::ListComp,ArenaExprKind::SetComp	return self.write_expr(expr_id, CLOSE, output)
+crates/xsht/src/lint.rs	4777	byte_slice_replacement	ArenaExprKind::Int	None
+crates/xsht/src/lint.rs	3557	can_bare_in_command_arg	ArenaExprKind::Call,ArenaExprKind::Field,ArenaExprKind::Index,ArenaExprKind::NullSafeField	false
+crates/xsht/src/lint.rs	4948	collect_list_splice_parts	ArenaExprKind::Binary,ArenaExprKind::Call,ArenaExprKind::List,ArenaExprKind::Set	parts.push((true, expr))
+crates/xsht/src/lint.rs	3634	command_chain_has_call_or_index	ArenaExprKind::Call,ArenaExprKind::Field,ArenaExprKind::Index,ArenaExprKind::NullSafeField	false
+crates/xsht/src/lint.rs	6376	command_value_replacement	ArenaExprKind::Field,ArenaExprKind::Ident	String::new()
+crates/xsht/src/lint.rs	6140	direct_call_name	ArenaExprKind::Try	expr
+crates/xsht/src/lint.rs	2443	holds_missing_f_prefix	ArenaExprKind::List,ArenaExprKind::PathStr,ArenaExprKind::Record,ArenaExprKind::Set,ArenaExprKind::Str	false
+crates/xsht/src/lint.rs	5028	is_empty_map_literal_source	ArenaExprKind::Call,ArenaExprKind::Record	false
+crates/xsht/src/lint.rs	2055	lint_core_assert	ArenaExprKind::Call,ArenaExprKind::Try	return
+crates/xsht/src/lint.rs	5246	lint_fs_root_receiver	ArenaExprKind::Call,ArenaExprKind::Field,ArenaExprKind::Ident	format!("({receiver_text})")
+crates/xsht/src/lint.rs	1951	lint_implicit_main	ArenaExprKind::Call	false
+crates/xsht/src/lint.rs	3150	lint_redundant_path_display	ArenaExprKind::Call	String::new()
+crates/xsht/src/lint.rs	5854	lint_redundant_stream_stages	ArenaExprKind::Bool,ArenaExprKind::Item	continue
+crates/xsht/src/lint.rs	4703	literal_byte_slice_bounds	ArenaExprKind::Binary,ArenaExprKind::Int	None
+crates/xsht/src/lint.rs	6618	map_comp_key_can_be_bare	ArenaExprKind::Field,ArenaExprKind::Ident	false
+crates/xsht/src/lint.rs	2404	missing_f_prefix	ArenaExprKind::PathStr,ArenaExprKind::Str	return None
+crates/xsht/src/lint.rs	3194	path_constructor_replacement	ArenaExprKind::FmtString,ArenaExprKind::Str	single_line_interpolation(arg_text)\n                .map(|interpolation| format!("fp\\"{interpolation}\\""))
+crates/xsht/src/lint.rs	2839	path_expression_has_utf8_bytes	ArenaExprKind::PathFmtString,ArenaExprKind::PathStr	false
+crates/xsht/src/lint.rs	2823	path_literal_arg_replacement	ArenaExprKind::FmtString,ArenaExprKind::Str	None
+crates/xsht/src/lint.rs	2735	path_roundtrip_replacement	ArenaExprKind::Binary,ArenaExprKind::Try	None
+crates/xsht/src/lint.rs	6298	simple_command_value_expr	ArenaExprKind::Field,ArenaExprKind::Ident	false
+crates/xsht/src/lint.rs	2888	single_interpolation_replacement	ArenaExprKind::FmtString,ArenaExprKind::PathFmtString	None
+crates/xsht/src/lint_annotations.rs	570	lint_solved_local_annotation	ArenaExprKind::List,ArenaExprKind::Null,ArenaExprKind::Set	false
+crates/xsht/src/lint_argument_label.rs	217	only_reads	ArenaExprKind::Field,ArenaExprKind::FmtString,ArenaExprKind::Ident,ArenaExprKind::Item,ArenaExprKind::PathFmtString	is_literal(arena, expr)
+crates/xsht/src/lint_assignment_facts_tests.rs	106	lint_pair_and_comparison	ArenaExprKind::Call	None
+crates/xsht/src/lint_assignment_facts_tests.rs	67	pipeline_expression_types	ArenaExprKind::Call	None
+crates/xsht/src/lint_context_scope.rs	123	lint_command_scope_scaffolds	ArenaExprKind::Ident,ArenaExprKind::PathStr	continue
+crates/xsht/src/lint_empty_sentinel.rs	39	tested_name	ArenaExprKind::Ident	None
+crates/xsht/src/lint_env_path_list.rs	182	reads_variable_or_empty	ArenaExprKind::Call,ArenaExprKind::EnvString	false
+crates/xsht/src/lint_flow.rs	217	stmt_flow	ArenaExprKind::Bool	facts\n                    .expression(condition)\n                    .then(FlowSummary::fallthrough().union(facts.block(else_block)))
+crates/xsht/src/lint_item_shorthand.rs	97	callback_blocks	ArenaExprKind::Binary,ArenaExprKind::Pipeline,ArenaExprKind::StructuredPipeline	{}
+crates/xsht/src/lint_item_shorthand.rs	186	item_shorthand	ArenaExprKind::Field	None
+crates/xsht/src/lint_optional_binding.rs	199	null_comparison	ArenaExprKind::Null	None
+crates/xsht/src/lint_optional_binding.rs	212	stable_path	ArenaExprKind::Field,ArenaExprKind::Ident	return None
+crates/xsht/src/lint_path_display_sink.rs	86	path_display_sinks	ArenaExprKind::List	Vec::new()
+crates/xsht/src/lint_path_kind.rs	55	path_kind_comparison	ArenaExprKind::Field,ArenaExprKind::NullSafeField	return None
+crates/xsht/src/lint_prefer_as_conversion.rs	105	operation	ArenaExprKind::Call,ArenaExprKind::Require	None
+crates/xsht/src/lint_prefer_atomically.rs	516	is_sibling_of	ArenaExprKind::Call	expr
+crates/xsht/src/lint_prefer_atomically.rs	162	local	ArenaExprKind::Ident	None
+crates/xsht/src/lint_prefer_atomically.rs	140	path_operation	ArenaExprKind::Try	expr
+crates/xsht/src/lint_prefer_collect.rs	474	append	ArenaExprKind::Call,ArenaExprKind::List	return None
+crates/xsht/src/lint_prefer_collect.rs	444	appends_elsewhere	ArenaExprKind::Call,ArenaExprKind::List	false
+crates/xsht/src/lint_prefer_collect.rs	364	statement	ArenaExprKind::ValueBlock	!mentions(self.text(span), self.name)
+crates/xsht/src/lint_prefer_fail.rs	325	is_leading_dot_variant	ArenaExprKind::Call	expr
+crates/xsht/src/lint_prefer_fail.rs	161	visit_expr	ArenaExprKind::Field	{}
+crates/xsht/src/lint_prefer_negative_index.rs	92	is_name_path	ArenaExprKind::Field,ArenaExprKind::Ident	false
+crates/xsht/src/lint_prefer_negative_index.rs	100	same_name_path	ArenaExprKind::Field,ArenaExprKind::Ident	false
+crates/xsht/src/lint_prefer_set.rs	281	assign	ArenaExprKind::Bool	None
+crates/xsht/src/lint_prefer_set.rs	226	declare	ArenaExprKind::Record	matches!(\n                method_call(arena, initializer),\n                Some((module, function, arguments))\n                    if ident(arena, module).is_some_and(|module| module == "map")\n                        && function == "empty"\n                        && arguments.is_empty()\n            )
+crates/xsht/src/lint_prefer_set.rs	60	ident	ArenaExprKind::Ident	None
+crates/xsht/src/lint_prefer_set.rs	348	visit_expr	ArenaExprKind::Binary,ArenaExprKind::Call,ArenaExprKind::Ident	{}
+crates/xsht/src/lint_prefer_tempdir.rs	117	local	ArenaExprKind::Ident	None
+crates/xsht/src/lint_prefer_tempdir.rs	84	path_call	ArenaExprKind::Try	expr
+crates/xsht/src/lint_prefer_tempdir.rs	130	removed_path	ArenaExprKind::Bool	None
+crates/xsht/src/lint_prefer_tempdir.rs	417	tail_may_be_a_result	ArenaExprKind::ValueBlock	!matches!(\n                linter.expr_types.get(&arena.expr(expr).span),\n                Some(ty) if !matches!(ty, Type::Result(ok, _) if **ok != Type::Unit)\n            )
+crates/xsht/src/lint_prefer_test_expect.rs	277	reads_the_same_before_the_run	ArenaExprKind::Field,ArenaExprKind::Ident,ArenaExprKind::Str	false
+crates/xsht/src/lint_prefer_test_expect.rs	226	requirement	ArenaExprKind::Field,ArenaExprKind::Ident	None
+crates/xsht/src/lint_prefer_typed_callable.rs	111	call	ArenaExprKind::Ident	None
+crates/xsht/src/lint_prefer_wait_until.rs	175	int_value	ArenaExprKind::Int	None
+crates/xsht/src/lint_prefer_wait_until.rs	150	sleep_interval	ArenaExprKind::Try	expr
+crates/xsht/src/lint_prefer_within.rs	64	run_statement	ArenaExprKind::Try	expr
+crates/xsht/src/lint_read_lines.rs	76	read_text_lines_path	ArenaExprKind::Field,ArenaExprKind::NullSafeField	return None
+crates/xsht/src/lint_redundant_close.rs	200	deferred_close	ArenaExprKind::Try	action
+crates/xsht/src/lint_rules.rs	1704	collect	ArenaExprKind::Binary,ArenaExprKind::Str	false
+crates/xsht/src/lint_rules.rs	1824	ladder	ArenaExprKind::Binary	false
+crates/xsht/src/lint_rules.rs	2295	lint_env_string	ArenaExprKind::Call,ArenaExprKind::Field	return
+crates/xsht/src/lint_rules.rs	2808	lint_error_fallback_block	ArenaExprKind::Ident,ArenaExprKind::ValueBlock	false
+crates/xsht/src/lint_rules.rs	228	needs_check_output	ArenaExprKind::Ident,ArenaExprKind::Try	{}
+crates/xsht/src/lint_rules.rs	2027	selected_path	ArenaExprKind::Field,ArenaExprKind::Ident	None
+crates/xsht/src/lint_safety.rs	293	expr_references_name	ArenaExprKind::Ident,ArenaExprKind::Record,ArenaExprKind::Run,ArenaExprKind::Spawn	expr_children_reference_name(arena, expr, name)
+crates/xsht/src/lint_safety.rs	1014	lint_optional_postfix	ArenaExprKind::Call,ArenaExprKind::Field,ArenaExprKind::Index,ArenaExprKind::Slice	return
+crates/xsht/src/lint_safety.rs	914	pipeline_ordinary_call	ArenaExprKind::Try	value
+crates/xsht/src/lint_safety.rs	1138	proven_absence_lookup	ArenaExprKind::Call,ArenaExprKind::Ident	false
+crates/xsht/src/lint_safety.rs	1201	proven_immutable_byte_length	ArenaExprKind::Bytes,ArenaExprKind::Ident	None
+crates/xsht/src/lint_safety.rs	1182	proven_materialized_record	ArenaExprKind::Call,ArenaExprKind::Ident,ArenaExprKind::Record	false
+crates/xsht/src/lint_safety.rs	754	same_ordering_operand	ArenaExprKind::Float,ArenaExprKind::Ident,ArenaExprKind::Int,ArenaExprKind::Str	false
+crates/xsht/src/lint_sequence.rs	1517	appended_list_element	ArenaExprKind::Call,ArenaExprKind::List	None
+crates/xsht/src/lint_sequence.rs	278	expr_is_ident_or_pipeline_from	ArenaExprKind::Ident,ArenaExprKind::Pipeline,ArenaExprKind::StructuredPipeline	false
+crates/xsht/src/lint_sequence.rs	2092	lint_negative_if_as_boolean_guard	ArenaExprKind::Binary,ArenaExprKind::Null,ArenaExprKind::Unary	return
+crates/xsht/src/lint_sequence.rs	1463	negated_condition	ArenaExprKind::Binary,ArenaExprKind::Call,ArenaExprKind::Field,ArenaExprKind::Ident,ArenaExprKind::Index,ArenaExprKind::Unary	None
+crates/xsht/src/lint_sequence.rs	573	scalar_atom	ArenaExprKind::Record	false
+crates/xsht/src/lint_size_literal.rs	157	literal_factors	ArenaExprKind::Binary,ArenaExprKind::Int	false
+crates/xsht/src/lint_tempdir_scope.rs	382	callee	ArenaExprKind::Call	None
+crates/xsht/src/lint_walk.rs	1250	lint_stmt_inner	ArenaExprKind::Try,ArenaExprKind::Unary	expr
+crates/xsht/src/lint_walk.rs	89	visit_expression	ArenaExprKind::Call,ArenaExprKind::Field,ArenaExprKind::Ident,ArenaExprKind::NullSafeField	self.walk_expr(expr)
+crates/xsht/src/lint_walk.rs	294	walk_expr	ArenaExprKind::Field,ArenaExprKind::Ident	false
+crates/xsht/src/lint_write_lines.rs	142	path_receiver_text	ArenaExprKind::Call,ArenaExprKind::Field,ArenaExprKind::Ident,ArenaExprKind::Index,ArenaExprKind::PathFmtString,ArenaExprKind::PathStr	false
+crates/xsht/src/lint_write_mode.rs	114	path_call	ArenaExprKind::Try	(statement, false)
+crates/xsht/src/lint_write_mode.rs	148	reads_the_same_each_time	ArenaExprKind::Field,ArenaExprKind::FmtString,ArenaExprKind::Ident,ArenaExprKind::PathFmtString,ArenaExprKind::PathStr,ArenaExprKind::Str	false
+crates/xsht/src/lint_write_mode.rs	69	write_then_chmod	ArenaExprKind::Field,ArenaExprKind::Ident,ArenaExprKind::Int	false

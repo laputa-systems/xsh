@@ -1,0 +1,22 @@
+docker run --rm --platform linux/amd64 --cpus=1 --memory=1g --memory-swap=1g --network none --cap-add=SYS_ADMIN --cap-add=MKNOD --device-cgroup-rule 'b *:* m' --mount type=bind,src=/home/josh/d/laputa-systems/xsh/.work/tmp/block-nodev-preflight-6198,dst=/scratch,bind-propagation=rprivate --env TMPDIR=/scratch sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c /bin/sh -eu -c 'mount -o remount,bind,nodev /scratch
+python3 - <<'"'"'CHECK'"'"'
+import os, stat
+flags = os.statvfs('"'"'/scratch'"'"').f_flag
+assert flags & os.ST_NODEV, flags
+print('"'"'scratch_statvfs_f_flag=%d nodev=True'"'"' % flags)
+path = '"'"'/scratch/owned-block-probe'"'"'
+os.mknod(path, stat.S_IFBLK | 0o600, os.makedev(8, 0))
+try:
+    value = os.stat(path)
+    assert stat.S_ISBLK(value.st_mode)
+    assert value.st_rdev == os.makedev(8, 0)
+    print('"'"'block_node_create=True major=8 minor=0'"'"')
+finally:
+    os.unlink(path)
+CHECK
+'
+exit=0
+host_mount_flags_before=4128
+host_mount_flags_after=4128
+scratch_statvfs_f_flag=4132 nodev=True
+block_node_create=True major=8 minor=0

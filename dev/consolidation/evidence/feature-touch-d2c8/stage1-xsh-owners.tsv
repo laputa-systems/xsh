@@ -1,0 +1,36 @@
+src/runtime/eval/indexed/full.rs	5579	function_ref_source	        match self.expression_view(instruction)? {
+src/runtime/eval/indexed/full.rs	5766	checked_expression_matches_type	        match self.expression_view(instruction)? {
+src/runtime/eval/indexed/full.rs	6474	checked_literal_string	        Ok(match self.expression_view(instruction)? {
+src/runtime/eval/indexed/full.rs	6580	derive_checked_expression_type	        match self.expression_view(instruction)? {
+src/runtime/eval/indexed/full.rs	7170	verify_checked_expression_producer	        match view {
+src/runtime/eval/indexed/full.rs	8121	checked_expression_type	        let field_expression = match self.expression_view(instruction)? {
+src/runtime/eval/indexed/full.rs	9824	verify_pattern_condition_writers	        let (value, mut arms) = match self.expression_view(condition)? {
+src/runtime/eval/indexed/full.rs	10320	expression_checked_type_id	        match self.expression_view(instruction)? {
+src/runtime/eval/lower/patterns.rs	651	lower_pattern_literal	        match self.program.arena.expr(id).kind {
+src/runtime/eval/lower/values.rs	84	lower_const_param_default	    let value = match arena.expr(expr).kind {
+src/runtime/eval/lower.rs	1542	compact_expr_kind_index	            match kind {
+src/runtime/eval/lower.rs	1548	compact_expr_kind_label	            match kind {
+src/runtime/eval/lower.rs	4945	lower_expr_untyped	        let lowered = match self.program.arena.expr(id).kind {
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6633	eval_expr	        match view_kind {
+src/sema/check/scopecheck.rs	587	expr_inner	        match node.kind {
+src/sema/check/expr.rs	73	schema_expectation_for_expr	        match arena.arena.expr(expression).kind {
+src/sema/check/expr.rs	117	schema_expectation_for_expr	            ArenaExprKind::Call { callee, .. } => match arena.arena.expr(callee).kind {
+src/sema/check/expr.rs	662	check_expr_arena_inner	        let ty = match &expr.kind {
+src/sema/check/removed_fs.rs	39	call_receiver_text	    match operand.kind {
+src/sema/check/resource.rs	577	statement_releases	            let lazy = match node.kind {
+src/sema/check/stmt.rs	1626	expression_cardinality_uncached	    match arena.arena.expr(expr).kind {
+src/sema/check/stmt.rs	1928	expr_control_flow_inner	    match arena.arena.expr(id).kind {
+src/sema/check/stmt.rs	5016	expression_may_have_latent_stream_error	        match arena.arena.expr(expression).kind {
+src/sema/check/stmt.rs	5928	stmt_definitely_exits_arena	        match arena.arena.expr(expr).kind {
+src/sema/check/stmt.rs	6140	return_inference_stmt_returns	            ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
+src/sema/check/stmt.rs	6766	match_scrutinee_definitely_exits_arena	        match &arena.arena.expr(value).kind {
+src/sema/check/stmt.rs	6879	should_record_binding_annotation_arena	    match arena.arena.expr(expr).kind {
+src/sema/check/stmt.rs	7066	whole_paren_group	    match arena.arena.expr(expr).kind {
+src/sema/constants.rs	191	analyze_depth	        let value = match arena.expr(expr).kind {
+src/sema/constants.rs	3139	expression_inner	        let value = match expr.kind {
+src/syntax/grouping.rs	319	binding_power	    match kind {
+src/syntax/grouping.rs	478	reads_inline	        current = match arena.expr(current).kind {
+src/syntax/grouping.rs	907	lead_needs_parens	    match kind {
+src/syntax/grouping.rs	1033	child_context	    match arena.expr(parent).kind {
+src/syntax/grouping.rs	1274	is_condition	    match arena.expr(parent).kind {
+src/syntax/grouping.rs	1346	for_each_operand	    match arena.expr(parent).kind {

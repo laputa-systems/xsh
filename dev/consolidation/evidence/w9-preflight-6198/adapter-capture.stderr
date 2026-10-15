@@ -1,0 +1,22 @@
+Traceback (most recent call last):
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9_publication_adapter_runner.py", line 3698, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9_publication_adapter_runner.py", line 3679, in main
+    return execute_adapter_publication(args, runner)
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9_publication_adapter_runner.py", line 1963, in execute_adapter_publication
+    raw_root, receipt_directory, range_receipts = _run_capture_role(
+                                                  ~~~~~~~~~~~~~~~~~^
+        runner,
+        ^^^^^^^
+    ...<7 lines>...
+        publication_bytes_by_range=publication_bytes_by_range,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9_publication_adapter_runner.py", line 1849, in _run_capture_role
+    time.sleep(1)
+    ~~~~~~~~~~^^^
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9-publication-run.py", line 2447, in handle_termination
+    raise KeyboardInterrupt(f"received signal {signum}")
+KeyboardInterrupt: received signal 2

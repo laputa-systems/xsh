@@ -1,0 +1,19 @@
+crates/xsht/src/format_equivalence.rs	806	        match &expr.kind {
+crates/xsht/src/format.rs	2806	        match &kind {
+crates/xsht/src/format.rs	5081	        match self.arena.expr(expr_id).kind {
+crates/xsht/src/format.rs	5145	        match self.arena.expr(expr_id).kind {
+crates/xsht/src/grep.rs	91	    match pattern {
+crates/xsht/src/grep.rs	639	    match &expr.kind {
+crates/xsht/src/lint_try_capture.rs	242	            match kind {
+crates/xsht/src/lint_prefer_tempdir.rs	477	    let inert = match arena.expr(expr).kind {
+crates/xsht/src/lint_walk.rs	165	        match arena.expr(expr).kind {
+crates/xsht/src/lint_flow.rs	430	    match arena.expr(expr).kind {
+crates/xsht/src/lint_safety.rs	33	    match arena.expr(expr).kind {
+crates/xsht/src/lint_safety.rs	215	    let expr = match arena.expr(expr).kind {
+crates/xsht/src/lint_safety.rs	494	    match arena.expr(expr).kind {
+crates/xsht/src/lint_safety.rs	571	    match arena.expr(expr).kind {
+crates/xsht/src/lint_safety.rs	774	    match arena.expr(value).kind {
+crates/xsht/src/lint_safety.rs	847	        match self.arena.expr(value).kind {
+crates/xsht/src/lint_annotations.rs	657	        match expression.kind {
+crates/xsht/src/lint.rs	3571	        match self.arena.expr(expr).kind {
+crates/xsht/src/lint.rs	4469	        let fallback_type = match fallback_node.kind {

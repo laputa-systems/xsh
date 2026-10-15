@@ -1,0 +1,19 @@
+crates/xsht/src/format_equivalence.rs	806	expr	        match &expr.kind {
+crates/xsht/src/format.rs	2806	write_expr_contents	        match &kind {
+crates/xsht/src/format.rs	5081	command_typed_arg_can_be_bare	        match self.arena.expr(expr_id).kind {
+crates/xsht/src/format.rs	5145	command_typed_arg_can_be_bare	        match self.arena.expr(expr_id).kind {
+crates/xsht/src/grep.rs	91	match_expr_structural	    match pattern {
+crates/xsht/src/grep.rs	639	build_replacement_text	    match &expr.kind {
+crates/xsht/src/lint_try_capture.rs	242	closed_scalar_expression	            match kind {
+crates/xsht/src/lint_prefer_tempdir.rs	477	expr_owns_nothing	    let inert = match arena.expr(expr).kind {
+crates/xsht/src/lint_walk.rs	165	walk_expr	        match arena.expr(expr).kind {
+crates/xsht/src/lint_flow.rs	430	expr_flow	    match arena.expr(expr).kind {
+crates/xsht/src/lint_safety.rs	33	list_update_argument_stable	    match arena.expr(expr).kind {
+crates/xsht/src/lint_safety.rs	215	expr_is_dynamic_require_boundary	    let expr = match arena.expr(expr).kind {
+crates/xsht/src/lint_safety.rs	494	command_arg_references_name	    match arena.expr(expr).kind {
+crates/xsht/src/lint_safety.rs	571	is_safe_const_expr	    match arena.expr(expr).kind {
+crates/xsht/src/lint_safety.rs	774	same_ordering_operand	    match arena.expr(value).kind {
+crates/xsht/src/lint_safety.rs	847	inert_constant_initializer	        match self.arena.expr(value).kind {
+crates/xsht/src/lint_annotations.rs	657	expression_depends_on_expected_type	        match expression.kind {
+crates/xsht/src/lint.rs	3571	can_bare_chain_base	        match self.arena.expr(expr).kind {
+crates/xsht/src/lint.rs	4469	lint_removed_lookup_fallback	        let fallback_type = match fallback_node.kind {

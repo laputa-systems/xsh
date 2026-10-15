@@ -1,0 +1,10 @@
+container_image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+cpu_limit=12
+memory_limit=24g
+memory_swap_limit=24g
+additional_swap=disabled
+network=none
+cargo_build_jobs=12
+profile=verification
+target=x86_64-unknown-linux-musl
+measurement=runtime CPU and memory usage were not sampled

@@ -1,0 +1,11 @@
+{
+  "stage": "stage2-xsht",
+  "exit_code": 101,
+  "e0004_occurrences": 19,
+  "primary_spans": 19,
+  "normalized_sites": 19,
+  "warnings": [
+    "field `0` is never read",
+    "variant `FeatureTouchProbe` is never constructed"
+  ]
+}

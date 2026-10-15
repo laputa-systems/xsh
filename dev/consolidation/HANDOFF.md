@@ -188,6 +188,26 @@ work is authorized by this resume.
   check/lint commands exit zero with matching output apart from timing footers.
   [Focused evidence](evidence/lint-flow-d2c8/README.md) retains fresh test output,
   paired diagnostics, source accounting, and the mutation evidence's limits.
+- The feature-touch compiler replay at `d2c842812` finds 35 normalized XSH
+  sites and 19 XSHT sites. Its combined compiler check passes after adding
+  diagnostic placeholders. [The recount](evidence/feature-touch-d2c8/README.md)
+  retains complete compressed Cargo output and source-site maps. Diagnostic
+  commit `300d284d4` must never merge. The refreshed XSHT wildcard inventory
+  has 114 rows across 98 owners. No synthetic expression executes.
+- The clean `619810fb9` structural scan retains the hard zeros and counts
+  268,479 production lines across 372 files. Five exact XSHT module/lint
+  units each pass. The disk-backed nodev/mknod preflight also passes without
+  changing host mount flags. [Source evidence](evidence/source-review-6198/README.md)
+  distinguishes these checks from the pending module trace and product gates.
+- Fresh W9 adapter builds at `619810fb9` pass artifact selection and listing.
+  The exact-owner reference build fails on three unused helper imports with
+  warnings denied. The adapter capture is then stopped with SIGINT, exits
+  130, and cleans up its workers. It remains incomplete and grants no parity
+  credit. [The complete attempt](evidence/w9-preflight-6198/README.md) is retained.
+  Repair `5347f665a` projects only those imports from modern compiled helpers
+  while preserving the original source and historical pins. All 181 merged
+  Python checks pass. [Projection evidence](evidence/w9-exact-imports/README.md)
+  leaves the repaired build and fresh captures pending.
 
 ### Current queue
 
@@ -203,10 +223,11 @@ controlled checker states, not demonstrated user-visible failures. Existing
 nearest-visible-name proof filters retain their identity checks. Changing
 those filters could replace a real shadow and is outside this repair.
 
-The diagnostic compiler replay at `52c0f5399` found 35 XSH and 19 XSHT source
+The diagnostic compiler replay at `d2c842812` finds 35 XSH and 19 XSHT source
 sites requiring explicit decisions for a synthetic expression variant. The
-two earlier classifier survivors now require compiler decisions. Replay the
-probe after the checker repairs. Its synthetic source must never merge.
+two earlier classifier survivors now require compiler decisions. This recount
+includes the checker and shared-flow repairs. Its synthetic source must never
+merge and supplies no runtime reachability evidence.
 
 The archived W9 corpus is recovered. Its 1,690 file paths, bytes, modes, and
 manifest match the pinned e240 source. The original legacy capture is missing.

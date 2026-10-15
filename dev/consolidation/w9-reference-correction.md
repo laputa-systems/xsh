@@ -54,6 +54,12 @@ Modern builds select the integration executable inside the exact Cargo target
 directory from `plan-build` for that same source, overlay, role, and environment.
 Historical builds continue to require the executable inside their source root.
 
+Modern exact-owner builds remove three known unused imports from the pinned
+exact-owner helper before compiling it. Historical builds retain the original
+bytes. The exact-helper path and hash identify the approved source. The combined
+helper hash identifies its compiled projection. Build, capture, and proof
+validation require the same deterministic projection and reject source drift.
+
 ## Commands
 
 Run these commands from the XSH repository root. Set the paths to the clean

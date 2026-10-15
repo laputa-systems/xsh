@@ -1,0 +1,6 @@
+reference_adapter_binary=/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-publication-adapter-v1-nhn9_08f/w9-publication-adapter-reference-e240efad273f
+reference_build_receipt=/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-publication-adapter-v1-nhn9_08f/w9-publication-adapter-reference-e240efad273f.receipt
+candidate_adapter_binary=/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-publication-adapter-v1-nhn9_08f/w9-publication-adapter-candidate-619810fb96ca
+candidate_build_receipt=/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-publication-adapter-v1-nhn9_08f/w9-publication-adapter-candidate-619810fb96ca.receipt
+candidate_source=619810fb96ca5dbcb4b521012e6fe5a43d0eb0c2:43822131f809f792feb33c8b794872a77fadb896
+reference_source_root=/home/josh/d/laputa-systems/xsh/.work/wt/w9-adapter-ref-e240

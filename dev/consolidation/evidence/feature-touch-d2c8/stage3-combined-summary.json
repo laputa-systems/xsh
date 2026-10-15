@@ -1,0 +1,11 @@
+{
+  "stage": "stage3-combined",
+  "exit_code": 0,
+  "e0004_occurrences": 0,
+  "primary_spans": 0,
+  "normalized_sites": 0,
+  "warnings": [
+    "field `0` is never read",
+    "variant `FeatureTouchProbe` is never constructed"
+  ]
+}
