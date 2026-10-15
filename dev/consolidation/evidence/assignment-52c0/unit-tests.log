@@ -1,0 +1,110 @@
+source_oid=52c0f5399ac9e488063cf6649e6e3d6a4cfbe54f
+image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+CARGO_TARGET_DIR=/work/.work/target-lint-assignment-facts
+TMPDIR=/work/.work/tmp
+CARGO_BUILD_JOBS=8
+RUSTC_WRAPPER=/usr/local/bin/kache
+linker=/usr/local/bin/xsh-mold-linker
+RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol
+preload=unset while executing tests
+
+test_command=cargo test --locked --target x86_64-unknown-linux-musl -p xsht --lib xsht::lint::assignment_facts_tests::a_dropped_outer_chain_does_not_suppress_a_safe_inner_chain -- --exact --nocapture
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-lint-assignment-facts/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf)
+
+running 1 test
+test xsht::lint::assignment_facts_tests::a_dropped_outer_chain_does_not_suppress_a_safe_inner_chain ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 410 filtered out; finished in 0.00s
+
+
+test_command=cargo test --locked --target x86_64-unknown-linux-musl -p xsht --lib xsht::lint::assignment_facts_tests::checked_assignment_facts_survive_an_error_output -- --exact --nocapture
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-lint-assignment-facts/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf)
+
+running 1 test
+test xsht::lint::assignment_facts_tests::checked_assignment_facts_survive_an_error_output ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 410 filtered out; finished in 0.01s
+
+
+test_command=cargo test --locked --target x86_64-unknown-linux-musl -p xsht --lib xsht::lint::assignment_facts_tests::checked_empty_program_without_source_identity_remains_lintable -- --exact --nocapture
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-lint-assignment-facts/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf)
+
+running 1 test
+test xsht::lint::assignment_facts_tests::checked_empty_program_without_source_identity_remains_lintable ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 410 filtered out; finished in 0.00s
+
+
+test_command=cargo test --locked --target x86_64-unknown-linux-musl -p xsht --lib xsht::lint::assignment_facts_tests::late_assignments_resolve_candidates_in_original_diagnostic_order -- --exact --nocapture
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-lint-assignment-facts/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf)
+
+running 1 test
+test xsht::lint::assignment_facts_tests::late_assignments_resolve_candidates_in_original_diagnostic_order ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 410 filtered out; finished in 0.00s
+
+
+test_command=cargo test --locked --target x86_64-unknown-linux-musl -p xsht --lib xsht::lint::assignment_facts_tests::only_root_names_from_statement_regions_suppress_name_warnings -- --exact --nocapture
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-lint-assignment-facts/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf)
+
+running 1 test
+test xsht::lint::assignment_facts_tests::only_root_names_from_statement_regions_suppress_name_warnings ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 410 filtered out; finished in 0.02s
+
+
+test_command=cargo test --locked --target x86_64-unknown-linux-musl -p xsht --lib xsht::lint::assignment_facts_tests::scope_visibility_is_observed_at_the_original_expression_hook -- --exact --nocapture
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-lint-assignment-facts/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf)
+
+running 1 test
+test xsht::lint::assignment_facts_tests::scope_visibility_is_observed_at_the_original_expression_hook ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 410 filtered out; finished in 0.00s
+
+
+test_command=cargo test --locked --target x86_64-unknown-linux-musl -p xsht --lib xsht::lint::assignment_facts_tests::statement_pair_reordering_keeps_candidate_offsets_aligned -- --exact --nocapture
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-lint-assignment-facts/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf)
+
+running 1 test
+test xsht::lint::assignment_facts_tests::statement_pair_reordering_keeps_candidate_offsets_aligned ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 410 filtered out; finished in 0.02s
+
+
+test_command=cargo test --locked --target x86_64-unknown-linux-musl -p xsht --lib xsht::lint::rules::tests::source_only_lint_has_no_unprovided_checked_facts -- --exact --nocapture
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-lint-assignment-facts/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf)
+
+running 1 test
+test xsht::lint::rules::tests::source_only_lint_has_no_unprovided_checked_facts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 410 filtered out; finished in 0.01s
+
+
+test_command=cargo test --locked --target x86_64-unknown-linux-musl -p xsht --lib xsht::cli::lint::tests::lint_workspace_source_facts_preserve_bundle_diagnostics -- --exact --nocapture
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-lint-assignment-facts/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf)
+
+running 1 test
+test xsht::cli::lint::tests::lint_workspace_source_facts_preserve_bundle_diagnostics ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 410 filtered out; finished in 0.01s
+
+
+test_command=cargo test --locked --target x86_64-unknown-linux-musl -p xsht --lib xsht::cli::lint::tests::lint_fix_applies_safe_lints_with_unrelated_check_errors -- --exact --nocapture
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target-lint-assignment-facts/x86_64-unknown-linux-musl/debug/build/xsht/86560221c19d94bf/out/xsht-86560221c19d94bf)
+
+running 1 test
+test xsht::cli::lint::tests::lint_fix_applies_safe_lints_with_unrelated_check_errors ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 410 filtered out; finished in 0.01s
+
+exact_test_count=10

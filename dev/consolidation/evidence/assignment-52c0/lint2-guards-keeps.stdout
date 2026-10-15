@@ -1,0 +1,3 @@
+running 1 tests
+tests/xsh/lint2-guards.xsh::test_comparison_chain_keeps_calls_mutable_reads_and_comments ... ok 5ms
+test result: ok. 1 passed; 0 failed; 0 skipped

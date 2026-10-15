@@ -66,20 +66,39 @@ work is authorized by this resume.
   separately from its complete test file. The pipeline verifier oracle covers
   a present input with the wrong category. Missing or truncated input remains
   a separate evidence gap.
-- Assignment parity fixtures pass against the old collector: five tests cover
-  late writes, nested comparison candidates, target roots, excluded statement
-  regions, original scope visibility, and erroneous checked output. The
-  production traversal repair is pending. Its approved design is in
+- Seven assignment parity fixtures pass against the old collector. They cover
+  late writes, nested comparison candidates, target roots, and excluded regions.
+  They also cover original scope visibility, error output, diagnostic order,
+  and statement-pair movement. The approved design is in
   [lint rules](designs/lint-rules.md#assignment-safety-facts).
 - The checked assignment producer is integrated at `266421477`.
   Existing lexical preparation collects source-and-range-owned spelling sets.
   Private storage preserves the public `ResolvedBindings` layout. Ten focused
   tests pass, including error output, raw sugar regions, and owner separation.
-  The consumer is still pending. The classifier repair at `7afa88e06` requires
+  The classifier repair at `7afa88e06` requires
   explicit decisions for future expression variants. Both existing latent
   stream tests pass. [Focused output](evidence/resume-assignment-producer.log)
   retains these checks. The frontend facade export is repaired at `f04cbfd6f`.
   No final campaign gate has run on this batch.
+- The lint consumer is integrated at `e5bd34e50`. It borrows checked summaries
+  and collects SourceOnly assignments during the existing descent. The separate
+  recursive assignment prepass is deleted. The follow-ups at `1f7b795b6` and
+  `52c0f5399` preserve exhaustive statement-region and dynamic-require decisions.
+  At the clean `52c0f5399` freeze, all ten merged-source XSHT unit selections and
+  four exact native lint regressions pass. Actual abort status-23 children retain
+  one authenticated route record in each mode. Baseline and candidate check and
+  lint diagnostics match on the same repository and Laputa source cohorts.
+  [The focused evidence](evidence/assignment-52c0/README.md) retains full output.
+  These checks leave canonical and performance acceptance open.
+- Route-capture repair `84668c961` preserves valid artifacts from nonzero child
+  exits. Its regression fails before the repair. Three capture and twelve
+  authentication unit tests pass afterward. Nonzero children without artifacts
+  retain their original result and supply no route evidence.
+- Native expression oracles at `67dc22efd` add 37 missing canonical cases.
+  The PreparedConstant oracle at `21f20fea6` checks its record-default value.
+  Baseline probes pass for 36 new tags and all twelve scalar expression tags
+  in both modes. Abort's candidate check passes as recorded above. These probes
+  do not close the source-pinned route matrix.
 - Verification `xsh` and `xsht` products were rebuilt at `2688d52fc` for the
   assignment repair's output baseline. Repository and Laputa check and lint
   each exit zero. Preserve their complete outputs for candidate comparison.
@@ -88,19 +107,18 @@ work is authorized by this resume.
 
 ### Current queue
 
-The integrator owns `master`. The assignment-fact repair, current diagnostic
-feature-touch probe, and route-evidence helper recovery have isolated worktrees
-under `.work/wt/`. Their branches are not accepted implementation until
-reviewed and verified. The feature scaffold is diagnostic source only and
+The integrator owns `master`. The current diagnostic feature-touch probe,
+remaining native-oracle migrations, and route-matrix work have isolated
+worktrees under `.work/wt/`. Their branches are not accepted implementation
+until reviewed and verified. The feature scaffold is diagnostic source only and
 must never merge as a language feature. Source changes require a new canonical
 freeze after integration.
 
-The assignment repair removes the independent lint prepass while preserving
-source-only rules, late writes, and diagnostic/fix ordering. The feature-touch
-audit has found a latent stream-error classifier with a compiling wildcard
-that requires a separate exhaustive-classifier repair. Finish its manual-site
-inventory before accepting the feature-touch recount. Keep the scheduler
-comparison's original default workers and outcome checks.
+Finish the compiler replay and source-pinned manual-site inventory before
+accepting the feature-touch recount. Existing expression route cases are being
+migrated to direct children with preserved behavior assertions. Their combined
+source requires explicit matrix requalification. Keep the scheduler comparison's
+original default workers and outcome checks.
 
 General inference implementation, its initial red/green witnesses, and the
 400-variable solver observation have not started. Consolidation acceptance
