@@ -500,7 +500,7 @@ impl PreparedModuleFacts {
             view.root_source_id().unwrap_or_else(|| SourceId::new(0)),
             &visible_bindings,
         );
-        let facts = Self {
+        Self {
             resolved_bindings,
             assignment_facts,
             return_inference_index,
@@ -509,8 +509,7 @@ impl PreparedModuleFacts {
             prepared_constants: prepared_for_owner,
             regex_diagnostics,
             wire_diagnostics,
-        };
-        facts
+        }
     }
 
     fn merge_owner(&mut self, program: &ArenaProgram, owner: &Self) {
@@ -575,8 +574,10 @@ mod tests {
         let view = CheckBundleView::new(&program, None, Some(SourceId::new(0)));
 
         let (first_trace, first_bytes) = CacheTrace::capture(10, "private");
-        let mut first_cache = ModuleRecordCache::default();
-        first_cache.trace = Some(first_trace.clone());
+        let mut first_cache = ModuleRecordCache {
+            trace: Some(first_trace.clone()),
+            ..ModuleRecordCache::default()
+        };
         let first = first_cache.get_or_prepare(&view, ArgsDomain::Str);
         let again = first_cache.get_or_prepare(&view, ArgsDomain::Str);
         assert!(Arc::ptr_eq(first.root(), again.root()));
@@ -590,8 +591,10 @@ mod tests {
         again.root().check_once(again.trace(), checked);
 
         let (second_trace, second_bytes) = CacheTrace::capture(11, "private");
-        let mut second_cache = ModuleRecordCache::default();
-        second_cache.trace = Some(second_trace);
+        let mut second_cache = ModuleRecordCache {
+            trace: Some(second_trace),
+            ..ModuleRecordCache::default()
+        };
         let second = second_cache.get_or_prepare(&view, ArgsDomain::Str);
         second.root().check_once(second.trace(), checked);
 
@@ -771,8 +774,10 @@ mod tests {
         let _symbol_owner = program.symbol_owner().enter();
         let view = CheckBundleView::new(&program, None, Some(SourceId::new(0)));
         let (trace, trace_bytes) = CacheTrace::capture(20, "private");
-        let mut cache = ModuleRecordCache::default();
-        cache.trace = Some(trace);
+        let mut cache = ModuleRecordCache {
+            trace: Some(trace),
+            ..ModuleRecordCache::default()
+        };
         let first_probe = cache.get_or_prepare(&view, ArgsDomain::Str);
         let next_probe = cache.get_or_prepare(&view, ArgsDomain::Str);
         let byte_probe = cache.get_or_prepare(&view, ArgsDomain::Bytes);

@@ -1956,7 +1956,7 @@ impl Checker {
         self.collect_type_imports_arena(program, statements.iter().copied());
         self.collect_definitions_arena(program, type_program, source, statements.iter().copied());
         self.infer_default_parameter_types(program, source, statements);
-        self.infer_local_pure_returns(&bundle, source, statements);
+        self.infer_local_pure_returns(bundle, source, statements);
         self.infer_default_parameter_types(program, source, statements);
         // A signature CLI `main`, or a `proc main` that the last statement does
         // not call, runs after the top level and supplies the exit status, so
@@ -1974,7 +1974,7 @@ impl Checker {
         let proc_main_auto_dispatch = !has_cli_main
             && statements.iter().any(|&stmt| defines_proc_main(program, stmt))
             && (!statements.last().is_some_and(|&stmt| calls_main(program, stmt))
-                || calls_main_with_implicit_spread_args(program, &statements, &self.resolved_bindings));
+                || calls_main_with_implicit_spread_args(program, statements, &self.resolved_bindings));
         if self.options.interactive_commands.is_none() && proc_main_auto_dispatch {
             let (span, has_unbindable_required_param) = {
                 let signature = self
@@ -1999,22 +1999,23 @@ impl Checker {
                 );
             }
         }
-        if self.options.interactive_commands.is_none() && main_runs_after {
-            if let Some(signature) = self.procs.get(&Name::intern("main")) {
-                let has_bytes = signature.params.iter().any(|parameter| {
-                    parameter.ty == Type::Bytes || matches!(&parameter.ty,
-                        Type::List(item) if item.as_ref() == &Type::Bytes)
-                });
-                let single_byte_rest = matches!(signature.params.as_slice(), [parameter]
-                    if parameter.rest && !parameter.defaulted
-                    && matches!(&parameter.ty, Type::List(item) if item.as_ref() == &Type::Bytes));
-                if has_bytes && !single_byte_rest {
-                    if let Some(span) = signature.definition {
-                        self.error(span,
-                            "byte script arguments require a single spread parameter `(...argv: List[Bytes])`",
-                            DiagnosticCode::CompactMainArgs);
-                    }
-                }
+        if self.options.interactive_commands.is_none()
+            && main_runs_after
+            && let Some(signature) = self.procs.get(&Name::intern("main"))
+        {
+            let has_bytes = signature.params.iter().any(|parameter| {
+                parameter.ty == Type::Bytes || matches!(&parameter.ty,
+                    Type::List(item) if item.as_ref() == &Type::Bytes)
+            });
+            let single_byte_rest = matches!(signature.params.as_slice(), [parameter]
+                if parameter.rest && !parameter.defaulted
+                && matches!(&parameter.ty, Type::List(item) if item.as_ref() == &Type::Bytes));
+            if has_bytes && !single_byte_rest
+                && let Some(span) = signature.definition
+            {
+                self.error(span,
+                    "byte script arguments require a single spread parameter `(...argv: List[Bytes])`",
+                    DiagnosticCode::CompactMainArgs);
             }
         }
         self.exit_status_statement = statements

@@ -130,14 +130,13 @@ impl Checker {
                     && let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind
                     && let Some(overloads) =
                         super::api_spec().module_overloads(&namespace.as_str(), &name.as_str())
-                {
-                    if !self.check_stream_callable_module_overload(
+                    && !self.check_stream_callable_module_overload(
                         checked_argument,
                         overloads,
                         item_span,
-                    ) {
-                        return Type::Unknown;
-                    }
+                    )
+                {
+                    return Type::Unknown;
                 }
                 if let Some(argument) = arena
                     .arena
@@ -1214,6 +1213,28 @@ impl Checker {
     }
 }
 
+fn stream_type_from_input(ty: Type) -> Result<Type, Type> {
+    match ty.into_unvalidated() {
+        ty @ Type::Stream(_) => Ok(ty),
+        Type::List(item) | Type::Set(item) => Ok(Type::Stream(item)),
+        Type::Result(ok, _) => stream_type_from_input(*ok),
+        Type::Unknown => Ok(Type::Stream(Box::new(Type::Unknown))),
+        other => Err(other),
+    }
+}
+
+fn is_sortable_key_type(ty: &Type) -> bool {
+    match ty.unvalidated() {
+        Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown => true,
+        Type::Record(fields) => fields.values().all(is_sortable_key_type),
+        _ => false,
+    }
+}
+
+fn is_sortable_record_key_type(ty: &Type) -> bool {
+    matches!(ty, Type::Record(fields) if fields.values().all(is_sortable_key_type))
+}
+
 #[cfg(test)]
 mod static_namespace_identity_tests {
     use super::{Checker, Type};
@@ -1320,33 +1341,4 @@ mod static_namespace_identity_tests {
             assert!(!checker.stage_callable_is_static(program, field));
         });
     }
-}
-
-// Keep a rejected source's type so opacity has its own diagnostic instead
-// of being confused with a concrete value that is not iterable.
-fn stream_type_from_input(ty: Type) -> Result<Type, Type> {
-    match ty.into_unvalidated() {
-        ty @ Type::Stream(_) => Ok(ty),
-        Type::List(item) | Type::Set(item) => Ok(Type::Stream(item)),
-        Type::Result(ok, _) => stream_type_from_input(*ok),
-        Type::Unknown => Ok(Type::Stream(Box::new(Type::Unknown))),
-        other => Err(other),
-    }
-}
-
-/// Whether a projected `sort-by` key or `sort` item type has a defined
-/// ordering. Records are orderable when every field is itself orderable; the
-/// runtime comparator in `lowered_ops.rs` implements the same surface so a
-/// checked program and an unchecked `xsh` run agree on what can sort. An
-/// `Any` key is a dynamic boundary, rejected before this check.
-fn is_sortable_key_type(ty: &Type) -> bool {
-    match ty.unvalidated() {
-        Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown => true,
-        Type::Record(fields) => fields.values().all(is_sortable_key_type),
-        _ => false,
-    }
-}
-
-fn is_sortable_record_key_type(ty: &Type) -> bool {
-    matches!(ty, Type::Record(fields) if fields.values().all(is_sortable_key_type))
 }

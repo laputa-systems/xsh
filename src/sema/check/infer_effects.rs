@@ -629,12 +629,10 @@ impl Checker {
         if let Some(declared) = &node.declared {
             return (Some(declared.clone()), Vec::new());
         }
-        if inferred {
-            if let Some(summary) = summaries.get(&id) {
-                let mut chain = vec![node.name.clone()];
-                chain.extend(summary.unknown_chain.clone());
-                return (summary.effects(), chain);
-            }
+        if inferred && let Some(summary) = summaries.get(&id) {
+            let mut chain = vec![node.name.clone()];
+            chain.extend(summary.unknown_chain.clone());
+            return (summary.effects(), chain);
         }
         (contract, fallback_unknown_chain)
     }
