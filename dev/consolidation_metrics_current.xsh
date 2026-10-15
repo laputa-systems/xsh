@@ -974,69 +974,70 @@ pure contains_token(lexed: Lexed, start: Int, end: Int, value: Str) -> Bool {
 }
 
 proc function_regions_for_parameters(source_path: Str, lexed: Lexed, lookup: SpanLookup, required_parameters: List[Str]) [error] -> Result[List[FunctionRegion]] {
-  var regions: List[FunctionRegion] = []
-  var keyword = 0
-  while keyword < lexed.tokens.len() {
-    let item = lexed.tokens[keyword]
-    if ! item.literal and item.text == "fn" and ! inside(item, lookup) {
-      let name = (lexed.tokens.get(keyword + 1) ?? end_token).text
-      if ident_start(first(name)) {
-        var params_start = keyword + 2
-        var generic_depth = 0
-        while params_start < lexed.tokens.len() {
-          let value = lexed.tokens[params_start].text
-          if value == "<" { generic_depth += 1; params_start += 1; continue }
-          if value == ">" and (lexed.tokens.get(params_start - 1) ?? end_token).text != "-" and generic_depth > 0 {
-            generic_depth -= 1
-            params_start += 1
-            continue
-          }
-          break when value == "(" and generic_depth == 0
-          break when value in ["{", ";"] and generic_depth == 0
-          if value in ["(", "[", "{"] { params_start = lexed.mates[params_start] + 1 } else { params_start += 1 }
-        }
-        if params_start < lexed.tokens.len() and lexed.tokens[params_start].text == "(" {
-          let params_end = lexed.mates[params_start]
-          var has_required_parameter = false
-          var parameter = params_start + 1
-          while parameter < params_end {
-            if ! lexed.tokens[parameter].literal and lexed.tokens[parameter].text in required_parameters {
-              has_required_parameter = true
-              break
+  let regions: List[FunctionRegion] = collect {
+    var keyword = 0
+    while keyword < lexed.tokens.len() {
+      let item = lexed.tokens[keyword]
+      if ! item.literal and item.text == "fn" and ! inside(item, lookup) {
+        let name = (lexed.tokens.get(keyword + 1) ?? end_token).text
+        if ident_start(first(name)) {
+          var params_start = keyword + 2
+          var generic_depth = 0
+          while params_start < lexed.tokens.len() {
+            let value = lexed.tokens[params_start].text
+            if value == "<" { generic_depth += 1; params_start += 1; continue }
+            if value == ">" and (lexed.tokens.get(params_start - 1) ?? end_token).text != "-" and generic_depth > 0 {
+              generic_depth -= 1
+              params_start += 1
+              continue
             }
-            parameter += 1
+            break when value == "(" and generic_depth == 0
+            break when value in ["{", ";"] and generic_depth == 0
+            if value in ["(", "[", "{"] { params_start = lexed.mates[params_start] + 1 } else { params_start += 1 }
           }
-          if has_required_parameter {
-            var body_start = params_end + 1
-            var angle_depth = 0
-            var declaration = false
-            while body_start < lexed.tokens.len() {
-              let value = lexed.tokens[body_start].text
-              if value == "<" { angle_depth += 1; body_start += 1; continue }
-              if value == ">" and (lexed.tokens.get(body_start - 1) ?? end_token).text != "-" and angle_depth > 0 {
-                angle_depth -= 1
-                body_start += 1
-                continue
+          if params_start < lexed.tokens.len() and lexed.tokens[params_start].text == "(" {
+            let params_end = lexed.mates[params_start]
+            var has_required_parameter = false
+            var parameter = params_start + 1
+            while parameter < params_end {
+              if ! lexed.tokens[parameter].literal and lexed.tokens[parameter].text in required_parameters {
+                has_required_parameter = true
+                break
               }
-              if value == ";" and angle_depth == 0 { declaration = true; break }
-              if value == "{" {
-                break when angle_depth == 0
-                body_start = lexed.mates[body_start] + 1
-                continue
-              }
-              if value in ["(", "["] { body_start = lexed.mates[body_start] + 1 } else { body_start += 1 }
+              parameter += 1
             }
-            if ! declaration {
-              if body_start >= lexed.tokens.len() or lexed.tokens[body_start].text != "{" {
-                invalid(source_path, item.line, "cannot locate conversion function body")
+            if has_required_parameter {
+              var body_start = params_end + 1
+              var angle_depth = 0
+              var declaration = false
+              while body_start < lexed.tokens.len() {
+                let value = lexed.tokens[body_start].text
+                if value == "<" { angle_depth += 1; body_start += 1; continue }
+                if value == ">" and (lexed.tokens.get(body_start - 1) ?? end_token).text != "-" and angle_depth > 0 {
+                  angle_depth -= 1
+                  body_start += 1
+                  continue
+                }
+                if value == ";" and angle_depth == 0 { declaration = true; break }
+                if value == "{" {
+                  break when angle_depth == 0
+                  body_start = lexed.mates[body_start] + 1
+                  continue
+                }
+                if value in ["(", "["] { body_start = lexed.mates[body_start] + 1 } else { body_start += 1 }
               }
-              regions += [{keyword: keyword, name: name, params_start: params_start + 1, params_end: params_end, body_start: body_start + 1, body_end: lexed.mates[body_start]}]
+              if ! declaration {
+                if body_start >= lexed.tokens.len() or lexed.tokens[body_start].text != "{" {
+                  invalid(source_path, item.line, "cannot locate conversion function body")
+                }
+                yield {keyword: keyword, name: name, params_start: params_start + 1, params_end: params_end, body_start: body_start + 1, body_end: lexed.mates[body_start]}
+              }
             }
           }
         }
       }
+      keyword += 1
     }
-    keyword += 1
   }
   regions
 }
@@ -1051,10 +1052,10 @@ proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, lookup: SpanL
       if token.text == "Type" { has_type = true }
       if token.text == "LoweredType" { has_lowered_type = true }
       if token.text == "match" { has_match = true }
-      if has_type and has_lowered_type and has_match { break }
+      break when has_type and has_lowered_type and has_match
     }
   }
-  if ! has_type or ! has_lowered_type or ! has_match { return [] }
+  return [] when ! has_type or ! has_lowered_type or ! has_match
   let regions = function_regions_for_parameters(source_path, lexed, lookup, ["Type", "LoweredType"])?
   let found: List[Evidence] = collect {
     for region in regions {
@@ -1086,14 +1087,14 @@ proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, lookup: SpanL
           cursor += 1
         }
         if has_return_type {
-          var has_match = false
-          var type_variants: List[Str] = []
-          var lowered_type_variants: List[Str] = []
+          var body_has_match = false
+          var type_variants = []
+          var lowered_type_variants = []
           var body = region.body_start
           while body < region.body_end {
             let token = lexed.tokens[body]
             let value = token.text
-            if ! token.literal and value == "match" { has_match = true }
+            if ! token.literal and value == "match" { body_has_match = true }
             if body + 2 < region.body_end and value in ["Type", "LoweredType"] and lexed.tokens[body + 1].text == ":" and lexed.tokens[body + 2].text == ":" {
               let variant = (lexed.tokens.get(body + 3) ?? end_token).text
               if variant != "" {
@@ -1103,7 +1104,7 @@ proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, lookup: SpanL
             }
             body += 1
           }
-          if has_match {
+          if body_has_match {
             let source_variants = if takes_type { type_variants.len() } else { lowered_type_variants.len() }
             let target_variants = if takes_type { lowered_type_variants.len() } else { type_variants.len() }
             if source_variants >= 8 and target_variants >= 8 {
