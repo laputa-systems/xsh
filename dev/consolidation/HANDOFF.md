@@ -4,6 +4,51 @@ Status: active and incomplete 2026-10-15.
 
 ## Final-batch status, 2026-10-15
 
+### Passing native suite and lint blocker
+
+The frozen `acfa649338d4b8276b1b2ae13be1c1ff41d59748` profile attempt
+completed: 13,790 passed, zero failed, and 136 skipped, for 13,926 native
+cases. Both build and suite readiness checks passed before and after;
+source and binary identities remained stable and cleanup resolved. Receipt:
+`.work/consolidation/final-performance-gates/profile-cost-acfa649338d4b8276b1b2ae13be1c1ff41d59748/receipt.json`,
+SHA-256 `13f762727a59e76462350bda1f20b5f8479d3245bf6bba2936f1b1c2f66281eb`.
+This is one completed suite on that source, not final campaign acceptance.
+
+The following isolated repository lint exited zero but reported 35 non-note
+findings and took 66.08 seconds, exceeding the existing 15-second budget.
+The canonical batch stopped before starting a container or native suite:
+its observer shim rejected the legitimate `--target x86_64-unknown-linux-musl`
+arguments. The ignored shim now matches that exact command, rejects a mutated
+target, and preserves the original failure when post-stage validation is absent.
+Refresh its artifact pins before reuse. The failed observer receipt SHA-256 is
+`c1039d93369e4fe10942524aef8b02a3ca0357c08c79ae75a406f5c27c9720e1`.
+
+The source cleanup commits `081fecc1e`, `65fad8616`, and `32a497545` remove
+the reported lint findings without changing language contracts. Scanner
+collection order and policy assertions remain unchanged. The integrated
+39-test current-ratchet module passed in the pinned image, and the policy CLI
+accepted the retained unchanged-Rust report with complete baseline provenance;
+its output is byte-identical. The core lane's scoped lint and seven affected
+native cases passed. The successor scanner and fixture hashes are updated.
+The whole repository lint and its budget still require a new passing check.
+
+A separate 9,860-sample userspace CPU profile found repeated whole-arena scans
+in grouping diagnostics. Grouping runs for each source in a shared arena;
+the implementation decodes foreign-source expressions and scans all statements
+and blocks. The isolated repair lane uses the existing source-row index and
+preserves statement sequences and diagnostic order. Its focused tests, review,
+and new timing evidence remain pending. Do not start another full-suite attempt
+before resolving the lint budget.
+
+The shared-import cache trace passed on the sealed acfa products: one plain
+lint pass made four requests, prepared and checked three records, and reused
+the helper once. Fix-round owners validated separately; the post-fix check used
+a fresh owner, and a second fix left all three files unchanged. Plain lint
+returned one with membership and tail-return warnings; the older prepared plan
+had incorrectly assigned the native test's checker-error expectation to lint.
+Evidence is in `.work/tmp/final-cache-acfa649338d4b8276b1b2ae13be1c1ff41d59748/shared-import-a1/`.
+All final semantic review rows and remaining acceptance gates are still open.
+
 The W9-verified implementation snapshot is
 `7e93dd4533d175f0385ae433651a98c98b5c20cd`, tree
 `87f513713960cc9ffd25850e8d160da3b87fd90a`. Fresh full W9 comparison and
