@@ -254,7 +254,7 @@ mod layout_tests {
         assert_eq!(arena.text_value(&text, "--src--"), None);
     }
 
-    fn parse_shared_sources(sources: &[(u32, &'static str)]) -> super::ArenaProgram {
+    fn parse_shared_sources(sources: &[(usize, &'static str)]) -> super::ArenaProgram {
         use super::ArenaProgramBuilder;
         use crate::syntax::parser::Parser;
 
