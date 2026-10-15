@@ -1,31 +1,33 @@
-type RouteScale = pure(value: Int) -> Int
-type RouteJson = {value: Int}
-type RouteRenderPlugin = module {export pure render(data: Any) -> Result[Str, Error]}
-enum RouteTag { Ready, Busy }
-error RouteOracleError = Failed
-
-pure route_direct_scale(value: Int) -> Int { value * 3 }
-
 pure route_self_count(value: Int) -> Int {
   if value == 0 { 0 } else { route_self_count(value - 1) + 1 }
 }
 
 pure route_checked(value: UInt) -> UInt { value }
 
-pure route_double(value: Int) -> Int { value * 2 }
+enum RouteOracleTagMatch { Ready, Busy }
 
-proc route_proc_target(value: Int) -> Int { value + 1 }
+proc route_oracle_match_tag() -> RouteOracleTagMatch { return Ready }
 
-test test_expr_comparison_chain {
+test test_expr_comparison_chain { |ctx|
   assert 1 < 2 < 3
+  test.expect(ctx, r"""let first = 1
+let second = 2
+let third = 3
+let selected = first < second < third
+assert selected == true
+""", status: 0)?
 }
 
-test test_expr_binary {
-  assert "route " + "binary" == "route binary"
+test test_expr_binary { |ctx|
+  test.expect(ctx, r"""assert "route " + "binary" == "route binary"
+""", status: 0)?
 }
 
-test test_expr_if {
+test test_expr_if { |ctx|
   assert (if true { "selected" } else { "skipped" }) == "selected"
+  test.expect(ctx, r"""let selected = if true { "selected" } else { "skipped" }
+assert selected == "selected"
+""", status: 0)?
 }
 
 test test_expr_if_non_in_place_selection { |ctx|
@@ -40,10 +42,15 @@ assert (if route_if_condition() { "selected" } else { "skipped" }) == "selected"
   assert output.stdout == ""
 }
 
-test test_expr_pattern_if {
-  let result = Ok(7)
-  let selected = if let Ok(value) = result { value } else { 0 }
-  assert selected == 7
+test test_expr_pattern_if { |ctx|
+  test.expect(
+    ctx,
+    r"""let result = Ok(7)
+let selected = if let Ok(value) = result { value } else { 0 }
+assert selected == 7
+""",
+    status: 0,
+  )?
 }
 
 test test_expr_match { |ctx|
@@ -69,206 +76,308 @@ assert (match 2 { 2 => 22, _ => 0 }) == 22
   assert output.stdout == ""
 }
 
-test test_expr_str_match {
-  let word = "green"
-  let selected = match word {
-    "green" => "go"
-    else => "stop"
-  }
-  assert selected == "go"
+test test_expr_str_match { |ctx|
+  test.expect(
+    ctx,
+    r"""let word = "green"
+let selected = match word {
+  "green" => "go"
+  else => "stop"
+}
+assert selected == "go"
+""",
+    status: 0,
+  )?
 }
 
-test test_expr_tag_match {
-  let tag: RouteTag = Ready
+test test_expr_tag_match { |ctx|
+  let tag = route_oracle_match_tag()
   let selected = match tag {
     Ready => "ready"
     Busy => "busy"
   }
   assert selected == "ready"
+  test.expect(
+    ctx,
+    r"""enum RouteTag { Ready, Busy }
+proc route_match_tag() -> RouteTag { return Ready }
+let tag = route_match_tag()
+let selected = match tag {
+  Ready() => "ready"
+  Busy() => "busy"
+}
+assert selected == "ready"
+""",
+    status: 0,
+  )?
 }
 
-test test_expr_result_fallback {
-  let missing: Result[Int, RouteOracleError] = Err(.Failed("missing"))
-  assert (missing ?? 9) == 9
+test test_expr_result_fallback { |ctx|
+  test.expect(
+    ctx,
+    r"""error RouteOracleError = Failed
+let missing: Result[Int, RouteOracleError] = Err(.Failed("missing"))
+assert (missing ?? 9) == 9
+""",
+    status: 0,
+  )?
 }
 
-test test_expr_fmt_string {
-  let word = "formatted"
-  assert f"route {word}" == "route formatted"
+test test_expr_fmt_string { |ctx|
+  test.expect(
+    ctx,
+    r"""let word = "formatted"
+assert f"route {word}" == "route formatted"
+""",
+    status: 0,
+  )?
 }
 
-test test_expr_path_fmt_string {
-  let name = "entry"
-  assert fp"root/{name}" == p"root/entry"
+test test_expr_path_fmt_string { |ctx|
+  test.expect(
+    ctx,
+    r"""let name = "entry"
+assert fp"root/{name}" == p"root/entry"
+""",
+    status: 0,
+  )?
 }
 
-test test_expr_record {
-  let entry = {name: "route", count: 2}
-  assert entry.name == "route"
-  assert entry.count == 2
+test test_expr_record { |ctx|
+  test.expect(
+    ctx,
+    r"""let entry = {name: "route", count: 2}
+assert entry.name == "route"
+assert entry.count == 2
+""",
+    status: 0,
+  )?
 }
 
-test test_expr_map_literal {
-  let entries: Map[Int, Str] = {[1]: "one", [2]: "two"}
-  assert entries.get(2)? == "two"
+test test_expr_map_literal { |ctx|
+  test.expect(
+    ctx,
+    r"""let entries: Map[Int, Str] = {[1]: "one", [2]: "two"}
+assert entries.get(2)? == "two"
+""",
+    status: 0,
+  )?
 }
 
-test test_expr_record_update {
+test test_expr_record_update { |ctx|
   let original = {name: "before", count: 1}
   let changed = {...original, count: 2}
   assert changed.name == "before"
   assert changed.count == 2
+  test.expect(
+    ctx,
+    r"""type RouteDetails = {count: Int}
+type RouteRecord = {name: Str, details: RouteDetails}
+proc route_original_record() -> RouteRecord { return {name: "before", details: {count: 1}} }
+let original = route_original_record()
+let changed = {...original, details.count: 2}
+assert changed.name == "before"
+assert changed.details.count == 2
+""",
+    status: 0,
+  )?
 }
 
-test test_expr_list_comp {
-  let doubled = [value * 2 for value in [1, 2, 3]]
-  assert doubled == [2, 4, 6]
+test test_expr_list_comp { |ctx|
+  test.expect(
+    ctx,
+    r"""let doubled = [value * 2 for value in [1, 2, 3]]
+assert doubled == [2, 4, 6]
+""",
+    status: 0,
+  )?
 }
 
-test test_expr_map_comp {
-  let entries = {[word]: word for word in ["a", "b"]}
-  assert entries.get("b")? == "b"
+test test_expr_map_comp { |ctx|
+  test.expect(
+    ctx,
+    r"""let entries = {[word]: word for word in ["a", "b"]}
+assert entries.get("b")? == "b"
+""",
+    status: 0,
+  )?
 }
 
-test test_expr_method {
-  let parsed = "17".parse_int()
-  assert parsed? == 17
+test test_expr_method { |ctx|
+  test.expect(ctx, r"""let parsed = "17".parse_int()
+assert parsed? == 17
+""", status: 0)?
 }
 
-test test_expr_require {
-  let raw: Any = 17
-  assert raw.require(Int)? == 17
+test test_expr_require { |ctx|
+  test.expect(ctx, "let raw: Any = 17\nassert raw.require(Int)? == 17\n", status: 0)?
 }
 
-test test_expr_checked_value {
+test test_expr_checked_value { |ctx|
   assert route_checked(17) == 17
+  test.expect(
+    ctx,
+    "let raw: UInt = 17\nlet checked = raw\nassert checked == 17\n",
+    status: 0,
+  )?
 }
 
-test test_expr_run_capture {
-  let output = run.capture --text printf "captured"
-  assert output.stdout == "captured"
+test test_expr_run_capture { |ctx|
+  test.expect(
+    ctx,
+    "let output = run.capture --text printf \"captured\"\nassert output.stdout == \"captured\"\n",
+    status: 0,
+  )?
 }
 
-test test_expr_run_pipeline {
-  let output = run.capture --text printf "piped" | run cat
-  assert output.stdout == "piped"
+test test_expr_run_pipeline { |ctx|
+  test.expect(
+    ctx,
+    "let output = run.capture --text printf \"piped\" | run cat\nassert output.stdout == \"piped\"\n",
+    status: 0,
+  )?
 }
 
-test test_expr_spawn_run {
-  let child = spawn run true?
-  assert (wait child?).exited_with(0)
+test test_expr_spawn_run { |ctx|
+  test.expect(ctx, "let child = spawn run true?\nassert (wait child?).exited_with(0)\n", status: 0)?
 }
 
-test test_expr_spawn_command {
-  let command = process.command_argv("true", ["true"])
-  let child = spawn command?
-  assert (wait child?).exited_with(0)
+test test_expr_spawn_command { |ctx|
+  test.expect(
+    ctx,
+    "let command = process.command_argv(\"true\", [\"true\"])\nlet child = spawn command?\nassert (wait child?).exited_with(0)\n",
+    status: 0,
+  )?
 }
 
-test test_expr_wait {
-  let child = spawn run true?
-  let status = wait child?
-  assert status.exited_with(0)
+test test_expr_wait { |ctx|
+  test.expect(
+    ctx,
+    "let child = spawn run true?\nlet status = wait child?\nassert status.exited_with(0)\n",
+    status: 0,
+  )?
 }
 
-test test_expr_capture {
-  let parsed = "21".parse_int()
-  let result = try { parsed? }
-  assert result == Ok(21)
+test test_expr_capture { |ctx|
+  test.expect(
+    ctx,
+    "let parsed = \"21\".parse_int()\nlet result = try { parsed? }\nassert result == Ok(21)\n",
+    status: 0,
+  )?
 }
 
-test test_expr_value_block {
-  let value = { 20 + 1 }
-  assert value == 21
+test test_expr_value_block { |ctx|
+  test.expect(ctx, "let value = { 20 + 1 }\nassert value == 21\n", status: 0)?
 }
 
-test test_expr_error_context {
-  let value = ctx "route oracle" { 21 }
-  assert value == 21
+test test_expr_error_context { |ctx|
+  test.expect(ctx, "let value = ctx \"route oracle\" { 21 }\nassert value == 21\n", status: 0)?
 }
 
-test test_expr_context_scope {
-  assert within 1s { 21 } == Ok(21)
+test test_expr_context_scope { |ctx|
+  test.expect(ctx, "assert within 1s { 21 } == Ok(21)\n", status: 0)?
 }
 
-test test_expr_loop {
-  let value = loop { break 21 }
-  assert value == 21
+test test_expr_loop { |ctx|
+  test.expect(ctx, "let value = loop { break 21 }\nassert value == 21\n", status: 0)?
 }
 
-test test_expr_retry {
-  let value = retry [] { 21 }?
-  assert value == 21
+test test_expr_retry { |ctx|
+  test.expect(ctx, "let value = retry [] { 21 }?\nassert value == 21\n", status: 0)?
 }
 
-test test_expr_module_call {
-  assert json.decode("{\"value\":21}")?.require(RouteJson)?.value == 21
+test test_expr_module_call { |ctx|
+  test.expect(
+    ctx,
+    "type RouteJson = {value: Int}\nassert json.decode(\"{\\\"value\\\":21}\")?.require(RouteJson)?.value == 21\n",
+    status: 0,
+  )?
 }
 
-test test_expr_process_command_argv {
-  let command = process.command_argv("true", ["true"])
-  assert process.run(command)?.exited_with(0)
+test test_expr_process_command_argv { |ctx|
+  test.expect(
+    ctx,
+    "let command = process.command_argv(\"true\", [\"true\"])\nassert process.run(command)?.exited_with(0)\n",
+    status: 0,
+  )?
 }
 
-test test_expr_process_command_builder {
-  let command = process.command { run true }
-  assert process.run(command)?.exited_with(0)
+test test_expr_process_command_builder { |ctx|
+  test.expect(ctx, "let command = process.command { run true }\nassert process.run(command)?.exited_with(0)\n", status: 0)?
 }
 
-test test_expr_ok {
+test test_expr_ok { |ctx|
   let result = Ok(21)
   assert result == Ok(21)
+  test.expect(ctx, "let result = Ok(21)\nassert result is Ok(_)\n", status: 0)?
 }
 
-test test_expr_err {
-  let result: Result[Int, RouteOracleError] = Err(.Failed("failed"))
-  assert result is Err(_)
+test test_expr_err { |ctx|
+  test.expect(
+    ctx,
+    "error RouteOracleError = Failed\nlet result: Result[Int, RouteOracleError] = Err(.Failed(\"failed\"))\nassert result is Err(_)\n",
+    status: 0,
+  )?
 }
 
-test test_expr_try {
-  let parsed = "21".parse_int()
-  assert parsed? == 21
+test test_expr_try { |ctx|
+  test.expect(ctx, "let parsed = \"21\".parse_int()\nassert parsed? == 21\n", status: 0)?
 }
 
-test test_expr_call {
-  assert route_proc_target(20) == 21
+test test_expr_call { |ctx|
+  test.expect(ctx, "proc route_proc_target(value: Int) -> Int { value + 1 }\nassert route_proc_target(20) == 21\n", status: 0)?
 }
 
-test test_expr_direct_pure_call {
-  assert route_direct_scale(7) == 21
+test test_expr_direct_pure_call { |ctx|
+  test.expect(ctx, "pure route_direct_scale(value: Int) -> Int { value * 3 }\nassert route_direct_scale(7) == 21\n", status: 0)?
 }
 
 test test_expr_external_call { |ctx|
-  let root = test.temp_dir(ctx, name: "expression-external-call")?
-  let plugin_file = fp"{root}/plugin.xsh"
-  plugin_file.write("""##! Expression route plugin.
-## Renders its input.
-export pure render(data: Any) -> Result[Str, Error] {
-  template.render("{{.value}}", data)
-}
-""")
-  let plugin = module.load(plugin_file)?.require(RouteRenderPlugin)?
-  assert plugin.render({value: "external"})? == "external"
-}
-
-test test_expr_dynamic_call {
-  let scale: RouteScale = route_double
-  let handle: Pure = scale
-  assert handle.call(10).require(Int)? == 20
+  test.expect(
+    ctx,
+    r"""type RouteRenderPlugin = module {export pure render(data: Any) -> Result[Str, Error]}
+let root = fs.tempdir()?
+defer root.close()?
+let plugin_file = fp"{root.host_path()?}/plugin.xsh"
+plugin_file.write("##! Expression route plugin.\n## Renders its input.\nexport pure render(data: Any) -> Result[Str, Error] { template.render(\"{{.value}}\", data) }\n")
+let plugin = module.load(plugin_file)?.require(RouteRenderPlugin)?
+assert plugin.render({value: "external"})? == "external"
+""",
+    status: 0,
+  )?
 }
 
-test test_expr_self_call {
+test test_expr_dynamic_call { |ctx|
+  test.expect(
+    ctx,
+    "type RouteScale = pure(value: Int) -> Int\npure route_double(value: Int) -> Int { value * 2 }\nlet scale: RouteScale = route_double\nlet handle: Pure = scale\nassert handle.call(10).require(Int)? == 20\n",
+    status: 0,
+  )?
+}
+
+test test_expr_self_call { |ctx|
   assert route_self_count(4) == 4
+  test.expect(
+    ctx,
+    "pure route_self_count(value: Int) -> Int { if value == 0 { 0 } else { route_self_count(value - 1) + 1 } }\nassert route_self_count(1) == 1\n",
+    status: 0,
+  )?
 }
 
-test test_expr_typed_call {
-  let scale: RouteScale = route_direct_scale
-  assert scale(7) == 21
+test test_expr_typed_call { |ctx|
+  test.expect(
+    ctx,
+    "type RouteScale = pure(value: Int) -> Int\npure route_direct_scale(value: Int) -> Int { value * 3 }\nlet scale: RouteScale = route_direct_scale\nassert scale(7) == 21\n",
+    status: 0,
+  )?
 }
 
-test test_expr_proc_call_result {
-  let handle: Proc = route_proc_target
-  assert handle.call(20)?.require(Int)? == 21
+test test_expr_proc_call_result { |ctx|
+  test.expect(
+    ctx,
+    "proc route_proc_target(value: Int) -> Int { value + 1 }\nlet handle: Proc = route_proc_target\nassert handle.call(20)?.require(Int)? == 21\n",
+    status: 0,
+  )?
 }
 
 test test_expr_function_ref { |ctx|
