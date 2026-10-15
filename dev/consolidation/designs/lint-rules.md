@@ -59,7 +59,8 @@ Produce checked summaries during the existing lexical preparation descent.
 That descent visits rejected module statements as well as valid declarations.
 Semantic checking alone skips some rejected subtrees and cannot publish the
 complete source fact. Keep assignment eligibility separate from lexical
-binding identity.
+binding identity. Store the summary beside lexical bindings in the private
+preparation result. Publish names through the narrow `CheckOutput` accessor.
 
 Preserve unresolved assignment names, field and index root names, late
 assignments, and conservative suppression for the same spelling in another
