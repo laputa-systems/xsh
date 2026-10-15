@@ -125,6 +125,15 @@ work is authorized by this resume.
   metadata at `52fc6694a` records all three rejection oracles separately from
   the native child and removes the covered malformed-payload gap. Merged main
   and eager helper selftests pass 62 and 47 cases. Route receipts remain zero.
+- Disposable QEMU preparation passes its guard smoke. The guest uses the pinned
+  image's userspace, matching Linux 7.2.9-2-stable kernel and modules, TCG/q35,
+  two CPUs, 2 GiB, fixed RTC, and no network. Its temporary files stay on ext4.
+  Guest-only BTRFS tools are installed. GNU 9.12 `date` and `cp` were rebuilt
+  from the checksum-and-signature-verified official source for the clock and
+  reflink probes. The pinned image has neither GNU tool, as corrected in
+  `a7298ffa3`. Disposable assets remain under `.work/consolidation/qemu` and
+  `.work/consolidation/gnu-reference`. Product tests await the final source and
+  matching harnesses. The smoke establishes no privileged acceptance result.
 - Verification `xsh` and `xsht` products were rebuilt at `2688d52fc` for the
   assignment repair's output baseline. Repository and Laputa check and lint
   each exit zero. Preserve their complete outputs for candidate comparison.
@@ -133,8 +142,8 @@ work is authorized by this resume.
 
 ### Current queue
 
-The integrator owns `master`. Binding-identity repairs, route-matrix recovery,
-and W9 receipt recovery have isolated worktrees under `.work/wt/`. Each lane
+The integrator owns `master`. Binding-identity repairs and W9 receipt recovery
+have isolated worktrees under `.work/wt/`. Each lane
 requires review and focused verification before integration. Source changes
 require a new canonical freeze.
 
