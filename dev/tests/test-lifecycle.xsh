@@ -253,7 +253,7 @@ use context
 use docker
 use targets as target_policy
 
-let ctx: context.Context = {context_source(root)}
+let ctx: context.Context = {context_source(repository)}
 match docker.run_internal(ctx, "dist", false, []) {{
   Ok(_) => exit 1
   Err(error) => print ${{error.message}}

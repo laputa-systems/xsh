@@ -119,6 +119,7 @@ test test_build_steps_run_cargo_under_the_preload_and_test_runs_do_not { |ctx|
   let tools = fp"{root}/tools"
   let log = fp"{root}/cargo.log"
   let library = fp"{root}/libjemalloc.so.2"
+  let inherited_linker = env.get_or("CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER", "<unset>")?
   library.write("")
   write_fake_toolchain(tools, ctx.xsh_bin, log)
   let repository = fs.cwd()?
@@ -160,7 +161,7 @@ docs.build_release(ctx)?
   )?
   let preloaded = f"preload={library}"
   assert log.read_lines()? == [
-    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker=<unset> {preloaded}",
+    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker={inherited_linker} {preloaded}",
     f"build --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi {preloaded}",
     f"test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test integration --test ambient_fs_policy --test symbol_plateau --test core_compat_boundaries --test core_compat_extra --no-run {preloaded}",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test integration --test ambient_fs_policy --test symbol_plateau --test core_compat_boundaries --test core_compat_extra -- --skip split:: --skip runtime::coverage:: preload=",
@@ -219,7 +220,7 @@ docs.build_release(ctx)?
     },
   )?
   assert log.read_lines()? == [
-    "build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker=<unset> preload=",
+    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker={inherited_linker} preload=",
   ]
 
   log.remove(missing_ok: false)
@@ -235,7 +236,7 @@ docs.build_release(ctx)?
     },
   )?
   assert log.read_lines()? == [
-    "build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker=<unset> preload=",
+    f"build --release --target x86_64-unknown-linux-musl -p xsh --bin xsh -p xsht --bin xsht rustflags=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol linker={inherited_linker} preload=",
     "build --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi preload=",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh --test integration --test ambient_fs_policy --test symbol_plateau --test core_compat_boundaries --test core_compat_extra -- --skip split:: --skip runtime::coverage:: preload=",
     "test --locked --target x86_64-unknown-linux-musl -p xsh --lib preload=",
