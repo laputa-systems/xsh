@@ -606,10 +606,6 @@ fn assert_btop_terminal_modes_close(output: &[u8]) {
     }
 }
 
-fn synchronized_frames(output: &[u8]) -> usize {
-    output.windows(b"\x1b[?2026l".len()).filter(|window| *window == b"\x1b[?2026l").count()
-}
-
 fn btop_replay_text_completed_after(output: &[u8], start: usize, rendered_text: &[u8]) -> bool {
     let output = &output[start..];
     let Some(text_start) = output.windows(rendered_text.len()).position(|window| window == rendered_text) else { return false };
@@ -1037,9 +1033,18 @@ fn btop_replay_filter_sort_selection_and_resize_use_the_decoded_input() {
     screen.feed(&output[captured..]);
     captured = output.len();
 
+    let resize_start = output.len();
+    let resized_cpu_title = " CPU ";
+    let resized_cpu_border_fill = 100 - 2 - resized_cpu_title.len();
+    let resized_cpu_border = format!(
+        "╭{}{}{}╮",
+        "─".repeat(resized_cpu_border_fill / 2),
+        resized_cpu_title,
+        "─".repeat(resized_cpu_border_fill - resized_cpu_border_fill / 2),
+    );
     set_terminal_size(terminal.master.as_raw_fd(), 30, 100);
     wait_for_terminal_output(&mut { terminal.master.try_clone().unwrap() }, &mut output, Duration::from_secs(2), |bytes| {
-        synchronized_frames(bytes) >= 10
+        btop_replay_text_completed_after(bytes, resize_start, resized_cpu_border.as_bytes())
     });
     screen.resize(30, 100);
     screen.feed(&output[captured..]);
