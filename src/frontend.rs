@@ -21,7 +21,7 @@ pub mod check {
         InstantiatedTypeExpressions, MessagePayloadConstructor, ProjectionOperation,
         RecordRequireMigration, RequirementTarget, ResolvedBindings, ResolvedTypeExpressions,
         ResourceTransferFacts, ResourceTransferSite, StatementPosition, StaticCallableAlias,
-        TagVariantInfo, call_receiver_text,
+        TagVariantInfo, assignment_target_root_name, call_receiver_text,
     };
     pub use crate::sema::constants::{
         CheckedRecordConstructor, LiteralConstant, PreparedConstants, RecordConstructors,
