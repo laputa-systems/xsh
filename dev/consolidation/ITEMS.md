@@ -10,7 +10,9 @@ curl, AWK, tail, and strict-Clippy repairs through `c1c6e4c87`. Forty focused
 Rust tests, 23 native tests, and eight paired repository/Laputa checks pass.
 Canonical acceptance and full W9 capture remain open. Canonical `45b4` passes
 the complete desugar comparison, then fails the fuzz replacement-label seed
-oracle. Reviewed compact W9 formatting is integrated at `71f7cd689`; bounded
+oracle. Its test-only repair at `8805a8ece` passes fourteen soundness cases;
+fresh canonical verification remains required. Reviewed compact W9 formatting
+is integrated at `71f7cd689`; bounded
 canonical equality and 121 Python tests pass. Five fresh harness roles build,
 and a full capture is running. Full cohort parity remains unaccepted.
 The original-source AWK/curl reproducer establishes the cross-file fixture

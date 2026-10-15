@@ -1,0 +1,40 @@
+
+thread 'test_binary::tests::other_profiles_are_rejected' (253) panicked at crates/xsh-fuzz/tests/../../../tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/debug/xsh has an unsupported profile; run `cargo test --profile verification`
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: soundness::test_binary::checked
+   3: soundness::test_binary::tests::other_profiles_are_rejected
+   4: <soundness::test_binary::tests::other_profiles_are_rejected::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'test_binary::tests::other_profiles_are_rejected' (253) panicked at crates/xsh-fuzz/tests/../../../tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/dist/xsh has an unsupported profile; run `cargo test --profile verification`
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: soundness::test_binary::checked
+   3: soundness::test_binary::tests::other_profiles_are_rejected
+   4: <soundness::test_binary::tests::other_profiles_are_rejected::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'test_binary::tests::other_profiles_are_rejected' (253) panicked at crates/xsh-fuzz/tests/../../../tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/custom/xsh has an unsupported profile; run `cargo test --profile verification`
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: soundness::test_binary::checked
+   3: soundness::test_binary::tests::other_profiles_are_rejected
+   4: <soundness::test_binary::tests::other_profiles_are_rejected::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+thread 'test_binary::tests::other_profiles_are_rejected' (253) panicked at crates/xsh-fuzz/tests/../../../tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but xsh has an unsupported profile; run `cargo test --profile verification`
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: soundness::test_binary::checked
+   3: soundness::test_binary::tests::other_profiles_are_rejected
+   4: <soundness::test_binary::tests::other_profiles_are_rejected::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.

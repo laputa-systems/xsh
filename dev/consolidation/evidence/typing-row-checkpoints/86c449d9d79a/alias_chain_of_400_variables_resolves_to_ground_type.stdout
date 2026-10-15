@@ -1,0 +1,6 @@
+
+running 1 test
+test sema::constraints::tests::alias_chain_of_400_variables_resolves_to_ground_type ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 766 filtered out; finished in 0.01s
+

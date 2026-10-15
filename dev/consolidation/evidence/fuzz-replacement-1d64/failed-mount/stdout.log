@@ -1,0 +1,24 @@
+
+running 14 tests
+test cleanly_parsed_mutants_are_recognized_despite_check_or_import_errors ... ok
+test accepted_registry_probes_run_without_internal_or_type_errors ... ok
+test mutants_get_ordinary_diagnostics ... FAILED
+test mutants_preserve_acceptance_and_ordinary_parse_diagnostics ... ok
+test oracle_methods_match_the_registry ... ok
+test pipeline_stage_blocks_observe_loop_body_mutations ... ok
+test sandbox_kills_a_child_over_the_memory_limit ... ok
+test sandbox_preserves_explicit_llvm_profile_destination_only ... ok
+test sandbox_without_profile_destination_clears_caller_environment ... ok
+test str_replace_prints_the_required_with_label ... ok
+test test_binary::tests::optimized_product_paths_are_accepted ... ok
+test test_binary::tests::other_profiles_are_rejected ... ok
+test generated_programs_are_grammar_sentences ... ok
+test well_typed_programs_run_and_match_the_reference_evaluator ... ok
+
+failures:
+
+failures:
+    mutants_get_ordinary_diagnostics
+
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 33.47s
+

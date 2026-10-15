@@ -113,8 +113,10 @@ work is authorized by this resume.
   failures. The initial compression probe had a bad parent-chain fixture;
   the corrected probe reaches the failed constraint and observes compression.
   [Raw checkpoint evidence](evidence/typing-row-checkpoints/README.md) retains
-  the red and green runs. Repairs are in progress. No inference code is
-  accepted on main.
+  the red and green runs. Repairs pass all 36 module tests and thirteen exact
+  regressions at `86c449d9d`. Independent source review returns GO. This
+  isolated solver prerequisite is accepted. Levels, generalization, and
+  schemes follow on the same branch. No inference code is accepted on main.
 - The nine final native runs are the canonical normal suite, selected release
   opt3 correctness suite, forced-frame suite, and three reference/candidate
   scheduler pairs. The forced-frame gate requires the release suite receipt.
@@ -123,6 +125,12 @@ work is authorized by this resume.
   current source review, executed tests, and pending runtime evidence. The
   [defect review](evidence/acceptance-review-45b4/open-defects.md) reconciles
   TODO claims without closing deferred features or historical reports.
+- The replacement-label test repair is merged at `8805a8ece`. A deterministic
+  AST replaces the incorrect seed-shape assumption. The exact test and all
+  fourteen soundness cases pass in the lane. The exact test also passes on
+  main. [Raw evidence](evidence/fuzz-replacement-1d64/README.md) records the
+  source-mount correction and build-environment qualification limit. Fresh
+  canonical verification remains required.
 
 ### Verified since resume
 

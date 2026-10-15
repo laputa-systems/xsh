@@ -12,9 +12,13 @@ The recorded artifact paths are historical and may contain newer builds now.
 | `3545a21d6656` | Corrected expectation uses the established canonical variable. All 29 module tests pass. |
 | `02a8efd2d503` | Two directional wrappers and flexible-to-rigid row binding fail. The compression probe fails during fixture setup. |
 | `d03fdc2b78e1` | Corrected parent-chain fixture reaches the rejected constraint and observes compression after failure. All four new probes fail; 29 existing tests pass. |
+| `ac8e01e88038` | Immutable rigid-row identities and negative lacks guards pass. Four positive/rollback/direction probes remain red; module has 32 passes and four failures. |
+| `86c449d9d79a` | All 36 module tests and thirteen exact regressions pass. Independent source review returns GO for the four repaired defects. |
 
 The alias expectation correction retains the failed-operation and parent-link
 assertions. The compression fixture correction allocates the target variable
 last so rank tie-breaking leaves the intended path. Neither correction changes
-solver behavior. Independent review still holds the implementation for the
-four reproduced defects and immutable rigid-row lacks validation.
+solver behavior. The [review](review-86c.md) records the final GO and earlier
+HOLD findings. Checkpoint `86c449d9d79a` is accepted as an isolated solver
+prerequisite. Levels, generalization, schemes, and the end-to-end inference
+slice remain in progress on the same branch.

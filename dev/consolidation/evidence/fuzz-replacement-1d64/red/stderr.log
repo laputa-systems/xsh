@@ -1,0 +1,173 @@
+
+thread 'generated_string_replacement_uses_the_required_with_label' (7) panicked at crates/xsh-fuzz/tests/soundness.rs:203:5:
+error FzErr = Bad(message: Str)
+type R0 = {f0: Str?, f1: Str}
+proc fn0() {
+  ([-2.0].get(2) ?? 100.0) + 0.5
+}
+pure fn1(p0: Path, p1: Map[Int, Int], p2: Int) {
+  match [false, true] |> last() { Err(m2) => m2.message, Ok(m1) => "A" }
+}
+proc fuzz_main() [] -> Result[List[Str]] {
+  try {
+    var out: List[Str] = []
+    if ctx "Aß" {
+      false
+    } {
+      let o3: Bool = true
+      out += [f"{o3}"]
+      let v4: Result[Bytes] = match -26 { 3 => Err(FzErr.Bad(message: "🦀")), 4 => Ok(b"\x00"), _ => Err(FzErr.Bad(message: "")) }
+      let v5: Int = [".ab"] + ["", "", "_cxz"] |> count
+      var v6: Float = -(["é_", "_:", "c"] |> take(4) |> drop(3) |> repeat(2) |> fold(100.0) { |x7, x8| 0.5 })
+    } else {
+      let v9 = -2.0
+    }
+    for i11 in if ctx "" {
+      false
+    } {
+      [6]
+    } else {
+      {
+        let v10: Int = -(-8 / 10)
+      }
+      if true {
+        [5, 29]
+      } else {
+        [25, 6]
+      }
+    } {
+      if 0.1 >= 3.0 {
+        var v12: Result[Bool] = Ok(if false {
+          true
+        } else {
+          false
+        })
+      }
+      let v13: Str = "azab🦀"
+      if ctx "/c" {
+        ctx "xa" {
+          true
+        }
+      } {
+        let v14 = [{["a"]: "", [""]: "", ["éy::"]: "b.c:"}, {[""]: "7yb.", ["x🦀🦀"]: "é::A"}, {[":ß"]: ""}].get(i11) ?? {[v13]: v13 for x15 in [true, true]}
+      }
+    }
+    let v16: Int = [5 for x17 in ["yA", "aébQ", "0"]].get(0) ?? 28
+    {
+      let v18: Int = 1ms / 1ms
+    }
+    let v19 = [".🦀" for x20 in [false]] |> sort
+    let v21 = 0.1 * -7.75
+    if if false {
+      !true
+    } else {
+      if false {
+        let v22 = v16 + v16 + v16 % 2
+        var v23 = [v22].get(1) ?? b" ".len()
+        for i24 in [[true, true, true], [true], [false]] {
+          v23 *= [-80298, -1690].get(-5) ?? v23
+        }
+        if true or false {
+          let v25 = {[27]: true for x26 in [[31], [6, 37, -93354]]}
+        } else {
+          let v27: Bool = if [20464, 21, 26] == [41126, 90487, 36] {
+            false
+          } else {
+            match v22 + v23 { 0 => true, m28 => false }
+          }
+        }
+      }
+      for i29 in {["cy"]: ["b", ".", ".7xyx"]} {
+        continue when !false
+        break when !false
+      }
+      true
+    } {
+      let v30 = [R0(f0: "-/_a", f1: ""), R0(f0: "é:ab", f1: "")]
+      if v21 > v21 {
+        let v31 = {...R0(f1: "abb", f0: "xya7"), f1: if false {
+          "aß "
+        } else {
+          ""
+        }}
+      } else {
+        var v32: Str = f"{"-xb:"[2..2]}{v16}"
+      }
+      var w33 = 0
+      while w33 < 1 {
+        w33 += 1
+        let v34 = {...R0(f1: "c:", f0: ""), f1: "7x"}
+        let v35 = [34].get(-5) ?? w33
+        var v36: List[Int] = []
+      }
+      let v37 = fn0() ?? v21
+    } else {
+      let v38: Int? = {
+        let v39 = 14 + v16
+        34
+      }
+      {
+        let v40: Int = ([4] + [9, 39]).get(match -16514 { 2 => v16, 2 => v16, _ => 27 }) ?? 40
+        assert b"\x0a00" == b"\x0a00"
+        var v41 = -v16
+      }
+      for i42 in "" {
+        var v43 = [-30839, 24, 13686] != [-9, -9, -3]
+      }
+    }
+    let v44: List[Bool] = [false, false, false] + [true]
+    if -7.75 != v21 {
+      var v45 = b"".len()
+      v45 = v16
+    }
+    let v46: Int = (27 + v16) % 3
+    var v47 = (if true {
+      v16
+    } else {
+      32
+    }) % -2
+    let v48 = (v44 |> map { |x52| "bxy " } |> map { |x51| 26 } |> fold(v47) { |x49, x50| 30 }) > v16
+    if ":Qa" <= "" {
+      for i55 in if true {
+        {
+          let v53: Result[List[Bool]] = Err(FzErr.Bad(message: "/z"))
+        }
+        [-1, 25, -2]
+      } else {
+        [55323 for x54 in "b"]
+      } {
+        let v56 = p"./.."
+        break when v48
+        let v57 = v21 / 0.5
+      }
+      let v58 = ctx " z:" {
+        v46
+      }
+    } else {
+      let v59: Int? = 7
+    }
+    var v60: Int = if if true {
+      v47 += v46
+      v48
+    } else {
+      v48
+    } {
+      v47
+    } else {
+      v46 * v16
+    }
+    let v61 = [37, 10, 35][3..1].get(v60) ?? v47 - v60
+    out += [f"{v16}"]
+    out += [f"{v46}"]
+    out += [f"{v47}"]
+    out += [f"{v48}"]
+    out
+  }
+}
+for line in fuzz_main()? { print ${line} }
+
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+   1: core::panicking::panic_fmt
+   2: <soundness::generated_string_replacement_uses_the_required_with_label::{closure#0} as core::ops::function::FnOnce<()>>::call_once
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
