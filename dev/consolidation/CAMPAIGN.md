@@ -1,16 +1,16 @@
 # XSH Consolidation Campaign
 
-Status: paused on 2026-10-15 after winddown. No linked worktrees remain.
-Unfinished source is preserved in Git and on parked refs. Consolidation
-acceptance is incomplete. Lean remains paused. Start no new implementation
-or verification until the owner explicitly resumes the relevant milestone.
+Status: resumed on 2026-10-15 for consolidation acceptance and the typing
+successor. The owner explicitly resumed after the documentation refresh.
+Consolidation acceptance remains incomplete and precedes inference changes.
+Lean and Phase F remain paused. Parked source is recovery material, not
+accepted implementation.
 
 ## Owner steering, 2026-10-15
 
 The owner adopted [the typing and formal successor requirements](#typing-and-formal-successor-requirements)
-as the direction for resumed work. Winddown and cleanup are complete. Lean
-remains paused. Unattended execution applies only after an explicit resume
-of the relevant milestone; a typing resume does not resume Lean.
+as the direction for resumed work. Winddown and cleanup are complete. The owner resumed consolidation and typing
+after the documentation refresh. Lean remains paused.
 
 Judge these outcomes separately:
 

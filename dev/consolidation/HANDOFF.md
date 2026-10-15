@@ -1,16 +1,30 @@
 # Consolidation restart handoff
 
-Status: paused 2026-10-15 after the owner-requested winddown. Consolidation
-acceptance is incomplete. Lean is paused independently. Start no new
-implementation or verification until the owner explicitly resumes it.
+Status: resumed 2026-10-15 by the owner for consolidation acceptance followed
+by the typing successor. Consolidation acceptance is incomplete. Lean and
+Phase F remain paused. Complete consolidation before changing language
+acceptance or starting general-inference implementation.
+
+## Current resume
+
+The owner explicitly resumed the typing consolidation campaign after the
+documentation refresh at `bfffd3af5e0002668e685e1711d7e6d9ee90ad51`.
+The checkout was clean on `master`. The pinned x86_64 Linux image is present,
+and no campaign containers or linked worktrees were running. The product Rust,
+stdlib, applet, and test sources retain the pre-winddown implementation.
+Historical gate helpers require fresh paths and source qualification.
+
+Acceptance launch, structural/semantic review, loop selection, typing witness
+readiness, and the historical AWK evidence are being inspected independently.
+These inventories establish no new executable or performance pass. No Lean
+work is authorized by this resume.
 
 ## Resume
 
 Prompt: "Resume consolidation acceptance from this handoff. Keep Lean paused.
 Follow the campaign's successor direction only after its prerequisites close."
 For a typing-only resume, require consolidation acceptance first, then judge
-Phases B–E independently of deferred Phase F. Reading this document is no
-permission to resume either milestone.
+Phases B–E independently of deferred Phase F. The explicit owner resume above authorizes consolidation and typing only.
 
 First command, from the repository root:
 
@@ -24,7 +38,7 @@ Read [the campaign](CAMPAIGN.md), [the successor requirements](CAMPAIGN.md#typin
 All numerical typing targets and their current hard or aspirational status are
 in the campaign. No deleted brief or old work directory is required.
 
-## State
+## Winddown state
 
 Integration remains on `master`. The executable source and test roots remain
 unchanged from `633e6394df7e7492226a7c622cd3bad9f4eb2f86` during winddown.
@@ -41,7 +55,7 @@ AWK desugar outcome remains unexplained. No scheduler or comparative speedup
 is claimed. [Retained receipts and recovery instructions](winddown/README.md)
 state the evidence limits.
 
-## Open lanes
+## Winddown lanes
 
 No lane or verification job remains in flight. The 824 original non-ancestor
 branches and 92 additionally imported source-tip branches are parked. Their
