@@ -321,7 +321,7 @@ continues to distinguish omission from explicit `Any`.
 Migrate every syntax-parameter reader in the same compileable change:
 `src/syntax/arena.rs`, `src/syntax/parser/stmt.rs`,
 `src/syntax/parser/types.rs`, `src/sema/types.rs`,
-`src/sema/cli_entry.rs`, `src/sema/check/{decl,infer_param,stmt,types}.rs`,
+`src/sema/constants.rs`, `src/sema/cli_entry.rs`, `src/sema/check/{decl,infer_param,stmt,types}.rs`,
 `src/runtime/eval/lower.rs`, `src/runtime/eval/lower/types.rs`,
 `src/frontend_stats.rs`, and `tests/sema.rs`. Keep
 `CallableParamType::defaulted` as the argument-default fact. It does not encode
@@ -488,7 +488,8 @@ depth limit.
   `src/syntax/parser/types.rs`, `tests/sema.rs`, and
   `tests/xsh/mistakes.xsh`.
 - Scheme and checker: `src/sema/mod.rs`, `src/sema/schemes.rs`,
-  `src/sema/check.rs`, `src/sema/types.rs`, `src/sema/cli_entry.rs`, and
+  `src/sema/check.rs`, `src/sema/types.rs`, `src/sema/constants.rs`,
+  `src/sema/cli_entry.rs`, `src/sema/constraints.rs`, and
   `src/sema/check/{args,call,callable_alias,checked_declarations,command,compact,decl,expr,infer_effects,infer_param,infer_return,local_inference,module_driver,module_record,public_result,stmt,stream,typed_callable,types}.rs`.
 - Import and size accounting: `src/loader.rs` and `src/frontend_stats.rs`.
 - Lowering and verification: `src/runtime/eval/lower.rs`,
