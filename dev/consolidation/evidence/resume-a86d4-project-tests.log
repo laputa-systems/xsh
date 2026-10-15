@@ -1,0 +1,10 @@
+
+running 5 tests
+test project::tests::a_relative_entry_keeps_a_project_config_relative_to_the_working_directory ... ok
+test project::tests::an_entry_without_a_config_has_no_project_roots ... ok
+test project::tests::parent_components_cancel_before_the_walk ... ok
+test project::tests::project_module_roots_come_from_the_nearest_config_above_the_entry ... ok
+test project::tests::a_malformed_config_is_an_error_not_an_empty_module_path ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 716 filtered out; finished in 0.00s
+

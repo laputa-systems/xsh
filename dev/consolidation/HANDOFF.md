@@ -10,14 +10,63 @@ acceptance or starting general-inference implementation.
 The owner explicitly resumed the typing consolidation campaign after the
 documentation refresh at `bfffd3af5e0002668e685e1711d7e6d9ee90ad51`.
 The checkout was clean on `master`. The pinned x86_64 Linux image is present,
-and no campaign containers or linked worktrees were running. The product Rust,
-stdlib, applet, and test sources retain the pre-winddown implementation.
+and no campaign containers or linked worktrees were running. At that initial freeze, product Rust, stdlib, applet, and test sources retained
+the pre-winddown implementation.
 Historical gate helpers require fresh paths and source qualification.
 
 Acceptance launch, structural/semantic review, loop selection, typing witness
-readiness, and the historical AWK evidence are being inspected independently.
-These inventories establish no new executable or performance pass. No Lean
+readiness, and historical AWK evidence were inventoried independently. No Lean
 work is authorized by this resume.
+
+### Verified since resume
+
+- Locked verification products and root process-test artifacts built in the
+  pinned image with Kache and mold. Cargo reused the existing target tree.
+- The `fff13082f` structural scan passed without an envelope: manual payload
+  calls, optional raw calls, wide arena wildcards, and blanket dead-code lines
+  are zero. Static type predicates are one, type-storage mappings two,
+  instruction rows 152, patterns 17, and stages 46. Five factory-call sites
+  still require their semantic bound review. Source totals are advisory.
+- An eight-root lint fixture recorded eight requests, one prepare, seven
+  reuses, one checked record, and seven check hits for its shared user module.
+  This is a record-cache observation, not one body traversal. It is preliminary
+  evidence and does not close the source-pinned semantic review row.
+- The historically extra AWK shard passed in written and desugared forms with
+  one worker in a disposable source copy. The historical individual case,
+  transformed source, and child diagnostics remain unavailable. This passing
+  pair does not explain or close the old mismatch.
+- The first canonical batch at `fff13082f` passed 305 root integration cases,
+  with four ignored. Its debug unit target passed 715, failed two, and ignored
+  three. Both failures inherited `/work/xsht-config.ini` through disk-backed
+  temporary paths. The batch stopped before the remaining canonical stages.
+  Timing was discarded. [The failed output](evidence/resume-fff13082-canonical.log)
+  and [resource capture](evidence/resume-fff13082-resources.json) retain the
+  actual observations. No normal full native suite ran in this attempt.
+- Reviewed repair `a86d4a7123bed5aafde302b170342dfd4fb4a2da` is integrated.
+  Config selection now has a private controlled filesystem predicate for
+  unit tests. Public discovery behavior is unchanged. Both original failures
+  reproduced before the repair; all five project tests pass against the
+  merged source, including the added relative-entry case. [Merged-tree output](evidence/resume-a86d4-project-tests.log)
+  preserves that focused pass. No test coverage was dropped.
+
+### Current queue
+
+The integrator owns `master`. The assignment-fact repair, current diagnostic
+feature-touch probe, and scheduler reference qualification have isolated
+worktrees under `.work/wt/`. Their branches are not accepted implementation
+until reviewed and verified. The feature scaffold is diagnostic source only
+and must never merge as a language feature. Source changes require a new
+canonical freeze after integration.
+
+The assignment repair removes the independent lint prepass while preserving
+source-only rules, late writes, and diagnostic/fix ordering. The scheduler
+reference is recoverable from the retained aggregate overlay and ancestor
+commits; missing scratch patches do not require a new baseline. Keep its
+original default workers and outcome checks.
+
+General inference implementation, its initial red/green witnesses, and the
+400-variable solver observation have not started. Consolidation acceptance
+remains the prerequisite. Lean and Phase F remain paused.
 
 ## Resume
 
