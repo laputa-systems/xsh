@@ -1,15 +1,16 @@
 # XSH Consolidation Campaign
 
-Status: active and incomplete on 2026-10-15. Main remains frozen at
-`d02dd3d8d9d01def71c102b1e90a66188626c0e2`; the focused final-batch repairs
-are isolated while current-source acceptance is pending. The current acceptance
-and remaining gates are in [`HANDOFF.md`](HANDOFF.md).
+Status: active and incomplete on 2026-10-15. This batch was prepared against
+source snapshot `d02dd3d8d9d01def71c102b1e90a66188626c0e2`. Before this docs
+commit, the implementation candidate was at `9b912a01d` on private branch
+`campaign/final-source-integration-0ab`; current-source acceptance is pending.
+The current acceptance and remaining gates are in [`HANDOFF.md`](HANDOFF.md).
 The owner approved the entire campaign and all six designs on 2026-10-11,
 including the Codex model policy and completeness-first sequence. The start
 commit remains `5e66b6b896a47d0c692739135d51200b007a2a67`. The owner moved
-integration to `master` on 2026-10-11. The current repair batch stays isolated
-from the frozen main tree. Implementation and gate evidence are tracked in
-`ITEMS.md` and the handoff log.
+integration to `master` on 2026-10-11. The private source candidate still needs
+a fresh source freeze and receipt bindings before final acceptance.
+Implementation and gate evidence are tracked in `ITEMS.md` and the handoff log.
 
 The campaign runs unattended: once started it never waits for the owner.
 Every question it would otherwise ask is answered here or in a design file
@@ -984,7 +985,7 @@ owner's request. The campaign is not complete.
   repair passes 14 exact parity cases and the isolated 400,000-entry case; full
   stress acceptance and the nine serial native suites remain open.
 - W9's f105 comparison is historical; 47a c1 failed with 24 mismatches. The
-  correction-controller pin repair `a898` passed eight tests and live source
+  correction-controller pin fix `19fcb0d91` passed eight tests and live source
   validation. Fresh full current-source parity remains pending.
 - The start-source scanner rerun matches its archived report and allowance
   inventory byte for byte. The final structural ratchet remains open. Frozen-
@@ -994,9 +995,10 @@ owner's request. The campaign is not complete.
   the scoped Markdown check was interrupted. Canonical documentation, snippet,
   and project checks and all ten CLOSE review rows remain open.
 - The btop report-only 20-sample run uses a standalone profile. A separate full
-  20-sample run passes its readiness and cleanup checks, and the qualified
-  `04eb` runtime passes the three remaining btop native files. No performance
-  change or range claim is made.
+  20-sample run and both readiness checks exited 0; cleanup succeeded. The
+  `core/tests/test-btop-performance.xsh` file passed 3/3 tests under the
+  explicitly qualified `04eb` runtime. This does not qualify a new CLOSE build;
+  no performance change or range claim is made.
 - The Lean inventory remains separate from Rust conformance. The owner waived
   profile-selection measurement; ordinary verification stays opt3 without LTO
   and with 64 codegen units, while release acceptance uses opt3 with thin LTO

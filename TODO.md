@@ -63,12 +63,12 @@ The strict W9 comparison on f105 passed for 1,690 inputs and 6,760 outcomes,
 with zero mismatches. That result is historical and does not qualify the newer
 integration. The later 47a c1 comparison failed with 24 mismatches. The narrow
 derived-reference retry correction at `1fd9e5f2f` passed a direct build and
-four positive and two negative fixtures; its Rust unit build could not run
-because the miniature internal proc-macro was unavailable. The correction
-controller pin repair `a898` passed eight tests and live source validation. A
-fresh full comparison on the current integration remains required; see the
-[handoff](dev/consolidation/HANDOFF.md#final-batch-status-2026-10-15) for the
-direct unit and compiler-image qualification.
+four positive and two negative fixture programs; its Rust unit build failed
+because the musl host does not support the `mini-internal` proc-macro. The
+correction-controller pin fix `19fcb0d91` passed eight tests and live source
+validation. A fresh full comparison on the current integration remains
+required; the [handoff](dev/consolidation/HANDOFF.md#final-batch-status-2026-10-15)
+records the direct unit and compiler-image qualification.
 
 The source-qualified 8ca cache receipt is also historical. It records XSH check
 1,675 and default lint 1,533, plus Laputa check 379 and default lint 316. No
@@ -81,9 +81,10 @@ for current W9 boundaries and receipts.
 The 8ca structural report covers 370 source files, matches the 11 non-source
 values from 6ec, and leaves all four required-zero metrics at zero. These are
 historical results. The start-source scanner rerun and its archived report are
-byte-identical; the final-source structural scan remains pending. The final
-structural snapshot `fd39e7ed` differs only by a deleted stale comment and an
-updated source pin. Source totals remain advisory. The 8ca feature-touch probe records
+byte-identical; the final-source structural ratchet remains open. Scanner digest
+`fd39e7ed` differs from the tested scanner `3b36990f` only by a comment; the
+archived baseline scanner digest begins `013a6257`. Source totals remain advisory.
+The 8ca feature-touch probe records
 38 XSH and 18 XSHT compiler demands from isolated placeholder arms. It does not
 prove runtime reachability or feature-touch coverage on the current source. The
 source-qualified 0ab-to-8ca review found 25 of 27 selected blobs identical and
@@ -133,10 +134,10 @@ index form covered by
 `crates/xsht/src/lint_prefer_collect.rs::multiline_index_assignment_keeps_the_list_mutable`.
 The focused `xsht test --exact` run passes with the pinned verification pair,
 and the program prints `99,2`. This fixes the malformed test but does not
-reproduce or disprove the earlier rewrite report. The report remains
-unconfirmed. The fixture correction does not show whether the reported rewrite
-occurs. Keep the acceptance open until a reproducer or explicit disposition
-exists. Current source lint acceptance remains open.
+reproduce or disprove the earlier rewrite report. A bounded current-source audit
+found no evidence of the alleged bug; the historical report remains unconfirmed
+because no reproducer is available. The audit does not disprove that report.
+Canonical current-source lint acceptance remains open.
 
 Adjacent tests keep indexed mutations out of the rewrite. The Rust tests
 `indexed_comparison_after_the_loop_is_not_a_reassignment` and

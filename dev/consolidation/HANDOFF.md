@@ -4,11 +4,14 @@ Status: active and incomplete 2026-10-15.
 
 ## Final-batch status, 2026-10-15
 
-The main source tree remains frozen at `d02dd3d8d9d01def71c102b1e90a66188626c0e2`.
-The private integration branch `campaign/final-batch-docs-d02` contains the
-accepted focused repairs summarized below. The campaign is not complete. The
-full W9 comparison on the current source and the post-repair serial suite
-remain pending.
+This batch was prepared against source snapshot
+`d02dd3d8d9d01def71c102b1e90a66188626c0e2`. Before this docs commit, the
+accepted implementation batch was at `9b912a01d` on private branch
+`campaign/final-source-integration-0ab`. It includes the retry-controller pin
+fix `19fcb0d91`, retry-check documentation `958d69b27`, and focused GNU rm
+repair `9b912a01d`. Final acceptance requires a fresh source freeze and receipt
+bindings; a fresh full W9 comparison and the post-repair serial suite remain
+pending.
 
 ### Native-suite attempt
 
@@ -24,7 +27,7 @@ formatting, paired system-report trace parsing and quoted trace text, native
 test context, Docker fixture tools, and btop profile isolation. The integration
 log records the source changes in `04195d09b`, `a0e284bb0`, `2cbf52dcb`,
 `f90b80dbf`, `943aa0a86`, `279d3ea7a`, `d2a4d35c6`, `00890a066`,
-`eaf07e6d0`, `e78f83400`, and `98de1147a`.
+`eaf07e6d0`, `e78f83400`, `98de1147a`, `19fcb0d91`, and `9b912a01d`.
 
 The focused GNU rm repair uses `child.path` from `fs.children` for recursion,
 removing repeated child lookup by raw basename. Raw diagnostic names, enumeration
@@ -44,19 +47,21 @@ gate, lifecycle, and corrected baseline provenance). The first combined command
 exited 1 at the Docker gate because the root user's host UID triggered Git's
 dubious-ownership check. The three environment-sensitive checks then passed
 under a UID-1000 and HOME-compatible environment. Logs are
-`.work/tmp/integrated-focused-green.log` and
-`.work/tmp/integrated-remaining-green.log`; this is not a full-suite result.
+`.work/wt/final-source-integration-0ab/.work/tmp/integrated-focused-green.log`
+and
+`.work/wt/final-source-integration-0ab/.work/tmp/integrated-remaining-green.log`;
+this is not a full-suite result.
 The focused runs used source-correct binaries in the explicit pinned
 `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`
 runtime.
 
 The exact Rust `ProcessError` unit also passed against an existing source-correct
 binary in that pinned runtime: one passed, 713 filtered. The log is
-`.work/tmp/green-process-error-unit-direct-campaign-image-20261015.log`. The
-earlier build3 compilation used mutable `xsh-test`; no immutable compiler image
-ID was retained, so it does not qualify a pinned build. Fresh W9 and release
-builds must record the explicit 3b compiler image. No Rust production source
-changed between `5c` and `7232`.
+`.work/wt/final-native-semantics-d02/.work/tmp/green-process-error-unit-direct-campaign-image-20261015.log`.
+The earlier build3 compilation used mutable `xsh-test`; no immutable compiler
+image ID was retained, so it does not qualify a pinned build. Fresh W9 and
+release builds must record the explicit 3b compiler image. No Rust production
+source changed between `5c` and `7232`.
 
 ### W9 publication status
 
@@ -64,10 +69,10 @@ The f105 strict comparison remains a historical pass: 1,690 inputs, 6,760
 outcomes, and zero mismatches. It does not qualify the newer source. The later
 47a c1 comparison failed with 24 mismatches. The derived-reference retry
 correction `1fd9e5f2f` passed a direct build and four positive and two negative
-fixtures. Its exact Rust unit could not build because the miniature internal
-proc-macro was unavailable. No red run against the old `bb` reference was
-recorded. The correction controller pin repair `a898` passed eight tests and
-live source validation. No fresh full comparison on the current integration
+fixture programs. Its Rust unit build failed because the musl host does not
+support the `mini-internal` proc-macro. No red run against the old `bb` reference
+was recorded. The correction-controller pin fix `19fcb0d91` passed eight tests
+and live source validation. No fresh full comparison on the current integration
 has run.
 
 ### Start-source structural scan
@@ -77,9 +82,11 @@ The scanner rerun at `3b36990f` on the frozen start source
 allowance inventory byte for byte. The report
 SHA-256 is `322ea03664f2478abb57362fbd0bda714715ff3020dd6316f827f2b441e891d3`;
 the inventory SHA-256 is `269f793535e0bee19aabeb96b721314d4f2852db12b73e254ba9a283e7c75c26`.
-The final source structural snapshot `fd39e7ed` differs from the archived
-baseline only by deleting a stale comment and updating its source pin. The
-start-source comparison does not close the final source structural gate.
+The scanner digest `fd39e7ed` differs from the tested scanner `3b36990f` only
+by a comment. The archived baseline scanner digest begins `013a6257`; `fd39e7ed`
+is not that baseline identity. The tested scanner's start-source report matches
+the archived report and inventory, but this does not close the final structural
+gate.
 
 ### Frozen-source coverage measurement
 
@@ -115,9 +122,10 @@ without output. The canonical documentation, snippet, and project checks
 remain pending.
 
 The report-only btop 20-sample run uses a standalone profile. A separate full
-20-sample run passes with zero pre-run and post-run ready counts and zero
-cleanup count. The explicitly qualified `04eb` runtime passed the three
-remaining btop native files. No performance change or range claim is made; the
+20-sample run and both readiness checks exited 0; cleanup succeeded. The
+`core/tests/test-btop-performance.xsh` file passed three tests under the
+explicitly qualified `04eb` runtime. This qualifies that runtime and test file,
+not a new CLOSE build. No performance change or range claim is made; the
 full-work data remain preserved.
 
 The latest Lean inventory has 685 roots and 89 owners. Its 72 universal

@@ -5,9 +5,10 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `master` in `/home/josh/d/laputa-systems/xsh`; the owner merged consolidation
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
-**Status: active and incomplete, 2026-10-15.** Main remains frozen at
-`d02dd3d8d9d01def71c102b1e90a66188626c0e2`; the focused final-batch repairs
-are isolated on `campaign/final-batch-docs-d02`.
+**Status: active and incomplete, 2026-10-15.** This batch was prepared against
+source snapshot `d02dd3d8d9d01def71c102b1e90a66188626c0e2`; before this docs
+commit, the implementation candidate was at `9b912a01d` on private branch
+`campaign/final-source-integration-0ab`.
 [`HANDOFF.md`](HANDOFF.md) records current acceptance, integrated work, and
 remaining gates; the older grants and progress states below are planning and
 historical context, not a live lane queue. The campaign is active and
