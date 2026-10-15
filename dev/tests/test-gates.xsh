@@ -13,6 +13,9 @@ test test_changed_paths_select_and_deduplicate_their_verification_owners {
   assert gates.areas_for("crates/xsht/tests/syntax.rs")? == [gates.Syntax]
   assert gates.areas_for("tests/grammar.rs")? == [gates.Syntax]
   assert gates.areas_for("docs/snippets/api/fs.xsh")? == [gates.Docs, gates.Api]
+  let source_policy = gates.select(["dev/consolidation/current_source_policy.xsh"])?
+  assert source_policy.areas.is_empty()
+  assert source_policy.native_files == ["dev/tests/test-consolidation-ratchets-current.xsh"]
   match gates.select(["unowned-family/behavior.rs"]) {
     Ok(_) => test.fail("a changed path without a gate owner was accepted")
     Err(error) => assert error.message == "GateError.UnmappedPath"
@@ -239,6 +242,7 @@ test test_batch_automatic_checks_use_retained_repository_gates {
   assert [spec.stage for spec in checks] == ["batch-check", "batch-lint", "batch-diff", "batch-ratchets"]
   let ratchets = checks[3]
   assert ratchets.argv[1] == "dev/consolidation/metrics.xsh"
+  assert ratchets.argv[2] == "check-current"
   assert ["--root", ctx.root.display(), "--source-root", "src", "--xsht-source-root", "crates/xsht/src"] == ratchets.argv[3..9]
   assert ["--baseline", "dev/consolidation/baseline-blanket-scope.json", "--baseline-provenance", "dev/consolidation/blanket-metric-provenance-source-advisory.json", "--envelope", "dev/consolidation/envelope-upstream.json", "--output", ".work/consolidation/current.json", "--audit", ".work/consolidation/rises.json"] == ratchets.argv[9..]
   for spec in checks {

@@ -51,6 +51,10 @@ export pure select(paths: List[Str]) -> Result[Selection, Error] {
   var areas: List[Area] = []
   var native_files = []
   for changed_path in paths {
+    if changed_path == "dev/consolidation/current_source_policy.xsh" {
+      native_files += ["dev/tests/test-consolidation-ratchets-current.xsh"] when "dev/tests/test-consolidation-ratchets-current.xsh" not in native_files
+      continue
+    }
     if ! changed_path.starts_with("tests/fixtures/") and changed_path.ends_with(".xsh") and (changed_path.starts_with("tests/") or changed_path.starts_with("dev/tests/") or changed_path.starts_with("core/tests/") or changed_path.starts_with("showcase/tests/")) {
       native_files += [changed_path] when changed_path not in native_files
       continue
@@ -167,7 +171,7 @@ export pure batch_checks(ctx: context.Context, profile: tests.TestProfile) -> Li
     stages.command("batch-lint", ctx.target.triple, xsht, [xsht, "lint"], ctx.root, {}),
     stages.command("batch-diff", ctx.target.triple, "git", ["git", "diff", "--check"], ctx.root, {}),
     stages.command("batch-ratchets", ctx.target.triple, xsh,
-      [xsh, "dev/consolidation/metrics.xsh", "check", "--root", ctx.root.display(),
+      [xsh, "dev/consolidation/metrics.xsh", "check-current", "--root", ctx.root.display(),
         "--source-root", "src", "--xsht-source-root", "crates/xsht/src",
         "--baseline", "dev/consolidation/baseline-blanket-scope.json", "--baseline-provenance", "dev/consolidation/blanket-metric-provenance-source-advisory.json",
         "--envelope", "dev/consolidation/envelope-upstream.json",

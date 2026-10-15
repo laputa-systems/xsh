@@ -1,4 +1,5 @@
 use consolidation_metrics_current as metrics
+use consolidation.current_source_policy as current_source_policy
 
 type AuditRise = {metric: Str, baseline: Int, current: Int, ceiling: Int, approval: Str, reason: Str, remove_when: Str}
 
@@ -8,6 +9,31 @@ const review_source_paths = [@review_directory_paths, "dev/consolidation_metrics
 pure value(scan: metrics.SourceScan, name: Str) -> Int {
   let rows = scan.metrics |> where .name == name |> collect
   rows[0].value
+}
+
+pure current_stage_evidence(source_path: Str, count: Int) -> List[metrics.Evidence] {
+  var evidence: List[metrics.Evidence] = []
+  var line = 1
+  while line <= count {
+    evidence += [{path: source_path, line: line, detail: f"stage {line}"}]
+    line += 1
+  }
+  evidence
+}
+
+pure current_source_report() -> metrics.Report {
+  metrics.Report(schema: 1, sources: [], metrics: [
+    {name: "lowering_type_resolver_definitions", value: 0, evidence: []},
+    {name: "stage_variants", value: 46, evidence: current_stage_evidence("src/runtime/eval/indexed/full.rs", 46)},
+  ], reviews: [])
+}
+
+pure current_source_policy_rejection(report: metrics.Report) -> Str {
+  match current_source_policy.assert_current_source_contract(report) {
+    Ok(_) => "accepted"
+    Err(metrics.MetricError.Contract {detail}) => detail
+    Err(error) => error.message
+  }
 }
 
 proc rejection_at(source_path: Str, source: Str) [error] -> Str {
@@ -344,16 +370,13 @@ test test_lowering_type_resolver_metric_rejects_indirect_semantic_walkers {
   assert "unclassified type-expression tag walker" in rejection_at("src/runtime/eval/lower/types.rs", source)
 }
 
-test test_current_lowering_tree_has_no_type_expr_resolvers {
-  let root = p".".resolve()?
-  var count = 0
-  for entry in fs.walk(p"src/runtime/eval/lower")? |> where .kind == "file" and .path.ext() == "rs" |> sort-by .path {
-    let source_path = entry.path.strip_prefix(root)?.display()
-    count += value(metrics.scan_file(source_path, entry.path.read_text()?)?, "lowering_type_resolver_definitions")
-  }
-  let root_source = p"src/runtime/eval/lower.rs".read_text()?
-  count += value(metrics.scan_file("src/runtime/eval/lower.rs", root_source)?, "lowering_type_resolver_definitions")
-  assert count == 0
+test test_current_report_requires_zero_lowering_type_resolvers {
+  let report = current_source_report()
+  current_source_policy.assert_current_source_contract(report)?
+  let nonzero = { ...report, metrics: collect {
+    for row in report.metrics { yield if row.name == "lowering_type_resolver_definitions" { {...row, value: 1} } else { row } }
+  } }
+  assert "lowering_type_resolver_definitions" in current_source_policy_rejection(nonzero)
 }
 
 test test_pipeline_stage_schema_counts_unit_tuple_and_struct_variants {
@@ -403,14 +426,35 @@ test test_pipeline_stage_schema_accepts_complete_borrowed_view_context_only {
   assert "malformed pipeline stage schema context" in rejection("pipeline_stage_schema! { @context stage_builder stage_decoder stage_payload stage_view_context stage_view_input stage_view_value; One unit {}; }")
 }
 
-test test_generated_pipeline_stage_schema_counts_current_source {
-  let source_path = "src/runtime/eval/indexed/full.rs"
-  let scan = metrics.scan_file(source_path, p"src/runtime/eval/indexed/full.rs".read_text()?)?
-  let stages = scan.metrics |> where .name == "stage_variants" |> collect
-  assert stages.len() == 1
-  assert stages[0].value == 46
-  assert stages[0].evidence.len() == 46
-  assert (stages[0].evidence |> where .path != source_path |> count()) == 0
+test test_current_report_requires_generated_pipeline_stage_schema {
+  let report = current_source_report()
+  current_source_policy.assert_current_source_contract(report)?
+  let wrong_value = { ...report, metrics: collect {
+    for row in report.metrics { yield if row.name == "stage_variants" { {...row, value: 45} } else { row } }
+  } }
+  let wrong_evidence_count = { ...report, metrics: collect {
+    for row in report.metrics { yield if row.name == "stage_variants" { {...row, evidence: current_stage_evidence("src/runtime/eval/indexed/full.rs", 45)} } else { row } }
+  } }
+  let wrong_evidence_path = { ...report, metrics: collect {
+    for row in report.metrics { yield if row.name == "stage_variants" { {...row, evidence: current_stage_evidence("src/runtime/eval/indexed/other.rs", 46)} } else { row } }
+  } }
+  assert "stage_variants" in current_source_policy_rejection(wrong_value)
+  assert "stage_variants" in current_source_policy_rejection(wrong_evidence_count)
+  assert "stage_variants" in current_source_policy_rejection(wrong_evidence_path)
+}
+
+test test_current_report_requires_unique_lowering_and_stage_metrics {
+  let report = current_source_report()
+  let without_lowering = { ...report, metrics: report.metrics |> where .name != "lowering_type_resolver_definitions" |> collect }
+  let without_stages = { ...report, metrics: report.metrics |> where .name != "stage_variants" |> collect }
+  let lowering = report.metrics |> where .name == "lowering_type_resolver_definitions" |> collect
+  let stages = report.metrics |> where .name == "stage_variants" |> collect
+  let duplicate_lowering = { ...report, metrics: report.metrics + [lowering[0]] }
+  let duplicate_stages = { ...report, metrics: report.metrics + [stages[0]] }
+  assert "lowering_type_resolver_definitions" in current_source_policy_rejection(without_lowering)
+  assert "stage_variants" in current_source_policy_rejection(without_stages)
+  assert "lowering_type_resolver_definitions" in current_source_policy_rejection(duplicate_lowering)
+  assert "stage_variants" in current_source_policy_rejection(duplicate_stages)
 }
 
 test test_malformed_lexical_forms_and_eligibility_cfg_attr_fail_loudly {
