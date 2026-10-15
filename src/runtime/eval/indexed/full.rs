@@ -16270,6 +16270,20 @@ run true
         .unwrap()
     }
 
+    fn pipeline_payload_fixture() -> (FullProgram, usize) {
+        let program = fixture(
+            "pipeline-payload.xsh",
+            "pure pipeline() -> List[Int] { return [1] |> map { |item| item } |> collect() }\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let pipeline = function_instruction_indices(&program, "pipeline", FullTag::ExprPipeline)
+            .into_iter()
+            .next()
+            .expect("function has a pipeline expression");
+        assert!(program.store.data[pipeline].range().len >= 3);
+        (program, pipeline)
+    }
+
     #[test]
     fn compact_lowering_accepts_a_tag_binding_catch_all_return() {
         run_with_large_stack(|| {
@@ -21296,6 +21310,24 @@ pure selected() -> Str {
             "{}",
             error.message
         );
+    }
+
+    #[test]
+    fn verifier_rejects_a_pipeline_with_no_input_payload() {
+        let (mut program, pipeline) = pipeline_payload_fixture();
+        program.store.data[pipeline].rhs = 0;
+
+        let error = FullVerifier::verify(&program).unwrap_err();
+        assert_eq!(error.message, "full IR payload ended early");
+    }
+
+    #[test]
+    fn verifier_rejects_a_pipeline_with_a_truncated_payload_after_input() {
+        let (mut program, pipeline) = pipeline_payload_fixture();
+        program.store.data[pipeline].rhs = 1;
+
+        let error = FullVerifier::verify(&program).unwrap_err();
+        assert_eq!(error.message, "full IR payload ended early");
     }
 
     /// An index from the end carries the distance the checker read from the
