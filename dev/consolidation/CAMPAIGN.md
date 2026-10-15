@@ -7,6 +7,8 @@ qualifies that result across the route-witness repair `ae7cf8490`.
 The earlier selected-profile native suite and clean 13.65-second lint pass
 remain bound to 208. Its canonical Rust batch found the now-repaired libc
 hygiene violation. Final acceptance must run on the new freeze.
+The 88 native attempt exposed a closed-descriptor test race. The assertion now
+runs in an isolated child, retaining its exact errno contract. Focused checks pass.
 The current acceptance and remaining gates are in [`HANDOFF.md`](HANDOFF.md).
 The owner approved the entire campaign and all six designs on 2026-10-11,
 including the Codex model policy and completeness-first sequence. The start

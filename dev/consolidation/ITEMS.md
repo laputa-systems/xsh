@@ -10,6 +10,8 @@ repairs are integrated on `master`. W9 parity passed 1,690 inputs and 6,760
 outcomes with zero mismatches on `2083821ed`. Independent review qualifies
 that result across the two-file route-witness repair `ae7cf8490`.
 The repair passes its focused unit, hygiene, and authenticated native checks.
+The 88 native attempt exposed a closed-descriptor test race. The assertion now
+runs in an isolated child, retaining its exact errno contract. Focused checks pass.
 Final correctness, performance, and the ten semantic review rows remain open.
 [`HANDOFF.md`](HANDOFF.md) records current acceptance, integrated work, and
 remaining gates; the older grants and progress states below are planning and

@@ -4,6 +4,36 @@ Status: active and incomplete 2026-10-15.
 
 ## Final-batch status, 2026-10-15
 
+### Isolate the closed-descriptor test from parallel workers
+
+The `88d5e6f08` release build passed its readiness checks. Its full native
+suite stopped at `test_descriptors_the_fake_did_not_open_take_the_real_path`.
+The monitor interrupted and cleaned up the run. Its timing is discarded.
+A bounded five-case module loop reproduced the failure on attempt seven:
+`recvfrom` returned `ENOTSOCK` (88) after another worker reused the closed
+raw descriptor. The test incorrectly required that descriptor number to stay
+unused in the shared process.
+
+Repair `test(linux): isolate closed descriptor assertion` moves the fake
+open, close, and exact `EBADF` (9) assertion into a `test.expect` child.
+The child inherits the fake configuration. Real loopback checks stay in the
+parallel parent test. No production code, errno contract, or suite parallelism
+changes. The repaired module passed 100 repetitions, totaling 500 test passes.
+Scoped lint and all five forced-frame cases pass. Logs are under
+`.work/tmp/netlink-module-loop-88d5-green-a2/` and
+`.work/tmp/netlink-focused-88d5-green-a3/`.
+
+The current shared-import cache fixture also passes on the sealed 88 products.
+Plain lint reports the expected warnings. Fix, fresh check, and idempotence
+pass. Every shared owner checks each module key once. The private fix owner
+remains intentionally separate. Per-module counts are in
+`.work/tmp/final-cache-88d5/shared-import-a1/module-checks-per-pass.tsv`.
+These focused checks qualify through the native-fixture-only repair.
+
+Freeze the repaired test with this handoff and resume the final gates. Preserve
+the interrupted 88 receipt and the 208 W9 identities. The nine passing full
+native suites and remaining acceptance gates are still required.
+
 ### Route-witness repair and next freeze
 
 The `2083821ed` selected-profile suite passed 13,790 cases, with zero failures
