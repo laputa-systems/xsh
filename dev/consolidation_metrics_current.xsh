@@ -14,7 +14,7 @@ type CfgValue = {value: Bool, next: Int}
 type CfgPredicate = {start: Int, end: Int}
 type InlineModule = {end: Int, directory: Str}
 type ModuleEdge = {owner: Str, target: Str, excluded: Bool, dead_code: Bool}
-type FunctionRegion = {name: Str, params_start: Int, params_end: Int, body_start: Int, body_end: Int}
+type FunctionRegion = {keyword: Int, name: Str, params_start: Int, params_end: Int, body_start: Int, body_end: Int}
 type LegacyPipelineStageLayout = {tag_definitions: Int, tag_variants: List[Str], codec_definitions: Int, codec_tables: Int, codec_variants: List[Str], semantic_definitions: Int}
 type AttributeTarget = {kind: Str, name: Str, first: Int, last: Int}
 ## An outer item allowance kept separate from blanket scopes for review.
@@ -964,138 +964,147 @@ pure contains_token(lexed: Lexed, start: Int, end: Int, value: Str) -> Bool {
   false
 }
 
-proc function_region_for_parameters(source_path: Str, lexed: Lexed, keyword: Int, required_parameters: List[Str], required_return: Str) [error] -> Result[FunctionRegion] {
-  let name = (lexed.tokens.get(keyword + 1) ?? end_token).text
-  if ! ident_start(first(name)) { return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1} }
-  var params_start = keyword + 2
-  var generic_depth = 0
-  while params_start < lexed.tokens.len() {
-    let value = lexed.tokens[params_start].text
-    if value == "<" { generic_depth += 1; params_start += 1; continue }
-    if value == ">" and (lexed.tokens.get(params_start - 1) ?? end_token).text != "-" and generic_depth > 0 {
-      generic_depth -= 1
-      params_start += 1
-      continue
-    }
-    break when value == "(" and generic_depth == 0
-    if value in ["{", ";"] and generic_depth == 0 { return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1} }
-    if value in ["(", "[", "{"] { params_start = lexed.mates[params_start] + 1 } else { params_start += 1 }
-  }
-  if params_start >= lexed.tokens.len() or (lexed.tokens.get(params_start) ?? end_token).text != "(" {
-    return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
-  }
-  let params_end = lexed.mates[params_start]
-  var has_required_parameter = false
-  for required_parameter in required_parameters {
-    if contains_token(lexed, params_start + 1, params_end, required_parameter) {
-      has_required_parameter = true
-      break
-    }
-  }
-  if ! has_required_parameter {
-    return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
-  }
-  var body_start = params_end + 1
-  var angle_depth = 0
-  while body_start < lexed.tokens.len() {
-    let value = lexed.tokens[body_start].text
-    if value == "<" { angle_depth += 1; body_start += 1; continue }
-    if value == ">" and (lexed.tokens.get(body_start - 1) ?? end_token).text != "-" and angle_depth > 0 {
-      angle_depth -= 1
-      body_start += 1
-      continue
-    }
-    if value == ";" and angle_depth == 0 {
-      return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
-    }
-    if value == "{" {
-      break when angle_depth == 0
-      body_start = lexed.mates[body_start] + 1
-      continue
-    }
-    if value in ["(", "["] { body_start = lexed.mates[body_start] + 1 } else { body_start += 1 }
-  }
-  if body_start >= lexed.tokens.len() or lexed.tokens[body_start].text != "{" {
-    invalid(source_path, lexed.tokens[keyword].line, "cannot locate conversion function body")
-  }
-  if required_return != "" and ! contains_token(lexed, params_end + 1, body_start, required_return) {
-    return {name: "", params_start: -1, params_end: -1, body_start: -1, body_end: -1}
-  }
-  {name: name, params_start: params_start + 1, params_end: params_end, body_start: body_start + 1, body_end: lexed.mates[body_start]}
-}
-
-pure recursive_type_expr_call(lexed: Lexed, region: FunctionRegion) -> Bool {
-  var cursor = region.body_start
-  while cursor < region.body_end {
-    if lexed.tokens[cursor].text == region.name and (lexed.tokens.get(cursor + 1) ?? end_token).text == "(" { return true }
-    cursor += 1
-  }
-  false
-}
-
-pure constructs_semantic_type(lexed: Lexed, region: FunctionRegion) -> Bool {
-  var cursor = region.body_start
-  while cursor + 2 < region.body_end {
-    let value = lexed.tokens[cursor].text
-    if value in ["Type", "LoweredType"] and lexed.tokens[cursor + 1].text == ":" and lexed.tokens[cursor + 2].text == ":" { return true }
-    cursor += 1
-  }
-  false
-}
-
-pure function_return_contains(lexed: Lexed, region: FunctionRegion, value: Str) -> Bool {
-  var cursor = region.params_end + 1
-  let signature_end = region.body_start - 1
-  while cursor + 1 < signature_end {
-    if lexed.tokens[cursor].text == "-" and lexed.tokens[cursor + 1].text == ">" {
-      return contains_token(lexed, cursor + 2, signature_end, value)
-    }
-    cursor += 1
-  }
-  false
-}
-
-pure qualified_variant_count(lexed: Lexed, region: FunctionRegion, type_name: Str) -> Int {
-    var variants = []
-  var cursor = region.body_start
-  while cursor + 2 < region.body_end {
-    if lexed.tokens[cursor].text == type_name and lexed.tokens[cursor + 1].text == ":" and lexed.tokens[cursor + 2].text == ":" {
-      let variant = (lexed.tokens.get(cursor + 3) ?? end_token).text
-      if variant != "" and ! (variant in variants) { variants += [variant] }
-    }
-    cursor += 1
-  }
-  variants.len()
-}
-
-proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, lookup: SpanLookup) [error] -> Result[List[Evidence]] {
-  return [] when ! source_path.starts_with("src/runtime/eval/")
-  if ! contains_token(lexed, 0, lexed.tokens.len(), "Type") or ! contains_token(lexed, 0, lexed.tokens.len(), "LoweredType") or ! contains_token(lexed, 0, lexed.tokens.len(), "match") { return [] }
-  var cursor = 0
-  let found: List[Evidence] = collect {
-    while cursor < lexed.tokens.len() {
-      let item = lexed.tokens[cursor]
-      if ! item.literal and item.text == "fn" and ! inside(item, lookup) {
-        let region = function_region_for_parameters(source_path, lexed, cursor, ["Type", "LoweredType"], "")?
-        if region.body_start >= 0 {
-          let takes_type = contains_token(lexed, region.params_start, region.params_end, "Type")
-          let takes_lowered_type = contains_token(lexed, region.params_start, region.params_end, "LoweredType")
-          let maps_type_to_lowered = takes_type and ! takes_lowered_type and function_return_contains(lexed, region, "LoweredType")
-          let maps_lowered_to_type = takes_lowered_type and ! takes_type and function_return_contains(lexed, region, "Type")
-          if (maps_type_to_lowered or maps_lowered_to_type) and contains_token(lexed, region.body_start, region.body_end, "match") {
-            let source_type = if maps_type_to_lowered { "Type" } else { "LoweredType" }
-            let target_type = if maps_type_to_lowered { "LoweredType" } else { "Type" }
-            let source_variants = qualified_variant_count(lexed, region, source_type)
-            let target_variants = qualified_variant_count(lexed, region, target_type)
-            if source_variants >= 8 and target_variants >= 8 {
-              yield evidence(source_path, item, region.name)
-            } else if source_variants >= 8 or target_variants >= 8 {
-                invalid(source_path, item.line, "unclassified Type/LoweredType conversion body")
+proc function_regions_for_parameters(source_path: Str, lexed: Lexed, lookup: SpanLookup, required_parameters: List[Str]) [error] -> Result[List[FunctionRegion]] {
+  var regions: List[FunctionRegion] = []
+  var keyword = 0
+  while keyword < lexed.tokens.len() {
+    let item = lexed.tokens[keyword]
+    if ! item.literal and item.text == "fn" and ! inside(item, lookup) {
+      let name = (lexed.tokens.get(keyword + 1) ?? end_token).text
+      if ident_start(first(name)) {
+        var params_start = keyword + 2
+        var generic_depth = 0
+        while params_start < lexed.tokens.len() {
+          let value = lexed.tokens[params_start].text
+          if value == "<" { generic_depth += 1; params_start += 1; continue }
+          if value == ">" and (lexed.tokens.get(params_start - 1) ?? end_token).text != "-" and generic_depth > 0 {
+            generic_depth -= 1
+            params_start += 1
+            continue
+          }
+          break when value == "(" and generic_depth == 0
+          break when value in ["{", ";"] and generic_depth == 0
+          if value in ["(", "[", "{"] { params_start = lexed.mates[params_start] + 1 } else { params_start += 1 }
+        }
+        if params_start < lexed.tokens.len() and lexed.tokens[params_start].text == "(" {
+          let params_end = lexed.mates[params_start]
+          var has_required_parameter = false
+          var parameter = params_start + 1
+          while parameter < params_end {
+            if ! lexed.tokens[parameter].literal and lexed.tokens[parameter].text in required_parameters {
+              has_required_parameter = true
+              break
+            }
+            parameter += 1
+          }
+          if has_required_parameter {
+            var body_start = params_end + 1
+            var angle_depth = 0
+            var declaration = false
+            while body_start < lexed.tokens.len() {
+              let value = lexed.tokens[body_start].text
+              if value == "<" { angle_depth += 1; body_start += 1; continue }
+              if value == ">" and (lexed.tokens.get(body_start - 1) ?? end_token).text != "-" and angle_depth > 0 {
+                angle_depth -= 1
+                body_start += 1
+                continue
+              }
+              if value == ";" and angle_depth == 0 { declaration = true; break }
+              if value == "{" {
+                break when angle_depth == 0
+                body_start = lexed.mates[body_start] + 1
+                continue
+              }
+              if value in ["(", "["] { body_start = lexed.mates[body_start] + 1 } else { body_start += 1 }
+            }
+            if ! declaration {
+              if body_start >= lexed.tokens.len() or lexed.tokens[body_start].text != "{" {
+                invalid(source_path, item.line, "cannot locate conversion function body")
+              }
+              regions += [{keyword: keyword, name: name, params_start: params_start + 1, params_end: params_end, body_start: body_start + 1, body_end: lexed.mates[body_start]}]
             }
           }
         }
       }
-      cursor += 1
+    }
+    keyword += 1
+  }
+  regions
+}
+
+proc type_storage_mapping_evidence(source_path: Str, lexed: Lexed, lookup: SpanLookup) [error] -> Result[List[Evidence]] {
+  return [] when ! source_path.starts_with("src/runtime/eval/")
+  var has_type = false
+  var has_lowered_type = false
+  var has_match = false
+  for token in lexed.tokens {
+    if ! token.literal {
+      if token.text == "Type" { has_type = true }
+      if token.text == "LoweredType" { has_lowered_type = true }
+      if token.text == "match" { has_match = true }
+      if has_type and has_lowered_type and has_match { break }
+    }
+  }
+  if ! has_type or ! has_lowered_type or ! has_match { return [] }
+  let regions = function_regions_for_parameters(source_path, lexed, lookup, ["Type", "LoweredType"])?
+  let found: List[Evidence] = collect {
+    for region in regions {
+      let item = lexed.tokens[region.keyword]
+      var takes_type = false
+      var takes_lowered_type = false
+      var parameter = region.params_start
+      while parameter < region.params_end {
+        let token = lexed.tokens[parameter]
+        if ! token.literal and token.text == "Type" { takes_type = true }
+        if ! token.literal and token.text == "LoweredType" { takes_lowered_type = true }
+        parameter += 1
+      }
+      if takes_type != takes_lowered_type {
+        let return_type = if takes_type { "LoweredType" } else { "Type" }
+        let signature_end = region.body_start - 1
+        var cursor = region.params_end + 1
+        var has_return_type = false
+        while cursor + 1 < signature_end {
+          if lexed.tokens[cursor].text == "-" and lexed.tokens[cursor + 1].text == ">" {
+            cursor += 2
+            while cursor < signature_end {
+              let token = lexed.tokens[cursor]
+              if ! token.literal and token.text == return_type { has_return_type = true }
+              cursor += 1
+            }
+            break
+          }
+          cursor += 1
+        }
+        if has_return_type {
+          var has_match = false
+          var type_variants: List[Str] = []
+          var lowered_type_variants: List[Str] = []
+          var body = region.body_start
+          while body < region.body_end {
+            let token = lexed.tokens[body]
+            let value = token.text
+            if ! token.literal and value == "match" { has_match = true }
+            if body + 2 < region.body_end and value in ["Type", "LoweredType"] and lexed.tokens[body + 1].text == ":" and lexed.tokens[body + 2].text == ":" {
+              let variant = (lexed.tokens.get(body + 3) ?? end_token).text
+              if variant != "" {
+                if value == "Type" and ! (variant in type_variants) { type_variants += [variant] }
+                if value == "LoweredType" and ! (variant in lowered_type_variants) { lowered_type_variants += [variant] }
+              }
+            }
+            body += 1
+          }
+          if has_match {
+            let source_variants = if takes_type { type_variants.len() } else { lowered_type_variants.len() }
+            let target_variants = if takes_type { lowered_type_variants.len() } else { type_variants.len() }
+            if source_variants >= 8 and target_variants >= 8 {
+              yield evidence(source_path, item, region.name)
+            } else if source_variants >= 8 or target_variants >= 8 {
+              invalid(source_path, item.line, "unclassified Type/LoweredType conversion body")
+            }
+          }
+        }
+      }
     }
   }
   found
@@ -1193,30 +1202,54 @@ pure inside_macro_definition(lexed: Lexed, index: Int) -> Bool {
 
 proc lowering_type_resolver_evidence(source_path: Str, lexed: Lexed, lookup: SpanLookup) [error] -> Result[List[Evidence]] {
   if source_path != "src/runtime/eval/lower.rs" and ! source_path.starts_with("src/runtime/eval/lower/") { return [] }
-  var cursor = 0
+  let regions = function_regions_for_parameters(source_path, lexed, lookup, ["TypeExprId"])?
   let found: List[Evidence] = collect {
-    while cursor < lexed.tokens.len() {
-      let item = lexed.tokens[cursor]
-      if ! item.literal and item.text == "fn" and ! inside(item, lookup) {
-        let region = function_region_for_parameters(source_path, lexed, cursor, ["TypeExprId"], "")?
-        if region.body_start >= 0 {
-          let type_dispatch = contains_token(lexed, region.body_start, region.body_end, "ArenaTypeExprTag")
-          let recursive = recursive_type_expr_call(lexed, region)
-          if type_dispatch {
-            let returns_string = function_return_contains(lexed, region, "String")
-            if ! returns_string {
-              let returns_semantic_type = function_return_contains(lexed, region, "Type") or function_return_contains(lexed, region, "LoweredType")
-              let constructs_type = constructs_semantic_type(lexed, region)
-              if constructs_type {
-                yield evidence(source_path, item, region.name)
-              } else if returns_semantic_type or recursive {
-                invalid(source_path, item.line, "unclassified type-expression tag walker")
+    for region in regions {
+      let item = lexed.tokens[region.keyword]
+      var type_dispatch = false
+      var recursive = false
+      var constructs_type = false
+      var body = region.body_start
+      while body < region.body_end {
+        let token = lexed.tokens[body]
+        let value = token.text
+        if ! token.literal and value == "ArenaTypeExprTag" { type_dispatch = true }
+        if value == region.name and (lexed.tokens.get(body + 1) ?? end_token).text == "(" { recursive = true }
+        if body + 2 < region.body_end and value in ["Type", "LoweredType"] and lexed.tokens[body + 1].text == ":" and lexed.tokens[body + 2].text == ":" {
+          constructs_type = true
+        }
+        body += 1
+      }
+      if type_dispatch {
+        var returns_string = false
+        var returns_type = false
+        var returns_lowered_type = false
+        let signature_end = region.body_start - 1
+        var signature = region.params_end + 1
+        while signature + 1 < signature_end {
+          if lexed.tokens[signature].text == "-" and lexed.tokens[signature + 1].text == ">" {
+            signature += 2
+            while signature < signature_end {
+              let token = lexed.tokens[signature]
+              if ! token.literal {
+                if token.text == "String" { returns_string = true }
+                if token.text == "Type" { returns_type = true }
+                if token.text == "LoweredType" { returns_lowered_type = true }
               }
+              signature += 1
             }
+            break
+          }
+          signature += 1
+        }
+        if ! returns_string {
+          if constructs_type {
+            yield evidence(source_path, item, region.name)
+          } else if returns_type or returns_lowered_type or recursive {
+            invalid(source_path, item.line, "unclassified type-expression tag walker")
           }
         }
       }
-      cursor += 1
     }
   }
   found
