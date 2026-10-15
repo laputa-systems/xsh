@@ -7032,6 +7032,46 @@ test test_system_report_trace_reassembles_interleaved_calls_and_rejects_unmatche
   assert report_checks.replay_host_read_violations(split_replay_read) == ["saved-report replay read a live source"]
 }
 
+test test_system_report_trace_reassembles_terminal_marker_in_quoted_write_path {
+  let quoted_write = """10    openat(AT_FDCWD, "/tmp/ümlaut/<unfinished ...>/output", O_WRONLY <unfinished ...>
+10    <... openat resumed>, 0) = 4
+"""
+  assert report_checks.host_effect_trace_violations(quoted_write) == ["writable file open"]
+}
+
+test test_system_report_trace_reassembles_terminal_marker_in_quoted_replay_read_path {
+  let quoted_replay_read = """10    openat(AT_FDCWD, "/proc/ümlaut/<unfinished ...>/meminfo", O_RDONLY <unfinished ...>
+10    <... openat resumed>) = 4
+"""
+  assert report_checks.replay_host_read_violations(quoted_replay_read) == ["saved-report replay read a live source"]
+}
+
+test test_system_report_trace_reassembles_multiple_pending_tasks_in_reverse_order {
+  let reverse_resumes = """[pid 10] openat(AT_FDCWD, "/tmp/first", O_WRONLY <unfinished ...>
+[pid 11] openat(AT_FDCWD, "/tmp/second", O_WRONLY <unfinished ...>
+[pid 11] <... openat resumed>, 0) = 4
+[pid 10] <... openat resumed>, 0) = 5
+"""
+  assert report_checks.host_effect_trace_violations(reverse_resumes) == ["writable file open", "writable file open"]
+}
+
+test test_system_report_trace_rejects_duplicate_and_trailing_fragments {
+  let duplicate_pending = """10 openat(AT_FDCWD, "/tmp/first", O_WRONLY <unfinished ...>
+10 openat(AT_FDCWD, "/tmp/second", O_WRONLY <unfinished ...>
+10 <... openat resumed>, 0) = 4
+"""
+  assert "incomplete syscall trace" in report_checks.host_effect_trace_violations(duplicate_pending)
+
+  let duplicate_resume = """10 openat(AT_FDCWD, "/tmp/first", O_WRONLY <unfinished ...>
+10 <... openat resumed>, 0) = 4
+10 <... openat resumed>, 0) = 5
+"""
+  assert "incomplete syscall trace" in report_checks.host_effect_trace_violations(duplicate_resume)
+
+  let trailing_pending = """10 openat(AT_FDCWD, "/tmp/first", O_WRONLY <unfinished ...>"""
+  assert "incomplete syscall trace" in report_checks.host_effect_trace_violations(trailing_pending)
+}
+
 test test_system_report_fixture_definition_check_ignores_comments_and_partial_names {
   let source = """# test test_system_report_comment_only {}
 test test_system_report_existing {}

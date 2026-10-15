@@ -20702,11 +20702,12 @@ pure reassemble_syscall_trace(trace: Str) -> SyscallTraceRecords {
         if (pending.get(key) ?? "") != "" {
           incomplete = true
         } else {
-          let unfinished_parts = line.split("<unfinished ...>", maxsplit: 1)
-          if unfinished_parts.len() != 2 {
+          let unfinished_parts = line.split("<unfinished ...>")
+          if unfinished_parts.len() < 2 {
             incomplete = true
           } else {
-            pending = pending.set(key, unfinished_parts[0])
+            let prefix = unfinished_parts |> take(unfinished_parts.len() - 1).join("<unfinished ...>")
+            pending = pending.set(key, prefix)
           }
         }
       }
