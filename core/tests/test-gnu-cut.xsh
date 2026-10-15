@@ -265,8 +265,6 @@ proc check_cut_partition(ctx: TestContext, shard: Int) [fs, process, env, error]
   }
 }
 
-# Contiguous half-open index ranges cover each original case array once. The
-# three buffer-boundary cases have their own shards to keep their workloads bounded.
 # origin: gnu cut/cut.log
 test test_gnu_cut_cut_log_core_0_to_18 { |ctx| check_cut_partition(ctx, 0) }
 test test_gnu_cut_cut_log_core_19_to_37 { |ctx| check_cut_partition(ctx, 1) }

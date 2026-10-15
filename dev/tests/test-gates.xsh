@@ -253,6 +253,16 @@ test test_batch_automatic_checks_use_retained_repository_gates {
 test test_docker_gate_evaluates_context_root_path_expression { |ctx|
   let repository = fs.cwd()?
   let tools = test.temp_dir(ctx, name: "docker-gate-tools")?
+  let cargo_home = fp"{tools}/cargo"
+  let cargo_bin = fp"{cargo_home}/bin"
+  cargo_home.mkdir()
+  cargo_bin.mkdir()
+  fp"{cargo_bin}/kache".write(
+    f"""#!{ctx.xsh_bin}
+exit 0
+""",
+    mode: 0o755,
+  )
   let log = fp"{tools}/docker.log"
   fp"{tools}/docker".write(
     f"""#!{ctx.xsh_bin}
@@ -284,6 +294,7 @@ main()?
     args: [],
     env: {
       PATH: f"{tools}:{inherited_path}",
+      CARGO_HOME: cargo_home.display(),
       XSH_MODULE_PATH: f"{repository}/dev/tests:{repository}/dev",
       XSH_TEST_IMAGE_BUILD: "0",
       XSH_TEST_IMAGE: "xsh-test:cwd-regression",
@@ -292,4 +303,5 @@ main()?
   assert "docker-image-inspect" in result.stdout
   assert "docker-gate-lane" in result.stdout
   assert log.read_lines()?.len() == 2
+  assert f"{repository}/dev/musl-linker.sh:/usr/local/bin/xsh-mold-linker:ro" in log.read_text()?
 }
