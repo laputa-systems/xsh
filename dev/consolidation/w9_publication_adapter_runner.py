@@ -3227,7 +3227,7 @@ def compare_full_publications(
                 raise PublicationError("immutable original reference capture validation is incomplete")
             original_raw_hashes = _hash_raw_outcomes(
                 pathlib.Path(original_build["binary"]), original_raw, candidate_source_record,
-                count, mismatch_path.parent, "original-reference", 2, docker_environment, runner,
+                count, mismatch_path.parent, "reference", 2, docker_environment, runner,
             )
 
             def original_rows():

@@ -862,11 +862,35 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             )[0],
             "current",
         )
+        builder_source_root = self.root / "builder-source"
+        builder_source_root.mkdir()
+        for relative_path in (
+            pathlib.Path("stdlib/tui.xsh"),
+            pathlib.Path("dev/consolidation/w9-publication-owner-helper.rs"),
+        ):
+            destination = builder_source_root / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(self.repository / relative_path, destination)
+        for command in (
+            ["git", "init", "--quiet", str(builder_source_root)],
+            ["git", "-C", str(builder_source_root), "config", "user.name", "Test"],
+            ["git", "-C", str(builder_source_root), "config", "user.email", "test@example.invalid"],
+            [
+                "git", "-C", str(builder_source_root), "add",
+                "stdlib/tui.xsh", "dev/consolidation/w9-publication-owner-helper.rs",
+            ],
+            ["git", "-C", str(builder_source_root), "commit", "--quiet", "-m", "test(fixtures): initialize builder source"],
+        ):
+            subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        (builder_source_root / ".git/info/exclude").write_text("/.work/\n", encoding="utf-8")
+        builder_source_root_commit, builder_source_root_tree = self.runner.source_identity(
+            builder_source_root
+        )
         source_record = {
             "schema": self.runner.SOURCE_COHORT_SCHEMA,
-            "candidate_root": str(self.source_root),
-            "candidate_commit": self.source_commit,
-            "candidate_tree": self.source_tree,
+            "candidate_root": str(builder_source_root),
+            "candidate_commit": builder_source_root_commit,
+            "candidate_tree": builder_source_root_tree,
             "input_root": str(self.input_root),
             "input_manifest": str(self.input_manifest),
             "input_manifest_sha256": "a" * 64,
@@ -907,11 +931,12 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         for role, source_root, commit, tree in (
             ("derived-reference", derived_source_root, correction.SOURCE_COMMIT, correction.SOURCE_TREE),
             ("original-reference", original_source_root, correction.BASE_COMMIT, correction.BASE_TREE),
-            ("candidate", self.source_root, self.source_commit, self.source_tree),
+            ("candidate", builder_source_root, builder_source_root_commit, builder_source_root_tree),
         ):
             capture_root = self.root / f"aggregate-{role}"
-            raw_root = capture_root / "raw"
+            raw_root = builder_source_root / ".work" / f"raw-{role}"
             receipt_directory = capture_root / "receipts"
+            capture_root.mkdir()
             raw_root.mkdir(parents=True)
             (raw_root / "owners-0.tsv").write_text(
                 candidate_owner_text if role == "candidate" else reference_owner_text,
@@ -960,6 +985,32 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             for profile in adapter_runner.PROFILES
             for field, digest in zip(("diagnostics", "publication"), digest_pair)
         }
+        planned_container_names = []
+
+        def plan_hash_job(job, active, command, cwd, environment):
+            self.assertEqual(command[4], "run")
+            planned_container_names.append(
+                next(argument.split("=", 1)[1] for argument in command if argument.startswith("W9_CONTAINER_NAME="))
+            )
+            plan_command = list(command)
+            plan_command[4] = "plan-run"
+            result = subprocess.run(
+                plan_command,
+                cwd=cwd,
+                env=environment,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            job["output"].write(result.stderr if result.returncode else b"builder plan accepted\n")
+            job["process"] = SimpleNamespace(
+                pid=2**30,
+                returncode=result.returncode,
+                poll=lambda: result.returncode,
+                wait=lambda timeout=None: None,
+            )
+            active.append(job)
+
         mismatch_root = self.root / "aggregate-comparison"
         mismatch_root.mkdir()
         mismatch_path = mismatch_root / "mismatches.tsv"
@@ -989,7 +1040,10 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             patch.object(self.runner, "validate_reference_receipt", side_effect=AssertionError("legacy baseline used")),
             patch.object(adapter_runner, "_parse_adapter_build_receipt", side_effect=lambda path, *_args: builds[path]),
             patch.object(adapter_runner, "_parse_capture_receipt", side_effect=lambda path, *_args: captures[path]),
-            patch.object(adapter_runner, "_hash_raw_outcomes", return_value=raw_hashes),
+            patch.object(self.runner, "existing_container", return_value=False),
+            patch.object(self.runner, "inspect_owned_containers", return_value=()),
+            patch.object(self.runner, "start_and_register_job", side_effect=plan_hash_job),
+            patch.object(adapter_runner, "_parse_raw_hash_output", return_value=raw_hashes),
             patch.object(adapter_runner, "_record", side_effect=read_record),
             patch.object(
                 adapter_runner,
@@ -1009,7 +1063,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
                 mismatch_path,
                 capture_paths["derived-reference"],
                 capture_paths["candidate"],
-                self.source_root,
+                builder_source_root,
                 derived_source_root,
                 source_record,
                 self.input_root,
@@ -1025,6 +1079,10 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         self.assertEqual(result, (correction.EXPECTED_OUTCOME_COUNT, 0, None))
         self.assertEqual(mismatch_path.read_bytes(), b"")
         self.assertEqual(per_input_results, [(0, ())])
+        self.assertEqual(
+            [name.rsplit("-hash-", 1)[1] for name in planned_container_names],
+            ["derived-reference", "candidate", "reference"],
+        )
 
 
 class AdapterRawOutcomeContinuationTests(unittest.TestCase):
