@@ -9,6 +9,7 @@ use xsh::frontend::check::{
 };
 use xsh::frontend::source::{SourceId, SourceMap};
 use xsh::frontend::syntax::arena::{ArenaProgram, ArenaProgramBuilder};
+use xsh::frontend::syntax::grouping::grouping_diagnostics_in_range;
 use xsh::frontend::syntax::node::Effect;
 use xsh::frontend::syntax::parser::Parser;
 
@@ -480,6 +481,52 @@ fn checker_preparation_is_scoped_to_each_root_in_a_shared_arena() {
     assert!(!other_sources.contains(&alpha_entry_id));
     assert!(other_sources.contains(&alpha_module_id));
     assert!(!other_sources.contains(&unrelated_module_id));
+}
+
+#[test]
+fn grouping_diagnostics_match_standalone_sources_in_a_shared_arena() {
+    let entry_source = "let root_value = (1 + 2)\n";
+    let module_source = "pure calculate(x: Int) -> Int {\n  let values = {(x + 1) for item in [1, 2]}\n  let selected = match x {\n    0 => ((2 + 3)),\n    _ => (4 + 5),\n  }\n  return (selected + x) when x > 0\n}\n";
+    let unrelated_source = "let foreign = {(1 + 2), (3 + 4)}\nif true { let nested = (5 + 6) }\n";
+    let entry_id = SourceId::new(0);
+    let module_id = SourceId::new(1);
+    let unrelated_id = SourceId::new(2);
+    let mut builder = ArenaProgramBuilder::with_token_capacity(128);
+    let entry = Parser::parse_source_into_arena_builder(entry_id, entry_source, &mut builder);
+    let module = Parser::parse_source_into_arena_builder(module_id, module_source, &mut builder);
+    let unrelated =
+        Parser::parse_source_into_arena_builder(unrelated_id, unrelated_source, &mut builder);
+    for parsed in [&entry, &module, &unrelated] {
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    }
+    let module_name = builder.symbol_owner().intern("grouping");
+    builder.push_internal_arena_module("grouping".to_string(), module_name, module.statements);
+    let shared = builder.finish_with_statements(entry.statements);
+
+    for (source_id, source, shared_statements) in [
+        (entry_id, entry_source, entry.statements),
+        (module_id, module_source, module.statements),
+        (unrelated_id, unrelated_source, unrelated.statements),
+    ] {
+        let mut standalone_builder = ArenaProgramBuilder::with_token_capacity(128);
+        let standalone = Parser::parse_source_into_arena_builder(
+            source_id,
+            source,
+            &mut standalone_builder,
+        );
+        assert!(standalone.diagnostics.is_empty(), "{:?}", standalone.diagnostics);
+        let standalone_program = standalone_builder.finish_with_statements(standalone.statements);
+        let shared_diagnostics = grouping_diagnostics_in_range(&shared, shared_statements, source);
+        assert!(
+            !shared_diagnostics.is_empty(),
+            "expected grouping diagnostics for source {source_id:?}"
+        );
+        assert_eq!(
+            shared_diagnostics,
+            grouping_diagnostics_in_range(&standalone_program, standalone.statements, source),
+            "grouping diagnostics changed for source {source_id:?}"
+        );
+    }
 }
 
 #[test]

@@ -1488,16 +1488,18 @@ pub fn grouping_diagnostics_in_range(
     let mut arm_bodies = Vec::new();
     let mut set_elements = Vec::new();
     let mut diagnostics = Vec::new();
-    for (index, tag) in arena.expr_tags.iter().enumerate() {
+    let source_rows = arena.source_rows();
+    for parent in source_rows.expr_ids(source_id) {
         use crate::syntax::arena::ArenaExprTag as Tag;
+        let tag = arena.expr_tags[parent.index()];
         // An expansion's own expressions are not spelled in the source, so
         // they hold nothing and no source text follows them.
-        if arena.expr_is_synthetic(ExprId::from_index(index)) {
+        if arena.expr_is_synthetic(parent) {
             continue;
         }
         // Delimited, so held by no operator, but read by where they begin.
         if !grouped.is_empty() {
-            match arena.expr(ExprId::from_index(index)).kind {
+            match arena.expr(parent).kind {
                 ArenaExprKind::Set(items) => {
                     set_elements.extend(arena.list_elements(items).map(|item| item.value));
                 }
@@ -1547,11 +1549,7 @@ pub fn grouping_diagnostics_in_range(
         if !logical && !holds_operand {
             continue;
         }
-        let parent = ExprId::from_index(index);
         let expr = arena.expr(parent);
-        if expr.span.source_id != source_id {
-            continue;
-        }
         // Delimited children are judged against the source that follows
         // them, which only the source layout decides.
         if holds_operand {
@@ -1600,7 +1598,7 @@ pub fn grouping_diagnostics_in_range(
                 .into_iter()
                 .map(|element| (element, Lead::SetElement)),
         );
-        for index in 0..arena.stmt_tags.len() {
+        for statement in source_rows.stmt_ids(source_id) {
             if let ArenaStmtKind::Let {
                 initializer: value, ..
             }
@@ -1617,7 +1615,7 @@ pub fn grouping_diagnostics_in_range(
             | ArenaStmtKind::Return(Some(value))
             | ArenaStmtKind::Yield(value)
             | ArenaStmtKind::Defer(value, _) = arena
-                .stmt(crate::syntax::arena::StmtId::from_index(index))
+                .stmt(statement)
                 .kind
                 && let crate::syntax::arena::ArenaExprOrRun::Expr(expr) = value
             {
@@ -1625,12 +1623,13 @@ pub fn grouping_diagnostics_in_range(
             }
         }
         groups.mark_statements(program.statement_ids());
-        for block in &arena.blocks {
+        for block_id in source_rows.block_ids(source_id) {
+            let block = arena.block(block_id);
             groups.mark_statements(arena.stmt_ids(block.statements));
         }
-        for index in 0..arena.stmt_tags.len() {
+        for statement in source_rows.stmt_ids(source_id) {
             if let ArenaStmtKind::Match { arms, .. } = arena
-                .stmt(crate::syntax::arena::StmtId::from_index(index))
+                .stmt(statement)
                 .kind
             {
                 for arm in arena.match_arms(arms) {
