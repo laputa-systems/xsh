@@ -129,7 +129,7 @@ work is authorized by this resume.
   AST replaces the incorrect seed-shape assumption. The exact test and all
   fourteen soundness cases pass in the lane. The exact test also passes on
   main. [Raw evidence](evidence/fuzz-replacement-1d64/README.md) records the
-  source-mount correction and build-environment qualification limit. Fresh
+  source-mount correction and separate build/runtime allocator settings. Fresh
   canonical verification remains required.
 
 ### Verified since resume
