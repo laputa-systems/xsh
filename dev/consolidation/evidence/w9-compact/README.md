@@ -13,9 +13,9 @@ The build receipt pins these inputs:
 - Integration harness SHA-256 `172bc0630b5101b3a38e364c2bad484405ec8e7e5aafef0e89223100dab800fa`.
 - Container image `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`, platform `linux/amd64`.
 
-The earlier assertion expected `r#"escaped \" quote"#`, with one backslash before the quote. Rust Debug output had three backslashes before the quote. The corrected assertion is `r#"escaped \\\" quote"#`. The failed output is under `.work/tmp/w9-memory-profile/build-equivalence-3/w9_compact_and_pretty_checked_publications_are_canonical_equal-assertion-correction.log`. The corrected line appears in `tests/sema.rs` on the never-merge branch.
+The earlier assertion expected `r#"escaped \" quote"#`, with one backslash before the quote. Rust Debug output had three backslashes before the quote. The corrected assertion is `r#"escaped \\\" quote"#`. The [failed output](failed-escape-assertion.log) and [exit status](failed-escape-assertion.status) are retained. The corrected line appears in `tests/sema.rs` on the never-merge branch.
 
-Independent read-only review of repair commit `d3b2b2e95d7f650a6d11bf999246e8c53a897b46` returned GO. The reviewer ran no tests or builds. The shared `derive_helper` change covers the source reference and candidate, derived reference, and exact-owner reference and candidate roles. The pinned raw helper, owner helper, and exact-owner helper remain unchanged. The legacy raw-helper builder remains separate. Review found no need for a schema branch. Fresh build reuse compares the freshly derived helper hash, so an older pretty-derived binary needs a rebuild. Archival readers keep validating recorded helper identities. The conclusion from `.work/tmp/w9-compact-review.md` is retained here.
+Independent read-only review of repair commit `d3b2b2e95d7f650a6d11bf999246e8c53a897b46` returned GO. The reviewer ran no tests or builds. The shared `derive_helper` change covers the source reference and candidate, derived reference, and exact-owner reference and candidate roles. The pinned raw helper, owner helper, and exact-owner helper remain unchanged. The legacy raw-helper builder remains separate. Review found no need for a schema branch. Fresh build reuse compares the freshly derived helper hash, so an older pretty-derived binary needs a rebuild. Archival readers keep validating recorded helper identities. The full [review note](review.md) is retained.
 
 ## Input 1655 result
 
@@ -41,6 +41,8 @@ The command set `W9_INPUT_ROOT` to the frozen corpus. It wrote `W9_RECEIPT_OUTPU
 
 The scratch wrapper's `completed-input-count.txt` records 0 because its grep searched stdout. The completion marker was on stderr. The diagnostic receipt records one completed input. This probe receives no acceptance capture credit.
 
+The exact top-level regular files from the final run are retained in [run-1655/](run-1655/), including the original stdout, stderr, command, cgroup readings, phase markers, receipt, and status. The `raw/` publication directory is excluded. The final no-run build's [argv](build/argv.txt), [source identity](build/source.txt), [Cargo JSON output](build/cargo-json.stdout), and [exit status](build/exit.status) are retained separately.
+
 ## Test outcomes
 
 The final pinned Rust harness run passed these four focused tests, each with one pass, zero failures, and 273 tests filtered out:
@@ -50,6 +52,6 @@ The final pinned Rust harness run passed these four focused tests, each with one
 - `sema::w9_debug_canonicalizer_preserves_owner_associations_and_sequence_order`
 - `sema::w9_name_symbol_renderer_changes_only_validated_constructors`
 
-The last test prints expected panics while checking invalid symbol cases. Its test result is `ok`.
+The four captured [unit-test logs](unit-tests/) combine each test's stdout and stderr; each contains its `test result` status. The last test prints expected panics while checking invalid symbol cases. Its test result is `ok`.
 
-The complete Python adapter runner module passed 67 tests. The exact-owner runner module passed 54. Both exited 0, for 121 passing tests total. They ran as `python3 dev/consolidation/<module>.py` with `PYTHONDONTWRITEBYTECODE=1` and `TMPDIR` under `.work/tmp`.
+The complete Python adapter runner module passed 67 tests. The exact-owner runner module passed 54. Both exited 0, for 121 passing tests total. They ran as `python3 dev/consolidation/<module>.py` with `PYTHONDONTWRITEBYTECODE=1` and `TMPDIR` under `.work/tmp`. Their captured [adapter output](python-tests/adapter.log), [adapter status](python-tests/adapter.status), [exact-owner output](python-tests/exact-owner.log), and [exact-owner status](python-tests/exact-owner.status) are retained.

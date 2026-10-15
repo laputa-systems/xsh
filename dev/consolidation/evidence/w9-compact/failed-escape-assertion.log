@@ -1,0 +1,1711 @@
+
+running 1 test
+
+thread 'sema::w9_compact_and_pretty_checked_publications_are_canonical_equal' (28222) panicked at tests/sema.rs:2674:5:
+CheckedPublicationFixture {
+    checked: CheckOutput {
+        checked_declarations: CheckedDeclarations {
+            types: {
+                TypeDefId(
+                    1,
+                ): CheckedTypeDeclaration {
+                    name: Name(
+                        Symbol(
+                            1636,
+                        ),
+                    ),
+                    namespace: None,
+                    internal: false,
+                    info: Some(
+                        Record(
+                            {
+                                Name(
+                                    Symbol(
+                                        914,
+                                    ),
+                                ): Str,
+                                Name(
+                                    Symbol(
+                                        1578,
+                                    ),
+                                ): List(
+                                    Int,
+                                ),
+                            },
+                        ),
+                    ),
+                    schema_fields: {
+                        Name(
+                            Symbol(
+                                914,
+                            ),
+                        ): TypeExprId(
+                            1,
+                        ),
+                        Name(
+                            Symbol(
+                                1578,
+                            ),
+                        ): TypeExprId(
+                            3,
+                        ),
+                    },
+                    variants: [],
+                    schema_field_count: 2,
+                    tag_variant_count: 0,
+                    module_entry_count: 0,
+                    parameter_count: 0,
+                },
+            },
+            errors: {},
+            functions: {},
+            record_constructors: RecordConstructors {
+                instances: Mutex {
+                    data: [
+                        (
+                            TypeDefId(
+                                1,
+                            ),
+                            [],
+                            Record(
+                                {
+                                    Name(
+                                        Symbol(
+                                            914,
+                                        ),
+                                    ): Str,
+                                    Name(
+                                        Symbol(
+                                            1578,
+                                        ),
+                                    ): List(
+                                        Int,
+                                    ),
+                                },
+                            ),
+                        ),
+                    ],
+                    poisoned: false,
+                    ..
+                },
+                definitions: {
+                    (
+                        None,
+                        Name(
+                            Symbol(
+                                1636,
+                            ),
+                        ),
+                    ): TypeDefId(
+                        1,
+                    ),
+                },
+                imports: {},
+                exports: {},
+                error_types: {},
+                namespaces: {
+                    TypeDefId(
+                        1,
+                    ): None,
+                },
+                nominal_names: {
+                    TypeDefId(
+                        1,
+                    ): Name(
+                        Symbol(
+                            1636,
+                        ),
+                    ),
+                },
+                defaults: {
+                    TypeDefId(
+                        1,
+                    ): {},
+                },
+            },
+            wire_enums: PreparedWireEnums {
+                mappings: {},
+            },
+            builtin_error_families: {
+                Name(
+                    Symbol(
+                        20,
+                    ),
+                ): ErrorFamilyInfo {
+                    variants: {
+                        Name(
+                            Symbol(
+                                51,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        51,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                52,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        52,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                81,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        282,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                177,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        176,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                178,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        176,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                179,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        98,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                274,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        274,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                275,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        275,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                279,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        279,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                280,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        282,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                309,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        98,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                399,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        399,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                400,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        282,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                434,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        434,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                438,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        282,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                456,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Status,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                    },
+                },
+                Name(
+                    Symbol(
+                        43,
+                    ),
+                ): ErrorFamilyInfo {
+                    variants: {
+                        Name(
+                            Symbol(
+                                82,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                    },
+                },
+                Name(
+                    Symbol(
+                        270,
+                    ),
+                ): ErrorFamilyInfo {
+                    variants: {
+                        Name(
+                            Symbol(
+                                53,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                54,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                55,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        434,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                57,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                76,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                179,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                277,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                308,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                17,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                434,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        434,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                435,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                436,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                457,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [],
+                            implicit_message: false,
+                        },
+                        Name(
+                            Symbol(
+                                459,
+                            ),
+                        ): ErrorVariantInfo {
+                            fields: ErrorPayloadFields(
+                                [
+                                    (
+                                        Name(
+                                            Symbol(
+                                                994,
+                                            ),
+                                        ),
+                                        Str,
+                                    ),
+                                    (
+                                        Name(
+                                            Symbol(
+                                                1431,
+                                            ),
+                                        ),
+                                        Optional(
+                                            Int,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            facets: [
+                                Name(
+                                    Symbol(
+                                        98,
+                                    ),
+                                ),
+                            ],
+                            implicit_message: false,
+                        },
+                    },
+                },
+            },
+            cli_entries: [],
+        },
+        resolved_type_expressions: ResolvedTypeExpressions {
+            annotations: {
+                (
+                    None,
+                    TypeExprId(
+                        3,
+                    ),
+                ): List(
+                    Int,
+                ),
+                (
+                    None,
+                    TypeExprId(
+                        1,
+                    ),
+                ): Str,
+                (
+                    None,
+                    TypeExprId(
+                        4,
+                    ),
+                ): Record(
+                    {
+                        Name(
+                            Symbol(
+                                914,
+                            ),
+                        ): Str,
+                        Name(
+                            Symbol(
+                                1578,
+                            ),
+                        ): List(
+                            Int,
+                        ),
+                    },
+                ),
+                (
+                    None,
+                    TypeExprId(
+                        2,
+                    ),
+                ): Int,
+            },
+            templates: {},
+            instantiations: {},
+        },
+        resolved_bindings: ResolvedBindings {
+            declarations: {
+                BindingId(
+                    Args,
+                ): BindingDeclaration {
+                    name: Name(
+                        Symbol(
+                            484,
+                        ),
+                    ),
+                    span: Span {
+                        source_id: SourceId(
+                            0,
+                        ),
+                        start: 0,
+                        len: 0,
+                    },
+                    namespace: None,
+                    kind: Runtime,
+                    global: false,
+                    exported: false,
+                },
+                BindingId(
+                    Target(
+                        BindingTargetId(
+                            2,
+                        ),
+                    ),
+                ): BindingDeclaration {
+                    name: Name(
+                        Symbol(
+                            1638,
+                        ),
+                    ),
+                    span: Span {
+                        source_id: SourceId(
+                            0,
+                        ),
+                        start: 118,
+                        len: 28,
+                    },
+                    namespace: None,
+                    kind: Runtime,
+                    global: true,
+                    exported: false,
+                },
+                BindingId(
+                    Target(
+                        BindingTargetId(
+                            1,
+                        ),
+                    ),
+                ): BindingDeclaration {
+                    name: Name(
+                        Symbol(
+                            1307,
+                        ),
+                    ),
+                    span: Span {
+                        source_id: SourceId(
+                            0,
+                        ),
+                        start: 46,
+                        len: 72,
+                    },
+                    namespace: None,
+                    kind: Runtime,
+                    global: true,
+                    exported: false,
+                },
+            },
+            declaration_sites: {
+                (
+                    Span {
+                        source_id: SourceId(
+                            0,
+                        ),
+                        start: 118,
+                        len: 28,
+                    },
+                    Name(
+                        Symbol(
+                            1638,
+                        ),
+                    ),
+                ): BindingId(
+                    Target(
+                        BindingTargetId(
+                            2,
+                        ),
+                    ),
+                ),
+                (
+                    Span {
+                        source_id: SourceId(
+                            0,
+                        ),
+                        start: 0,
+                        len: 0,
+                    },
+                    Name(
+                        Symbol(
+                            484,
+                        ),
+                    ),
+                ): BindingId(
+                    Args,
+                ),
+                (
+                    Span {
+                        source_id: SourceId(
+                            0,
+                        ),
+                        start: 46,
+                        len: 72,
+                    },
+                    Name(
+                        Symbol(
+                            1307,
+                        ),
+                    ),
+                ): BindingId(
+                    Target(
+                        BindingTargetId(
+                            1,
+                        ),
+                    ),
+                ),
+            },
+            expressions: {
+                ExprId(
+                    9,
+                ): BindingId(
+                    Target(
+                        BindingTargetId(
+                            1,
+                        ),
+                    ),
+                ),
+            },
+            tails: {},
+            value_sites: {
+                (
+                    Span {
+                        source_id: SourceId(
+                            0,
+                        ),
+                        start: 132,
+                        len: 6,
+                    },
+                    Name(
+                        Symbol(
+                            1307,
+                        ),
+                    ),
+                ): BindingId(
+                    Target(
+                        BindingTargetId(
+                            1,
+                        ),
+                    ),
+                ),
+            },
+            expression_namespaces: {
+                ExprId(
+                    11,
+                ): None,
+                ExprId(
+                    7,
+                ): None,
+                ExprId(
+                    10,
+                ): None,
+                ExprId(
+                    6,
+                ): None,
+                ExprId(
+                    2,
+                ): None,
+                ExprId(
+                    9,
+                ): None,
+                ExprId(
+                    5,
+                ): None,
+                ExprId(
+                    8,
+                ): None,
+                ExprId(
+                    4,
+                ): None,
+            },
+        },
+        static_callable_aliases: {},
+        local_binding_types: {
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 46,
+                len: 72,
+            }: Record(
+                {
+                    Name(
+                        Symbol(
+                            914,
+                        ),
+                    ): Str,
+                    Name(
+                        Symbol(
+                            1578,
+                        ),
+                    ): List(
+                        Int,
+                    ),
+                },
+            ),
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 118,
+                len: 28,
+            }: List(
+                Str,
+            ),
+        },
+        prepared_constants: PreparedConstants {
+            values: {},
+            types: {},
+            record_constructor_instances: {},
+            origins: {},
+            tail_bindings: {},
+            global_bindings: {},
+            binding_values: {},
+            diagnostics: [],
+            cli_wire_enums: PreparedWireEnums {
+                mappings: {},
+            },
+            cli_command_plans: Mutex {
+                data: {},
+                poisoned: false,
+                ..
+            },
+            cli_plans: Mutex {
+                data: {},
+                poisoned: false,
+                ..
+            },
+        },
+        proven_nonnull_fallback_receivers: {},
+        diagnostics: [],
+        annotation_facts: [
+            AnnotationFact {
+                kind: Binding {
+                    span: Span {
+                        source_id: SourceId(
+                            0,
+                        ),
+                        start: 118,
+                        len: 28,
+                    },
+                    initializer: Span {
+                        source_id: SourceId(
+                            0,
+                        ),
+                        start: 131,
+                        len: 14,
+                    },
+                    exported: false,
+                },
+                ty: List(
+                    Str,
+                ),
+            },
+        ],
+        function_return_types: {},
+        record_constructor_instances: {},
+        parameter_types: {},
+        requirement_targets: {},
+        requirement_expected_targets: {},
+        reveal_types: [],
+        expr_types: {
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 67,
+                len: 50,
+            }: Record(
+                {
+                    Name(
+                        Symbol(
+                            914,
+                        ),
+                    ): Str,
+                    Name(
+                        Symbol(
+                            1578,
+                        ),
+                    ): List(
+                        Int,
+                    ),
+                },
+            ),
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 75,
+                len: 22,
+            }: Str,
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 107,
+                len: 9,
+            }: List(
+                Int,
+            ),
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 108,
+                len: 1,
+            }: Int,
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 111,
+                len: 1,
+            }: Int,
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 114,
+                len: 1,
+            }: Int,
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 131,
+                len: 14,
+            }: List(
+                Str,
+            ),
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 132,
+                len: 6,
+            }: Record(
+                {
+                    Name(
+                        Symbol(
+                            914,
+                        ),
+                    ): Str,
+                    Name(
+                        Symbol(
+                            1578,
+                        ),
+                    ): List(
+                        Int,
+                    ),
+                },
+            ),
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 132,
+                len: 12,
+            }: Str,
+        },
+        stream_stage_types: {},
+        projections: {},
+        statement_positions: {
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 0,
+                len: 46,
+            }: Statement,
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 46,
+                len: 72,
+            }: Statement,
+            Span {
+                source_id: SourceId(
+                    0,
+                ),
+                start: 118,
+                len: 28,
+            }: Statement,
+        },
+        callable_effects: {},
+        function_effect_facts: {},
+        assertion_effect_spans: {},
+        statement_expression_spans: {},
+        propagating_statements: {},
+        discardable_bindings: {},
+        propagating_conditions: {},
+        redundant_condition_propagations: {},
+        unvalidated_command_vectors: {},
+        membership_migration_spans: {},
+        standard_call_spans: {},
+        statically_resolved_call_spans: {},
+        api_calls: {},
+        module_commands: {},
+        argument_bindings: {},
+        definitely_exiting_block_spans: {},
+        handler_input_types: {},
+        inferred_variants: {},
+        path_literals: {},
+        redundant_variant_qualifiers: {},
+        record_constructor_fields: {},
+        message_payload_constructors: {},
+        record_require_migrations: {},
+        inferred_variant_patterns: {},
+        error_constructors: {},
+        optional_binding_spans: {},
+        collect_yields: {},
+        typed_callable_calls: {},
+        from_end_indexes: {},
+        conversions: {},
+        resource_scopes: {},
+        resource_transfers: {},
+        text_patterns: {},
+        embedded_bodies_checked: false,
+    },
+    named_values: {
+        Name(
+            Symbol(
+                1640,
+            ),
+        ): [
+            "café, ] } )",
+        ],
+        Name(
+            Symbol(
+                1641,
+            ),
+        ): [
+            "escaped \\\" quote",
+        ],
+    },
+    sequence: [
+        Name(
+            Symbol(
+                1641,
+            ),
+        ),
+        Name(
+            Symbol(
+                1640,
+            ),
+        ),
+    ],
+}
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test sema::w9_compact_and_pretty_checked_publications_are_canonical_equal ... FAILED
+
+failures:
+
+failures:
+    sema::w9_compact_and_pretty_checked_publications_are_canonical_equal
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 273 filtered out; finished in 0.01s
+
