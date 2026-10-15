@@ -34,6 +34,22 @@ type StatementSequenceHook = for<'source> fn(&mut Linter<'source>, &[StmtId]);
 enum LoopSite { ByteIteration, MapEntryIteration, YieldDelegation, FileLines, CountedLoop }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ExpressionAnalysisSite { PropagationContexts, RedundantCloseUses, StreamProducers, FailCandidates, SetLikeBindings, EmptyFallbacks, RedundantConditionPropagation, RedundantCapturePropagation, SizeProducts, RunArgv, CatchAllArms, NegatedCalls, NameReferenceUses, TempdirScopeUses }
+const EXPRESSION_ANALYSIS_ORDER: [ExpressionAnalysisSite; 14] = [
+    ExpressionAnalysisSite::PropagationContexts,
+    ExpressionAnalysisSite::RedundantCloseUses,
+    ExpressionAnalysisSite::StreamProducers,
+    ExpressionAnalysisSite::FailCandidates,
+    ExpressionAnalysisSite::SetLikeBindings,
+    ExpressionAnalysisSite::EmptyFallbacks,
+    ExpressionAnalysisSite::RedundantConditionPropagation,
+    ExpressionAnalysisSite::RedundantCapturePropagation,
+    ExpressionAnalysisSite::NegatedCalls,
+    ExpressionAnalysisSite::SizeProducts,
+    ExpressionAnalysisSite::RunArgv,
+    ExpressionAnalysisSite::CatchAllArms,
+    ExpressionAnalysisSite::NameReferenceUses,
+    ExpressionAnalysisSite::TempdirScopeUses,
+];
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FunctionSite { BareReturn, TailPathParse, TailRequire, TailOkReturn, TailReturnBinding, TailReturn }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -666,25 +682,39 @@ impl RuleSelection {
         let named = |code| {
             only.is_some_and(|only| only.contains(&code))
         };
-        let enabled = LINT_RULES
-            .iter()
-            .filter(|rule| {
-                only.is_none_or(|codes| codes.contains(&rule.code))
-                    && !options.excluded_rules.contains(&rule.code)
-                    && rule.setting.enabled_for_options(options, named(rule.code))
-                    && !(options.annotation_policy_writes_returns
-                        && matches!(
-                            rule.code,
-                            DiagnosticCode::LintPreferInferredPureReturn
-                                | DiagnosticCode::LintPreferInferredProcReturn
-                        ))
-            })
-            .map(|rule| rule.code)
-            .collect();
+        let mut enabled = rustc_hash::FxHashSet::default();
+        let mut expression_analysis_hooks = [None; EXPRESSION_ANALYSIS_ORDER.len()];
+        for rule in LINT_RULES {
+            if only.is_some_and(|codes| !codes.contains(&rule.code))
+                || options.excluded_rules.contains(&rule.code)
+                || !rule.setting.enabled_for_options(options, named(rule.code))
+                || (options.annotation_policy_writes_returns
+                    && matches!(
+                        rule.code,
+                        DiagnosticCode::LintPreferInferredPureReturn
+                            | DiagnosticCode::LintPreferInferredProcReturn
+                    ))
+            {
+                continue;
+            }
+            enabled.insert(rule.code);
+            for hook in rule.hooks {
+                if let RuleHook::ExpressionAnalysis(site, callback) = hook {
+                    let index = EXPRESSION_ANALYSIS_ORDER
+                        .iter()
+                        .position(|ordered| ordered == site)
+                        .expect("expression analysis hook site is ordered");
+                    if expression_analysis_hooks[index].is_none() {
+                        expression_analysis_hooks[index] = Some(*callback);
+                    }
+                }
+            }
+        }
         Self {
             enabled,
             only: options.only.clone(),
             excluded: options.excluded_rules.clone(),
+            expression_analysis_hooks,
         }
     }
     pub(super) fn enabled(&self, code: DiagnosticCode) -> bool {
@@ -713,6 +743,7 @@ pub(super) struct RuleSelection {
     enabled: rustc_hash::FxHashSet<DiagnosticCode>,
     only: Option<Vec<DiagnosticCode>>,
     excluded: Vec<DiagnosticCode>,
+    expression_analysis_hooks: [Option<ExpressionAnalysisHook>; EXPRESSION_ANALYSIS_ORDER.len()],
 }
 pub(super) fn record_field(
     linter: &mut Linter<'_>,
@@ -1079,34 +1110,9 @@ pub(super) fn expression(linter: &mut Linter<'_>, expr: ExprId) {
     }
 }
 pub(super) fn expression_analysis(linter: &mut Linter<'_>, expr: ExprId) {
-    const ORDER: [ExpressionAnalysisSite; 14] = [
-        ExpressionAnalysisSite::PropagationContexts,
-        ExpressionAnalysisSite::RedundantCloseUses,
-        ExpressionAnalysisSite::StreamProducers,
-        ExpressionAnalysisSite::FailCandidates,
-        ExpressionAnalysisSite::SetLikeBindings,
-        ExpressionAnalysisSite::EmptyFallbacks,
-        ExpressionAnalysisSite::RedundantConditionPropagation,
-        ExpressionAnalysisSite::RedundantCapturePropagation,
-        ExpressionAnalysisSite::NegatedCalls,
-        ExpressionAnalysisSite::SizeProducts,
-        ExpressionAnalysisSite::RunArgv,
-        ExpressionAnalysisSite::CatchAllArms,
-        ExpressionAnalysisSite::NameReferenceUses,
-        ExpressionAnalysisSite::TempdirScopeUses,
-    ];
-    for requested in ORDER {
-        let callback = LINT_RULES
-            .iter()
-            .filter(|rule| linter.rule_selection.enabled(rule.code))
-            .flat_map(|rule| rule.hooks)
-            .find_map(|hook| match hook {
-                RuleHook::ExpressionAnalysis(site, callback) if *site == requested => Some(*callback),
-                _ => None,
-            });
-        if let Some(callback) = callback {
-            callback(linter, expr);
-        }
+    let callbacks = linter.rule_selection.expression_analysis_hooks;
+    for callback in callbacks.into_iter().flatten() {
+        callback(linter, expr);
     }
 }
 pub(super) fn expression_rule(linter: &mut Linter<'_>, code: DiagnosticCode, expr: ExprId) {
