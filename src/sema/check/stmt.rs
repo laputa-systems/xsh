@@ -5199,6 +5199,15 @@ impl Checker {
         self.diagnostics.push(diagnostic);
     }
 
+    fn assignment_binding_scope(&self, name: Name, selected: &Binding) -> Option<usize> {
+        self.scopes.iter().rposition(|scope| {
+            scope.get(&name).is_some_and(|candidate| {
+                candidate.id == selected.id
+                    && candidate.proof.same_binding(&selected.proof)
+            })
+        })
+    }
+
     fn check_assignment_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -5212,7 +5221,7 @@ impl Checker {
             self.check_env_variable_assignment_arena(arena, source, op, value, span);
             return;
         };
-        let Some(binding) = self.lookup(name).cloned() else {
+        let Some(binding) = self.lookup_value_binding(name, span).cloned() else {
             self.report_undeclared_assignment(arena, source, target, op, value, span);
             return;
         };
@@ -5242,9 +5251,7 @@ impl Checker {
             let value_span = expr_or_run_span_arena(arena, value);
             if !actual.can_escape_context_scope()
                 && self.boundary.context_scope_depths.last().is_some_and(|depth| {
-                    self.scopes
-                        .iter()
-                        .rposition(|scope| scope.contains_key(&name))
+                    self.assignment_binding_scope(name, &binding)
                         .is_some_and(|owner| owner < *depth)
                 })
             {
@@ -5260,30 +5267,26 @@ impl Checker {
                     if self.expression_may_have_latent_stream_error(arena, expression));
                 if may_error {
                     for scope in self.scopes.iter_mut().rev() {
-                        if let Some(current) = scope.get_mut(&name) {
-                            if current.proof.same_binding(&binding.proof) {
-                                current.latent_stream_error = true;
-                            }
+                        if let Some(current) = scope.get_mut(&name).filter(|current| {
+                            current.id == binding.id
+                                && current.proof.same_binding(&binding.proof)
+                        }) {
+                            current.latent_stream_error = true;
                             break;
                         }
                     }
                 }
             }
-            self.invalidate_binding_projection_arena(arena, target, name);
+            self.invalidate_binding_projection_arena(arena, target, &binding);
             return;
         }
-        // The operand is read as the base type: what is appended to a
-        // validated list need not pass the validation itself.
         let rhs = self.check_expr_or_run_arena(arena, source, value, Some(target_ty.unvalidated()));
         let value_span = expr_or_run_span_arena(arena, value);
         let result = self.check_compound_assignment_op(op, &target_ty, &rhs, span, value_span);
         self.expect_type(&target_ty, &result, span);
-        self.invalidate_binding_projection_arena(arena, target, name);
+        self.invalidate_binding_projection_arena(arena, target, &binding);
     }
 
-    /// `e"NAME" = value` sets the variable in the evaluator environment, so
-    /// it needs the `env` effect, and its value converts like an `env (...)`
-    /// overlay value. `null` is not an unset.
     fn check_env_variable_assignment_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -5329,7 +5332,7 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         mut target: AssignTargetId,
-        name: Name,
+        selected: &Binding,
     ) {
         let mut path = Vec::new();
         loop {
@@ -5348,13 +5351,13 @@ impl Checker {
                 }
             }
         }
-        let Some(identity) = self.lookup(name).map(|binding| binding.proof.clone()) else {
-            return;
-        };
+        let identity = selected.proof.clone();
         for scope in &mut self.scopes {
             for binding in scope
                 .values_mut()
-                .filter(|binding| binding.proof.same_binding(&identity))
+                .filter(|binding| {
+                    binding.id == selected.id && binding.proof.same_binding(&identity)
+                })
             {
                 if !binding.mutable {
                     continue;
@@ -7224,5 +7227,166 @@ mod pipeline_flow_complexity_tests {
             flow_visits <= depth * 24 + 32,
             "{flow_visits} expression-flow visits at nested Zip depth {depth}"
         );
+    }
+}
+
+#[cfg(test)]
+mod assignment_binding_identity_tests {
+    use super::{Checker, Type};
+    use crate::diagnostic::DiagnosticCode;
+    use crate::sema::check::{CheckOptions, ResolvedBindings};
+    use crate::source::SourceId;
+    use crate::symbol::Name;
+    use crate::syntax::arena::{ArenaExprOrRun, ArenaStmtKind};
+    use crate::syntax::parser::Parser;
+    use std::sync::Arc;
+
+    fn checker(program: &crate::syntax::arena::ArenaProgram) -> Checker {
+        let mut checker = Checker::new(CheckOptions::default());
+        checker.resolved_bindings = Arc::new(ResolvedBindings::collect(program));
+        checker
+    }
+
+    #[test]
+    fn assignment_uses_site_identity_for_projection_mutation() {
+        let source = "var target = {field: 1}\nlet decoy = 1\ntarget.field = 2\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+        assert_eq!(statements.len(), 3);
+
+        program.symbol_owner().with_current(|| {
+            let mut checker = checker(program);
+            checker.check_stmt_arena(program, source, statements[0]);
+            checker.check_stmt_arena(program, source, statements[1]);
+
+            let target_name = Name::intern("target");
+            let decoy_name = Name::intern("decoy");
+            let target = checker.current_scope().get(&target_name).unwrap().clone();
+            let decoy = checker.current_scope().get(&decoy_name).unwrap().clone();
+            assert_ne!(target.id, decoy.id);
+            assert!(!target.proof.same_binding(&decoy.proof));
+            checker.push_scope();
+            checker.current_scope_mut().insert(target_name, decoy.clone());
+
+            checker.check_stmt_arena(program, source, statements[2]);
+
+            assert!(!checker
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckAssignLet)));
+            assert_ne!(checker.scopes[0][&target_name].proof, target.proof);
+            assert_eq!(checker.current_scope()[&target_name].proof, decoy.proof);
+        });
+    }
+
+    #[test]
+    fn assignment_context_and_latent_updates_follow_site_identity() {
+        let source = "var target = spawn run true\nlet decoy = 1\ntarget = spawn run true\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+        assert_eq!(statements.len(), 3);
+
+        program.symbol_owner().with_current(|| {
+            let mut checker = checker(program);
+            for &statement in &statements[..2] {
+                checker.check_stmt_arena(program, source, statement);
+            }
+
+            let target_name = Name::intern("target");
+            checker.scopes[0].get_mut(&target_name).unwrap().ty =
+                Type::Stream(Box::new(Type::Int));
+            let decoy = checker.current_scope()[&Name::intern("decoy")].clone();
+            assert_ne!(checker.scopes[0][&target_name].id, decoy.id);
+            let assignment = program.arena.stmt(statements[2]);
+            let ArenaStmtKind::Assign {
+                value: ArenaExprOrRun::Expr(expression),
+                ..
+            } = assignment.kind
+            else {
+                panic!("expected expression assignment");
+            };
+            checker
+                .latent_stream_error_spans
+                .insert(program.arena.expr(expression).span);
+            checker.boundary.context_scope_depths.push(1);
+            checker.push_scope();
+            checker.push_scope();
+            checker.current_scope_mut().insert(target_name, decoy.clone());
+            let selected = checker
+                .lookup_value_binding(target_name, assignment.span)
+                .unwrap()
+                .clone();
+            assert!(matches!(selected.ty.unvalidated(), Type::Stream(_)));
+            assert!(checker.expression_may_have_latent_stream_error(program, expression));
+            assert_eq!(checker.assignment_binding_scope(target_name, &selected), Some(0));
+
+            checker.check_stmt_arena(program, source, statements[2]);
+
+            assert!(checker.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckContextScopeEscape)
+            }), "{:?}", checker.diagnostics);
+            assert!(checker.scopes[0][&target_name].latent_stream_error);
+            assert!(!checker.current_scope()[&target_name].latent_stream_error);
+        });
+    }
+
+    #[test]
+    fn assignment_keeps_nearest_matching_binding_as_scope_owner() {
+        let source = "var target = spawn run true\nlet decoy = 1\ntarget = spawn run true\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let program = &parsed.arena;
+        let statements = program.arena.stmt_ids(program.statements).collect::<Vec<_>>();
+        assert_eq!(statements.len(), 3);
+
+        program.symbol_owner().with_current(|| {
+            let mut checker = checker(program);
+            for &statement in &statements[..2] {
+                checker.check_stmt_arena(program, source, statement);
+            }
+
+            let target_name = Name::intern("target");
+            checker.scopes[0].get_mut(&target_name).unwrap().ty =
+                Type::Stream(Box::new(Type::Int));
+            let active = checker.current_scope()[&target_name].clone();
+            let decoy = checker.current_scope()[&Name::intern("decoy")].clone();
+            assert_ne!(active.id, decoy.id);
+            let assignment = program.arena.stmt(statements[2]);
+            let ArenaStmtKind::Assign {
+                value: ArenaExprOrRun::Expr(expression),
+                ..
+            } = assignment.kind
+            else {
+                panic!("expected expression assignment");
+            };
+            checker
+                .latent_stream_error_spans
+                .insert(program.arena.expr(expression).span);
+            checker.boundary.context_scope_depths.push(1);
+            checker.push_scope();
+            checker.current_scope_mut().insert(target_name, active);
+            checker.push_scope();
+            checker.current_scope_mut().insert(target_name, decoy);
+            let selected = checker
+                .lookup_value_binding(target_name, assignment.span)
+                .unwrap()
+                .clone();
+            assert!(matches!(selected.ty.unvalidated(), Type::Stream(_)));
+            assert!(checker.expression_may_have_latent_stream_error(program, expression));
+            assert_eq!(checker.assignment_binding_scope(target_name, &selected), Some(1));
+
+            checker.check_stmt_arena(program, source, statements[2]);
+
+            assert!(!checker.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckContextScopeEscape)
+            }));
+            assert!(!checker.scopes[0][&target_name].latent_stream_error);
+            assert!(checker.scopes[1][&target_name].latent_stream_error);
+            assert!(!checker.scopes[2][&target_name].latent_stream_error);
+        });
     }
 }
