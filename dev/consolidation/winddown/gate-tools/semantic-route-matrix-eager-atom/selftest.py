@@ -550,9 +550,9 @@ def collection_construction_fixture() -> tuple[list[dict], dict]:
                 "arm_index": index,
             }
             for index, (helper, outcome, line) in enumerate([
-                ("indexed_list_literal_view", "Err(indexed-ir: list literal view is invalid)", 1136),
-                ("indexed_map_literal_view", "Err(indexed-ir: map literal view is invalid)", 1159),
-                ("indexed_record_literal_view", "Err(indexed-ir: record literal view is invalid)", 1182),
+                ("indexed_list_literal_view", "Err(indexed-ir: list literal view is invalid)", 1326),
+                ("indexed_map_literal_view", "Err(indexed-ir: map literal view is invalid)", 1349),
+                ("indexed_record_literal_view", "Err(indexed-ir: record literal view is invalid)", 1372),
                 ("decode_record_updates", "unreachable!: record-update tag has a matching borrowed expression view", 44),
             ])
         ],
@@ -989,7 +989,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
                     generate.validate_arena_child_shapes(source)
 
     def test_pipeline_stage_inventory_projects_nested_children(self) -> None:
-        root = generate.HERE.parents[2]
+        root = generate.HERE.parents[4]
         source = (root / generate.PIPELINE_STAGE_SOURCE_PATH).read_text()
         inventory = generate.pipeline_stage_child_inventory(source)
         paths = set(inventory["child_paths"])
@@ -1020,7 +1020,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         )
 
     def test_pipeline_stage_inventory_rejects_added_variant(self) -> None:
-        root = generate.HERE.parents[2]
+        root = generate.HERE.parents[4]
         source = (root / generate.PIPELINE_STAGE_SOURCE_PATH).read_text()
         start = source.rfind("    Range struct {")
         end = source.find("};", start)
@@ -1519,9 +1519,9 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 self.assertIn("indexed_run.rs", normal_view["source_ref"])
             row_helper_fallbacks = [
                 item for item in constructor_map["fallbacks"]
-                if item["source_ref"].endswith("explicit_run.rs:1136")
-                or item["source_ref"].endswith("explicit_run.rs:1159")
-                or item["source_ref"].endswith("explicit_run.rs:1182")
+                if item["source_ref"].endswith("explicit_run.rs:1326")
+                or item["source_ref"].endswith("explicit_run.rs:1349")
+                or item["source_ref"].endswith("explicit_run.rs:1372")
             ]
             self.assertEqual(len(row_helper_fallbacks), 3)
             self.assertTrue(all("explicit_run.rs" in item["source_ref"] for item in row_helper_fallbacks))
@@ -1542,7 +1542,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                     if item["outcome"].startswith("Err("):
                         self.assertIn("explicit_run.rs", item["source_ref"])
                         source_path, line = item["source_ref"].rsplit(":", 1)
-                        cited_line = (generate.HERE.parents[2] / source_path).read_text().splitlines()[int(line) - 1]
+                        cited_line = (generate.HERE.parents[4] / source_path).read_text().splitlines()[int(line) - 1]
                         self.assertIn(helper_messages[item["outcome"]], cited_line)
                     if "record-update" in item["outcome"]:
                         self.assertIn("operands.rs", item["source_ref"])
@@ -1555,7 +1555,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             decode_fallback["source_ref"],
             "src/runtime/eval/lowered_run/indexed_run/operands.rs:44",
         )
-        source_root = generate.HERE.parents[2]
+        source_root = generate.HERE.parents[4]
         cited_line = (source_root / "src/runtime/eval/lowered_run/indexed_run/operands.rs").read_text().splitlines()[43]
         self.assertIn("unreachable!(\"record-update tag has a matching borrowed expression view\")", cited_line)
 

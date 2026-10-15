@@ -162,7 +162,7 @@ def typed_scalar_fixture() -> tuple[list[dict], dict]:
 
 
 def typed_scalar_source_fixture() -> tuple[str, list[dict]]:
-    repo = pathlib.Path(__file__).resolve().parents[3]
+    repo = pathlib.Path(__file__).resolve().parents[5]
     source_path = repo / "src/runtime/eval/lowered_run/indexed_run/values.rs"
     source = source_path.read_text()
     lines = source.splitlines()
@@ -579,9 +579,9 @@ def collection_construction_fixture() -> tuple[list[dict], dict]:
                 "arm_index": index,
             }
             for index, (helper, outcome, line) in enumerate([
-                ("indexed_list_literal_view", "Err(indexed-ir: list literal view is invalid)", 1136),
-                ("indexed_map_literal_view", "Err(indexed-ir: map literal view is invalid)", 1159),
-                ("indexed_record_literal_view", "Err(indexed-ir: record literal view is invalid)", 1182),
+                ("indexed_list_literal_view", "Err(indexed-ir: list literal view is invalid)", 1326),
+                ("indexed_map_literal_view", "Err(indexed-ir: map literal view is invalid)", 1349),
+                ("indexed_record_literal_view", "Err(indexed-ir: record literal view is invalid)", 1372),
                 ("decode_record_updates", "unreachable!: record-update tag has a matching borrowed expression view", 44),
             ])
         ],
@@ -1129,7 +1129,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
                     generate.validate_arena_child_shapes(source)
 
     def test_pipeline_stage_inventory_projects_nested_children(self) -> None:
-        root = generate.HERE.parents[2]
+        root = generate.HERE.parents[4]
         source = (root / generate.PIPELINE_STAGE_SOURCE_PATH).read_text()
         inventory = generate.pipeline_stage_child_inventory(source)
         paths = set(inventory["child_paths"])
@@ -1160,7 +1160,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         )
 
     def test_pipeline_stage_inventory_rejects_added_variant(self) -> None:
-        root = generate.HERE.parents[2]
+        root = generate.HERE.parents[4]
         source = (root / generate.PIPELINE_STAGE_SOURCE_PATH).read_text()
         start = source.rfind("    Range struct {")
         end = source.find("};", start)
@@ -1213,7 +1213,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             generate.validate_scalar_route_oracle_mappings(config)
 
     def test_route_witness_mappings_are_exact_and_candidates_stay_unsupported(self) -> None:
-        root = generate.HERE.parents[2]
+        root = generate.HERE.parents[4]
         config = json.loads(generate.CONFIG.read_text())
         rows = generate.parse_schema((root / generate.SCHEMA_PATH).read_text())
         mappings = generate.validate_route_witness_mappings(root, config, rows)
@@ -1270,7 +1270,11 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             generate.validate_route_witness_mappings(root, wrong_route, rows)
 
         wrong_mode = copy.deepcopy(config)
-        wrong_mode["route_witness_mappings"][-1]["mode_expectations"]["forced"]["route_id"] = "recursive_bridge_to_explicit_frames"
+        capability = next(
+            mapping for mapping in wrong_mode["route_witness_mappings"]
+            if mapping["mapping_kind"] == "artifact_capability"
+        )
+        capability["mode_expectations"]["forced"]["route_id"] = "recursive_bridge_to_explicit_frames"
         with self.assertRaisesRegex(generate.EvidenceError, "unsupported route-witness capability claim"):
             generate.validate_route_witness_mappings(root, wrong_mode, rows)
 
@@ -1960,9 +1964,9 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 self.assertIn("indexed_run.rs", normal_view["source_ref"])
             row_helper_fallbacks = [
                 item for item in constructor_map["fallbacks"]
-                if item["source_ref"].endswith("explicit_run.rs:1136")
-                or item["source_ref"].endswith("explicit_run.rs:1159")
-                or item["source_ref"].endswith("explicit_run.rs:1182")
+                if item["source_ref"].endswith("explicit_run.rs:1326")
+                or item["source_ref"].endswith("explicit_run.rs:1349")
+                or item["source_ref"].endswith("explicit_run.rs:1372")
             ]
             self.assertEqual(len(row_helper_fallbacks), 3)
             self.assertTrue(all("explicit_run.rs" in item["source_ref"] for item in row_helper_fallbacks))
@@ -1983,7 +1987,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                     if item["outcome"].startswith("Err("):
                         self.assertIn("explicit_run.rs", item["source_ref"])
                         source_path, line = item["source_ref"].rsplit(":", 1)
-                        cited_line = (generate.HERE.parents[2] / source_path).read_text().splitlines()[int(line) - 1]
+                        cited_line = (generate.HERE.parents[4] / source_path).read_text().splitlines()[int(line) - 1]
                         self.assertIn(helper_messages[item["outcome"]], cited_line)
                     if "record-update" in item["outcome"]:
                         self.assertIn("operands.rs", item["source_ref"])
@@ -1996,7 +2000,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             decode_fallback["source_ref"],
             "src/runtime/eval/lowered_run/indexed_run/operands.rs:44",
         )
-        source_root = generate.HERE.parents[2]
+        source_root = generate.HERE.parents[4]
         cited_line = (source_root / "src/runtime/eval/lowered_run/indexed_run/operands.rs").read_text().splitlines()[43]
         self.assertIn("unreachable!(\"record-update tag has a matching borrowed expression view\")", cited_line)
 
@@ -2295,7 +2299,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             generate.build_fallback_path_map(row, refs)
 
     def test_route_witness_artifact_rejects_wrong_tuple_and_stale_identity(self) -> None:
-        root = generate.HERE.parents[2]
+        root = generate.HERE.parents[4]
         scratch = root / ".work/tmp"
         scratch.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=scratch, prefix="route-witness-artifact-") as temporary:
@@ -2390,7 +2394,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             ))
 
     def test_route_witness_receipts_credit_only_unique_exact_tuples(self) -> None:
-        root = generate.HERE.parents[2]
+        root = generate.HERE.parents[4]
         scratch = root / ".work/tmp"
         scratch.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(dir=scratch, prefix="route-witness-receipt-") as temporary:
@@ -2670,7 +2674,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         self.assertIn("map-missing", generate.RUNTIME_ERROR_CLASSIFICATIONS["ExprIndex"][-1])
         self.assertIn("nul-path", generate.RUNTIME_ERROR_CLASSIFICATIONS["ExprPathFrom"][-1])
 
-        root = generate.HERE.parents[2]
+        root = generate.HERE.parents[4]
         config = json.loads(generate.CONFIG.read_text())
         sealed_candidates = set(config["source_paths"] + config["decisive_sources"])
         for tag, functions in generate.RUNTIME_ERROR_SOURCE_FUNCTIONS.items():

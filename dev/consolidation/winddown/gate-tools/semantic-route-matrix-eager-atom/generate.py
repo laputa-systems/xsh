@@ -16,9 +16,9 @@ from typing import Any
 
 
 HERE = pathlib.Path(__file__).resolve().parent
-CONFIG = HERE / "evidence.json"
-SOURCE_LOCK = HERE / "source-lock.json"
-OUTPUT = HERE / "matrix.json"
+CONFIG = HERE.parent / "semantic-route-matrix" / "evidence.json"
+SOURCE_LOCK_RELATIVE = pathlib.Path(".work/final-review-evidence/semantic-route-matrix/source-lock.json")
+OUTPUT_RELATIVE = pathlib.Path(".work/final-review-evidence/semantic-route-matrix-eager-atom/matrix.json")
 AST_EXTRACTOR_MANIFEST = HERE / "ast-extractor/Cargo.toml"
 CARGO_EXE = pathlib.Path.home() / ".cargo/bin/cargo"
 SCHEMA_PATH = pathlib.Path("src/runtime/eval/indexed/full/schema.rs")
@@ -27,7 +27,7 @@ PIPELINE_STAGE_SOURCE_PATH = pathlib.Path("src/runtime/eval/indexed/full.rs")
 LOWERED_RUN_SOURCE_PATH = pathlib.Path("src/runtime/eval/lowered_run.rs")
 TYPED_SCALAR_VALUES_PATH = pathlib.Path("src/runtime/eval/lowered_run/indexed_run/values.rs")
 OPERANDS_HELPER_PATH = pathlib.Path("src/runtime/eval/lowered_run/indexed_run/operands.rs")
-OPERAND_MANIFEST = HERE / "operand-order-manifest.tsv"
+OPERAND_MANIFEST = HERE.parent / "semantic-route-matrix" / "operand-order-manifest.tsv"
 ORDINAL_HOLES = [50, 64, 95, 97, 98, 147]
 EXPECTED_LIVE_COUNT = 152
 EAGER_ATOM_PROVENANCE = {
@@ -3681,11 +3681,7 @@ def final_correctness_receipts(
 
 
 def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any]) -> dict[str, Any]:
-    source_paths = sorted(
-        set(config["source_paths"] + config.get("decisive_sources", []) + [
-            str(ARENA_PATH), str(PIPELINE_STAGE_SOURCE_PATH),
-        ])
-    )
+    source_paths = source_lock_paths(config)
     actual = source_snapshot(root, source_paths)
     if not actual["clean"]:
         raise EvidenceError(f"source worktree is dirty:\n{actual['status']}")
@@ -3828,6 +3824,13 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
     oracle_map = config["runtime_oracles"]
     static_tags = config["static_or_rejection_tags"]
     static_tag_set = set(static_tags)
+    static_reasons = config.get("static_or_rejection_reasons")
+    if (
+        not isinstance(static_reasons, dict)
+        or set(static_reasons) != static_tag_set
+        or any(not isinstance(reason, str) or not reason.strip() for reason in static_reasons.values())
+    ):
+        raise EvidenceError("static/rejection reasons must name every and only static schema row")
     static_id = config["static_oracle_id"]
     validate_oracle_id(static_id, rust_ids)
     unknown_oracle_rows = sorted(set(oracle_map) - {row["tag"] for row in routed})
@@ -3880,6 +3883,7 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                 ]
             }
             row["path_status"] = "static_schema_only"
+            row["static_or_rejection_reason"] = static_reasons[tag]
             continue
 
         oracle_ids = oracle.get("ids", [])
@@ -4344,11 +4348,21 @@ def initialize_static_map(root: pathlib.Path, config: dict[str, Any]) -> list[st
 
 
 def write_source_lock(root: pathlib.Path, config: dict[str, Any]) -> dict[str, Any]:
-    snapshot = source_snapshot(root, config["source_paths"])
+    snapshot = source_snapshot(root, source_lock_paths(config))
     if not snapshot["clean"]:
         raise EvidenceError(f"refusing to lock dirty source:\n{snapshot['status']}")
-    SOURCE_LOCK.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n")
+    source_lock_path = root / SOURCE_LOCK_RELATIVE
+    source_lock_path.parent.mkdir(parents=True, exist_ok=True)
+    source_lock_path.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n")
     return snapshot
+
+
+def source_lock_paths(config: dict[str, Any]) -> list[str]:
+    return sorted(set(
+        config["source_paths"]
+        + config.get("decisive_sources", [])
+        + [str(SCHEMA_PATH), str(ARENA_PATH), str(PIPELINE_STAGE_SOURCE_PATH)]
+    ))
 
 
 def duplicate_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -4365,7 +4379,7 @@ def main() -> int:
     parser.add_argument("--root", type=pathlib.Path, default=pathlib.Path.cwd())
     parser.add_argument("--lock-source", action="store_true", help="write a clean source identity lock")
     parser.add_argument("--initialize-static-map", action="store_true", help="explicitly record rows with static/rejection-only evidence")
-    parser.add_argument("--output", type=pathlib.Path, default=OUTPUT)
+    parser.add_argument("--output", type=pathlib.Path)
     args = parser.parse_args()
     root = args.root.resolve()
     try:
@@ -4378,9 +4392,12 @@ def main() -> int:
             tags = initialize_static_map(root, config)
             print(f"recorded {len(tags)} explicit static/rejection-only rows")
             return 0
-        lock = json.loads(SOURCE_LOCK.read_text(), object_pairs_hook=duplicate_json_object)
+        lock_path = root / SOURCE_LOCK_RELATIVE
+        lock = json.loads(lock_path.read_text(), object_pairs_hook=duplicate_json_object)
         matrix = build_matrix(root, config, lock)
-        args.output.write_text(json.dumps(matrix, indent=2, sort_keys=True) + "\n")
+        output = args.output or root / OUTPUT_RELATIVE
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(matrix, indent=2, sort_keys=True) + "\n")
     except (EvidenceError, OSError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
         print(f"semantic-route-matrix: {error}", file=sys.stderr)
         return 2

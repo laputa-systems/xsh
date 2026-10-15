@@ -17,8 +17,8 @@ from typing import Any
 
 HERE = pathlib.Path(__file__).resolve().parent
 CONFIG = HERE / "evidence.json"
-SOURCE_LOCK = HERE / "source-lock.json"
-OUTPUT = HERE / "matrix.json"
+SOURCE_LOCK_RELATIVE = pathlib.Path(".work/final-review-evidence/semantic-route-matrix/source-lock.json")
+OUTPUT_RELATIVE = pathlib.Path(".work/final-review-evidence/semantic-route-matrix/matrix.json")
 AST_EXTRACTOR_MANIFEST = HERE / "ast-extractor/Cargo.toml"
 CARGO_EXE = pathlib.Path.home() / ".cargo/bin/cargo"
 SCHEMA_PATH = pathlib.Path("src/runtime/eval/indexed/full/schema.rs")
@@ -58,6 +58,17 @@ ROUTE_WITNESS_CAPABILITY = {
     ("ExprEmptyMap", "forced"): "generic_operand_apply_path",
 }
 ROUTE_WITNESS_EXPECTATION_MODES = ("normal", "forced")
+ROUTE_WITNESS_BEHAVIOR_ONLY_IDS = {
+    "tests/xsh/expression-route-oracles.xsh::test_expr_if_non_in_place_selection": (
+        "Exercises non-in-place If selection behavior without claiming a single route tuple."
+    ),
+    "tests/xsh/expression-route-oracles.xsh::test_expr_match_pure_selection": (
+        "Exercises pure Match selection behavior without claiming a single route tuple."
+    ),
+    "tests/xsh/typed-scalar-route-oracles.xsh::test_prepared_constant_value_remains_42": (
+        "Checks prepared-constant value preservation without claiming a single route tuple."
+    ),
+}
 FRAME_CONSTRUCTOR_ROWS = {
     "ExprFunctionRef": ("FunctionRef", 29),
     "ExprPathFrom": ("PathFrom", 30),
@@ -4427,11 +4438,21 @@ def expected_route_witness_mappings(
         for source_file in files
     ]
     source_ids = committed_xsh_test_ids(root, source_commit, source_files)
-    if len(source_ids) != 114:
-        raise EvidenceError(f"expected 114 route-witness candidates at {source_commit}, found {len(source_ids)}")
+    behavior_only_ids = set(ROUTE_WITNESS_BEHAVIOR_ONLY_IDS)
+    missing_behavior_only_ids = sorted(behavior_only_ids - source_ids)
+    if len(source_ids) != 117 or missing_behavior_only_ids:
+        raise EvidenceError(
+            f"expected 117 source oracle IDs including the 3 behavior-only regressions at "
+            f"{source_commit}; found {len(source_ids)}, missing={missing_behavior_only_ids}"
+        )
+    route_source_ids = source_ids - behavior_only_ids
+    if len(route_source_ids) != 114:
+        raise EvidenceError(
+            f"expected 114 exact route-witness candidates at {source_commit}, found {len(route_source_ids)}"
+        )
 
     expected: dict[str, dict[str, str]] = {}
-    for test_id in sorted(source_ids):
+    for test_id in sorted(route_source_ids):
         tag, source_file, mapping_kind = route_witness_source_tag(test_id, rows_by_tag)
         if test_id in expected:
             raise EvidenceError(f"duplicate route-witness source ID: {test_id}")
@@ -5106,11 +5127,7 @@ def final_correctness_receipts(
 
 
 def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any]) -> dict[str, Any]:
-    source_paths = sorted(
-        set(config["source_paths"] + config.get("decisive_sources", []) + [
-            str(ARENA_PATH), str(PIPELINE_STAGE_SOURCE_PATH),
-        ])
-    )
+    source_paths = source_lock_paths(config)
     actual = source_snapshot(root, source_paths)
     if not actual["clean"]:
         raise EvidenceError(f"source worktree is dirty:\n{actual['status']}")
@@ -5204,6 +5221,15 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
     xsh_ids = xsh_test_ids(root, config["xsh_oracle_files"])
     rust_ids = rust_test_ids(root, config["rust_oracle_files"], config["rust_test_modules"])
     runtime_ids = xsh_ids | rust_ids | route_witness_ids
+    behavior_only_oracles = []
+    for oracle_id, scope in sorted(ROUTE_WITNESS_BEHAVIOR_ONLY_IDS.items()):
+        validate_oracle_id(oracle_id, xsh_ids)
+        behavior_only_oracles.append({
+            "test_id": oracle_id,
+            "scope": scope,
+            "commands": native_commands(oracle_id),
+            "status": "behavior_only_no_tag_route_claim",
+        })
     for row in routed:
         for route in row["normal_routes"] + row["forced_routes"]:
             for oracle_id in route.get("test_ids", []):
@@ -5246,6 +5272,13 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
     oracle_map = config["runtime_oracles"]
     static_tags = config["static_or_rejection_tags"]
     static_tag_set = set(static_tags)
+    static_reasons = config.get("static_or_rejection_reasons")
+    if (
+        not isinstance(static_reasons, dict)
+        or set(static_reasons) != static_tag_set
+        or any(not isinstance(reason, str) or not reason.strip() for reason in static_reasons.values())
+    ):
+        raise EvidenceError("static/rejection reasons must name every and only static schema row")
     static_id = config["static_oracle_id"]
     validate_oracle_id(static_id, rust_ids)
     unknown_oracle_rows = sorted(set(oracle_map) - {row["tag"] for row in routed})
@@ -5298,6 +5331,7 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                 ]
             }
             row["path_status"] = "static_schema_only"
+            row["static_or_rejection_reason"] = static_reasons[tag]
             continue
 
         oracle_ids = oracle.get("ids", [])
@@ -5766,6 +5800,7 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
         "readiness": "red" if route_gaps or not expected_xsht_sha256 else "green",
         "verified_xsht_sha256": expected_xsht_sha256 or None,
         "rows": sorted(routed, key=lambda row: row["ordinal"]),
+        "behavior_only_oracles": behavior_only_oracles,
         "receipt_policy": (
             "A final-correctness receipt is reused only when its expected commit/tree match this "
             "clean source, its before/after xsht-verification hashes match the locally verified candidate "
@@ -5830,11 +5865,21 @@ def initialize_static_map(root: pathlib.Path, config: dict[str, Any]) -> list[st
     return static_tags
 
 
+def source_lock_paths(config: dict[str, Any]) -> list[str]:
+    return sorted(set(
+        config["source_paths"]
+        + config.get("decisive_sources", [])
+        + [str(SCHEMA_PATH), str(ARENA_PATH), str(PIPELINE_STAGE_SOURCE_PATH)]
+    ))
+
+
 def write_source_lock(root: pathlib.Path, config: dict[str, Any]) -> dict[str, Any]:
-    snapshot = source_snapshot(root, config["source_paths"])
+    snapshot = source_snapshot(root, source_lock_paths(config))
     if not snapshot["clean"]:
         raise EvidenceError(f"refusing to lock dirty source:\n{snapshot['status']}")
-    SOURCE_LOCK.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n")
+    source_lock_path = root / SOURCE_LOCK_RELATIVE
+    source_lock_path.parent.mkdir(parents=True, exist_ok=True)
+    source_lock_path.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n")
     return snapshot
 
 
@@ -5857,7 +5902,7 @@ def main() -> int:
         action="store_true",
         help="validate exact route-witness source mappings without building the matrix",
     )
-    parser.add_argument("--output", type=pathlib.Path, default=OUTPUT)
+    parser.add_argument("--output", type=pathlib.Path)
     args = parser.parse_args()
     root = args.root.resolve()
     try:
@@ -5884,9 +5929,12 @@ def main() -> int:
                 f"{capabilities} artifact-capability mappings; no route tuples credited"
             )
             return 0
-        lock = json.loads(SOURCE_LOCK.read_text(), object_pairs_hook=duplicate_json_object)
+        lock_path = root / SOURCE_LOCK_RELATIVE
+        lock = json.loads(lock_path.read_text(), object_pairs_hook=duplicate_json_object)
         matrix = build_matrix(root, config, lock)
-        args.output.write_text(json.dumps(matrix, indent=2, sort_keys=True) + "\n")
+        output = args.output or root / OUTPUT_RELATIVE
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(matrix, indent=2, sort_keys=True) + "\n")
     except (EvidenceError, OSError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
         print(f"semantic-route-matrix: {error}", file=sys.stderr)
         return 2
