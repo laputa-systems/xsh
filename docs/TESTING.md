@@ -143,6 +143,14 @@ fail before verification starts. `cargo dev gate --batch` runs the complete
 process, debug, tooling, fixed-seed soundness, one full native suite, repository
 checks, and docs checks. Linux also runs the privileged test plan. Neither
 command invokes source-tree formatters or autofixers.
+
+The serial batch ratchet runs `dev/consolidation/metrics.xsh check-current`.
+It checks zero lowering type resolvers and the 46-stage schema's evidence in
+`src/runtime/eval/indexed/full.rs` using the same freshly measured report as
+the baseline ratchet. Native scanner tests retain small source fixtures and
+policy rejection cases. They do not repeat whole-repository Rust scans in
+parallel test cases. Generic `check` retains the interim baseline policy.
+
 Public Linux gate commands enter `Dockerfile.test`; hidden internal gate
 operations run the same plan inside the container without another Docker call.
 Changed fixtures select their compiler owner rather than running as native test

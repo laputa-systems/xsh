@@ -14,6 +14,41 @@ Preserve the older d02 record as historical evidence.
 
 ### Native-suite attempt
 
+The `2e72054d7` attempt passed its pinned release build and both build
+readiness checks. The monitor stopped at line 4,467:
+`test_current_lowering_tree_has_no_type_expr_resolvers ... TIMEOUT 2m`.
+The receipt records interruption and resolved cleanup, SHA-256
+`ecd2f7b7c82bc1a05c81f701d7a7e44c0815125006ba485892db46240234ac7d`.
+The native log SHA-256 is
+`a26d355d8aee4f8a686c82f57ee7bb97ace6201eca243d7f09fb80cccb32c0d1`.
+Native timing is discarded. No later final gate ran.
+
+Repeated scanner optimizations and bounded probes did not make the two
+whole-source native cases reliable under full-suite contention. The correction `2329af90a`
+moves their exact current-source assertions into the existing serial structural
+gate. The new internal action `check-current` acquires one complete current
+report, requires zero lowering type resolvers and one 46-stage metric with
+46 evidence rows all from `src/runtime/eval/indexed/full.rs`, then applies the
+unchanged baseline and provenance checks. Generic `check` retains interim
+baseline behavior. The gate command supplies no `--input`, so it measures the
+current Rust sources. No cache or timeout change was added.
+
+The native scanner fixtures remain. The former whole-source cases became
+report-policy positive and negative tests, including missing and duplicate
+metrics, nonzero resolvers, and invalid stage values, counts, or paths.
+All 39 current-ratchet tests and both gate-routing tests passed with sealed 2e720
+binaries in the pinned image. Valid and invalid CLI reports behaved correctly.
+The integrated `check-current --input` check also passed with the qualified
+current report, corrected baseline, complete source-advisory provenance, and
+existing envelope. Its output matches the input report byte for byte. This
+scoped qualification does not replace the canonical gate's fresh measurement.
+Independent review found no P1 or P2 gap in the migration.
+
+The current ratchet fixture hash in successor provenance is updated. The
+scanner and measured Rust roots are unchanged, so retain the accepted full
+report parity. The policy helper's changed-path gate selects only its native
+owner module. `docs/TESTING.md` records the verification boundary.
+
 The `35ac3d839` attempt passed its pinned release build and both build
 readiness checks. FAT16/FAT32 sparse images, uptime pretty output, and the
 lowering-tree scanner check passed in the full native run. The monitor stopped

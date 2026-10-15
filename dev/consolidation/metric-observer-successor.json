@@ -14,7 +14,7 @@
   "historical_ratchet_tests_sha256": "03476ced9d86706c4da0ffac8f909bd4e3ca568c25a8f593e8646265493ca147",
   "baseline_ratchet_tests_sha256": "13234a59fbb7a147ee2b33e5ffe3cb55b2b654b3b781c2b60f026002f81e8503",
   "current_ratchet_tests_path": "dev/tests/test-consolidation-ratchets-current.xsh",
-  "current_ratchet_tests_sha256": "3933a62d2ee4a65add713362116b7dea3f0948923017db7ee2e74eb744a461ae",
+  "current_ratchet_tests_sha256": "4bc151a50ec16b51fd4dcc31c0c7055aad4f2bea38c2945b9c40ac85b23c46fc",
   "start_commit": "5e66b6b896a47d0c692739135d51200b007a2a67",
   "source_manifest_sha256": "035fa1d95aae1668635441709ff81cbe38fb91cc9f7f8d59156f534d9f8ca0a2",
   "same_baseline": {
