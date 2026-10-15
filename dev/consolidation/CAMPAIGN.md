@@ -496,6 +496,15 @@ display, and debug output stay the same. A mutation must obtain unique fields
 through copy on write. Constraint
 resolution must preserve unresolved identities, foreign-variable failures, and
 the existing depth limit; ground records must not copy fields during resolution.
+
+**Source-span lookup for the final lint repair.** The remaining profile places
+the largest cost in binary search over source overrides. Preserve the ordered
+override vectors and their source identities. Probe the offset from the first
+override directly, accept it only when its stored span index matches, and use
+the existing search otherwise. This removes searches for dense entries without
+adding cached state or changing sparse lookup behavior. Verify expression and
+statement spans across dense and sparse source layouts, then rerun shared-bundle
+diagnostic tests and the existing isolated 15-second lint gate.
 Tests cover independent refinement of clones and unchanged failure behavior.
 Keep the representation only if scoped checks and the existing release lint,
 memory, and size gates justify it; no speedup is presumed from the profiles.

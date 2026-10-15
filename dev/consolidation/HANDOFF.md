@@ -4,7 +4,22 @@ Status: active and incomplete 2026-10-15.
 
 ## Final-batch status, 2026-10-15
 
-### Record-type lint repair in qualification
+### Clean lint still exceeds its budget
+
+The record repair is integrated as `8b9912a6f`. Its isolated release lint is
+clean across 1,524 files: zero findings and 113 notes. Readiness checks pass
+before and after. The 18.03-second run still fails the 15-second budget.
+Peak cgroup memory is 1,422,794,752 bytes, with no OOM or swap events.
+Evidence is under `.work/tmp/lint-preflight-record-8b9912-a1/`.
+
+A separate CPU profile captures 1,383 samples with zero lost samples.
+`AstArena::expr` accounts for 28.34 percent of samples. Its annotated assembly
+concentrates samples in the source-override binary-search loop. Caller
+unwinding remains incomplete. The profile is diagnostic, not timing evidence;
+its artifacts are under `.work/tmp/final-lint-loop-record-8b9912-a1/`.
+The next repair targets that lookup without changing source-span storage.
+
+### Qualified record-type repair
 
 The remaining lint profiles attribute substantial work to cloning and dropping
 record type maps. The combined repair shares `Type::Record` fields through
@@ -19,8 +34,7 @@ constraint tests, two semantic-pool tests, and two resource-type tests pass.
 These include independent substitutions of shared nested records and retained
 depth and foreign-variable failures. Five exact native cases also pass,
 covering record narrowing, inferred CLI schemas, rejected record contracts,
-nested update spreads, and resource-shape forgery. The new lint-budget
-measurement remains pending. Logs are under
+nested update spreads, and resource-shape forgery. Logs are under
 `.work/tmp/record-integration/`. The unused root `syscalls` dependency is removed;
 XSHT retains its dependency for syscall tracing.
 
