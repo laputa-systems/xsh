@@ -160,6 +160,12 @@ work is authorized by this resume.
   each exit zero. Preserve their complete outputs for candidate comparison.
   Compare diagnostics before the closing timing line, as the integration
   harness does. These runs do not establish performance acceptance.
+- W9 recovery tooling is integrated at `b111cb3d8`. Explicit source-cohort
+  schema 3 and fresh adapter/exact-owner schema 2 retain strict historical
+  readers. The qualified builder fixes source, tools, profile, and resource
+  identities. All 172 merged-source Python checks, shell syntax, and diff
+  checks pass. [Tooling output](evidence/w9-recovery-b111/README.md) establishes
+  no real harness build, capture, or parity result.
 
 ### Current queue
 
@@ -184,7 +190,8 @@ The archived W9 corpus is recovered. Its 1,690 file paths, bytes, modes, and
 manifest match the pinned e240 source. The original legacy capture is missing.
 Fresh captures must bind the same source and cohort before exact-owner proof
 and candidate comparison. Historical ownership receipts cannot replace the
-missing outcomes. Receipt recovery is in progress and establishes no parity.
+missing outcomes. Receipt recovery is integrated with pure checks; actual
+builder qualification and fresh captures remain pending. No parity is claimed.
 
 The migrated expression children require explicit matrix requalification.
 Keep the scheduler comparison's original default workers and outcome checks.
