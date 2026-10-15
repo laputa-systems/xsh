@@ -27,9 +27,17 @@ pub fn nearest_project_config_dir(file: &Path) -> Option<PathBuf> {
     let cwd = if file.is_absolute() {
         None
     } else {
-        // Without a current directory a relative path names nothing.
         Some(std::env::current_dir().ok()?)
     };
+    nearest_project_config_dir_with(file, cwd.as_deref(), |path| path.is_file())
+}
+
+fn nearest_project_config_dir_with(
+    file: &Path,
+    cwd: Option<&Path>,
+    mut config_exists: impl FnMut(&Path) -> bool,
+) -> Option<PathBuf> {
+    let cwd = if file.is_absolute() { None } else { Some(cwd?) };
     let absolute = match &cwd {
         Some(cwd) => lexically_normalized(&cwd.join(file)),
         None => lexically_normalized(file),
@@ -37,7 +45,7 @@ pub fn nearest_project_config_dir(file: &Path) -> Option<PathBuf> {
     let dir = absolute
         .parent()?
         .ancestors()
-        .find(|dir| dir.join(PROJECT_CONFIG_FILE_NAME).is_file())?;
+        .find(|dir| config_exists(&dir.join(PROJECT_CONFIG_FILE_NAME)))?;
     let Some(cwd) = cwd else {
         return Some(dir.to_path_buf());
     };
@@ -139,12 +147,16 @@ pub fn module_roots(config_dir: &Path, module_path: &[String]) -> Vec<PathBuf> {
 /// above it has no project roots; a config that cannot be read or decoded is
 /// an error.
 pub fn project_module_roots(entry: &Path) -> Result<Vec<PathBuf>, String> {
-    let Some(config_dir) = nearest_project_config_dir(entry) else {
+    project_module_roots_from_config_dir(nearest_project_config_dir(entry))
+}
+
+fn project_module_roots_from_config_dir(
+    config_dir: Option<PathBuf>,
+) -> Result<Vec<PathBuf>, String> {
+    let Some(config_dir) = config_dir else {
         return Ok(Vec::new());
     };
     let config_file = config_dir.join(PROJECT_CONFIG_FILE_NAME);
-    // The file can vanish between the search and the read; that is the same
-    // as never having found it.
     let Some(fields) = read_project_config(&config_file)? else {
         return Ok(Vec::new());
     };
@@ -198,28 +210,49 @@ mod tests {
             lexically_normalized(Path::new("/a/b/../c/./d.xsh")),
             PathBuf::from("/a/c/d.xsh")
         );
-        let project = temp_project("normalized");
-        fs::write(project.join("bin").join(PROJECT_CONFIG_FILE_NAME), "").expect("write config");
-        // `bin/../run.xsh` is beside `bin`, not inside it.
+        let config_file = PathBuf::from("/project/bin").join(PROJECT_CONFIG_FILE_NAME);
         assert_eq!(
-            nearest_project_config_dir(&project.join("bin/../run.xsh")),
+            nearest_project_config_dir_with(
+                Path::new("/project/bin/../run.xsh"),
+                None,
+                |path| path == config_file.as_path(),
+            ),
             None
         );
         assert_eq!(
-            nearest_project_config_dir(&project.join("bin/tools/../run.xsh")),
-            Some(project.join("bin"))
+            nearest_project_config_dir_with(
+                Path::new("/project/bin/tools/../run.xsh"),
+                None,
+                |path| path == config_file.as_path(),
+            ),
+            Some(PathBuf::from("/project/bin"))
         );
-        fs::remove_dir_all(&project).expect("remove project tree");
+    }
+
+    #[test]
+    fn a_relative_entry_keeps_a_project_config_relative_to_the_working_directory() {
+        let config_file = PathBuf::from("/project").join(PROJECT_CONFIG_FILE_NAME);
+        assert_eq!(
+            nearest_project_config_dir_with(
+                Path::new("bin/run.xsh"),
+                Some(Path::new("/project")),
+                |path| path == config_file.as_path(),
+            ),
+            Some(PathBuf::from("."))
+        );
     }
 
     #[test]
     fn an_entry_without_a_config_has_no_project_roots() {
-        let project = temp_project("none");
+        let config_dir = nearest_project_config_dir_with(
+            Path::new("/project/bin/run.xsh"),
+            None,
+            |_| false,
+        );
         assert_eq!(
-            project_module_roots(&project.join("bin/run.xsh")),
+            project_module_roots_from_config_dir(config_dir),
             Ok(Vec::new())
         );
-        fs::remove_dir_all(&project).expect("remove project tree");
     }
 
     #[test]
