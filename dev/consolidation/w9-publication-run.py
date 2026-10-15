@@ -345,7 +345,45 @@ def parse_build_receipt(path: pathlib.Path) -> dict[str, str]:
     return record
 
 
+def cargo_target_directory_from_plan(arguments: bytes) -> pathlib.Path:
+    if not arguments.endswith(b"\0"):
+        raise PublicationError("source-qualified builder plan is not NUL-terminated")
+    encoded_arguments = arguments[:-1].split(b"\0")
+    if not encoded_arguments or any(not value for value in encoded_arguments):
+        raise PublicationError("source-qualified builder plan has an empty argument")
+    planned_arguments = [os.fsdecode(value) for value in encoded_arguments]
+    target_values = [
+        planned_arguments[index + 1][len("CARGO_TARGET_DIR="):]
+        for index, argument in enumerate(planned_arguments[:-1])
+        if argument == "-e" and planned_arguments[index + 1].startswith("CARGO_TARGET_DIR=")
+    ]
+    if len(target_values) != 1 or not target_values[0]:
+        raise PublicationError("source-qualified builder plan must set exactly one CARGO_TARGET_DIR")
+    target = pathlib.Path(target_values[0])
+    if not target.is_absolute() or pathlib.Path(os.path.abspath(target)) != target:
+        raise PublicationError("planned Cargo target directory must be a canonical absolute path")
+    controller_scratch = real_directory(CONTROLLER_ROOT / ".work/tmp", "controller scratch directory")
+    if target.parent != controller_scratch:
+        raise PublicationError(f"planned Cargo target directory is outside controller .work/tmp: {target}")
+    if os.path.lexists(target):
+        target = real_directory(target, "qualified Cargo target directory")
+    return target
+
+
 def cargo_integration_executable(messages: str, candidate_root: pathlib.Path) -> pathlib.Path:
+    return _cargo_integration_executable(messages, candidate_root, "source")
+
+
+def cargo_target_integration_executable(messages: str, artifact_root: pathlib.Path) -> pathlib.Path:
+    return _cargo_integration_executable(messages, artifact_root, "artifact")
+
+
+def _cargo_integration_executable(
+    messages: str,
+    artifact_root: pathlib.Path,
+    containment_kind: Literal["source", "artifact"],
+) -> pathlib.Path:
+    artifact_root = real_directory(artifact_root, f"selected Cargo {containment_kind} root")
     executables: list[pathlib.Path] = []
     for line_number, line in enumerate(messages.splitlines(), 1):
         if not line:
@@ -363,8 +401,10 @@ def cargo_integration_executable(messages: str, candidate_root: pathlib.Path) ->
         if not isinstance(executable, str) or not executable:
             raise PublicationError("cargo did not report an executable for the integration test target")
         path = regular_file(executable, "candidate integration test harness", executable=True)
-        if not under(path, candidate_root):
-            raise PublicationError(f"candidate integration test harness is outside its source root: {path}")
+        if not under(path, artifact_root):
+            raise PublicationError(
+                f"candidate integration test harness is outside its {containment_kind} root: {path}"
+            )
         executables.append(path)
     if len(executables) != 1:
         raise PublicationError(f"cargo reported {len(executables)} integration test harness executables; expected one")

@@ -672,6 +672,28 @@ class HarnessTestListingTests(unittest.TestCase):
             ):
                 exact_runner.require_exact_owner_test_listing(listing)
 
+    def test_source_qualified_exact_listing_runs_binary_from_external_target_root(self):
+        builder = pathlib.Path("/repository/dev/consolidation/w9-source-build.sh")
+        source_root = pathlib.Path("/repository/.work/wt/reference")
+        binary = pathlib.Path(
+            "/repository/.work/tmp/w9-target-reference/integration-harness"
+        )
+        environment = {
+            "W9_SOURCE_COMMIT": "a" * 40,
+            "W9_SOURCE_TREE": "b" * 40,
+        }
+        output = f"{exact_runner.EXACT_OWNER_TEST}: test\n"
+        completed = exact_runner.subprocess.CompletedProcess([], 0, output, "")
+
+        with mock.patch.object(exact_runner.subprocess, "run", return_value=completed) as launch:
+            exact_runner._check_exact_harness_listing(builder, source_root, binary, environment)
+
+        self.assertEqual(
+            launch.call_args.args[0],
+            [str(builder), str(source_root), "run", str(binary), "--list"],
+        )
+        self.assertEqual(launch.call_args.kwargs["env"], environment)
+
 
 class ReferenceBuildReuseTests(unittest.TestCase):
     def setUp(self):

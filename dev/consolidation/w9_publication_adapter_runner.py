@@ -1023,6 +1023,26 @@ def _adapter_build_output_paths(
     return binary, receipt
 
 
+def _planned_adapter_artifact_root(command, build_environment, runner):
+    plan_command = [*command[:2], "plan-build", *command[3:]]
+    try:
+        result = subprocess.run(
+            plan_command,
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=build_environment,
+        )
+    except OSError as error:
+        raise PublicationError(f"could not plan source-qualified adapter build: {error}") from error
+    if result.returncode != 0:
+        detail = result.stderr.decode(errors="replace").strip() or result.stdout.decode(errors="replace").strip()
+        raise PublicationError(
+            f"source-qualified adapter build planning failed with status {result.returncode}: {detail}"
+        )
+    return runner.cargo_target_directory_from_plan(result.stdout)
+
+
 def _write_adapter_build_receipt(path: pathlib.Path, record: dict[str, str], runner) -> None:
     fields = {
         "1": ADAPTER_BUILD_FIELDS,
@@ -2062,6 +2082,7 @@ def build_adapter_harness(
             "W9_LINKER_PATH": source_record["linker_path"],
             "W9_LINKER_SHA256": source_record["linker_sha256"],
         }
+        artifact_root = _planned_adapter_artifact_root(command, build_environment, runner)
         result = subprocess.run(
             command,
             check=False,
@@ -2072,7 +2093,7 @@ def build_adapter_harness(
         )
         if result.returncode != 0:
             raise PublicationError(f"pinned {role} adapter harness build failed: {result.stderr.strip() or result.stdout.strip()}")
-        scratch_binary = runner.cargo_integration_executable(result.stdout, scratch_root)
+        scratch_binary = runner.cargo_target_integration_executable(result.stdout, artifact_root)
         _require_scratch_overlay_identity(scratch_root, commit, tree, role, runner)
         if hashlib.sha256(runner.read_regular_bytes(scratch_tests)).hexdigest() != overlay_sha256:
             raise PublicationError(f"{role} parity overlay changed during adapter build")

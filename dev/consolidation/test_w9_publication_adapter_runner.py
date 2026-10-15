@@ -3921,6 +3921,59 @@ raise SystemExit(runner.main(arguments))
         self.assertNotEqual(pathlib.Path(loaded.__file__).resolve(), candidate_validator.resolve())
 
 
+class SourceQualifiedBuildArtifactTests(unittest.TestCase):
+    def test_artifact_root_comes_from_same_builder_request_and_environment(self):
+        artifact_root = pathlib.Path("/repository/.work/tmp/w9-target-source-role")
+        plan_arguments = b"/usr/bin/docker\0-e\0CARGO_TARGET_DIR=/repository/.work/tmp/w9-target-source-role\0"
+        parsed = SimpleNamespace(cargo_target_directory_from_plan=unittest.mock.Mock(return_value=artifact_root))
+        command = [
+            "/repository/dev/consolidation/w9-source-build.sh",
+            "/repository/.work/wt/reference",
+            "build",
+            "cargo",
+            "test",
+            "--locked",
+            "--profile",
+            "verification",
+        ]
+        environment = {
+            "W9_SOURCE_COMMIT": "a" * 40,
+            "W9_SOURCE_TREE": "b" * 40,
+            "W9_ROLE": "reference",
+            "W9_OVERLAY_SHA256": "c" * 64,
+            "W9_LINKER_PATH": "/repository/dev/musl-linker.sh",
+            "W9_LINKER_SHA256": "d" * 64,
+        }
+        result = SimpleNamespace(returncode=0, stdout=plan_arguments, stderr=b"")
+
+        with patch.object(adapter_runner.subprocess, "run", return_value=result) as launch:
+            selected = adapter_runner._planned_adapter_artifact_root(command, environment, parsed)
+
+        self.assertEqual(selected, artifact_root)
+        self.assertEqual(
+            launch.call_args.args[0],
+            [*command[:2], "plan-build", *command[3:]],
+        )
+        self.assertEqual(launch.call_args.kwargs["env"], environment)
+        self.assertEqual(launch.call_args.kwargs["stdout"], adapter_runner.subprocess.PIPE)
+        self.assertEqual(launch.call_args.kwargs["stderr"], adapter_runner.subprocess.PIPE)
+        parsed.cargo_target_directory_from_plan.assert_called_once_with(plan_arguments)
+
+    def test_artifact_plan_failure_stops_before_cargo_output_selection(self):
+        parsed = SimpleNamespace(cargo_target_directory_from_plan=unittest.mock.Mock())
+        command = ["builder", "source", "build", "cargo", "test"]
+        result = SimpleNamespace(returncode=2, stdout=b"", stderr=b"source identity differs")
+
+        with patch.object(adapter_runner.subprocess, "run", return_value=result):
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "source-qualified adapter build planning failed with status 2: source identity differs",
+            ):
+                adapter_runner._planned_adapter_artifact_root(command, {}, parsed)
+
+        parsed.cargo_target_directory_from_plan.assert_not_called()
+
+
 class TuiPublicationRunnerAlignmentTests(unittest.TestCase):
     def _schema_publication(self, rendered, schema):
         adapter = adapter_runner.adapter

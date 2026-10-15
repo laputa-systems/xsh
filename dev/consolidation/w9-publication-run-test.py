@@ -467,6 +467,108 @@ class PublicationRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.PublicationError, "output row 1 is not JSON"):
             runner.cargo_integration_executable("cargo emitted non-json output", self.root)
 
+    def test_cargo_target_directory_comes_from_one_canonical_local_builder_plan(self):
+        def plan(*arguments):
+            return b"\0".join(os.fsencode(argument) for argument in arguments) + b"\0"
+
+        controller_scratch = runner.CONTROLLER_ROOT / ".work/tmp"
+        target = controller_scratch / f"w9-target-plan-{self.root.name}"
+        target.mkdir()
+        self.addCleanup(shutil.rmtree, target)
+        target = runner.cargo_target_directory_from_plan(
+            plan("/usr/bin/docker", "-e", f"CARGO_TARGET_DIR={target}")
+        )
+        self.assertEqual(target, controller_scratch / f"w9-target-plan-{self.root.name}")
+
+        with self.assertRaisesRegex(runner.PublicationError, "NUL-terminated"):
+            runner.cargo_target_directory_from_plan(b"/usr/bin/docker")
+        with self.assertRaisesRegex(runner.PublicationError, "exactly one CARGO_TARGET_DIR"):
+            runner.cargo_target_directory_from_plan(plan("/usr/bin/docker", "-e", "HOME=/tmp"))
+        with self.assertRaisesRegex(runner.PublicationError, "exactly one CARGO_TARGET_DIR"):
+            runner.cargo_target_directory_from_plan(
+                plan(
+                    "/usr/bin/docker",
+                    "-e",
+                    f"CARGO_TARGET_DIR={target}",
+                    "-e",
+                    f"CARGO_TARGET_DIR={target}",
+                )
+            )
+
+        outside = controller_scratch.parent / "outside-qualified-target"
+        with self.assertRaisesRegex(runner.PublicationError, "outside controller .work/tmp"):
+            runner.cargo_target_directory_from_plan(
+                plan("/usr/bin/docker", "-e", f"CARGO_TARGET_DIR={outside}")
+            )
+
+        target_link = controller_scratch / f"w9-target-link-{self.root.name}"
+        target_link.symlink_to(target, target_is_directory=True)
+        self.addCleanup(target_link.unlink)
+        with self.assertRaisesRegex(runner.PublicationError, "symlink or non-canonical path"):
+            runner.cargo_target_directory_from_plan(
+                plan("/usr/bin/docker", "-e", f"CARGO_TARGET_DIR={target_link}")
+            )
+
+    def test_cargo_artifact_selection_accepts_only_the_selected_target_root(self):
+        source_root = self.root / "source"
+        source_root.mkdir()
+        controller_scratch = runner.CONTROLLER_ROOT / ".work/tmp"
+        artifact_root = controller_scratch / f"w9-target-artifact-{self.root.name}"
+        artifact_root.mkdir()
+        self.addCleanup(shutil.rmtree, artifact_root)
+        target_binary = artifact_root / "target-integration"
+        target_binary.write_bytes(b"qualified target executable")
+        target_binary.chmod(0o755)
+        artifact_root = runner.cargo_target_directory_from_plan(
+            b"/usr/bin/docker\0-e\0CARGO_TARGET_DIR=" + os.fsencode(artifact_root) + b"\0"
+        )
+        message = {
+            "reason": "compiler-artifact",
+            "target": {"name": "integration", "kind": ["test"]},
+            "executable": str(target_binary),
+        }
+        self.assertFalse(runner.under(target_binary, source_root))
+        self.assertEqual(
+            runner.cargo_target_integration_executable(runner.json.dumps(message), artifact_root),
+            target_binary,
+        )
+
+        for qualifier in ("reference-role", "other-commit", "other-overlay"):
+            other_target = controller_scratch / f"w9-target-{self.root.name}-{qualifier}"
+            other_target.mkdir()
+            self.addCleanup(shutil.rmtree, other_target)
+            executable = other_target / "integration-harness"
+            executable.write_bytes(b"different qualified executable")
+            executable.chmod(0o755)
+            message["executable"] = str(executable)
+            with self.subTest(qualifier=qualifier):
+                with self.assertRaisesRegex(runner.PublicationError, "outside its artifact root"):
+                    runner.cargo_target_integration_executable(runner.json.dumps(message), artifact_root)
+
+    def test_harness_listing_uses_controller_mount_for_external_binary(self):
+        source_root = self.root / "source"
+        source_root.mkdir()
+        artifact_root = runner.CONTROLLER_ROOT / ".work/tmp" / f"w9-target-listing-{self.root.name}"
+        artifact_root.mkdir()
+        self.addCleanup(shutil.rmtree, artifact_root)
+        binary = artifact_root / "integration-harness"
+        binary.write_bytes(b"qualified target executable")
+        builder = self.root / "builder"
+        environment = {"W9_SOURCE_COMMIT": "a" * 40, "W9_SOURCE_TREE": "b" * 40}
+        output = f"{runner.PARITY_TEST_NAME}: test\n"
+        with patch.object(
+            runner.subprocess,
+            "run",
+            return_value=runner.subprocess.CompletedProcess([], 0, output, ""),
+        ) as launch:
+            runner.run_harness_test_listing(builder, source_root, binary, environment)
+
+        self.assertEqual(
+            launch.call_args.args[0],
+            [str(builder), str(source_root), "run", str(binary), "--list"],
+        )
+        self.assertEqual(launch.call_args.kwargs["env"], environment)
+
     def test_candidate_receipt_requires_the_current_publication_runner(self):
         alternate = self.root / "alternate-runner.py"
         alternate.write_text("print('alternate')\n", encoding="utf-8")
