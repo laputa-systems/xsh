@@ -6,9 +6,10 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
 **Status: active and incomplete, 2026-10-15.** The implementation and focused
-lint repairs are integrated on `master`. The repaired source passes the clean
-15-second lint preflight. The earlier `7e93dd4533d175f0385ae433651a98c98b5c20cd`
-W9 parity and structural check need new qualification after the Rust repairs.
+repairs are integrated on `master`. W9 parity passed 1,690 inputs and 6,760
+outcomes with zero mismatches on `2083821ed`. Independent review qualifies
+that result across the two-file route-witness repair `ae7cf8490`.
+The repair passes its focused unit, hygiene, and authenticated native checks.
 Final correctness, performance, and the ten semantic review rows remain open.
 [`HANDOFF.md`](HANDOFF.md) records current acceptance, integrated work, and
 remaining gates; the older grants and progress states below are planning and

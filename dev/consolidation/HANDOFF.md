@@ -4,6 +4,46 @@ Status: active and incomplete 2026-10-15.
 
 ## Final-batch status, 2026-10-15
 
+### Route-witness repair and next freeze
+
+The `2083821ed` selected-profile suite passed 13,790 cases, with zero failures
+and 136 skips. Both readiness checks passed. Its following isolated lint
+also passed: 1,524 files, zero findings, 113 notes, and 13.65 seconds.
+These results remain bound to that source.
+
+The canonical Rust integration run then passed 221 tests and failed
+`libc_hygiene::no_migratable_libc_calls`, with one filtered test. Its twelve
+violations were in the route-witness transport. The batch stopped before its
+native suite. Preserve the failed observer receipt under
+`.work/final-review-evidence/final-performance-gates/2083821edb768d2485479c7386289b82e43b1c7c-observers/`.
+
+Repair `ae7cf8490` replaces operations on owned descriptors with typed rustix
+calls. An inherited marker can name an invalid descriptor. Its validation
+therefore retains raw `fstat`, `pread`, and the `libc::stat` type until ownership
+is safe. The hygiene exception covers those exact uses in that function.
+Negative fixtures still reject unrelated calls, including nested `stat` calls.
+No language or transport protocol contract changes.
+
+The pinned debug build, verification product build, twelve route-witness unit
+tests, and both hygiene tests pass. Four authenticated native route checks
+also pass, covering two tags in normal and forced modes. Evidence is under
+`.work/tmp/route-repair-unit-ae7cf8-a1/` and
+`.work/tmp/route-repair-native-witness-ae7cf8-a1/`.
+
+Fresh W9 parity on 208 passed 1,690 inputs and 6,760 outcomes with zero
+mismatches. Both exact-owner proofs cover 1,690 inputs. Independent review
+qualifies that result across the two-file repair because W9 semantic checking
+cannot reach the changed transport. The qualification is
+`.work/tmp/route-transport-w9-qualification-208.md`. Preserve the original
+capture's commit and binary identities. The corrected compile-only feature
+probe also transfers through this bounded change.
+
+Freeze the repaired source with this handoff, refresh launch pins, and run
+final acceptance. The nine full native suites still require passes on the
+new freeze. The structural, memory, size, scheduler, comparative, platform,
+documentation, and ten semantic review gates remain open. The campaign is
+active and incomplete.
+
 ### Lint preflight passes after the span lookup repair
 
 The repaired source at `fa1ea57e343685e26c812dac67682b338b7b0d9b` passes the

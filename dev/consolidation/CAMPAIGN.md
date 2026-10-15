@@ -1,11 +1,12 @@
 # XSH Consolidation Campaign
 
 Status: active and incomplete on 2026-10-15. The implementation and focused
-lint repairs are integrated on `master`. The repaired source passes the clean
-15-second lint preflight. W9 parity and the structural check passed on the
-earlier `7e93dd4533d175f0385ae433651a98c98b5c20cd` snapshot; both require
-new qualification after the Rust repairs. The nine serialized full native
-suites and remaining final acceptance gates are pending.
+repairs are integrated on `master`. Fresh W9 parity on `2083821ed` passed
+1,690 inputs and 6,760 outcomes with zero mismatches. Independent review
+qualifies that result across the route-witness repair `ae7cf8490`.
+The earlier selected-profile native suite and clean 13.65-second lint pass
+remain bound to 208. Its canonical Rust batch found the now-repaired libc
+hygiene violation. Final acceptance must run on the new freeze.
 The current acceptance and remaining gates are in [`HANDOFF.md`](HANDOFF.md).
 The owner approved the entire campaign and all six designs on 2026-10-11,
 including the Codex model policy and completeness-first sequence. The start

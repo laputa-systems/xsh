@@ -236,11 +236,11 @@ of 16,000 and 15,000 lines are historical. Those files are module roots with
 implementation split across `src/runtime/eval/lower/` and `crates/xsht/src/lint_*.rs`.
 File size does not establish current rebuild time.
 
-The documented release lint gate has a 15-second budget. The earlier 17-second
-standalone result and failures under concurrent integration load are
-historical. Current standalone status is unmeasured, so keep the documented
-gate authoritative. Final comparative performance results are pending, and
-guarded performance gates have not started.
+The documented release lint gate has a 15-second budget. The isolated 208
+run passed with zero findings in 13.65 seconds and both readiness checks
+passing. This is one absolute-budget result, with no speedup claim. The
+route-witness repair changes the source, so final lint must run again.
+Final comparative performance results remain pending.
 
 ## Deferred and rejected
 
