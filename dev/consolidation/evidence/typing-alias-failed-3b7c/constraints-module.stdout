@@ -1,0 +1,37 @@
+
+running 18 tests
+test sema::constraints::tests::aliases_share_one_solution_and_conflicts_retain_source_contributions ... ok
+test sema::constraints::tests::authoritative_dynamic_destination_accepts_concrete_contributions ... ok
+test sema::constraints::tests::checked_annotations_can_choose_types_that_ordinary_evidence_cannot_anchor ... ok
+test sema::constraints::tests::alias_chain_of_400_variables_resolves_to_ground_type ... ok
+test sema::constraints::tests::dynamic_values_cannot_satisfy_resolved_concrete_constraints ... ok
+test sema::constraints::tests::failed_unification_after_alias_walk_keeps_probes_independent ... ok
+test sema::constraints::tests::failed_unification_rolls_back_rank_binding_and_path_compression ... ok
+test sema::constraints::tests::container_record_width_cannot_bypass_invariance_during_substitution ... ok
+test sema::constraints::tests::indirect_recursive_type_equations_are_rejected ... ok
+test sema::constraints::tests::nested_conflicts_roll_back_earlier_variable_bindings ... ok
+test sema::constraints::tests::ground_record_resolution_preserves_depth_errors ... ok
+test sema::constraints::tests::nested_dynamic_and_recovery_operands_do_not_establish_contracts ... ok
+test sema::constraints::tests::optional_evidence_and_reversed_alias_order_have_canonical_solutions ... ok
+test sema::constraints::tests::probes_keep_existing_aliases_but_new_variables_cannot_cross_problems ... ok
+test sema::constraints::tests::optional_record_contributions_keep_one_shape_in_either_order ... ok
+test sema::constraints::tests::ranked_aliases_compress_per_clone_and_keep_canonical_identity ... ok
+test sema::constraints::tests::shared_nested_records_resolve_independently ... ok
+test sema::constraints::tests::record_resolution_preserves_foreign_variable_errors ... FAILED
+
+failures:
+
+---- sema::constraints::tests::record_resolution_preserves_foreign_variable_errors stdout ----
+
+thread 'sema::constraints::tests::record_resolution_preserves_foreign_variable_errors' (38) panicked at src/sema/constraints.rs:1129:13:
+assertion `left == right` failed
+  left: Err(TypeDepth)
+ right: Err(ForeignVariable)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::constraints::tests::record_resolution_preserves_foreign_variable_errors
+
+test result: FAILED. 17 passed; 1 failed; 0 ignored; 0 measured; 731 filtered out; finished in 0.00s
+

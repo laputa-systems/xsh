@@ -1,0 +1,33 @@
+# Canonical corpus-loop audit
+
+## Selection and bounds
+
+`desugar::the_desugared_corpus_checks_and_tests_like_the_corpus` copies the workspace to a temporary directory while excluding `target`, `.git`, `.claude`, `.work`, and `node_modules`. It discovers `.xsh` files only under `tests/xsh`, `core/tests`, `dev/tests`, and `showcase/tests`; its recursive collector also prunes `.work`. The repository has 894 `.xsh` files in those four roots. It selects files that parse without diagnostics and have nonempty parser sugar expansions, requiring at least 10. For that selected set it runs one `xsht check`, tests each file with a worker count of `clamp(available_parallelism / 8, 1, 4)`, desugars each file serially and checks that sugar is gone, then repeats the check and test comparisons.
+
+`lint_format_invariance::layout_perturbation_preserves_lints_on_the_repository_corpus` copies only `.xsh` and `xsht-config.ini` files, excluding `target`, `.git`, `.claude`, and `.work`. Discovery also prunes `.work`. It perturbs discovered files with at most eight workers, then compares the lints of the perturbed copy with the memoized baseline. No `.work` traversal path appears in either test.
+
+## Live evidence
+
+The canonical log recorded both tests running beyond 60 seconds; the layout test subsequently completed `ok`. The desugar test remains active. Its child first ran `xsht test core/tests/test-gnu-mv.xsh`; the active XSH command was `core/mv.xsh`. That file’s `test_gnu_mv_leak_fd_log` makes 62 × 62 + 62 = 3,906 names, creates each directory and file, then moves the set across filesystems with a 300-second command timeout. Later snapshots showed the same `xsht test` worker advance through `core/tests/test-gnu-tail.xsh` and on to `core/tests/test-setpriv.xsh`. This is bounded corpus work with observed forward progress, not an idle hang.
+
+One process from the tail case remains under container init after the worker advanced: PID 31436, PPID 23033 (`docker-init`), PGID 31436, started `2026-10-15 21:21:00 UTC`, argv `xsh /scratch/.tmpGjQYi7/core/tail.xsh -- -s.1 --max-unchanged-stats=1 -f unreadable`. At the latest snapshot it had run 4:04, while `xsht test core/tests/test-uu-split-1.xsh` was active. `core/tests/test-gnu-tail.xsh` defines `following`, which starts a process with a 60-second timeout, and `stop`, which calls `child.cancel(signal: "KILL", kill_after: 0ms)`. Its `wrapped` helper runs a command with a default 10-second process timeout; `test_gnu_tail_wait_log` invokes `timeout 10s` around `tail -f unreadable` and expects a non-timeout result. The orphan is a possible child cleanup defect, separate from progress of the desugar test. After the canonical run finishes, check whether PID 31436 exits; if it remains, inspect cleanup for that specific tail case.
+
+## Product receipt path
+
+The host replay receipt is still `status=running`, with `products_after=null` and `container_resources=null`. The driver validates `.work/target-final-canonical` as its target directory and mounts it at container `/work/target`; the batch sets `CARGO_TARGET_DIR=/work/target`. But host-side `product_outputs(root)` hashes `root/target/<target>/verification/{xsh,xsht,xshi}`. Those are different directories, so the final `products_after` values will not describe this batch's products. This is a path mismatch, not an observed artifact comparison.
+
+Minimal post-run evidence: leave the batch receipt unchanged, then write a sidecar in the same run directory with each product's path, size, and SHA-256 read from `.work/target-final-canonical/x86_64-unknown-linux-musl/verification`. Bind it to the final `canonical-replay.json` hash/run name/source commit/tree and the `container-resources.json` hash, checking the watcher record's exit code against the batch receipt. That preserves the active driver and makes the true target overlay explicit.
+
+No source files or running processes were changed. No build, test, capture, or performance measurement was started by this audit.
+
+## Cleanup-path diagnosis (source inspection)
+
+The live PID 31436 is `xsh .../core/tail.xsh -- -s.1 --max-unchanged-stats=1 -f unreadable`, PPID 23033 (`docker-init`), PGID 31436. At 21:27:38 UTC the corpus worker had advanced to `core/tests/test-awk.xsh`, while PID 31436 had elapsed 06:38. This confirms the native test command and its parent have exited while the tail process group remains; it is not a blocked current worker.
+
+Relevant path: `test_gnu_tail_wait_log` calls `wrapped(... timeout 10s ...)`; `wrapped` itself invokes `process.run` with its default 10s deadline. The `timeout` applet launches its command as a managed child with `same_group: opts.foreground` (false by default), so that command gets a separate process group. On its own deadline, `core/timeout.xsh` signals that child's group with `process.kill_group(handle.pid, ...)` and waits for the handle. The outer `process.run` also has a 10s deadline and kills only its own process group. Thus equal nested deadlines create a race where the outer managed timeout can kill the `timeout` wrapper before its independent child group is reaped; the escaped tail then reparents to container init. Native-test cancellation likewise tracks only its direct xsh test child's PGID, not arbitrary independently grouped grandchildren. The source supports this separate-group ownership gap; the observed process alone does not prove which deadline won. It is not evidence that `ProcessStream::cancel` kills only its immediate PID: that code sends SIGKILL to its stored process group.
+
+Focused regression proposal after the canonical run: isolate `core/tests/test-gnu-tail.xsh::test_gnu_tail_wait_log` with a child command that publishes its PID, keep the outer `process.run` budget strictly longer than the applet's timeout (or trigger wrapper cancellation explicitly), and assert the child group is gone after the wrapper returns. Add a second case where the outer deadline intentionally wins, then assert cancellation does not leave the nested group. This distinguishes applet cleanup from harness timeout cleanup without weakening the suite. No source change or process intervention was made.
+
+## Batch end
+
+The canonical container ended and was removed. The desugared corpus integration test reached `core/tests/test-awk.xsh` and failed with 306 passed / 1 failed; the mismatching case was `test_awk_matrix_streams_and_processes_shard_001`, field `io_redirect_unwritable` (`stderr,status`). No orphan cleanup is pending in the removed container. The cleanup path above remains a probable nested-deadline race; its owner has a focused test-only follow-up plan at `.work/tmp/tail-timeout-leak-repro`.

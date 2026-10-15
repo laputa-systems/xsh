@@ -1,0 +1,168 @@
+src/modules/cli/gnu.rs	53	useless_asref	this call to `as_ref` does nothing
+src/modules/cli/gnu.rs	465	map_or_identity	expression can be simplified using `Option::unwrap_or()`
+src/modules/compression.rs	259	collapsible_if	this `if` statement can be collapsed
+src/modules/compression.rs	358	manual_is_multiple_of	manual implementation of `.is_multiple_of()`
+src/modules/fs/prims.rs	141	unnecessary_cast	casting to the same type is unnecessary (`u32` -> `u32`)
+src/modules/fs/prims.rs	155	unnecessary_cast	casting to the same type is unnecessary (`i64` -> `i64`)
+src/modules/fs/prims.rs	156	unnecessary_cast	casting to the same type is unnecessary (`i64` -> `i64`)
+src/modules/fs/prims.rs	157	unnecessary_cast	casting to the same type is unnecessary (`i64` -> `i64`)
+src/modules/fs/prims.rs	417	unnecessary_cast	casting to the same type is unnecessary (`i64` -> `i64`)
+src/modules/hash.rs	179	let_and_return	returning the result of a `let` binding from a block
+src/modules/hash.rs	238	manual_is_multiple_of	manual implementation of `.is_multiple_of()`
+src/modules/hash.rs	414	chunks_exact_to_as_chunks	using `chunks_exact` with a constant chunk size
+src/modules/linux/block.rs	563	disallowed_types	use of a disallowed type `std::collections::HashSet`
+src/modules/linux/block.rs	640	disallowed_types	use of a disallowed type `std::collections::HashSet`
+src/modules/linux/block.rs	785	disallowed_types	use of a disallowed type `std::collections::HashSet`
+src/modules/linux/real/netlink.rs	385	wrong_self_convention	methods called `into_*` usually take `self` by value
+src/modules/linux/real/netlink.rs	683	disallowed_types	use of a disallowed type `std::collections::HashMap`
+src/modules/linux/block_control.rs	217	chunks_exact_to_as_chunks	using `chunks_exact` with a constant chunk size
+src/modules/linux/capabilities.rs	45	wildcard_imports	usage of wildcard import
+src/modules/linux/storage/kernel.rs	11	wildcard_imports	usage of wildcard import
+src/modules/linux/storage/nvme.rs	145	manual_is_multiple_of	manual implementation of `.is_multiple_of()`
+src/modules/time.rs	67	useless_conversion	useless conversion to the same type: `i64`
+src/modules/time.rs	94	unnecessary_cast	casting to the same type is unnecessary (`i64` -> `i64`)
+src/modules/time.rs	100	useless_conversion	useless conversion to the same type: `i64`
+src/modules/time.rs	175	collapsible_if	this `if` statement can be collapsed
+src/modules/time.rs	187	unnecessary_cast	casting to the same type is unnecessary (`i64` -> `i64`)
+src/modules/time.rs	191	if_same_then_else	this `if` has identical blocks
+src/modules/tui.rs	151	if_same_then_else	this `if` has identical blocks
+src/modules/unix/sessions.rs	53	chunks_exact_to_as_chunks	using `chunks_exact` with a constant chunk size
+src/modules/unix.rs	1473	useless_conversion	useless conversion to the same type: `std::vec::Vec<u8>`
+src/project.rs	52	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/indexed/full/decode.rs	470	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/indexed/full/decode.rs	482	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/indexed/full/decode.rs	542	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/indexed/full/decode.rs	560	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/indexed/full/decode.rs	823	large_enum_variant	large size difference between variants
+src/runtime/eval/indexed/full.rs	424	derivable_impls	this `impl` can be derived
+src/runtime/eval/indexed/full.rs	2570	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/indexed/full.rs	5684	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/indexed/full.rs	5956	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/indexed/full.rs	7240	if_same_then_else	this `if` has identical blocks
+src/runtime/eval/indexed/full.rs	7719	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/indexed/full.rs	7987	question_mark	this block may be rewritten with the `?` operator
+src/runtime/eval/indexed/full.rs	8069	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/indexed/full.rs	9147	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/indexed/full.rs	9511	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/indexed/full.rs	10984	redundant_guards	redundant guard
+src/runtime/eval/indexed/full.rs	10925	if_same_then_else	this `if` has identical blocks
+src/runtime/eval/lower/patterns.rs	995	useless_conversion	useless conversion to the same type: `std::iter::Cloned<std::slice::Iter<'_, sema::types::Type>>`
+src/runtime/eval/lower.rs	1095	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/lower.rs	6114	obfuscated_if_else	this method chain can be written more clearly with `if .. else ..`
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	3135	needless_lifetimes	the following explicit lifetimes could be elided: 'e
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	3151	unnecessary_cast	casting to the same type is unnecessary (`usize` -> `usize`)
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	3253	large_enum_variant	large size difference between variants
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	4058	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	4290	collapsible_match	this `if` can be collapsed into the outer `match`
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	4543	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	5294	unnecessary_unwrap	called `expect` on `completion` after checking its variant with `is_some`
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	5415	while_let_on_iterator	this loop could be written as a `for` loop
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	5461	while_let_on_iterator	this loop could be written as a `for` loop
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6518	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6639	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6656	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6673	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6694	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6711	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6726	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6744	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6772	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6789	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6811	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6829	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6851	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6873	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6890	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6908	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6929	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6952	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	6988	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7012	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7031	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7053	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7107	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7129	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7147	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7161	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7175	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7195	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7220	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7242	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7265	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7288	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7312	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7352	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7359	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7361	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7387	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7408	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7430	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7455	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7478	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	7492	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run/indexed_run/producer.rs	533	let_and_return	returning the result of a `let` binding from a block
+src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs	327	enum_variant_names	all variants have the same postfix: `By`
+src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs	889	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs	1365	redundant_pattern_matching	redundant pattern matching
+src/runtime/eval/lowered_run/indexed_run/patterns.rs	240	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval/lowered_run/indexed_run/patterns.rs	319	while_let_on_iterator	this loop could be written as a `for` loop
+src/runtime/eval/lowered_run/indexed_run/pipeline.rs	814	only_used_in_recursion	parameter is only used in recursion
+src/runtime/eval/lowered_run/indexed_run.rs	905	unnecessary_map_or	this `map_or` can be simplified
+src/runtime/eval/lowered_run/indexed_run.rs	906	unnecessary_map_or	this `map_or` can be simplified
+src/runtime/eval/lowered_run/indexed_run.rs	908	unnecessary_map_or	this `map_or` can be simplified
+src/runtime/eval/lowered_run/indexed_run.rs	1517	while_let_on_iterator	this loop could be written as a `for` loop
+src/runtime/eval/lowered_run/indexed_run.rs	1539	while_let_on_iterator	this loop could be written as a `for` loop
+src/runtime/eval/lowered_run/indexed_run.rs	1588	while_let_on_iterator	this loop could be written as a `for` loop
+src/runtime/eval/lowered_run/indexed_run.rs	1616	while_let_on_iterator	this loop could be written as a `for` loop
+src/runtime/eval/lowered_run/indexed_run.rs	1635	while_let_on_iterator	this loop could be written as a `for` loop
+src/runtime/eval/lowered_run/indexed_run.rs	1655	useless_asref	this call to `as_ref` does nothing
+src/runtime/eval/lowered_run.rs	3772	clone_on_copy	using `clone` on type `Name` which implements the `Copy` trait
+src/runtime/eval/lowered_run.rs	3774	clone_on_copy	using `clone` on type `Span` which implements the `Copy` trait
+src/runtime/eval/lowered_run.rs	5913	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run.rs	5929	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/lowered_run.rs	5929	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/runtime/eval/route_witness.rs	314	chunks_exact_to_as_chunks	using `chunks_exact` with a constant chunk size
+src/runtime/eval/route_witness.rs	764	enum_variant_names	all variants have the same postfix: `Path`
+src/runtime/eval/net_job.rs	23	large_enum_variant	large size difference between variants
+src/runtime/eval.rs	3116	useless_conversion	useless conversion to the same type: `std::vec::Vec<u8>`
+src/runtime/eval.rs	4220	useless_conversion	useless conversion to the same type: `std::vec::Vec<u8>`
+src/runtime/eval.rs	6259	collapsible_if	this `if` statement can be collapsed
+src/runtime/eval.rs	7910	needless_borrows_for_generic_args	the borrowed expression implements the required traits
+src/runtime/eval.rs	7956	manual_is_multiple_of	manual implementation of `.is_multiple_of()`
+src/sema/check/checked_declarations.rs	283	collapsible_if	this `if` statement can be collapsed
+src/sema/check/expr.rs	2174	if_same_then_else	this `if` has identical blocks
+src/sema/check/expr.rs	3711	needless_ifs	this `if` branch is empty
+src/sema/check/expr.rs	3813	needless_ifs	this `if` branch is empty
+src/sema/check/infer_effects.rs	632	collapsible_if	this `if` statement can be collapsed
+src/sema/check/module_driver.rs	586	let_and_return	returning the result of a `let` binding from a block
+src/sema/check/module_record.rs	513	let_and_return	returning the result of a `let` binding from a block
+src/sema/check/stmt.rs	581	collapsible_if	this `if` statement can be collapsed
+src/sema/check/stream.rs	129	collapsible_if	this `if` statement can be collapsed
+src/sema/check.rs	1959	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/sema/check.rs	1977	needless_borrow	this expression creates a reference which is immediately dereferenced by the compiler
+src/sema/check.rs	2002	collapsible_if	this `if` statement can be collapsed
+src/sema/check.rs	2011	collapsible_if	this `if` statement can be collapsed
+src/sema/constants.rs	3645	useless_conversion	useless conversion to the same type: `std::sync::Arc<std::collections::BTreeMap<symbol::Name, sema::types::Type>>`
+src/syntax/grammar.rs	1037	collapsible_if	this `if` statement can be collapsed
+src/syntax/grammar.rs	1105	question_mark	this `let...else` may be rewritten with the `?` operator
+src/syntax/grammar.rs	1130	question_mark	this `let...else` may be rewritten with the `?` operator
+src/syntax/parser/expr.rs	1968	question_mark	this `let...else` may be rewritten with the `?` operator
+src/syntax/parser/expr.rs	1985	question_mark	this `let...else` may be rewritten with the `?` operator
+src/syntax/parser/expr.rs	1994	question_mark	this `let...else` may be rewritten with the `?` operator
+src/syntax/parser/expr.rs	2042	question_mark	this `let...else` may be rewritten with the `?` operator
+src/syntax/parser/expr.rs	2061	question_mark	this `let...else` may be rewritten with the `?` operator
+src/runtime/eval/indexed/full.rs	15431	needless_lifetimes	the following explicit lifetimes could be elided: 'a
+src/runtime/eval/indexed/full.rs	18210	single_element_loop	for loop over a single element
+src/runtime/eval/indexed/full.rs	23296	single_element_loop	for loop over a single element
+src/runtime/eval/indexed/full/formal_bridge.rs	385	manual_is_multiple_of	manual implementation of `.is_multiple_of()`
+src/runtime/eval/indexed/full/formal_bridge.rs	389	chunks_exact_to_as_chunks	using `chunks_exact` with a constant chunk size
+src/runtime/eval/lower/pipeline.rs	804	let_and_return	returning the result of a `let` binding from a block
+src/runtime/eval/lower/types.rs	404	items_after_test_module	items after a test module
+src/runtime/eval/lowered_run/indexed_run/explicit_run.rs	3135	needless_lifetimes	the following explicit lifetimes could be elided: 'e
+src/sema/check/expr.rs	3860	items_after_test_module	items after a test module
+src/sema/check/module_record.rs	579	field_reassign_with_default	field assignment outside of initializer for an instance created with Default::default()
+src/sema/check/module_record.rs	594	field_reassign_with_default	field assignment outside of initializer for an instance created with Default::default()
+src/sema/check/module_record.rs	775	field_reassign_with_default	field assignment outside of initializer for an instance created with Default::default()
+src/sema/check/resource.rs	33	missing_const_for_thread_local	initializer for `thread_local` value can be made `const`
+src/sema/check/stream.rs	1218	items_after_test_module	items after a test module
+src/syntax/parser/without.rs	163	bool_assert_comparison	used `assert_eq!` with a literal bool

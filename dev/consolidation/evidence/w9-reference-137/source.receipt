@@ -1,0 +1,19 @@
+schema	3
+role	source-cohort
+candidate_root	/home/josh/d/laputa-systems/xsh
+candidate_commit	0d6cd70d59b784102bb72bb06f34f2fb2cb3133e
+candidate_tree	1c0ccc6f44f3d03e5a8a56c26fe22d1584805c9c
+input_root	/home/josh/d/laputa-systems/xsh/.work/tmp/w9-corpus-recovery/input-corpus
+input_manifest	/home/josh/d/laputa-systems/xsh/.work/tmp/w9-corpus-recovery/input-files.sha256.tsv
+input_manifest_sha256	1ec4e8eb67681591d25c69b395387ba4acbb4bfe1e4ab514a858e60ff1a56305
+corpus_blake3	a7b1f70466c4e978222af3d329e9c71b0a15030480e24b8d7f77a5fa4f57f17d
+builder_path	/home/josh/d/laputa-systems/xsh/dev/consolidation/w9-source-build.sh
+builder_sha256	ef12d889fb0d58bd76ec0fa35102492a9d991dcb726744bbcd2c86f19f3e9c07
+builder_image	sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+build_target	x86_64-unknown-linux-musl
+build_profile	verification
+rustflags	-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol
+linker_path	/home/josh/d/laputa-systems/xsh/dev/musl-linker.sh
+linker_sha256	583039d8ee08330c3eaab1970802181f1ed766f412bfe9d7493fb39135ebc727
+runner	/home/josh/d/laputa-systems/xsh/dev/consolidation/w9-publication-run.py
+runner_sha256	d5941a6f2889bc8f4252a5aac7b0a278beff80d0a97e8661ffea766599b42f80

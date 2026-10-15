@@ -2,7 +2,9 @@
 
 Status: resumed on 2026-10-15 for consolidation acceptance and the typing
 successor. The owner explicitly resumed after the documentation refresh.
-Consolidation acceptance remains incomplete and precedes inference changes.
+Consolidation acceptance remains incomplete. The owner authorized staggered
+inference implementation in isolated worktrees on 2026-10-15. The accepted
+post-consolidation performance baseline still waits for consolidation close.
 Lean and Phase F remain paused. Parked source is recovery material, not
 accepted implementation.
 
@@ -33,7 +35,9 @@ Judge these outcomes separately:
    post-consolidation source freeze before claiming Rust correspondence.
 
 Use the existing acceptance owners and pinned x86_64 Linux musl environment.
-General inference changes language acceptance and belongs after consolidation.
+General inference changes language acceptance. Its isolated implementation may
+overlap consolidation under the owner's 2026-10-15 steering; shared integration
+and the post-consolidation performance baseline retain their acceptance gates.
 Do not add another language-surface campaign or expand consolidation's scope.
 The [restart handoff](HANDOFF.md) owns the current stop and remaining gates.
 
@@ -1166,7 +1170,9 @@ schemes without `Any` substitution, caller-trained signatures, or runtime
 inference. Retain the solver counters and the observed 400-variable alias-chain
 regression result, including its source and exact outcome before the repair.
 This checkpoint precedes wider language coverage and corpus migration.
-The current pause defers even this first checkpoint until explicit resume.
+The owner resumed this checkpoint and authorized isolated implementation
+alongside consolidation on 2026-10-15. The initial capability and solver
+outcomes are recorded in the current handoff.
 
 At minimum, establish these positive witnesses:
 

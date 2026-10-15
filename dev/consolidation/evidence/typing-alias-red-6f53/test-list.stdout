@@ -1,0 +1,18 @@
+sema::constraints::tests::alias_chain_of_400_variables_resolves_to_ground_type: test
+sema::constraints::tests::aliases_share_one_solution_and_conflicts_retain_source_contributions: test
+sema::constraints::tests::authoritative_dynamic_destination_accepts_concrete_contributions: test
+sema::constraints::tests::checked_annotations_can_choose_types_that_ordinary_evidence_cannot_anchor: test
+sema::constraints::tests::container_record_width_cannot_bypass_invariance_during_substitution: test
+sema::constraints::tests::dynamic_values_cannot_satisfy_resolved_concrete_constraints: test
+sema::constraints::tests::failed_unification_after_alias_walk_keeps_probes_independent: test
+sema::constraints::tests::ground_record_resolution_preserves_depth_errors: test
+sema::constraints::tests::indirect_recursive_type_equations_are_rejected: test
+sema::constraints::tests::nested_conflicts_roll_back_earlier_variable_bindings: test
+sema::constraints::tests::nested_dynamic_and_recovery_operands_do_not_establish_contracts: test
+sema::constraints::tests::optional_evidence_and_reversed_alias_order_have_canonical_solutions: test
+sema::constraints::tests::optional_record_contributions_keep_one_shape_in_either_order: test
+sema::constraints::tests::probes_keep_existing_aliases_but_new_variables_cannot_cross_problems: test
+sema::constraints::tests::record_resolution_preserves_foreign_variable_errors: test
+sema::constraints::tests::shared_nested_records_resolve_independently: test
+
+16 tests, 0 benchmarks

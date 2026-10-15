@@ -1,0 +1,1 @@
+['/candidate/xsht', 'test', '-j', '1', '--timeout', '50s', '--exact', 'core/tests/test-gnu-tail.xsh::test_gnu_tail_wait_log']

@@ -1,0 +1,11 @@
+running 1 tests
+core/tests/test-curl.xsh::test_curl_write_failure_exits_23 ... FAILED 93ms
+
+failures:
+
+---- core/tests/test-curl.xsh::test_curl_write_failure_exits_23 ----
+AssertionError.Failed: assertion failed: result.status == 23
+left: 0
+right: 23
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped

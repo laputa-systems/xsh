@@ -1,0 +1,11 @@
+w9 parity shard 16: starting 1650/1690 tests/xsh/stream-options.xsh
+w9 parity shard 16: completed 1650/1690 tests/xsh/stream-options.xsh
+w9 parity shard 16: starting 1651/1690 tests/xsh/stream-producers.xsh
+w9 parity shard 16: completed 1651/1690 tests/xsh/stream-producers.xsh
+w9 parity shard 16: starting 1652/1690 tests/xsh/string-patterns.xsh
+w9 parity shard 16: completed 1652/1690 tests/xsh/string-patterns.xsh
+w9 parity shard 16: starting 1653/1690 tests/xsh/sugar-conditionals.xsh
+w9 parity shard 16: completed 1653/1690 tests/xsh/sugar-conditionals.xsh
+w9 parity shard 16: starting 1654/1690 tests/xsh/system-report-collect.xsh
+w9 parity shard 16: completed 1654/1690 tests/xsh/system-report-collect.xsh
+w9 parity shard 16: starting 1655/1690 tests/xsh/system-report.xsh

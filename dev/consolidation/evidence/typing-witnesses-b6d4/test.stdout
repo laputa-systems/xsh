@@ -1,0 +1,59 @@
+running 6 tests
+tests/xsh/typing-capability-witnesses.xsh::test_typing_annotated_projection_missing_field_remains_rejected ... ok 5ms
+tests/xsh/typing-capability-witnesses.xsh::test_typing_dynamic_values_do_not_gain_a_concrete_type ... ok 5ms
+tests/xsh/typing-capability-witnesses.xsh::test_typing_exported_scheme_is_independent_of_other_importers ... FAILED 22ms
+tests/xsh/typing-capability-witnesses.xsh::test_typing_identity_and_open_record_projection ... FAILED 1ms
+tests/xsh/typing-capability-witnesses.xsh::test_typing_identity_rejects_a_wrong_context ... FAILED 1ms
+tests/xsh/typing-capability-witnesses.xsh::test_typing_open_record_projection_requires_the_projected_field ... FAILED 1ms
+
+failures:
+
+---- tests/xsh/typing-capability-witnesses.xsh::test_typing_exported_scheme_is_independent_of_other_importers ----
+AssertionError.Failed: assertion failed: all_succeeded: integer-only: err[parse.module-load]: failed to load module
+  /scratch/xsh-test-7-1792100955859758789-2-test_typing_exported_scheme_is_independent_of_other_importers/typing-importers-1/typing-capability-import-int.xsh:1:1
+  use typing-capability-identity as identity
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `/scratch/xsh-test-7-1792100955859758789-2-test_typing_exported_scheme_is_independent_of_other_importers/typing-importers-1/typing-capability-identity.xsh` has parse errors
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/xsh-test-7-1792100955859758789-2-test_typing_exported_scheme_is_independent_of_other_importers/typing-importers-1/typing-capability-identity.xsh:1:29
+  export pure public_identity(value) {
+                              ^^^^^ parameters declare their types: write `value: Type`
+; text-only: err[parse.module-load]: failed to load module
+  /scratch/xsh-test-7-1792100955859758789-2-test_typing_exported_scheme_is_independent_of_other_importers/ty…
+
+---- tests/xsh/typing-capability-witnesses.xsh::test_typing_identity_and_open_record_projection ----
+AssertionError.Failed: assertion failed: output.success: err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/xsh-test-7-1792100955859758789-3-test_typing_identity_and_open_record_projection/typing-relationships.xsh-1:1:15
+  pure identity(value) {
+                ^^^^^ parameters declare their types: write `value: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/xsh-test-7-1792100955859758789-3-test_typing_identity_and_open_record_projection/typing-relationships.xsh-1:5:14
+  pure name_of(value) {
+               ^^^^^ parameters declare their types: write `value: Type`
+
+---- tests/xsh/typing-capability-witnesses.xsh::test_typing_identity_rejects_a_wrong_context ----
+AssertionError.Failed: test.expect: the script did not behave as expected
+  stderr does not contain "[check.type-mismatch]"
+status: 2
+stdout:
+
+stderr:
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/xsh-test-7-1792100955859758789-4-test_typing_identity_rejects_a_wrong_context/script.xsh-1:1:15
+  pure identity(value) {
+                ^^^^^ parameters declare their types: write `value: Type`
+
+---- tests/xsh/typing-capability-witnesses.xsh::test_typing_open_record_projection_requires_the_projected_field ----
+AssertionError.Failed: test.expect: the script did not behave as expected
+  stderr does not contain "[check.unknown-field]"
+status: 2
+stdout:
+
+stderr:
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/xsh-test-7-1792100955859758789-5-test_typing_open_record_projection_requires_the_projected_field/script.xsh-1:1:14
+  pure name_of(value) {
+               ^^^^^ parameters declare their types: write `value: Type`
+
+test result: FAILED. 2 passed; 4 failed; 0 skipped

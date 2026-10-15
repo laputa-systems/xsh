@@ -1,0 +1,4 @@
+/nonexistent: drwxr-xr-x uid=0 gid=0 size=4096
+/nonexistent/dir: drwxr-xr-x uid=0 gid=0 size=4096
+/nonexistent/dir/out: -rw-r--r-- uid=0 gid=0 size=6
+/nonexistent/dir/f: FileNotFoundError errno=2

@@ -1,0 +1,105 @@
+125   execve("/work/target/x86_64-unknown-linux-musl/release/xsht", ["/work/target/x86_64-unknown-linux-musl/release/xsht", "test", "--jobs", "8", "--exact", "core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_001"], 0x7ffc39be7a58 /* 22 vars */) = 0
+133   +++ exited with 0 +++
+126   +++ exited with 0 +++
+127   +++ exited with 0 +++
+129   +++ exited with 0 +++
+132   +++ exited with 0 +++
+131   +++ exited with 0 +++
+128   +++ exited with 0 +++
+130   +++ exited with 0 +++
+134   +++ exited with 0 +++
+135   +++ exited with 0 +++
+136   +++ exited with 0 +++
+137   +++ exited with 0 +++
+138   +++ exited with 0 +++
+139   +++ exited with 0 +++
+140   +++ exited with 0 +++
+141   +++ exited with 0 +++
+146   +++ exited with 0 +++
+148   +++ exited with 0 +++
+149   +++ exited with 0 +++
+145   +++ exited with 0 +++
+144   +++ exited with 0 +++
+147   +++ exited with 0 +++
+143   +++ exited with 0 +++
+142   +++ exited with 0 +++
+150   +++ exited with 0 +++
+151   +++ exited with 0 +++
+152   +++ exited with 0 +++
+153   +++ exited with 0 +++
+154   +++ exited with 0 +++
+155   +++ exited with 0 +++
+156   +++ exited with 0 +++
+157   +++ exited with 0 +++
+158   +++ exited with 0 +++
+125   write(1</scratch/awk-original-0ea-replay/runtime/evidence/desugared_awk_001.stdout>, "running 1 tests\n", 16) = 16
+161   execve("/work/target/x86_64-unknown-linux-musl/release/xsh", ["/work/target/x86_64-unknown-linux-musl/release/xsh", "/replay/core/awk.xsh", "--", "BEGIN { printf \"%d-%s\\n\", 5, \"x\" > \"out\"; close(\"out\"); getline l < \"out\"; print l }"], 0x20291ec07e0 /* 25 vars */) = 0
+162   write(3</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-8-1/out>, "5-x\n", 4) = 4
+162   write(1</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-8-1/.out>, "5-x\n", 4) = 4
+162   +++ exited with 0 +++
+161   exit_group(0)                     = ?
+161   +++ exited with 0 +++
+160   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=161, si_uid=0, si_status=0, si_utime=33 /* 0.33 s */, si_stime=6 /* 0.06 s */} ---
+163   execve("/work/target/x86_64-unknown-linux-musl/release/xsh", ["/work/target/x86_64-unknown-linux-musl/release/xsh", "/replay/core/awk.xsh", "--", "BEGIN { print \"1\" > \"o1\"; print \"2\" > \"o2\"; close(\"o1\"); close(\"o2\"); getline a < \"o1\"; getline b < \"o2\"; print a, b }"], 0x20291ec0c40 /* 25 vars */) = 0
+164   write(3</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-9-2/o1>, "1\n", 2) = 2
+164   write(4</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-9-2/o2>, "2\n", 2) = 2
+164   write(1</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-9-2/.out>, "1 2\n", 4) = 4
+164   +++ exited with 0 +++
+163   exit_group(0)                     = ?
+163   +++ exited with 0 +++
+160   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=163, si_uid=0, si_status=0, si_utime=35 /* 0.35 s */, si_stime=10 /* 0.10 s */} ---
+165   execve("/work/target/x86_64-unknown-linux-musl/release/xsh", ["/work/target/x86_64-unknown-linux-musl/release/xsh", "/replay/core/awk.xsh", "--", "{ print $2 > $1 \".txt\" } END { close(\"a.txt\"); close(\"b.txt\"); while ((getline l < \"a.txt\") > 0) print \"a:\", l; while ((getline l < \"b.txt\") > 0) print \"b:\", l }"], 0x20291ec0a80 /* 25 vars */) = 0
+160   write(6<pipe:[94892072]>, "a 1\nb 2\na 3\n", 12) = 12
+166   write(3</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-10-3/a.txt>, "1\n3\n", 4) = 4
+166   write(4</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-10-3/b.txt>, "2\n", 2) = 2
+166   write(1</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-10-3/.out>, "a: 1\na: 3\nb: 2\n", 15) = 15
+166   +++ exited with 0 +++
+165   exit_group(0)                     = ?
+165   +++ exited with 0 +++
+160   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=165, si_uid=0, si_status=0, si_utime=28 /* 0.28 s */, si_stime=1 /* 0.01 s */} ---
+167   execve("/work/target/x86_64-unknown-linux-musl/release/xsh", ["/work/target/x86_64-unknown-linux-musl/release/xsh", "/replay/core/awk.xsh", "--", "BEGIN { print \"x\" > \"/nonexistent/dir/f\" }"], 0x20291ec0540 /* 25 vars */) = 0
+168   write(3</nonexistent/dir/f>, "x\n", 2) = 2
+168   +++ exited with 0 +++
+167   exit_group(0)                     = ?
+167   +++ exited with 0 +++
+160   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=167, si_uid=0, si_status=0, si_utime=27 /* 0.27 s */, si_stime=5 /* 0.05 s */} ---
+169   execve("/work/target/x86_64-unknown-linux-musl/release/xsh", ["/work/target/x86_64-unknown-linux-musl/release/xsh", "/replay/core/awk.xsh", "--", "BEGIN { print \"x\" > \".\" }"], 0x20291ec02a0 /* 25 vars */) = 0
+170   write(2</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-12-5/.err>, "awk: cmd. line:1: fatal: cannot redirect to `.': Is a directory\n", 64) = 64
+170   +++ exited with 0 +++
+169   exit_group(2)                     = ?
+169   +++ exited with 2 +++
+160   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=169, si_uid=0, si_status=2, si_utime=26 /* 0.26 s */, si_stime=3 /* 0.03 s */} ---
+171   execve("/work/target/x86_64-unknown-linux-musl/release/xsh", ["/work/target/x86_64-unknown-linux-musl/release/xsh", "/replay/core/awk.xsh", "--", "BEGIN { print \"x\" > \"\" }"], 0x20291ec0460 /* 25 vars */) = 0
+172   write(2</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-13-6/.err>, "awk: cmd. line:1: fatal: expression for `>' redirection has null string value\n", 78) = 78
+172   +++ exited with 0 +++
+171   exit_group(2)                     = ?
+171   +++ exited with 2 +++
+160   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=171, si_uid=0, si_status=2, si_utime=34 /* 0.34 s */, si_stime=1 /* 0.01 s */} ---
+173   execve("/work/target/x86_64-unknown-linux-musl/release/xsh", ["/work/target/x86_64-unknown-linux-musl/release/xsh", "/replay/core/awk.xsh", "--", "BEGIN { print \"a\" > \"/dev/stdout\"; print \"b\" }"], 0x20291ec0b60 /* 25 vars */) = 0
+174   write(1</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-14-7/.out>, "a\nb\n", 4) = 4
+174   +++ exited with 0 +++
+173   exit_group(0)                     = ?
+173   +++ exited with 0 +++
+160   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=173, si_uid=0, si_status=0, si_utime=34 /* 0.34 s */, si_stime=5 /* 0.05 s */} ---
+175   execve("/work/target/x86_64-unknown-linux-musl/release/xsh", ["/work/target/x86_64-unknown-linux-musl/release/xsh", "/replay/core/awk.xsh", "--", "BEGIN { print \"e\" > \"/dev/stderr\"; print \"o\" }"], 0x20291ec0ee0 /* 25 vars */) = 0
+176   write(2</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-15-8/.err>, "e\n", 2) = 2
+176   write(1</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-15-8/.out>, "o\n", 2) = 2
+176   +++ exited with 0 +++
+175   exit_group(0)                     = ?
+175   +++ exited with 0 +++
+160   --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_EXITED, si_pid=175, si_uid=0, si_status=0, si_utime=24 /* 0.24 s */, si_stime=1 /* 0.01 s */} ---
+160   +++ exited with 0 +++
+159   openat(AT_FDCWD</replay>, "/home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001", O_RDONLY|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 3</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001>
+159   openat(3</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001>, "awk-case-14-7", O_RDONLY|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 4</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-14-7>
+159   openat(3</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001>, "awk-case-8-1", O_RDONLY|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 4</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-8-1>
+159   openat(3</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001>, "awk-case-11-4", O_RDONLY|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 4</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-11-4>
+159   openat(3</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001>, "awk-case-9-2", O_RDONLY|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 4</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-9-2>
+159   openat(3</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001>, "awk-case-12-5", O_RDONLY|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 4</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-12-5>
+159   openat(3</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001>, "awk-case-15-8", O_RDONLY|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 4</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-15-8>
+159   openat(3</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001>, "awk-case-10-3", O_RDONLY|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 4</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-10-3>
+159   openat(3</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001>, "awk-case-13-6", O_RDONLY|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 4</home/josh/d/laputa-systems/xsh/.work/tmp/awk-original-0ea-replay/runtime/native-temp/xsh-test-125-1792101177992219183-0-test_awk_matrix_streams_and_processes_shard_001/awk-case-13-6>
+125   write(1</scratch/awk-original-0ea-replay/runtime/evidence/desugared_awk_001.stdout>, "core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_001 ... FAILED 2.9s\n", 89) = 89
+125   write(1</scratch/awk-original-0ea-replay/runtime/evidence/desugared_awk_001.stdout>, "\nfailures:\n\n---- core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_001 ----\nAssertionError.Failed: assertion failed: failures.is_empty(): 1 of 8 cases differ from the recorded GNU awk output:\nio_redirect_unwritable: stderr,status\n\ntest result: FAILED. 0 passed; 1 failed; 0 skipped\n", 301) = 301
+159   +++ exited with 0 +++
+125   exit_group(1)                     = ?
+125   +++ exited with 1 +++

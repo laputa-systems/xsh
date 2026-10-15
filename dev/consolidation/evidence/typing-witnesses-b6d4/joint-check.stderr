@@ -1,0 +1,15 @@
+err[parse.module-load]: failed to load module
+  /source/tests/xsh/modules/typing-capability-import-int.xsh:1:1
+  use typing-capability-identity as identity
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `tests/xsh/modules/typing-capability-identity.xsh` has parse errors
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /source/tests/xsh/modules/typing-capability-identity.xsh:1:29
+  export pure public_identity(value) {
+                              ^^^^^ parameters declare their types: write `value: Type`
+
+err[parse.module-load]: failed to load module
+  /source/tests/xsh/modules/typing-capability-import-text.xsh:1:1
+  use typing-capability-identity as identity
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `tests/xsh/modules/typing-capability-identity.xsh` has parse errors
+xsht check: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s)

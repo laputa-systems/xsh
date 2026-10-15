@@ -1,0 +1,32 @@
+{
+  "source": {
+    "commit": "0d6cd70d59b784102bb72bb06f34f2fb2cb3133e",
+    "tree": "1c0ccc6f44f3d03e5a8a56c26fe22d1584805c9c"
+  },
+  "batch_receipt_sha256": "8dacc3bbce49c8b129d45de6fca8992d0d59d55679fa2d5224047c7c4c167309",
+  "resource_capture_sha256": "f00fce2043a65b02189b40a46ff014d1c3acec2827ded03cbda48e61b5d2a2c2",
+  "actual_target": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification",
+  "products": {
+    "xsh": {
+      "actual_path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh",
+      "frozen_path": ".work/consolidation/resume-candidate-0d6/xsh",
+      "sha256": "466c5fb2df4455693c24ff37911a5abfa485ee219802d3ebfa0a68faf41689f2",
+      "size_bytes": 31688416
+    },
+    "xsht": {
+      "actual_path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht",
+      "frozen_path": ".work/consolidation/resume-candidate-0d6/xsht",
+      "sha256": "4dd5a1e3c713d42101841779acc0c6462e194ebd46bdb817fc1d4c8b898ddee7",
+      "size_bytes": 38773704
+    },
+    "xshi": {
+      "actual_path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xshi",
+      "frozen_path": ".work/consolidation/resume-candidate-0d6/xshi",
+      "sha256": "5121c56402853320e396695d6854336067fa9754fcc957bdcdd98ffe74fcea53",
+      "size_bytes": 587320
+    }
+  },
+  "qualification": "batch stopped before normal native; no native stage product snapshots exist; original products_after points at old root target and is superseded only for product identity by this sidecar",
+  "exit_code": 3,
+  "watcher_cleanup": "owned watcher terminated SIGTERM after batch stopped before native; exit143"
+}

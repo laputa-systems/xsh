@@ -1,0 +1,2 @@
+Cpus_allowed_list:	0-31
+pid 17198's current affinity list: 0-31

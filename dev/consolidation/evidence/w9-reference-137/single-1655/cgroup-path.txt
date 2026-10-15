@@ -1,0 +1,3 @@
+container_pid=5644
+cgroup_path=/docker/8aa4b18628b32104a63a92c35b14f25e4abb1716566c53dac360256f2c015b1d
+cgroup_dir=/sys/fs/cgroup/docker/8aa4b18628b32104a63a92c35b14f25e4abb1716566c53dac360256f2c015b1d

@@ -1,0 +1,9 @@
+3719d57fa68c887c0167711ac3acdfe00318cf9fa1d0c946de8a5ff6bae96be2  tests/xsh/typing-capability-witnesses.xsh
+0c63445a696926b503afe60cf089b7adf8d6f4600f0ca421eab87ded9bc0f046  tests/xsh/modules/typing-capability-identity.xsh
+2bc49ed3c26c5114935e7dfce1449badec49449d4c147ee75898b0fe85bbecd6  tests/xsh/modules/typing-capability-identity-reordered.xsh
+fe49719f49a0fc9ea3de9e468b8aaf5ce7dc118e9e487d62ee15839f1fee41c8  tests/xsh/modules/typing-capability-import-int.xsh
+9e4064bae9b45b32a8452ed1ad5a676d34b5c173b20dc1759701daa78b239228  tests/xsh/modules/typing-capability-import-text.xsh
+fa74ecfd4df3ddec2a1ddc66d165c9ccb13ab3e9f7396cfa954ab7f8359d172a  tests/xsh/modules/typing-capability-root-int.xsh
+5cf6d4eaf2a40cb174c4c3c4a608e807b5b818e5f18c25cf384cdc44d872f95d  tests/xsh/modules/typing-capability-root-text.xsh
+05f7dca57ccef9cedfd39ab2015401d143b2f1f54756662a5ae9d4b05bc09d54  tests/xsh/modules/typing-capability-root-joint.xsh
+1567402f48524db875a22914ae27502902a50f07fdd01fa757b2e29d7cf56226  tests/xsh/modules/typing-capability-root-bool.xsh

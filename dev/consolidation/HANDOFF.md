@@ -1,9 +1,9 @@
 # Consolidation restart handoff
 
-Status: resumed 2026-10-15 by the owner for consolidation acceptance followed
-by the typing successor. Consolidation acceptance is incomplete. Lean and
-Phase F remain paused. Complete consolidation before changing language
-acceptance or starting general-inference implementation.
+Status: resumed 2026-10-15. The owner subsequently authorized staggered
+inference implementation in isolated worktrees while consolidation acceptance
+continues. Consolidation remains incomplete. Its accepted source and performance
+baseline are not replaced by the inference branches. Lean and Phase F stay paused.
 
 ## Current resume
 
@@ -17,6 +17,57 @@ Historical gate helpers require fresh paths and source qualification.
 Acceptance launch, structural/semantic review, loop selection, typing witness
 readiness, and historical AWK evidence were inventoried independently. No Lean
 work is authorized by this resume.
+
+### Current batch: fixtures, historical AWK cause, and inference overlap
+
+- Source `577bebfb9` integrates reviewed curl repair `07dd3bfbb`, AWK fixture
+  `66945cbdd`, and tail fixture `11eac7c02`. Five exact checks on the integrated
+  scripts pass with frozen `0d6` verification products: three curl cases,
+  AWK shard 001, and tail wait. [Raw results](evidence/fixture-fixes-577b/driver.stdout)
+  retain each status. The tail lane separately passes as root and uid 1000.
+- The `0d6` canonical batch passed 305 process tests with four ignored and
+  741 debug unit tests with three ignored. XSHT integration stopped at the
+  AWK desugar difference: 115 passed, one failed. No normal full native suite
+  ran. [The failed batch](evidence/canonical-0d6/canonical-replay.json) is retained.
+  Its outer product lookup used the old target path; the
+  [actual-product sidecar](evidence/canonical-0d6/actual-products.json) identifies
+  the binaries from the mounted `.work` target. No timing credit is claimed.
+- [Original-source release binaries reproduce the AWK cause](evidence/awk-cross-file-0ea/README.md):
+  written AWK shard 001 passes, written curl creates `/nonexistent/dir`, and
+  freshly desugared AWK then succeeds at a redirect expected to fail. The
+  historical harness completes all written reports before transformed reports.
+  The earlier twelve-shard replay omitted curl. Missing historical child bytes
+  remain missing; this bounded reproducer establishes the cross-file mechanism.
+- Curl now enforces its existing `--create-dirs` contract before the downloader
+  can create parents. AWK's missing-parent case uses its private `@DIR@` tree.
+  Tail's root unreadable fixture drops DAC override capabilities and gives the
+  inner timeout time to return. No public API changes are introduced.
+- The required Clippy gate on unchanged `0d6` Rust failed. Its
+  [diagnostics](evidence/clippy-0d6/stderr.log) are retained. Six disjoint cleanup
+  lanes are combined in `campaign/clippy-integration-577b`; the first combined
+  run exposed ten follow-up findings. That integration is not accepted on main.
+- Five W9 harness builds qualified on `0d6`. Fresh capture failed in the e240
+  reference worker on index 1655, `tests/xsh/system-report.xsh`; candidate capture
+  did not start. Both an exact range replay and a single-file replay hit the
+  unchanged 1 GiB cgroup limit with one OOM kill and no swap. Serialization
+  allocation profiling is in progress. [OOM evidence](evidence/w9-reference-137/single-1655/cgroup-oom-observed.txt)
+  retains the bound and kill. Partial ranges have no parity credit.
+- Capability branch `campaign/typing-capability-witnesses`, commit `b6d4a6d1a`,
+  records six native witnesses: two existing rejection controls pass and four
+  inferred capability cases fail at `parse.expected-param-type`. Joint and
+  independent importing roots are included. [Raw baseline](evidence/typing-witnesses-b6d4/test.stdout).
+- Solver baseline `6f53397b8` reproduces the 400-variable alias failure:
+  `Err(TypeDepth)` instead of `Ok(Int)`. Candidate `3b7c033` fixes that case but
+  misclassifies an existing foreign-variable test; its failed output is retained.
+  Corrected `b556b5656` on `campaign/typing-unification` builds and passes the
+  exact alias case and all eighteen constraint tests. Independent source review
+  finds no remaining blocker. [Red baseline](evidence/typing-alias-red-6f53/constraints-module.stdout),
+  [failed candidate](evidence/typing-alias-failed-3b7c/constraints-module.stdout),
+  and [green candidate](evidence/typing-alias-green-b556/constraints-module.stdout)
+  remain separate. This prerequisite is isolated, not merged or a speedup claim.
+- First-slice design branch `campaign/typing-inference-design` retains `368eef5b3`.
+  Review requires explicit binder-scoped generic body facts, one imported-scheme
+  handoff, and coherent parser caller migration before broader interfaces freeze.
 
 ### Verified since resume
 
@@ -38,8 +89,8 @@ work is authorized by this resume.
 - A [bounded replay of the original 0ea source](evidence/awk-replay-0ea/README.md)
   selected twelve stream/process shards under root with eight workers. Written
   and freshly desugared forms both passed shard 001 and failed only the separate
-  root-sensitive shard 008. The historical extra failure remains unexplained.
-  AWK acceptance stays open. The replay is not a full-suite acceptance pass.
+  root-sensitive shard 008. That replay did not include the cross-file curl mutation established above.
+  It is not a full-suite acceptance pass.
 - The first canonical batch at `fff13082f` passed 305 root integration cases,
   with four ignored. Its debug unit target passed 715, failed two, and ignored
   three. Both failures inherited `/work/xsht-config.ini` through disk-backed
@@ -233,8 +284,9 @@ The archived W9 corpus is recovered. Its 1,690 file paths, bytes, modes, and
 manifest match the pinned e240 source. The original legacy capture is missing.
 Fresh captures must bind the same source and cohort before exact-owner proof
 and candidate comparison. Historical ownership receipts cannot replace the
-missing outcomes. Receipt recovery is integrated with pure checks; actual
-builder qualification and fresh captures remain pending. No parity is claimed.
+missing outcomes. Five current harness builds qualified on `0d6`; fresh capture then hit the
+reference serialization OOM recorded above. Recovery tools and proofs still
+require complete fresh outcomes. No parity is claimed.
 
 The migrated expression children require explicit matrix requalification.
 Keep the scheduler comparison's original default workers and outcome checks.
@@ -244,9 +296,9 @@ is integrated with focused parity and an independent static review. Replay the
 feature-touch probe and structural scan on the repaired source. Focused checks
 do not replace the final canonical and full native gates.
 
-General inference implementation, its initial red/green witnesses, and the
-400-variable solver observation have not started. Consolidation acceptance
-remains the prerequisite. Lean and Phase F remain paused.
+Isolated general inference implementation and its initial red/green witnesses
+are active under the owner's overlap authorization. Preserve the frozen
+consolidation source separately. Lean and Phase F remain paused.
 
 ## Resume
 
@@ -320,21 +372,21 @@ checked into Git and are not required to recover source or resume work.
 The committed small receipts retain historical path strings as observations,
 not as files that must still exist.
 
-## Not started
+## Remaining work
 
 1. After explicit consolidation resume, qualify the source freeze and prepare
    current launch pins using the existing gate owners. Complete the unreached
    canonical, native, forced-route, privileged Linux, and soundness checks.
-2. Apply the existing nonclosure policy to the unexplained AWK discrepancy;
-   preserve the failed observation without inventing a cause.
+2. Retain the original AWK failure and the source-pinned cross-file reproducer;
+   verify the integrated fixture and curl repairs in the fresh canonical batch.
 3. Finish structural metrics, ten semantic review rows, docs, resource/size,
    scheduler, and comparative acceptance. Time-based gates require readiness
    before and after. Keep one full native suite at a time. The owner waived
    alternative profile-selection measurement, not correctness or other gates.
-4. After consolidation closes and typing explicitly resumes, deliver the
-   first end-to-end identity/projection/import/rejection slice through normal
-   indexed execution. Retain solver counters and the observed alias-chain
-   regression result. Then widen Phases B–E. No such new tests ran in winddown.
+4. Continue the isolated identity/projection/import/rejection slice alongside
+   consolidation. Retain initial red witnesses, the alias-chain repair, and
+   solver counters. Freeze the performance baseline after consolidation closes.
+   Then widen Phases B–E. No such new tests ran in winddown.
 5. Phase F stays deferred until the owner explicitly resumes Lean. It does
    not block typing acceptance or authorize more disconnected proof lanes.
 

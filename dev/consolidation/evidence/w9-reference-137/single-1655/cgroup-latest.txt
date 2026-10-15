@@ -1,0 +1,12 @@
+sample_epoch=1792101925
+cgroup=/sys/fs/cgroup/docker/8aa4b18628b32104a63a92c35b14f25e4abb1716566c53dac360256f2c015b1d
+memory.peak=1073741824
+memory.current=41857024
+memory.events:
+low 0
+high 0
+max 58
+oom 1
+oom_kill 1
+oom_group_kill 0
+sock_throttled 0

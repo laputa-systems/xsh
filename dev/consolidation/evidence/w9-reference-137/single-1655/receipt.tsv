@@ -1,0 +1,6 @@
+corpus=1690
+shard=16/17
+range=1655..1656
+shard_size=100
+input_digest=a7b1f70466c4e978222af3d329e9c71b0a15030480e24b8d7f77a5fa4f57f17d
+options=[("default", CheckOptions { interactive_commands: None, reveal_types: false, embedded_bodies: false }), ("reveal", CheckOptions { interactive_commands: None, reveal_types: true, embedded_bodies: false }), ("execution", CheckOptions { interactive_commands: None, reveal_types: false, embedded_bodies: true }), ("check-cli", CheckOptions { interactive_commands: None, reveal_types: true, embedded_bodies: true })]

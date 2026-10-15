@@ -1,0 +1,4 @@
+/nonexistent: FileNotFoundError errno=2
+/nonexistent/dir: FileNotFoundError errno=2
+/nonexistent/dir/out: FileNotFoundError errno=2
+/nonexistent/dir/f: FileNotFoundError errno=2

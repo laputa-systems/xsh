@@ -1,0 +1,2212 @@
+error: this call to `as_ref` does nothing
+  --> src/modules/cli/gnu.rs:53:20
+   |
+53 |             match (field.as_ref(), value) {
+   |                    ^^^^^^^^^^^^^^ help: try: `field`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#useless_asref
+   = note: `-D clippy::useless-asref` implied by `-D clippy::complexity`
+   = help: to override `-D clippy::complexity` add `#[allow(clippy::useless_asref)]`
+
+error: expression can be simplified using `Option::unwrap_or()`
+   --> src/modules/cli/gnu.rs:465:30
+    |
+465 |                   let digits = cluster[pos..]
+    |  ______________________________^
+466 | |                     .find(|ch: char| !ch.is_ascii_digit())
+467 | |                     .map_or(cluster.len() - pos, |len| len);
+    | |___________________________________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#map_or_identity
+    = note: `-D clippy::map-or-identity` implied by `-D clippy::complexity`
+    = help: to override `-D clippy::complexity` add `#[allow(clippy::map_or_identity)]`
+help: consider using `unwrap_or`
+    |
+467 -                     .map_or(cluster.len() - pos, |len| len);
+467 +                     .unwrap_or(cluster.len() - pos);
+    |
+
+error: this `if` statement can be collapsed
+   --> src/modules/compression.rs:259:5
+    |
+259 | /     if let Some(destination) = request.destination {
+260 | |         if let Some(source) = request.source {
+261 | |             use std::os::unix::fs::MetadataExt;
+262 | |             let same_file = match fs::metadata(destination) {
+...   |
+271 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+259 ~     if let Some(destination) = request.destination
+260 ~         && let Some(source) = request.source {
+261 |             use std::os::unix::fs::MetadataExt;
+...
+269 |             }
+270 ~         }
+    |
+
+error: manual implementation of `.is_multiple_of()`
+   --> src/modules/compression.rs:358:58
+    |
+358 |     let standard_size = dictionary.is_power_of_two() || (dictionary % 3 == 0 && (dictionary / 3).is_power_of_two());
+    |                                                          ^^^^^^^^^^^^^^^^^^^ help: replace with: `dictionary.is_multiple_of(3)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#manual_is_multiple_of
+    = note: `-D clippy::manual-is-multiple-of` implied by `-D clippy::complexity`
+    = help: to override `-D clippy::complexity` add `#[allow(clippy::manual_is_multiple_of)]`
+
+error: casting to the same type is unnecessary (`u32` -> `u32`)
+   --> src/modules/fs/prims.rs:141:16
+    |
+141 |     let mode = stat.st_mode as u32;
+    |                ^^^^^^^^^^^^^^^^^^^ help: try: `stat.st_mode`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_cast
+    = note: `-D clippy::unnecessary-cast` implied by `-D clippy::complexity`
+    = help: to override `-D clippy::complexity` add `#[allow(clippy::unnecessary_cast)]`
+
+error: casting to the same type is unnecessary (`i64` -> `i64`)
+   --> src/modules/fs/prims.rs:155:34
+    |
+155 |         (key("size"), Value::Int(stat.st_size as i64)),
+    |                                  ^^^^^^^^^^^^^^^^^^^ help: try: `stat.st_size`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`i64` -> `i64`)
+   --> src/modules/fs/prims.rs:156:40
+    |
+156 |         (key("blocks_512"), Value::Int(stat.st_blocks as i64)),
+    |                                        ^^^^^^^^^^^^^^^^^^^^^ help: try: `stat.st_blocks`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`i64` -> `i64`)
+   --> src/modules/fs/prims.rs:157:37
+    |
+157 |         (key("blksize"), Value::Int(stat.st_blksize as i64)),
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^ help: try: `stat.st_blksize`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_cast
+
+error: casting to the same type is unnecessary (`i64` -> `i64`)
+   --> src/modules/fs/prims.rs:417:77
+    |
+417 |     let type_magic = rfs::statfs(&path).map_or(Value::Null, |fs| Value::Int(fs.f_type as i64));
+    |                                                                             ^^^^^^^^^^^^^^^^ help: try: `fs.f_type`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_cast
+
+error: returning the result of a `let` binding from a block
+   --> src/modules/hash.rs:179:13
+    |
+172 | /             let bytes = match length {
+173 | |                 224 => digest_stream::<sha3::Sha3_224>(reader, span)?,
+174 | |                 256 => digest_stream::<sha3::Sha3_256>(reader, span)?,
+175 | |                 384 => digest_stream::<sha3::Sha3_384>(reader, span)?,
+176 | |                 512 => digest_stream::<sha3::Sha3_512>(reader, span)?,
+177 | |                 _ => return Err(RuntimeError::new("hash-length", "SHA3 length must be 224, 256, 384, or 512 bits").with_span(span)),
+178 | |             };
+    | |______________- unnecessary `let` binding
+179 |               bytes
+    |               ^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#let_and_return
+    = note: `-D clippy::let-and-return` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::let_and_return)]`
+help: return the expression directly
+    |
+172 ~             
+173 ~             match length {
+174 +                 224 => digest_stream::<sha3::Sha3_224>(reader, span)?,
+175 +                 256 => digest_stream::<sha3::Sha3_256>(reader, span)?,
+176 +                 384 => digest_stream::<sha3::Sha3_384>(reader, span)?,
+177 +                 512 => digest_stream::<sha3::Sha3_512>(reader, span)?,
+178 +                 _ => return Err(RuntimeError::new("hash-length", "SHA3 length must be 224, 256, 384, or 512 bits").with_span(span)),
+179 +             }
+    |
+
+error: manual implementation of `.is_multiple_of()`
+   --> src/modules/hash.rs:238:54
+    |
+238 |     let output_bytes = output_bits / 8 + usize::from(output_bits % 8 != 0);
+    |                                                      ^^^^^^^^^^^^^^^^^^^^ help: replace with: `!output_bits.is_multiple_of(8)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#manual_is_multiple_of
+
+error: using `chunks_exact` with a constant chunk size
+   --> src/modules/hash.rs:414:62
+    |
+414 |         for (word, bytes) in words.iter_mut().zip(self.block.chunks_exact(8)) {
+    |                                                              ^^^^^^^^^^^^^^^
+    |
+help: consider using `as_chunks::<8>()` instead
+   --> src/modules/hash.rs:414:62
+    |
+414 |         for (word, bytes) in words.iter_mut().zip(self.block.chunks_exact(8)) {
+    |                                                              ^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#chunks_exact_to_as_chunks
+    = note: `-D clippy::chunks-exact-to-as-chunks` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::chunks_exact_to_as_chunks)]`
+
+error: use of a disallowed type `std::collections::HashSet`
+   --> src/modules/linux/block.rs:563:27
+    |
+563 |     let mut identifiers = std::collections::HashSet::from([guid_from_gpt(&header[56..72])]);
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#disallowed_types
+    = note: requested on the command line with `-D clippy::disallowed-types`
+
+error: use of a disallowed type `std::collections::HashSet`
+   --> src/modules/linux/block.rs:640:23
+    |
+640 |     let mut indices = std::collections::HashSet::new();
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#disallowed_types
+
+error: use of a disallowed type `std::collections::HashSet`
+   --> src/modules/linux/block.rs:785:27
+    |
+785 |     let mut identifiers = std::collections::HashSet::from([disk_guid]);
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#disallowed_types
+
+error: methods called `into_*` usually take `self` by value
+   --> src/modules/linux/real/netlink.rs:385:19
+    |
+385 |     fn into_error(&self, kind: &str, span: Span) -> Value {
+    |                   ^^^^^
+    |
+    = help: consider choosing a less ambiguous name
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#wrong_self_convention
+    = note: `-D clippy::wrong-self-convention` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::wrong_self_convention)]`
+
+error: use of a disallowed type `std::collections::HashMap`
+   --> src/modules/linux/real/netlink.rs:683:16
+    |
+683 |     let names: std::collections::HashMap<u32, String> = snapshot
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#disallowed_types
+
+error: using `chunks_exact` with a constant chunk size
+   --> src/modules/linux/block_control.rs:217:44
+    |
+217 |             let partition = boot[446..510].chunks_exact(16).any(|entry| {
+    |                                            ^^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<16>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#chunks_exact_to_as_chunks
+
+error: usage of wildcard import
+  --> src/modules/linux/capabilities.rs:45:9
+   |
+45 |     use super::*;
+   |         ^^^^^^^^ help: try: `super::{RuntimeError, RuntimeOp, Args, Value, host_error}`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#wildcard_imports
+   = note: requested on the command line with `-D clippy::wildcard-imports`
+
+error: usage of wildcard import
+  --> src/modules/linux/storage/kernel.rs:11:9
+   |
+11 |     use super::*;
+   |         ^^^^^^^^ help: try: `super::{Span, RuntimeError, Transfer, SgRequest, SgResponse, NvmeRequest, NvmeResponse}`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#wildcard_imports
+
+error: manual implementation of `.is_multiple_of()`
+   --> src/modules/linux/storage/nvme.rs:145:30
+    |
+145 |             if length < 4 || length % 4 != 0 {
+    |                              ^^^^^^^^^^^^^^^ help: replace with: `!length.is_multiple_of(4)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#manual_is_multiple_of
+
+error: useless conversion to the same type: `i64`
+  --> src/modules/time.rs:67:49
+   |
+67 |         .and_then(|seconds| seconds.checked_add(i64::from(resolution.tv_nsec)))
+   |                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider removing `i64::from()`: `resolution.tv_nsec`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#useless_conversion
+   = note: `-D clippy::useless-conversion` implied by `-D clippy::complexity`
+   = help: to override `-D clippy::complexity` add `#[allow(clippy::useless_conversion)]`
+
+error: casting to the same type is unnecessary (`i64` -> `i64`)
+  --> src/modules/time.rs:94:25
+   |
+94 |         offset_seconds: tm.tm_gmtoff as i64,
+   |                         ^^^^^^^^^^^^^^^^^^^ help: try: `tm.tm_gmtoff`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_cast
+
+error: useless conversion to the same type: `i64`
+   --> src/modules/time.rs:100:19
+    |
+100 |     let seconds = seconds.try_into().map_err(|_| "timestamp out of range")?;
+    |                   ^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider removing `.try_into()`
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#useless_conversion
+
+error: this `if` statement can be collapsed
+   --> src/modules/time.rs:175:9
+    |
+175 | /         if spec == 'E' || spec == 'O' {
+176 | |             if let Some((i, c)) = chars.next() { end = i; spec = c; }
+177 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+175 ~         if (spec == 'E' || spec == 'O') {
+176 ~             && let Some((i, c)) = chars.next() { end = i; spec = c; }
+    |
+
+error: casting to the same type is unnecessary (`i64` -> `i64`)
+   --> src/modules/time.rs:187:30
+    |
+187 |                 let offset = tm.tm_gmtoff as i64;
+    |                              ^^^^^^^^^^^^^^^^^^^ help: try: `tm.tm_gmtoff`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_cast
+
+error: this `if` has identical blocks
+   --> src/modules/time.rs:191:37
+    |
+191 |                 else if colons == 2 { std::format!("{sign}{:02}:{:02}:{:02}", n / 3600, n / 60 % 60, n % 60) }
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: same as this
+   --> src/modules/time.rs:192:37
+    |
+192 |                 else if n % 60 != 0 { std::format!("{sign}{:02}:{:02}:{:02}", n / 3600, n / 60 % 60, n % 60) }
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#if_same_then_else
+    = note: `-D clippy::if-same-then-else` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::if_same_then_else)]`
+
+error: this `if` has identical blocks
+   --> src/modules/tui.rs:151:39
+    |
+151 |           } else if is_bidi_control(ch) {
+    |  _______________________________________^
+152 | |             safe.push('\u{fffd}');
+153 | |             has_base = true;
+154 | |         } else if UnicodeWidthChar::width(ch) == Some(0) && !has_base {
+    | |_________^
+    |
+note: same as this
+   --> src/modules/tui.rs:154:71
+    |
+154 |           } else if UnicodeWidthChar::width(ch) == Some(0) && !has_base {
+    |  _______________________________________________________________________^
+155 | |             safe.push('\u{fffd}');
+156 | |             has_base = true;
+157 | |         } else {
+    | |_________^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#if_same_then_else
+
+error: using `chunks_exact` with a constant chunk size
+  --> src/modules/unix/sessions.rs:53:15
+   |
+53 |         bytes.chunks_exact(RECORD_SIZE).map(utmp_record).collect(),
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<RECORD_SIZE>().0.iter()`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#chunks_exact_to_as_chunks
+
+error: useless conversion to the same type: `std::vec::Vec<u8>`
+    --> src/modules/unix.rs:1473:47
+     |
+1473 |         Ok(data) => Ok(Value::ok(Value::Bytes(data.into()))),
+     |                                               ^^^^^^^^^^^ help: consider removing `.into()`: `data`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#useless_conversion
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+  --> src/project.rs:52:54
+   |
+52 |     Some(match dir.strip_prefix(lexically_normalized(&cwd)) {
+   |                                                      ^^^^ help: change this to: `cwd`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+   = note: `-D clippy::needless-borrow` implied by `-D clippy::style`
+   = help: to override `-D clippy::style` add `#[allow(clippy::needless_borrow)]`
+
+error: this `if` statement can be collapsed
+   --> src/runtime/eval/indexed/full/decode.rs:470:9
+    |
+470 | /         if self.remaining == 0 {
+471 | |             if let Err(error) = self.input.finish() { return Some(Err(error)); }
+472 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+470 ~         if self.remaining == 0
+471 ~             && let Err(error) = self.input.finish() { return Some(Err(error)); }
+    |
+
+error: this `if` statement can be collapsed
+   --> src/runtime/eval/indexed/full/decode.rs:482:9
+    |
+482 | /         if self.remaining == 0 {
+483 | |             if let Err(error) = self.input.finish() { return Some(Err(error)); }
+484 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+482 ~         if self.remaining == 0
+483 ~             && let Err(error) = self.input.finish() { return Some(Err(error)); }
+    |
+
+error: this `if` statement can be collapsed
+   --> src/runtime/eval/indexed/full/decode.rs:542:9
+    |
+542 | /         if self.remaining == 0 {
+543 | |             if let Err(error) = self.input.finish() { return Some(Err(error)); }
+544 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+542 ~         if self.remaining == 0
+543 ~             && let Err(error) = self.input.finish() { return Some(Err(error)); }
+    |
+
+error: this `if` statement can be collapsed
+   --> src/runtime/eval/indexed/full/decode.rs:560:9
+    |
+560 | /         if self.remaining == 0 {
+561 | |             if let Err(error) = self.input.finish() { return Some(Err(error)); }
+562 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+560 ~         if self.remaining == 0
+561 ~             && let Err(error) = self.input.finish() { return Some(Err(error)); }
+    |
+
+error: large size difference between variants
+   --> src/runtime/eval/indexed/full/decode.rs:823:9
+    |
+823 | /           pub(in crate::runtime::eval) enum $view<'a> {
+824 | |               $(
+825 | | /                 $variant $(($(<$tuple_ty as BorrowCodec>::View<'a>),*))?
+826 | | |                 $({$($field: <$field_ty as BorrowCodec>::View<'a>),*})?,
+    | | |                                                                     -
+    | | |                                                                     |
+    | | |_____________________________________________________________________the largest variant contains at least 232 bytes
+    | |                                                                       the second-largest variant contains at least 20 bytes
+827 | |               )*
+828 | |           }
+    | |___________^ the entire enum is at least 232 bytes
+...
+988 |   / enum_schema!(LoweredProcessCommandBuilderEntry => ProcessCommandBuilderEntryView ["process command builder entry tag is invalid...
+989 |   |     Field { name: Name, value: BuildExprId, span: Span } = 0;
+990 |   |     Run { target: LoweredRunArg, args: Vec<LoweredRunArg>, env: Vec<LoweredRunEnv>,
+991 |   |         timeout: Option<BuildExprId>, cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>,
+992 |   |         span: Span } = 1;
+993 |   | });
+    |   |__- in this macro invocation
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#large_enum_variant
+    = note: `-D clippy::large-enum-variant` implied by `-D clippy::perf`
+    = help: to override `-D clippy::perf` add `#[allow(clippy::large_enum_variant)]`
+    = note: this error originates in the macro `enum_schema` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider boxing the large fields or introducing indirection in some other way to reduce the total size of the enum
+    |
+826 -                 $({$($field: <$field_ty as BorrowCodec>::View<'a>),*})?,
+826 +                 $({$($field: Box<<$field_ty as BorrowCodec>::View<'a>>),*})?,
+    |
+
+error: this `impl` can be derived
+   --> src/runtime/eval/indexed/full.rs:424:1
+    |
+424 | / impl Default for FunctionSignatureLookup {
+425 | |     fn default() -> Self {
+426 | |         Self::Missing
+427 | |     }
+428 | | }
+    | |_^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#derivable_impls
+    = note: `-D clippy::derivable-impls` implied by `-D clippy::complexity`
+    = help: to override `-D clippy::complexity` add `#[allow(clippy::derivable_impls)]`
+help: replace the manual implementation with a derive attribute and mark the default variant
+    |
+407 + #[derive(Default)]
+408 | enum FunctionSignatureLookup {
+409 ~     #[default]
+410 ~     Missing,
+    |
+
+error: this `if` statement can be collapsed
+    --> src/runtime/eval/indexed/full.rs:2570:9
+     |
+2570 | /         if let Some(statement) = statement.as_ref() {
+2571 | |             if statement.slot_type_facts.len() != statement.slot_count {
+2572 | |                 return Err(IrBuildError::format(
+2573 | |                     "driver_slot_type_fact_count",
+...    |
+2579 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+2570 ~         if let Some(statement) = statement.as_ref()
+2571 ~             && statement.slot_type_facts.len() != statement.slot_count {
+2572 |                 return Err(IrBuildError::format(
+ ...
+2577 |                 ));
+2578 ~             }
+     |
+
+error: this `if` statement can be collapsed
+    --> src/runtime/eval/indexed/full.rs:5684:9
+     |
+5684 | /         if expected.contains_typed_callable()
+5685 | |             || actual_type
+5686 | |                 .as_ref()
+5687 | |                 .is_some_and(Type::contains_typed_callable)
+...    |
+5699 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+5684 ~         if (expected.contains_typed_callable()
+5685 |             || actual_type
+5686 |                 .as_ref()
+5687 ~                 .is_some_and(Type::contains_typed_callable)
+5688 ~                 .is_some_and(Type::contains_typed_callable))
+5689 |         {
+5690 ~             && let schema::ExprView::MapLiteral(entries) = self.expression_view(instruction)? {
+5691 |                 let map_type = actual_type
+ ...
+5698 |                 }
+5699 ~             }
+     |
+
+error: this `if` statement can be collapsed
+    --> src/runtime/eval/indexed/full.rs:5956:33
+     |
+5956 | / ...                   if !later_fields.contains(&name) {
+5957 | | ...                       if field_type.contains_typed_callable()
+5958 | | ...                           && let Some(expected_field) = fields.get(&name)
+...    |
+5967 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+5956 ~                                 if !later_fields.contains(&name)
+5957 ~                                     && field_type.contains_typed_callable()
+5958 |                                         && let Some(expected_field) = fields.get(&name)
+ ...
+5965 |                                         supplied.insert(name);
+5966 ~                                     }
+     |
+
+error: this `if` has identical blocks
+    --> src/runtime/eval/indexed/full.rs:7240:38
+     |
+7240 |                   if actual_type == ty {
+     |  ______________________________________^
+7241 | |                     return Ok(());
+7242 | |                 } else if self.checked_declared_type_matches_narrowed_fact(
+     | |_________________^
+     |
+note: same as this
+    --> src/runtime/eval/indexed/full.rs:7247:20
+     |
+7247 |                   )? {
+     |  ____________________^
+7248 | |                     return Ok(());
+7249 | |                 } else if let Type::Optional(payload) = &actual_type
+     | |_________________^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#if_same_then_else
+
+error: this `if` statement can be collapsed
+    --> src/runtime/eval/indexed/full.rs:7719:33
+     |
+7719 | / ...                   if !later_fields.contains(&name) {
+7720 | | ...                       if field_type.contains_typed_callable()
+7721 | | ...                           && let Some(expected_field) = fields.get(&name)
+...    |
+7730 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+7719 ~                                 if !later_fields.contains(&name)
+7720 ~                                     && field_type.contains_typed_callable()
+7721 |                                         && let Some(expected_field) = fields.get(&name)
+ ...
+7728 |                                         supplied.insert(name);
+7729 ~                                     }
+     |
+
+error: this block may be rewritten with the `?` operator
+    --> src/runtime/eval/indexed/full.rs:7987:13
+     |
+7987 | /             if let Err(error) = self.verify_checked_expression_producer(instruction, *fact) {
+7988 | |                 return Err(error);
+7989 | |             }
+     | |_____________^ help: replace it with: `self.verify_checked_expression_producer(instruction, *fact)?;`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#question_mark
+     = note: `-D clippy::question-mark` implied by `-D clippy::style`
+     = help: to override `-D clippy::style` add `#[allow(clippy::question_mark)]`
+
+error: this `if` statement can be collapsed
+    --> src/runtime/eval/indexed/full.rs:8069:9
+     |
+8069 | /         if let Some(initializer) = self.checked_expression_type_id(value)? {
+8070 | |             if self.store.semantic.to_type(initializer)? == fact_type {
+8071 | |                 self.proven_callable_writers.borrow_mut().insert(slot);
+8072 | |                 return Ok(());
+8073 | |             }
+8074 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+8069 ~         if let Some(initializer) = self.checked_expression_type_id(value)?
+8070 ~             && self.store.semantic.to_type(initializer)? == fact_type {
+8071 |                 self.proven_callable_writers.borrow_mut().insert(slot);
+8072 |                 return Ok(());
+8073 ~             }
+     |
+
+error: this `if` statement can be collapsed
+    --> src/runtime/eval/indexed/full.rs:9147:17
+     |
+9147 | /                 if !roots.is_empty() {
+9148 | |                     if let Some(prefix) = self.checked_block_prefix_roots(&roots, before)? {
+9149 | |                         prefix_roots.extend(prefix);
+9150 | |                     }
+9151 | |                 }
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+9147 ~                 if !roots.is_empty()
+9148 ~                     && let Some(prefix) = self.checked_block_prefix_roots(&roots, before)? {
+9149 |                         prefix_roots.extend(prefix);
+9150 ~                     }
+     |
+
+error: this `if` statement can be collapsed
+    --> src/runtime/eval/indexed/full.rs:9511:17
+     |
+9511 | /                 if else_param_slot.is_some() {
+9512 | |                     if let Some(Type::Result(_, error)) =
+9513 | |                         self.checked_expression_type(initializer)?
+...    |
+9517 | |                 }
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+9511 ~                 if else_param_slot.is_some()
+9512 ~                     && let Some(Type::Result(_, error)) =
+9513 |                         self.checked_expression_type(initializer)?
+9514 |                     {
+9515 |                         Self::merge_with_error_type(&mut error_type, *error);
+9516 ~                     }
+     |
+
+error: redundant guard
+     --> src/runtime/eval/indexed/full.rs:10984:18
+      |
+10984 |             } if matches!(name, "to_list" | "to_set" | "collect") => {
+      |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+      |
+      = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_guards
+      = note: `-D clippy::redundant-guards` implied by `-D clippy::complexity`
+      = help: to override `-D clippy::complexity` add `#[allow(clippy::redundant_guards)]`
+help: try
+      |
+10982 ~                 name: "to_list" | "to_set" | "collect",
+10983 |                 ..
+10984 ~             } => {
+      |
+
+error: this `if` has identical blocks
+     --> src/runtime/eval/indexed/full.rs:10925:32
+      |
+10925 |                       if !splice {
+      |  ________________________________^
+10926 | |                         has_value = true;
+10927 | |                     } else if self.expression(value.raw() as usize)? == NonEmpty {
+      | |_____________________^
+      |
+note: same as this
+     --> src/runtime/eval/indexed/full.rs:10927:82
+      |
+10927 |                       } else if self.expression(value.raw() as usize)? == NonEmpty {
+      |  __________________________________________________________________________________^
+10928 | |                         has_value = true;
+10929 | |                     }
+      | |_____________________^
+      = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#if_same_then_else
+
+error: useless conversion to the same type: `std::iter::Cloned<std::slice::Iter<'_, sema::types::Type>>`
+   --> src/runtime/eval/lower/patterns.rs:995:22
+    |
+995 |           let fields = field_types
+    |  ______________________^
+996 | |             .iter()
+997 | |             .cloned()
+998 | |             .into_iter()
+    | |________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#useless_conversion
+help: consider removing `.into_iter()`
+    |
+995 ~         let fields = field_types
+996 +             .iter()
+997 +             .cloned()
+    |
+
+error: this `if` statement can be collapsed
+    --> src/runtime/eval/lower.rs:1095:5
+     |
+1095 | /     if let ArenaExprKind::Call { callee, .. } = program.arena.expr(id).kind {
+1096 | |         if let ArenaExprKind::Ident(name) = program.arena.expr(callee).kind
+1097 | |             && let Some(index) = index_of.get(&compact_function_key(namespace, name))
+...    |
+1101 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+1095 ~     if let ArenaExprKind::Call { callee, .. } = program.arena.expr(id).kind
+1096 ~         && let ArenaExprKind::Ident(name) = program.arena.expr(callee).kind
+1097 |             && let Some(index) = index_of.get(&compact_function_key(namespace, name))
+1098 |         {
+1099 |             edges.push(*index);
+1100 ~         }
+     |
+
+error: this method chain can be written more clearly with `if .. else ..`
+    --> src/runtime/eval/lower.rs:6114:13
+     |
+6114 | /             self.declarations
+6115 | |                 .qualified_error_families
+6116 | |                 .contains_key(&qualified)
+6117 | |                 .then(|| Name::intern(qualified.to_string()))
+6118 | |                 .unwrap_or(family)
+     | |__________________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#obfuscated_if_else
+     = note: `-D clippy::obfuscated-if-else` implied by `-D clippy::style`
+     = help: to override `-D clippy::style` add `#[allow(clippy::obfuscated_if_else)]`
+help: try
+     |
+6114 ~             if self.declarations
+6115 +                 .qualified_error_families
+6116 +                 .contains_key(&qualified) { Name::intern(qualified.to_string()) } else { family }
+     |
+
+error: the following explicit lifetimes could be elided: 'e
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:3135:21
+     |
+3135 | fn call_argument_at<'e>(
+     |                     ^^
+3136 |     execution: &'e FullExecution<'_>,
+     |                 ^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_lifetimes
+     = note: `-D clippy::needless-lifetimes` implied by `-D clippy::complexity`
+     = help: to override `-D clippy::complexity` add `#[allow(clippy::needless_lifetimes)]`
+help: elide the lifetimes
+     |
+3135 ~ fn call_argument_at(
+3136 ~     execution: &FullExecution<'_>,
+     |
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:3151:72
+     |
+3151 |             CallArgView::Default(slot) => CallArgumentOperand::Default(slot as usize),
+     |                                                                        ^^^^^^^^^^^^^ help: try: `slot`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_cast
+
+error: large size difference between variants
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:3253:1
+     |
+3253 | /  pub(super) enum ProducerStep {
+3254 | |      /// The body reached a `yield`; the value is the pulled item and the frame
+3255 | |      /// state is the continuation.
+3256 | |      Yielded {
+...    |
+3261 | |/     Delegated {
+3262 | ||         value: LoweredValue,
+3263 | ||         span: Span,
+3264 | ||         state: ProducerFrameState,
+3265 | ||     },
+     | ||_____- the second-largest variant contains at least 196 bytes
+3266 | |      /// The body ended, propagated an error, or returned a stream.
+3267 | |      Finished(Result<LoweredValue, RuntimeError>),
+     | |      -------------------------------------------- the largest variant contains at least 544 bytes
+3268 | |  }
+     | |__^ the entire enum is at least 544 bytes
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#large_enum_variant
+help: consider boxing the large fields or introducing indirection in some other way to reduce the total size of the enum
+     |
+3267 -     Finished(Result<LoweredValue, RuntimeError>),
+3267 +     Finished(Box<Result<LoweredValue, RuntimeError>>),
+     |
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:4058:29
+     |
+4058 |                     .finish(&mut self.evaluator);
+     |                             ^^^^^^^^^^^^^^^^^^^ help: change this to: `self.evaluator`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this `if` can be collapsed into the outer `match`
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:4290:17
+     |
+4290 | /                 if self
+4291 | |                     .innermost_loop(index)
+4292 | |                     .is_some_and(|loop_boundary| loop_boundary > cleanup)
+...    |
+4295 | |                 }
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_match
+     = note: `-D clippy::collapsible-match` implied by `-D clippy::style`
+     = help: to override `-D clippy::style` add `#[allow(clippy::collapsible_match)]`
+help: collapse nested if block
+     |
+4289 ~             StmtFlow::Break(_) | StmtFlow::Continue
+4290 |                 if self
+4291 |                     .innermost_loop(index)
+4292 |                     .is_some_and(|loop_boundary| loop_boundary > cleanup)
+4293 ~                 => {
+4294 |                     return None;
+4295 ~                 }
+     |
+
+error: this `if` statement can be collapsed
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:4543:9
+     |
+4543 | /         if allow_dynamic && let LoweredFunctionKey::Qualified(qualified) = function {
+4544 | |             if let Some(dynamic) = self.evaluator.indexed_dynamic_functions.get(&qualified) {
+4545 | |                 if dynamic.kind != kind {
+4546 | |                     return Err(RuntimeError::new(
+...    |
+4567 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+4543 ~         if allow_dynamic && let LoweredFunctionKey::Qualified(qualified) = function
+4544 ~             && let Some(dynamic) = self.evaluator.indexed_dynamic_functions.get(&qualified) {
+4545 |                 if dynamic.kind != kind {
+ ...
+4565 |                 });
+4566 ~             }
+     |
+
+error: called `expect` on `completion` after checking its variant with `is_some`
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:5294:30
+     |
+5288 |                 if completion.is_some() {
+     |                 ----------------------- help: try: `if let Some(<item>) = completion`
+...
+5294 |                             *completion.expect("expression loop has a continuation"),
+     |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_unwrap
+     = note: `-D clippy::unnecessary-unwrap` implied by `-D clippy::complexity`
+     = help: to override `-D clippy::complexity` add `#[allow(clippy::unnecessary_unwrap)]`
+
+error: this loop could be written as a `for` loop
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:5415:9
+     |
+5415 |         while let Some(check) = checks.next() {
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `for check in checks.by_ref()`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#while_let_on_iterator
+     = note: `-D clippy::while-let-on-iterator` implied by `-D clippy::style`
+     = help: to override `-D clippy::style` add `#[allow(clippy::while_let_on_iterator)]`
+
+error: this loop could be written as a `for` loop
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:5461:13
+     |
+5461 |             while let Some(check) = checks.next() {
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `for check in checks.by_ref()`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#while_let_on_iterator
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6518:17
+     |
+6518 |                 &mut self.evaluator,
+     |                 ^^^^^^^^^^^^^^^^^^^ help: change this to: `self.evaluator`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6639:45
+     |
+6639 |                     super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6656:45
+     |
+6656 |                     super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6673:21
+     |
+6673 |                     &execution,
+     |                     ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6694:21
+     |
+6694 |                     &execution,
+     |                     ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6711:45
+     |
+6711 |                     super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6726:45
+     |
+6726 |                 } = super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6744:45
+     |
+6744 |                 } = super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6772:45
+     |
+6772 |                     super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6789:45
+     |
+6789 |                 } = super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6811:45
+     |
+6811 |                 } = super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6829:21
+     |
+6829 |                     &execution,
+     |                     ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6851:45
+     |
+6851 |                 } = super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6873:45
+     |
+6873 |                 } = super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6890:21
+     |
+6890 |                     &execution,
+     |                     ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6908:52
+     |
+6908 |                 let view = super::ExprView::decode(&execution, tag, payload)
+     |                                                    ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6929:52
+     |
+6929 |                 let view = super::ExprView::decode(&execution, tag, payload)
+     |                                                    ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6952:21
+     |
+6952 |                     &execution,
+     |                     ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6988:21
+     |
+6988 |                     &execution,
+     |                     ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7012:21
+     |
+7012 |                     &execution,
+     |                     ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7031:21
+     |
+7031 |                     &execution,
+     |                     ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7053:45
+     |
+7053 |                 let view = ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7107:21
+     |
+7107 |                     &execution,
+     |                     ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7129:45
+     |
+7129 |                     super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7147:45
+     |
+7147 |                     super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7161:45
+     |
+7161 |                     super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7175:45
+     |
+7175 |                     super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7195:45
+     |
+7195 |                 } = super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7220:45
+     |
+7220 |                     super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7242:45
+     |
+7242 |                 } = super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7265:38
+     |
+7265 |                 } = ExprView::decode(&execution, tag, payload)
+     |                                      ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7288:29
+     |
+7288 | ...                   &execution,
+     |                       ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7312:45
+     |
+7312 |                 let view = ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7352:45
+     |
+7352 |                 } = super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this `if` statement can be collapsed
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7359:17
+     |
+7359 | /                 if !self.evaluator.force_frames {
+7360 | |                     if let Some(base) = Evaluator::indexed_field_chain_ref(
+7361 | |                         &execution,
+7362 | |                         base,
+...    |
+7370 | |                 }
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+7359 ~                 if !self.evaluator.force_frames
+7360 ~                     && let Some(base) = Evaluator::indexed_field_chain_ref(
+7361 |                         &execution,
+ ...
+7368 |                         return Ok(());
+7369 ~                     }
+     |
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7361:25
+     |
+7361 |                         &execution,
+     |                         ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7387:45
+     |
+7387 |                 } = super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7408:45
+     |
+7408 |                 } = super::ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7430:38
+     |
+7430 |                 } = ExprView::decode(&execution, tag, payload)
+     |                                      ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7455:38
+     |
+7455 |                 } = ExprView::decode(&execution, tag, payload)
+     |                                      ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7478:45
+     |
+7478 |                 let view = ExprView::decode(&execution, tag, payload)
+     |                                             ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:7492:34
+     |
+7492 | ...                   .key(&execution)
+     |                            ^^^^^^^^^^ help: change this to: `execution`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: returning the result of a `let` binding from a block
+   --> src/runtime/eval/lowered_run/indexed_run/producer.rs:533:9
+    |
+509 | /         let outcome = {
+510 | |             let mut evaluator = IndexedProgramGuard::new(self, Arc::clone(&program));
+511 | |             let call = CallFrame::from_state(
+512 | |                 Arc::clone(&program),
+...   |
+531 | |             frames.run_cancelled_producer(call, span)
+532 | |         };
+    | |__________- unnecessary `let` binding
+533 |           outcome
+    |           ^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#let_and_return
+help: return the expression directly
+    |
+509 ~         
+510 ~         {
+511 +             let mut evaluator = IndexedProgramGuard::new(self, Arc::clone(&program));
+512 +             let call = CallFrame::from_state(
+513 +                 Arc::clone(&program),
+514 +                 producer.function,
+515 +                 producer.kind,
+516 +                 producer.call_span,
+517 +                 producer.definition_span,
+518 +                 producer
+519 +                     .frame
+520 +                     .take()
+521 +                     .expect("a started producer owns its frame"),
+522 +             )
+523 +             .map_err(|error| super::indexed_error(error, span))?
+524 +             .ok_or_else(|| {
+525 +                 RuntimeError::new("unresolved-lowered-call", "a suspended producer's function")
+526 +                     .with_span(span)
+527 +             })?;
+528 +             evaluator.push_producer_traceback_frame(producer);
+529 +             let mut frames = ExplicitFrames::new(&mut evaluator, program.as_ref());
+530 +             // The cancelled body's `finish_call` closes the scope and pops the
+531 +             // traceback frame.
+532 +             frames.run_cancelled_producer(call, span)
+533 +         }
+    |
+
+error: all variants have the same postfix: `By`
+   --> src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:327:1
+    |
+327 | / enum IndexedKeyedStage {
+328 | |     SortBy {
+329 | |         slot: usize,
+330 | |         key: u32,
+...   |
+349 | |     },
+350 | | }
+    | |_^
+    |
+    = help: remove the postfixes and use full paths to the variants instead of glob imports
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#enum_variant_names
+    = note: `-D clippy::enum-variant-names` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::enum_variant_names)]`
+
+error: this `if` statement can be collapsed
+   --> src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:889:17
+    |
+889 | /                 if let Some(IndexedKeyedStage::SortBy { descending, .. }) = &mut self.keyed {
+890 | |                     if let Some(value) = self.argument_values.first() {
+891 | |                         let LoweredValue::Bool(value) = value else {
+892 | |                             return Err(RuntimeError::new(
+...   |
+900 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+889 ~                 if let Some(IndexedKeyedStage::SortBy { descending, .. }) = &mut self.keyed
+890 ~                     && let Some(value) = self.argument_values.first() {
+891 |                         let LoweredValue::Bool(value) = value else {
+...
+898 |                         *descending = *value;
+899 ~                     }
+    |
+
+error: redundant pattern matching
+    --> src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs:1365:27
+     |
+1365 |             return if let Some(_) = par_map.flatten {
+     |                           ^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_pattern_matching
+     = note: `-D clippy::redundant-pattern-matching` implied by `-D clippy::style`
+     = help: to override `-D clippy::style` add `#[allow(clippy::redundant_pattern_matching)]`
+help: consider using `is_some()`
+     |
+1365 -             return if let Some(_) = par_map.flatten {
+1365 +             return if par_map.flatten.is_some() {
+     |
+
+error: this `if` statement can be collapsed
+   --> src/runtime/eval/lowered_run/indexed_run/patterns.rs:240:17
+    |
+240 | /                 if matched && bind && let Some(rest) = rest {
+241 | |                     if let PatternView::Bind { slot } = indexed_pattern_view(
+242 | |                         execution,
+243 | |                         rest.raw(),
+...   |
+255 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+240 ~                 if matched && bind && let Some(rest) = rest
+241 ~                     && let PatternView::Bind { slot } = indexed_pattern_view(
+242 |                         execution,
+...
+253 |                         slots[slot] = LoweredValue::List(items[index..].to_vec());
+254 ~                     }
+    |
+
+error: this loop could be written as a `for` loop
+   --> src/runtime/eval/lowered_run/indexed_run/patterns.rs:319:17
+    |
+319 |                 while let Some(hole) = holes.next() {
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `for hole in holes`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#while_let_on_iterator
+
+error: parameter is only used in recursion
+   --> src/runtime/eval/lowered_run/indexed_run/pipeline.rs:814:9
+    |
+814 |         span: Span,
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_span`
+    |
+note: parameter used here
+   --> src/runtime/eval/lowered_run/indexed_run/pipeline.rs:832:58
+    |
+832 |                 .eval_indexed_item_predicate(left, item, span)?
+    |                                                          ^^^^
+833 |                 && self.eval_indexed_item_predicate(right, item, span)?),
+    |                                                                  ^^^^
+834 |             IndexedItemPredicate::Or(left, right) => Ok(self
+835 |                 .eval_indexed_item_predicate(left, item, span)?
+    |                                                          ^^^^
+836 |                 || self.eval_indexed_item_predicate(right, item, span)?),
+    |                                                                  ^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#only_used_in_recursion
+    = note: `-D clippy::only-used-in-recursion` implied by `-D clippy::complexity`
+    = help: to override `-D clippy::complexity` add `#[allow(clippy::only_used_in_recursion)]`
+
+error: this `map_or` can be simplified
+   --> src/runtime/eval/lowered_run/indexed_run.rs:905:29
+    |
+905 |             let gitignore = gitignore.map_or(true, |_| values.next().expect("gitignore operand").bool());
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_map_or
+    = note: `-D clippy::unnecessary-map-or` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::unnecessary_map_or)]`
+help: use `is_none_or` instead
+    |
+905 -             let gitignore = gitignore.map_or(true, |_| values.next().expect("gitignore operand").bool());
+905 +             let gitignore = gitignore.is_none_or(|_| values.next().expect("gitignore operand").bool());
+    |
+
+error: this `map_or` can be simplified
+   --> src/runtime/eval/lowered_run/indexed_run.rs:906:24
+    |
+906 |             let stat = stat.map_or(true, |_| values.next().expect("stat operand").bool());
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_map_or
+help: use `is_none_or` instead
+    |
+906 -             let stat = stat.map_or(true, |_| values.next().expect("stat operand").bool());
+906 +             let stat = stat.is_none_or(|_| values.next().expect("stat operand").bool());
+    |
+
+error: this `map_or` can be simplified
+   --> src/runtime/eval/lowered_run/indexed_run.rs:908:26
+    |
+908 |             let hidden = hidden.map_or(false, |_| values.next().expect("hidden operand").bool());
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#unnecessary_map_or
+help: use `is_some_and` instead
+    |
+908 -             let hidden = hidden.map_or(false, |_| values.next().expect("hidden operand").bool());
+908 +             let hidden = hidden.is_some_and(|_| values.next().expect("hidden operand").bool());
+    |
+
+error: this loop could be written as a `for` loop
+    --> src/runtime/eval/lowered_run/indexed_run.rs:1517:17
+     |
+1517 |                 while let Some(part) = parts.next() {
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `for part in parts`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#while_let_on_iterator
+
+error: this loop could be written as a `for` loop
+    --> src/runtime/eval/lowered_run/indexed_run.rs:1539:17
+     |
+1539 |                 while let Some(entry) = entries.next() {
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `for entry in entries`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#while_let_on_iterator
+
+error: this loop could be written as a `for` loop
+    --> src/runtime/eval/lowered_run/indexed_run.rs:1588:17
+     |
+1588 |                 while let Some(entry) = entries.next() {
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `for entry in entries`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#while_let_on_iterator
+
+error: this loop could be written as a `for` loop
+    --> src/runtime/eval/lowered_run/indexed_run.rs:1616:17
+     |
+1616 |                 while let Some(item) = items.next() {
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `for item in items`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#while_let_on_iterator
+
+error: this loop could be written as a `for` loop
+    --> src/runtime/eval/lowered_run/indexed_run.rs:1635:17
+     |
+1635 |                 while let Some(item) = items.next() {
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `for item in items`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#while_let_on_iterator
+
+error: this call to `as_ref` does nothing
+    --> src/runtime/eval/lowered_run/indexed_run.rs:1655:28
+     |
+1655 |                 let name = name.as_ref();
+     |                            ^^^^^^^^^^^^^ help: try: `name`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#useless_asref
+
+error: using `clone` on type `Name` which implements the `Copy` trait
+    --> src/runtime/eval/lowered_run.rs:3772:21
+     |
+3772 |                     name.clone(),
+     |                     ^^^^^^^^^^^^ help: try dereferencing it: `*name`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#clone_on_copy
+     = note: `-D clippy::clone-on-copy` implied by `-D clippy::complexity`
+     = help: to override `-D clippy::complexity` add `#[allow(clippy::clone_on_copy)]`
+
+error: using `clone` on type `Span` which implements the `Copy` trait
+    --> src/runtime/eval/lowered_run.rs:3774:21
+     |
+3774 |                     field_span.clone(),
+     |                     ^^^^^^^^^^^^^^^^^^ help: try dereferencing it: `*field_span`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#clone_on_copy
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run.rs:5913:45
+     |
+5913 |                 match bytes_module::squeeze(&data, byte, span) {
+     |                                             ^^^^^ help: change this to: `data`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run.rs:5929:57
+     |
+5929 |                 match bytes_module::repeat_prefix_count(&data, &pattern, span) {
+     |                                                         ^^^^^ help: change this to: `data`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/runtime/eval/lowered_run.rs:5929:64
+     |
+5929 |                 match bytes_module::repeat_prefix_count(&data, &pattern, span) {
+     |                                                                ^^^^^^^^ help: change this to: `pattern`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: using `chunks_exact` with a constant chunk size
+   --> src/runtime/eval/route_witness.rs:314:45
+    |
+314 |     for (index, pair) in encoded.as_bytes().chunks_exact(2).enumerate() {
+    |                                             ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#chunks_exact_to_as_chunks
+
+error: all variants have the same postfix: `Path`
+   --> src/runtime/eval/route_witness.rs:764:1
+    |
+764 | / pub(crate) enum RouteWitnessRoute {
+765 | |     InPlaceEvaluatorPath,
+766 | |     RecursiveEvaluatorPath,
+767 | |     ExplicitFrameApplyPath,
+...   |
+770 | |     EagerFrameApplyPath,
+771 | | }
+    | |_^
+    |
+    = help: remove the postfixes and use full paths to the variants instead of glob imports
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#enum_variant_names
+
+error: large size difference between variants
+  --> src/runtime/eval/net_job.rs:23:1
+   |
+23 | / pub(super) enum NetJobTask {
+24 | |     Completed(Result<Value, RuntimeError>),
+   | |     -------------------------------------- the largest variant contains at least 544 bytes
+25 | |     #[cfg(feature = "net")]
+26 | |     Transport(NetOperation),
+   | |     ----------------------- the second-largest variant contains at least 40 bytes
+27 | | }
+   | |_^ the entire enum is at least 544 bytes
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#large_enum_variant
+help: consider boxing the large fields or introducing indirection in some other way to reduce the total size of the enum
+   |
+24 -     Completed(Result<Value, RuntimeError>),
+24 +     Completed(Box<Result<Value, RuntimeError>>),
+   |
+
+error: useless conversion to the same type: `std::vec::Vec<u8>`
+    --> src/runtime/eval.rs:3116:59
+     |
+3116 |             arguments.into_iter().map(|word| Value::Bytes(word.into())).collect(),
+     |                                                           ^^^^^^^^^^^ help: consider removing `.into()`: `word`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#useless_conversion
+
+error: useless conversion to the same type: `std::vec::Vec<u8>`
+    --> src/runtime/eval.rs:4220:55
+     |
+4220 |                 Value::Str(text) => Some(Value::Bytes(text.as_bytes().to_vec().into())),
+     |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider removing `.into()`: `text.as_bytes().to_vec()`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#useless_conversion
+
+error: this `if` statement can be collapsed
+    --> src/runtime/eval.rs:6259:9
+     |
+6259 | /         if let Some(owner) = stream.owner() {
+6260 | |             if Arc::ptr_eq(&owner.evaluator, &self.resource_owner)
+6261 | |                 && self.owned_streams.contains_key(&owner.id)
+...    |
+6265 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+6259 ~         if let Some(owner) = stream.owner()
+6260 ~             && Arc::ptr_eq(&owner.evaluator, &self.resource_owner)
+6261 |                 && self.owned_streams.contains_key(&owner.id)
+6262 |             {
+6263 |                 worklist.streams.push(StreamTransfer { owner: owner.clone(), revisit: false });
+6264 ~             }
+     |
+
+error: the borrowed expression implements the required traits
+    --> src/runtime/eval.rs:7910:34
+     |
+7910 |             .spawn_scoped(scope, &execute)
+     |                                  ^^^^^^^^ help: change this to: `execute`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrows_for_generic_args
+     = note: `-D clippy::needless-borrows-for-generic-args` implied by `-D clippy::style`
+     = help: to override `-D clippy::style` add `#[allow(clippy::needless_borrows_for_generic_args)]`
+
+error: manual implementation of `.is_multiple_of()`
+    --> src/runtime/eval.rs:7956:8
+     |
+7956 |     if millis % 1000 == 0 {
+     |        ^^^^^^^^^^^^^^^^^^ help: replace with: `millis.is_multiple_of(1000)`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#manual_is_multiple_of
+
+error: this `if` statement can be collapsed
+   --> src/sema/check/checked_declarations.rs:283:17
+    |
+283 | /                 if declaration.kind != CheckedFunctionKind::Stream {
+284 | |                     if let Some(ty) = self.function_return_types.get(&declaration.body) { signature.return_ty = ty.clone(); }
+285 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+283 ~                 if declaration.kind != CheckedFunctionKind::Stream
+284 ~                     && let Some(ty) = self.function_return_types.get(&declaration.body) { signature.return_ty = ty.clone(); }
+    |
+
+error: this `if` has identical blocks
+    --> src/sema/check/expr.rs:2174:60
+     |
+2174 | ...   } else if iter_ty == Type::Unknown { Type::Unknown } else if self.reject_unnarrowed_union(&iter_ty, "iteration", arena.arena...
+     |                                          ^^^^^^^^^^^^^^^^^
+     |
+note: same as this
+    --> src/sema/check/expr.rs:2174:167
+     |
+2174 | ...on(&iter_ty, "iteration", arena.arena.expr(iter).span) { Type::Unknown } else {
+     |                                                           ^^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#if_same_then_else
+
+error: this `if` branch is empty
+    --> src/sema/check/expr.rs:3711:9
+     |
+3711 |         if guarded && base_ty.is_result() {}
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: you can remove it: `guarded && base_ty.is_result();`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_ifs
+     = note: `-D clippy::needless-ifs` implied by `-D clippy::complexity`
+     = help: to override `-D clippy::complexity` add `#[allow(clippy::needless_ifs)]`
+
+error: this `if` branch is empty
+    --> src/sema/check/expr.rs:3813:9
+     |
+3813 |         if guarded && base_ty.is_result() {}
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: you can remove it: `guarded && base_ty.is_result();`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_ifs
+
+error: this `if` statement can be collapsed
+   --> src/sema/check/infer_effects.rs:632:9
+    |
+632 | /         if inferred {
+633 | |             if let Some(summary) = summaries.get(&id) {
+634 | |                 let mut chain = vec![node.name.clone()];
+635 | |                 chain.extend(summary.unknown_chain.clone());
+...   |
+638 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+632 ~         if inferred
+633 ~             && let Some(summary) = summaries.get(&id) {
+634 |                 let mut chain = vec![node.name.clone()];
+635 |                 chain.extend(summary.unknown_chain.clone());
+636 |                 return (summary.effects(), chain);
+637 ~             }
+    |
+
+error: returning the result of a `let` binding from a block
+   --> src/sema/check/module_driver.rs:586:9
+    |
+580 | /         let uses_bytes = checker.procs.get(&super::Name::intern("main")).is_some_and(|signature| {
+581 | |             matches!(signature.params.as_slice(), [parameter]
+582 | |                 if parameter.rest && !parameter.defaulted
+583 | |                     && matches!(&parameter.ty, super::Type::List(item)
+584 | |                         if item.as_ref() == &super::Type::Bytes))
+585 | |         });
+    | |___________- unnecessary `let` binding
+586 |           uses_bytes
+    |           ^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#let_and_return
+help: return the expression directly
+    |
+580 ~         
+581 ~         checker.procs.get(&super::Name::intern("main")).is_some_and(|signature| {
+582 +             matches!(signature.params.as_slice(), [parameter]
+583 +                 if parameter.rest && !parameter.defaulted
+584 +                     && matches!(&parameter.ty, super::Type::List(item)
+585 +                         if item.as_ref() == &super::Type::Bytes))
+586 +         })
+    |
+
+error: returning the result of a `let` binding from a block
+   --> src/sema/check/module_record.rs:513:9
+    |
+503 | /         let facts = Self {
+504 | |             resolved_bindings,
+505 | |             assignment_facts,
+506 | |             return_inference_index,
+...   |
+511 | |             wire_diagnostics,
+512 | |         };
+    | |__________- unnecessary `let` binding
+513 |           facts
+    |           ^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#let_and_return
+help: return the expression directly
+    |
+503 ~         
+504 ~         Self {
+505 +             resolved_bindings,
+506 +             assignment_facts,
+507 +             return_inference_index,
+508 +             local_inference,
+509 +             record_constructors,
+510 +             prepared_constants: prepared_for_owner,
+511 +             regex_diagnostics,
+512 +             wire_diagnostics,
+513 +         }
+    |
+
+error: this `if` statement can be collapsed
+   --> src/sema/check/stmt.rs:581:13
+    |
+581 | /             if flow.completes {
+582 | |                 if let ArenaChild::Expr(expr) = child {
+583 | |                     flow = flow.then(expr_control_flow(arena, expr, facts));
+584 | |                 }
+585 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+581 ~             if flow.completes
+582 ~                 && let ArenaChild::Expr(expr) = child {
+583 |                     flow = flow.then(expr_control_flow(arena, expr, facts));
+584 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> src/sema/check/stream.rs:129:17
+    |
+129 | /                 if let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind
+130 | |                     && let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind
+131 | |                     && let Some(overloads) =
+132 | |                         super::api_spec().module_overloads(&namespace.as_str(), &name.as_str())
+...   |
+141 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+132 ~                         super::api_spec().module_overloads(&namespace.as_str(), &name.as_str())
+133 ~                     && !self.check_stream_callable_module_overload(
+134 |                         checked_argument,
+...
+138 |                         return Type::Unknown;
+139 ~                     }
+    |
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/sema/check.rs:1959:39
+     |
+1959 |         self.infer_local_pure_returns(&bundle, source, statements);
+     |                                       ^^^^^^^ help: change this to: `bundle`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+    --> src/sema/check.rs:1977:66
+     |
+1977 |                 || calls_main_with_implicit_spread_args(program, &statements, &self.resolved_bindings));
+     |                                                                  ^^^^^^^^^^^ help: change this to: `statements`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+
+error: this `if` statement can be collapsed
+    --> src/sema/check.rs:2002:9
+     |
+2002 | /         if self.options.interactive_commands.is_none() && main_runs_after {
+2003 | |             if let Some(signature) = self.procs.get(&Name::intern("main")) {
+2004 | |                 let has_bytes = signature.params.iter().any(|parameter| {
+2005 | |                     parameter.ty == Type::Bytes || matches!(&parameter.ty,
+...    |
+2019 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+2002 ~         if self.options.interactive_commands.is_none() && main_runs_after
+2003 ~             && let Some(signature) = self.procs.get(&Name::intern("main")) {
+2004 |                 let has_bytes = signature.params.iter().any(|parameter| {
+ ...
+2017 |                 }
+2018 ~             }
+     |
+
+error: this `if` statement can be collapsed
+    --> src/sema/check.rs:2011:17
+     |
+2011 | /                 if has_bytes && !single_byte_rest {
+2012 | |                     if let Some(span) = signature.definition {
+2013 | |                         self.error(span,
+2014 | |                             "byte script arguments require a single spread parameter `(...argv: List[Bytes])`",
+...    |
+2017 | |                 }
+     | |_________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+2011 ~                 if has_bytes && !single_byte_rest
+2012 ~                     && let Some(span) = signature.definition {
+2013 |                         self.error(span,
+2014 |                             "byte script arguments require a single spread parameter `(...argv: List[Bytes])`",
+2015 |                             DiagnosticCode::CompactMainArgs);
+2016 ~                     }
+     |
+
+error: useless conversion to the same type: `std::sync::Arc<std::collections::BTreeMap<symbol::Name, sema::types::Type>>`
+    --> src/sema/constants.rs:3645:61
+     |
+3645 |                 self.prepared.types.insert(id, Type::Record(field_types.into()));
+     |                                                             ^^^^^^^^^^^^^^^^^^ help: consider removing `.into()`: `field_types`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#useless_conversion
+
+error: this `if` statement can be collapsed
+    --> src/syntax/grammar.rs:1037:5
+     |
+1037 | /     if let Some(next) = peek(1) {
+1038 | |         if next.tag != TokenTag::Minus
+1039 | |             && (next.keyword == Some(Keyword::Not)
+1040 | |                 || binary_operator_at(next.tag, next.keyword, peek(2).and_then(|token| token.keyword)).is_some())
+...    |
+1047 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+1037 ~     if let Some(next) = peek(1)
+1038 ~         && (next.tag != TokenTag::Minus
+1039 |             && (next.keyword == Some(Keyword::Not)
+ ...
+1042 |             // Dollar-prefixed words carry these names but remain command arguments.
+1043 ~             || next.tag == TokenTag::Ident && matches!(next.text, "is" | "as"))
+1044 |         {
+1045 |             return true;
+1046 ~         }
+     |
+
+error: this `let...else` may be rewritten with the `?` operator
+    --> src/syntax/grammar.rs:1105:9
+     |
+1105 | /         let Some(tag) = peek(offset).map(|token| token.tag) else {
+1106 | |             return None;
+1107 | |         };
+     | |__________^ help: replace it with: `let tag = peek(offset).map(|token| token.tag)?;`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#question_mark
+
+error: this `let...else` may be rewritten with the `?` operator
+    --> src/syntax/grammar.rs:1130:9
+     |
+1130 | /         let Some(tag) = peek(offset).map(|token| token.tag) else {
+1131 | |             return None;
+1132 | |         };
+     | |__________^ help: replace it with: `let tag = peek(offset).map(|token| token.tag)?;`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#question_mark
+
+error: this `let...else` may be rewritten with the `?` operator
+    --> src/syntax/parser/expr.rs:1968:17
+     |
+1968 | /                 let Some(expr) = self.parse_precedence_arena_only(0, arena) else {
+1969 | |                     return None;
+1970 | |                 };
+     | |__________________^ help: replace it with: `let expr = self.parse_precedence_arena_only(0, arena)?;`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#question_mark
+
+error: this `let...else` may be rewritten with the `?` operator
+    --> src/syntax/parser/expr.rs:1985:17
+     |
+1985 | /                 let Some(key) = self.parse_precedence_arena_only(0, arena) else {
+1986 | |                     return None;
+1987 | |                 };
+     | |__________________^ help: replace it with: `let key = self.parse_precedence_arena_only(0, arena)?;`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#question_mark
+
+error: this `let...else` may be rewritten with the `?` operator
+    --> src/syntax/parser/expr.rs:1994:17
+     |
+1994 | /                 let Some(value) = self.parse_precedence_arena_only(0, arena) else {
+1995 | |                     return None;
+1996 | |                 };
+     | |__________________^ help: replace it with: `let value = self.parse_precedence_arena_only(0, arena)?;`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#question_mark
+
+error: this `let...else` may be rewritten with the `?` operator
+    --> src/syntax/parser/expr.rs:2042:17
+     |
+2042 | /                 let Some(name) = self.expect_label_name("expected record field label") else {
+2043 | |                     return None;
+2044 | |                 };
+     | |__________________^ help: replace it with: `let name = self.expect_label_name("expected record field label")?;`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#question_mark
+
+error: this `let...else` may be rewritten with the `?` operator
+    --> src/syntax/parser/expr.rs:2061:17
+     |
+2061 | /                 let Some(value) = self.parse_precedence_arena_only(0, arena) else {
+2062 | |                     return None;
+2063 | |                 };
+     | |__________________^ help: replace it with: `let value = self.parse_precedence_arena_only(0, arena)?;`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#question_mark
+
+error: could not compile `xsh` (lib) due to 153 previous errors
+error: the following explicit lifetimes could be elided: 'a
+     --> src/runtime/eval/indexed/full.rs:15431:6
+      |
+15431 | impl<'a> StageFieldMatch<String> for &'a str {
+      |      ^^                               ^^
+      |
+      = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_lifetimes
+      = note: `-D clippy::needless-lifetimes` implied by `-D clippy::complexity`
+      = help: to override `-D clippy::complexity` add `#[allow(clippy::needless_lifetimes)]`
+help: elide the lifetimes
+      |
+15431 - impl<'a> StageFieldMatch<String> for &'a str {
+15431 + impl StageFieldMatch<String> for &str {
+      |
+
+error: for loop over a single element
+     --> src/runtime/eval/indexed/full.rs:18210:9
+      |
+18210 | /         for (raw, expected) in [(0, -1)] {
+18211 | |             let (tag, payload) = execution.instruction_id(raw).unwrap();
+18212 | |             let schema::ExprView::Int(actual) = schema::ExprView::decode(&execution, tag, payload).unwrap()
+18213 | |                 else { panic!("integer view") };
+18214 | |             assert_eq!(actual, expected);
+18215 | |         }
+      | |_________^
+      |
+      = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#single_element_loop
+      = note: `-D clippy::single-element-loop` implied by `-D clippy::complexity`
+      = help: to override `-D clippy::complexity` add `#[allow(clippy::single_element_loop)]`
+help: try
+      |
+18210 ~         {
+18211 +             let (raw, expected) = (0, -1);
+18212 +             let (tag, payload) = execution.instruction_id(raw).unwrap();
+18213 +             let schema::ExprView::Int(actual) = schema::ExprView::decode(&execution, tag, payload).unwrap()
+18214 +                 else { panic!("integer view") };
+18215 +             assert_eq!(actual, expected);
+18216 +         }
+      |
+
+error: for loop over a single element
+     --> src/runtime/eval/indexed/full.rs:23296:9
+      |
+23296 | /         for (function, assignment_tag) in [("apply_direct_write", FullTag::StmtAssign)] {
+23297 | |             let mut malformed = program.clone();
+23298 | |             let body = first_if_body_block(&malformed, function);
+23299 | |             let typed_call = function_instruction_indices(&malformed, function, FullTag::ExprTypedCall)
+...     |
+23330 | |             assert!(FullVerifier::verify(&malformed).is_err(), "{function}");
+23331 | |         }
+      | |_________^
+      |
+      = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#single_element_loop
+help: try
+      |
+23296 ~         {
+23297 +             let (function, assignment_tag) = ("apply_direct_write", FullTag::StmtAssign);
+23298 +             let mut malformed = program.clone();
+23299 +             let body = first_if_body_block(&malformed, function);
+23300 +             let typed_call = function_instruction_indices(&malformed, function, FullTag::ExprTypedCall)
+23301 +                 .into_iter()
+23302 +                 .next()
+23303 +                 .expect("guard body has a typed call");
+23304 +             let call_statement = block_statement_containing_instruction(&malformed, body, typed_call);
+23305 +             let assignment = function_instruction_indices(&malformed, function, assignment_tag)
+23306 +                 .into_iter()
+23307 +                 .find(|instruction| *instruction != call_statement)
+23308 +                 .expect("the guarded body has an alternate binding write");
+23309 +             let payload = malformed.store.data[assignment].range();
+23310 +             let protected_slot = typed_call_receiver_slot(&program, function);
+23311 +             assert_ne!(
+23312 +                 malformed.store.extra[payload.start as usize] as usize,
+23313 +                 protected_slot,
+23314 +                 "the source assignment initially targets an unrelated local",
+23315 +             );
+23316 +             malformed.store.extra[payload.start as usize] = protected_slot as u32;
+23317 + 
+23318 +             let statement_range = block_statement_range(&malformed, body);
+23319 +             let statements = &mut malformed.store.extra[statement_range];
+23320 +             let assignment_position = statements
+23321 +                 .iter()
+23322 +                 .position(|instruction| *instruction as usize == assignment)
+23323 +                 .expect("assignment belongs to the guarded body");
+23324 +             assert_eq!(statements.len(), 2, "guard body contains the call and write");
+23325 +             let read_position = statements
+23326 +                 .iter()
+23327 +                 .position(|instruction| *instruction as usize == call_statement)
+23328 +                 .expect("field call belongs to the guarded body");
+23329 +             statements.swap(assignment_position, read_position);
+23330 + 
+23331 +             assert!(FullVerifier::verify(&malformed).is_err(), "{function}");
+23332 +         }
+      |
+
+error: manual implementation of `.is_multiple_of()`
+   --> src/runtime/eval/indexed/full/formal_bridge.rs:385:8
+    |
+385 |     if text.len() % 2 != 0 || !text.bytes().all(is_lower_hex) {
+    |        ^^^^^^^^^^^^^^^^^^^ help: replace with: `!text.len().is_multiple_of(2)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#manual_is_multiple_of
+
+error: using `chunks_exact` with a constant chunk size
+   --> src/runtime/eval/indexed/full/formal_bridge.rs:389:10
+    |
+389 |         .chunks_exact(2)
+    |          ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#chunks_exact_to_as_chunks
+
+error: returning the result of a `let` binding from a block
+   --> src/runtime/eval/lower/pipeline.rs:804:17
+    |
+784 | /                 let stage = match parsed.arena.arena.expr(expression).kind {
+785 | |                     crate::syntax::arena::ArenaExprKind::Pipeline { stages, .. } => parsed
+786 | |                         .arena
+787 | |                         .arena
+...   |
+802 | |                     _ => return None,
+803 | |                 };
+    | |__________________- unnecessary `let` binding
+804 |                   stage
+    |                   ^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#let_and_return
+help: return the expression directly
+    |
+784 ~                 
+785 ~                 match parsed.arena.arena.expr(expression).kind {
+786 +                     crate::syntax::arena::ArenaExprKind::Pipeline { stages, .. } => parsed
+787 +                         .arena
+788 +                         .arena
+789 +                         .pipe_stages(stages)
+790 +                         .iter()
+791 +                         .find_map(|stage| match &stage.kind {
+792 +                             crate::syntax::arena::ArenaPipeStageKind::Stream(stage)
+793 +                                 if stage.kind == StreamStageKind::Fold => Some(stage.clone()),
+794 +                             _ => None,
+795 +                         }),
+796 +                     crate::syntax::arena::ArenaExprKind::StructuredPipeline { stages, .. } => parsed
+797 +                         .arena
+798 +                         .arena
+799 +                         .stream_stages(stages)
+800 +                         .iter()
+801 +                         .find(|stage| stage.kind == StreamStageKind::Fold)
+802 +                         .cloned(),
+803 +                     _ => return None,
+804 +                 }
+    |
+
+error: items after a test module
+   --> src/runtime/eval/lower/types.rs:404:1
+    |
+404 | mod mapping_tests {
+    | ^^^^^^^^^^^^^^^^^
+...
+439 | impl<'p> CompactLowerConstructProbe<'p, '_> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#items_after_test_module
+    = note: `-D clippy::items-after-test-module` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::items_after_test_module)]`
+    = help: move the items to before the test module was defined
+
+error: the following explicit lifetimes could be elided: 'e
+    --> src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:3135:21
+     |
+3135 | fn call_argument_at<'e>(
+     |                     ^^
+3136 |     execution: &'e FullExecution<'_>,
+     |                 ^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_lifetimes
+help: elide the lifetimes
+     |
+3135 ~ fn call_argument_at(
+3136 ~     execution: &FullExecution<'_>,
+     |
+
+error: items after a test module
+    --> src/sema/check/expr.rs:3860:1
+     |
+3860 | mod arena_tests {
+     | ^^^^^^^^^^^^^^^
+...
+4197 | fn negative_literal_distance(arena: &ArenaProgram, index: ExprId) -> Option<u32> {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+4214 | fn list_literal_len(arena: &ArenaProgram, base: ExprId) -> Option<usize> {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#items_after_test_module
+     = help: move the items to before the test module was defined
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> src/sema/check/module_record.rs:579:9
+    |
+579 |         first_cache.trace = Some(first_trace.clone());
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `sema::check::module_record::ModuleRecordCache { trace: Some(first_trace.clone()), ..Default::default() }` and removing relevant reassignments
+   --> src/sema/check/module_record.rs:578:9
+    |
+578 |         let mut first_cache = ModuleRecordCache::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#field_reassign_with_default
+    = note: `-D clippy::field-reassign-with-default` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::field_reassign_with_default)]`
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> src/sema/check/module_record.rs:594:9
+    |
+594 |         second_cache.trace = Some(second_trace);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `sema::check::module_record::ModuleRecordCache { trace: Some(second_trace), ..Default::default() }` and removing relevant reassignments
+   --> src/sema/check/module_record.rs:593:9
+    |
+593 |         let mut second_cache = ModuleRecordCache::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#field_reassign_with_default
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> src/sema/check/module_record.rs:775:9
+    |
+775 |         cache.trace = Some(trace);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `sema::check::module_record::ModuleRecordCache { trace: Some(trace), ..Default::default() }` and removing relevant reassignments
+   --> src/sema/check/module_record.rs:774:9
+    |
+774 |         let mut cache = ModuleRecordCache::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#field_reassign_with_default
+
+error: initializer for `thread_local` value can be made `const`
+  --> src/sema/check/resource.rs:33:133
+   |
+33 | ...urce::SourceId, usize>)> = std::cell::RefCell::new((0, std::collections::BTreeMap::new()));
+   |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace with: `const { std::cell::RefCell::new((0, std::collections::BTreeMap::new())) }`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#missing_const_for_thread_local
+   = note: `-D clippy::missing-const-for-thread-local` implied by `-D clippy::perf`
+   = help: to override `-D clippy::perf` add `#[allow(clippy::missing_const_for_thread_local)]`
+
+error: items after a test module
+    --> src/sema/check/stream.rs:1218:1
+     |
+1218 | mod static_namespace_identity_tests {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1327 | fn stream_type_from_input(ty: Type) -> Result<Type, Type> {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1342 | fn is_sortable_key_type(ty: &Type) -> bool {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+1350 | fn is_sortable_record_key_type(ty: &Type) -> bool {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#items_after_test_module
+     = help: move the items to before the test module was defined
+
+error: used `assert_eq!` with a literal bool
+   --> src/syntax/parser/without.rs:163:17
+    |
+163 | /                 assert_eq!(
+164 | |                     parsed.arena.arena.block_effect_bounds.is_empty(),
+165 | |                     false,
+166 | |                     "depth {depth} seed {seed} is not a without statement:\n{source}"
+167 | |                 );
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#bool_assert_comparison
+    = note: `-D clippy::bool-assert-comparison` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::bool_assert_comparison)]`
+help: replace it with `assert!(..)`
+    |
+163 ~                 assert!(
+164 ~                     !parsed.arena.arena.block_effect_bounds.is_empty(),
+    |
+
+error: could not compile `xsh` (lib test) due to 165 previous errors

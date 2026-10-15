@@ -1,0 +1,1 @@
+['/candidate/xsht', 'test', '-j', '1', '--timeout', '50s', '--exact', 'core/tests/test-curl.xsh::test_curl_write_failure_exits_23']

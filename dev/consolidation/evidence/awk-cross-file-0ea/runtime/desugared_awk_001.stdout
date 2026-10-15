@@ -1,0 +1,10 @@
+running 1 tests
+core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_001 ... FAILED 2.9s
+
+failures:
+
+---- core/tests/test-awk.xsh::test_awk_matrix_streams_and_processes_shard_001 ----
+AssertionError.Failed: assertion failed: failures.is_empty(): 1 of 8 cases differ from the recorded GNU awk output:
+io_redirect_unwritable: stderr,status
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped

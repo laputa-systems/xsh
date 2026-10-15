@@ -1,0 +1,20 @@
+
+running 1 test
+test sema::constraints::tests::alias_chain_of_400_variables_resolves_to_ground_type ... FAILED
+
+failures:
+
+---- sema::constraints::tests::alias_chain_of_400_variables_resolves_to_ground_type stdout ----
+
+thread 'sema::constraints::tests::alias_chain_of_400_variables_resolves_to_ground_type' (20) panicked at src/sema/constraints.rs:680:9:
+assertion `left == right` failed
+  left: Err(TypeDepth)
+ right: Ok(Int)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::constraints::tests::alias_chain_of_400_variables_resolves_to_ground_type
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 746 filtered out; finished in 0.00s
+

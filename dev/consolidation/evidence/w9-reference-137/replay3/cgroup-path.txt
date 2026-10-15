@@ -1,0 +1,3 @@
+container_pid=10780
+cgroup_path=/docker/bf910bd736e5fc838890e2ed1ce6134f6d53552c6ff40c765e8fbb1e3b7fbe9f
+cgroup_dir=/sys/fs/cgroup/docker/bf910bd736e5fc838890e2ed1ce6134f6d53552c6ff40c765e8fbb1e3b7fbe9f
