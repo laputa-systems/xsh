@@ -130,8 +130,8 @@ is `dev/cargo_steps.xsh`.
 | route witness (`src/runtime/eval/route_witness.rs`) | `cargo dev gate src/runtime/eval/route_witness.rs` selects the eight route-witness and two inherited-environment `xsh` unit tests, three `xsht` integration tests matching `route_witness`, and the exact native environment test | shared runtime source paths use the runtime gate below |
 | runtime | native module, then `cargo test --profile verification --target "$TARGET" --test integration runtime::NAME` | `cargo test --profile verification --target "$TARGET" --test integration runtime:: -- --skip runtime::coverage::` |
 | frames, stack depth | `cargo test --profile verification --target "$TARGET" --test integration runtime::stack_depth` | runtime gate |
-| lint, tooling | `target/$TARGET/verification/xsht test tests/xsh/tooling-NAME.xsh` (the `check`, `fmt`, `lint`, and `test` command lines, the lint migration fixes, and help); `cargo test --profile verification --target "$TARGET" -p xsht --test integration lint::NAME` | `cargo test --profile verification --target "$TARGET" -p xsht` |
-| examples | `cargo build --profile verification --target "$TARGET" -p xsh --bin xsh`; `cargo test --profile verification --target "$TARGET" -p xsht --test integration examples::` | `cargo test --profile verification --target "$TARGET" -p xsht --test integration` |
+| lint, tooling | `target/$TARGET/verification/xsht test tests/xsh/tooling-NAME.xsh` (the `check`, `fmt`, `lint`, and `test` command lines, the lint migration fixes, and help); `cargo test --profile verification --target "$TARGET" -p xsht --test integration lint::NAME` | `cargo test --profile verification --target "$TARGET" -p xsht -- --skip lint_performance::repository_lint_is_clean_within_wall_budget` |
+| examples | `cargo build --profile verification --target "$TARGET" -p xsh --bin xsh`; `cargo test --profile verification --target "$TARGET" -p xsht --test integration examples::` | `cargo test --profile verification --target "$TARGET" -p xsht --test integration -- --skip lint_performance::repository_lint_is_clean_within_wall_budget` |
 | API, registry, docs | `target/$TARGET/verification/xsht test tests/xsh/api-tool.xsh`; `cargo test --profile verification --target "$TARGET" -p xsht --test integration api::` | API gate below |
 | standard modules | `target/$TARGET/verification/xsht test tests/xsh/stdlib/NAME.xsh` | `target/$TARGET/verification/xsht test tests/xsh/stdlib` |
 | retained frontend memory | `cargo test -p xsh --lib frontend_stats::tests` | `target/$TARGET/verification/xsht frontend-stats --json tests/fixtures/frontend-indexed` |
@@ -185,16 +185,16 @@ also supplies alias names to native command tests.
 
 Automatic root syntax gates skip only
 `syntax::formatter_is_idempotent_on_laputa_corpus`; automatic xsht integration
-gates skip only
-`lint_format_invariance::formatting_preserves_lints_on_laputa_corpus` for the
-sibling policy. Both rewrite or repeatedly analyze the complete sibling
-repository. Their declarations remain available for explicit invocation;
-repository corpus checks and the existing repository lint budget remain active.
+gates skip the Laputa formatting case, two example-corpus cases, and the
+repository lint budget case. The remaining repository formatting, layout, and
+desugar tests stay in the integration run. The repository budget case runs
+separately in `make check` after its release test binary is built. Host
+`perf-gate-ready` checks bracket that test run.
 
 | Command | Runs |
 |---|---|
 | `cargo dev check` | release product build, `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, release `xsht check`, `xsht fmt --check`, and `xsht lint`, the command repository contracts, `check-docs` (with release binaries), `git diff --check` |
-| `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no non-note findings within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), the command repository contracts, then `check-docs` with release binaries |
+| `make check` (`cargo dev check lint`) | release `xsht lint` on the repository with no non-note findings within a 15 s budget (`crates/xsht/tests/lint_performance.rs`), the command repository contracts, then `check-docs` with release binaries. It builds the exact Rust budget test first and brackets the test run with host readiness checks. |
 | `make test` (`cargo dev test`) | filtered root process targets, debug `--lib`, `xsht` integration, fixed-seed soundness, then one full native suite |
 | `cargo dev test xsh` | build products for the selected test profile (verification by default), then one full native suite |
 | `make fuzz` | `xsh-fuzz all` for 120 s on release (`FUZZ_DURATION` overrides); not part of `make check` |

@@ -38,6 +38,48 @@ proc write_fake_tool(tool_path: Path, xsh: Path, body: Str) [fs, error] {
   )
 }
 
+proc write_fake_lint_tools(
+  tools: Path,
+  xsh: Path,
+  log: Path,
+  library: Path,
+  lint_exit: Int,
+  ready_before_exit: Int,
+  ready_after_exit: Int,
+) [fs, error] {
+  tools.mkdir()
+  library.write("")
+  write_fake_tool(
+    fp"{tools}/rustc",
+    xsh,
+    "print \"host: x86_64-unknown-linux-musl\"",
+  )
+  write_fake_tool(
+    fp"{tools}/cargo",
+    xsh,
+    f"""let log = p"{log}"
+let previous = if log.exists()? {{ log.read_text()? }} else {{ "" }}
+let step = if "--no-run" in args {{ "build" }} else {{ "test" }}
+let preload = env.get_or("LD_PRELOAD", "")?
+log.write(previous + f"cargo-{{step}}|{{args.join("|")}}|preload={{preload}}\\n")?
+if "--no-run" in args {{ exit 0 }}
+exit {lint_exit}""",
+  )
+  let guard_seen = fp"{tools}/ready-seen"
+  write_fake_tool(
+    fp"{tools}/perf-gate-ready",
+    xsh,
+    f"""let log = p"{log}"
+let previous = if log.exists()? {{ log.read_text()? }} else {{ "" }}
+let already_seen = p"{guard_seen}".exists()?
+let label = if already_seen {{ "ready-after" }} else {{ "ready-before" }}
+let status = if already_seen {{ {ready_after_exit} }} else {{ {ready_before_exit} }}
+log.write(previous + f"{{label}}|{{args.join("|")}}\\n")?
+p"{guard_seen}".write("seen")?
+exit status""",
+  )
+}
+
 test test_build_failure_stops_at_the_cargo_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "build-failure")?
   let tools = fp"{root}/tools"
@@ -76,38 +118,185 @@ match build.build(ctx) {{
   assert cargo_marker.exists()?
 }
 
-test test_check_lint_runs_only_the_read_only_performance_gate { |ctx|
-  let root = test.temp_dir(ctx, name: "check-lint")?
+test test_check_lint_guards_the_exact_budget_test_before_later_checks { |ctx|
+  let root = test.temp_dir(ctx, name: "check-lint-order")?
   let tools = fp"{root}/tools"
-  tools.mkdir()
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
-  let cargo_marker = fp"{root}/cargo-argv"
+  let log = fp"{root}/commands.log"
+  let library = fp"{root}/libjemalloc.so.2"
+  write_fake_lint_tools(tools, xsh, log, library, 0, 0, 0)
+  let release = fp"{root}/target/x86_64-unknown-linux-musl/release"
+  release.mkdir()
   write_fake_tool(
-    fp"{tools}/cargo",
+    fp"{release}/xsht",
     xsh,
-    f"""p"{cargo_marker}".write(args.join("|"))?
-exit 23""",
+    f"""let log = p"{log}"
+let previous = if log.exists()? {{ log.read_text()? }} else {{ "" }}
+log.write(previous + "core-check\\n")?
+exit 7""",
   )
   test.expect(
     ctx,
     f"""
 use build
 use context
+use stage as stages
 use targets as target_policy
 
 let ctx: context.Context = {context_source(root)}
 match build.check_lint(ctx) {{
   Ok(_) => exit 1
+  Err(stages.StageError.Failed {{stage, ..}}) => print ${{stage}}
   Err(error) => print ${{error.message}}
 }}
 """,
     status: 0,
-    stdout: ["StageError.Failed"],
+    stdout: ["check-core-contracts"],
     args: [],
-    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
+    env: {
+      PATH: tools,
+      XSH_MODULE_PATH: fp"{repository}/dev",
+      XSH_DEV_BUILD_PRELOAD: library,
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "",
+    },
   )?
-  assert cargo_marker.read_text()? == "test|--release|--target|x86_64-unknown-linux-musl|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
+  assert log.read_lines()? == [
+    f"cargo-build|test|--release|--target|x86_64-unknown-linux-musl|-p|xsht|--test|integration|lint_performance::repository_lint_is_clean_within_wall_budget|--no-run|preload={library}",
+    "ready-before|",
+    "cargo-test|test|--release|--target|x86_64-unknown-linux-musl|-p|xsht|--test|integration|lint_performance::repository_lint_is_clean_within_wall_budget|--|--exact|--test-threads=1|--nocapture|preload=",
+    "ready-after|-1",
+    "core-check",
+  ]
+}
+
+test test_check_lint_skips_the_test_when_the_host_is_busy { |ctx|
+  let root = test.temp_dir(ctx, name: "check-lint-busy")?
+  let tools = fp"{root}/tools"
+  let repository = fs.cwd()?
+  let log = fp"{root}/commands.log"
+  let library = fp"{root}/libjemalloc.so.2"
+  write_fake_lint_tools(tools, ctx.xsh_bin, log, library, 0, 1, 0)
+  test.expect(
+    ctx,
+    f"""
+use build
+use context
+use stage as stages
+use targets as target_policy
+
+let ctx: context.Context = {context_source(root)}
+match build.check_lint(ctx) {{
+  Ok(_) => exit 1
+  Err(stages.StageError.Failed {{stage, ..}}) => print ${{stage}}
+  Err(error) => print ${{error.message}}
+}}
+""",
+    status: 0,
+    stdout: ["check-lint-ready"],
+    args: [],
+    env: {
+      PATH: tools,
+      XSH_MODULE_PATH: fp"{repository}/dev",
+      XSH_DEV_BUILD_PRELOAD: library,
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "",
+    },
+  )?
+  assert log.read_lines()? == [
+    f"cargo-build|test|--release|--target|x86_64-unknown-linux-musl|-p|xsht|--test|integration|lint_performance::repository_lint_is_clean_within_wall_budget|--no-run|preload={library}",
+    "ready-before|",
+  ]
+}
+
+test test_check_lint_keeps_the_test_error_when_the_postcheck_fails { |ctx|
+  let root = test.temp_dir(ctx, name: "check-lint-postcheck")?
+  let tools = fp"{root}/tools"
+  let repository = fs.cwd()?
+  let log = fp"{root}/commands.log"
+  let library = fp"{root}/libjemalloc.so.2"
+  write_fake_lint_tools(tools, ctx.xsh_bin, log, library, 23, 0, 1)
+  let result = test.expect(
+    ctx,
+    f"""
+use build
+use context
+use stage as stages
+use targets as target_policy
+
+let ctx: context.Context = {context_source(root)}
+match build.check_lint(ctx) {{
+  Ok(_) => exit 1
+  Err(stages.StageError.Failed {{stage, ..}}) => print ${{stage}}
+  Err(error) => print ${{error.message}}
+}}
+""",
+    status: 0,
+    stdout: ["check-lint"],
+    args: [],
+    env: {
+      PATH: tools,
+      XSH_MODULE_PATH: fp"{repository}/dev",
+      XSH_DEV_BUILD_PRELOAD: library,
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "",
+    },
+  )?
+  assert log.read_lines()? == [
+    f"cargo-build|test|--release|--target|x86_64-unknown-linux-musl|-p|xsht|--test|integration|lint_performance::repository_lint_is_clean_within_wall_budget|--no-run|preload={library}",
+    "ready-before|",
+    "cargo-test|test|--release|--target|x86_64-unknown-linux-musl|-p|xsht|--test|integration|lint_performance::repository_lint_is_clean_within_wall_budget|--|--exact|--test-threads=1|--nocapture|preload=",
+    "ready-after|-1",
+  ]
+  assert "post-readiness check failed after lint test failure" in result.stderr
+}
+
+test test_check_lint_rejects_a_successful_test_when_the_postcheck_fails { |ctx|
+  let root = test.temp_dir(ctx, name: "check-lint-postcheck-busy")?
+  let tools = fp"{root}/tools"
+  let repository = fs.cwd()?
+  let log = fp"{root}/commands.log"
+  let library = fp"{root}/libjemalloc.so.2"
+  write_fake_lint_tools(tools, ctx.xsh_bin, log, library, 0, 0, 1)
+  let release = fp"{root}/target/x86_64-unknown-linux-musl/release"
+  release.mkdir()
+  write_fake_tool(
+    fp"{release}/xsht",
+    ctx.xsh_bin,
+    f"""let log = p"{log}"
+let previous = if log.exists()? {{ log.read_text()? }} else {{ "" }}
+log.write(previous + "core-check\\n")?
+exit 0""",
+  )
+  test.expect(
+    ctx,
+    f"""
+use build
+use context
+use stage as stages
+use targets as target_policy
+
+let ctx: context.Context = {context_source(root)}
+match build.check_lint(ctx) {{
+  Ok(_) => exit 1
+  Err(stages.StageError.Failed {{stage, ..}}) => print ${{stage}}
+  Err(error) => print ${{error.message}}
+}}
+""",
+    status: 0,
+    stdout: ["check-lint-ready-after"],
+    args: [],
+    env: {
+      PATH: tools,
+      XSH_MODULE_PATH: fp"{repository}/dev",
+      XSH_DEV_BUILD_PRELOAD: library,
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "",
+    },
+  )?
+  assert log.read_lines()? == [
+    f"cargo-build|test|--release|--target|x86_64-unknown-linux-musl|-p|xsht|--test|integration|lint_performance::repository_lint_is_clean_within_wall_budget|--no-run|preload={library}",
+    "ready-before|",
+    "cargo-test|test|--release|--target|x86_64-unknown-linux-musl|-p|xsht|--test|integration|lint_performance::repository_lint_is_clean_within_wall_budget|--|--exact|--test-threads=1|--nocapture|preload=",
+    "ready-after|-1",
+  ]
 }
 
 test test_check_core_contracts_propagates_native_runner_failure { |ctx|

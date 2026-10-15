@@ -159,6 +159,15 @@ test test_process_plan_uses_the_selected_target_profile_and_required_oracles {
         "build", "--locked", "--profile", tests.profile_name(profile), "--target", ctx.target.triple,
         "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht", "-p", "xshi", "--bin", "xshi",
       ]
+      let xsht_integration = [spec for spec in plan |> where .stage == "test-xsht"][0]
+      assert xsht_integration.argv[xsht_integration.argv.len() - 8..] == [
+        "--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus",
+        "--skip", "examples::example_corpus_is_formatted",
+        "--skip", "examples::example_corpus_lints_without_warnings",
+        "--skip", "lint_performance::repository_lint_is_clean_within_wall_budget",
+      ]
+      assert tests.xsht_integration_exclusions == xsht_integration.argv[xsht_integration.argv.len() - 8..]
+      assert "lint_performance::lint_gate_terminates_and_reaps_process_at_wall_deadline" not in tests.xsht_integration_exclusions
       let product = tests.product_path(ctx, profile, tests.Xsht)
       assert product == fp"/repo/target/{ctx.target.triple}/{tests.profile_name(profile)}/xsht"
     }
@@ -208,7 +217,7 @@ test test_fixtures_select_their_owner_instead_of_running_as_native_modules {
   assert gates.areas_for("src/syntax/grammar/productions.rs")? == [gates.Syntax, gates.Grammar, gates.Docs]
 }
 
-test test_catalog_and_sibling_filters_preserve_the_selected_verification_scope {
+test test_catalog_and_xsht_exclusions_preserve_the_selected_verification_scope {
   let ctx = fixtures.linux_context(/repo)?
   let selected = gates.select(["src/stdlib.rs", "crates/xsht/src/lint.rs", "crates/xsht/tests/syntax.rs"])?
   let plan = gates.lane_plan(ctx, tests.Verification, selected)?
@@ -221,6 +230,7 @@ test test_catalog_and_sibling_filters_preserve_the_selected_verification_scope {
     if spec.stage == "test-tooling" {
       assert "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus" in spec.argv
       assert "syntax::formatter_is_idempotent_on_laputa_corpus" in spec.argv
+      assert "lint_performance::repository_lint_is_clean_within_wall_budget" in spec.argv
       assert "--skip" in spec.argv
     }
     if spec.stage == "test-syntax" {

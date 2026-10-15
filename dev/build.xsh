@@ -83,33 +83,39 @@ export proc check_core_contracts(ctx: context.Context) [process, error, io] -> R
   )
 }
 
-## Compiles the release lint gate before measuring read-only lint on the configured repository corpus,
-## then checks generated docs with release binaries.
+## Guards the repository lint budget test with host readiness checks before core and docs checks.
 export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
-  cargo_steps.run_test(
-    stages.command(
-      "check-lint",
-      ctx.target.triple,
-      "cargo",
-      [
-        "cargo",
-        "test",
-        "--release",
-        "--target",
-        ctx.target.triple,
-        "-p",
-        "xsht",
-        "--test",
-        "integration",
-        "lint_performance::",
-        "--",
-        "--test-threads=1",
-        "--nocapture",
-      ],
-      ctx.root,
-      tests.cargo_environment(ctx)?,
-    ),
-  )
+  let test_spec = tests.repository_lint_budget_test(ctx)?
+  let build_spec = {
+    ...test_spec,
+    stage: "check-lint-build",
+    argv: cargo_steps.test_build_argv(test_spec.argv),
+  }
+  cargo_steps.run_build(build_spec)
+  stages.execute(stages.command(
+    "check-lint-ready",
+    ctx.target.triple,
+    "perf-gate-ready",
+    ["perf-gate-ready"],
+    ctx.root,
+    {},
+  ))
+  let test_result = stages.execute(test_spec)
+  let post_result = stages.execute(stages.command(
+    "check-lint-ready-after",
+    ctx.target.triple,
+    "perf-gate-ready",
+    ["perf-gate-ready", "-1"],
+    ctx.root,
+    {},
+  ))
+  if let Err(test_error) = test_result {
+    if let Err(post_error) = post_result {
+      eprint f"post-readiness check failed after lint test failure: {post_error.message}"
+    }
+    return Err(test_error)
+  }
+  post_result?
   check_core_contracts(ctx)
   documentation.build_release(ctx)
   check_docs(ctx, documentation.release_tools(ctx))

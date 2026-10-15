@@ -10,11 +10,14 @@ use targets
 ## verification covers this repository and individually migrated source files.
 export const sibling_syntax_exclusions = ["--skip", "syntax::formatter_is_idempotent_on_laputa_corpus"]
 
-## Skips the external formatting and example-corpus cases in the XSHT integration suite.
-export const sibling_xsht_exclusions = [
+const repository_lint_budget_test_filter = "lint_performance::repository_lint_is_clean_within_wall_budget"
+
+## Test cases omitted from broad XSHT integration runs, including the separately guarded lint budget case.
+export const xsht_integration_exclusions = [
   "--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus",
   "--skip", "examples::example_corpus_is_formatted",
   "--skip", "examples::example_corpus_lints_without_warnings",
+  "--skip", repository_lint_budget_test_filter,
 ]
 
 ## The only profiles accepted by process and native tests.
@@ -70,6 +73,33 @@ export pure cargo_environment(ctx: context.Context) -> Result[Record, Error] {
   {MACOSX_DEPLOYMENT_TARGET: ctx.darwin_deployment_target}
 }
 
+## Builds the exact release XSHT integration command for the repository lint budget test.
+export pure repository_lint_budget_test(ctx: context.Context) -> Result[contract.CommandSpec, Error] {
+  stages.command(
+    "check-lint",
+    ctx.target.triple,
+    "cargo",
+    [
+      "cargo",
+      "test",
+      "--release",
+      "--target",
+      ctx.target.triple,
+      "-p",
+      "xsht",
+      "--test",
+      "integration",
+      repository_lint_budget_test_filter,
+      "--",
+      "--exact",
+      "--test-threads=1",
+      "--nocapture",
+    ],
+    ctx.root,
+    cargo_environment(ctx)?,
+  )
+}
+
 pure product_build_arguments(product: Product) -> List[Str] {
   let name = product_name(product)
   match product {
@@ -120,7 +150,7 @@ export pure rust_plan(
     stages.command("test-debug-assertions", ctx.target.triple, "cargo",
       ["cargo", "test", @debug_args, "-p", "xsh", "--lib"], ctx.root, environment),
     stages.command("test-xsht", ctx.target.triple, "cargo",
-      ["cargo", "test", @profile_args, "-p", "xsht", "--test", "integration", "--", @sibling_syntax_exclusions, @sibling_xsht_exclusions], ctx.root, environment),
+      ["cargo", "test", @profile_args, "-p", "xsht", "--test", "integration", "--", @sibling_syntax_exclusions, @xsht_integration_exclusions], ctx.root, environment),
     stages.command("test-soundness", ctx.target.triple, "cargo",
       ["cargo", "test", @profile_args, "-p", "xsh-fuzz", "--test", "soundness"], ctx.root, environment),
   ]
