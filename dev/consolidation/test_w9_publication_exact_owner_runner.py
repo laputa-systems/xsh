@@ -669,6 +669,37 @@ class ExactOwnerHelperSourceTests(unittest.TestCase):
             ),
         )
 
+    def test_exact_owner_composition_keeps_compact_publication_formatter(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        scratch_root = repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        original = exact_runner.EXACT_OWNER_HELPER.read_bytes()
+        runner = SimpleNamespace(SOURCE_COHORT_SCHEMA="3")
+        source_record = {"schema": runner.SOURCE_COHORT_SCHEMA}
+        with tempfile.TemporaryDirectory(
+            prefix="w9-exact-owner-compact-", dir=scratch_root
+        ) as scratch:
+            helper, _, _, _ = adapter_runner.derive_helper(
+                approved_helper=adapter_runner.SOURCE_APPROVED_HELPER,
+                output_directory=pathlib.Path(scratch) / "derived",
+                output_root=repository,
+            )
+            composed = exact_runner._compose_exact_helper(
+                helper.read_bytes(), source_record, original, runner
+            )
+
+        self.assertIn(
+            b'let publication_facts = w9_canonical_debug(&format!("{checked:?}"));',
+            composed,
+        )
+        self.assertNotIn(
+            b'let publication_facts = w9_canonical_debug(&format!("{checked:#?}"));',
+            composed,
+        )
+        self.assertTrue(
+            composed.endswith(exact_runner._project_exact_owner_helper(original))
+        )
+
     def test_source_qualified_projection_rejects_missing_or_duplicate_imports(self):
         original = exact_runner.EXACT_OWNER_HELPER.read_bytes()
         import_fragments = (

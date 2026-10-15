@@ -1,0 +1,18 @@
+
+running 1 test
+
+thread 'sema::w9_name_symbol_renderer_changes_only_validated_constructors' (29572) panicked at tests/sema.rs:2790:46:
+captured Name symbol has a spelling
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'sema::w9_name_symbol_renderer_changes_only_validated_constructors' (29572) panicked at tests/sema.rs:2763:9:
+symbol spellings are not injective
+
+thread 'sema::w9_name_symbol_renderer_changes_only_validated_constructors' (29572) panicked at tests/sema.rs:2762:9:
+assertion `left != right` failed: invalid symbol spelling
+  left: "<invalid-symbol>"
+ right: "<invalid-symbol>"
+test sema::w9_name_symbol_renderer_changes_only_validated_constructors ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 273 filtered out; finished in 0.00s
+

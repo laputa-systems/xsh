@@ -273,6 +273,11 @@ def derive_helper(
     source = 'include!("w9-publication-owner-helper.rs");\n' + source
     source = _replace_once(
         source,
+        '                let publication_facts = w9_canonical_debug(&format!("{checked:#?}"));\n',
+        '                let publication_facts = w9_canonical_debug(&format!("{checked:?}"));\n',
+    )
+    source = _replace_once(
+        source,
         '    let root = PathBuf::from(std::env::var("W9_INPUT_ROOT").expect("W9_INPUT_ROOT"));\n',
         '    if let Some(path) = std::env::var_os("W9_ADAPTER_HASH_ROOT") {\n'
         '        let count = std::env::var("W9_ADAPTER_HASH_INPUT_COUNT").expect("W9_ADAPTER_HASH_INPUT_COUNT").parse::<usize>().expect("numeric adapter input count");\n'

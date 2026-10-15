@@ -1,0 +1,9 @@
+corpus=1690
+shard=16/17
+range=1655..1656
+shard_size=100
+input_digest=a7b1f70466c4e978222af3d329e9c71b0a15030480e24b8d7f77a5fa4f57f17d
+options=[("default", CheckOptions { interactive_commands: None, reveal_types: false, embedded_bodies: false })]
+input	1655	tests/xsh/system-report.xsh	9b3f6a2fef9067cd78900e20a9eee86af24e21cecb5ee66c4781087c0505ec33
+output	1655	tests/xsh/system-report.xsh	default	d53d18c23212ea7b6300594bb89bce60218f6eff2b9d628b8cc42d3e79bbd5ab	ee0b1f674e8cc56e2c626e3751b2e519886e4e64d84959332d473cd2f0b287e8
+terminal	shard=16	completed=1

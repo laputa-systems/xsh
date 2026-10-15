@@ -1086,6 +1086,14 @@ class AdapterRawOutcomeContinuationTests(unittest.TestCase):
             self.assertEqual(owner_source_hash, adapter_runner.OWNER_HELPER_SHA256)
             self.assertIn("W9_ADAPTER_HASH_ROOT", source)
             self.assertIn("w9_hash_adapter_tree", source)
+            self.assertEqual(
+                source.count('let publication_facts = w9_canonical_debug(&format!("{checked:?}"));'),
+                1,
+            )
+            self.assertNotIn(
+                'let publication_facts = w9_canonical_debug(&format!("{checked:#?}"));',
+                source,
+            )
             self.assertNotIn("create_dir_all(outputdir)", owner)
             self.assertIn("w9_create_new_adapter_file", owner)
 

@@ -1,0 +1,2 @@
+container_pid=29992
+cgroup_dir=/sys/fs/cgroup/docker/4da893b36dcf897551d3452b32dc249ee53bf3303392dee4b6d30e3c81ab9bc5
