@@ -154,10 +154,14 @@ test test_descriptors_the_fake_did_not_open_take_the_real_path { |ctx|
   linux.set_socket_timeout(receiver, c.SO_RCVTIMEO, 2000)
   linux.setsockopt_int(receiver, c.SOL_SOCKET, c.SO_REUSEADDR, 1)
   assert linux.recvfrom(receiver, 16)?.data == b"ping"
-  # A closed descriptor is the kernel's EBADF, not a fake socket.
-  let nl = linux.netlink_open(16)?
-  unix.close_fd(nl)
-  assert errno_of(linux.recvfrom(nl, 16)) == 9
+  test.expect(ctx, """
+let nl = linux.netlink_open(16)?
+unix.close_fd(nl)
+match linux.recvfrom(nl, 16) {
+  Ok(_) => assert false, "closed fake descriptor was received"
+  Err(failure) => assert (failure.errno ?? -1) == 9
+}
+""", status: 0)?
 }
 
 test test_without_a_netlink_fixture_the_fake_leaves_netlink_real { |ctx|
