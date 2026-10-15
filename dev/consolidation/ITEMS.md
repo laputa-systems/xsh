@@ -48,6 +48,23 @@ The integrator owns shared registrations, facades, registry, documentation,
 development automation, and merges. Source changes are accepted only after
 the stated gates; scouting is not verification.
 
+## Resumed scheduler reference qualification
+
+The retained aggregate overlay
+`winddown/unfinished/475-native-scheduler-reference-2083821edb768d2485479c7386289b82e43b1c7c.patch`
+reconstructs the existing default-worker reference. Its source changes only
+scheduler policy and matching help text. Qualify its exact bytes and the three
+ancestor scheduler changes from Git instead of requiring unretained scratch
+patch files. Preserve the original baseline and failed receipts.
+
+Keep the comparator's existing source-path restrictions, reference queue and
+worker policy checks, help and test-list equality, default-worker invocations,
+resource allocation, outcome validation, readiness checks, and timing policy.
+Record the aggregate overlay in the existing derivation-patch map. Do not add
+a second report format, new thresholds, or a selectable baseline policy.
+Reject a missing or changed overlay, invalid ancestry, and altered reference
+source. This restores input qualification, not a performance result.
+
 ## Setup and ready items
 
 Resumed bounded slices have separate worktrees and disjoint shared-file hunks:
