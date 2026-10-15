@@ -1,0 +1,2054 @@
+#!/usr/bin/env python3
+"""Synthetic checks for row exhaustiveness, duplicate rejection, and receipt reuse."""
+
+from __future__ import annotations
+
+import csv
+import copy
+import io
+import unittest
+
+import generate
+
+
+SCHEMA = """instruction_schema! {
+    BuildExprRow => ExprView [Expr] {
+        Int(value: i64) => ExprInt = 0 [0; Operands; FrameApply; EagerAtom];
+        Binary { left: BuildExprId } => ExprBinary = 1 [0; Operands; FrameControl];
+    }
+    BuildStmtRow => StmtView [Stmt] {
+        Print(args: Vec<BuildExprId>, flush: bool) => StmtPrint = 2 [0; Scheduled; FrameControl];
+    }
+}
+
+pattern_schema! {}
+"""
+
+
+def operand_manifest(rows: list[dict]) -> str:
+    headers = [
+        "record", "tag", "ordinal", "kind", "variant", "field", "type", "policy", "child_paths"
+    ]
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=headers, delimiter="\t", lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({
+            "record": "row", "tag": row["tag"], "ordinal": row["ordinal"],
+            "kind": row["kind"], "variant": row["variant"],
+        })
+        for field in row["schema_fields"]:
+            paths = generate.schema_child_paths(field["type"], field["name"])
+            writer.writerow({
+                "record": "field", "tag": row["tag"], "ordinal": row["ordinal"],
+                "kind": row["kind"], "variant": row["variant"],
+                "field": field["name"], "type": field["type"],
+                "policy": generate.operand_policy(row["tag"], field["name"], field["type"], paths),
+                "child_paths": ";".join(paths),
+            })
+    return output.getvalue()
+
+
+def arena_shape_source() -> str:
+    functions: dict[str, list[str]] = {}
+    for shape, function_name in generate.ARENA_SHAPE_CONTRACTS.values():
+        functions.setdefault(function_name, []).append(shape)
+    return "\n".join(
+        f"fn {function_name}() {{\n" + "\n".join(shapes) + "\n}"
+        for function_name, shapes in functions.items()
+    )
+
+
+def typed_scalar_fixture() -> tuple[list[dict], dict]:
+    rows_by_family = {
+        "Int": [
+            ("Int", "IntInt"), ("Slot", "IntSlot"), ("Binary", "IntBinary"),
+            ("StrByteLenSlot", "IntStrByteLenSlot"),
+            ("StrCountLinesSlot", "IntStrCountLinesSlot"),
+            ("StrByteAtSlot", "IntStrByteAtSlot"),
+        ],
+        "Bool": [
+            ("Bool", "BoolBool"), ("Slot", "BoolSlot"), ("Not", "BoolNot"),
+            ("And", "BoolAnd"), ("Or", "BoolOr"), ("IntCompare", "BoolIntCompare"),
+            ("StrPredicateSlot", "BoolStrPredicateSlot"),
+            ("ContainsSlot", "BoolContainsSlot"),
+            ("StrContainsSlot", "BoolStrContainsSlot"),
+            ("TrimEmptySlot", "BoolTrimEmptySlot"),
+            ("TrimStrPredicateSlot", "BoolTrimStrPredicateSlot"),
+            ("LiteralCompareSlot", "BoolLiteralCompareSlot"),
+        ],
+    }
+    rows = []
+    schema_rows = []
+    classifiers = {"Int": [], "Bool": []}
+    view_arms = []
+    ordinal = 0
+    for family, variants in rows_by_family.items():
+        for variant, tag in variants:
+            row = {
+                "kind": family,
+                "variant": variant,
+                "tag": tag,
+                "ordinal": ordinal,
+                "schema_fields": [],
+            }
+            rows.append(row)
+            schema_rows.append({
+                "family": family,
+                "kind": family,
+                "view": f"{family}View",
+                "variant": variant,
+                "tag": tag,
+                "ordinal": ordinal,
+                "line": ordinal + 1,
+            })
+            classifiers[family].append({"tag": tag, "line": ordinal + 1})
+            view_arms.append({
+                "family": family,
+                "variant": variant,
+                "line": ordinal + 1,
+                "arm_index": len(view_arms),
+            })
+            ordinal += 1
+
+    operation_tags = ["IntBinary", "IntStrByteAtSlot", "BoolNot", "BoolAnd", "BoolOr", "BoolIntCompare"]
+    delegated_tags = [row["tag"] for row in rows if row["tag"] not in operation_tags]
+    inventory = {
+        "schema_rows": schema_rows,
+        "classifiers": classifiers,
+        "normal_checks": [
+            {"family": "Int", "line": 100, "wrapper": "eval_indexed_typed_int", "result_variant": "Int"},
+            {"family": "Bool", "line": 101, "wrapper": "eval_indexed_typed_bool", "result_variant": "Bool"},
+        ],
+        "forced_entry": {"family": "FrameApply", "line": 200, "wrapper": "eval_typed_scalar_expr"},
+        "view_arms": view_arms,
+        "frame_groups": [
+            {"tags": operation_tags, "behavior": "frame_operation", "line": 201},
+            {"tags": delegated_tags, "behavior": "verified_in_place_typed_delegation", "line": 202},
+        ],
+        "fallbacks": [
+            {"applies_to": ["IntBinary", "IntStrByteAtSlot"], "scope": "typed tag with mismatched decoded view", "outcome": "frame_strategy_error: decoded IntView does not match tag", "source": "explicit_dispatch", "line": 203, "arm_index": 0},
+            {"applies_to": ["BoolNot", "BoolAnd", "BoolOr", "BoolIntCompare"], "scope": "typed tag with mismatched decoded view", "outcome": "frame_strategy_error: decoded BoolView does not match tag", "source": "explicit_dispatch", "line": 204, "arm_index": 1},
+            {"applies_to": [], "scope": "tag outside the typed scalar cohort", "outcome": "frame_strategy_error: unmatched tag", "source": "explicit_dispatch", "line": 205, "arm_index": 3},
+            {"applies_to": delegated_tags, "scope": "delegated typed leaf without verifier in-place proof", "outcome": "frame_strategy_error: verifier in-place proof absent", "source": "explicit_dispatch", "line": 206, "arm_index": 2},
+        ],
+        "wrong_union_errors": [
+            {"family": "Int", "outcome": "typed integer evaluator produced Bool", "line": 300},
+            {"family": "Bool", "outcome": "typed boolean evaluator produced Int", "line": 301},
+        ],
+        "source_paths": {
+            "schema": "src/runtime/eval/indexed/full/schema.rs",
+            "normal_dispatch": "src/runtime/eval/lowered_run/indexed_run.rs",
+            "typed_values": "src/runtime/eval/lowered_run/indexed_run/values.rs",
+            "forced_dispatch": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+        },
+    }
+    return rows, inventory
+
+
+def eager_atom_fixture() -> tuple[list[dict], dict]:
+    rows_by_variant = [
+        ("Null", "ExprNull", 18),
+        ("Unit", "ExprUnit", 19),
+        ("Int", "ExprInt", 20),
+        ("Float", "ExprFloat", 21),
+        ("Duration", "ExprDuration", 22),
+        ("Bool", "ExprBool", 23),
+        ("Str", "ExprStr", 24),
+        ("Bytes", "ExprBytes", 25),
+        ("PreparedRegex", "ExprPreparedRegex", 26),
+        ("PreparedConstant", "ExprPreparedConstant", 27),
+        ("Path", "ExprPath", 28),
+        ("Param", "ExprParam", 31),
+    ]
+    fields_by_variant = {
+        "Null": [],
+        "Unit": [],
+        "Int": [{"name": "value", "type": "i64"}],
+        "Float": [{"name": "value", "type": "FloatValue"}],
+        "Duration": [{"name": "value", "type": "DurationValue"}],
+        "Bool": [{"name": "value", "type": "bool"}],
+        "Str": [{"name": "value", "type": "Arc<str>"}],
+        "Bytes": [{"name": "value", "type": "Arc<[u8]>"}],
+        "PreparedRegex": [{"name": "value", "type": "RegexValue"}],
+        "PreparedConstant": [{"name": "value", "type": "PreparedConstantValue"}],
+        "Path": [{"name": "value", "type": "PathValue"}],
+        "Param": [{"name": "slot", "type": "usize"}],
+    }
+    rows = [
+        {
+            "kind": "Expr",
+            "variant": variant,
+            "tag": tag,
+            "ordinal": ordinal,
+            "effects": "0",
+            "in_place": "Operands",
+            "frame_strategy": "FrameApply",
+            "eager_atom": True,
+            "schema_fields": fields_by_variant[variant],
+        }
+        for variant, tag, ordinal in rows_by_variant
+    ]
+    schema_rows = [
+        {
+            "variant": variant,
+            "tag": tag,
+            "ordinal": ordinal,
+            "effects": "0",
+            "class": "Operands",
+            "strategy": "FrameApply",
+            "classification": "EagerAtom",
+            "fields": fields_by_variant[variant],
+            "line": ordinal + 1,
+        }
+        for variant, tag, ordinal in rows_by_variant
+    ]
+    variants = [variant for variant, _, _ in rows_by_variant]
+    tags = [tag for _, tag, _ in rows_by_variant]
+    inventory = {
+        "schema_rows": schema_rows,
+        "classification_rules": {
+            "default_false_line": 442,
+            "eager_true_line": 445,
+            "expansion_line": 506,
+        },
+        "normal_route": {
+            "mode": "normal", "line": 1460, "helper_line": 1461,
+            "statement_index": 4, "generic_line": 1470, "generic_statement_index": 5,
+        },
+        "forced_route": {
+            "mode": "forced", "line": 6369, "helper_line": 6371,
+            "statement_index": 5, "generic_line": 6394, "generic_statement_index": 7,
+        },
+        "helper_arms": [
+            {
+                "variant": variant,
+                "tag": tag,
+                "input": generate.EAGER_ATOM_PROVENANCE[variant][1],
+                "transformation": generate.EAGER_ATOM_PROVENANCE[variant][2],
+                "output": generate.EAGER_ATOM_PROVENANCE[variant][3],
+                "line": 300 + index,
+                "arm_index": index,
+            }
+            for index, (variant, tag, _) in enumerate(rows_by_variant)
+        ],
+        "helper_fallback": {
+            "scope": "non-eager ExprView reaches the eager atom helper",
+            "outcome": "unreachable!: only eager atom tags reach this value helper",
+            "source": "normal_dispatch", "line": 327, "arm_index": 12,
+        },
+        "explicit_error_group": {
+            "scope": "eager atoms misrouted to generic explicit expression-view dispatch",
+            "outcome": "frame_strategy_error(tag, span)",
+            "source": "explicit_dispatch", "line": 7326, "arm_index": 38,
+        },
+        "helper_boundaries": [
+            {
+                "kind": "ExprView decode", "tags": tags,
+                "outcome": "ExprView decode errors become indexed-ir RuntimeError values at the expression span",
+                "references": [{"source": "normal_dispatch", "line": 306}],
+            },
+            {
+                "kind": "PathValue conversion", "tags": ["ExprPath"],
+                "outcome": "PathValue validation errors become indexed-ir RuntimeError values at the expression span",
+                "references": [{"source": "normal_dispatch", "line": 320}],
+            },
+            {
+                "kind": "ExprParam slot access and freeze", "tags": ["ExprParam"],
+                "outcome": "usize decoding checks slot_count; the selected slot is frozen in place before it is cloned",
+                "references": [
+                    {"source": "normal_dispatch", "line": 324},
+                    {"source": "normal_dispatch", "line": 325},
+                    {"source": "normal_dispatch", "line": 326},
+                    {"source": "slot_codec", "line": 210},
+                    {"source": "slot_codec", "line": 212},
+                    {"source": "freeze_helper", "line": 20},
+                    {"source": "freeze_helper", "line": 21},
+                    {"source": "freeze_helper", "line": 22},
+                    {"source": "freeze_helper", "line": 23},
+                ],
+            },
+        ],
+        "slot_decode_line": 210,
+        "slot_decode_bounds_line": 212,
+        "freeze_contract": {
+            "line": 20,
+            "shared_threshold": "LOWERED_SHARED_LIST_THRESHOLD",
+            "threshold_line": 21,
+            "list_take_line": 22,
+            "shared_list_line": 23,
+        },
+        "value_contract": {
+            "decode_error": "map_err(indexed_error(error, span)) propagates ExprView decode errors",
+            "path_error": "map_err(indexed_error(IrVerifyError { message: error.message }, span)) propagates PathValue validation errors",
+            "slot_bounds": "FullCodec<usize>::decode rejects slot >= decoder.slot_count before ExprParam reads slots[slot]",
+            "freeze": "lowered_freeze_large_slot_list is infallible and runs before slots[slot].clone()",
+        },
+        "runtime_error_paths": {
+            "status": "source_exhaustive_boundary_inventory",
+            "note": "runtime conformance remains unproven",
+        },
+        "source_paths": {
+            "schema": "src/runtime/eval/indexed/full/schema.rs",
+            "normal_dispatch": "src/runtime/eval/lowered_run/indexed_run.rs",
+            "forced_dispatch": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+            "slot_codec": "src/runtime/eval/indexed/full.rs",
+            "freeze_helper": "src/runtime/eval/lowered_run.rs",
+        },
+    }
+    return rows, inventory
+
+
+def eager_atom_operand_fixture(rows: list[dict]) -> dict:
+    return {
+        "rows": {
+            row["tag"]: {
+                "child_paths": [],
+                "fields": [
+                    {
+                        "name": field["name"],
+                        "type": field["type"],
+                        "policy": "not_applicable",
+                        "child_paths": [],
+                    }
+                    for field in row["schema_fields"]
+                ],
+            }
+            for row in rows
+        }
+    }
+
+
+def frame_constructor_fixture() -> tuple[list[dict], dict]:
+    rows_by_variant = [
+        ("FunctionRef", "ExprFunctionRef", 29),
+        ("PathFrom", "ExprPathFrom", 30),
+        ("EmptyMap", "ExprEmptyMap", 49),
+    ]
+    rows = [
+        {
+            "kind": "Expr",
+            "variant": variant,
+            "tag": tag,
+            "ordinal": ordinal,
+            "effects": "0",
+            "in_place": "Scheduled",
+            "frame_strategy": "FrameApply",
+            "eager_atom": False,
+        }
+        for variant, tag, ordinal in rows_by_variant
+    ]
+    rows.append({
+        "kind": "Expr",
+        "variant": "FsFiles",
+        "tag": "ExprFsFiles",
+        "ordinal": 65,
+        "effects": "0",
+        "in_place": "Scheduled",
+        "frame_strategy": "FrameApply",
+        "eager_atom": False,
+    })
+    schema_rows = [
+        {
+            "variant": variant,
+            "tag": tag,
+            "ordinal": ordinal,
+            "effects": "0",
+            "class": "Scheduled",
+            "strategy": "FrameApply",
+            "line": ordinal + 1,
+        }
+        for variant, tag, ordinal in rows_by_variant
+    ]
+    frame_tags = [tag for _, tag, _ in rows_by_variant] + ["ExprFsFiles"]
+    child_behavior = {"FunctionRef": "no_child", "PathFrom": "one_child", "EmptyMap": "no_child"}
+    value_behavior = {
+        "FunctionRef": "indexed_function_ref_value",
+        "PathFrom": "indexed_path_from_value",
+        "EmptyMap": "indexed_empty_map_value",
+    }
+    inventory = {
+        "schema_rows": schema_rows,
+        "classifiers": {
+            "FrameApply": [
+                {"tag": tag, "pattern": f"FullTag::{tag}", "line": 40 + index, "arm_index": index}
+                for index, tag in enumerate(frame_tags)
+            ],
+            "prepared_operands": [
+                {"tag": "ExprFsFiles", "pattern": "FullTag::ExprFsFiles", "line": 50, "arm_index": 0}
+            ],
+        },
+        "normal_route": {
+            "mode": "normal", "line": 100, "helper_line": 101,
+            "statement_index": 2, "fallback_line": 110, "fallback_statement_index": 3,
+        },
+        "forced_route": {
+            "mode": "forced", "line": 200, "helper_line": 201,
+            "statement_index": 4, "fallback_line": 210, "fallback_statement_index": 5,
+        },
+        "child_arms": [
+            {
+                "helper": "indexed_frame_apply_child",
+                "variant": variant,
+                "behavior": child_behavior[variant],
+                "line": 300 + index,
+                "arm_index": index,
+            }
+            for index, (variant, _, _) in enumerate(rows_by_variant)
+        ],
+        "value_arms": [
+            {
+                "helper": "indexed_frame_apply_value",
+                "variant": variant,
+                "behavior": value_behavior[variant],
+                "line": 400 + index,
+                "arm_index": index,
+            }
+            for index, (variant, _, _) in enumerate(rows_by_variant)
+        ],
+        "helper_fallbacks": [
+            {
+                "helper": helper,
+                "outcome": "unreachable!: frame apply tag has a matching typed view",
+                "scope": "non-matching ExprView reaches a frame-apply helper",
+                "line": line,
+                "arm_index": 3,
+            }
+            for helper, line in (
+                ("indexed_frame_apply_child", 350),
+                ("indexed_frame_apply_value", 450),
+            )
+        ],
+        "explicit_error_group": {
+            "helper": "eval_expr_view",
+            "outcome": "frame_strategy_error(tag, span)",
+            "scope": "FrameApply constructor reaches generic ExprView dispatch",
+            "line": 250,
+            "arm_index": 30,
+        },
+        "value_decode_line": 390,
+        "value_boundaries": {variant: 400 + index for index, (variant, _, _) in enumerate(rows_by_variant)},
+        "runtime_error_paths": {"status": "unreviewed"},
+        "source_paths": {
+            "schema": "src/runtime/eval/indexed/full/schema.rs",
+            "normal_dispatch": "src/runtime/eval/lowered_run/indexed_run.rs",
+            "forced_dispatch": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+        },
+    }
+    return rows, inventory
+
+
+def collection_construction_fixture() -> tuple[list[dict], dict]:
+    field_types = {
+        "ExprRecord": [("entries", "Vec<LoweredRecordEntry>")],
+        "ExprMapLiteral": [("entries", "Vec<(Option<BuildExprId>, BuildExprId, Span)>")],
+        "ExprRecordUpdate": [
+            ("base", "BuildExprId"),
+            ("updates", "LoweredRecordUpdates"),
+            ("span", "Span"),
+        ],
+        "ExprList": [("values", "Vec<BuildExprId>")],
+        "ExprListBuild": [("values", "Vec<(bool, BuildExprId, Span)>")],
+    }
+    normal_behaviors = {
+        "ExprRecord": "evaluate_each_entry_then_append_record_field_or_spread",
+        "ExprMapLiteral": "evaluate_optional_key_before_value_then_append_entry",
+        "ExprRecordUpdate": "evaluate_base_then_update_values_before_batch_replacement",
+        "ExprList": "evaluate_each_item_then_append_without_splicing",
+        "ExprListBuild": "evaluate_each_item_then_append_with_encoded_splice_policy",
+    }
+    forced_behaviors = {
+        "ExprRecord": "record_items_frame_step",
+        "ExprMapLiteral": "map_literal_frame_step",
+        "ExprRecordUpdate": "record_update_base_continuation",
+        "ExprList": "indexed_list_literal_frame_continuation",
+        "ExprListBuild": "indexed_list_build_frame_continuation",
+    }
+    rows = []
+    schema_rows = []
+    normal_arms = []
+    forced_arms = []
+    for index, (tag, (variant, ordinal, strategy)) in enumerate(
+        generate.COLLECTION_CONSTRUCTION_ROWS.items()
+    ):
+        rows.append({
+            "kind": "Expr",
+            "variant": variant,
+            "tag": tag,
+            "ordinal": ordinal,
+            "effects": "0",
+            "in_place": "Operands",
+            "frame_strategy": strategy,
+            "eager_atom": False,
+            "schema_fields": [
+                {"name": name, "type": type_name}
+                for name, type_name in field_types[tag]
+            ],
+        })
+        schema_rows.append({
+            "tag": tag,
+            "variant": variant,
+            "ordinal": ordinal,
+            "effects": "0",
+            "class": "Operands",
+            "strategy": strategy,
+            "line": 850 + ordinal,
+        })
+        normal_arms.append({
+            "tag": tag,
+            "variant": variant,
+            "behavior": normal_behaviors[tag],
+            "line": 1500 + index,
+            "arm_index": index,
+        })
+        forced_arms.append({
+            "tag": tag,
+            "variant": variant,
+            "behavior": forced_behaviors[tag],
+            "line": 6700 + index,
+            "arm_index": 17 + index,
+        })
+    inventory = {
+        "schema_rows": schema_rows,
+        "frame_apply_classifier": {"line": 400, "tags": []},
+        "normal_arms": normal_arms,
+        "forced_arms": forced_arms,
+        "forced_route": {
+            "frame_apply_line": 6394,
+            "frame_apply_statement_index": 7,
+            "view_kind_line": 6402,
+            "view_kind_statement_index": 8,
+            "eval_expr_view_line": 6405,
+        },
+        "normal_fallback": {
+            "helper": "eval_indexed_expr_inner",
+            "outcome": "RuntimeError(indexed-ir: direct indexed evaluator does not support tag)",
+            "line": 1933,
+            "arm_index": 22,
+        },
+        "normal_view_fallbacks": [
+            {
+                "helper": "eval_indexed_expr_inner",
+                "outcome": outcome,
+                "scope": f"{variant} tag reaches the normal evaluator with a different typed ExprView",
+                "line": 1600 + index,
+                "arm_index": index,
+            }
+            for index, (variant, outcome) in enumerate([
+                ("Record", "unreachable!: record literal tag has a typed record view"),
+                ("MapLiteral", "unreachable!: map literal tag has a typed map view"),
+                ("List", "unreachable!: list literal tag has a typed list view"),
+                ("ListBuild", "unreachable!: list build tag has a typed list build view"),
+            ])
+        ],
+        "helper_fallbacks": [
+            {
+                "helper": helper,
+                "outcome": outcome,
+                "scope": "a tag reaches the helper with a different typed ExprView",
+                "line": line,
+                "arm_index": index,
+            }
+            for index, (helper, outcome, line) in enumerate([
+                ("indexed_list_literal_view", "Err(indexed-ir: list literal view is invalid)", 1136),
+                ("indexed_map_literal_view", "Err(indexed-ir: map literal view is invalid)", 1159),
+                ("indexed_record_literal_view", "Err(indexed-ir: record literal view is invalid)", 1182),
+                ("decode_record_updates", "unreachable!: record-update tag has a matching borrowed expression view", 44),
+            ])
+        ],
+        "explicit_error_group": {
+            "helper": "eval_expr_view",
+            "outcome": "frame_strategy_error(tag, span)",
+            "scope": "valid ExprViewKind values without dedicated frame handlers",
+            "line": 7326,
+            "arm_index": 38,
+        },
+        "runtime_error_paths": {"status": "unreviewed"},
+        "source_paths": {
+            "schema": "src/runtime/eval/indexed/full/schema.rs",
+            "normal_dispatch": "src/runtime/eval/lowered_run/indexed_run.rs",
+            "forced_dispatch": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+            "operand_helpers": "src/runtime/eval/lowered_run/indexed_run/operands.rs",
+        },
+    }
+    return rows, inventory
+
+
+def result_constructor_fixture() -> tuple[list[dict], dict]:
+    fields = {
+        "ExprOk": [("value", "BuildExprId")],
+        "ExprErr": [("value", "BuildExprId"), ("cause", "Option<BuildExprId>")],
+    }
+    normal = {
+        "ExprOk": "evaluate_child_then_wrap_result_ok",
+        "ExprErr": "evaluate_error_then_optional_cause_before_constructing_error",
+    }
+    forced = {
+        "ExprOk": "push_child_with_wrap_ok_continuation",
+        "ExprErr": "push_value_with_optional_cause_wrap_err_continuation",
+    }
+    rows = []
+    schema_rows = []
+    normal_arms = []
+    forced_arms = []
+    normal_fallbacks = []
+    forced_fallbacks = []
+    for index, (tag, (variant, ordinal)) in enumerate(generate.RESULT_CONSTRUCTOR_ROWS.items()):
+        rows.append({
+            "kind": "Expr",
+            "variant": variant,
+            "tag": tag,
+            "ordinal": ordinal,
+            "effects": "0",
+            "in_place": "Operands",
+            "frame_strategy": "FrameControl",
+            "eager_atom": False,
+            "schema_fields": [
+                {"name": name, "type": type_name}
+                for name, type_name in fields[tag]
+            ],
+        })
+        schema_rows.append({
+            "tag": tag,
+            "variant": variant,
+            "ordinal": ordinal,
+            "effects": "0",
+            "class": "Operands",
+            "strategy": "FrameControl",
+            "line": 1100 + index,
+        })
+        normal_arms.append({
+            "tag": tag,
+            "variant": variant,
+            "behavior": normal[tag],
+            "line": 1800 + index,
+            "arm_index": index + 1,
+        })
+        forced_arms.append({
+            "tag": tag,
+            "variant": variant,
+            "behavior": forced[tag],
+            "line": 6900 + index,
+            "arm_index": index + 1,
+        })
+        lower = variant.lower()
+        normal_fallbacks.append({
+            "helper": "eval_indexed_expr_inner",
+            "outcome": f"unreachable!: {lower} tag has an {lower} view",
+            "scope": f"{variant} tag reaches the normal evaluator with a different typed ExprView",
+            "line": 1850 + index,
+            "arm_index": index + 1,
+        })
+        forced_fallbacks.append({
+            "helper": "eval_expr_view",
+            "outcome": f"unreachable!: {lower} tag has an {lower} view",
+            "scope": f"{variant} view-kind arm decodes a different ExprView",
+            "line": 6950 + index,
+            "arm_index": index + 1,
+        })
+    inventory = {
+        "schema_rows": schema_rows,
+        "normal_arms": normal_arms,
+        "normal_view_fallbacks": normal_fallbacks,
+        "normal_fallback": {
+            "helper": "eval_indexed_expr_inner",
+            "outcome": "RuntimeError(indexed-ir: direct indexed evaluator does not support tag)",
+            "scope": "FullTag values without a direct indexed expression arm",
+            "line": 1933,
+            "arm_index": 22,
+        },
+        "forced_arms": forced_arms,
+        "forced_view_fallbacks": forced_fallbacks,
+        "forced_route": {
+            "frame_apply_line": 6394,
+            "frame_apply_statement_index": 7,
+            "view_kind_line": 6402,
+            "view_kind_statement_index": 8,
+            "eval_expr_view_line": 6405,
+        },
+        "explicit_error_group": {
+            "helper": "eval_expr_view",
+            "outcome": "frame_strategy_error(tag, span)",
+            "scope": "valid ExprViewKind values without dedicated frame handlers",
+            "line": 7326,
+            "arm_index": 38,
+        },
+        "runtime_error_paths": {"status": "unreviewed"},
+        "source_paths": {
+            "schema": "src/runtime/eval/indexed/full/schema.rs",
+            "normal_dispatch": "src/runtime/eval/lowered_run/indexed_run.rs",
+            "forced_dispatch": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+        },
+    }
+    return rows, inventory
+
+
+def call_frame_fixture() -> tuple[list[dict], dict]:
+    fields = {
+        "ExprCall": [("function", "LoweredFunctionKey"), ("args", "Vec<LoweredCallArg>"), ("span", "Span")],
+        "ExprDirectPureCall": [("function", "LoweredFunctionKey"), ("args", "Vec<LoweredCallArg>"), ("span", "Span")],
+        "ExprExternalCall": [("function", "QualifiedName"), ("args", "Vec<LoweredCallArg>"), ("span", "Span")],
+        "ExprDynamicCall": [("callee", "BuildExprId"), ("args", "Vec<LoweredCallArg>"), ("span", "Span")],
+    }
+    rows = [
+        {
+            "kind": "Expr",
+            "variant": variant,
+            "tag": tag,
+            "ordinal": ordinal,
+            "effects": effects,
+            "in_place": "Scheduled",
+            "frame_strategy": "FrameControl",
+            "eager_atom": False,
+            "schema_fields": [{"name": name, "type": type_name} for name, type_name in fields[tag]],
+        }
+        for tag, (variant, ordinal, effects) in generate.CALL_FRAME_ROWS.items()
+    ]
+    inventory = {
+        "schema_rows": [
+            {
+                "tag": row["tag"],
+                "variant": row["variant"],
+                "ordinal": row["ordinal"],
+                "effects": row["effects"].replace(" | ", "|"),
+                "class": "Scheduled",
+                "strategy": "FrameControl",
+                "line": 1127 + index * 5,
+            }
+            for index, row in enumerate(rows)
+        ],
+        "normal_route": {
+            "scheduled_predicate_line": 1295,
+            "frame_schedule_line": 1307,
+            "frame_helper_line": 1308,
+            "inner_helper_line": 1310,
+            "view_kind_line": 6403,
+            "eval_expr_view_line": 6405,
+        },
+        "normal_fallback": {
+            "helper": "eval_indexed_expr_inner",
+            "outcome": "RuntimeError(indexed-ir: direct indexed evaluator does not support tag)",
+            "scope": "FullTag values without a direct indexed expression arm",
+            "line": 1933,
+            "arm_index": 22,
+        },
+        "forced_arms": [
+            {
+                "tag": tag,
+                "variant": variant,
+                "view_group": group,
+                "behavior": behavior,
+                "line": line,
+                "arm_index": arm_index,
+            }
+            for tag, variant, group, behavior, line, arm_index in [
+                ("ExprCall", "Call", ["Call", "SelfCall", "DirectPureCall"], "decode_static_call_and_schedule_arguments", 7279, 37),
+                ("ExprDirectPureCall", "DirectPureCall", ["Call", "SelfCall", "DirectPureCall"], "decode_static_call_and_schedule_arguments", 7279, 37),
+                ("ExprExternalCall", "ExternalCall", ["ExternalCall"], "resolve_external_kind_then_schedule_arguments", 7252, 36),
+                ("ExprDynamicCall", "DynamicCall", ["DynamicCall", "TypedCall"], "evaluate_callee_before_scheduling_dynamic_arguments", 7113, 31),
+            ]
+        ],
+        "typed_view_fallbacks": [
+            {
+                "helper": "eval_expr_view",
+                "outcome": outcome,
+                "scope": f"{variant} view-kind arm decodes a different ExprView",
+                "line": line,
+                "arm_index": arm_index,
+            }
+            for variant, outcome, line, arm_index in [
+                ("Call", "unreachable!: static call tag has a typed call view", 7308, 37),
+                ("DirectPureCall", "unreachable!: static call tag has a typed call view", 7308, 37),
+                ("ExternalCall", "unreachable!: external call tag has a typed call view", 7260, 36),
+                ("DynamicCall", "unreachable!: dynamic call tag has a typed call view", 7129, 31),
+            ]
+        ],
+        "explicit_error_group": {
+            "helper": "eval_expr_view",
+            "outcome": "frame_strategy_error(tag, span)",
+            "scope": "valid ExprViewKind values without dedicated frame handlers",
+            "line": 7326,
+            "arm_index": 38,
+        },
+        "runtime_error_paths": {"status": "unreviewed", "note": "call decode and execution errors remain unreviewed"},
+        "source_paths": {
+            "schema": "src/runtime/eval/indexed/full/schema.rs",
+            "normal_dispatch": "src/runtime/eval/lowered_run/indexed_run.rs",
+            "forced_dispatch": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+        },
+    }
+    return rows, inventory
+
+
+def field_index_fixture() -> tuple[list[dict], dict]:
+    fields = {
+        "ExprField": [("base", "BuildExprId"), ("name", "NameText"), ("span", "Span")],
+        "ExprIndex": [("base", "BuildExprId"), ("index", "BuildExprId"), ("span", "Span")],
+        "ExprIndexFromEnd": [
+            ("base", "BuildExprId"),
+            ("distance", "crate::runtime::eval::EndDistance"),
+            ("span", "Span"),
+        ],
+    }
+    rows = [
+        {
+            "kind": "Expr",
+            "variant": variant,
+            "tag": tag,
+            "ordinal": ordinal,
+            "effects": "0",
+            "in_place": "Operands",
+            "frame_strategy": "FrameApply",
+            "eager_atom": False,
+            "schema_fields": [{"name": name, "type": type_name} for name, type_name in fields[tag]],
+        }
+        for tag, (variant, ordinal) in generate.FIELD_INDEX_ROWS.items()
+    ]
+    inventory = {
+        "schema_rows": [
+            {
+                "tag": row["tag"], "variant": row["variant"], "ordinal": row["ordinal"],
+                "effects": "0", "class": "Operands", "strategy": "FrameApply",
+                "line": line,
+            }
+            for row, line in zip(rows, (895, 902, 909))
+        ],
+        "frame_apply_classifier_line": 335,
+        "normal_route": {
+            "scheduled_predicate_line": 1298,
+            "frame_schedule_line": 1307,
+            "frame_helper_line": 1308,
+            "inner_helper_line": 1309,
+        },
+        "normal_arms": [
+            {"tag": tag, "variant": variant, "behavior": behavior, "line": line, "arm_index": arm_index}
+            for tag, variant, behavior, line, arm_index in [
+                ("ExprField", "Field", "try_record_field_chain_then_evaluate_base_and_lookup_field", 1672, 10),
+                ("ExprIndex", "Index", "evaluate_base_then_index_and_lookup", 1692, 11),
+                ("ExprIndexFromEnd", "IndexFromEnd", "evaluate_base_then_lookup_from_end_distance", 1711, 12),
+            ]
+        ],
+        "normal_view_fallbacks": [
+            {"helper": "eval_indexed_expr_inner", "outcome": outcome, "scope": f"{variant} tag reaches the normal evaluator with a different typed ExprView", "line": line, "arm_index": arm_index}
+            for variant, outcome, line, arm_index in [
+                ("Field", "unreachable!: field tag has a field view", 1676, 10),
+                ("Index", "unreachable!: index tag has an index view", 1696, 11),
+                ("IndexFromEnd", "unreachable!: index-from-end tag has an index-from-end view", 1718, 12),
+            ]
+        ],
+        "normal_fallback": {
+            "helper": "eval_indexed_expr_inner",
+            "outcome": "RuntimeError(indexed-ir: direct indexed evaluator does not support tag)",
+            "scope": "FullTag values without a direct indexed expression arm",
+            "line": 1933,
+            "arm_index": 22,
+        },
+        "forced_arms": [
+            {"tag": tag, "variant": variant, "behavior": behavior, "line": line, "arm_index": arm_index}
+            for tag, variant, behavior, line, arm_index in [
+                ("ExprField", "Field", "try_record_field_chain_then_schedule_base", 7149, 32),
+                ("ExprIndex", "Index", "schedule_base_then_index_continuation", 7184, 33),
+                ("ExprIndexFromEnd", "IndexFromEnd", "schedule_base_then_from_end_continuation", 7205, 34),
+            ]
+        ],
+        "forced_view_fallbacks": [
+            {"helper": "eval_expr_view", "outcome": outcome, "scope": f"{variant} view-kind arm decodes a different ExprView", "line": line, "arm_index": arm_index}
+            for variant, outcome, line, arm_index in [
+                ("Field", "unreachable!: field tag has a field view", 7156, 32),
+                ("Index", "unreachable!: index tag has an index view", 7191, 33),
+                ("IndexFromEnd", "unreachable!: index-from-end tag has an index-from-end view", 7212, 34),
+            ]
+        ],
+        "forced_route": {
+            "frame_apply_line": 6394,
+            "frame_apply_statement_index": 7,
+            "view_kind_line": 6402,
+            "view_kind_statement_index": 8,
+            "eval_expr_view_line": 6405,
+        },
+        "explicit_error_group": {
+            "helper": "eval_expr_view",
+            "outcome": "frame_strategy_error(tag, span)",
+            "scope": "valid ExprViewKind values without dedicated frame handlers",
+            "line": 7326,
+            "arm_index": 38,
+        },
+        "runtime_error_paths": {
+            "status": "unreviewed",
+            "note": "field/index decode, child evaluation outcomes, and runtime field/index lookup errors remain unreviewed",
+        },
+        "source_paths": {
+            "schema": "src/runtime/eval/indexed/full/schema.rs",
+            "normal_dispatch": "src/runtime/eval/lowered_run/indexed_run.rs",
+            "forced_dispatch": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+        },
+    }
+    return rows, inventory
+
+
+ARENA_SHAPES = arena_shape_source()
+
+
+class SemanticRouteMatrixTests(unittest.TestCase):
+    def test_schema_parser_enumerates_rows_and_metadata(self) -> None:
+        rows = generate.parse_schema(SCHEMA)
+        self.assertEqual([row["tag"] for row in rows], ["ExprInt", "ExprBinary", "StmtPrint"])
+        self.assertEqual(rows[0]["kind"], "Expr")
+        self.assertTrue(rows[0]["eager_atom"])
+        self.assertEqual(rows[0]["schema_fields"], [{"name": "value", "type": "i64"}])
+        self.assertEqual(rows[1]["schema_fields"], [{"name": "left", "type": "BuildExprId"}])
+        self.assertEqual(rows[2]["schema_fields"], [
+            {"name": "args", "type": "Vec<BuildExprId>"},
+            {"name": "flush", "type": "bool"},
+        ])
+        self.assertEqual(rows[1]["frame_strategy"], "FrameControl")
+
+    def test_schema_parser_rejects_duplicate_rows(self) -> None:
+        duplicate = SCHEMA.replace(
+            "        Binary { left: BuildExprId } => ExprBinary = 1 [0; Operands; FrameControl];",
+            "        Binary { left: BuildExprId } => ExprInt = 1 [0; Operands; FrameControl];",
+        )
+        with self.assertRaisesRegex(generate.EvidenceError, "duplicate instruction tags"):
+            generate.parse_schema(duplicate)
+
+    def test_operand_inventory_rejects_added_and_missing_rows(self) -> None:
+        rows = generate.parse_schema(SCHEMA)
+        manifest = operand_manifest(rows)
+        added = rows + [{
+            "tag": "ExprAdded", "ordinal": 3, "kind": "Expr", "variant": "Added",
+            "schema_fields": [],
+        }]
+        with self.assertRaisesRegex(generate.EvidenceError, r"operand row inventory mismatch: added=\['ExprAdded'\]"):
+            generate.validate_operand_inventory(added, manifest, ARENA_SHAPES)
+        with self.assertRaisesRegex(generate.EvidenceError, r"operand row inventory mismatch: added=\[\]; missing=\['StmtPrint'\]"):
+            generate.validate_operand_inventory(rows[:-1], manifest, ARENA_SHAPES)
+
+    def test_operand_inventory_rejects_duplicate_rows(self) -> None:
+        rows = generate.parse_schema(SCHEMA)
+        manifest = operand_manifest(rows)
+        marker = "row\tExprInt\t0\tExpr\tInt\t\t\t\t\n"
+        with self.assertRaisesRegex(generate.EvidenceError, "duplicate operand manifest row: ExprInt"):
+            generate.validate_operand_inventory(rows, manifest + marker, ARENA_SHAPES)
+
+    def test_operand_inventory_rejects_unknown_policy(self) -> None:
+        rows = generate.parse_schema(SCHEMA)
+        manifest = operand_manifest(rows).replace("\tstrict\tleft\n", "\teager\tleft\n")
+        with self.assertRaisesRegex(generate.EvidenceError, "unknown operand policy"):
+            generate.validate_operand_inventory(rows, manifest, ARENA_SHAPES)
+
+    def test_operand_inventory_rejects_unclassified_payload_field(self) -> None:
+        rows = generate.parse_schema(SCHEMA)
+        manifest = operand_manifest(rows)
+        manifest = manifest.replace(
+            "field\tExprBinary\t1\tExpr\tBinary\tleft\tBuildExprId\tstrict\tleft\n", ""
+        )
+        with self.assertRaisesRegex(generate.EvidenceError, "operand fields are unclassified for ExprBinary"):
+            generate.validate_operand_inventory(rows, manifest, ARENA_SHAPES)
+
+    def test_operand_inventory_rejects_recognized_arena_shape_drift(self) -> None:
+        binary_shape = generate.ARENA_SHAPE_CONTRACTS["expr_binary"][0]
+        drifted = ARENA_SHAPES.replace(
+            binary_shape, binary_shape.replace("Child::Expr(left)", "Child::Expr(right)")
+        )
+        with self.assertRaisesRegex(generate.EvidenceError, "recognized syntax child shape drift: for_each_expr_child/expr_binary"):
+            generate.validate_arena_child_shapes(drifted)
+
+    def test_arena_shape_decoys_in_comments_and_strings_do_not_count(self) -> None:
+        binary_shape = generate.ARENA_SHAPE_CONTRACTS["expr_binary"][0]
+        without_binary = ARENA_SHAPES.replace(binary_shape, "", 1)
+        for decoy in (f"// {binary_shape}", f'const SHAPE: &str = "{binary_shape}";'):
+            with self.subTest(decoy=decoy[:12]):
+                with self.assertRaisesRegex(
+                    generate.EvidenceError,
+                    "recognized syntax child shape drift: for_each_expr_child/expr_binary",
+                ):
+                    generate.validate_arena_child_shapes(without_binary + "\n" + decoy)
+
+    def test_arena_shapes_are_scoped_to_unique_parseable_owner_functions(self) -> None:
+        binary_shape = generate.ARENA_SHAPE_CONTRACTS["expr_binary"][0]
+        drifted_owner = ARENA_SHAPES.replace(
+            binary_shape, binary_shape.replace("Child::Expr(left)", "Child::Expr(right)"), 1
+        )
+        with self.assertRaisesRegex(
+            generate.EvidenceError,
+            "recognized syntax child shape drift: for_each_expr_child/expr_binary",
+        ):
+            generate.validate_arena_child_shapes(
+                drifted_owner + f"\nfn unrelated() {{ {binary_shape} }}"
+            )
+
+        missing = ARENA_SHAPES.replace("fn for_each_expr_child", "fn other_function", 1)
+        duplicate = ARENA_SHAPES + "\nfn for_each_expr_child() {}"
+        unparseable = ARENA_SHAPES.replace(
+            "fn for_each_expr_child() {", "fn for_each_expr_child {", 1
+        )
+        unbalanced = ARENA_SHAPES.replace("\n}\nfn for_each_stmt_child", "\nfn for_each_stmt_child", 1)
+        for source in (missing, duplicate, unparseable, unbalanced):
+            with self.subTest(source=source[-30:]):
+                with self.assertRaises(generate.EvidenceError):
+                    generate.validate_arena_child_shapes(source)
+
+    def test_pipeline_stage_inventory_projects_nested_children(self) -> None:
+        root = generate.HERE.parents[2]
+        source = (root / generate.PIPELINE_STAGE_SOURCE_PATH).read_text()
+        inventory = generate.pipeline_stage_child_inventory(source)
+        paths = set(inventory["child_paths"])
+        self.assertEqual(inventory["variant_count"], len(generate.PIPELINE_STAGE_VARIANTS))
+        for path in (
+            ".Where.predicate",
+            ".WhereBlock.body[*]",
+            ".WhereBlock.value",
+            ".FlatMap.value",
+            ".FlatMapBlock.body[*]",
+            ".ParMap.jobs?",
+            ".ParMapBlock.body[*]",
+            ".ParMapFlatMapReduceBy.body?[*]",
+            ".ParMapFlatMapReduceBy.reduce_body[*]",
+            ".ParMapFlatMapReduceBy.reduce_value",
+            ".ReduceBy.jobs?",
+            ".ReduceBy.body[*]",
+            ".ReduceByConfigured.configuration",
+        ):
+            self.assertIn(path, paths)
+        projected = generate.schema_child_paths(
+            "Vec<LoweredPipelineStage>", "stages", inventory["child_paths"]
+        )
+        self.assertEqual(len(projected), inventory["child_path_count"])
+        self.assertEqual(
+            generate.operand_policy("ExprPipeline", "stages", "Vec<LoweredPipelineStage>", projected),
+            "iterative",
+        )
+
+    def test_pipeline_stage_inventory_rejects_added_variant(self) -> None:
+        root = generate.HERE.parents[2]
+        source = (root / generate.PIPELINE_STAGE_SOURCE_PATH).read_text()
+        start = source.rfind("    Range struct {")
+        end = source.find("};", start)
+        self.assertGreaterEqual(start, 0)
+        self.assertGreaterEqual(end, 0)
+        drifted = source[:end + 2] + "\n    AddedStage unit {};" + source[end + 2:]
+        with self.assertRaisesRegex(generate.EvidenceError, r"LoweredPipelineStage variant set changed: added=\['AddedStage'\]"):
+            generate.pipeline_stage_child_inventory(drifted)
+
+    def test_mapping_rejects_unmapped_duplicate_and_conflicting_rows(self) -> None:
+        with self.assertRaisesRegex(generate.EvidenceError, r"unmapped=\['ExprBinary'\]"):
+            generate.validate_mapping_coverage(["ExprInt", "ExprBinary"], {"ExprInt"}, [])
+        with self.assertRaisesRegex(generate.EvidenceError, "duplicate schema row tags"):
+            generate.validate_mapping_coverage(["ExprInt", "ExprInt"], {"ExprInt"}, [])
+        with self.assertRaisesRegex(generate.EvidenceError, "duplicate static-or-rejection"):
+            generate.validate_mapping_coverage(["ExprInt"], set(), ["ExprInt", "ExprInt"])
+        with self.assertRaisesRegex(generate.EvidenceError, r"overlap=\['ExprInt'\]"):
+            generate.validate_mapping_coverage(["ExprInt"], {"ExprInt"}, ["ExprInt"])
+
+    def test_dispatch_classification_needs_both_normal_and_forced_routes(self) -> None:
+        rows = generate.parse_schema(SCHEMA)
+        indexed = """fn indexed_frame_apply_tag(tag: FullTag) -> bool {
+    matches!(tag, FullTag::ExprInt)
+}
+fn eval_indexed_expr() {
+    matches!(tag, FullTag::ExprBinary)
+}
+"""
+        explicit = """fn eval_expr_view() {
+    match view_kind {
+        ExprViewKind::Binary => {}
+        ExprViewKind::Null | ExprViewKind::Unit => {
+            return Err(frame_strategy_error(tag, span));
+        }
+    }
+}
+"""
+        routed = generate.route_rows(rows, indexed, explicit)
+        by_tag = {row["tag"]: row for row in routed}
+        self.assertEqual(by_tag["ExprInt"]["normal_route"], "recursive_eager_atom_read")
+        self.assertEqual(by_tag["ExprInt"]["forced_route"], "eager_atom_frame_fast_path")
+        self.assertEqual(by_tag["ExprBinary"]["normal_route"], "direct_explicit_frames")
+        self.assertEqual(by_tag["ExprBinary"]["forced_route"], "explicit_expression_arm")
+        self.assertEqual(by_tag["StmtPrint"]["normal_route"], "eval_statement")
+        self.assertEqual(by_tag["StmtPrint"]["forced_route"], "eval_statement")
+        self.assertEqual(by_tag["ExprBinary"]["runtime_operand_order"]["status"], "unverified")
+        fallback = generate.build_fallback_path_map(
+            by_tag["ExprBinary"],
+            {"schema_row": ["schema.rs:3"], "normal_dispatch": ["indexed.rs:8"], "forced_dispatch": ["explicit.rs:5"]},
+        )
+        self.assertEqual(fallback["review_status"], "unreviewed")
+        self.assertEqual(fallback["branches"], [])
+        self.assertFalse(fallback["branches_exhaustive"])
+        self.assertIsNone(fallback["no_fallback"])
+        self.assertTrue(fallback["source_refs"]["schema_row"])
+
+    def test_if_and_match_keep_distinct_normal_routes(self) -> None:
+        schema = """instruction_schema! {
+    BuildExprRow => ExprView [Expr] {
+        IfExpr { branches: Vec<BuildExprId> } => ExprIf = 0 [0; Operands; FrameControl];
+        MatchExpr { value: BuildExprId } => ExprMatch = 1 [0; Operands; FrameControl];
+    }
+}
+
+pattern_schema! {}
+"""
+        rows = generate.parse_schema(schema)
+        indexed = """fn indexed_frame_apply_tag(tag: FullTag) -> bool { false }
+fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
+"""
+        explicit = """fn eval_expr_view() {
+    match view_kind {
+        ExprViewKind::IfExpr => {}
+        ExprViewKind::MatchExpr => {}
+        ExprViewKind::Null | ExprViewKind::Unit => {
+            return Err(frame_strategy_error(tag, span));
+        }
+    }
+}
+"""
+        routed = {row["tag"]: row for row in generate.route_rows(rows, indexed, explicit)}
+        for tag in ("ExprIf", "ExprMatch"):
+            self.assertEqual(len(routed[tag]["normal_routes"]), 2)
+            self.assertEqual(len(routed[tag]["forced_routes"]), 1)
+            self.assertEqual(
+                routed[tag]["normal_routes"][0]["name"],
+                "verifier_approved_in_place_recursive_selection",
+            )
+            self.assertEqual(
+                routed[tag]["normal_routes"][1]["name"],
+                "non_in_place_explicit_frame_selection",
+            )
+            self.assertEqual(
+                routed[tag]["forced_routes"][0]["name"],
+                "forced_explicit_frame_selection",
+            )
+        self.assertEqual(routed["ExprMatch"]["normal_routes"][1]["test_ids"], [])
+
+    def test_typed_scalar_inventory_closes_dispatch_only_and_keeps_runtime_errors_open(self) -> None:
+        rows, inventory = typed_scalar_fixture()
+        checked = generate.validate_typed_scalar_inventory(rows, inventory)
+        row = next(item for item in rows if item["tag"] == "IntBinary")
+        refs = {
+            "schema_row": ["src/runtime/eval/indexed/full/schema.rs:3"],
+            "normal_dispatch": ["src/runtime/eval/lowered_run/indexed_run.rs:10"],
+            "forced_dispatch": ["src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:20"],
+        }
+        fallback = generate.build_fallback_path_map(
+            row,
+            refs,
+            typed_scalar_inventory=checked,
+        )
+        self.assertEqual(fallback["review_status"], "source_exhaustive_dispatch_path")
+        self.assertTrue(fallback["branches_exhaustive"])
+        self.assertIsNone(fallback["no_fallback"])
+        self.assertEqual(fallback["runtime_error_paths"]["status"], "unreviewed")
+        self.assertEqual(fallback["branches"][0]["normal_wrapper"], "eval_indexed_typed_int")
+        self.assertEqual(fallback["branches"][0]["forced_behavior"], "frame_operation")
+        self.assertTrue(any("decoded IntView" in item["outcome"] for item in fallback["fallbacks"]))
+        self.assertEqual(fallback["defensive_wrong_union"][0]["outcome"], "typed integer evaluator produced Bool")
+
+    def test_typed_scalar_inventory_rejects_schema_and_classifier_drift(self) -> None:
+        rows, inventory = typed_scalar_fixture()
+        with self.assertRaisesRegex(generate.EvidenceError, "must contain 18 rows"):
+            generate.validate_typed_scalar_inventory(rows + [{"kind": "Int"}], inventory)
+
+        missing = copy.deepcopy(inventory)
+        missing["classifiers"]["Int"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "classifier coverage"):
+            generate.validate_typed_scalar_inventory(rows, missing)
+
+        unknown = copy.deepcopy(inventory)
+        unknown["classifiers"]["Bool"][0]["tag"] = "BoolUnknown"
+        with self.assertRaisesRegex(generate.EvidenceError, "classifier coverage"):
+            generate.validate_typed_scalar_inventory(rows, unknown)
+
+        duplicate = copy.deepcopy(inventory)
+        duplicate["classifiers"]["Bool"][1]["tag"] = duplicate["classifiers"]["Bool"][0]["tag"]
+        with self.assertRaisesRegex(generate.EvidenceError, "classifier coverage"):
+            generate.validate_typed_scalar_inventory(rows, duplicate)
+
+    def test_typed_scalar_inventory_rejects_view_frame_and_fallback_drift(self) -> None:
+        rows, inventory = typed_scalar_fixture()
+        missing_view = copy.deepcopy(inventory)
+        missing_view["view_arms"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "view arms differ"):
+            generate.validate_typed_scalar_inventory(rows, missing_view)
+
+        duplicate_view = copy.deepcopy(inventory)
+        duplicate_view["view_arms"].append(dict(duplicate_view["view_arms"][0]))
+        with self.assertRaisesRegex(generate.EvidenceError, "view arms differ"):
+            generate.validate_typed_scalar_inventory(rows, duplicate_view)
+
+        missing_group = copy.deepcopy(inventory)
+        missing_group["frame_groups"][0]["tags"].remove("IntBinary")
+        with self.assertRaisesRegex(generate.EvidenceError, "frame_operation group"):
+            generate.validate_typed_scalar_inventory(rows, missing_group)
+
+        missing_fallback = copy.deepcopy(inventory)
+        missing_fallback["fallbacks"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "fallbacks differ"):
+            generate.validate_typed_scalar_inventory(rows, missing_fallback)
+
+        wrong_union = copy.deepcopy(inventory)
+        wrong_union["wrong_union_errors"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "wrong-union errors"):
+            generate.validate_typed_scalar_inventory(rows, wrong_union)
+
+    def test_typed_scalar_fallback_map_requires_ast_inventory(self) -> None:
+        rows, inventory = typed_scalar_fixture()
+        row = rows[0]
+        refs = {"schema_row": [], "normal_dispatch": [], "forced_dispatch": []}
+        with self.assertRaisesRegex(generate.EvidenceError, "missing AST typed scalar inventory"):
+            generate.build_fallback_path_map(row, refs)
+        self.assertEqual(len(generate.validate_typed_scalar_inventory(rows, inventory)["schema_rows"]), 18)
+
+    def test_eager_atom_inventory_maps_only_dispatch_and_preserves_helper_errors(self) -> None:
+        rows, inventory = eager_atom_fixture()
+        checked = generate.validate_eager_atom_inventory(rows, inventory)
+        operand_proof = generate.validate_eager_atom_operand_structure(
+            rows, checked, eager_atom_operand_fixture(rows)
+        )
+        self.assertEqual(set(operand_proof), {row["tag"] for row in rows})
+        self.assertTrue(all(item["status"] == "not_applicable" for item in operand_proof.values()))
+        self.assertEqual(operand_proof["ExprParam"]["schema_fields"], [{"name": "slot", "type": "usize"}])
+        refs = {
+            "schema_row": ["src/runtime/eval/indexed/full/schema.rs:780"],
+            "normal_dispatch": ["src/runtime/eval/lowered_run/indexed_run.rs:1460"],
+            "forced_dispatch": ["src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6369"],
+        }
+        eager_path = next(row for row in rows if row["tag"] == "ExprPath")
+        path_map = generate.build_fallback_path_map(
+            eager_path,
+            refs,
+            eager_atom_inventory=checked,
+        )
+        self.assertEqual(path_map["review_status"], "source_exhaustive_dispatch_path")
+        self.assertTrue(path_map["branches_exhaustive"])
+        self.assertIsNone(path_map["no_fallback"])
+        self.assertEqual(
+            path_map["runtime_error_paths"]["status"],
+            "source_exhaustive_boundary_inventory",
+        )
+        self.assertEqual(len(path_map["runtime_error_paths"]["source_refs"]), 2)
+        self.assertEqual(path_map["value_provenance"]["output"], "LoweredValue::Path")
+        self.assertEqual(path_map["operand_liveness"]["status"], "not_applicable")
+        self.assertTrue(any("frame_strategy_error" in item["outcome"] for item in path_map["fallbacks"]))
+        self.assertFalse(next(
+            item for item in path_map["fallbacks"]
+            if "frame_strategy_error" in item["outcome"]
+        )["applies_to_row"])
+        self.assertTrue(any("unreachable!" in item["outcome"] for item in path_map["fallbacks"]))
+        param_map = generate.build_fallback_path_map(
+            next(row for row in rows if row["tag"] == "ExprParam"),
+            refs,
+            eager_atom_inventory=checked,
+        )
+        self.assertEqual(param_map["value_provenance"]["transformation"], "freeze_slot_then_clone")
+        self.assertGreater(len(param_map["runtime_error_paths"]["source_refs"]), 2)
+
+    def test_eager_atom_inventory_rejects_schema_metadata_and_route_drift(self) -> None:
+        rows, inventory = eager_atom_fixture()
+        with self.assertRaisesRegex(generate.EvidenceError, "must contain 12 rows"):
+            generate.validate_eager_atom_inventory(rows + [dict(rows[0])], inventory)
+
+        missing = copy.deepcopy(inventory)
+        missing["schema_rows"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "schema rows differ"):
+            generate.validate_eager_atom_inventory(rows, missing)
+
+        duplicate = copy.deepcopy(inventory)
+        duplicate["schema_rows"].append(dict(duplicate["schema_rows"][0]))
+        with self.assertRaisesRegex(generate.EvidenceError, "schema rows differ"):
+            generate.validate_eager_atom_inventory(rows, duplicate)
+
+        retagged = copy.deepcopy(inventory)
+        retagged["schema_rows"][0]["tag"] = "ExprOther"
+        with self.assertRaisesRegex(generate.EvidenceError, "schema rows differ"):
+            generate.validate_eager_atom_inventory(rows, retagged)
+
+        wrong_metadata = copy.deepcopy(inventory)
+        wrong_metadata["schema_rows"][0]["strategy"] = "FrameControl"
+        with self.assertRaisesRegex(generate.EvidenceError, "schema rows differ"):
+            generate.validate_eager_atom_inventory(rows, wrong_metadata)
+
+        missing_route = copy.deepcopy(inventory)
+        missing_route["normal_route"] = None
+        with self.assertRaisesRegex(generate.EvidenceError, "normal and forced"):
+            generate.validate_eager_atom_inventory(rows, missing_route)
+
+        reordered = copy.deepcopy(inventory)
+        reordered["forced_route"]["generic_statement_index"] = 3
+        with self.assertRaisesRegex(generate.EvidenceError, "after generic"):
+            generate.validate_eager_atom_inventory(rows, reordered)
+
+    def test_eager_atom_inventory_rejects_view_fallback_and_boundary_drift(self) -> None:
+        rows, inventory = eager_atom_fixture()
+        missing_arm = copy.deepcopy(inventory)
+        missing_arm["helper_arms"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "helper view arms differ"):
+            generate.validate_eager_atom_inventory(rows, missing_arm)
+
+        duplicate_arm = copy.deepcopy(inventory)
+        duplicate_arm["helper_arms"].append(dict(duplicate_arm["helper_arms"][0]))
+        with self.assertRaisesRegex(generate.EvidenceError, "helper view arms differ"):
+            generate.validate_eager_atom_inventory(rows, duplicate_arm)
+
+        unknown_arm = copy.deepcopy(inventory)
+        unknown_arm["helper_arms"][0]["variant"] = "Mystery"
+        with self.assertRaisesRegex(generate.EvidenceError, "helper view arms differ"):
+            generate.validate_eager_atom_inventory(rows, unknown_arm)
+
+        changed_wildcard = copy.deepcopy(inventory)
+        changed_wildcard["helper_fallback"]["outcome"] = "Ok(())"
+        with self.assertRaisesRegex(generate.EvidenceError, "wildcard outcome changed"):
+            generate.validate_eager_atom_inventory(rows, changed_wildcard)
+
+        changed_error_group = copy.deepcopy(inventory)
+        changed_error_group["explicit_error_group"]["outcome"] = "Ok(())"
+        with self.assertRaisesRegex(generate.EvidenceError, "defensive error group changed"):
+            generate.validate_eager_atom_inventory(rows, changed_error_group)
+
+        missing_boundary = copy.deepcopy(inventory)
+        missing_boundary["helper_boundaries"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "helper boundary inventory"):
+            generate.validate_eager_atom_inventory(rows, missing_boundary)
+
+        reviewed = copy.deepcopy(inventory)
+        reviewed["runtime_error_paths"]["status"] = "reviewed"
+        with self.assertRaisesRegex(generate.EvidenceError, "not source-exhaustive"):
+            generate.validate_eager_atom_inventory(rows, reviewed)
+
+    def test_eager_atom_inventory_rejects_value_slot_and_boundary_mutations(self) -> None:
+        rows, inventory = eager_atom_fixture()
+
+        wrong_value = copy.deepcopy(inventory)
+        next(arm for arm in wrong_value["helper_arms"] if arm["variant"] == "Int")["output"] = "LoweredValue::Bool"
+        with self.assertRaisesRegex(generate.EvidenceError, "value provenance differs for Int"):
+            generate.validate_eager_atom_inventory(rows, wrong_value)
+
+        wrong_slot = copy.deepcopy(inventory)
+        param = next(arm for arm in wrong_slot["helper_arms"] if arm["variant"] == "Param")
+        param["input"] = "value"
+        with self.assertRaisesRegex(generate.EvidenceError, "value provenance differs for Param"):
+            generate.validate_eager_atom_inventory(rows, wrong_slot)
+
+        missing_bounds = copy.deepcopy(inventory)
+        missing_bounds["slot_decode_bounds_line"] = 0
+        with self.assertRaisesRegex(generate.EvidenceError, "slot decoder"):
+            generate.validate_eager_atom_inventory(rows, missing_bounds)
+
+        bad_freeze = copy.deepcopy(inventory)
+        bad_freeze["freeze_contract"]["shared_list_line"] = 0
+        with self.assertRaisesRegex(generate.EvidenceError, "freeze contract"):
+            generate.validate_eager_atom_inventory(rows, bad_freeze)
+
+        operand_rows = eager_atom_operand_fixture(rows)
+        operand_rows["rows"]["ExprParam"]["fields"][0]["policy"] = "strict"
+        with self.assertRaisesRegex(generate.EvidenceError, "applicable operand-order policy"):
+            generate.validate_eager_atom_operand_structure(rows, inventory, operand_rows)
+
+    def test_eager_atom_fallback_map_requires_ast_inventory(self) -> None:
+        rows, inventory = eager_atom_fixture()
+        with self.assertRaisesRegex(generate.EvidenceError, "missing AST EagerAtom inventory"):
+            generate.build_fallback_path_map(rows[0], {})
+        self.assertEqual(len(generate.validate_eager_atom_inventory(rows, inventory)["schema_rows"]), 12)
+
+    def test_frame_constructor_inventory_maps_only_dispatch_and_preserves_value_errors(self) -> None:
+        rows, inventory = frame_constructor_fixture()
+        checked = generate.validate_frame_constructor_inventory(rows, inventory)
+        refs = {
+            "schema_row": ["src/runtime/eval/indexed/full/schema.rs:790"],
+            "normal_dispatch": ["src/runtime/eval/lowered_run/indexed_run.rs:1470"],
+            "forced_dispatch": ["src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6394"],
+        }
+        path_from = next(row for row in rows if row["tag"] == "ExprPathFrom")
+        path_map = generate.build_fallback_path_map(
+            path_from,
+            refs,
+            frame_constructor_inventory=checked,
+        )
+        self.assertEqual(path_map["review_status"], "source_exhaustive_dispatch_path")
+        self.assertTrue(path_map["branches_exhaustive"])
+        self.assertIsNone(path_map["no_fallback"])
+        self.assertEqual(path_map["runtime_error_paths"]["status"], "unreviewed")
+        self.assertEqual(len(path_map["runtime_error_paths"]["source_refs"]), 2)
+        self.assertEqual(path_map["branches"][0]["child_behavior"], "one_child")
+        self.assertEqual(path_map["branches"][0]["value_behavior"], "indexed_path_from_value")
+        self.assertEqual(len(path_map["fallbacks"]), 3)
+        self.assertTrue(any("frame_strategy_error" in item["outcome"] for item in path_map["fallbacks"]))
+        self.assertFalse(next(
+            item for item in path_map["fallbacks"]
+            if "frame_strategy_error" in item["outcome"]
+        )["applies_to_row"])
+        self.assertTrue(all(not item["applies_to_row"] for item in path_map["fallbacks"][:-1]))
+
+    def test_frame_constructor_inventory_rejects_schema_and_classifier_drift(self) -> None:
+        rows, inventory = frame_constructor_fixture()
+        with self.assertRaisesRegex(generate.EvidenceError, "must contain 3 rows"):
+            generate.validate_frame_constructor_inventory(rows + [dict(rows[0])], inventory)
+
+        missing = copy.deepcopy(inventory)
+        missing["schema_rows"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "schema rows differ"):
+            generate.validate_frame_constructor_inventory(rows, missing)
+
+        duplicate = copy.deepcopy(inventory)
+        duplicate["schema_rows"].append(dict(duplicate["schema_rows"][0]))
+        with self.assertRaisesRegex(generate.EvidenceError, "schema rows differ"):
+            generate.validate_frame_constructor_inventory(rows, duplicate)
+
+        wrong_metadata = copy.deepcopy(inventory)
+        wrong_metadata["schema_rows"][0]["strategy"] = "FrameControl"
+        with self.assertRaisesRegex(generate.EvidenceError, "schema metadata differs"):
+            generate.validate_frame_constructor_inventory(rows, wrong_metadata)
+
+        missing_classifier = copy.deepcopy(inventory)
+        missing_classifier["classifiers"]["FrameApply"].pop(1)
+        with self.assertRaisesRegex(generate.EvidenceError, "absent or duplicated"):
+            generate.validate_frame_constructor_inventory(rows, missing_classifier)
+
+        duplicate_classifier = copy.deepcopy(inventory)
+        duplicate_classifier["classifiers"]["FrameApply"].append(
+            dict(duplicate_classifier["classifiers"]["FrameApply"][0])
+        )
+        with self.assertRaisesRegex(generate.EvidenceError, "absent or duplicated"):
+            generate.validate_frame_constructor_inventory(rows, duplicate_classifier)
+
+        unknown_classifier = copy.deepcopy(inventory)
+        unknown_classifier["classifiers"]["FrameApply"][0]["tag"] = "ExprMystery"
+        with self.assertRaisesRegex(generate.EvidenceError, "unknown schema tag"):
+            generate.validate_frame_constructor_inventory(rows, unknown_classifier)
+
+        prepared_constructor = copy.deepcopy(inventory)
+        prepared_constructor["classifiers"]["prepared_operands"].append(
+            {"tag": "ExprPathFrom"}
+        )
+        with self.assertRaisesRegex(generate.EvidenceError, "prepared host operands"):
+            generate.validate_frame_constructor_inventory(rows, prepared_constructor)
+
+    def test_frame_constructor_inventory_rejects_route_helper_and_fallback_drift(self) -> None:
+        rows, inventory = frame_constructor_fixture()
+        missing_route = copy.deepcopy(inventory)
+        missing_route["normal_route"] = None
+        with self.assertRaisesRegex(generate.EvidenceError, "missing normal route"):
+            generate.validate_frame_constructor_inventory(rows, missing_route)
+
+        late_route = copy.deepcopy(inventory)
+        late_route["forced_route"]["statement_index"] = 5
+        with self.assertRaisesRegex(generate.EvidenceError, "occurs after its fallback"):
+            generate.validate_frame_constructor_inventory(rows, late_route)
+
+        missing_arm = copy.deepcopy(inventory)
+        missing_arm["child_arms"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "child_arms differ"):
+            generate.validate_frame_constructor_inventory(rows, missing_arm)
+
+        duplicate_arm = copy.deepcopy(inventory)
+        duplicate_arm["value_arms"].append(dict(duplicate_arm["value_arms"][0]))
+        with self.assertRaisesRegex(generate.EvidenceError, "value_arms differ"):
+            generate.validate_frame_constructor_inventory(rows, duplicate_arm)
+
+        changed_value = copy.deepcopy(inventory)
+        changed_value["value_arms"][1]["behavior"] = "indexed_other_value"
+        with self.assertRaisesRegex(generate.EvidenceError, "value_arms differ"):
+            generate.validate_frame_constructor_inventory(rows, changed_value)
+
+        changed_wildcard = copy.deepcopy(inventory)
+        changed_wildcard["helper_fallbacks"][0]["outcome"] = "Ok(None)"
+        with self.assertRaisesRegex(generate.EvidenceError, "wildcard outcome changed"):
+            generate.validate_frame_constructor_inventory(rows, changed_wildcard)
+
+        changed_error_group = copy.deepcopy(inventory)
+        changed_error_group["explicit_error_group"]["outcome"] = "Ok(())"
+        with self.assertRaisesRegex(generate.EvidenceError, "defensive error group changed"):
+            generate.validate_frame_constructor_inventory(rows, changed_error_group)
+
+        missing_boundary = copy.deepcopy(inventory)
+        missing_boundary["value_boundaries"].pop("PathFrom")
+        with self.assertRaisesRegex(generate.EvidenceError, "value boundaries differ"):
+            generate.validate_frame_constructor_inventory(rows, missing_boundary)
+
+        reviewed = copy.deepcopy(inventory)
+        reviewed["runtime_error_paths"]["status"] = "reviewed"
+        with self.assertRaisesRegex(generate.EvidenceError, "must remain unreviewed"):
+            generate.validate_frame_constructor_inventory(rows, reviewed)
+
+    def test_frame_constructor_fallback_map_requires_ast_inventory(self) -> None:
+        rows, inventory = frame_constructor_fixture()
+        with self.assertRaisesRegex(generate.EvidenceError, "missing AST FrameApply constructor inventory"):
+            generate.build_fallback_path_map(rows[0], {})
+        self.assertEqual(
+            len(generate.validate_frame_constructor_inventory(rows, inventory)["schema_rows"]),
+            3,
+        )
+
+    def test_collection_construction_inventory_maps_dispatch_and_preserves_errors(self) -> None:
+        rows, inventory = collection_construction_fixture()
+        checked = generate.validate_collection_construction_inventory(rows, inventory)
+        refs = {
+            "schema_row": ["src/runtime/eval/indexed/full/schema.rs:858"],
+            "normal_dispatch": ["src/runtime/eval/lowered_run/indexed_run.rs:1562"],
+            "forced_dispatch": ["src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6812"],
+        }
+        update = next(row for row in rows if row["tag"] == "ExprRecordUpdate")
+        path_map = generate.build_fallback_path_map(
+            update,
+            refs,
+            collection_construction_inventory=checked,
+        )
+        self.assertEqual(path_map["review_status"], "source_exhaustive_dispatch_path")
+        self.assertTrue(path_map["branches_exhaustive"])
+        self.assertIsNone(path_map["no_fallback"])
+        self.assertEqual(path_map["runtime_error_paths"]["status"], "unreviewed")
+        self.assertEqual(path_map["branches"][0]["normal_behavior"], "evaluate_base_then_update_values_before_batch_replacement")
+        self.assertEqual(path_map["branches"][0]["forced_behavior"], "record_update_base_continuation")
+        self.assertEqual(len(path_map["fallbacks"]), 10)
+        self.assertFalse(path_map["fallbacks"][-1]["applies_to_row"])
+        for constructor_row in rows:
+            constructor_map = generate.build_fallback_path_map(
+                constructor_row,
+                refs,
+                collection_construction_inventory=checked,
+            )
+            frame_strategy_fallback = next(
+                item for item in constructor_map["fallbacks"]
+                if item["outcome"] == "frame_strategy_error(tag, span)"
+            )
+            self.assertFalse(frame_strategy_fallback["applies_to_row"])
+            normal_view = next(
+                item for item in constructor_map["fallbacks"]
+                if item["scope"].startswith(constructor_row["variant"] + " ")
+            ) if constructor_row["variant"] != "RecordUpdate" else None
+            if normal_view is not None:
+                self.assertTrue(normal_view["applies_to_row"])
+                self.assertIn("indexed_run.rs", normal_view["source_ref"])
+            row_helper_fallbacks = [
+                item for item in constructor_map["fallbacks"]
+                if item["source_ref"].endswith("explicit_run.rs:1136")
+                or item["source_ref"].endswith("explicit_run.rs:1159")
+                or item["source_ref"].endswith("explicit_run.rs:1182")
+            ]
+            self.assertEqual(len(row_helper_fallbacks), 3)
+            self.assertTrue(all("explicit_run.rs" in item["source_ref"] for item in row_helper_fallbacks))
+            helper_outcomes = {
+                "Err(indexed-ir: list literal view is invalid)": {"ExprList", "ExprListBuild"},
+                "Err(indexed-ir: map literal view is invalid)": {"ExprMapLiteral"},
+                "Err(indexed-ir: record literal view is invalid)": {"ExprRecord"},
+                "unreachable!: record-update tag has a matching borrowed expression view": {"ExprRecordUpdate"},
+            }
+            helper_messages = {
+                "Err(indexed-ir: list literal view is invalid)": "list literal view is invalid",
+                "Err(indexed-ir: map literal view is invalid)": "map literal view is invalid",
+                "Err(indexed-ir: record literal view is invalid)": "record literal view is invalid",
+            }
+            for item in constructor_map["fallbacks"]:
+                if item["outcome"] in helper_outcomes:
+                    self.assertEqual(item["applies_to_row"], constructor_row["tag"] in helper_outcomes[item["outcome"]])
+                    if item["outcome"].startswith("Err("):
+                        self.assertIn("explicit_run.rs", item["source_ref"])
+                        source_path, line = item["source_ref"].rsplit(":", 1)
+                        cited_line = (generate.HERE.parents[2] / source_path).read_text().splitlines()[int(line) - 1]
+                        self.assertIn(helper_messages[item["outcome"]], cited_line)
+                    if "record-update" in item["outcome"]:
+                        self.assertIn("operands.rs", item["source_ref"])
+        decode_fallback = next(
+            item for item in path_map["fallbacks"] if item["scope"] == "a tag reaches the helper with a different typed ExprView"
+            and item["source_ref"] == "src/runtime/eval/lowered_run/indexed_run/operands.rs:44"
+        )
+        self.assertIn("indexed_run/operands.rs", decode_fallback["source_ref"])
+        self.assertEqual(
+            decode_fallback["source_ref"],
+            "src/runtime/eval/lowered_run/indexed_run/operands.rs:44",
+        )
+        source_root = generate.HERE.parents[2]
+        cited_line = (source_root / "src/runtime/eval/lowered_run/indexed_run/operands.rs").read_text().splitlines()[43]
+        self.assertIn("unreachable!(\"record-update tag has a matching borrowed expression view\")", cited_line)
+
+    def test_collection_construction_inventory_rejects_source_drift(self) -> None:
+        rows, inventory = collection_construction_fixture()
+
+        missing = copy.deepcopy(inventory)
+        missing["schema_rows"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "schema rows differ"):
+            generate.validate_collection_construction_inventory(rows, missing)
+
+        changed_arm = copy.deepcopy(inventory)
+        changed_arm["normal_arms"][0]["behavior"] = "skip_record_entries"
+        with self.assertRaisesRegex(generate.EvidenceError, "normal_arms differ"):
+            generate.validate_collection_construction_inventory(rows, changed_arm)
+
+        classifier_drift = copy.deepcopy(inventory)
+        classifier_drift["frame_apply_classifier"]["tags"].append("ExprList")
+        with self.assertRaisesRegex(generate.EvidenceError, "classifier exclusion"):
+            generate.validate_collection_construction_inventory(rows, classifier_drift)
+
+        view_drift = copy.deepcopy(inventory)
+        view_drift["normal_view_fallbacks"][0]["scope"] = "Unknown tag reaches the normal evaluator"
+        with self.assertRaisesRegex(generate.EvidenceError, "normal typed-view fallbacks differ"):
+            generate.validate_collection_construction_inventory(rows, view_drift)
+
+        helper_drift = copy.deepcopy(inventory)
+        helper_drift["helper_fallbacks"][0]["outcome"] = "Ok(None)"
+        with self.assertRaisesRegex(generate.EvidenceError, "typed-view helper fallbacks differ"):
+            generate.validate_collection_construction_inventory(rows, helper_drift)
+
+        conditional_route = copy.deepcopy(inventory)
+        conditional_route["forced_route"]["view_kind_statement_index"] = 6
+        with self.assertRaisesRegex(generate.EvidenceError, "forced route selection order"):
+            generate.validate_collection_construction_inventory(rows, conditional_route)
+
+        reviewed = copy.deepcopy(inventory)
+        reviewed["runtime_error_paths"]["status"] = "reviewed"
+        with self.assertRaisesRegex(generate.EvidenceError, "runtime errors must remain unreviewed"):
+            generate.validate_collection_construction_inventory(rows, reviewed)
+
+    def test_collection_construction_fallback_map_requires_ast_inventory(self) -> None:
+        rows, inventory = collection_construction_fixture()
+        with self.assertRaisesRegex(generate.EvidenceError, "missing AST collection constructor inventory"):
+            generate.build_fallback_path_map(rows[0], {})
+        self.assertEqual(
+            len(generate.validate_collection_construction_inventory(rows, inventory)["schema_rows"]),
+            5,
+        )
+
+    def test_call_frame_inventory_maps_scheduled_dispatch_and_preserves_call_errors(self) -> None:
+        rows, inventory = call_frame_fixture()
+        checked = generate.validate_call_frame_inventory(rows, inventory)
+        call = next(row for row in rows if row["tag"] == "ExprCall")
+        path_map = generate.build_fallback_path_map(
+            call,
+            {},
+            call_frame_inventory=checked,
+        )
+        self.assertEqual(path_map["review_status"], "source_exhaustive_dispatch_path")
+        self.assertTrue(path_map["branches_exhaustive"])
+        self.assertIsNone(path_map["no_fallback"])
+        self.assertEqual(path_map["runtime_error_paths"]["status"], "unreviewed")
+        self.assertEqual(path_map["branches"][0]["normal_behavior"], "scheduled_frame_control_routes_to_explicit_machine")
+        self.assertEqual(path_map["branches"][0]["forced_behavior"], "decode_static_call_and_schedule_arguments")
+        self.assertEqual(path_map["branches"][0]["forced_view_group"], ["Call", "SelfCall", "DirectPureCall"])
+        self.assertEqual(len(path_map["fallbacks"]), 6)
+        self.assertEqual(
+            [item["applies_to_row"] for item in path_map["fallbacks"]],
+            [False, True, True, False, False, False],
+        )
+        self.assertIn("indexed_run.rs:1307", path_map["source_refs"]["call_frame_normal_route"][0])
+        self.assertIn("explicit_run.rs:7279", path_map["source_refs"]["call_frame_forced_dispatch"][0])
+        for row in rows:
+            row_map = generate.build_fallback_path_map(
+                row,
+                {},
+                call_frame_inventory=checked,
+            )
+            self.assertEqual(len(row_map["branches"]), 1)
+            self.assertEqual(len(row_map["fallbacks"]), 6)
+
+    def test_call_frame_inventory_rejects_schema_route_and_view_drift(self) -> None:
+        rows, inventory = call_frame_fixture()
+
+        missing = copy.deepcopy(inventory)
+        missing["schema_rows"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "AST schema rows differ"):
+            generate.validate_call_frame_inventory(rows, missing)
+
+        wrong_route = copy.deepcopy(inventory)
+        wrong_route["normal_route"]["frame_helper_line"] = 0
+        with self.assertRaisesRegex(generate.EvidenceError, "routes are incomplete"):
+            generate.validate_call_frame_inventory(rows, wrong_route)
+
+        wrong_group = copy.deepcopy(inventory)
+        wrong_group["forced_arms"][0]["view_group"] = ["Call"]
+        with self.assertRaisesRegex(generate.EvidenceError, "forced handlers differ"):
+            generate.validate_call_frame_inventory(rows, wrong_group)
+
+        wrong_fallback = copy.deepcopy(inventory)
+        wrong_fallback["typed_view_fallbacks"][2]["outcome"] = "Ok(())"
+        with self.assertRaisesRegex(generate.EvidenceError, "typed-view fallbacks differ"):
+            generate.validate_call_frame_inventory(rows, wrong_fallback)
+
+    def test_call_frame_fallback_map_requires_ast_inventory(self) -> None:
+        rows, inventory = call_frame_fixture()
+        with self.assertRaisesRegex(generate.EvidenceError, "missing AST call frame inventory"):
+            generate.build_fallback_path_map(rows[0], {})
+        self.assertEqual(
+            len(generate.validate_call_frame_inventory(rows, inventory)["schema_rows"]),
+            4,
+        )
+
+    def test_field_index_inventory_maps_routes_and_keeps_lookup_errors_unreviewed(self) -> None:
+        rows, inventory = field_index_fixture()
+        checked = generate.validate_field_index_inventory(rows, inventory)
+        field_row = next(row for row in rows if row["tag"] == "ExprField")
+        path_map = generate.build_fallback_path_map(
+            field_row,
+            {},
+            field_index_inventory=checked,
+        )
+        self.assertEqual(path_map["review_status"], "source_exhaustive_dispatch_path")
+        self.assertTrue(path_map["branches_exhaustive"])
+        self.assertEqual(path_map["runtime_error_paths"]["status"], "unreviewed")
+        self.assertEqual(path_map["branches"][0]["normal_behavior"], "try_record_field_chain_then_evaluate_base_and_lookup_field")
+        self.assertEqual(path_map["branches"][0]["forced_behavior"], "try_record_field_chain_then_schedule_base")
+        self.assertEqual(
+            [item["applies_to_row"] for item in path_map["fallbacks"]],
+            [False, True, True, False],
+        )
+        self.assertTrue(any("indexed_run.rs:1672" in ref for ref in path_map["source_refs"]["field_index_normal_dispatch"]))
+        self.assertEqual(path_map["branches"][0]["normal_wrapper_route_ref"], "src/runtime/eval/lowered_run/indexed_run.rs:1307")
+        self.assertIn("explicit_run.rs:7149", path_map["source_refs"]["field_index_forced_dispatch"][0])
+        for row in rows:
+            row_map = generate.build_fallback_path_map(
+                row,
+                {},
+                field_index_inventory=checked,
+            )
+            self.assertEqual(len(row_map["branches"]), 1)
+            self.assertEqual(len(row_map["fallbacks"]), 4)
+
+    def test_field_index_inventory_rejects_schema_route_and_fallback_drift(self) -> None:
+        rows, inventory = field_index_fixture()
+
+        missing = copy.deepcopy(inventory)
+        missing["schema_rows"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "AST schema rows differ"):
+            generate.validate_field_index_inventory(rows, missing)
+
+        wrong_arm = copy.deepcopy(inventory)
+        wrong_arm["normal_arms"][1]["behavior"] = "base_only"
+        with self.assertRaisesRegex(generate.EvidenceError, "normal_arms differ"):
+            generate.validate_field_index_inventory(rows, wrong_arm)
+
+        wrong_view = copy.deepcopy(inventory)
+        wrong_view["forced_view_fallbacks"][2]["outcome"] = "Ok(())"
+        with self.assertRaisesRegex(generate.EvidenceError, "forced_view_fallbacks differ"):
+            generate.validate_field_index_inventory(rows, wrong_view)
+
+        wrong_route = copy.deepcopy(inventory)
+        wrong_route["forced_route"]["view_kind_statement_index"] = 0
+        with self.assertRaisesRegex(generate.EvidenceError, "route selection order changed"):
+            generate.validate_field_index_inventory(rows, wrong_route)
+
+        wrong_normal_route = copy.deepcopy(inventory)
+        wrong_normal_route["normal_route"]["inner_helper_line"] = 1299
+        with self.assertRaisesRegex(generate.EvidenceError, "normal wrapper route order changed"):
+            generate.validate_field_index_inventory(rows, wrong_normal_route)
+
+    def test_field_index_fallback_map_requires_ast_inventory(self) -> None:
+        rows, inventory = field_index_fixture()
+        with self.assertRaisesRegex(generate.EvidenceError, "missing AST field/index inventory"):
+            generate.build_fallback_path_map(rows[0], {})
+        self.assertEqual(
+            len(generate.validate_field_index_inventory(rows, inventory)["schema_rows"]),
+            3,
+        )
+
+    def test_result_constructor_inventory_maps_dispatch_and_preserves_errors(self) -> None:
+        rows, inventory = result_constructor_fixture()
+        checked = generate.validate_result_constructor_inventory(rows, inventory)
+        refs = {
+            "schema_row": ["src/runtime/eval/indexed/full/schema.rs:1114"],
+            "normal_dispatch": ["src/runtime/eval/lowered_run/indexed_run.rs:1850"],
+            "forced_dispatch": ["src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6947"],
+        }
+        err = next(row for row in rows if row["tag"] == "ExprErr")
+        path_map = generate.build_fallback_path_map(
+            err,
+            refs,
+            result_constructor_inventory=checked,
+        )
+        self.assertEqual(path_map["review_status"], "source_exhaustive_dispatch_path")
+        self.assertTrue(path_map["branches_exhaustive"])
+        self.assertIsNone(path_map["no_fallback"])
+        self.assertEqual(path_map["runtime_error_paths"]["status"], "unreviewed")
+        self.assertEqual(path_map["branches"][0]["normal_behavior"], "evaluate_error_then_optional_cause_before_constructing_error")
+        self.assertEqual(path_map["branches"][0]["forced_behavior"], "push_value_with_optional_cause_wrap_err_continuation")
+        self.assertEqual([item["applies_to_row"] for item in path_map["fallbacks"]], [False, True, True, False])
+        self.assertIn("explicit_run.rs", path_map["fallbacks"][2]["source_ref"])
+        for constructor_row in rows:
+            row_map = generate.build_fallback_path_map(
+                constructor_row,
+                refs,
+                result_constructor_inventory=checked,
+            )
+            self.assertTrue(row_map["branches_exhaustive"])
+            self.assertEqual(len(row_map["fallbacks"]), 4)
+
+    def test_result_constructor_inventory_rejects_source_drift(self) -> None:
+        rows, inventory = result_constructor_fixture()
+        missing = copy.deepcopy(inventory)
+        missing["schema_rows"].pop()
+        with self.assertRaisesRegex(generate.EvidenceError, "schema rows differ"):
+            generate.validate_result_constructor_inventory(rows, missing)
+
+        wrong_arm = copy.deepcopy(inventory)
+        wrong_arm["normal_arms"][0]["behavior"] = "discard_result_value"
+        with self.assertRaisesRegex(generate.EvidenceError, "normal_arms differ"):
+            generate.validate_result_constructor_inventory(rows, wrong_arm)
+
+        changed_view = copy.deepcopy(inventory)
+        changed_view["forced_view_fallbacks"][0]["outcome"] = "Ok(())"
+        with self.assertRaisesRegex(generate.EvidenceError, "forced_view_fallbacks differ"):
+            generate.validate_result_constructor_inventory(rows, changed_view)
+
+        changed_route = copy.deepcopy(inventory)
+        changed_route["forced_route"]["view_kind_statement_index"] = 6
+        with self.assertRaisesRegex(generate.EvidenceError, "selection order"):
+            generate.validate_result_constructor_inventory(rows, changed_route)
+
+        reviewed = copy.deepcopy(inventory)
+        reviewed["runtime_error_paths"]["status"] = "reviewed"
+        with self.assertRaisesRegex(generate.EvidenceError, "must remain unreviewed"):
+            generate.validate_result_constructor_inventory(rows, reviewed)
+
+    def test_result_constructor_fallback_map_requires_ast_inventory(self) -> None:
+        rows, inventory = result_constructor_fixture()
+        with self.assertRaisesRegex(generate.EvidenceError, "missing AST result constructor inventory"):
+            generate.build_fallback_path_map(rows[0], {})
+        self.assertEqual(
+            len(generate.validate_result_constructor_inventory(rows, inventory)["schema_rows"]),
+            2,
+        )
+
+    def test_statement_fallback_map_requires_source_exhaustive_tag_inventory(self) -> None:
+        row = {"kind": "Stmt", "tag": "StmtPrint", "fallback_path_map": []}
+        inventory = {
+            "owner": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+            "match_line": 5384,
+            "branches": [
+                {
+                    "tag": "StmtPrint",
+                    "pattern": "FullTag::StmtPrint",
+                    "line": 5385,
+                    "arm_index": 0,
+                }
+            ],
+            "fallbacks": [
+                {
+                    "pattern": "_",
+                    "outcome": "frame_strategy_error",
+                    "line": 6269,
+                    "arm_index": 42,
+                }
+            ],
+        }
+        refs = {
+            "schema_row": ["schema.rs:12"],
+            "normal_dispatch": ["explicit_run.rs:5385", "explicit_run.rs:6269"],
+            "forced_dispatch": ["explicit_run.rs:5385", "explicit_run.rs:6269"],
+            "statement_match": ["explicit_run.rs:5384"],
+        }
+        fallback = generate.build_fallback_path_map(row, refs, inventory)
+        self.assertEqual(
+            fallback["review_status"],
+            "source_exhaustive_top_level_tag_dispatch",
+        )
+        self.assertTrue(fallback["branches_exhaustive"])
+        self.assertTrue(fallback["no_fallback"])
+        self.assertEqual(fallback["branches"][0]["source_ref"], "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:5385")
+        self.assertFalse(fallback["fallbacks"][0]["reachable_for_valid_statement_tag"])
+        with self.assertRaisesRegex(generate.EvidenceError, "missing AST statement inventory"):
+            generate.build_fallback_path_map(row, refs)
+
+    def test_receipt_reuse_requires_exact_source_id_command_and_mode(self) -> None:
+        oracle_id = "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map"
+        receipt = {
+            "source_expected": {"commit": "head", "tree": "tree"},
+            "hashes": {
+                "binaries_before_tests": {"xsht-verification": "xsht-hash"},
+                "binaries_after_tests": {"xsht-verification": "xsht-hash"},
+            },
+            "source_checks": [
+                {"where": "before:empty-map", "head": "head", "tree": "tree", "clean": True},
+                {"where": "after:empty-map", "head": "head", "tree": "tree", "clean": True},
+            ],
+        }
+        normal = {
+            "id": "empty-map",
+            "exit_code": 0,
+            "argv": ["bash", "run-native-final.sh", "run", "target/x86_64-unknown-linux-musl/verification/xsht", "test", "--exact", oracle_id],
+            "env": {},
+            "log_sha256": "log-hash",
+        }
+        forced = {
+            "id": "empty-map",
+            "exit_code": 0,
+            "argv": ["bash", "run-native-final.sh", "run", "target/x86_64-unknown-linux-musl/verification/xsht", "test", "--exact", oracle_id],
+            "env": {"XSH_INTERNAL_TEST_FORCE_FRAMES": "1"},
+            "log_sha256": "forced-log-hash",
+        }
+        self.assertTrue(
+            generate.receipt_step_matches(
+                receipt,
+                normal,
+                expected_head="head",
+                expected_tree="tree",
+                oracle_id=oracle_id,
+                mode="normal",
+                expected_xsht_sha256="xsht-hash",
+            )
+        )
+        trailing_option = {**normal, "argv": [*normal["argv"], "--list"]}
+        self.assertFalse(
+            generate.receipt_step_matches(
+                receipt,
+                trailing_option,
+                expected_head="head",
+                expected_tree="tree",
+                oracle_id=oracle_id,
+                mode="normal",
+                expected_xsht_sha256="xsht-hash",
+            )
+        )
+        duplicate_source_check = {
+            **receipt,
+            "source_checks": [*receipt["source_checks"], dict(receipt["source_checks"][0])],
+        }
+        self.assertFalse(
+            generate.receipt_step_matches(
+                duplicate_source_check,
+                normal,
+                expected_head="head",
+                expected_tree="tree",
+                oracle_id=oracle_id,
+                mode="normal",
+                expected_xsht_sha256="xsht-hash",
+            )
+        )
+        malformed_source_check = {
+            **receipt,
+            "source_checks": [
+                *receipt["source_checks"],
+                {"where": None, "head": "head", "tree": "tree", "clean": True},
+            ],
+        }
+        self.assertFalse(
+            generate.receipt_step_matches(
+                malformed_source_check,
+                normal,
+                expected_head="head",
+                expected_tree="tree",
+                oracle_id=oracle_id,
+                mode="normal",
+                expected_xsht_sha256="xsht-hash",
+            )
+        )
+        self.assertTrue(
+            generate.receipt_step_matches(
+                receipt,
+                forced,
+                expected_head="head",
+                expected_tree="tree",
+                oracle_id=oracle_id,
+                mode="forced",
+                expected_xsht_sha256="xsht-hash",
+            )
+        )
+        self.assertFalse(
+            generate.receipt_step_matches(
+                receipt,
+                normal,
+                expected_head="other-head",
+                expected_tree="tree",
+                oracle_id=oracle_id,
+                mode="normal",
+                expected_xsht_sha256="xsht-hash",
+            )
+        )
+        self.assertFalse(
+            generate.receipt_step_matches(
+                receipt,
+                normal,
+                expected_head="head",
+                expected_tree="tree",
+                oracle_id="tests/xsh/frame-apply-oracles.xsh::test_frame_apply_path_from_value",
+                mode="normal",
+                expected_xsht_sha256="xsht-hash",
+            )
+        )
+        self.assertFalse(
+            generate.receipt_step_matches(
+                receipt,
+                forced,
+                expected_head="head",
+                expected_tree="tree",
+                oracle_id=oracle_id,
+                mode="normal",
+                expected_xsht_sha256="xsht-hash",
+            )
+        )
+        self.assertFalse(
+            generate.receipt_step_matches(
+                receipt,
+                normal,
+                expected_head="head",
+                expected_tree="tree",
+                oracle_id=oracle_id,
+                mode="normal",
+                expected_xsht_sha256="different-xsht-hash",
+            )
+        )
+
+    def test_receipts_reject_duplicate_steps_and_unverified_binaries(self) -> None:
+        step = {"id": "same", "argv": ["xsht", "test"], "env": {}}
+        self.assertTrue(generate.receipt_steps_are_unique([step]))
+        self.assertFalse(generate.receipt_steps_are_unique([step, dict(step)]))
+        self.assertFalse(generate.receipt_steps_are_unique([step, {**step, "id": "other"}]))
+        self.assertTrue(generate.receipt_corpus_steps_are_unique([{"steps": [step]}]))
+        self.assertFalse(generate.receipt_corpus_steps_are_unique([
+            {"steps": [step]},
+            {"steps": [dict(step)]},
+        ]))
+        self.assertFalse(generate.receipt_corpus_steps_are_unique([
+            {"steps": [step]},
+            {"steps": [{**step, "id": "different"}]},
+        ]))
+
+    def test_unmapped_defensive_path_cannot_disappear_from_gap_report(self) -> None:
+        path = {
+            "tag": "ExprPipeline",
+            "path": "missing_lowered_pipeline_input",
+            "modes": ["normal", "forced"],
+            "reason": "no corruption oracle",
+            "source": ["serial_pipeline.rs:262"],
+            "structural_note": "the verifier prevents reaching this state",
+            "route_behaviors": {
+                "normal": {"result_message": "frame-scheduler normal rejection"},
+                "forced": {"result_message": "frame strategy error"},
+            },
+        }
+        gaps = generate.defensive_path_gaps([path])
+        self.assertEqual([gap["mode"] for gap in gaps], ["normal", "forced"])
+        self.assertEqual(gaps[0]["route_behavior"]["result_message"], "frame-scheduler normal rejection")
+        self.assertEqual(gaps[1]["route_behavior"]["result_message"], "frame strategy error")
+        with self.assertRaisesRegex(generate.EvidenceError, "defensive paths must be inventoried"):
+            generate.defensive_path_gaps([])
+
+    def test_stale_source_lock_is_reported_without_resealing(self) -> None:
+        actual = {
+            "head": "new-head",
+            "tree": "new-tree",
+            "files": {"old.rs": "new-hash", "decisive.rs": "decisive-hash"},
+        }
+        lock = {
+            "head": "old-head",
+            "tree": "old-tree",
+            "files": {"old.rs": "old-hash"},
+        }
+        status = generate.source_lock_status(actual, lock)
+        self.assertEqual(status["status"], "stale")
+        self.assertEqual(status["file_mismatches"], ["old.rs"])
+        self.assertEqual(status["unsealed_files"], ["decisive.rs"])
+
+    def test_unsealed_decisive_source_keeps_source_lock_stale(self) -> None:
+        actual = {
+            "head": "same-head",
+            "tree": "same-tree",
+            "files": {"locked.rs": "same-hash", "decisive.rs": "decisive-hash"},
+        }
+        lock = {
+            "head": "same-head",
+            "tree": "same-tree",
+            "files": {"locked.rs": "same-hash"},
+        }
+        status = generate.source_lock_status(actual, lock)
+        self.assertEqual(status["unsealed_files"], ["decisive.rs"])
+        self.assertEqual(status["status"], "stale")
+
+
+if __name__ == "__main__":
+    unittest.main()
