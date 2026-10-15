@@ -377,7 +377,10 @@ assert !pattern.matches("router")
 test test_expr_prepared_constant { |ctx|
   test.expect(
     ctx,
-    "const ANSWER = 40 + 2",
+    r"""type RouteConstantBox = {values: Map[Int, Int] = {[42]: 7}}
+let box = RouteConstantBox()
+assert box.values.get(42)? == 7
+""",
     status: 0,
   )?
 }
