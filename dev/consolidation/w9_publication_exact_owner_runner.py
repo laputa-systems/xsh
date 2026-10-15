@@ -1237,6 +1237,74 @@ def _load_exact_helper(runner) -> tuple[pathlib.Path, bytes, str]:
     return helper, contents, digest
 
 
+def _project_exact_owner_helper(contents: bytes) -> bytes:
+    projections = (
+        (
+            "repository receipt Read import",
+            b"fn w9_exact_repository_owners_receipt() {\n"
+            b"    use std::io::Read as _;\n",
+            b"fn w9_exact_repository_owners_receipt() {\n",
+        ),
+        (
+            "directory hash OFlags import",
+            b"    use rustix::fs::{Dir, OFlags};\n",
+            b"    use rustix::fs::Dir;\n",
+        ),
+        (
+            "directory hash OsStrExt import",
+            b"    use std::os::unix::ffi::OsStrExt as _;\n",
+            b"",
+        ),
+    )
+    projected = contents
+    for name, source, replacement in projections:
+        count = projected.count(source)
+        if count != 1:
+            raise ExactOwnerError(
+                "source-qualified exact-owner helper projection drift: "
+                f"expected one {name}, found {count}"
+            )
+        projected = projected.replace(source, replacement, 1)
+    return projected
+
+
+def _exact_helper_payload(
+    source_record: Mapping[str, str], exact_helper_bytes: bytes, runner
+) -> bytes:
+    schema = source_record.get("schema")
+    if schema == runner.SOURCE_COHORT_SCHEMA:
+        return _project_exact_owner_helper(exact_helper_bytes)
+    if schema == "2":
+        return exact_helper_bytes
+    raise ExactOwnerError(f"unsupported source receipt schema for exact-owner helper: {schema!r}")
+
+
+def _compose_exact_helper(
+    base_helper_bytes: bytes,
+    source_record: Mapping[str, str],
+    exact_helper_bytes: bytes,
+    runner,
+) -> bytes:
+    payload = _exact_helper_payload(source_record, exact_helper_bytes, runner)
+    separator = b"" if base_helper_bytes.endswith(b"\n") else b"\n"
+    return base_helper_bytes + separator + payload
+
+
+def _validate_exact_helper_artifact(
+    helper_bytes: bytes,
+    expected_sha256: str,
+    source_record: Mapping[str, str],
+    exact_helper_bytes: bytes,
+    runner,
+    artifact_name: str,
+) -> None:
+    if hashlib.sha256(helper_bytes).hexdigest() != expected_sha256:
+        raise ExactOwnerError(f"{artifact_name} hash differs from its build receipt")
+    payload = _exact_helper_payload(source_record, exact_helper_bytes, runner)
+    if not helper_bytes.endswith(payload):
+        raise ExactOwnerError(f"{artifact_name} does not end with its approved helper projection")
+
+
 def parse_harness_test_names(stdout: str) -> list[str]:
     suffix = ": test"
     return [line[: -len(suffix)] for line in stdout.splitlines() if line.endswith(suffix)]
@@ -1348,9 +1416,14 @@ def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> N
     finally:
         adapter_runner.ROOT = previous_root
     base_helper = runner.read_regular_bytes(helper)
-    separator = b"" if base_helper.endswith(b"\n") else b"\n"
-    _open_append_only(helper, separator + exact_helper_bytes, runner)
-    helper_sha256 = hashlib.sha256(runner.read_regular_bytes(helper)).hexdigest()
+    composed_helper = _compose_exact_helper(
+        base_helper, source_record, exact_helper_bytes, runner
+    )
+    _open_append_only(helper, composed_helper[len(base_helper):], runner)
+    helper_bytes = runner.read_regular_bytes(helper)
+    if helper_bytes != composed_helper:
+        raise ExactOwnerError("derived exact-owner helper differs from its approved composition")
+    helper_sha256 = hashlib.sha256(helper_bytes).hexdigest()
     docker_environment = runner.local_docker_environment()
     builds = {}
     for role, source_root in (("reference", reference_root), ("candidate", candidate_root)):
@@ -1412,8 +1485,14 @@ def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> N
         )
         if build["helper_sha256"] != helper_sha256:
             raise ExactOwnerError(f"{role} build receipt helper hash differs")
-        if not runner.read_regular_bytes(pathlib.Path(build["helper_path"])).endswith(exact_helper_bytes):
-            raise ExactOwnerError(f"{role} build helper does not contain the pinned exact-owner helper")
+        _validate_exact_helper_artifact(
+            runner.read_regular_bytes(pathlib.Path(build["helper_path"])),
+            build["helper_sha256"],
+            source_record,
+            exact_helper_bytes,
+            runner,
+            f"{role} build helper",
+        )
         builds[role] = (binary, build_receipt)
     print(
         f"exact_helper={owner_helper_path} sha256={exact_helper_sha256}\n"
@@ -1961,8 +2040,14 @@ def capture_exact_owner_role(args: argparse.Namespace, bootstrap_runner) -> int:
     if not runner.under(helper_path, candidate_root / ".work"):
         raise ExactOwnerError(f"{role} exact-owner helper is outside candidate .work/: {helper_path}")
     helper_bytes = runner.read_regular_bytes(helper_path)
-    if hashlib.sha256(helper_bytes).hexdigest() != build["helper_sha256"] or not helper_bytes.endswith(exact_helper_bytes):
-        raise ExactOwnerError(f"{role} exact-owner helper does not match its build receipt")
+    _validate_exact_helper_artifact(
+        helper_bytes,
+        build["helper_sha256"],
+        source_record,
+        exact_helper_bytes,
+        runner,
+        f"{role} exact-owner helper",
+    )
     runner.require_sha256(pathlib.Path(build["binary"]), build["binary_sha256"], f"{role} exact-owner harness")
     if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA:
         if getattr(args, "adapter_capture_receipt", None) is None:
@@ -2246,8 +2331,14 @@ def validate_proof(
     if not runner.under(helper_path, candidate_root / ".work"):
         raise ExactOwnerError(f"{role} exact-owner helper is outside candidate .work/: {helper_path}")
     helper_bytes = runner.read_regular_bytes(helper_path)
-    if hashlib.sha256(helper_bytes).hexdigest() != build["helper_sha256"] or not helper_bytes.endswith(exact_helper_bytes):
-        raise ExactOwnerError(f"{role} exact-owner helper does not match its build receipt")
+    _validate_exact_helper_artifact(
+        helper_bytes,
+        build["helper_sha256"],
+        source_record,
+        exact_helper_bytes,
+        runner,
+        f"{role} exact-owner helper",
+    )
     binary = runner.regular_file(build["binary"], f"{role} exact-owner harness", executable=True)
     runner.require_sha256(binary, build["binary_sha256"], f"{role} exact-owner harness")
     exact_capture_receipt = runner.regular_file(

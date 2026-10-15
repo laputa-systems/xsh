@@ -627,6 +627,142 @@ class ExactOwnerHelperSourceTests(unittest.TestCase):
             exact_runner.EXACT_OWNER_HELPER_SHA256,
         )
 
+    def test_source_qualified_projection_removes_only_three_unused_imports(self):
+        original = exact_runner.EXACT_OWNER_HELPER.read_bytes()
+        projected = exact_runner._project_exact_owner_helper(original)
+
+        self.assertEqual(
+            original,
+            exact_runner.EXACT_OWNER_HELPER.read_bytes(),
+        )
+        self.assertEqual(projected.count(b"use std::io::Read as _;"), 2)
+        self.assertIn(b"use rustix::fs::Dir;", projected)
+        self.assertIn(
+            b"fn w9_exact_hash_owner_directory(\n"
+            b"    root_path: &std::path::Path,\n"
+            b"    count: usize,\n"
+            b") -> std::io::Result<Vec<(usize, String)>> {\n"
+            b"    use rustix::fs::Dir;\n"
+            b"    use std::collections::BTreeSet;\n"
+            b"    use std::io::Read as _;\n",
+            projected,
+        )
+        self.assertNotIn(b"use rustix::fs::{Dir, OFlags};", projected)
+        self.assertNotIn(b"use std::os::unix::ffi::OsStrExt as _;", projected)
+        self.assertIn(b"w9_exact_hash_owner_directory", projected)
+        self.assertIn(b"w9_exact_repository_owners_receipt", projected)
+        self.assertEqual(
+            projected,
+            original.replace(
+                b"fn w9_exact_repository_owners_receipt() {\n"
+                b"    use std::io::Read as _;\n",
+                b"fn w9_exact_repository_owners_receipt() {\n",
+                1,
+            ).replace(
+                b"    use rustix::fs::{Dir, OFlags};\n",
+                b"    use rustix::fs::Dir;\n",
+                1,
+            ).replace(
+                b"    use std::os::unix::ffi::OsStrExt as _;\n",
+                b"",
+                1,
+            ),
+        )
+
+    def test_source_qualified_projection_rejects_missing_or_duplicate_imports(self):
+        original = exact_runner.EXACT_OWNER_HELPER.read_bytes()
+        import_fragments = (
+            (
+                b"fn w9_exact_repository_owners_receipt() {\n"
+                b"    use std::io::Read as _;\n",
+                b"fn w9_exact_repository_owners_receipt() {\n",
+            ),
+            (b"    use rustix::fs::{Dir, OFlags};\n", b"    use rustix::fs::Dir;\n"),
+            (b"    use std::os::unix::ffi::OsStrExt as _;\n", b""),
+        )
+
+        for source, replacement in import_fragments:
+            missing = original.replace(source, replacement, 1)
+            duplicate = original + b"\n" + source
+            for label, candidate in (("missing", missing), ("duplicate", duplicate)):
+                with self.subTest(import_source=source, label=label), self.assertRaisesRegex(
+                    exact_runner.ExactOwnerError,
+                    "source-qualified exact-owner helper projection drift",
+                ):
+                    exact_runner._project_exact_owner_helper(candidate)
+
+    def test_legacy_identity_and_modern_build_capture_proof_share_projected_suffix(self):
+        original = exact_runner.EXACT_OWNER_HELPER.read_bytes()
+        adapter_record = SimpleNamespace(SOURCE_COHORT_SCHEMA="3")
+        legacy = {"schema": "2"}
+        modern = {"schema": "3"}
+        projected = exact_runner._project_exact_owner_helper(original)
+
+        self.assertEqual(
+            exact_runner._exact_helper_payload(legacy, original, adapter_record),
+            original,
+        )
+        self.assertEqual(
+            exact_runner._exact_helper_payload(modern, original, adapter_record),
+            projected,
+        )
+        for source_record, suffix in ((legacy, original), (modern, projected)):
+            with self.subTest(schema=source_record["schema"]):
+                combined = exact_runner._compose_exact_helper(
+                    b"base helper\n", source_record, original, adapter_record
+                )
+                self.assertTrue(combined.endswith(suffix))
+                exact_runner._validate_exact_helper_artifact(
+                    combined,
+                    hashlib.sha256(combined).hexdigest(),
+                    source_record,
+                    original,
+                    adapter_record,
+                    "fixture artifact",
+                )
+
+        modern_unprojected = b"base helper\n" + original
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "approved helper projection"):
+            exact_runner._validate_exact_helper_artifact(
+                modern_unprojected,
+                hashlib.sha256(modern_unprojected).hexdigest(),
+                modern,
+                original,
+                adapter_record,
+                "modern fixture artifact",
+            )
+
+        legacy_projected = b"base helper\n" + projected
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "approved helper projection"):
+            exact_runner._validate_exact_helper_artifact(
+                legacy_projected,
+                hashlib.sha256(legacy_projected).hexdigest(),
+                legacy,
+                original,
+                adapter_record,
+                "legacy fixture artifact",
+            )
+
+        valid_modern = exact_runner._compose_exact_helper(
+            b"base helper\n", modern, original, adapter_record
+        )
+        valid_modern_sha256 = hashlib.sha256(valid_modern).hexdigest()
+        wrong_modern_sha256 = (
+            "0" if valid_modern_sha256[0] != "0" else "1"
+        ) + valid_modern_sha256[1:]
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "hash differs"):
+            exact_runner._validate_exact_helper_artifact(
+                valid_modern,
+                wrong_modern_sha256,
+                modern,
+                original,
+                adapter_record,
+                "modern fixture artifact",
+            )
+
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "unsupported source receipt schema"):
+            exact_runner._exact_helper_payload({"schema": "4"}, original, adapter_record)
+
 
 class ExactOwnerHashOutputTests(unittest.TestCase):
     def test_accepts_one_exactly_prefixed_libtest_row_and_complete_hashes(self):
@@ -1265,8 +1401,10 @@ class SourceQualifiedExactOwnerReceiptTests(unittest.TestCase):
     def test_source_qualified_proof_rejects_legacy_capture_before_legacy_validation(self):
         helper_path = self.candidate_root / ".work" / "exact-owner-helper.rs"
         helper_path.parent.mkdir(parents=True)
-        helper_path.write_bytes(b"prefix exact helper")
-        exact_helper = b"exact helper"
+        exact_helper_path = exact_runner.EXACT_OWNER_HELPER
+        exact_helper = exact_helper_path.read_bytes()
+        projected_helper = exact_runner._project_exact_owner_helper(exact_helper)
+        helper_path.write_bytes(b"prefix\n" + projected_helper)
         build = dict(
             self.build,
             source_root=str(self.source_root),
@@ -1302,7 +1440,11 @@ class SourceQualifiedExactOwnerReceiptTests(unittest.TestCase):
             mock.patch.object(
                 exact_runner,
                 "_load_exact_helper",
-                return_value=(self.root / "approved-exact-owner-helper.rs", exact_helper, hashlib.sha256(exact_helper).hexdigest()),
+                return_value=(
+                    exact_helper_path,
+                    exact_helper,
+                    hashlib.sha256(exact_helper).hexdigest(),
+                ),
             ),
             mock.patch.object(exact_runner, "_legacy_capture") as legacy_capture_reader,
         ):
