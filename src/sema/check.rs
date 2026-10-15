@@ -25,6 +25,7 @@ pub struct CheckBundleView<'a> {
     pub(super) modules: Vec<&'a ArenaUserModule>,
     pub(super) root_statements: ArenaRange,
     pub(super) root_source_id: Option<SourceId>,
+    pub(super) assignment_root_owner: Option<(SourceId, ArenaRange)>,
     source_ids: FxHashSet<SourceId>,
     all_sources: bool,
     pub(super) entry_context: Option<Arc<()>>,
@@ -96,6 +97,7 @@ impl<'a> CheckBundleView<'a> {
                     .map(|statement| program.arena.stmt(statement).span.source_id)
                     .or_else(|| program.module_doc_for(root_statements).map(|span| span.source_id))
             }),
+            assignment_root_owner: assignment_owner_for_root(program, root_statements),
             source_ids,
             all_sources: false,
             entry_context: None,
@@ -127,6 +129,7 @@ impl<'a> CheckBundleView<'a> {
                     .map(|statement| program.arena.stmt(statement).span.source_id)
                     .or_else(|| program.module_doc_for(root_statements).map(|span| span.source_id))
             }),
+            assignment_root_owner: assignment_owner_for_root(program, root_statements),
             source_ids,
             all_sources: false,
             entry_context: None,
@@ -151,6 +154,7 @@ impl<'a> CheckBundleView<'a> {
             modules: vec![module],
             root_statements: ArenaRange::default(),
             root_source_id: Some(source_id),
+            assignment_root_owner: None,
             source_ids,
             all_sources: false,
             entry_context: None,
@@ -164,6 +168,7 @@ impl<'a> CheckBundleView<'a> {
             modules: program.modules.iter().collect(),
             root_statements: program.statements,
             root_source_id: None,
+            assignment_root_owner: assignment_owner_for_root(program, program.statements),
             source_ids: FxHashSet::default(),
             all_sources: true,
             entry_context: None,
@@ -313,8 +318,29 @@ impl<'a> CheckBundleView<'a> {
     }
 }
 
+fn range_source_id(program: &ArenaProgram, statements: ArenaRange) -> Option<SourceId> {
+    program
+        .arena
+        .stmt_ids(statements)
+        .next()
+        .map(|statement| program.arena.stmt(statement).span.source_id)
+        .or_else(|| program.module_doc_for(statements).map(|span| span.source_id))
+}
+
+fn assignment_owner_for_root(
+    program: &ArenaProgram,
+    statements: ArenaRange,
+) -> Option<(SourceId, ArenaRange)> {
+    range_source_id(program, statements)
+        .or_else(|| program.source_text_source_id())
+        .map(|source_id| (source_id, statements))
+}
+
 #[path = "check/args.rs"]
 mod args;
+#[path = "check/assignment_facts.rs"]
+mod assignment_facts;
+pub use assignment_facts::assignment_target_root_name;
 #[path = "check/builder.rs"]
 mod builder;
 #[path = "check/cache_trace.rs"]
@@ -512,6 +538,7 @@ pub struct CheckOutput {
     pub checked_declarations: CheckedDeclarations,
     pub resolved_type_expressions: ResolvedTypeExpressions,
     pub resolved_bindings: Arc<ResolvedBindings>,
+    assignment_facts: assignment_facts::AssignmentFacts,
     pub static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     pub local_binding_types: BTreeMap<Span, Type>,
     pub prepared_constants: super::constants::PreparedConstants,
@@ -633,6 +660,15 @@ pub struct CheckOutput {
 }
 
 impl CheckOutput {
+    #[doc = "Returns the checked assignment names owned by the exact selected source and statement range."]
+    pub fn assignment_names(
+        &self,
+        source_id: SourceId,
+        statements: ArenaRange,
+    ) -> Option<&BTreeSet<Name>> {
+        self.assignment_facts.names(source_id, statements)
+    }
+
     pub fn resource_transfer(&self, site: ResourceTransferSite) -> Option<bool> {
         self.resource_transfers.get(&site).copied()
     }
@@ -647,6 +683,7 @@ impl CheckOutput {
             self.resolved_bindings
                 .merge_visible(&module.resolved_bindings),
         );
+        self.assignment_facts.merge(&module.assignment_facts);
         self.checked_declarations
             .types
             .extend(module.checked_declarations.types);
@@ -1278,6 +1315,7 @@ pub struct Checker {
     checked_declarations: CheckedDeclarations,
     resolved_type_expressions: ResolvedTypeExpressions,
     resolved_bindings: Arc<ResolvedBindings>,
+    assignment_facts: assignment_facts::AssignmentFacts,
     resolved_command_sites: FxHashMap<(Span, Name), BindingId>,
     boundary: BoundaryContext,
     local_inference: local_inference::LocalInference,
@@ -1583,6 +1621,7 @@ impl Checker {
             selected_function_calls: self.selected_function_calls,
             local_binding_types: self.local_inference.checked_bindings,
             resolved_bindings: self.resolved_bindings,
+            assignment_facts: self.assignment_facts,
             prepared_constants: self.prepared_constants,
             proven_nonnull_fallback_receivers: self.proven_nonnull_fallback_receivers,
             diagnostics: self.diagnostics,
@@ -1691,6 +1730,7 @@ impl Checker {
             constructor_group_depth: 0,
             pending_record_constructors: Vec::new(),
             resolved_bindings: Arc::default(),
+            assignment_facts: assignment_facts::AssignmentFacts::default(),
             resolved_command_sites: FxHashMap::default(),
             prepared_constants: super::constants::PreparedConstants::default(),
             wire_enums: crate::sema::wire_enums::PreparedWireEnums::default(),

@@ -450,6 +450,7 @@ impl ModuleRecordCache {
 #[derive(Clone, Default)]
 pub(super) struct PreparedModuleFacts {
     pub(super) resolved_bindings: Arc<ResolvedBindings>,
+    pub(super) assignment_facts: super::assignment_facts::AssignmentFacts,
     pub(super) return_inference_index: Arc<ReturnInferenceIndex>,
     pub(super) local_inference: LocalInference,
     pub(super) record_constructors: RecordConstructors,
@@ -464,7 +465,8 @@ impl PreparedModuleFacts {
         dependencies: &PreparedModuleFacts,
     ) -> Self {
         let program = view.program;
-        let owner_bindings = ResolvedBindings::collect_bundle(view);
+        let (owner_bindings, assignment_facts) =
+            ResolvedBindings::collect_bundle_with_assignment_facts(view);
         let mut visible_bindings = dependencies
             .resolved_bindings
             .merge_visible(&owner_bindings);
@@ -500,6 +502,7 @@ impl PreparedModuleFacts {
         );
         let facts = Self {
             resolved_bindings,
+            assignment_facts,
             return_inference_index,
             local_inference,
             record_constructors,
@@ -517,6 +520,7 @@ impl PreparedModuleFacts {
         let declarations = bindings.declarations.clone();
         bindings.resolve_module_fields(program, &declarations);
         self.resolved_bindings = Arc::new(bindings);
+        self.assignment_facts.merge(&owner.assignment_facts);
         Arc::make_mut(&mut self.return_inference_index)
             .merge_owner(&owner.return_inference_index);
         self.local_inference
@@ -533,6 +537,7 @@ impl PreparedModuleFacts {
 
     pub(super) fn install(&self, checker: &mut Checker, program: &ArenaProgram) {
         checker.resolved_bindings = self.resolved_bindings.clone();
+        checker.assignment_facts = self.assignment_facts.clone();
         checker.return_inference_index = Some(self.return_inference_index.clone());
         checker.local_inference = self.local_inference.clone();
         checker.record_constructors = self.record_constructors.clone();

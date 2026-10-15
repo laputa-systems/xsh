@@ -5121,7 +5121,7 @@ impl Checker {
         value: ArenaExprOrRun,
         span: Span,
     ) {
-        let Some(name) = assign_target_root_name_arena(arena, target) else {
+        let Some(name) = super::assignment_target_root_name(arena, target) else {
             return;
         };
         let mut diagnostic = Diagnostic::error(format!(
@@ -5160,7 +5160,7 @@ impl Checker {
         value: ArenaExprOrRun,
         span: Span,
     ) {
-        let Some(name) = assign_target_root_name_arena(arena, target) else {
+        let Some(name) = super::assignment_target_root_name(arena, target) else {
             self.check_env_variable_assignment_arena(arena, source, op, value, span);
             return;
         };
@@ -6765,18 +6765,6 @@ impl Checker {
             | ArenaExprKind::Loop { .. }
             | ArenaExprKind::Retry { .. }
             | ArenaExprKind::ValueBlock(_) => false,
-        }
-    }
-}
-
-/// The binding an assignment writes through, or `None` for an environment
-/// variable target.
-fn assign_target_root_name_arena(arena: &ArenaProgram, target: AssignTargetId) -> Option<Name> {
-    match &arena.arena.assign_target(target).kind {
-        ArenaAssignTargetKind::Name(name) => Some(*name),
-        ArenaAssignTargetKind::Env(_) => None,
-        ArenaAssignTargetKind::Field { base, .. } | ArenaAssignTargetKind::Index { base, .. } => {
-            assign_target_root_name_arena(arena, *base)
         }
     }
 }
