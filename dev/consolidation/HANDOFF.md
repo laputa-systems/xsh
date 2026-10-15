@@ -184,6 +184,12 @@ missing outcomes. Receipt recovery is in progress and establishes no parity.
 The migrated expression children require explicit matrix requalification.
 Keep the scheduler comparison's original default workers and outcome checks.
 
+The lint traversal review found an independent recursive flow-analysis family
+after the shared statement walk. The one-descent contract requires that flow
+classification consume summaries from the common walk instead. An isolated
+lane is planning that repair, including sugar expansions and diagnostic-order
+parity. No flow implementation change or acceptance check has run yet.
+
 General inference implementation, its initial red/green witnesses, and the
 400-variable solver observation have not started. Consolidation acceptance
 remains the prerequisite. Lean and Phase F remain paused.

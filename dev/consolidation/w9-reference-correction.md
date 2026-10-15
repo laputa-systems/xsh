@@ -17,13 +17,45 @@ Rust type unit could not build because the musl host could not compile the
 `mini-internal` proc-macro. No red run against parent
 `bb29697265b29540f7d3a944a2454d2a4152dcc7` was performed.
 
-Original e240 captures and exact-owner receipts remain unchanged. No fresh W9
-capture or full comparison has run with the retry-derived source. Keep the
-68-range and 6,760-outcome checks strict.
+## Recovered-source captures
+
+The original legacy e240 outcome capture is missing after winddown. Archived
+exact-owner receipts bind that missing capture and cannot replace its outcomes.
+Retain those receipts unchanged. The recovered corpus has the same 1,690 paths,
+bytes, modes, and pinned manifest as e240. Fresh captures and comparison remain
+pending; keep the 68-range and 6,760-outcome checks strict.
+
+The resumed workflow adds source-cohort receipt schema 3 through `seal-source`.
+It binds the clean candidate commit/tree, recovered input paths and manifest,
+publication runner, qualified build runner, linker, pinned image, target,
+profile, and flags. Historical candidate schema 2 retains its original rules.
+It still requires its historical reference evidence.
+
+Fresh adapter build/capture receipts and exact-owner capture/proof receipts
+use schema 2. Every receipt binds the source-cohort receipt. Exact-owner proof
+also requires its role's fresh adapter capture, including all range receipts
+and their per-file BLAKE3 identities. Reject mixed or unknown schema versions.
+No missing historical path or hash becomes an optional legacy default.
+
+Capture e240 afresh, capture its exact-owner proof, then capture the pinned
+retry-derived reference and candidate. The correction validates derived raw
+owners against the original e240 exact-owner projection and retains the
+original-to-derived outcome delta. That proof remains an e240 proof. Candidate
+comparison uses the derived outcomes and grants no diagnostic waiver.
+
+The source-qualified builder uses the pinned x86_64 Linux musl verification
+profile, Kache, mold, static CRT, and the two isoc23 aliases. Compilation has
+12 CPUs and 24 GiB without swap; each capture worker has one CPU and 1 GiB
+without swap. Runtime uses the invoking UID/GID, no network or preload, a
+read-only corpus mount, and dedicated disk-backed scratch. It must not expose
+the corpus through another writable scratch mount.
+
+## Commands
 
 Run these commands from the XSH repository root. Set the paths to the clean
 candidate, its source receipt, the pinned derived reference worktree, and the
-original captures and exact-owner receipts:
+original captures and exact-owner receipts. For a recovered-source run, these
+must be the fresh schema-2 captures described above:
 
 ```sh
 RUNNER=dev/consolidation/w9_publication_adapter_runner.py
