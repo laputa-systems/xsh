@@ -57,6 +57,15 @@ work is authorized by this resume.
   The comparison helper validates the retained aggregate overlay against
   the three original scheduler commits. Its derivation and resource-snapshot
   checks pass. No scheduler comparison or speedup is established.
+- Route-evidence helper recovery is integrated through `fe4986b6e`.
+  Reconstructed inventory and operand-policy inputs are source review data.
+  The merged helpers pass 60 semantic-matrix and 45 eager-atom selftests.
+  Mapping validation finds 114 uncredited candidates and one artifact-capability
+  mapping. These checks credit zero executed route tuples. Source locks require
+  an explicit command and remain under `.work/`. EmptyMap child bytes are pinned
+  separately from its complete test file. The pipeline verifier oracle covers
+  a present input with the wrong category. Missing or truncated input remains
+  a separate evidence gap.
 - Assignment parity fixtures pass against the old collector: five tests cover
   late writes, nested comparison candidates, target roots, excluded statement
   regions, original scope visibility, and erroneous checked output. The
