@@ -157,6 +157,7 @@ docs.build_release(ctx)?
       PATH: tools,
       XSH_MODULE_PATH: fp"{repository}/dev",
       XSH_DEV_BUILD_PRELOAD: library,
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "",
     },
   )?
   let preloaded = f"preload={library}"
@@ -233,6 +234,7 @@ docs.build_release(ctx)?
       PATH: tools,
       XSH_MODULE_PATH: fp"{repository}/dev",
       XSH_DEV_BUILD_PRELOAD: "",
+      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "",
     },
   )?
   assert log.read_lines()? == [
