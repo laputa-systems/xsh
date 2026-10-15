@@ -142,6 +142,41 @@ Archived performance observations are gate evidence, not speedup claims:
   measured input-to-present p95 2.955 ms and p99 3.014 ms. It has no baseline
   or range, so it does not establish a change in latency.
 
+## Run the preloaded profile
+
+The native test suite keeps behavior and scaling assertions. The 20-sample
+preloaded profile runs separately as `dev/perf/btop-profile.xsh` because it
+prints performance evidence without asserting behavior or latency. Run it from
+the repository root with the release `xsh` binary and the Linux test image
+available. The command checks host readiness before the profile and checks
+again afterward, even if the profile times out or fails:
+
+```sh
+set -e
+repo=$(pwd -P)
+profile_status=0
+post_status=0
+perf-gate-ready
+timeout 120s docker run \
+  --rm --init --platform linux/amd64 --network none \
+  --cpus=1 --memory=4g --memory-swap=4g \
+  --tmpfs /tmp:rw,nodev,exec,mode=1777 \
+  -v "$repo:/work" \
+  -v "$repo/target/x86_64-unknown-linux-musl/release/xsh:/main-xsh:ro" \
+  -w /work \
+  -e TMPDIR=/work/.work/tmp \
+  -e TARGET=x86_64-unknown-linux-musl \
+  xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c \
+  /main-xsh dev/perf/btop-profile.xsh || profile_status=$?
+perf-gate-ready -1 || post_status=$?
+test "$profile_status" -eq 0
+test "$post_status" -eq 0
+```
+
+`perf-gate-ready` must exit successfully before you run the profile. The
+release `xsh` binary must target `x86_64-unknown-linux-musl`. The image digest
+pins the `Dockerfile.test` environment for `linux/amd64`.
+
 ## Campaign completion summary
 
 The fixed, read-only Linux monitor now has the pinned default panels, graphs,

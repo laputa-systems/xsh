@@ -9,39 +9,10 @@ use core.lib.sys_mount as mounts
 use core.lib.sys_proc as sysproc
 use core.lib.system_report as report
 use core.tests.support.btop as fixture
+use core.tests.support.btop_process_fixture as process_fixture
 
-const process_seed = 424242
 const process_count = 256
 const disk_count = 64
-
-pure synthetic_processes(count: Int, first_pid: Int, cpu_base: Int, seed: Int) -> List[sysproc.Process] {
-  var state = seed
-  collect {
-    for index in range(count) {
-      state = (state * 1103515245 + 12345) % 2147483648
-      let pid = first_pid + index
-      yield {
-        pid: pid,
-        parent_pid: 1,
-        start_ticks: 100 + index,
-        command: "seeded-worker",
-        thread_count: 1,
-        uid: 1000,
-        cpu_ticks: cpu_base + state % 1024,
-        rss_bytes: 4096 * (1 + state % 4096),
-      }
-    }
-  }
-}
-
-pure with_processes(
-  base: model.Observation,
-  source_id: Str,
-  at_ns: Int,
-  rows: List[sysproc.Process],
-) -> model.Observation {
-  {...base, source_id: source_id, at_ns: at_ns, processes.processes: rows}
-}
 
 proc measured_process_join(current: List[sysproc.Process], previous: List[sysproc.Process]) [time, error] -> Int {
   let started_ns = time.monotonic()?
@@ -113,29 +84,29 @@ test test_btop_process_join_scales_from_one_thousand_to_two_thousand {
   let frame = root.open_root(p"frame")?
   defer frame.close()
   let base = source.capture(frame, "scaling", 1000000000, 4096, 100)?
-  let previous_1000 = with_processes(
+  let previous_1000 = process_fixture.with_processes(
     base,
     "scaling",
     1000000000,
-    synthetic_processes(1000, 10000, 100000, process_seed),
+    process_fixture.synthetic_processes(1000, 10000, 100000, process_fixture.process_seed),
   )
-  let current_1000 = with_processes(
+  let current_1000 = process_fixture.with_processes(
     base,
     "scaling",
     2000000000,
-    synthetic_processes(1000, 10000, 100100, process_seed),
+    process_fixture.synthetic_processes(1000, 10000, 100100, process_fixture.process_seed),
   )
-  let previous_2000 = with_processes(
+  let previous_2000 = process_fixture.with_processes(
     base,
     "scaling",
     1000000000,
-    synthetic_processes(2000, 10000, 100000, process_seed),
+    process_fixture.synthetic_processes(2000, 10000, 100000, process_fixture.process_seed),
   )
-  let current_2000 = with_processes(
+  let current_2000 = process_fixture.with_processes(
     base,
     "scaling",
     2000000000,
-    synthetic_processes(2000, 10000, 100100, process_seed),
+    process_fixture.synthetic_processes(2000, 10000, 100100, process_fixture.process_seed),
   )
   let joined_1000 = model.process_join(current_1000.processes.processes, previous_1000.processes.processes)
   assert joined_1000.len() == 1000
@@ -155,51 +126,9 @@ test test_btop_process_join_scales_from_one_thousand_to_two_thousand {
   let median_1000 = median(samples_1000)
   let median_2000 = median(samples_2000)
   let ratio = median_2000.float() / median_1000.float()
-  print f"btop indexed process join scaling: seed={process_seed} repeats=5 median_1000_ns={median_1000} median_2000_ns={median_2000} ratio={ratio.format(precision: 2)}"
+  print f"btop indexed process join scaling: seed={process_fixture.process_seed} repeats=5 median_1000_ns={median_1000} median_2000_ns={median_2000} ratio={ratio.format(precision: 2)}"
   assert median_1000 > 0 and median_2000 > 0
   assert ratio <= 3.0, f"indexed process update grew by {ratio.format(precision: 2)}x"
-}
-
-test test_btop_preloaded_model_render_and_diff_profile_at_one_thousand_processes {
-  let root = fs.tempdir()?
-  defer root.close()
-  fixture.write_b3_frame(root, "frame", 0, [])
-  let frame = root.open_root(p"frame")?
-  defer frame.close()
-  let base = source.capture(frame, "profile", 1000000000, 4096, 100)?
-  let previous = with_processes(
-    base,
-    "profile",
-    1000000000,
-    synthetic_processes(1000, 10000, 100000, process_seed),
-  )
-  let current = with_processes(
-    base,
-    "profile",
-    2000000000,
-    synthetic_processes(1000, 10000, 100100, process_seed),
-  )
-  let initial_model = model.step(previous, null)
-  let initial_screen = renderer.render(initial_model, 120, 40)?
-  let initial_surface = surface.from_lines(120, 40, initial_screen.lines)?
-  let initial_update = surface.prepare(surface.initial(), initial_surface)
-  var committed = surface.complete(initial_update, initial_update.bytes.byte_len())
-  let samples = collect {
-    repeat 20 times {
-      let started_ns = time.monotonic()?
-      let updated = model.step_cached(current, previous, model.empty_metadata_cache("profile"))
-      let screen = renderer.render(updated.value, 120, 40)?
-      let desired = surface.from_lines(120, 40, screen.lines)?
-      let delta = surface.prepare(committed, desired)
-      let written_bytes = delta.bytes.byte_len()
-      committed = surface.complete(delta, written_bytes)
-      yield time.monotonic()? - started_ns
-    }
-  }
-  let ordered = samples |> sort
-  let p95_ns = ordered[(ordered.len() * 95 + 99) / 100 - 1]
-  let p99_ns = ordered[(ordered.len() * 99 + 99) / 100 - 1]
-  print f"btop preloaded 1k model+render+diff: seed={process_seed} runner=Alpine_x86_64_musl_release size=120x40 samples={samples.len()} p95_ns={p95_ns} p99_ns={p99_ns}"
 }
 
 test test_btop_process_and_device_identity_churn_stays_bounded_and_warms_new_epochs {
@@ -214,11 +143,11 @@ test test_btop_process_and_device_identity_churn_stays_bounded_and_warms_new_epo
   var first_pid = 0
 
   for cycle in range(8) {
-    let current_processes = synthetic_processes(
+    let current_processes = process_fixture.synthetic_processes(
       process_count,
       10000 + cycle * 1000,
       100000 + cycle * 100,
-      process_seed + cycle,
+      process_fixture.process_seed + cycle,
     )
     let current: model.Observation = model.Observation(
       source_id: "churn",
