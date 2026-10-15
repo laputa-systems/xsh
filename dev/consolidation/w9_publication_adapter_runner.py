@@ -442,7 +442,6 @@ fn w9_hash_adapter_tree(root_path: &std::path::Path, count: usize) -> std::io::R
     use rustix::fs::{Dir, FileType, Mode, OFlags};
     use std::collections::BTreeSet;
     use std::io::Read as _;
-    use std::os::unix::ffi::OsStrExt as _;
 
     let mut multi_chunk = (0..4097).map(|index| (index % 251) as u8).collect::<Vec<_>>();
     let original_hash = blake3::hash(&multi_chunk);
