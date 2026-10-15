@@ -47,6 +47,29 @@ registration lists, duplicate checked-fact copies, independent recursive
 descents, and probe transports are removed. Run repository lint alone for
 timing after correctness; defer a stricter threshold to the performance phase.
 
+## Flow summaries in the shared walk
+
+The resumed audit found that statement-sequence linting calls a separate
+recursive flow analyzer after visiting each statement. Remove that second
+descent. Keep its existing `FlowSummary` equations and dead-code diagnostic
+order, using `5366d950a` as the executable reference.
+
+Publish private flow summaries after the common visitor finishes each
+expression, statement, assignment target, run form, and builder block.
+Accumulate block summaries in the existing statement-sequence loop. Transfer
+functions consume completed child summaries and classify source forms
+exhaustively. They must not recurse through the arena or fall back to a fresh
+walk when a summary is missing. Compute each cached summary once and retain
+facts only for the current source when the dead-code rule needs them.
+
+Sugar requires explicit source-form transfers: the common lint walk visits
+source operands, while the old flow analyzer usually follows expansions.
+Preserve expansion behavior, including literal guards, without visiting those
+expansions again. Function, producer, cleanup, and loop boundaries must consume
+their abrupt exits exactly as before. Compare retained dead-code/guard tests
+and repository/Laputa diagnostics against the reference; retain new coverage
+for missing semantic categories. No diagnostic precision change is authorized.
+
 ## Assignment safety facts
 
 Remove lint's recursive assignment prepass. One assignment-name fact owns

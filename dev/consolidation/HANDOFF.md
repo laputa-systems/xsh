@@ -191,9 +191,11 @@ Keep the scheduler comparison's original default workers and outcome checks.
 
 The lint traversal review found an independent recursive flow-analysis family
 after the shared statement walk. The one-descent contract requires that flow
-classification consume summaries from the common walk instead. An isolated
-lane is planning that repair, including sugar expansions and diagnostic-order
-parity. No flow implementation change or acceptance check has run yet.
+classification consume summaries from the common walk instead. The approved
+[flow integration](designs/lint-rules.md#flow-summaries-in-the-shared-walk)
+preserves sugar behavior and diagnostic order. Its isolated lane has added
+behavior coverage; the reference's dead-code file suite passes 23 cases.
+Implementation and candidate verification remain open.
 
 General inference implementation, its initial red/green witnesses, and the
 400-variable solver observation have not started. Consolidation acceptance
