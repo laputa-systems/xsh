@@ -2033,8 +2033,7 @@ impl<'a> Parser<'a> {
                 self.bump();
                 name
             } else {
-                let name = self.expect_label_name("expected record field label")?;
-                name
+                self.expect_label_name("expected record field label")?
             };
             let mut key_id =
                 arena.push_ident_expr(name, self.span(field_start, self.previous_end()));
