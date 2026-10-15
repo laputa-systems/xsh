@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import contextlib
+import hashlib
 import importlib.util
 import io
 import os
 import pathlib
+import shutil
 import signal
 import subprocess
 import sys
@@ -29,7 +31,21 @@ class PublicationRunnerTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = pathlib.Path(self.temporary.name)
         subprocess.run(["git", "-C", str(self.root), "init", "--quiet"], check=True)
-
+        subprocess.run(
+            ["git", "-C", str(self.root), "config", "user.name", "publication fixture"],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "config",
+                "user.email",
+                "publication-fixture@example.invalid",
+            ],
+            check=True,
+        )
     def test_source_scratch_checkouts_use_the_worktree_directory(self):
         self.assertEqual(
             runner.candidate_scratch_parent(self.root),
@@ -38,8 +54,8 @@ class PublicationRunnerTests(unittest.TestCase):
 
     def paths(self):
         return {
-            0: runner.ManifestSource("one.xsh", "a" * 64),
-            1: runner.ManifestSource("two.xsh", "b" * 64),
+            0: runner.ManifestSource("one.xsh", "a" * 64, 0o444),
+            1: runner.ManifestSource("two.xsh", "b" * 64, 0o444),
         }
 
     def receipt_paths(self):
@@ -159,7 +175,7 @@ class PublicationRunnerTests(unittest.TestCase):
         source = candidate / "source.xsh"
         source.write_text("synthetic source\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(candidate), "add", "source.xsh"], check=True)
-        subprocess.run(["git", "-C", str(candidate), "commit", "--quiet", "-m", "initial source"], check=True)
+        subprocess.run(["git", "-C", str(candidate), "commit", "--quiet", "-m", "test(fixtures): initialize source"], check=True)
 
         work = candidate / ".work"
         (candidate / ".git/info/exclude").write_text(".work/\n", encoding="utf-8")
@@ -168,7 +184,7 @@ class PublicationRunnerTests(unittest.TestCase):
         helper.write_bytes(b"synthetic pinned helper\n")
         subprocess.run(["git", "-C", str(candidate), "add", "-f", str(helper.relative_to(candidate))], check=True)
         subprocess.run(
-            ["git", "-C", str(candidate), "commit", "--quiet", "-m", "stage synthetic helper"], check=True
+            ["git", "-C", str(candidate), "commit", "--quiet", "-m", "test(fixtures): stage synthetic helper"], check=True
         )
         binary = work / "candidate-bin"
         binary.write_bytes(b"synthetic executable\n")
@@ -195,10 +211,10 @@ class PublicationRunnerTests(unittest.TestCase):
         source_hash = runner.sha256_file(corpus_source)
         helper_hash = runner.sha256_file(helper)
         corpus_digest = runner.CORPUS_BLAKE3
-        paths_by_index = {0: runner.ManifestSource("one.xsh", source_hash)}
+        paths_by_index = {0: runner.ManifestSource("one.xsh", source_hash, 0o444)}
         paths_by_path = {"one.xsh": source_hash}
         receipt_paths = {0: runner.ReceiptSource("one.xsh", "f" * 64)}
-        input_manifest.write_text(f"0\tone.xsh\t{source_hash}\t100644\n", encoding="utf-8")
+        input_manifest.write_text(f"0\tone.xsh\t{source_hash}\t444\n", encoding="utf-8")
         self.write_reference_receipt(reference_receipt, receipt_paths, corpus_digest)
         reference_validation.write_text(
             "\n".join(
@@ -341,7 +357,7 @@ class PublicationRunnerTests(unittest.TestCase):
                                 "commit",
                                 "--quiet",
                                 "-m",
-                                "concurrent source change",
+                                "test(fixtures): change concurrent source",
                             ],
                             check=True,
                         )
@@ -601,7 +617,7 @@ class PublicationRunnerTests(unittest.TestCase):
 
         fields["schema"] = "3"
         path.write_text("".join(f"{key}\t{value}\n" for key, value in fields.items()), encoding="utf-8")
-        with self.assertRaisesRegex(runner.PublicationError, "unsupported candidate receipt schema"):
+        with self.assertRaisesRegex(runner.PublicationError, "source-qualified receipt fields differ"):
             runner.parse_candidate_receipt(path)
 
         fields["schema"] = "2"
@@ -713,7 +729,18 @@ class PublicationRunnerTests(unittest.TestCase):
             ["git", "-C", str(self.root), "config", "user.email", "synthetic@example.invalid"], check=True
         )
         subprocess.run(["git", "-C", str(self.root), "add", "tests/sema.rs"], check=True)
-        subprocess.run(["git", "-C", str(self.root), "commit", "--quiet", "-m", "source"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "commit",
+                "--quiet",
+                "-m",
+                "test(fixtures): stage semantic source",
+            ],
+            check=True,
+        )
 
         semantic_tests.write_bytes(b"fn existing_test() {}\ninclude!(\"overlay.rs\");\n")
         runner.require_only_parity_overlay(self.root, "unexpected scratch changes")
@@ -807,9 +834,10 @@ class PublicationRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.PublicationError, "symlink or non-canonical path"):
             runner.stage_helper(symlink_root, source_link, digest)
 
-    def test_approved_helper_source_stages_at_the_documented_candidate_path(self):
-        self.assertEqual(runner.sha256_file(runner.APPROVED_HELPER_SOURCE), runner.HELPER_SHA256)
-        destination = runner.stage_helper(self.root)
+    def test_pinned_helper_bytes_stage_at_the_documented_candidate_path(self):
+        helper_source = runner.ROOT / "dev/consolidation/winddown/gate-tools/w9-repository-parity.rs"
+        self.assertEqual(runner.sha256_file(helper_source), runner.HELPER_SHA256)
+        destination = runner.stage_helper(self.root, helper_source, runner.HELPER_SHA256)
         self.assertEqual(destination, self.root / runner.HELPER_RELATIVE_PATH)
         self.assertEqual(runner.sha256_file(destination), runner.HELPER_SHA256)
 
@@ -905,10 +933,13 @@ class PublicationRunnerTests(unittest.TestCase):
 
         self.assertEqual(inspect.call_args.kwargs["timeout"], 10)
 
-    def test_docker_shim_applies_exact_worker_limits_from_pinned_wrapper(self):
-        wrapper = runner.APPROVED_BUILD_RUNNER.parent / "run-native-secondary.sh"
-        runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
-        wrapper_text = runner.read_regular_text(wrapper)
+    def test_docker_shim_applies_worker_limits_from_wrapper_fixture(self):
+        wrapper = self.root / "native-test-wrapper"
+        wrapper_text = (
+            "TASK_DOCKER=(docker run --cpus=8 --memory=16g "
+            f"{runner.PINNED_IMAGE})\n"
+        )
+        wrapper.write_text(wrapper_text, encoding="utf-8")
         docker_array_line = next(line for line in wrapper_text.splitlines() if line.startswith("TASK_DOCKER=("))
         wrapper_args = runner.shlex.split(docker_array_line.removeprefix("TASK_DOCKER=(").removesuffix(")"))
         self.assertEqual(wrapper_args[:2], ["docker", "run"])
@@ -1283,6 +1314,206 @@ class PublicationRunnerTests(unittest.TestCase):
                     rf"{field} mismatch at \(1, 'two\.xsh', 'execution'\)",
                 ):
                     runner.verify_receipt_bundle(reference, candidate_dir, self.paths(), "c" * 64)
+
+
+class SourceCohortReceiptTests(unittest.TestCase):
+    def setUp(self):
+        scratch = runner.ROOT / ".work/tmp"
+        scratch.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(prefix="w9-source-cohort-", dir=scratch)
+        self.addCleanup(self.temporary.cleanup)
+        self.root = pathlib.Path(self.temporary.name)
+        self.candidate_root = self.root / "candidate"
+        subprocess.run(
+            ["git", "-C", str(runner.ROOT), "worktree", "add", "--quiet", "--detach", str(self.candidate_root), "HEAD"],
+            check=True,
+        )
+        self.addCleanup(
+            subprocess.run,
+            ["git", "-C", str(runner.ROOT), "worktree", "remove", "--force", str(self.candidate_root)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.runner_path = self.candidate_root / "dev/consolidation/w9-publication-run.py"
+        shutil.copy2(RUNNER_PATH, self.runner_path)
+        subprocess.run(
+            ["git", "-C", str(self.candidate_root), "add", "dev/consolidation/w9-publication-run.py"],
+            check=True,
+        )
+        fixture_environment = {
+            **os.environ,
+            "GIT_AUTHOR_NAME": "W9 source receipt test",
+            "GIT_AUTHOR_EMAIL": "w9-source-receipt@example.invalid",
+            "GIT_COMMITTER_NAME": "W9 source receipt test",
+            "GIT_COMMITTER_EMAIL": "w9-source-receipt@example.invalid",
+        }
+        staged_source_change = subprocess.run(
+            ["git", "-C", str(self.candidate_root), "diff", "--cached", "--quiet"],
+            check=False,
+        )
+        if staged_source_change.returncode == 1:
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(self.candidate_root),
+                    "commit",
+                    "--quiet",
+                    "-m",
+                    "test(fixtures): add source runner",
+                ],
+                check=True,
+                env=fixture_environment,
+            )
+        elif staged_source_change.returncode != 0:
+            raise subprocess.CalledProcessError(
+                staged_source_change.returncode, staged_source_change.args
+            )
+        self.builder = runner.SOURCE_BUILDER_PATH
+        self.input_root = self.root / "input-corpus"
+        self.input_root.mkdir()
+        self.source_directory = self.input_root / "sources"
+        self.source_directory.mkdir()
+        self.manifest = self.root / "input-files.tsv"
+        self.linker = runner.SOURCE_LINKER_PATH
+        candidate_spec = importlib.util.spec_from_file_location("w9_candidate_runner_test", self.runner_path)
+        self.candidate_runner = importlib.util.module_from_spec(candidate_spec)
+        sys.modules[candidate_spec.name] = self.candidate_runner
+        candidate_spec.loader.exec_module(self.candidate_runner)
+
+    def write_cohort(self, count=1690, mode="444"):
+        self.input_root.chmod(0o755)
+        self.source_directory.chmod(0o755)
+        for source in self.source_directory.iterdir():
+            if source.is_file():
+                source.chmod(0o644)
+                source.unlink()
+        rows = []
+        for index in range(count):
+            relative = f"sources/{index:04}.xsh"
+            source = self.input_root / relative
+            contents = f"source {index}\n".encode()
+            source.write_bytes(contents)
+            source.chmod(0o444)
+            rows.append(f"{index}\t{relative}\t{hashlib.sha256(contents).hexdigest()}\t{mode}\n")
+        self.source_directory.chmod(0o555)
+        self.input_root.chmod(0o555)
+        self.addCleanup(self.source_directory.chmod, 0o755)
+        self.addCleanup(self.input_root.chmod, 0o755)
+        self.manifest.write_text("".join(rows), encoding="utf-8")
+        return hashlib.sha256(self.manifest.read_bytes()).hexdigest()
+
+    def source_record(self, manifest_sha256):
+        commit, tree = runner.source_identity(self.candidate_root)
+        return {
+            "schema": runner.SOURCE_COHORT_SCHEMA,
+            "role": "source-cohort",
+            "candidate_root": str(self.candidate_root),
+            "candidate_commit": commit,
+            "candidate_tree": tree,
+            "input_root": str(self.input_root),
+            "input_manifest": str(self.manifest),
+            "input_manifest_sha256": manifest_sha256,
+            "corpus_blake3": runner.CORPUS_BLAKE3,
+            "builder_path": str(self.builder),
+            "builder_sha256": runner.sha256_file(self.builder),
+            "builder_image": runner.SOURCE_BUILD_IMAGE,
+            "build_target": runner.SOURCE_BUILD_TARGET,
+            "build_profile": runner.SOURCE_BUILD_PROFILE,
+            "rustflags": runner.SOURCE_RUSTFLAGS,
+            "linker_path": str(self.linker),
+            "linker_sha256": runner.sha256_file(self.linker),
+            "runner": str(self.runner_path),
+            "runner_sha256": runner.sha256_file(self.runner_path),
+        }
+
+    def test_source_cohort_checks_exact_1690_files_and_modes(self):
+        manifest_sha256 = self.write_cohort()
+        record = self.source_record(manifest_sha256)
+        with patch.object(runner, "INPUT_MANIFEST_SHA256", manifest_sha256):
+            by_index, by_path = runner.validate_source_cohort_inputs(record)
+        self.assertEqual(len(by_index), 1690)
+        self.assertEqual(len(by_path), 1690)
+        self.assertEqual(by_index[0].mode, 0o444)
+
+    def test_source_cohort_rejects_short_manifest_and_nonfrozen_modes(self):
+        manifest_sha256 = self.write_cohort(count=1689)
+        record = self.source_record(manifest_sha256)
+        with patch.object(runner, "INPUT_MANIFEST_SHA256", manifest_sha256):
+            with self.assertRaisesRegex(runner.PublicationError, "expected 1690 sequential sources, found 1689"):
+                runner.validate_source_cohort_inputs(record)
+
+        manifest_sha256 = self.write_cohort(count=1, mode="100444")
+        record = self.source_record(manifest_sha256)
+        with patch.object(runner, "INPUT_MANIFEST_SHA256", manifest_sha256):
+            with self.assertRaisesRegex(runner.PublicationError, "invalid source path or mode"):
+                runner.validate_source_cohort_inputs(record)
+
+    def test_historical_parser_ignores_the_unpinned_mode_column(self):
+        self.write_cohort(mode="legacy-mode")
+        by_index, _by_path = runner.parse_input_manifest(self.manifest)
+        self.assertIsInstance(by_index[0], runner.HistoricalManifestSource)
+
+    def test_source_cohort_rejects_symlink_directories(self):
+        manifest_sha256 = self.write_cohort()
+        target = self.root / "hidden"
+        target.mkdir()
+        (target / "unexpected.xsh").write_text("hidden\n", encoding="utf-8")
+        self.input_root.chmod(0o755)
+        (self.input_root / "hidden").symlink_to(target, target_is_directory=True)
+        self.input_root.chmod(0o555)
+        record = self.source_record(manifest_sha256)
+        with patch.object(runner, "INPUT_MANIFEST_SHA256", manifest_sha256):
+            with self.assertRaisesRegex(runner.PublicationError, "symlink directory"):
+                runner.validate_source_cohort_inputs(record)
+
+    def test_source_receipt_rejects_stale_source_root_manifest_runner_or_linker(self):
+        manifest_sha256 = self.write_cohort(count=1)
+        record = self.source_record(manifest_sha256)
+        with patch.object(runner, "INPUT_MANIFEST_SHA256", manifest_sha256), patch.object(
+            self.candidate_runner, "INPUT_MANIFEST_SHA256", manifest_sha256
+        ):
+            runner.validate_source_receipt_record(record)
+            self.candidate_runner.validate_source_receipt_record(record)
+
+            stale_source = dict(record, candidate_tree="0" * 40)
+            with self.assertRaisesRegex(runner.PublicationError, "candidate identity differs"):
+                runner.validate_source_receipt_record(stale_source)
+
+            stale_manifest = dict(record, input_manifest_sha256="0" * 64)
+            with self.assertRaisesRegex(runner.PublicationError, "manifest differs from its pin"):
+                runner.validate_source_receipt_record(stale_manifest)
+
+            stale_runner_path = self.root / "stale-runner"
+            stale_runner_path.write_text("stale\n", encoding="utf-8")
+            stale_runner = dict(record, runner=str(stale_runner_path))
+            with self.assertRaisesRegex(runner.PublicationError, "publication runner path is not canonical"):
+                runner.validate_source_receipt_record(stale_runner)
+
+            stale_runner_hash = dict(record, runner_sha256="0" * 64)
+            with self.assertRaisesRegex(runner.PublicationError, "publication runner: SHA-256 mismatch"):
+                runner.validate_source_receipt_record(stale_runner_hash)
+
+            stale_linker = dict(record, linker_sha256="0" * 64)
+            with self.assertRaisesRegex(runner.PublicationError, "musl linker identity differs"):
+                runner.validate_source_receipt_record(stale_linker)
+
+    def test_source_cohort_rejects_missing_input_root_and_changed_manifest_bytes(self):
+        manifest_sha256 = self.write_cohort()
+        record = self.source_record(manifest_sha256)
+        empty_root = self.root / "empty-input-root"
+        empty_root.mkdir()
+        empty_root.chmod(0o555)
+        self.addCleanup(empty_root.chmod, 0o755)
+        stale_root = dict(record, input_root=str(empty_root))
+        with patch.object(runner, "INPUT_MANIFEST_SHA256", manifest_sha256):
+            with self.assertRaisesRegex(runner.PublicationError, "file list differs"):
+                runner.validate_source_cohort_inputs(stale_root)
+
+            self.manifest.write_text(self.manifest.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(runner.PublicationError, "SHA-256 mismatch"):
+                runner.validate_source_cohort_inputs(record)
 
 
 if __name__ == "__main__":

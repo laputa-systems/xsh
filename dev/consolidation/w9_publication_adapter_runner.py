@@ -27,6 +27,10 @@ APPROVED_HELPER = pathlib.Path(
     "/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver/"
     ".work/consolidation/w9-repository-parity.rs"
 )
+SOURCE_APPROVED_HELPER = (
+    pathlib.Path(__file__).resolve().parents[2]
+    / "dev/consolidation/winddown/gate-tools/w9-repository-parity.rs"
+)
 OWNER_HELPER = ROOT / "dev/consolidation/w9-publication-owner-helper.rs"
 APPROVED_HELPER_SHA256 = "2ff5aaa74f8ae3d0597a3c14796d8643211a5b57b8b95147ba87205540ca95b0"
 OWNER_HELPER_SHA256 = "23fafe5b4140396242543bb4c59b0bcc1e0d4b59280f1f0e8dabf0cbd8431562"
@@ -59,6 +63,40 @@ ADAPTER_BUILD_FIELDS = (
     "owner_helper_source_sha256",
     "overlay_sha256",
 )
+SOURCE_ADAPTER_BUILD_FIELDS = (
+    "schema",
+    "role",
+    "source_root",
+    "source_commit",
+    "source_tree",
+    "binary",
+    "binary_sha256",
+    "source_receipt",
+    "source_receipt_sha256",
+    "input_root",
+    "input_manifest",
+    "input_manifest_sha256",
+    "corpus_blake3",
+    "builder_path",
+    "builder_sha256",
+    "builder_image",
+    "build_target",
+    "build_profile",
+    "rustflags",
+    "linker_path",
+    "linker_sha256",
+    "runner_path",
+    "runner_sha256",
+    "approved_helper_path",
+    "approved_helper_sha256",
+    "helper_path",
+    "helper_sha256",
+    "owner_helper_path",
+    "owner_helper_sha256",
+    "owner_helper_source_path",
+    "owner_helper_source_sha256",
+    "overlay_sha256",
+)
 CAPTURE_FIELDS = (
     "schema",
     "role",
@@ -69,6 +107,36 @@ CAPTURE_FIELDS = (
     "binary_sha256",
     "build_receipt",
     "build_receipt_sha256",
+    "helper_sha256",
+    "owner_helper_sha256",
+    "input_root",
+    "input_manifest",
+    "input_manifest_sha256",
+    "corpus_blake3",
+    "capture_root",
+    "raw_root",
+    "receipt_directory",
+    "range_count",
+    "outcome_count",
+)
+SOURCE_CAPTURE_FIELDS = (
+    "schema",
+    "role",
+    "source_receipt",
+    "source_receipt_sha256",
+    "source_root",
+    "source_commit",
+    "source_tree",
+    "binary",
+    "binary_sha256",
+    "build_receipt",
+    "build_receipt_sha256",
+    "builder_path",
+    "builder_sha256",
+    "runner_path",
+    "runner_sha256",
+    "linker_path",
+    "linker_sha256",
     "helper_sha256",
     "owner_helper_sha256",
     "input_root",
@@ -534,7 +602,10 @@ def _load_candidate_publication_runner(
         raise PublicationError("candidate source receipt publication runner hash is malformed")
     if runner.sha256_file(candidate_runner) != source_record["runner_sha256"]:
         raise PublicationError("candidate publication runner hash differs from its source receipt")
-    return _load_publication_runner(candidate_runner)
+    loaded_runner = _load_publication_runner(candidate_runner)
+    if loaded_runner.CONTROLLER_ROOT != runner.CONTROLLER_ROOT:
+        raise PublicationError("candidate publication runner uses a different controller Git root")
+    return loaded_runner
 
 
 def _load_exact_owner_runner(runner):
@@ -581,19 +652,26 @@ def _require_exact_capture_binding(
     capture = proof.get("capture")
     if not isinstance(capture, dict):
         raise PublicationError(f"exact-owner {role} proof has no capture binding")
+    capture_schema = capture.get("schema")
+    if capture_schema == "2":
+        capture_field = "adapter_capture_receipt"
+        hash_field = "adapter_capture_receipt_sha256"
+    elif capture_schema == "1":
+        capture_field = "legacy_capture_receipt"
+        hash_field = "legacy_capture_receipt_sha256"
+    else:
+        raise PublicationError(f"exact-owner {role} proof has an unsupported capture schema")
     recorded_capture = runner.regular_file(
-        capture.get("legacy_capture_receipt", ""),
-        f"exact-owner {role} bound legacy capture receipt",
+        capture.get(capture_field, ""),
+        f"exact-owner {role} bound adapter capture receipt",
     )
     if recorded_capture != expected_capture:
-        raise PublicationError(
-            f"exact-owner {role} proof names a different legacy capture receipt"
-        )
-    recorded_hash = capture.get("legacy_capture_receipt_sha256", "")
+        raise PublicationError(f"exact-owner {role} proof names a different adapter capture receipt")
+    recorded_hash = capture.get(hash_field, "")
     if not re.fullmatch(r"[0-9a-f]{64}", recorded_hash):
-        raise PublicationError(f"exact-owner {role} proof has a malformed legacy capture hash")
+        raise PublicationError(f"exact-owner {role} proof has a malformed adapter capture hash")
     if runner.sha256_file(expected_capture) != recorded_hash:
-        raise PublicationError(f"exact-owner {role} proof legacy capture hash differs")
+        raise PublicationError(f"exact-owner {role} proof adapter capture hash differs")
 
 
 def _mkdir_new_directory(path: pathlib.Path, runner) -> None:
@@ -769,10 +847,6 @@ def _hash_raw_outcomes(
     docker_environment: dict[str, str],
     runner,
 ) -> dict[tuple[int, str, str], str]:
-    wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
-    wrapper_root = runner.real_directory(source_record["wrapper_root"], "pinned wrapper root")
-    runner.validate_wrapper_root(wrapper_root, pathlib.Path(source_record["candidate_root"]))
-    runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
     if not runner.under(raw_root, pathlib.Path(source_record["candidate_root"]) / ".work"):
         raise PublicationError(f"raw adapter output is outside candidate .work/: {raw_root}")
     job_dir = capture_output / "hashjobs" / role
@@ -780,9 +854,42 @@ def _hash_raw_outcomes(
     container = f"w9adapter-{os.getpid()}-hash-{role}"
     if runner.existing_container(container, docker_environment):
         raise PublicationError(f"adapter hash Docker container already exists: {container}")
-    shim_dir = runner.docker_shim(
-        job_dir, container, cpu, pathlib.Path(source_record["input_root"])
-    )
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA:
+        command = [
+            "timeout", "900s", source_record["builder_path"], source_record["candidate_root"], "run",
+            f"W9_INPUT_ROOT={source_record['input_root']}",
+            f"W9_CPU_SET={cpu}",
+            f"W9_CONTAINER_NAME={container}",
+            "env",
+            f"W9_ADAPTER_HASH_ROOT={raw_root}",
+            f"W9_ADAPTER_HASH_INPUT_COUNT={count}",
+            "taskset", "-c", str(cpu), str(binary), "--exact",
+            "sema::w9_repository_parity_receipt", "--nocapture",
+        ]
+        environment = {
+            **docker_environment,
+            "W9_SOURCE_COMMIT": source_record["candidate_commit"],
+            "W9_SOURCE_TREE": source_record["candidate_tree"],
+        }
+        job_root = pathlib.Path(source_record["candidate_root"])
+    else:
+        wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
+        wrapper_root = runner.real_directory(source_record["wrapper_root"], "pinned wrapper root")
+        runner.validate_wrapper_root(wrapper_root, pathlib.Path(source_record["candidate_root"]))
+        runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
+        shim_dir = runner.docker_shim(
+            job_dir, container, cpu, pathlib.Path(source_record["input_root"])
+        )
+        environment = dict(docker_environment)
+        environment["PATH"] = f"{shim_dir}:/usr/bin:/bin"
+        command = [
+            "timeout", "900s", str(wrapper), str(wrapper_root), "run", "env",
+            f"W9_ADAPTER_HASH_ROOT={raw_root}",
+            f"W9_ADAPTER_HASH_INPUT_COUNT={count}",
+            "taskset", "-c", str(cpu), str(binary), "--exact",
+            "sema::w9_repository_parity_receipt", "--nocapture",
+        ]
+        job_root = wrapper_root
     log = job_dir / "worker.log"
     log_descriptor = os.open(
         log,
@@ -795,25 +902,6 @@ def _hash_raw_outcomes(
         f"binary_sha256={runner.sha256_file(binary)}\n".encode()
     )
     log_output.flush()
-    environment = dict(docker_environment)
-    environment["PATH"] = f"{shim_dir}:/usr/bin:/bin"
-    command = [
-        "timeout",
-        "900s",
-        str(wrapper),
-        str(wrapper_root),
-        "run",
-        "env",
-        f"W9_ADAPTER_HASH_ROOT={raw_root}",
-        f"W9_ADAPTER_HASH_INPUT_COUNT={count}",
-        "taskset",
-        "-c",
-        str(cpu),
-        str(binary),
-        "--exact",
-        "sema::w9_repository_parity_receipt",
-        "--nocapture",
-    ]
     job: dict[str, object] = {
         "worker": role,
         "cpu": cpu,
@@ -829,7 +917,7 @@ def _hash_raw_outcomes(
     active: list[dict[str, object]] = []
     try:
         runner.start_and_register_job(
-            job, active, command, str(wrapper_root), environment
+            job, active, command, job_root, environment
         )
         process = job["process"]
         while process.poll() is None:
@@ -937,11 +1025,15 @@ def _adapter_build_output_paths(
 
 
 def _write_adapter_build_receipt(path: pathlib.Path, record: dict[str, str], runner) -> None:
-    if set(record) != set(ADAPTER_BUILD_FIELDS):
+    fields = {
+        "1": ADAPTER_BUILD_FIELDS,
+        "2": SOURCE_ADAPTER_BUILD_FIELDS,
+    }.get(record.get("schema", ""))
+    if fields is None or set(record) != set(fields):
         raise PublicationError("adapter build receipt fields differ")
     _write_new_file(
         path,
-        "".join(f"{field}\t{record[field]}\n" for field in ADAPTER_BUILD_FIELDS).encode("utf-8"),
+        "".join(f"{field}\t{record[field]}\n" for field in fields).encode("utf-8"),
         runner,
     )
 
@@ -970,8 +1062,36 @@ def _parse_adapter_build_receipt(
     owner_helper_source: pathlib.Path | None = None,
 ) -> dict[str, str]:
     receipt = runner.regular_file(path, f"{role} adapter build receipt")
+    lines = runner.read_regular_text(receipt).splitlines()
+    if not lines:
+        raise PublicationError(f"{receipt}: incomplete adapter build receipt")
+    first = lines[0].split("\t")
+    if len(first) != 2 or first[0] != "schema":
+        raise PublicationError(f"{receipt}: malformed adapter build receipt schema row")
+    if first[1] == "1":
+        return _parse_historical_adapter_build_receipt(
+            receipt, role, runner, owner_helper_source, lines
+        )
+    if first[1] == "2":
+        return _parse_source_adapter_build_receipt(
+            receipt, role, runner, owner_helper_source, lines
+        )
+    raise PublicationError(f"{receipt}: unsupported adapter build receipt schema {first[1]!r}")
+
+
+def _parse_historical_adapter_build_receipt(
+    path: pathlib.Path,
+    role: str,
+    runner,
+    owner_helper_source: pathlib.Path | None = None,
+    lines: list[str] | None = None,
+) -> dict[str, str]:
+    receipt = runner.regular_file(path, f"{role} adapter build receipt")
     record, remainder = _parse_receipt_header(
-        receipt, runner.read_regular_text(receipt).splitlines(), ADAPTER_BUILD_FIELDS, "adapter build"
+        receipt,
+        runner.read_regular_text(receipt).splitlines() if lines is None else lines,
+        ADAPTER_BUILD_FIELDS,
+        "adapter build",
     )
     if remainder:
         raise PublicationError(f"{receipt}: unexpected adapter build receipt rows")
@@ -1034,6 +1154,125 @@ def _parse_adapter_build_receipt(
     return record
 
 
+def _parse_source_adapter_build_receipt(
+    path: pathlib.Path,
+    role: str,
+    runner,
+    owner_helper_source: pathlib.Path | None,
+    lines: list[str],
+) -> dict[str, str]:
+    receipt = runner.regular_file(path, f"{role} adapter build receipt")
+    record, remainder = _parse_receipt_header(
+        receipt, lines, SOURCE_ADAPTER_BUILD_FIELDS, "source-qualified adapter build"
+    )
+    if remainder or set(record) != set(SOURCE_ADAPTER_BUILD_FIELDS):
+        raise PublicationError(f"{receipt}: source-qualified adapter build receipt fields differ")
+    if record["schema"] != "2" or record["role"] != role:
+        raise PublicationError(f"{receipt}: source-qualified adapter build schema or role differs")
+    for field in (
+        "source_commit", "source_tree", "binary_sha256", "source_receipt_sha256",
+        "input_manifest_sha256", "linker_sha256", "runner_sha256", "approved_helper_sha256",
+        "helper_sha256", "owner_helper_sha256", "owner_helper_source_sha256", "overlay_sha256",
+    ):
+        if not re.fullmatch(r"[0-9a-f]{64}", record[field]) and not (
+            field in {"source_commit", "source_tree"}
+            and re.fullmatch(r"[0-9a-f]{40}", record[field])
+        ):
+            raise PublicationError(f"{receipt}: malformed {field}")
+    source_root = runner.real_directory(record["source_root"], f"{role} source root")
+    if str(source_root) != record["source_root"]:
+        raise PublicationError(f"{receipt}: source root path is not canonical")
+    if runner.source_identity(source_root) != (record["source_commit"], record["source_tree"]):
+        raise PublicationError(f"{receipt}: source identity changed after adapter build")
+    if role == "reference" and (
+        record["source_commit"], record["source_tree"]
+    ) != (runner.REFERENCE_HEAD, REFERENCE_TREE):
+        raise PublicationError(f"{receipt}: reference source identity differs from its pin")
+    if role == "reference" and source_root.name != "w9-adapter-ref-e240":
+        raise PublicationError(f"{receipt}: reference source root is not the clean adapter clone")
+    if role == "derived-reference":
+        try:
+            reference_correction.validate_source(
+                source_root, reference_correction.PATCH_PATH, runner
+            )
+        except reference_correction.CorrectionError as error:
+            raise PublicationError(f"{receipt}: {error}") from error
+    binary = runner.regular_file(record["binary"], f"{role} adapter harness", executable=True)
+    if str(binary) != record["binary"] or runner.sha256_file(binary) != record["binary_sha256"]:
+        raise PublicationError(f"{receipt}: adapter harness identity differs")
+    source_receipt = runner.regular_file(record["source_receipt"], "source-qualified cohort receipt")
+    if str(source_receipt) != record["source_receipt"]:
+        raise PublicationError(f"{receipt}: source receipt path is not canonical")
+    if runner.sha256_file(source_receipt) != record["source_receipt_sha256"]:
+        raise PublicationError(f"{receipt}: source receipt hash differs")
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+        raise PublicationError(f"{receipt}: source receipt is not source-qualified")
+    if role == "candidate" and source_root != pathlib.Path(source_record["candidate_root"]):
+        raise PublicationError(f"{receipt}: candidate build source differs from its cohort receipt")
+    if (
+        record["input_root"] != source_record["input_root"]
+        or record["input_manifest"] != source_record["input_manifest"]
+        or record["input_manifest_sha256"] != source_record["input_manifest_sha256"]
+        or record["corpus_blake3"] != source_record["corpus_blake3"]
+    ):
+        raise PublicationError(f"{receipt}: input cohort identity differs from its source receipt")
+    for build_field, source_field in (
+        ("builder_path", "builder_path"),
+        ("builder_sha256", "builder_sha256"),
+        ("builder_image", "builder_image"),
+        ("build_target", "build_target"),
+        ("build_profile", "build_profile"),
+        ("rustflags", "rustflags"),
+        ("linker_path", "linker_path"),
+        ("linker_sha256", "linker_sha256"),
+        ("runner_path", "runner"),
+        ("runner_sha256", "runner_sha256"),
+    ):
+        if record[build_field] != source_record[source_field]:
+            raise PublicationError(f"{receipt}: {build_field} differs from its source receipt")
+    builder = runner.regular_file(record["builder_path"], "source-qualified adapter build runner", executable=True)
+    if str(builder) != record["builder_path"] or runner.require_sha256(
+        builder, runner.SOURCE_BUILDER_SHA256, "source-qualified adapter build runner"
+    ) != record["builder_sha256"]:
+        raise PublicationError(f"{receipt}: source-qualified build runner identity differs")
+    linker = runner.regular_file(record["linker_path"], "source-qualified musl linker")
+    if str(linker) != record["linker_path"] or runner.require_sha256(
+        linker, runner.SOURCE_LINKER_SHA256, "source-qualified musl linker"
+    ) != record["linker_sha256"]:
+        raise PublicationError(f"{receipt}: source-qualified linker identity differs")
+    input_root = runner.real_directory(record["input_root"], "source-qualified input root")
+    input_manifest = runner.regular_file(record["input_manifest"], "source-qualified input manifest")
+    if str(input_root) != record["input_root"] or str(input_manifest) != record["input_manifest"]:
+        raise PublicationError(f"{receipt}: source-qualified input paths are not canonical")
+    approved_helper = runner.regular_file(record["approved_helper_path"], "source-qualified approved helper")
+    if approved_helper != SOURCE_APPROVED_HELPER or runner.require_sha256(
+        approved_helper, APPROVED_HELPER_SHA256, "source-qualified approved helper"
+    ) != record["approved_helper_sha256"]:
+        raise PublicationError(f"{receipt}: source-qualified approved helper identity differs")
+    helper_path = runner.regular_file(record["helper_path"], "derived W9 adapter helper")
+    owner_helper_path = runner.regular_file(record["owner_helper_path"], "derived W9 owner helper")
+    if runner.sha256_file(helper_path) != record["helper_sha256"]:
+        raise PublicationError(f"{receipt}: derived helper hash differs")
+    if runner.sha256_file(owner_helper_path) != record["owner_helper_sha256"]:
+        raise PublicationError(f"{receipt}: derived owner helper hash differs")
+    owner_helper_source = runner.regular_file(
+        record["owner_helper_source_path"], "pinned W9 owner helper source"
+    )
+    expected_owner_source = runner.real_directory(
+        source_record["candidate_root"], "candidate source"
+    ) / "dev/consolidation/w9-publication-owner-helper.rs"
+    if owner_helper_source != expected_owner_source or runner.require_sha256(
+        owner_helper_source, OWNER_HELPER_SHA256, "pinned W9 owner helper source"
+    ) != record["owner_helper_source_sha256"]:
+        raise PublicationError(f"{receipt}: owner helper source identity differs")
+    source_tests = runner.regular_file(source_root / "tests/sema.rs", f"{role} semantic tests")
+    expected_overlay = hashlib.sha256(_adapter_overlay(runner.read_regular_bytes(source_tests), runner)).hexdigest()
+    if record["overlay_sha256"] != expected_overlay:
+        raise PublicationError(f"{receipt}: source-derived overlay hash differs")
+    return record
+
+
 def _write_capture_receipt(
     path: pathlib.Path,
     role: str,
@@ -1047,31 +1286,68 @@ def _write_capture_receipt(
     range_receipts: dict[tuple[int, int], pathlib.Path],
     runner,
 ) -> None:
-    record = {
-        "schema": "1",
-        "role": role,
-        "source_root": build["source_root"],
-        "source_commit": build["source_commit"],
-        "source_tree": build["source_tree"],
-        "binary": build["binary"],
-        "binary_sha256": build["binary_sha256"],
-        "build_receipt": str(build_receipt),
-        "build_receipt_sha256": runner.sha256_file(build_receipt),
-        "helper_sha256": build["helper_sha256"],
-        "owner_helper_sha256": build["owner_helper_sha256"],
-        "input_root": str(input_root),
-        "input_manifest": str(input_manifest),
-        "input_manifest_sha256": runner.INPUT_MANIFEST_SHA256,
-        "corpus_blake3": runner.CORPUS_BLAKE3,
-        "capture_root": str(capture_root),
-        "raw_root": str(raw_root),
-        "receipt_directory": str(receipt_directory),
-        "range_count": str(len(range_receipts)),
-        "outcome_count": str(sum(end - start for start, end in range_receipts) * len(PROFILES)),
-    }
-    if set(record) != set(CAPTURE_FIELDS):
+    build_schema = build.get("schema")
+    if build_schema == "2":
+        record = {
+            "schema": "2",
+            "role": role,
+            "source_receipt": build["source_receipt"],
+            "source_receipt_sha256": build["source_receipt_sha256"],
+            "source_root": build["source_root"],
+            "source_commit": build["source_commit"],
+            "source_tree": build["source_tree"],
+            "binary": build["binary"],
+            "binary_sha256": build["binary_sha256"],
+            "build_receipt": str(build_receipt),
+            "build_receipt_sha256": runner.sha256_file(build_receipt),
+            "builder_path": build["builder_path"],
+            "builder_sha256": build["builder_sha256"],
+            "runner_path": build["runner_path"],
+            "runner_sha256": build["runner_sha256"],
+            "linker_path": build["linker_path"],
+            "linker_sha256": build["linker_sha256"],
+            "helper_sha256": build["helper_sha256"],
+            "owner_helper_sha256": build["owner_helper_sha256"],
+            "input_root": str(input_root),
+            "input_manifest": str(input_manifest),
+            "input_manifest_sha256": build["input_manifest_sha256"],
+            "corpus_blake3": build["corpus_blake3"],
+            "capture_root": str(capture_root),
+            "raw_root": str(raw_root),
+            "receipt_directory": str(receipt_directory),
+            "range_count": str(len(range_receipts)),
+            "outcome_count": str(sum(end - start for start, end in range_receipts) * len(PROFILES)),
+        }
+        fields = SOURCE_CAPTURE_FIELDS
+    elif build_schema == "1":
+        record = {
+            "schema": "1",
+            "role": role,
+            "source_root": build["source_root"],
+            "source_commit": build["source_commit"],
+            "source_tree": build["source_tree"],
+            "binary": build["binary"],
+            "binary_sha256": build["binary_sha256"],
+            "build_receipt": str(build_receipt),
+            "build_receipt_sha256": runner.sha256_file(build_receipt),
+            "helper_sha256": build["helper_sha256"],
+            "owner_helper_sha256": build["owner_helper_sha256"],
+            "input_root": str(input_root),
+            "input_manifest": str(input_manifest),
+            "input_manifest_sha256": runner.INPUT_MANIFEST_SHA256,
+            "corpus_blake3": runner.CORPUS_BLAKE3,
+            "capture_root": str(capture_root),
+            "raw_root": str(raw_root),
+            "receipt_directory": str(receipt_directory),
+            "range_count": str(len(range_receipts)),
+            "outcome_count": str(sum(end - start for start, end in range_receipts) * len(PROFILES)),
+        }
+        fields = CAPTURE_FIELDS
+    else:
+        raise PublicationError("adapter build receipt has an unsupported schema")
+    if set(record) != set(fields):
         raise PublicationError("adapter capture receipt fields differ")
-    lines = [f"{field}\t{record[field]}\n" for field in CAPTURE_FIELDS]
+    lines = [f"{field}\t{record[field]}\n" for field in fields]
     for (start, end), receipt in sorted(range_receipts.items()):
         lines.append(f"range\t{start}\t{end}\t{runner.sha256_file(receipt)}\n")
     _write_new_file(path, "".join(lines).encode("utf-8"), runner)
@@ -1091,6 +1367,43 @@ def _parse_capture_receipt(
 ) -> dict[str, str]:
     receipt = runner.regular_file(path, f"{role} adapter capture receipt")
     lines = runner.read_regular_text(receipt).splitlines()
+    if not lines:
+        raise PublicationError(f"{receipt}: incomplete adapter capture receipt")
+    first = lines[0].split("\t")
+    if len(first) != 2 or first[0] != "schema":
+        raise PublicationError(f"{receipt}: malformed adapter capture receipt schema row")
+    if first[1] == "1":
+        if expected_build.get("schema") != "1":
+            raise PublicationError(f"{receipt}: adapter capture and build receipt schemas differ")
+        return _parse_historical_capture_receipt(
+            receipt, role, receipt_directory, capture_root, raw_root, expected_build,
+            expected_inputs, input_root, input_manifest, runner, lines,
+        )
+    if first[1] == "2":
+        if expected_build.get("schema") != "2":
+            raise PublicationError(f"{receipt}: adapter capture and build receipt schemas differ")
+        return _parse_source_capture_receipt(
+            receipt, role, receipt_directory, capture_root, raw_root, expected_build,
+            expected_inputs, input_root, input_manifest, runner, lines,
+        )
+    raise PublicationError(f"{receipt}: unsupported adapter capture receipt schema {first[1]!r}")
+
+
+def _parse_historical_capture_receipt(
+    path: pathlib.Path,
+    role: str,
+    receipt_directory: pathlib.Path,
+    capture_root: pathlib.Path,
+    raw_root: pathlib.Path,
+    expected_build: dict[str, str],
+    expected_inputs: dict[int, object],
+    input_root: pathlib.Path,
+    input_manifest: pathlib.Path,
+    runner,
+    lines: list[str] | None = None,
+) -> dict[str, str]:
+    receipt = runner.regular_file(path, f"{role} adapter capture receipt")
+    lines = runner.read_regular_text(receipt).splitlines() if lines is None else lines
     record, range_lines = _parse_receipt_header(receipt, lines, CAPTURE_FIELDS, "adapter capture")
     if set(record) != set(CAPTURE_FIELDS) or record["schema"] != "1" or record["role"] != role:
         raise PublicationError(f"{receipt}: capture receipt schema or role differs")
@@ -1139,6 +1452,93 @@ def _parse_capture_receipt(
     return record
 
 
+def _parse_source_capture_receipt(
+    path: pathlib.Path,
+    role: str,
+    receipt_directory: pathlib.Path,
+    capture_root: pathlib.Path,
+    raw_root: pathlib.Path,
+    expected_build: dict[str, str],
+    expected_inputs: dict[int, object],
+    input_root: pathlib.Path,
+    input_manifest: pathlib.Path,
+    runner,
+    lines: list[str],
+) -> dict[str, str]:
+    receipt = runner.regular_file(path, f"{role} adapter capture receipt")
+    record, range_lines = _parse_receipt_header(
+        receipt, lines, SOURCE_CAPTURE_FIELDS, "source-qualified adapter capture"
+    )
+    if len(record) != len(SOURCE_CAPTURE_FIELDS) or record["schema"] != "2" or record["role"] != role:
+        raise PublicationError(f"{receipt}: source-qualified capture schema or role differs")
+    for field in (
+        "source_root", "source_commit", "source_tree", "binary", "binary_sha256",
+        "builder_path", "builder_sha256", "runner_path", "runner_sha256", "linker_path",
+        "linker_sha256", "helper_sha256", "owner_helper_sha256",
+    ):
+        if record[field] != expected_build[field]:
+            raise PublicationError(f"{receipt}: {field} differs from the adapter build receipt")
+    source_receipt = runner.regular_file(record["source_receipt"], "source-qualified cohort receipt")
+    if str(source_receipt) != record["source_receipt"]:
+        raise PublicationError(f"{receipt}: source receipt path is not canonical")
+    if runner.sha256_file(source_receipt) != record["source_receipt_sha256"]:
+        raise PublicationError(f"{receipt}: source receipt hash differs")
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+        raise PublicationError(f"{receipt}: source receipt is not source-qualified")
+    build_receipt = runner.regular_file(record["build_receipt"], f"{role} adapter build receipt")
+    if str(build_receipt) != record["build_receipt"]:
+        raise PublicationError(f"{receipt}: build receipt path is not canonical")
+    if runner.sha256_file(build_receipt) != record["build_receipt_sha256"]:
+        raise PublicationError(f"{receipt}: adapter build receipt hash differs")
+    if (
+        record["source_receipt"] != expected_build["source_receipt"]
+        or record["source_receipt_sha256"] != expected_build["source_receipt_sha256"]
+        or record["input_root"] != expected_build["input_root"]
+        or record["input_manifest"] != expected_build["input_manifest"]
+        or record["input_manifest_sha256"] != expected_build["input_manifest_sha256"]
+        or record["corpus_blake3"] != expected_build["corpus_blake3"]
+    ):
+        raise PublicationError(f"{receipt}: source cohort identity differs from the adapter build receipt")
+    if record["input_root"] != str(input_root) or record["input_manifest"] != str(input_manifest):
+        raise PublicationError(f"{receipt}: frozen input root or manifest path differs")
+    if (
+        record["capture_root"] != str(capture_root)
+        or record["raw_root"] != str(raw_root)
+        or record["receipt_directory"] != str(receipt_directory)
+        or raw_root != capture_root / "raw"
+        or receipt_directory != capture_root / "receipts"
+    ):
+        raise PublicationError(f"{receipt}: capture output paths differ")
+    if (
+        record["input_manifest_sha256"] != source_record["input_manifest_sha256"]
+        or record["corpus_blake3"] != source_record["corpus_blake3"]
+    ):
+        raise PublicationError(f"{receipt}: frozen corpus pins differ")
+    ranges = runner.expected_ranges(len(expected_inputs))
+    if record["range_count"] != str(len(ranges)) or record["outcome_count"] != str(len(expected_inputs) * len(PROFILES)):
+        raise PublicationError(f"{receipt}: required source/profile coverage differs")
+    range_rows: list[tuple[int, int, str]] = []
+    for row_number, line in enumerate(range_lines, len(SOURCE_CAPTURE_FIELDS) + 1):
+        fields = line.split("\t")
+        if len(fields) != 4 or fields[0] != "range":
+            raise PublicationError(f"{receipt}: malformed range receipt row {row_number}")
+        try:
+            start, end = int(fields[1]), int(fields[2])
+        except ValueError as error:
+            raise PublicationError(f"{receipt}: malformed range bounds at row {row_number}") from error
+        if not re.fullmatch(r"[0-9a-f]{64}", fields[3]):
+            raise PublicationError(f"{receipt}: malformed range receipt hash at row {row_number}")
+        range_rows.append((start, end, fields[3]))
+    if [(start, end) for start, end, _digest in range_rows] != ranges:
+        raise PublicationError(f"{receipt}: range set differs from all required 1690-source shards")
+    for (start, end), (_row_start, _row_end, digest) in zip(ranges, range_rows):
+        shard = runner.candidate_receipt_path(receipt_directory, start, end)
+        if runner.sha256_file(shard) != digest:
+            raise PublicationError(f"{receipt}: range receipt hash differs for {start}..{end}")
+    return record
+
+
 def _reuse_reference_capture(
     capture_receipt: pathlib.Path,
     build_receipt: pathlib.Path,
@@ -1178,7 +1578,7 @@ def _reuse_reference_capture(
     captured_reference = aggregate_candidate_receipts(
         runner, receipt_directory, expected_inputs, reference
     )
-    if captured_reference.outcomes != reference.outcomes:
+    if reference is not None and captured_reference.outcomes != reference.outcomes:
         raise PublicationError("reused reference harness outcomes differ from the pinned reference receipt")
     range_receipts = {
         interval: runner.candidate_receipt_path(receipt_directory, *interval)
@@ -1294,7 +1694,46 @@ def _launch_capture_job(
     container = f"w9adapter-{os.getpid()}-{role}-{worker}-{start}"
     if runner.existing_container(container, docker_environment):
         raise PublicationError(f"adapter Docker container already exists: {container}")
-    shim_dir = runner.docker_shim(job_dir, container, cpu, pathlib.Path(source_record["input_root"]))
+    source_qualified = source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
+    if source_qualified:
+        command = [
+            "timeout", "900s", source_record["builder_path"], source_record["candidate_root"], "run",
+            f"W9_INPUT_ROOT={source_record['input_root']}",
+            f"W9_CPU_SET={cpu}",
+            f"W9_CONTAINER_NAME={container}",
+            "env",
+            f"W9_RECEIPT_OUTPUT={receipt}",
+            f"W9_TIMING_OUTPUT={timing}",
+            f"W9_ADAPTER_OUTPUT_DIR={raw_root}",
+            f"W9_SHARD_INDEX={start // 100}",
+            "W9_SHARD_SIZE=100",
+            f"W9_START={start}",
+            f"W9_END={end}",
+            "taskset", "-c", str(cpu), str(binary),
+            "--exact", "sema::w9_repository_parity_receipt", "--nocapture",
+        ]
+        environment = {
+            **docker_environment,
+            "W9_SOURCE_COMMIT": source_record["candidate_commit"],
+            "W9_SOURCE_TREE": source_record["candidate_tree"],
+        }
+    else:
+        shim_dir = runner.docker_shim(job_dir, container, cpu, pathlib.Path(source_record["input_root"]))
+        command = [
+            "timeout", "900s", source_record["wrapper"], source_record["wrapper_root"], "run", "env",
+            f"W9_INPUT_ROOT={source_record['input_root']}",
+            f"W9_RECEIPT_OUTPUT={receipt}",
+            f"W9_TIMING_OUTPUT={timing}",
+            f"W9_ADAPTER_OUTPUT_DIR={raw_root}",
+            f"W9_SHARD_INDEX={start // 100}",
+            "W9_SHARD_SIZE=100",
+            f"W9_START={start}",
+            f"W9_END={end}",
+            "taskset", "-c", str(cpu), str(binary),
+            "--exact", "sema::w9_repository_parity_receipt", "--nocapture",
+        ]
+        environment = dict(docker_environment)
+        environment["PATH"] = f"{shim_dir}:/usr/bin:/bin"
     log_descriptor = os.open(
         log,
         os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
@@ -1308,21 +1747,6 @@ def _launch_capture_job(
         f"corpus={runner.CORPUS_BLAKE3}\n".encode()
     )
     log_output.flush()
-    environment = dict(docker_environment)
-    environment["PATH"] = f"{shim_dir}:/usr/bin:/bin"
-    command = [
-        "timeout", "900s", source_record["wrapper"], source_record["wrapper_root"], "run", "env",
-        f"W9_INPUT_ROOT={source_record['input_root']}",
-        f"W9_RECEIPT_OUTPUT={receipt}",
-        f"W9_TIMING_OUTPUT={timing}",
-        f"W9_ADAPTER_OUTPUT_DIR={raw_root}",
-        f"W9_SHARD_INDEX={start // 100}",
-        "W9_SHARD_SIZE=100",
-        f"W9_START={start}",
-        f"W9_END={end}",
-        "taskset", "-c", str(cpu), str(binary),
-        "--exact", "sema::w9_repository_parity_receipt", "--nocapture",
-    ]
     job = {
         "worker": worker,
         "cpu": cpu,
@@ -1432,7 +1856,11 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
     source_record = runner.parse_candidate_receipt(source_receipt)
     if pathlib.Path(source_record["candidate_root"]) != candidate_root:
         raise PublicationError("candidate source receipt names a different checkout")
-    expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA:
+        expected_inputs, _paths_by_name = runner.validate_source_cohort_inputs(source_record)
+        reference = None
+    else:
+        expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
     if len(expected_inputs) != 1690:
         raise PublicationError(f"candidate source receipt input count differs: {len(expected_inputs)}")
     reference_source_root = _prepare_reference_source(
@@ -1447,6 +1875,10 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
     candidate_build = _parse_adapter_build_receipt(
         candidate_build_path, "candidate", runner, owner_helper_source
     )
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA and (
+        reference_build["schema"] != "2" or candidate_build["schema"] != "2"
+    ):
+        raise PublicationError("source-qualified capture requires source-qualified adapter builds")
     if pathlib.Path(reference_build["source_root"]) != reference_source_root:
         raise PublicationError("reference adapter build receipt names a different source root")
     if pathlib.Path(candidate_build["source_root"]) != candidate_root:
@@ -1484,10 +1916,11 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
             f"memory_per_worker=1GiB output={output}"
         )
         return 0
-    wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
-    wrapper_root = runner.real_directory(source_record["wrapper_root"], "pinned wrapper root")
-    runner.validate_wrapper_root(wrapper_root, candidate_root)
-    runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
+    if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+        wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
+        wrapper_root = runner.real_directory(source_record["wrapper_root"], "pinned wrapper root")
+        runner.validate_wrapper_root(wrapper_root, candidate_root)
+        runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
     docker_environment = runner.local_docker_environment()
     completed: list[tuple[int, int]] = []
     with runner.claim_run_resources(candidate_root, output, completed):
@@ -1548,6 +1981,8 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
 def build_adapter_harness(
     source_root: pathlib.Path,
     candidate_root: pathlib.Path,
+    source_receipt: pathlib.Path,
+    source_record: dict[str, str],
     role: str,
     adapter_helper: pathlib.Path,
     helper_sha256: str,
@@ -1556,6 +1991,11 @@ def build_adapter_harness(
     runner,
 ) -> tuple[pathlib.Path, pathlib.Path]:
     source_root = runner.real_directory(source_root, f"{role} source")
+    source_receipt = runner.regular_file(source_receipt, "source-qualified cohort receipt")
+    if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+        raise PublicationError("source-qualified adapter build requires a schema-3 cohort receipt")
+    if runner.parse_candidate_receipt(source_receipt) != source_record:
+        raise PublicationError("source-qualified cohort receipt changed before adapter build")
     commit, tree = runner.source_identity(source_root)
     if role == "reference" and commit != runner.REFERENCE_HEAD:
         raise PublicationError(f"reference source commit differs from the approved head: {commit}")
@@ -1572,13 +2012,10 @@ def build_adapter_harness(
     owner_bytes = runner.read_regular_bytes(adapter_helper.parent / "w9-publication-owner-helper.rs")
     if hashlib.sha256(owner_bytes).hexdigest() != owner_helper_sha256:
         raise PublicationError("owner helper changed before harness build")
-    builder = runner.regular_file(runner.APPROVED_BUILD_RUNNER, "pinned adapter build runner", executable=True)
-    contract = runner.w9_build_contract()
+    builder = runner.regular_file(source_record["builder_path"], "source-qualified adapter build runner", executable=True)
     builder_sha256 = runner.require_sha256(
-        builder, contract["W9_CACHE_BUILD_RUNNER_SHA256"], "pinned adapter build runner"
+        builder, source_record["builder_sha256"], "source-qualified adapter build runner"
     )
-    if runner.PINNED_IMAGE not in runner.read_regular_text(builder):
-        raise PublicationError("pinned adapter build runner does not name the approved image")
     binary_path, receipt_path = _adapter_build_output_paths(
         candidate_root, adapter_helper, role, commit, runner
     )
@@ -1612,18 +2049,27 @@ def build_adapter_harness(
         runner.require_only_parity_overlay(scratch_root, f"{role} scratch source changes escaped the parity include")
         command = [
             str(builder), str(scratch_root), "build", "cargo", "test", "--locked",
-            "--profile", contract["W9_CACHE_BUILD_PROFILE"],
-            "--target", contract["W9_CACHE_BUILD_TARGET"],
+            "--profile", source_record["build_profile"],
+            "--target", source_record["build_target"],
             "-p", "xsh", "--test", "integration", "--no-run",
             "--message-format=json-render-diagnostics",
         ]
+        build_environment = {
+            **docker_environment,
+            "W9_SOURCE_COMMIT": commit,
+            "W9_SOURCE_TREE": tree,
+            "W9_ROLE": role,
+            "W9_OVERLAY_SHA256": overlay_sha256,
+            "W9_LINKER_PATH": source_record["linker_path"],
+            "W9_LINKER_SHA256": source_record["linker_sha256"],
+        }
         result = subprocess.run(
             command,
             check=False,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            env=docker_environment,
+            env=build_environment,
         )
         if result.returncode != 0:
             raise PublicationError(f"pinned {role} adapter harness build failed: {result.stderr.strip() or result.stdout.strip()}")
@@ -1642,20 +2088,44 @@ def build_adapter_harness(
                 )
             except reference_correction.CorrectionError as error:
                 raise PublicationError(str(error)) from error
-        runner.run_harness_test_listing(builder, candidate_root, scratch_binary, docker_environment)
+        runtime_commit, runtime_tree = runner.source_identity(candidate_root)
+        runner.run_harness_test_listing(
+            builder,
+            candidate_root,
+            scratch_binary,
+            {
+                **docker_environment,
+                "W9_SOURCE_COMMIT": runtime_commit,
+                "W9_SOURCE_TREE": runtime_tree,
+            },
+        )
         binary = runner.copy_executable(scratch_binary, binary_path)
     binary_sha256 = runner.sha256_file(binary)
     record = {
-        "schema": "1",
+        "schema": "2",
         "role": role,
         "source_root": str(source_root),
         "source_commit": commit,
         "source_tree": tree,
         "binary": str(binary),
         "binary_sha256": binary_sha256,
+        "source_receipt": str(source_receipt),
+        "source_receipt_sha256": runner.sha256_file(source_receipt),
+        "input_root": source_record["input_root"],
+        "input_manifest": source_record["input_manifest"],
+        "input_manifest_sha256": source_record["input_manifest_sha256"],
+        "corpus_blake3": source_record["corpus_blake3"],
         "builder_path": str(builder),
         "builder_sha256": builder_sha256,
-        "approved_helper_path": str(runner.APPROVED_HELPER_SOURCE),
+        "builder_image": source_record["builder_image"],
+        "build_target": source_record["build_target"],
+        "build_profile": source_record["build_profile"],
+        "rustflags": source_record["rustflags"],
+        "linker_path": source_record["linker_path"],
+        "linker_sha256": source_record["linker_sha256"],
+        "runner_path": source_record["runner"],
+        "runner_sha256": source_record["runner_sha256"],
+        "approved_helper_path": str(SOURCE_APPROVED_HELPER),
         "approved_helper_sha256": APPROVED_HELPER_SHA256,
         "helper_path": str(adapter_helper),
         "helper_sha256": helper_sha256,
@@ -1666,9 +2136,6 @@ def build_adapter_harness(
         ),
         "owner_helper_source_sha256": owner_helper_source_sha256,
         "overlay_sha256": overlay_sha256,
-        "builder_image": contract["W9_CACHE_BUILD_IMAGE"],
-        "build_target": contract["W9_CACHE_BUILD_TARGET"],
-        "build_profile": contract["W9_CACHE_BUILD_PROFILE"],
     }
     _write_adapter_build_receipt(receipt_path, record, runner)
     return binary, receipt_path
@@ -1680,7 +2147,9 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
     source_record = runner.parse_candidate_receipt(source_receipt)
     if pathlib.Path(source_record["candidate_root"]) != candidate_root:
         raise PublicationError("candidate source receipt names a different checkout")
-    expected_inputs, _paths_by_name, _reference = runner.validate_all_inputs(source_record)
+    if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+        raise PublicationError("adapter harness builds require a source-qualified cohort receipt")
+    expected_inputs, _paths_by_name = runner.validate_source_cohort_inputs(source_record)
     if len(expected_inputs) != 1690:
         raise PublicationError(f"candidate source receipt input count differs: {len(expected_inputs)}")
     reference_root = _prepare_reference_source(
@@ -1694,6 +2163,7 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
     derived_directory = _new_derived_helper_directory(candidate_root, runner)
     owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
     adapter_helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = derive_helper(
+        approved_helper=SOURCE_APPROVED_HELPER,
         owner_helper=owner_helper_source,
         output_directory=derived_directory,
         output_root=candidate_root,
@@ -1703,6 +2173,8 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
         reference_binary, reference_receipt = build_adapter_harness(
             reference_root,
             candidate_root,
+            source_receipt,
+            source_record,
             "reference",
             adapter_helper,
             helper_sha256,
@@ -1718,6 +2190,8 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
         reference_build = _parse_adapter_build_receipt(
             reference_receipt, "reference", runner, owner_helper_source
         )
+        if reference_build["schema"] != "2":
+            raise PublicationError("reused reference adapter build is not source-qualified")
         if pathlib.Path(reference_build["source_root"]) != reference_root:
             raise PublicationError("reference adapter build receipt names a different source root")
         if reference_build["helper_sha256"] != helper_sha256:
@@ -1728,6 +2202,8 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
     candidate_binary, candidate_receipt = build_adapter_harness(
         candidate_root,
         candidate_root,
+        source_receipt,
+        source_record,
         "candidate",
         adapter_helper,
         helper_sha256,
@@ -1749,7 +2225,9 @@ def build_derived_reference_harness(args: argparse.Namespace, runner) -> int:
     source_record = runner.parse_candidate_receipt(source_receipt)
     if pathlib.Path(source_record["candidate_root"]) != candidate_root:
         raise PublicationError("candidate source receipt names a different checkout")
-    expected_inputs, _paths_by_name, _reference = runner.validate_all_inputs(source_record)
+    if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+        raise PublicationError("derived reference builds require a source-qualified cohort receipt")
+    expected_inputs, _paths_by_name = runner.validate_source_cohort_inputs(source_record)
     if len(expected_inputs) != 1690:
         raise PublicationError(f"candidate source receipt input count differs: {len(expected_inputs)}")
     derived_root = runner.real_directory(args.derived_reference_source_root, "derived reference source")
@@ -1767,6 +2245,7 @@ def build_derived_reference_harness(args: argparse.Namespace, runner) -> int:
     derived_directory = _new_derived_helper_directory(candidate_root, runner)
     owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
     helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = derive_helper(
+        approved_helper=SOURCE_APPROVED_HELPER,
         owner_helper=owner_helper_source,
         output_directory=derived_directory,
         output_root=candidate_root,
@@ -1774,6 +2253,8 @@ def build_derived_reference_harness(args: argparse.Namespace, runner) -> int:
     binary, build_receipt = build_adapter_harness(
         derived_root,
         candidate_root,
+        source_receipt,
+        source_record,
         "derived-reference",
         helper,
         helper_sha256,
@@ -1800,7 +2281,11 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
     source_record = runner.parse_candidate_receipt(source_receipt)
     if pathlib.Path(source_record["candidate_root"]) != candidate_root:
         raise PublicationError("candidate source receipt names a different checkout")
-    expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA:
+        expected_inputs, _paths_by_name = runner.validate_source_cohort_inputs(source_record)
+        reference = None
+    else:
+        expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
     if len(expected_inputs) * len(PROFILES) != reference_correction.EXPECTED_OUTCOME_COUNT:
         raise PublicationError("derived reference corpus size differs from its pinned coverage")
     if runner.source_identity(candidate_root) != (
@@ -1831,6 +2316,8 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
         runner.REFERENCE_HEAD, REFERENCE_TREE
     ):
         raise PublicationError("original reference build differs from its immutable source pin")
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA and original_build["schema"] != "2":
+        raise PublicationError("source-qualified correction requires a fresh source-qualified e240 build")
     original_capture = _reuse_reference_capture(
         original_capture_path,
         original_build_path,
@@ -1851,6 +2338,8 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
     exact_build = _parse_adapter_build_receipt(
         original_exact_build_path, "reference", runner, owner_helper_source
     )
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA and exact_build["schema"] != "2":
+        raise PublicationError("source-qualified correction requires a fresh e240 exact-owner build")
     try:
         _exact_helper_path, _exact_helper_bytes, exact_helper_sha256 = exact_owner_runner._load_exact_helper(runner)
     except exact_owner_runner.ExactOwnerError as error:
@@ -1870,16 +2359,26 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
         )
     except exact_owner_runner.ExactOwnerError as error:
         raise PublicationError(f"original exact-owner capture validation failed: {error}") from error
-    if pathlib.Path(exact_capture["legacy_capture_receipt"]) != original_capture_path:
-        raise PublicationError("original exact-owner proof names a different original capture")
-    if runner.sha256_file(original_capture_path) != exact_capture["legacy_capture_receipt_sha256"]:
-        raise PublicationError("original exact-owner proof capture hash differs")
+    if exact_capture.get("schema") == "2":
+        exact_capture_field = "adapter_capture_receipt"
+        exact_capture_hash_field = "adapter_capture_receipt_sha256"
+    elif exact_capture.get("schema") == "1":
+        exact_capture_field = "legacy_capture_receipt"
+        exact_capture_hash_field = "legacy_capture_receipt_sha256"
+    else:
+        raise PublicationError("original exact-owner capture has an unsupported schema")
+    if pathlib.Path(exact_capture[exact_capture_field]) != original_capture_path:
+        raise PublicationError("original exact-owner proof names a different adapter capture")
+    if runner.sha256_file(original_capture_path) != exact_capture[exact_capture_hash_field]:
+        raise PublicationError("original exact-owner proof adapter capture hash differs")
     build_receipt_path = runner.regular_file(
         args.derived_reference_build_receipt, "derived reference build receipt"
     )
     build = _parse_adapter_build_receipt(
         build_receipt_path, "derived-reference", runner, owner_helper_source
     )
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA and build["schema"] != "2":
+        raise PublicationError("source-qualified correction requires a fresh derived adapter build")
     if pathlib.Path(build["source_root"]) != derived_root:
         raise PublicationError("derived reference build receipt names a different source root")
     if (build["source_commit"], build["source_tree"]) != (
@@ -1891,10 +2390,11 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
     ):
         raise PublicationError("original reference adapter helpers differ from the correction harness")
     output = runner.require_output_path(args.output, candidate_root)
-    wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
-    wrapper_root = runner.real_directory(source_record["wrapper_root"], "pinned wrapper root")
-    runner.validate_wrapper_root(wrapper_root, candidate_root)
-    runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
+    if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+        wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
+        wrapper_root = runner.real_directory(source_record["wrapper_root"], "pinned wrapper root")
+        runner.validate_wrapper_root(wrapper_root, candidate_root)
+        runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
     docker_environment = runner.local_docker_environment()
     completed: list[tuple[int, int]] = []
     ranges = runner.expected_ranges(len(expected_inputs))
@@ -1978,7 +2478,7 @@ def aggregate_candidate_receipts(
     runner,
     candidate_receipt_directory: pathlib.Path,
     expected_inputs: dict[int, object],
-    reference,
+    reference=None,
 ):
     count = len(expected_inputs)
     candidates = runner.discover_candidate_receipts(candidate_receipt_directory, count)
@@ -1992,18 +2492,31 @@ def aggregate_candidate_receipts(
         for index, value in receipt.inputs.items():
             if index in all_inputs:
                 raise PublicationError(f"duplicate candidate input index {index}")
-            if value != reference.inputs[index]:
+            if reference is not None and value != reference.inputs[index]:
                 raise PublicationError(f"candidate receipt input path or digest differs at input {index}")
+            if value.relative_path != expected_inputs[index].relative_path:
+                raise PublicationError(f"candidate receipt input path differs at input {index}")
             all_inputs[index] = value
         for key, value in receipt.outcomes.items():
             if key in all_outcomes:
                 raise PublicationError(f"duplicate candidate outcome {key}")
             all_outcomes[key] = value
-    if all_inputs != reference.inputs:
+    if set(all_inputs) != set(range(count)):
+        raise PublicationError("candidate input receipt coverage differs from the source cohort")
+    expected_outcome_keys = {
+        (index, expected_inputs[index].relative_path, profile)
+        for index in range(count)
+        for profile in PROFILES
+    }
+    if set(all_outcomes) != expected_outcome_keys:
+        raise PublicationError("candidate receipt coverage differs from the 1690 by 4 source cohort")
+    if reference is not None and all_inputs != reference.inputs:
         raise PublicationError("candidate input receipt coverage differs from the reference")
-    if set(all_outcomes) != set(reference.outcomes):
+    if reference is not None and set(all_outcomes) != set(reference.outcomes):
         raise PublicationError("candidate receipt coverage differs from the 1690 by 4 reference")
-    return runner.ParsedReceipt(reference.header, all_inputs, all_outcomes, reference.terminals)
+    terminals = reference.terminals if reference is not None else ()
+    header = reference.header if reference is not None else ()
+    return runner.ParsedReceipt(header, all_inputs, all_outcomes, terminals)
 
 
 def _align_profile_publications(
@@ -2474,7 +2987,7 @@ def _run_parallel_publication_comparisons(
 
 def compare_full_publications(
     runner,
-    reference_receipt_path: pathlib.Path,
+    reference_receipt_path: pathlib.Path | None,
     candidate_receipt_directory: pathlib.Path,
     reference_raw: pathlib.Path,
     candidate_raw: pathlib.Path,
@@ -2504,11 +3017,20 @@ def compare_full_publications(
         raise PublicationError("exact-owner proof coverage differs from the comparison corpus")
     input_manifest = runner.regular_file(input_manifest, "approved input manifest")
     runner.require_sha256(input_manifest, runner.INPUT_MANIFEST_SHA256, "approved input manifest")
-    if input_root != runner.REFERENCE_INPUT_ROOT:
-        raise PublicationError("frozen input root differs from the approved reference path")
-    reference = runner.validate_reference_receipt(
-        reference_receipt_path, expected_inputs, runner.CORPUS_BLAKE3
-    )
+    source_qualified = candidate_source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
+    if source_qualified:
+        if reference_receipt_path is not None:
+            raise PublicationError("source-qualified comparison does not accept a historical reference receipt")
+        runner.validate_source_cohort_inputs(candidate_source_record)
+        reference = None
+    else:
+        if input_root != runner.REFERENCE_INPUT_ROOT:
+            raise PublicationError("frozen input root differs from the approved reference path")
+        if reference_receipt_path is None:
+            raise PublicationError("historical comparison requires its pinned reference receipt")
+        reference = runner.validate_reference_receipt(
+            reference_receipt_path, expected_inputs, runner.CORPUS_BLAKE3
+        )
     reference_build_path = runner.regular_file(
         _capture_field(reference_capture_receipt, "build_receipt", runner),
         "reference adapter build receipt",
@@ -2525,6 +3047,10 @@ def compare_full_publications(
     candidate_build = _parse_adapter_build_receipt(
         candidate_build_path, "candidate", runner, owner_helper_source
     )
+    if source_qualified and (
+        reference_build["schema"] != "2" or candidate_build["schema"] != "2"
+    ):
+        raise PublicationError("source-qualified comparison requires source-qualified adapter builds")
     expected_reference_root = runner.real_directory(
         reference_source_root,
         "derived reference source" if corrected_reference else "clean reference source clone",
@@ -2548,7 +3074,7 @@ def compare_full_publications(
         raise PublicationError("reference and candidate adapter helper contents differ")
     if reference_build["owner_helper_sha256"] != candidate_build["owner_helper_sha256"]:
         raise PublicationError("reference and candidate owner helper contents differ")
-    _parse_capture_receipt(
+    reference_capture_record = _parse_capture_receipt(
         reference_capture_receipt,
         reference_role,
         reference_capture_receipt.parent / "receipts",
@@ -2560,7 +3086,7 @@ def compare_full_publications(
         input_manifest,
         runner,
     )
-    _parse_capture_receipt(
+    candidate_capture_record = _parse_capture_receipt(
         candidate_capture_receipt,
         "candidate",
         candidate_receipt_directory,
@@ -2572,10 +3098,15 @@ def compare_full_publications(
         input_manifest,
         runner,
     )
+    if source_qualified and (
+        reference_capture_record["schema"] != "2"
+        or candidate_capture_record["schema"] != "2"
+    ):
+        raise PublicationError("source-qualified comparison requires source-qualified adapter captures")
     captured_reference = aggregate_candidate_receipts(
         runner, reference_capture_receipt.parent / "receipts", expected_inputs, reference
     )
-    if not corrected_reference and captured_reference.outcomes != reference.outcomes:
+    if not corrected_reference and reference is not None and captured_reference.outcomes != reference.outcomes:
         raise PublicationError("derived reference harness outcomes differ from the pinned reference receipt")
     original_build: dict[str, str] | None = None
     original_capture: runner.ParsedReceipt | None = None
@@ -2605,6 +3136,10 @@ def compare_full_publications(
             input_manifest,
             runner,
         )
+        if source_qualified and (
+            original_build["schema"] != "2" or original_capture_record["schema"] != "2"
+        ):
+            raise PublicationError("source-qualified correction requires fresh original adapter receipts")
         expected_original_source = runner.real_directory(
             original_reference_source_root
             if original_reference_source_root is not None
@@ -2616,7 +3151,7 @@ def compare_full_publications(
         original_capture = aggregate_candidate_receipts(
             runner, pathlib.Path(original_capture_record["receipt_directory"]), expected_inputs, reference
         )
-        if original_capture.outcomes != reference.outcomes:
+        if reference is not None and original_capture.outcomes != reference.outcomes:
             raise PublicationError("immutable original capture differs from the pinned reference outcomes")
         original_raw = runner.real_directory(
             original_capture_record["raw_root"], "immutable original reference raw outcomes"
@@ -2624,13 +3159,14 @@ def compare_full_publications(
     candidate = aggregate_candidate_receipts(
         runner, candidate_receipt_directory, expected_inputs, reference
     )
-    keys = set(reference.outcomes)
+    outcome_baseline = reference if reference is not None else captured_reference
+    keys = set(outcome_baseline.outcomes)
     if keys != set(candidate.outcomes):
         raise PublicationError("reference and candidate receipt outcome keys differ")
-    if reference.inputs != candidate.inputs:
+    if outcome_baseline.inputs != candidate.inputs:
         raise PublicationError("reference and candidate receipt input path or digest differs")
     mismatches: list[str] = []
-    expected_reference_outcomes = captured_reference if corrected_reference else reference
+    expected_reference_outcomes = captured_reference if corrected_reference or source_qualified else reference
     runner_for_paths = _load_publication_runner(
         candidate_root / "dev/consolidation/w9-publication-run.py"
     )
@@ -2744,7 +3280,11 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
         source_record["candidate_commit"], source_record["candidate_tree"]
     ):
         raise PublicationError("candidate source identity differs from its source receipt")
-    expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA:
+        expected_inputs, _paths_by_name = runner.validate_source_cohort_inputs(source_record)
+        reference = None
+    else:
+        expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
     if len(expected_inputs) != 1690:
         raise PublicationError(f"candidate source receipt input count differs: {len(expected_inputs)}")
     reference_source_root = _prepare_reference_source(
@@ -2795,6 +3335,8 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
             runner,
             candidate_root / "dev/consolidation/w9-publication-owner-helper.rs",
         )
+        if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA and derived_build["schema"] != "2":
+            raise PublicationError("source-qualified correction requires a fresh derived adapter build")
         if pathlib.Path(derived_build["source_root"]) != derived_reference_root:
             raise PublicationError("derived reference build receipt names a different source root")
         derived_capture_record = _parse_capture_receipt(
@@ -2809,6 +3351,8 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
             pathlib.Path(source_record["input_manifest"]),
             runner,
         )
+        if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA and derived_capture_record["schema"] != "2":
+            raise PublicationError("source-qualified correction requires a fresh derived adapter capture")
         reference_correction.validate_receipt_associations(
             correction_record,
             derived_build_path,
@@ -2926,7 +3470,7 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
             )
             compare_result = compare_full_publications(
                 runner,
-                pathlib.Path(source_record["reference_receipt"]),
+                None if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA else pathlib.Path(source_record["reference_receipt"]),
                 candidate_receipt_directory,
                 reference_raw_root,
                 candidate_raw_root,
@@ -3009,7 +3553,19 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
 
 def _capture_field(path: pathlib.Path, field: str, runner) -> str:
     receipt = runner.regular_file(path, "adapter capture receipt")
-    for line in runner.read_regular_text(receipt).splitlines()[:len(CAPTURE_FIELDS)]:
+    lines = runner.read_regular_text(receipt).splitlines()
+    if not lines:
+        raise PublicationError(f"{receipt}: incomplete adapter capture receipt")
+    schema = lines[0].split("\t")
+    if len(schema) != 2 or schema[0] != "schema":
+        raise PublicationError(f"{receipt}: malformed adapter capture receipt schema row")
+    if schema[1] == "2":
+        fields = SOURCE_CAPTURE_FIELDS
+    elif schema[1] == "1":
+        fields = CAPTURE_FIELDS
+    else:
+        raise PublicationError(f"{receipt}: unsupported adapter capture receipt schema {schema[1]!r}")
+    for line in lines[:len(fields)]:
         fields = line.split("\t")
         if len(fields) == 2 and fields[0] == field:
             return fields[1]

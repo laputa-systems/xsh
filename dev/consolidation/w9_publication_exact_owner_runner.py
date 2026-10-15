@@ -21,6 +21,7 @@ EXACT_OWNER_HASH_LIBTEST_PREFIX = f"test {EXACT_OWNER_TEST} ... "
 EXACT_OWNER_HELPER = pathlib.Path(__file__).with_name("w9-publication-exact-owners.rs")
 EXACT_OWNER_HELPER_SHA256 = "33c77273d9f9096d3e6478622d0b29a3f0f1f79dee772cdea12b06f2ac8200d8"
 EXACT_PROOF_SCHEMA = "w9-exact-owner-proof\t1\n"
+SOURCE_EXACT_PROOF_SCHEMA = "w9-exact-owner-proof\t2\n"
 EXACT_PROOF_FIELDS = (
     "schema",
     "role",
@@ -82,6 +83,65 @@ EXACT_CAPTURE_FIELDS = (
     "range_count",
     "owner_count",
     "ledger_sha256",
+)
+SOURCE_EXACT_CAPTURE_FIELDS = (
+    "schema",
+    "role",
+    "source_receipt",
+    "source_receipt_sha256",
+    "source_root",
+    "source_commit",
+    "source_tree",
+    "binary",
+    "binary_sha256",
+    "build_receipt",
+    "build_receipt_sha256",
+    "helper_sha256",
+    "exact_helper_sha256",
+    "input_root",
+    "input_manifest",
+    "input_manifest_sha256",
+    "corpus_blake3",
+    "adapter_capture_receipt",
+    "adapter_capture_receipt_sha256",
+    "capture_root",
+    "raw_root",
+    "receipt_directory",
+    "range_count",
+    "owner_count",
+    "ledger_sha256",
+)
+SOURCE_EXACT_PROOF_FIELDS = (
+    "schema",
+    "role",
+    "source_receipt",
+    "source_receipt_sha256",
+    "source_root",
+    "source_commit",
+    "source_tree",
+    "build_receipt",
+    "build_receipt_sha256",
+    "binary",
+    "binary_sha256",
+    "helper_sha256",
+    "exact_helper_path",
+    "exact_helper_sha256",
+    "owner_helper_sha256",
+    "input_root",
+    "input_manifest",
+    "input_manifest_sha256",
+    "corpus_blake3",
+    "adapter_capture_receipt",
+    "adapter_capture_receipt_sha256",
+    "capture_receipt",
+    "capture_receipt_sha256",
+    "capture_root",
+    "raw_root",
+    "receipt_directory",
+    "range_count",
+    "owner_count",
+    "ledger_sha256",
+    "owner_hashes_sha256",
 )
 EXPR_ID = re.compile(r"ExprId\(([1-9][0-9]*)\)\Z")
 RUN_FORM_ID = re.compile(r"RunFormId\(([1-9][0-9]*)\)\Z")
@@ -787,11 +847,12 @@ def parse_exact_owner_range_receipt(
 ) -> dict[int, str]:
     label = str(path or "exact-owner range receipt")
     lines = contents.splitlines()
+    inputs = reference.inputs if hasattr(reference, "inputs") else reference
     if len(lines) < len(EXACT_RECEIPT_FIELDS) + 1:
         raise ExactOwnerError(f"{label}: incomplete exact-owner range receipt")
-    expected_shard_count = (len(reference.inputs) + 99) // 100
+    expected_shard_count = (len(inputs) + 99) // 100
     expected_header = {
-        "corpus": str(len(reference.inputs)),
+        "corpus": str(len(inputs)),
         "shard": f"{start // 100}/{expected_shard_count}",
         "range": f"{start}..{end}",
         "shard_size": "100",
@@ -814,7 +875,7 @@ def parse_exact_owner_range_receipt(
             raise ExactOwnerError(f"{label}: malformed exact-owner row for input {index}")
         if _decimal(fields[1], "exact-owner input index") != index:
             raise ExactOwnerError(f"{label}: exact-owner inputs are out of order")
-        source = reference.inputs[index]
+        source = inputs[index]
         if fields[2] != source.relative_path or fields[3] != source.blake3:
             raise ExactOwnerError(f"{label}: exact-owner source differs at input {index}")
         if not HEX256.fullmatch(fields[4]):
@@ -831,7 +892,7 @@ def _exact_capture_record(
     role: str,
     build_receipt: pathlib.Path,
     build: dict[str, str],
-    legacy_capture_receipt: pathlib.Path,
+    adapter_capture_receipt: pathlib.Path,
     capture_root: pathlib.Path,
     raw_root: pathlib.Path,
     receipt_directory: pathlib.Path,
@@ -846,32 +907,66 @@ def _exact_capture_record(
         f"range\t{start}\t{end}\t{runner.sha256_file(path)}\n"
         for (start, end), path in sorted(range_receipts.items())
     ]
-    record = {
-        "schema": "1",
-        "role": role,
-        "source_root": build["source_root"],
-        "source_commit": build["source_commit"],
-        "source_tree": build["source_tree"],
-        "binary": build["binary"],
-        "binary_sha256": build["binary_sha256"],
-        "build_receipt": str(build_receipt),
-        "build_receipt_sha256": runner.sha256_file(build_receipt),
-        "helper_sha256": build["helper_sha256"],
-        "exact_helper_sha256": exact_helper_sha256,
-        "input_root": str(input_root),
-        "input_manifest": str(input_manifest),
-        "input_manifest_sha256": runner.INPUT_MANIFEST_SHA256,
-        "corpus_blake3": runner.CORPUS_BLAKE3,
-        "legacy_capture_receipt": str(legacy_capture_receipt),
-        "legacy_capture_receipt_sha256": runner.sha256_file(legacy_capture_receipt),
-        "capture_root": str(capture_root),
-        "raw_root": str(raw_root),
-        "receipt_directory": str(receipt_directory),
-        "range_count": str(len(range_receipts)),
-        "owner_count": str(len(owner_hashes)),
-        "ledger_sha256": hashlib.sha256("".join(range_rows).encode()).hexdigest(),
-    }
-    if set(record) != set(EXACT_CAPTURE_FIELDS):
+    build_schema = build.get("schema")
+    if build_schema == "2":
+        record = {
+            "schema": "2",
+            "role": role,
+            "source_receipt": build["source_receipt"],
+            "source_receipt_sha256": build["source_receipt_sha256"],
+            "source_root": build["source_root"],
+            "source_commit": build["source_commit"],
+            "source_tree": build["source_tree"],
+            "binary": build["binary"],
+            "binary_sha256": build["binary_sha256"],
+            "build_receipt": str(build_receipt),
+            "build_receipt_sha256": runner.sha256_file(build_receipt),
+            "helper_sha256": build["helper_sha256"],
+            "exact_helper_sha256": exact_helper_sha256,
+            "input_root": str(input_root),
+            "input_manifest": str(input_manifest),
+            "input_manifest_sha256": build["input_manifest_sha256"],
+            "corpus_blake3": build["corpus_blake3"],
+            "adapter_capture_receipt": str(adapter_capture_receipt),
+            "adapter_capture_receipt_sha256": runner.sha256_file(adapter_capture_receipt),
+            "capture_root": str(capture_root),
+            "raw_root": str(raw_root),
+            "receipt_directory": str(receipt_directory),
+            "range_count": str(len(range_receipts)),
+            "owner_count": str(len(owner_hashes)),
+            "ledger_sha256": hashlib.sha256("".join(range_rows).encode()).hexdigest(),
+        }
+        fields = SOURCE_EXACT_CAPTURE_FIELDS
+    elif build_schema == "1":
+        record = {
+            "schema": "1",
+            "role": role,
+            "source_root": build["source_root"],
+            "source_commit": build["source_commit"],
+            "source_tree": build["source_tree"],
+            "binary": build["binary"],
+            "binary_sha256": build["binary_sha256"],
+            "build_receipt": str(build_receipt),
+            "build_receipt_sha256": runner.sha256_file(build_receipt),
+            "helper_sha256": build["helper_sha256"],
+            "exact_helper_sha256": exact_helper_sha256,
+            "input_root": str(input_root),
+            "input_manifest": str(input_manifest),
+            "input_manifest_sha256": runner.INPUT_MANIFEST_SHA256,
+            "corpus_blake3": runner.CORPUS_BLAKE3,
+            "legacy_capture_receipt": str(adapter_capture_receipt),
+            "legacy_capture_receipt_sha256": runner.sha256_file(adapter_capture_receipt),
+            "capture_root": str(capture_root),
+            "raw_root": str(raw_root),
+            "receipt_directory": str(receipt_directory),
+            "range_count": str(len(range_receipts)),
+            "owner_count": str(len(owner_hashes)),
+            "ledger_sha256": hashlib.sha256("".join(range_rows).encode()).hexdigest(),
+        }
+        fields = EXACT_CAPTURE_FIELDS
+    else:
+        raise ExactOwnerError("exact-owner build receipt has an unsupported schema")
+    if set(record) != set(fields):
         raise ExactOwnerError("exact-owner capture receipt fields differ")
     return record
 
@@ -880,9 +975,10 @@ def parse_exact_owner_ledger(
     range_lines: list[str],
     expected_ranges: list[tuple[int, int]],
     label: str = "exact-owner capture receipt",
+    field_count: int = len(EXACT_CAPTURE_FIELDS),
 ) -> tuple[list[tuple[int, int, str]], str]:
     rows: list[tuple[int, int, str]] = []
-    for row_number, line in enumerate(range_lines, len(EXACT_CAPTURE_FIELDS) + 1):
+    for row_number, line in enumerate(range_lines, field_count + 1):
         fields = line.split("\t")
         if len(fields) != 4 or fields[0] != "range":
             raise ExactOwnerError(f"{label}: malformed range row {row_number}")
@@ -903,9 +999,16 @@ def _write_exact_capture_receipt(
     range_receipts: dict[tuple[int, int], pathlib.Path],
     runner,
 ) -> None:
-    if set(record) != set(EXACT_CAPTURE_FIELDS):
+    schema = record.get("schema")
+    if schema == "2":
+        fields = SOURCE_EXACT_CAPTURE_FIELDS
+    elif schema == "1":
+        fields = EXACT_CAPTURE_FIELDS
+    else:
+        raise ExactOwnerError("exact-owner capture receipt has an unsupported schema")
+    if set(record) != set(fields):
         raise ExactOwnerError("exact-owner capture receipt fields differ")
-    lines = [f"{field}\t{record[field]}\n" for field in EXACT_CAPTURE_FIELDS]
+    lines = [f"{field}\t{record[field]}\n" for field in fields]
     lines.extend(
         f"range\t{start}\t{end}\t{runner.sha256_file(receipt)}\n"
         for (start, end), receipt in sorted(range_receipts.items())
@@ -927,6 +1030,120 @@ def _parse_exact_capture_receipt(
 ) -> tuple[dict[str, str], dict[tuple[int, int], pathlib.Path], dict[int, str]]:
     receipt = runner.regular_file(path, f"{role} exact-owner capture receipt")
     lines = runner.read_regular_text(receipt).splitlines()
+    if not lines or lines[0] not in {"schema\t1", "schema\t2"}:
+        raise ExactOwnerError(f"{receipt}: unsupported exact-owner capture receipt schema")
+    capture_schema = lines[0].split("\t", 1)[1]
+    if expected_build.get("schema") != capture_schema:
+        raise ExactOwnerError(f"{receipt}: exact-owner capture and build receipt schemas differ")
+    if lines[0] == "schema\t2":
+        record, range_lines = adapter_runner._parse_receipt_header(
+            receipt, lines, SOURCE_EXACT_CAPTURE_FIELDS, "source-qualified exact-owner capture"
+        )
+        if record["schema"] != "2" or record["role"] != role:
+            raise ExactOwnerError(f"{receipt}: source-qualified exact-owner schema or role differs")
+        for field in (
+            "source_root", "source_commit", "source_tree", "binary", "binary_sha256",
+            "helper_sha256",
+        ):
+            if record[field] != expected_build[field]:
+                raise ExactOwnerError(f"{receipt}: {field} differs from exact-owner build receipt")
+        source_receipt = runner.regular_file(
+            expected_build["source_receipt"], "exact-owner source-cohort receipt"
+        )
+        if (
+            record["source_receipt"] != str(source_receipt)
+            or record["source_receipt_sha256"] != runner.sha256_file(source_receipt)
+            or expected_build["source_receipt_sha256"] != runner.sha256_file(source_receipt)
+        ):
+            raise ExactOwnerError(f"{receipt}: source-cohort receipt identity differs")
+        source_record = runner.parse_candidate_receipt(source_receipt)
+        if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+            raise ExactOwnerError(f"{receipt}: source-cohort receipt is not source-qualified")
+        if (
+            record["input_root"] != str(input_root)
+            or record["input_manifest"] != str(input_manifest)
+            or record["input_manifest_sha256"] != source_record["input_manifest_sha256"]
+            or record["corpus_blake3"] != source_record["corpus_blake3"]
+        ):
+            raise ExactOwnerError(f"{receipt}: source-qualified input cohort differs")
+        expected_build_receipt = runner.regular_file(
+            expected_build_receipt, f"{role} exact-owner build receipt"
+        )
+        if record["build_receipt"] != str(expected_build_receipt):
+            raise ExactOwnerError(f"{receipt}: exact-owner build receipt path differs")
+        if runner.sha256_file(expected_build_receipt) != record["build_receipt_sha256"]:
+            raise ExactOwnerError(f"{receipt}: exact-owner build receipt hash differs")
+        if record["exact_helper_sha256"] != exact_helper_sha256:
+            raise ExactOwnerError(f"{receipt}: exact helper hash differs")
+        adapter_capture_receipt = runner.regular_file(
+            record["adapter_capture_receipt"], f"{role} source-qualified adapter capture"
+        )
+        if (
+            str(adapter_capture_receipt) != record["adapter_capture_receipt"]
+            or runner.sha256_file(adapter_capture_receipt) != record["adapter_capture_receipt_sha256"]
+        ):
+            raise ExactOwnerError(f"{receipt}: adapter capture receipt identity differs")
+        adapter_build, adapter_raw_root, _adapter_receipt_directory, adapter_capture, adapter_inputs = _source_adapter_capture(
+            adapter_capture_receipt,
+            role,
+            source_record,
+            pathlib.Path(expected_build["source_root"]),
+            expected_inputs,
+            input_root,
+            input_manifest,
+            source_receipt,
+            runner,
+        )
+        if (
+            adapter_capture["source_commit"] != expected_build["source_commit"]
+            or adapter_capture["source_tree"] != expected_build["source_tree"]
+            or adapter_build["source_receipt_sha256"] != record["source_receipt_sha256"]
+        ):
+            raise ExactOwnerError(f"{receipt}: adapter capture source identity differs")
+        if record["range_count"] != str(len(runner.expected_ranges(len(expected_inputs)))):
+            raise ExactOwnerError(f"{receipt}: complete exact-owner range coverage differs")
+        if record["owner_count"] != str(len(expected_inputs)):
+            raise ExactOwnerError(f"{receipt}: complete exact-owner count differs")
+        capture_root = runner.real_directory(record["capture_root"], f"{role} exact-owner capture root")
+        raw_root = runner.real_directory(record["raw_root"], f"{role} exact-owner sidecars")
+        receipt_directory = runner.real_directory(
+            record["receipt_directory"], f"{role} exact-owner range receipts"
+        )
+        if (
+            receipt.parent != capture_root
+            or raw_root != capture_root / "owners"
+            or receipt_directory != capture_root / "receipts"
+            or pathlib.Path(adapter_capture["raw_root"]) != adapter_raw_root
+        ):
+            raise ExactOwnerError(f"{receipt}: exact-owner output paths differ")
+        range_rows, ledger_sha256 = parse_exact_owner_ledger(
+            range_lines, runner.expected_ranges(len(expected_inputs)), str(receipt),
+            len(SOURCE_EXACT_CAPTURE_FIELDS),
+        )
+        if ledger_sha256 != record["ledger_sha256"]:
+            raise ExactOwnerError(f"{receipt}: range ledger hash differs")
+        range_receipts: dict[tuple[int, int], pathlib.Path] = {}
+        owner_hashes: dict[int, str] = {}
+        for (start, end), (_row_start, _row_end, digest) in zip(
+            runner.expected_ranges(len(expected_inputs)), range_rows
+        ):
+            range_path = _exact_range_receipt_path(receipt_directory, start, end)
+            if runner.sha256_file(range_path) != digest:
+                raise ExactOwnerError(f"{receipt}: range receipt hash differs for {start}..{end}")
+            range_receipts[(start, end)] = range_path
+            observed = _read_exact_owner_receipt(
+                range_path,
+                start,
+                end,
+                adapter_inputs if record["schema"] == "2" else reference,
+                runner,
+            )
+            if set(owner_hashes) & set(observed):
+                raise ExactOwnerError(f"{receipt}: duplicated owner index")
+            owner_hashes.update(observed)
+        if set(owner_hashes) != set(range(len(expected_inputs))):
+            raise ExactOwnerError(f"{receipt}: owner index coverage differs")
+        return record, range_receipts, owner_hashes
     record, range_lines = adapter_runner._parse_receipt_header(
         receipt, lines, EXACT_CAPTURE_FIELDS, "exact-owner capture"
     )
@@ -1064,13 +1281,13 @@ def _reuse_reference_build(
 
 def _check_exact_harness_listing(
     builder: pathlib.Path,
-    candidate_root: pathlib.Path,
+    source_root: pathlib.Path,
     binary: pathlib.Path,
     docker_environment: dict[str, str],
 ) -> None:
     try:
         result = subprocess.run(
-            [str(builder), str(candidate_root), "run", str(binary), "--list"],
+            [str(builder), str(source_root), "run", str(binary), "--list"],
             check=False,
             text=True,
             stdout=subprocess.PIPE,
@@ -1087,6 +1304,13 @@ def _check_exact_harness_listing(
     require_exact_owner_test_listing(result.stdout)
 
 
+def _validate_source_inputs(source_record: dict[str, str], runner):
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA:
+        expected_inputs, paths_by_name = runner.validate_source_cohort_inputs(source_record)
+        return expected_inputs, paths_by_name, None
+    return runner.validate_all_inputs(source_record)
+
+
 def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> None:
     candidate_root = bootstrap_runner.real_directory(args.candidate_root, "candidate source")
     source_receipt = bootstrap_runner.regular_file(args.candidate_source_receipt, "candidate source receipt")
@@ -1100,7 +1324,7 @@ def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> N
         source_record["candidate_commit"], source_record["candidate_tree"]
     ):
         raise ExactOwnerError("candidate source identity differs from its source receipt")
-    expected_inputs, _paths_by_name, _reference = runner.validate_all_inputs(source_record)
+    expected_inputs, _paths_by_name, _reference = _validate_source_inputs(source_record, runner)
     if len(expected_inputs) != 1690:
         raise ExactOwnerError(f"candidate input count differs: {len(expected_inputs)}")
     reference_root = adapter_runner._prepare_reference_source(
@@ -1115,6 +1339,7 @@ def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> N
         adapter_runner.ROOT = candidate_root
         helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = (
             adapter_runner.derive_helper(
+                approved_helper=adapter_runner.SOURCE_APPROVED_HELPER,
                 owner_helper=owner_helper_source,
                 output_directory=helper_attempt,
                 output_root=candidate_root,
@@ -1144,6 +1369,8 @@ def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> N
             binary, build_receipt = adapter_runner.build_adapter_harness(
                 source_root,
                 candidate_root,
+                source_receipt,
+                source_record,
                 role,
                 helper,
                 helper_sha256,
@@ -1154,17 +1381,34 @@ def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> N
             build = adapter_runner._parse_adapter_build_receipt(
                 build_receipt, role, runner, owner_helper_source
             )
+        if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA and build["schema"] != "2":
+            raise ExactOwnerError("source-qualified exact-owner build requires source-qualified adapter builds")
+        build_schema = build.get("schema")
+        if build_schema == "2":
+            listing_builder = pathlib.Path(source_record["builder_path"])
+            listing_environment = {
+                **docker_environment,
+                "W9_SOURCE_COMMIT": build["source_commit"],
+                "W9_SOURCE_TREE": build["source_tree"],
+            }
+        elif build_schema == "1":
+            listing_builder = runner.regular_file(
+                runner.APPROVED_BUILD_RUNNER, "pinned build runner", executable=True
+            )
+            listing_environment = docker_environment
+        else:
+            raise ExactOwnerError(f"{role} build receipt has an unsupported schema")
         runner.run_harness_test_listing(
-            runner.regular_file(runner.APPROVED_BUILD_RUNNER, "pinned build runner", executable=True),
-            candidate_root,
+            listing_builder,
+            source_root,
             binary,
-            docker_environment,
+            listing_environment,
         )
         _check_exact_harness_listing(
-            runner.regular_file(runner.APPROVED_BUILD_RUNNER, "pinned build runner", executable=True),
-            candidate_root,
+            listing_builder,
+            source_root,
             binary,
-            docker_environment,
+            listing_environment,
         )
         if build["helper_sha256"] != helper_sha256:
             raise ExactOwnerError(f"{role} build receipt helper hash differs")
@@ -1267,6 +1511,90 @@ def _legacy_capture(
     return original_build, raw_root, receipt_directory
 
 
+def _source_adapter_capture(
+    capture_receipt: pathlib.Path,
+    role: str,
+    source_record: dict[str, str],
+    source_root: pathlib.Path,
+    expected_inputs: dict[int, object],
+    input_root: pathlib.Path,
+    input_manifest: pathlib.Path,
+    source_receipt: pathlib.Path,
+    runner,
+) -> tuple[dict[str, str], pathlib.Path, pathlib.Path, dict[str, str], dict[int, object]]:
+    capture_receipt = runner.regular_file(capture_receipt, f"{role} source-qualified adapter capture")
+    lines = runner.read_regular_text(capture_receipt).splitlines()
+    if not lines or lines[0] != "schema\t2":
+        raise ExactOwnerError(f"{role} adapter capture is not source-qualified")
+    build_receipt = runner.regular_file(
+        adapter_runner._capture_field(capture_receipt, "build_receipt", runner),
+        f"{role} source-qualified adapter build receipt",
+    )
+    owner_helper_source = pathlib.Path(source_record["candidate_root"]) / "dev/consolidation/w9-publication-owner-helper.rs"
+    build = adapter_runner._parse_adapter_build_receipt(
+        build_receipt, role, runner, owner_helper_source
+    )
+    if pathlib.Path(build["source_root"]) != source_root:
+        raise ExactOwnerError(f"{role} adapter capture source root differs")
+    if build["source_receipt"] != str(source_receipt) or build["source_receipt_sha256"] != runner.sha256_file(source_receipt):
+        raise ExactOwnerError(f"{role} adapter build uses a different source receipt")
+    parsed = adapter_runner._parse_capture_receipt(
+        capture_receipt,
+        role,
+        pathlib.Path(adapter_runner._capture_field(capture_receipt, "receipt_directory", runner)),
+        pathlib.Path(adapter_runner._capture_field(capture_receipt, "capture_root", runner)),
+        pathlib.Path(adapter_runner._capture_field(capture_receipt, "raw_root", runner)),
+        build,
+        expected_inputs,
+        input_root,
+        input_manifest,
+        runner,
+    )
+    if (
+        parsed["source_receipt"] != str(source_receipt)
+        or parsed["source_receipt_sha256"] != runner.sha256_file(source_receipt)
+        or pathlib.Path(parsed["source_root"]) != source_root
+        or parsed["source_commit"] != build["source_commit"]
+        or parsed["source_tree"] != build["source_tree"]
+        or parsed["input_root"] != str(input_root)
+        or parsed["input_manifest"] != str(input_manifest)
+        or parsed["input_manifest_sha256"] != source_record["input_manifest_sha256"]
+        or parsed["corpus_blake3"] != source_record["corpus_blake3"]
+    ):
+        raise ExactOwnerError(f"{role} adapter capture source or cohort identity differs")
+    raw_root = runner.real_directory(parsed["raw_root"], f"{role} adapter owner sidecars")
+    descriptor = runner.open_absolute_nofollow(raw_root, directory=True)
+    try:
+        names = set(os.listdir(descriptor))
+    finally:
+        os.close(descriptor)
+    expected_names = (
+        {"schema"}
+        | {f"owners-{index}.tsv" for index in range(len(expected_inputs))}
+        | {
+            f"record-{index}-{profile}"
+            for index in range(len(expected_inputs))
+            for profile in adapter_runner.PROFILES
+        }
+    )
+    if names != expected_names:
+        raise ExactOwnerError(f"{role} adapter capture raw owner coverage differs")
+    descriptor = runner.open_absolute_nofollow(raw_root, directory=True)
+    try:
+        if adapter_runner._read_regular_at(descriptor, "schema") != adapter_runner.RAW_SCHEMA:
+            raise ExactOwnerError(f"{role} adapter capture raw schema differs")
+    finally:
+        os.close(descriptor)
+    receipt_directory = pathlib.Path(parsed["receipt_directory"])
+    try:
+        adapter_receipt = adapter_runner.aggregate_candidate_receipts(
+            runner, receipt_directory, expected_inputs
+        )
+    except (adapter_runner.PublicationError, runner.PublicationError) as error:
+        raise ExactOwnerError(f"{role} adapter capture input identities differ: {error}") from error
+    return build, raw_root, receipt_directory, parsed, adapter_receipt.inputs
+
+
 def _exact_owner_hash_job_directory(
     capture_output: pathlib.Path,
     role: str,
@@ -1295,19 +1623,45 @@ def _run_exact_owner_hashes(
     docker_environment: dict[str, str],
     runner,
 ) -> dict[int, str]:
-    wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
-    wrapper_root = runner.real_directory(source_record["wrapper_root"], "pinned wrapper root")
-    runner.validate_wrapper_root(wrapper_root, pathlib.Path(source_record["candidate_root"]))
-    runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
     if not runner.under(raw_root, pathlib.Path(source_record["candidate_root"]) / ".work"):
         raise ExactOwnerError(f"exact-owner sidecars are outside candidate .work/: {raw_root}")
     job_dir = _exact_owner_hash_job_directory(capture_output, role, pass_number, runner)
     container = f"w9exact-{os.getpid()}-{role}-hash-{pass_number}"
     if runner.existing_container(container, docker_environment):
         raise ExactOwnerError(f"exact-owner hash Docker container already exists: {container}")
-    shim_dir = runner.docker_shim(
-        job_dir, container, 0, pathlib.Path(source_record["input_root"])
-    )
+    source_qualified = source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
+    if source_qualified:
+        command = [
+            "timeout", "900s", source_record["builder_path"], source_record["candidate_root"], "run",
+            f"W9_INPUT_ROOT={source_record['input_root']}",
+            "W9_CPU_SET=0",
+            f"W9_CONTAINER_NAME={container}",
+            "env",
+            f"W9_EXACT_OWNER_HASH_ROOT={raw_root}",
+            "taskset", "-c", "0", str(binary), "--exact", EXACT_OWNER_TEST, "--nocapture",
+        ]
+        environment = {
+            **docker_environment,
+            "W9_SOURCE_COMMIT": source_record["candidate_commit"],
+            "W9_SOURCE_TREE": source_record["candidate_tree"],
+        }
+        job_root = pathlib.Path(source_record["candidate_root"])
+    else:
+        wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
+        wrapper_root = runner.real_directory(source_record["wrapper_root"], "pinned wrapper root")
+        runner.validate_wrapper_root(wrapper_root, pathlib.Path(source_record["candidate_root"]))
+        runner.require_sha256(wrapper, runner.WRAPPER_SHA256, "pinned native test wrapper")
+        shim_dir = runner.docker_shim(
+            job_dir, container, 0, pathlib.Path(source_record["input_root"])
+        )
+        environment = dict(docker_environment)
+        environment["PATH"] = f"{shim_dir}:/usr/bin:/bin"
+        command = [
+            "timeout", "900s", str(wrapper), str(wrapper_root), "run", "env",
+            f"W9_EXACT_OWNER_HASH_ROOT={raw_root}",
+            "taskset", "-c", "0", str(binary), "--exact", EXACT_OWNER_TEST, "--nocapture",
+        ]
+        job_root = wrapper_root
     log = job_dir / "worker.log"
     descriptor = os.open(
         log,
@@ -1320,20 +1674,13 @@ def _run_exact_owner_hashes(
         f"binary_sha256={runner.sha256_file(binary)}\n".encode()
     )
     output.flush()
-    environment = dict(docker_environment)
-    environment["PATH"] = f"{shim_dir}:/usr/bin:/bin"
-    command = [
-        "timeout", "900s", str(wrapper), str(wrapper_root), "run", "env",
-        f"W9_EXACT_OWNER_HASH_ROOT={raw_root}",
-        "taskset", "-c", "0", str(binary), "--exact", EXACT_OWNER_TEST, "--nocapture",
-    ]
     job = {
         "worker": role, "cpu": 0, "start": 0, "end": 1690, "container": container,
         "receipt": log, "timing": log, "log": log, "process": None, "output": output,
     }
     active: list[dict[str, object]] = []
     try:
-        runner.start_and_register_job(job, active, command, str(wrapper_root), environment)
+        runner.start_and_register_job(job, active, command, job_root, environment)
         process = job["process"]
         while process.poll() is None:
             time.sleep(1)
@@ -1387,12 +1734,48 @@ def _launch_exact_owner_job(
     log = job_dir / "worker.log"
     if any(path.exists() or path.is_symlink() for path in (receipt, log)):
         raise ExactOwnerError(f"refusing to overwrite exact-owner shard artifact {worker}/{start}..{end}")
-    container = f"w9exact-{os.getpid()}-{worker}-{start}"
+    container = f"w9exact-{os.getpid()}-{role}-{worker}-{start}"
     if runner.existing_container(container, docker_environment):
         raise ExactOwnerError(f"exact-owner Docker container already exists: {container}")
-    shim_dir = runner.docker_shim(
-        job_dir, container, cpu, pathlib.Path(source_record["input_root"])
-    )
+    source_qualified = source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
+    if source_qualified:
+        command = [
+            "timeout", "900s", source_record["builder_path"], source_record["candidate_root"], "run",
+            f"W9_INPUT_ROOT={source_record['input_root']}",
+            f"W9_CPU_SET={cpu}",
+            f"W9_CONTAINER_NAME={container}",
+            "env",
+            f"W9_EXACT_OWNER_OUTPUT_DIR={raw_root}",
+            f"W9_EXACT_OWNER_RECEIPT={receipt}",
+            f"W9_SHARD_INDEX={start // 100}",
+            "W9_SHARD_SIZE=100",
+            f"W9_START={start}",
+            f"W9_END={end}",
+            "taskset", "-c", str(cpu), build["binary"], "--exact", EXACT_OWNER_TEST, "--nocapture",
+        ]
+        environment = {
+            **docker_environment,
+            "W9_SOURCE_COMMIT": source_record["candidate_commit"],
+            "W9_SOURCE_TREE": source_record["candidate_tree"],
+        }
+        job_root = pathlib.Path(source_record["candidate_root"])
+    else:
+        shim_dir = runner.docker_shim(
+            job_dir, container, cpu, pathlib.Path(source_record["input_root"])
+        )
+        command = [
+            "timeout", "900s", source_record["wrapper"], source_record["wrapper_root"], "run", "env",
+            f"W9_INPUT_ROOT={source_record['input_root']}",
+            f"W9_EXACT_OWNER_OUTPUT_DIR={raw_root}",
+            f"W9_EXACT_OWNER_RECEIPT={receipt}",
+            f"W9_SHARD_INDEX={start // 100}",
+            "W9_SHARD_SIZE=100",
+            f"W9_START={start}",
+            f"W9_END={end}",
+            "taskset", "-c", str(cpu), build["binary"], "--exact", EXACT_OWNER_TEST, "--nocapture",
+        ]
+        environment = dict(docker_environment)
+        environment["PATH"] = f"{shim_dir}:/usr/bin:/bin"
     descriptor = os.open(
         log,
         os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
@@ -1405,19 +1788,6 @@ def _launch_exact_owner_job(
         f"binary_sha256={build['binary_sha256']} corpus={runner.CORPUS_BLAKE3}\n".encode()
     )
     output_handle.flush()
-    environment = dict(docker_environment)
-    environment["PATH"] = f"{shim_dir}:/usr/bin:/bin"
-    command = [
-        "timeout", "900s", source_record["wrapper"], source_record["wrapper_root"], "run", "env",
-        f"W9_INPUT_ROOT={source_record['input_root']}",
-        f"W9_EXACT_OWNER_OUTPUT_DIR={raw_root}",
-        f"W9_EXACT_OWNER_RECEIPT={receipt}",
-        f"W9_SHARD_INDEX={start // 100}",
-        "W9_SHARD_SIZE=100",
-        f"W9_START={start}",
-        f"W9_END={end}",
-        "taskset", "-c", str(cpu), build["binary"], "--exact", EXACT_OWNER_TEST, "--nocapture",
-    ]
     job = {
         "worker": worker,
         "cpu": cpu,
@@ -1432,7 +1802,7 @@ def _launch_exact_owner_job(
     }
     try:
         runner.start_and_register_job(
-            job, active, command, source_record["wrapper_root"], environment
+            job, active, command, job_root, environment
         )
     except BaseException:
         if not output_handle.closed:
@@ -1447,7 +1817,7 @@ def _capture_exact_owner_role(
     role: str,
     build_receipt: pathlib.Path,
     build: dict[str, str],
-    legacy_capture_receipt: pathlib.Path,
+    adapter_capture_receipt: pathlib.Path,
     exact_helper_sha256: str,
     expected_inputs: dict[int, object],
     reference,
@@ -1458,6 +1828,7 @@ def _capture_exact_owner_role(
     docker_environment: dict[str, str],
 ) -> dict[str, str]:
     raw_root = output / "owners"
+    receipt_inputs = reference if reference is not None else expected_inputs
     receipt_directory = output / "receipts"
     jobs_root = output / "jobs"
     for directory in (raw_root, receipt_directory, jobs_root):
@@ -1495,7 +1866,7 @@ def _capture_exact_owner_role(
                         f"failed with status {status}; log={job['log']}"
                     )
                 receipt = runner.regular_file(job["receipt"], f"{role} exact-owner range receipt")
-                observed = _read_exact_owner_receipt(receipt, start, end, reference, runner)
+                observed = _read_exact_owner_receipt(receipt, start, end, receipt_inputs, runner)
                 if set(owner_hashes) & set(observed):
                     raise ExactOwnerError(f"{role} exact-owner ranges duplicate an input index")
                 owner_hashes.update(observed)
@@ -1524,13 +1895,13 @@ def _capture_exact_owner_role(
             raise ExactOwnerError(f"exact-owner containers remained after {role} capture: {', '.join(leftovers)}")
         if sorted(range_receipts) != expected_ranges or set(owner_hashes) != set(range(len(expected_inputs))):
             raise ExactOwnerError(f"{role} exact-owner capture coverage differs")
-        runner.validate_all_inputs(source_record)
+        _validate_source_inputs(source_record, runner)
         if runner.source_identity(pathlib.Path(build["source_root"])) != (
             build["source_commit"], build["source_tree"]
         ):
             raise ExactOwnerError(f"{role} source identity changed during exact-owner capture")
         record = _exact_capture_record(
-            role, build_receipt, build, legacy_capture_receipt, output, raw_root,
+            role, build_receipt, build, adapter_capture_receipt, output, raw_root,
             receipt_directory, input_root, input_manifest, range_receipts, owner_hashes,
             exact_helper_sha256, runner,
         )
@@ -1561,7 +1932,7 @@ def capture_exact_owner_role(args: argparse.Namespace, bootstrap_runner) -> int:
         source_record["candidate_commit"], source_record["candidate_tree"]
     ):
         raise ExactOwnerError("candidate source identity differs from its source receipt")
-    expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
+    expected_inputs, _paths_by_name, reference = _validate_source_inputs(source_record, runner)
     if len(expected_inputs) != 1690:
         raise ExactOwnerError(f"candidate input count differs: {len(expected_inputs)}")
     reference_root = adapter_runner._prepare_reference_source(
@@ -1576,8 +1947,15 @@ def capture_exact_owner_role(args: argparse.Namespace, bootstrap_runner) -> int:
         runner,
         candidate_root / "dev/consolidation/w9-publication-owner-helper.rs",
     )
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA and build["schema"] != "2":
+        raise ExactOwnerError(f"{role} source-qualified exact-owner capture requires a schema-2 build")
     if pathlib.Path(build["source_root"]) != source_root:
         raise ExactOwnerError(f"{role} exact-owner build source differs")
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA and (
+        build["source_receipt"] != str(source_receipt)
+        or build["source_receipt_sha256"] != runner.sha256_file(source_receipt)
+    ):
+        raise ExactOwnerError(f"{role} exact-owner build uses a different source receipt")
     exact_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(runner)
     helper_path = runner.regular_file(build["helper_path"], f"{role} exact-owner derived helper")
     if not runner.under(helper_path, candidate_root / ".work"):
@@ -1586,24 +1964,48 @@ def capture_exact_owner_role(args: argparse.Namespace, bootstrap_runner) -> int:
     if hashlib.sha256(helper_bytes).hexdigest() != build["helper_sha256"] or not helper_bytes.endswith(exact_helper_bytes):
         raise ExactOwnerError(f"{role} exact-owner helper does not match its build receipt")
     runner.require_sha256(pathlib.Path(build["binary"]), build["binary_sha256"], f"{role} exact-owner harness")
-    legacy_capture_receipt = runner.regular_file(
-        args.legacy_capture_receipt, f"{role} original capture receipt"
-    )
-    legacy_build, _legacy_raw, _legacy_receipts = _legacy_capture(
-        legacy_capture_receipt,
-        role,
-        source_root,
-        candidate_root,
-        expected_inputs,
-        pathlib.Path(source_record["input_root"]),
-        pathlib.Path(source_record["input_manifest"]),
-        reference,
-        runner,
-    )
-    if (legacy_build["source_commit"], legacy_build["source_tree"]) != (
-        build["source_commit"], build["source_tree"]
-    ):
-        raise ExactOwnerError(f"{role} original capture and exact-owner build source identities differ")
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA:
+        if getattr(args, "adapter_capture_receipt", None) is None:
+            raise ExactOwnerError(f"{role} exact-owner capture requires a fresh source-qualified adapter capture")
+        adapter_capture_receipt = runner.regular_file(
+            args.adapter_capture_receipt, f"{role} source-qualified adapter capture receipt"
+        )
+        adapter_build, _adapter_raw, _adapter_receipts, _adapter_capture, adapter_inputs = _source_adapter_capture(
+            adapter_capture_receipt,
+            role,
+            source_record,
+            source_root,
+            expected_inputs,
+            pathlib.Path(source_record["input_root"]),
+            pathlib.Path(source_record["input_manifest"]),
+            source_receipt,
+            runner,
+        )
+        if (adapter_build["source_commit"], adapter_build["source_tree"]) != (
+            build["source_commit"], build["source_tree"]
+        ):
+            raise ExactOwnerError(f"{role} adapter capture and exact-owner build source identities differ")
+        receipt_reference = adapter_inputs
+    else:
+        adapter_capture_receipt = runner.regular_file(
+            args.legacy_capture_receipt, f"{role} original capture receipt"
+        )
+        legacy_build, _legacy_raw, _legacy_receipts = _legacy_capture(
+            adapter_capture_receipt,
+            role,
+            source_root,
+            candidate_root,
+            expected_inputs,
+            pathlib.Path(source_record["input_root"]),
+            pathlib.Path(source_record["input_manifest"]),
+            reference,
+            runner,
+        )
+        if (legacy_build["source_commit"], legacy_build["source_tree"]) != (
+            build["source_commit"], build["source_tree"]
+        ):
+            raise ExactOwnerError(f"{role} original capture and exact-owner build source identities differ")
+        receipt_reference = reference
     output = runner.require_output_path(args.output, candidate_root)
     if args.dry_run:
         print(
@@ -1622,10 +2024,10 @@ def capture_exact_owner_role(args: argparse.Namespace, bootstrap_runner) -> int:
             role,
             build_receipt,
             build,
-            legacy_capture_receipt,
+            adapter_capture_receipt,
             exact_helper_sha256,
             expected_inputs,
-            reference,
+            receipt_reference,
             pathlib.Path(source_record["input_root"]),
             pathlib.Path(source_record["input_manifest"]),
             output,
@@ -1689,13 +2091,51 @@ def _proof_record(
     build: dict[str, str],
     exact_helper_path: pathlib.Path,
     exact_helper_sha256: str,
-    legacy_capture_receipt: pathlib.Path,
+    adapter_capture_receipt: pathlib.Path,
     exact_capture_receipt: pathlib.Path,
     capture: dict[str, str],
     owner_hashes: dict[int, str],
     runner,
 ) -> dict[str, str]:
-    record = {
+    build_schema = build.get("schema")
+    if build_schema == "2":
+        record = {
+            "schema": "2",
+            "role": role,
+            "source_receipt": build["source_receipt"],
+            "source_receipt_sha256": build["source_receipt_sha256"],
+            "source_root": build["source_root"],
+            "source_commit": build["source_commit"],
+            "source_tree": build["source_tree"],
+            "build_receipt": str(build_receipt),
+            "build_receipt_sha256": runner.sha256_file(build_receipt),
+            "binary": build["binary"],
+            "binary_sha256": build["binary_sha256"],
+            "helper_sha256": build["helper_sha256"],
+            "exact_helper_path": str(exact_helper_path),
+            "exact_helper_sha256": exact_helper_sha256,
+            "owner_helper_sha256": build["owner_helper_sha256"],
+            "input_root": capture["input_root"],
+            "input_manifest": capture["input_manifest"],
+            "input_manifest_sha256": capture["input_manifest_sha256"],
+            "corpus_blake3": capture["corpus_blake3"],
+            "adapter_capture_receipt": str(adapter_capture_receipt),
+            "adapter_capture_receipt_sha256": runner.sha256_file(adapter_capture_receipt),
+            "capture_receipt": str(exact_capture_receipt),
+            "capture_receipt_sha256": runner.sha256_file(exact_capture_receipt),
+            "capture_root": capture["capture_root"],
+            "raw_root": capture["raw_root"],
+            "receipt_directory": capture["receipt_directory"],
+            "range_count": capture["range_count"],
+            "owner_count": capture["owner_count"],
+            "ledger_sha256": capture["ledger_sha256"],
+            "owner_hashes_sha256": hashlib.sha256(
+                "".join(f"{index}\t{owner_hashes[index]}\n" for index in sorted(owner_hashes)).encode()
+            ).hexdigest(),
+        }
+        fields = SOURCE_EXACT_PROOF_FIELDS
+    elif build_schema == "1":
+        record = {
         "schema": "1",
         "role": role,
         "source_root": build["source_root"],
@@ -1713,8 +2153,8 @@ def _proof_record(
         "input_manifest": capture["input_manifest"],
         "input_manifest_sha256": capture["input_manifest_sha256"],
         "corpus_blake3": capture["corpus_blake3"],
-        "legacy_capture_receipt": str(legacy_capture_receipt),
-        "legacy_capture_receipt_sha256": runner.sha256_file(legacy_capture_receipt),
+        "legacy_capture_receipt": str(adapter_capture_receipt),
+        "legacy_capture_receipt_sha256": runner.sha256_file(adapter_capture_receipt),
         "capture_receipt": str(exact_capture_receipt),
         "capture_receipt_sha256": runner.sha256_file(exact_capture_receipt),
         "capture_root": capture["capture_root"],
@@ -1726,18 +2166,31 @@ def _proof_record(
         "owner_hashes_sha256": hashlib.sha256(
             "".join(f"{index}\t{owner_hashes[index]}\n" for index in sorted(owner_hashes)).encode()
         ).hexdigest(),
-    }
-    if set(record) != set(EXACT_PROOF_FIELDS):
+        }
+        fields = EXACT_PROOF_FIELDS
+    else:
+        raise ExactOwnerError("exact-owner build receipt has an unsupported schema")
+    if set(record) != set(fields):
         raise ExactOwnerError("exact-owner proof receipt fields differ")
     return record
 
 
 def _write_proof_receipt(path: pathlib.Path, record: dict[str, str], runner) -> None:
-    if set(record) != set(EXACT_PROOF_FIELDS):
+    schema = record.get("schema")
+    if schema == "2":
+        source_qualified = True
+        fields = SOURCE_EXACT_PROOF_FIELDS
+    elif schema == "1":
+        source_qualified = False
+        fields = EXACT_PROOF_FIELDS
+    else:
+        raise ExactOwnerError("exact-owner proof receipt has an unsupported schema")
+    if set(record) != set(fields):
         raise ExactOwnerError("exact-owner proof receipt fields differ")
     adapter_runner._write_new_file(
         path,
-        (EXACT_PROOF_SCHEMA + "".join(f"{field}\t{record[field]}\n" for field in EXACT_PROOF_FIELDS)).encode(),
+        ((SOURCE_EXACT_PROOF_SCHEMA if source_qualified else EXACT_PROOF_SCHEMA)
+         + "".join(f"{field}\t{record[field]}\n" for field in fields)).encode(),
         runner,
     )
 
@@ -1765,7 +2218,7 @@ def validate_proof(
         source_record["candidate_commit"], source_record["candidate_tree"]
     ):
         raise ExactOwnerError("candidate source identity differs from its source receipt")
-    expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
+    expected_inputs, _paths_by_name, reference = _validate_source_inputs(source_record, runner)
     if len(expected_inputs) != 1690:
         raise ExactOwnerError(f"candidate input count differs: {len(expected_inputs)}")
     reference_root = adapter_runner._prepare_reference_source(
@@ -1779,8 +2232,15 @@ def validate_proof(
         runner,
         candidate_root / "dev/consolidation/w9-publication-owner-helper.rs",
     )
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA and build["schema"] != "2":
+        raise ExactOwnerError(f"{role} source-qualified exact-owner proof requires a schema-2 build")
     if pathlib.Path(build["source_root"]) != selected_source_root:
         raise ExactOwnerError(f"{role} exact-owner build source differs")
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA and (
+        build["source_receipt"] != str(source_receipt)
+        or build["source_receipt_sha256"] != runner.sha256_file(source_receipt)
+    ):
+        raise ExactOwnerError(f"{role} exact-owner build uses a different source receipt")
     exact_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(runner)
     helper_path = runner.regular_file(build["helper_path"], f"{role} exact-owner derived helper")
     if not runner.under(helper_path, candidate_root / ".work"):
@@ -1794,29 +2254,68 @@ def validate_proof(
         exact_capture_receipt, f"{role} exact-owner capture receipt"
     )
     capture_record_lines = runner.read_regular_text(exact_capture_receipt).splitlines()
-    capture, _range_rows = adapter_runner._parse_receipt_header(
-        exact_capture_receipt, capture_record_lines, EXACT_CAPTURE_FIELDS, "exact-owner capture"
-    )
-    legacy_capture_receipt = runner.regular_file(
-        capture["legacy_capture_receipt"], f"{role} original capture receipt"
-    )
-    if runner.sha256_file(legacy_capture_receipt) != capture["legacy_capture_receipt_sha256"]:
-        raise ExactOwnerError(f"{role} original capture receipt hash differs")
-    original_build, legacy_raw_root, _legacy_receipt_directory = _legacy_capture(
-        legacy_capture_receipt,
-        role,
-        selected_source_root,
-        candidate_root,
-        expected_inputs,
-        pathlib.Path(source_record["input_root"]),
-        pathlib.Path(source_record["input_manifest"]),
-        reference,
-        runner,
-    )
-    if (original_build["source_commit"], original_build["source_tree"]) != (
-        build["source_commit"], build["source_tree"]
+    if not capture_record_lines or capture_record_lines[0] not in {"schema\t1", "schema\t2"}:
+        raise ExactOwnerError(f"{role} exact-owner capture has an unsupported receipt schema")
+    if (
+        source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
+        and capture_record_lines[0] != "schema\t2"
     ):
-        raise ExactOwnerError(f"{role} original capture and exact-owner build source identities differ")
+        raise ExactOwnerError(f"{role} source-qualified exact-owner proof requires a schema-2 capture")
+    if capture_record_lines[0] == "schema\t2":
+        capture, _range_rows = adapter_runner._parse_receipt_header(
+            exact_capture_receipt,
+            capture_record_lines,
+            SOURCE_EXACT_CAPTURE_FIELDS,
+            "source-qualified exact-owner capture",
+        )
+        adapter_capture_receipt = runner.regular_file(
+            capture["adapter_capture_receipt"], f"{role} source-qualified adapter capture"
+        )
+        if (
+            runner.sha256_file(adapter_capture_receipt) != capture["adapter_capture_receipt_sha256"]
+            or pathlib.Path(capture["source_receipt"]) != source_receipt
+            or capture["source_receipt_sha256"] != runner.sha256_file(source_receipt)
+        ):
+            raise ExactOwnerError(f"{role} source or adapter capture receipt identity differs")
+        adapter_build, adapter_raw_root, _adapter_receipt_directory, _adapter_capture, _adapter_inputs = _source_adapter_capture(
+            adapter_capture_receipt,
+            role,
+            source_record,
+            selected_source_root,
+            expected_inputs,
+            pathlib.Path(source_record["input_root"]),
+            pathlib.Path(source_record["input_manifest"]),
+            source_receipt,
+            runner,
+        )
+        if (adapter_build["source_commit"], adapter_build["source_tree"]) != (
+            build["source_commit"], build["source_tree"]
+        ):
+            raise ExactOwnerError(f"{role} adapter capture and exact-owner build source identities differ")
+    else:
+        capture, _range_rows = adapter_runner._parse_receipt_header(
+            exact_capture_receipt, capture_record_lines, EXACT_CAPTURE_FIELDS, "exact-owner capture"
+        )
+        adapter_capture_receipt = runner.regular_file(
+            capture["legacy_capture_receipt"], f"{role} original capture receipt"
+        )
+        if runner.sha256_file(adapter_capture_receipt) != capture["legacy_capture_receipt_sha256"]:
+            raise ExactOwnerError(f"{role} original capture receipt hash differs")
+        original_build, adapter_raw_root, _adapter_receipt_directory = _legacy_capture(
+            adapter_capture_receipt,
+            role,
+            selected_source_root,
+            candidate_root,
+            expected_inputs,
+            pathlib.Path(source_record["input_root"]),
+            pathlib.Path(source_record["input_manifest"]),
+            reference,
+            runner,
+        )
+        if (original_build["source_commit"], original_build["source_tree"]) != (
+            build["source_commit"], build["source_tree"]
+        ):
+            raise ExactOwnerError(f"{role} original capture and exact-owner build source identities differ")
     _, range_receipts, receipt_hashes = _parse_exact_capture_receipt(
         exact_capture_receipt,
         role,
@@ -1850,13 +2349,13 @@ def validate_proof(
                 if native_hashes.get(index) != receipt_hashes.get(index)
             ][:10]
             raise ExactOwnerError(f"{role} native and range-receipt owner hashes differ: {differing}")
-        runner.validate_all_inputs(source_record)
+        _validate_source_inputs(source_record, runner)
         if runner.source_identity(selected_source_root) != (
             build["source_commit"], build["source_tree"]
         ):
             raise ExactOwnerError(f"{role} source identity changed before exact-owner sidecar validation")
         validated = _validate_owner_projections(
-            pathlib.Path(capture["raw_root"]), legacy_raw_root, expected_inputs, native_hashes, runner
+            pathlib.Path(capture["raw_root"]), adapter_raw_root, expected_inputs, native_hashes, runner
         )
         confirmed_hashes = _run_exact_owner_hashes(
             binary, pathlib.Path(capture["raw_root"]), source_record, output, role, 2,
@@ -1864,7 +2363,7 @@ def validate_proof(
         )
         if confirmed_hashes != native_hashes:
             raise ExactOwnerError(f"{role} exact-owner sidecars changed during validation")
-        runner.validate_all_inputs(source_record)
+        _validate_source_inputs(source_record, runner)
         if runner.source_identity(selected_source_root) != (
             build["source_commit"], build["source_tree"]
         ):
@@ -1875,7 +2374,7 @@ def validate_proof(
             build,
             exact_helper_path,
             exact_helper_sha256,
-            legacy_capture_receipt,
+            adapter_capture_receipt,
             exact_capture_receipt,
             capture,
             confirmed_hashes,
@@ -1913,7 +2412,9 @@ def main(argv: list[str] | None = None) -> int:
     capture.add_argument("--reference-source-root", type=pathlib.Path, required=True)
     capture.add_argument("--role", choices=("reference", "candidate"), required=True)
     capture.add_argument("--build-receipt", type=pathlib.Path, required=True)
-    capture.add_argument("--legacy-capture-receipt", type=pathlib.Path, required=True)
+    capture_receipt_group = capture.add_mutually_exclusive_group(required=True)
+    capture_receipt_group.add_argument("--legacy-capture-receipt", type=pathlib.Path)
+    capture_receipt_group.add_argument("--adapter-capture-receipt", type=pathlib.Path)
     capture.add_argument("--output", required=True)
     capture.add_argument("--dry-run", action="store_true")
     validate = commands.add_parser("validate")
@@ -1937,7 +2438,7 @@ def main(argv: list[str] | None = None) -> int:
                     candidate_root, source_receipt, bootstrap_runner
                 )
                 record = runner.parse_candidate_receipt(source_receipt)
-                expected_inputs, _paths_by_name, _reference = runner.validate_all_inputs(record)
+                expected_inputs, _paths_by_name, _reference = _validate_source_inputs(record, runner)
                 if len(expected_inputs) != 1690:
                     raise ExactOwnerError(f"candidate input count differs: {len(expected_inputs)}")
                 _helper, _bytes, digest = _load_exact_helper(runner)

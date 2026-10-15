@@ -767,6 +767,7 @@ class ExactOwnerHashJobDirectoryTests(unittest.TestCase):
             + "\n".join(hash_rows[1:])
         )
         self.runner = SimpleNamespace(
+            SOURCE_COHORT_SCHEMA="3",
             WRAPPER_SHA256="b" * 64,
             CleanupFailure=RuntimeError,
             regular_file=lambda path, _label, **_kwargs: pathlib.Path(path),
@@ -900,6 +901,458 @@ class ExactOwnerReceiptTests(unittest.TestCase):
                 exact_runner.parse_exact_owner_ledger(invalid, [(0, 1), (1, 2)])
 
 
+class SourceQualifiedExactOwnerReceiptTests(unittest.TestCase):
+    def setUp(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        self.runner = adapter_runner._load_publication_runner(
+            repository / "dev/consolidation/w9-publication-run.py"
+        )
+        scratch = repository / ".work/tmp"
+        scratch.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(prefix="w9-source-exact-receipt-", dir=scratch)
+        self.addCleanup(self.temporary.cleanup)
+        self.root = pathlib.Path(self.temporary.name)
+        self.candidate_root = self.root / "candidate"
+        self.candidate_root.mkdir()
+        self.source_root = self.candidate_root / "reference"
+        self.source_root.mkdir()
+        self.input_root = self.root / "inputs"
+        self.input_root.mkdir()
+        self.input_manifest = self.root / "input-files.tsv"
+        self.input_manifest.write_text("0\tsrc/a.xsh\t" + "a" * 64 + "\t444\n", encoding="utf-8")
+        self.source_receipt = self.root / "source-cohort.receipt"
+        self.source_receipt.write_text("source cohort fixture\n", encoding="utf-8")
+        self.source_record = {
+            "schema": self.runner.SOURCE_COHORT_SCHEMA,
+            "candidate_root": str(self.candidate_root),
+            "input_root": str(self.input_root),
+            "input_manifest": str(self.input_manifest),
+            "input_manifest_sha256": self.runner.sha256_file(self.input_manifest),
+            "corpus_blake3": self.runner.CORPUS_BLAKE3,
+        }
+        self.source_commit = "a" * 40
+        self.source_tree = "b" * 40
+        self.binary = self.root / "exact-owner-binary"
+        self.binary.write_bytes(b"exact owner harness")
+        self.build_receipt = self.root / "exact-owner-build.receipt"
+        self.build_receipt.write_text("build fixture\n", encoding="utf-8")
+        self.adapter_capture_receipt = self.root / "adapter-capture.receipt"
+        self.adapter_capture_receipt.write_text("adapter capture fixture\n", encoding="utf-8")
+        self.adapter_raw_root = self.root / "adapter-raw"
+        self.adapter_raw_root.mkdir()
+        self.adapter_receipt_directory = self.root / "adapter-receipts"
+        self.adapter_receipt_directory.mkdir()
+        self.adapter_build = {
+            "source_receipt_sha256": self.runner.sha256_file(self.source_receipt),
+        }
+        self.adapter_capture = {
+            "source_commit": self.source_commit,
+            "source_tree": self.source_tree,
+            "raw_root": str(self.adapter_raw_root),
+        }
+        self.adapter_inputs = {
+            0: self.runner.ReceiptSource("src/a.xsh", "c" * 64)
+        }
+        self.build = {
+            "schema": "2",
+            "role": "reference",
+            "source_receipt": str(self.source_receipt),
+            "source_receipt_sha256": self.runner.sha256_file(self.source_receipt),
+            "source_root": str(self.source_root),
+            "source_commit": self.source_commit,
+            "source_tree": self.source_tree,
+            "binary": str(self.binary),
+            "binary_sha256": self.runner.sha256_file(self.binary),
+            "helper_sha256": "c" * 64,
+            "input_root": str(self.input_root),
+            "input_manifest": str(self.input_manifest),
+            "input_manifest_sha256": self.source_record["input_manifest_sha256"],
+            "corpus_blake3": self.runner.CORPUS_BLAKE3,
+        }
+        self.capture_root = self.root / "exact-owner-capture"
+        self.raw_root = self.capture_root / "owners"
+        self.receipt_directory = self.capture_root / "receipts"
+        self.raw_root.mkdir(parents=True)
+        self.receipt_directory.mkdir()
+        self.range_receipt = self.receipt_directory / "range-0-1.tsv"
+        self.range_receipt.write_text(
+            "corpus=1\n"
+            "shard=0/1\n"
+            "range=0..1\n"
+            "shard_size=100\n"
+            f"input_digest={self.runner.CORPUS_BLAKE3}\n"
+            f"owner\t0\tsrc/a.xsh\t{'c' * 64}\t{'d' * 64}\n"
+            "complete=1\n",
+            encoding="utf-8",
+        )
+        self.exact_capture_receipt = self.capture_root / "capture.receipt"
+        self.expected_inputs = {
+            0: self.runner.ManifestSource("src/a.xsh", "a" * 64, 0o444),
+        }
+        self.capture_record = exact_runner._exact_capture_record(
+            "reference",
+            self.build_receipt,
+            self.build,
+            self.adapter_capture_receipt,
+            self.capture_root,
+            self.raw_root,
+            self.receipt_directory,
+            self.input_root,
+            self.input_manifest,
+            {(0, 1): self.range_receipt},
+            {0: "d" * 64},
+            "e" * 64,
+            self.runner,
+        )
+        exact_runner._write_exact_capture_receipt(
+            self.exact_capture_receipt,
+            self.capture_record,
+            {(0, 1): self.range_receipt},
+            self.runner,
+        )
+
+    def parse_capture(self, record=None):
+        if record is not None:
+            lines = [f"{field}\t{record[field]}" for field in exact_runner.SOURCE_EXACT_CAPTURE_FIELDS]
+            lines.append(f"range\t0\t1\t{self.runner.sha256_file(self.range_receipt)}")
+            self.exact_capture_receipt.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with (
+            mock.patch.object(self.runner, "parse_candidate_receipt", return_value=self.source_record),
+            mock.patch.object(
+                exact_runner,
+                "_source_adapter_capture",
+                return_value=(
+                    self.adapter_build,
+                    self.adapter_raw_root,
+                    self.adapter_receipt_directory,
+                    self.adapter_capture,
+                    self.adapter_inputs,
+                ),
+            ),
+        ):
+            return exact_runner._parse_exact_capture_receipt(
+                self.exact_capture_receipt,
+                "reference",
+                self.build_receipt,
+                self.build,
+                self.expected_inputs,
+                self.expected_inputs,
+                self.input_root,
+                self.input_manifest,
+                "e" * 64,
+                self.runner,
+            )
+
+    def source_adapter_capture(self, *, capture_schema="2", raw_schema=None, parsed_changes=None, missing_name=None):
+        capture_root = pathlib.Path(tempfile.mkdtemp(prefix="adapter-capture-", dir=self.root))
+        raw_root = capture_root / "raw"
+        receipt_directory = capture_root / "receipts"
+        raw_root.mkdir(parents=True)
+        receipt_directory.mkdir()
+        if raw_schema is None:
+            raw_schema = adapter_runner.RAW_SCHEMA
+        (raw_root / "schema").write_text(raw_schema, encoding="utf-8")
+        expected_inputs = {
+            index: self.runner.ManifestSource(f"src/{index}.xsh", f"{index + 1:064x}", 0o444)
+            for index in range(2)
+        }
+        names = (
+            {f"owners-{index}.tsv" for index in expected_inputs}
+            | {
+                f"record-{index}-{profile}"
+                for index in expected_inputs
+                for profile in adapter_runner.PROFILES
+            }
+        )
+        names.discard(missing_name)
+        for name in names:
+            (raw_root / name).write_bytes(b"")
+        source_root = capture_root / "source-root"
+        source_root.mkdir()
+        helper_source = self.candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+        helper_source.parent.mkdir(parents=True, exist_ok=True)
+        helper_source.write_bytes(b"owner helper source")
+        build_receipt = self.root / "source-adapter-build.receipt"
+        build_receipt.write_text("build receipt\n", encoding="utf-8")
+        source_record = {
+            "candidate_root": str(self.candidate_root),
+            "input_manifest_sha256": self.source_record["input_manifest_sha256"],
+            "corpus_blake3": self.runner.CORPUS_BLAKE3,
+        }
+        build = {
+            "source_root": str(source_root),
+            "source_receipt": str(self.source_receipt),
+            "source_receipt_sha256": self.runner.sha256_file(self.source_receipt),
+            "source_commit": self.source_commit,
+            "source_tree": self.source_tree,
+        }
+        capture_receipt = capture_root / "capture.receipt"
+        record = {
+            "schema": capture_schema,
+            "role": "candidate",
+            "source_receipt": str(self.source_receipt),
+            "source_receipt_sha256": self.runner.sha256_file(self.source_receipt),
+            "source_root": str(source_root),
+            "source_commit": self.source_commit,
+            "source_tree": self.source_tree,
+            "binary": str(self.binary),
+            "binary_sha256": self.runner.sha256_file(self.binary),
+            "build_receipt": str(build_receipt),
+            "build_receipt_sha256": self.runner.sha256_file(build_receipt),
+            "builder_path": str(self.runner.SOURCE_BUILDER_PATH),
+            "builder_sha256": self.runner.sha256_file(self.runner.SOURCE_BUILDER_PATH),
+            "runner_path": str(self.runner.ROOT / "dev/consolidation/w9-publication-run.py"),
+            "runner_sha256": self.runner.sha256_file(self.runner.ROOT / "dev/consolidation/w9-publication-run.py"),
+            "linker_path": str(self.runner.SOURCE_LINKER_PATH),
+            "linker_sha256": self.runner.sha256_file(self.runner.SOURCE_LINKER_PATH),
+            "helper_sha256": "c" * 64,
+            "owner_helper_sha256": "d" * 64,
+            "input_root": str(self.input_root),
+            "input_manifest": str(self.input_manifest),
+            "input_manifest_sha256": source_record["input_manifest_sha256"],
+            "corpus_blake3": source_record["corpus_blake3"],
+            "capture_root": str(capture_root),
+            "raw_root": str(raw_root),
+            "receipt_directory": str(receipt_directory),
+            "range_count": "1",
+            "outcome_count": str(len(expected_inputs) * len(adapter_runner.PROFILES)),
+        }
+        capture_receipt.write_text(
+            "".join(f"{field}\t{record[field]}\n" for field in adapter_runner.SOURCE_CAPTURE_FIELDS),
+            encoding="utf-8",
+        )
+        parsed = dict(record)
+        parsed.update(parsed_changes or {})
+        adapter_inputs = SimpleNamespace(
+            inputs={
+                index: self.runner.ReceiptSource(source.relative_path, f"{index + 1:064x}")
+                for index, source in expected_inputs.items()
+            }
+        )
+        with (
+            mock.patch.object(adapter_runner, "_parse_adapter_build_receipt", return_value=build),
+            mock.patch.object(adapter_runner, "_parse_capture_receipt", return_value=parsed),
+            mock.patch.object(
+                adapter_runner,
+                "aggregate_candidate_receipts",
+                return_value=adapter_inputs,
+            ) as aggregate,
+        ):
+            result = exact_runner._source_adapter_capture(
+                capture_receipt,
+                "candidate",
+                source_record,
+                source_root,
+                expected_inputs,
+                self.input_root,
+                self.input_manifest,
+                self.source_receipt,
+                self.runner,
+            )
+        return result, aggregate, expected_inputs, capture_receipt
+
+    def test_fresh_adapter_capture_supplies_source_b3_and_requires_complete_raw_schema(self):
+        (build, raw_root, receipt_directory, capture, adapter_inputs), aggregate, expected_inputs, _path = (
+            self.source_adapter_capture()
+        )
+
+        self.assertEqual(adapter_inputs[1].relative_path, "src/1.xsh")
+        self.assertEqual(adapter_inputs[1].blake3, f"{2:064x}")
+        self.assertEqual(raw_root / "schema", pathlib.Path(capture["raw_root"]) / "schema")
+        aggregate.assert_called_once_with(self.runner, receipt_directory, expected_inputs)
+        self.assertEqual(build["source_receipt_sha256"], self.runner.sha256_file(self.source_receipt))
+
+    def test_fresh_adapter_capture_rejects_stale_identity_schema_and_sidecar_coverage(self):
+        for changes, raw_schema, missing_name, message in (
+            ({"source_receipt_sha256": "f" * 64}, None, None, "source or cohort identity differs"),
+            ({"input_manifest": str(self.root / "other.tsv")}, None, None, "source or cohort identity differs"),
+            ({"source_commit": "f" * 40}, None, None, "source or cohort identity differs"),
+            ({}, "wrong schema\n", None, "raw schema differs"),
+            ({}, None, "owners-1.tsv", "raw owner coverage differs"),
+        ):
+            with self.subTest(changes=changes, raw_schema=raw_schema, missing_name=missing_name):
+                with self.assertRaisesRegex(exact_runner.ExactOwnerError, message):
+                    self.source_adapter_capture(
+                        raw_schema=raw_schema,
+                        parsed_changes=changes,
+                        missing_name=missing_name,
+                    )
+
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "not source-qualified"):
+            self.source_adapter_capture(capture_schema="1")
+
+    def test_schema_two_capture_and_proof_records_bind_source_and_adapter_capture(self):
+        capture, ranges, hashes = self.parse_capture()
+        proof = exact_runner._proof_record(
+            "reference",
+            self.build_receipt,
+            {
+                **self.build,
+                "owner_helper_sha256": "f" * 64,
+            },
+            self.root / "exact-owner-helper.rs",
+            "e" * 64,
+            self.adapter_capture_receipt,
+            self.exact_capture_receipt,
+            capture,
+            hashes,
+            self.runner,
+        )
+        proof_path = self.root / "proof.receipt"
+        exact_runner._write_proof_receipt(proof_path, proof, self.runner)
+
+        self.assertEqual(capture["schema"], "2")
+        self.assertEqual(capture["adapter_capture_receipt"], str(self.adapter_capture_receipt))
+        self.assertEqual(capture["adapter_capture_receipt_sha256"], self.runner.sha256_file(self.adapter_capture_receipt))
+        self.assertNotIn("legacy_capture_receipt", capture)
+        self.assertEqual(ranges, {(0, 1): self.range_receipt})
+        self.assertEqual(hashes, {0: "d" * 64})
+        self.assertEqual(proof["adapter_capture_receipt"], str(self.adapter_capture_receipt))
+        self.assertEqual(proof["adapter_capture_receipt_sha256"], self.runner.sha256_file(self.adapter_capture_receipt))
+        self.assertEqual(proof_path.read_text(encoding="utf-8").splitlines()[0], exact_runner.SOURCE_EXACT_PROOF_SCHEMA.rstrip())
+
+    def test_schema_two_capture_rejects_stale_source_capture_counts_ranges_and_mixed_schema(self):
+        valid = dict(self.capture_record)
+        for field, value, message in (
+            ("source_receipt_sha256", "f" * 64, "source-cohort receipt identity differs"),
+            ("adapter_capture_receipt_sha256", "f" * 64, "adapter capture receipt identity differs"),
+            ("source_root", str(self.root / "stale-reference"), "source_root differs"),
+            ("input_manifest", str(self.root / "stale-manifest"), "source-qualified input cohort differs"),
+            ("range_count", "2", "complete exact-owner range coverage differs"),
+            ("owner_count", "2", "complete exact-owner count differs"),
+        ):
+            with self.subTest(field=field), self.assertRaisesRegex(exact_runner.ExactOwnerError, message):
+                self.parse_capture(dict(valid, **{field: value}))
+
+        self.parse_capture(dict(valid))
+        wrong_range = self.exact_capture_receipt.read_text(encoding="utf-8").replace(
+            "range\t0\t1\t", "range\t1\t2\t", 1
+        )
+        self.exact_capture_receipt.write_text(wrong_range, encoding="utf-8")
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "range set differs"):
+            self.parse_capture()
+
+        self.parse_capture(dict(valid))
+        mixed = self.exact_capture_receipt.read_text(encoding="utf-8").replace(
+            "schema\t2\n", "schema\t1\n", 1
+        )
+        self.exact_capture_receipt.write_text(mixed, encoding="utf-8")
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "schemas differ"):
+            self.parse_capture()
+
+    def test_source_qualified_proof_rejects_legacy_capture_before_legacy_validation(self):
+        helper_path = self.candidate_root / ".work" / "exact-owner-helper.rs"
+        helper_path.parent.mkdir(parents=True)
+        helper_path.write_bytes(b"prefix exact helper")
+        exact_helper = b"exact helper"
+        build = dict(
+            self.build,
+            source_root=str(self.source_root),
+            source_commit=self.source_commit,
+            source_tree=self.source_tree,
+            helper_path=str(helper_path),
+            helper_sha256=hashlib.sha256(helper_path.read_bytes()).hexdigest(),
+        )
+        source_record = dict(
+            self.source_record,
+            candidate_commit=self.source_commit,
+            candidate_tree=self.source_tree,
+        )
+        expected_inputs = {
+            index: self.runner.ManifestSource(f"src/{index}.xsh", f"{index + 1:064x}", 0o444)
+            for index in range(1690)
+        }
+        legacy_capture = self.root / "legacy-exact-capture.receipt"
+        legacy_capture.write_text("schema\t1\n", encoding="utf-8")
+        self.binary.chmod(0o700)
+
+        with (
+            mock.patch.object(adapter_runner, "_load_candidate_publication_runner", return_value=self.runner),
+            mock.patch.object(self.runner, "parse_candidate_receipt", return_value=source_record),
+            mock.patch.object(self.runner, "source_identity", return_value=(self.source_commit, self.source_tree)),
+            mock.patch.object(
+                exact_runner,
+                "_validate_source_inputs",
+                return_value=(expected_inputs, {}, None),
+            ),
+            mock.patch.object(adapter_runner, "_prepare_reference_source", return_value=self.source_root),
+            mock.patch.object(adapter_runner, "_parse_adapter_build_receipt", return_value=build),
+            mock.patch.object(
+                exact_runner,
+                "_load_exact_helper",
+                return_value=(self.root / "approved-exact-owner-helper.rs", exact_helper, hashlib.sha256(exact_helper).hexdigest()),
+            ),
+            mock.patch.object(exact_runner, "_legacy_capture") as legacy_capture_reader,
+        ):
+            with self.assertRaisesRegex(
+                exact_runner.ExactOwnerError,
+                "source-qualified exact-owner proof requires a schema-2 capture",
+            ):
+                exact_runner.validate_proof(
+                    self.candidate_root,
+                    self.source_receipt,
+                    self.source_root,
+                    "reference",
+                    self.build_receipt,
+                    legacy_capture,
+                    self.root / "proof-output",
+                    self.runner,
+                )
+
+        legacy_capture_reader.assert_not_called()
+
+    def test_unknown_exact_owner_schema_cannot_fall_back_to_historical_receipts(self):
+        unknown_capture = self.exact_capture_receipt.read_text(encoding="utf-8").replace(
+            "schema\t2\n", "schema\t3\n", 1
+        )
+        self.exact_capture_receipt.write_text(unknown_capture, encoding="utf-8")
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "unsupported exact-owner capture receipt schema"):
+            self.parse_capture()
+
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "unsupported schema"):
+            exact_runner._exact_capture_record(
+                "reference",
+                self.build_receipt,
+                dict(self.build, schema="3"),
+                self.adapter_capture_receipt,
+                self.capture_root,
+                self.raw_root,
+                self.receipt_directory,
+                self.input_root,
+                self.input_manifest,
+                {(0, 1): self.range_receipt},
+                {0: "d" * 64},
+                "e" * 64,
+                self.runner,
+            )
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "unsupported schema"):
+            exact_runner._proof_record(
+                "reference",
+                self.build_receipt,
+                dict(self.build, schema="3"),
+                self.root / "exact-owner-helper.rs",
+                "e" * 64,
+                self.adapter_capture_receipt,
+                self.exact_capture_receipt,
+                self.capture_record,
+                {0: "d" * 64},
+                self.runner,
+            )
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "unsupported schema"):
+            exact_runner._write_exact_capture_receipt(
+                self.root / "unknown-capture.receipt",
+                dict(self.capture_record, schema="3"),
+                {(0, 1): self.range_receipt},
+                self.runner,
+            )
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "unsupported schema"):
+            exact_runner._write_proof_receipt(
+                self.root / "unknown-proof.receipt",
+                dict(self.capture_record, schema="3"),
+                self.runner,
+            )
+
+
 class ExactOwnerCaptureSchedulingTests(unittest.TestCase):
     def run_capture(self, failing_worker=None):
         class OutputHandle:
@@ -952,6 +1405,7 @@ class ExactOwnerCaptureSchedulingTests(unittest.TestCase):
                 return {"role": "candidate"}
 
             runner = SimpleNamespace(
+                SOURCE_COHORT_SCHEMA="3",
                 CleanupFailure=RuntimeError,
                 expected_ranges=lambda count: [(index, index + 1) for index in range(count)],
                 regular_file=lambda path, _label: pathlib.Path(path),

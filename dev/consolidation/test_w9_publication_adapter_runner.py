@@ -52,7 +52,7 @@ class AdapterRawOutcomeTests(unittest.TestCase):
                 ["git", "-C", str(source_root), "config", "user.name", "Test"],
                 ["git", "-C", str(source_root), "config", "user.email", "test@example.invalid"],
                 ["git", "-C", str(source_root), "add", "tests/sema.rs", "src/lib.rs"],
-                ["git", "-C", str(source_root), "commit", "--quiet", "-m", "source"],
+                ["git", "-C", str(source_root), "commit", "--quiet", "-m", "test(fixtures): initialize source"],
             ):
                 subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             runner = adapter_runner._load_publication_runner(
@@ -74,7 +74,7 @@ class AdapterRawOutcomeTests(unittest.TestCase):
                 )
             extra_source.write_bytes(b"pub fn original() {}\n")
             subprocess.run(
-                ["git", "-C", str(source_root), "commit", "--quiet", "--allow-empty", "-m", "source drift"],
+                ["git", "-C", str(source_root), "commit", "--quiet", "--allow-empty", "-m", "test(fixtures): commit source drift"],
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -256,6 +256,778 @@ class AdapterRawOutcomeTests(unittest.TestCase):
                 1690,
             )
 
+
+class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
+    def setUp(self):
+        self.repository = pathlib.Path(__file__).resolve().parents[2]
+        self.runner = adapter_runner._load_publication_runner(
+            self.repository / "dev/consolidation/w9-publication-run.py"
+        )
+        self.scratch = self.repository / ".work/tmp"
+        self.scratch.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(prefix="w9-source-adapter-receipt-", dir=self.scratch)
+        self.addCleanup(self.temporary.cleanup)
+        self.root = pathlib.Path(self.temporary.name)
+        self.source_root = self.repository
+        self.source_commit, self.source_tree = "a" * 40, "b" * 40
+        self.input_root = self.root / "inputs"
+        self.input_root.mkdir()
+        self.input_manifest = self.root / "input-files.tsv"
+        self.input_manifest.write_text("0\tsource.xsh\t" + "a" * 64 + "\t444\n", encoding="utf-8")
+        self.source_receipt = self.root / "source-cohort.receipt"
+        self.source_receipt.write_text("source receipt fixture\n", encoding="utf-8")
+        self.source_record = {
+            "schema": self.runner.SOURCE_COHORT_SCHEMA,
+            "role": "source-cohort",
+            "candidate_root": str(self.source_root),
+            "candidate_commit": self.source_commit,
+            "candidate_tree": self.source_tree,
+            "input_root": str(self.input_root),
+            "input_manifest": str(self.input_manifest),
+            "input_manifest_sha256": self.runner.sha256_file(self.input_manifest),
+            "corpus_blake3": self.runner.CORPUS_BLAKE3,
+            "builder_path": str(self.runner.SOURCE_BUILDER_PATH),
+            "builder_sha256": self.runner.sha256_file(self.runner.SOURCE_BUILDER_PATH),
+            "builder_image": self.runner.SOURCE_BUILD_IMAGE,
+            "build_target": self.runner.SOURCE_BUILD_TARGET,
+            "build_profile": self.runner.SOURCE_BUILD_PROFILE,
+            "rustflags": self.runner.SOURCE_RUSTFLAGS,
+            "linker_path": str(self.runner.SOURCE_LINKER_PATH),
+            "linker_sha256": self.runner.sha256_file(self.runner.SOURCE_LINKER_PATH),
+            "runner": str(self.source_root / "dev/consolidation/w9-publication-run.py"),
+            "runner_sha256": self.runner.sha256_file(
+                self.source_root / "dev/consolidation/w9-publication-run.py"
+            ),
+        }
+        self.binary = self.root / "adapter-test-binary"
+        self.binary.write_bytes(b"adapter harness")
+        self.binary.chmod(0o700)
+        self.helper = self.root / "w9-publication-adapter.rs"
+        self.helper.write_bytes(b"adapter helper")
+        self.owner_helper = self.root / "w9-publication-owner-helper.rs"
+        self.owner_helper.write_bytes(b"owner helper")
+        self.owner_helper_source = self.source_root / "dev/consolidation/w9-publication-owner-helper.rs"
+        tests = self.source_root / "tests/sema.rs"
+        overlay = adapter_runner._adapter_overlay(self.runner.read_regular_bytes(tests), self.runner)
+        self.build = {
+            "schema": "2",
+            "role": "candidate",
+            "source_root": str(self.source_root),
+            "source_commit": self.source_commit,
+            "source_tree": self.source_tree,
+            "binary": str(self.binary),
+            "binary_sha256": self.runner.sha256_file(self.binary),
+            "source_receipt": str(self.source_receipt),
+            "source_receipt_sha256": self.runner.sha256_file(self.source_receipt),
+            "input_root": str(self.input_root),
+            "input_manifest": str(self.input_manifest),
+            "input_manifest_sha256": self.source_record["input_manifest_sha256"],
+            "corpus_blake3": self.runner.CORPUS_BLAKE3,
+            "builder_path": self.source_record["builder_path"],
+            "builder_sha256": self.source_record["builder_sha256"],
+            "builder_image": self.runner.SOURCE_BUILD_IMAGE,
+            "build_target": self.runner.SOURCE_BUILD_TARGET,
+            "build_profile": self.runner.SOURCE_BUILD_PROFILE,
+            "rustflags": self.runner.SOURCE_RUSTFLAGS,
+            "linker_path": self.source_record["linker_path"],
+            "linker_sha256": self.source_record["linker_sha256"],
+            "runner_path": self.source_record["runner"],
+            "runner_sha256": self.source_record["runner_sha256"],
+            "approved_helper_path": str(adapter_runner.SOURCE_APPROVED_HELPER),
+            "approved_helper_sha256": adapter_runner.APPROVED_HELPER_SHA256,
+            "helper_path": str(self.helper),
+            "helper_sha256": self.runner.sha256_file(self.helper),
+            "owner_helper_path": str(self.owner_helper),
+            "owner_helper_sha256": self.runner.sha256_file(self.owner_helper),
+            "owner_helper_source_path": str(self.owner_helper_source),
+            "owner_helper_source_sha256": self.runner.sha256_file(self.owner_helper_source),
+            "overlay_sha256": hashlib.sha256(overlay).hexdigest(),
+        }
+        self.build_receipt = self.root / "adapter-build.receipt"
+        adapter_runner._write_adapter_build_receipt(self.build_receipt, self.build, self.runner)
+
+    def parse_build(self, record=None):
+        if record is not None:
+            fields = adapter_runner.SOURCE_ADAPTER_BUILD_FIELDS
+            self.build_receipt.write_text(
+                "".join(f"{field}\t{record[field]}\n" for field in fields),
+                encoding="utf-8",
+            )
+        with (
+            patch.object(self.runner, "parse_candidate_receipt", return_value=self.source_record),
+            patch.object(self.runner, "source_identity", return_value=(self.source_commit, self.source_tree)),
+        ):
+            return adapter_runner._parse_adapter_build_receipt(
+                self.build_receipt, "candidate", self.runner, self.owner_helper_source
+            )
+
+    def capture_fixture(self):
+        capture_root = self.root / "candidate-capture"
+        raw_root = capture_root / "raw"
+        receipt_directory = capture_root / "receipts"
+        raw_root.mkdir(parents=True)
+        receipt_directory.mkdir()
+        range_receipt = self.runner.candidate_receipt_path(receipt_directory, 0, 1)
+        range_receipt.write_text("range fixture\n", encoding="utf-8")
+        capture_receipt = capture_root / "capture.receipt"
+        adapter_runner._write_capture_receipt(
+            capture_receipt,
+            "candidate",
+            self.build_receipt,
+            self.build,
+            capture_root,
+            raw_root,
+            receipt_directory,
+            self.input_root,
+            self.input_manifest,
+            {(0, 1): range_receipt},
+            self.runner,
+        )
+        return capture_receipt, capture_root, raw_root, receipt_directory
+
+    def parse_capture(self, capture_receipt, capture_root, raw_root, receipt_directory):
+        with patch.object(self.runner, "parse_candidate_receipt", return_value=self.source_record):
+            return adapter_runner._parse_capture_receipt(
+                capture_receipt,
+                "candidate",
+                receipt_directory,
+                capture_root,
+                raw_root,
+                self.build,
+                {0: self.runner.ManifestSource("source.xsh", "a" * 64, 0o444)},
+                self.input_root,
+                self.input_manifest,
+                self.runner,
+            )
+
+    def _local_correction_sources(self, correction):
+        original_root = self.root / ".work/wt/w9-adapter-ref-e240"
+        derived_root = self.root / "derived-reference"
+        patch_path = self.root / "derived-reference.patch"
+        patch_bytes = b"fixture correction patch\n"
+        patch_path.write_bytes(patch_bytes)
+        for root, source in (
+            (original_root, source_fixtures.OLD_SOURCE),
+            (derived_root, source_fixtures.OLD_SOURCE),
+        ):
+            tui = root / "stdlib/tui.xsh"
+            tui.parent.mkdir(parents=True)
+            tui.write_bytes(source)
+        for name, value in (
+            ("CHECKOUT_ROOT", self.root),
+            ("SOURCE_ROOT", derived_root),
+            ("PATCH_PATH", patch_path),
+            ("PATCH_SHA256", hashlib.sha256(patch_bytes).hexdigest()),
+        ):
+            patcher = patch.object(correction, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        source = {
+            "base_commit": correction.BASE_COMMIT,
+            "base_tree": correction.BASE_TREE,
+            "patch_path": str(patch_path),
+            "patch_sha256": hashlib.sha256(patch_bytes).hexdigest(),
+            "source_root": str(derived_root),
+            "source_commit": correction.SOURCE_COMMIT,
+            "source_tree": correction.SOURCE_TREE,
+            "source_parent": correction.SOURCE_PARENT,
+            "source_state": "clean",
+        }
+
+        def validate_fixture_source(source_root, observed_patch_path, _runner):
+            self.assertEqual(pathlib.Path(source_root), derived_root)
+            self.assertEqual(pathlib.Path(observed_patch_path), patch_path)
+            return source
+
+        source_validator = patch.object(
+            correction, "validate_source", side_effect=validate_fixture_source
+        )
+        source_validator.start()
+        self.addCleanup(source_validator.stop)
+        return original_root, derived_root, patch_path, source
+
+    def test_schema_two_build_and_capture_receipts_bind_source_and_cohort(self):
+        build = self.parse_build()
+        capture_receipt, capture_root, raw_root, receipt_directory = self.capture_fixture()
+        capture = self.parse_capture(capture_receipt, capture_root, raw_root, receipt_directory)
+
+        self.assertEqual(build, self.build)
+        self.assertEqual(capture["source_receipt"], str(self.source_receipt))
+        self.assertEqual(capture["source_receipt_sha256"], self.runner.sha256_file(self.source_receipt))
+        self.assertEqual(capture["range_count"], "1")
+        self.assertEqual(capture["outcome_count"], str(len(adapter_runner.PROFILES)))
+        self.assertNotIn("legacy_capture_receipt", capture)
+
+    def test_schema_two_build_receipt_rejects_stale_source_runner_or_mixed_schema(self):
+        for field, value, message in (
+            ("source_root", str(self.root / "stale-source"), "source root"),
+            ("source_receipt_sha256", "f" * 64, "source receipt hash differs"),
+            ("runner_path", str(self.root / "stale-runner"), "runner_path differs"),
+            ("runner_sha256", "f" * 64, "runner_sha256 differs"),
+            ("input_manifest", str(self.root / "stale-manifest"), "input cohort identity differs"),
+        ):
+            with self.subTest(field=field):
+                record = dict(self.build, **{field: value})
+                error_types = (adapter_runner.PublicationError, self.runner.PublicationError)
+                with self.assertRaisesRegex(error_types, message):
+                    self.parse_build(record)
+
+        mixed = dict(self.build, schema="1")
+        with self.assertRaisesRegex(adapter_runner.PublicationError, "malformed adapter build receipt row"):
+            self.parse_build(mixed)
+
+    def test_schema_two_capture_receipt_rejects_stale_identity_coverage_and_mixed_schema(self):
+        capture_receipt, capture_root, raw_root, receipt_directory = self.capture_fixture()
+        valid_lines = capture_receipt.read_text(encoding="utf-8").splitlines()
+        field_indexes = {line.split("\t", 1)[0]: index for index, line in enumerate(valid_lines)}
+        for field, value, message in (
+            ("source_root", str(self.root / "stale-source"), "source_root differs"),
+            ("source_receipt_sha256", "f" * 64, "source receipt hash differs"),
+            ("runner_sha256", "f" * 64, "runner_sha256 differs"),
+            ("input_manifest", str(self.root / "stale-manifest"), "source cohort identity differs"),
+            ("capture_root", str(self.root / "stale-capture"), "capture output paths differ"),
+            ("raw_root", str(self.root / "stale-raw"), "capture output paths differ"),
+            ("outcome_count", "3", "required source/profile coverage differs"),
+            ("range_count", "2", "required source/profile coverage differs"),
+        ):
+            with self.subTest(field=field):
+                lines = list(valid_lines)
+                lines[field_indexes[field]] = f"{field}\t{value}"
+                capture_receipt.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                with self.assertRaisesRegex(adapter_runner.PublicationError, message):
+                    self.parse_capture(capture_receipt, capture_root, raw_root, receipt_directory)
+
+        lines = list(valid_lines)
+        range_row = next(index for index, line in enumerate(lines) if line.startswith("range\t"))
+        lines[range_row] = lines[range_row].replace("range\t0\t1\t", "range\t1\t2\t", 1)
+        capture_receipt.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(adapter_runner.PublicationError, "range set differs"):
+            self.parse_capture(capture_receipt, capture_root, raw_root, receipt_directory)
+
+        lines = list(valid_lines)
+        lines[0] = "schema\t1"
+        capture_receipt.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(adapter_runner.PublicationError, "schemas differ"):
+            self.parse_capture(capture_receipt, capture_root, raw_root, receipt_directory)
+
+    def test_exact_owner_binding_dispatches_capture_schema_without_legacy_fallback(self):
+        capture_receipt = self.root / "adapter-capture.receipt"
+        capture_receipt.write_text("adapter capture fixture\n", encoding="utf-8")
+        proof = {
+            "capture": {
+                "schema": "2",
+                "adapter_capture_receipt": str(capture_receipt),
+                "adapter_capture_receipt_sha256": self.runner.sha256_file(capture_receipt),
+            }
+        }
+        adapter_runner._require_exact_capture_binding(
+            proof, "reference", capture_receipt, self.runner
+        )
+
+        unknown = {
+            "capture": {
+                "schema": "3",
+                "legacy_capture_receipt": str(capture_receipt),
+                "legacy_capture_receipt_sha256": self.runner.sha256_file(capture_receipt),
+            }
+        }
+        with self.assertRaisesRegex(adapter_runner.PublicationError, "unsupported capture schema"):
+            adapter_runner._require_exact_capture_binding(
+                unknown, "reference", capture_receipt, self.runner
+            )
+
+    def test_capture_field_rejects_unknown_schema(self):
+        receipt = self.root / "unknown-capture.receipt"
+        receipt.write_text("schema\t3\nlegacy_capture_receipt\tignored\n", encoding="utf-8")
+        with self.assertRaisesRegex(adapter_runner.PublicationError, "unsupported adapter capture receipt schema"):
+            adapter_runner._capture_field(receipt, "legacy_capture_receipt", self.runner)
+
+    def test_capture_launch_uses_the_source_qualified_builder_and_identity_environment(self):
+        source_record = {
+            "schema": self.runner.SOURCE_COHORT_SCHEMA,
+            "candidate_root": str(self.source_root),
+            "candidate_commit": self.source_commit,
+            "candidate_tree": self.source_tree,
+            "builder_path": self.source_record["builder_path"],
+            "input_root": str(self.input_root),
+        }
+        output = self.root / "capture-jobs"
+        receipt_directory = output / "candidate/receipts"
+        receipt_directory.mkdir(parents=True)
+        raw_root = output / "candidate/raw"
+        raw_root.mkdir()
+        captured = {}
+
+        def record_launch(job, active, command, cwd, environment):
+            captured.update(job=job, active=active, command=command, cwd=cwd, environment=environment)
+            active.append(job)
+
+        with (
+            patch.object(self.runner, "existing_container", return_value=False),
+            patch.object(self.runner, "start_and_register_job", side_effect=record_launch),
+        ):
+            job = adapter_runner._launch_capture_job(
+                self.runner,
+                source_record,
+                output,
+                "candidate",
+                self.build,
+                self.binary,
+                raw_root,
+                receipt_directory,
+                0,
+                1,
+                "A",
+                [],
+                {"PATH": "/usr/bin:/bin"},
+            )
+        job["output"].close()
+
+        self.assertEqual(
+            captured["command"][2:5],
+            [source_record["builder_path"], str(self.source_root), "run"],
+        )
+        self.assertIn(f"W9_INPUT_ROOT={self.input_root}", captured["command"])
+        self.assertIn("W9_CPU_SET=0", captured["command"])
+        self.assertEqual(captured["environment"]["W9_SOURCE_COMMIT"], self.source_commit)
+        self.assertEqual(captured["environment"]["W9_SOURCE_TREE"], self.source_tree)
+
+    def test_source_qualified_correction_flow_uses_fresh_original_capture_and_proof(self):
+        correction = adapter_runner.reference_correction
+        original_source_root, derived_source_root, patch_path, correction_source = (
+            self._local_correction_sources(correction)
+        )
+        expected_inputs = {
+            index: self.runner.ManifestSource(
+                f"source/{index:04}.xsh", f"{index + 1:064x}", 0o444
+            )
+            for index in range(1690)
+        }
+        source_record = dict(
+            self.source_record,
+            candidate_root=str(self.source_root),
+            candidate_commit=self.source_commit,
+            candidate_tree=self.source_tree,
+        )
+
+        def capture_fixture(name, role, source_root, commit, tree, build_receipt):
+            capture_root = self.root / name
+            raw_root = capture_root / "raw"
+            receipt_directory = capture_root / "receipts"
+            raw_root.mkdir(parents=True)
+            receipt_directory.mkdir()
+            capture_receipt = capture_root / "capture.receipt"
+            fields = {
+                "schema": "2",
+                "role": role,
+                "source_root": str(source_root),
+                "source_commit": commit,
+                "source_tree": tree,
+                "build_receipt": str(build_receipt),
+                "capture_root": str(capture_root),
+                "raw_root": str(raw_root),
+                "receipt_directory": str(receipt_directory),
+            }
+            capture_receipt.write_text(
+                "".join(f"{field}\t{value}\n" for field, value in fields.items()),
+                encoding="utf-8",
+            )
+            return capture_receipt, fields
+
+        original_build_receipt = self.root / "original-build.receipt"
+        original_build_receipt.write_text("original build fixture\n", encoding="utf-8")
+        derived_build_receipt = self.root / "derived-build.receipt"
+        derived_build_receipt.write_text("derived build fixture\n", encoding="utf-8")
+        candidate_build_receipt = self.root / "candidate-build.receipt"
+        candidate_build_receipt.write_text("candidate build fixture\n", encoding="utf-8")
+        original_capture_receipt, original_capture_fields = capture_fixture(
+            "original-capture",
+            "reference",
+            original_source_root,
+            correction.BASE_COMMIT,
+            correction.BASE_TREE,
+            original_build_receipt,
+        )
+        original_exact_capture_receipt = self.root / "original-exact-capture.receipt"
+        original_exact_capture_receipt.write_text("fresh exact-owner capture\n", encoding="utf-8")
+        derived_capture_receipt, derived_capture_fields = capture_fixture(
+            "derived-capture",
+            "derived-reference",
+            derived_source_root,
+            correction.SOURCE_COMMIT,
+            correction.SOURCE_TREE,
+            derived_build_receipt,
+        )
+        candidate_capture_receipt, candidate_capture_fields = capture_fixture(
+            "candidate-capture",
+            "candidate",
+            self.source_root,
+            self.source_commit,
+            self.source_tree,
+            candidate_build_receipt,
+        )
+        source = correction.validate_source(derived_source_root, patch_path, self.runner)
+        helper_sha256 = "c" * 64
+        owner_helper_sha256 = "d" * 64
+        derived_build = {
+            "schema": "2",
+            "role": "derived-reference",
+            "source_root": str(derived_source_root),
+            "source_commit": correction.SOURCE_COMMIT,
+            "source_tree": correction.SOURCE_TREE,
+            "binary": str(self.binary),
+            "binary_sha256": self.runner.sha256_file(self.binary),
+            "helper_sha256": helper_sha256,
+            "owner_helper_sha256": owner_helper_sha256,
+        }
+        derived_capture = {
+            **derived_capture_fields,
+            "binary_sha256": derived_build["binary_sha256"],
+            "helper_sha256": helper_sha256,
+            "owner_helper_sha256": owner_helper_sha256,
+            "range_count": str(correction.EXPECTED_RANGE_COUNT),
+            "outcome_count": str(correction.EXPECTED_OUTCOME_COUNT),
+        }
+        correction_record = correction.create_receipt_record(
+            source,
+            derived_build_receipt,
+            derived_build,
+            derived_capture_receipt,
+            original_capture_receipt,
+            original_exact_capture_receipt,
+            self.runner,
+        )
+        correction_receipt = self.root / "derived-reference-correction.receipt"
+        correction_receipt.write_bytes(correction.receipt_bytes(correction_record))
+        source_receipt = self.source_receipt
+        reference_exact_build_receipt = self.root / "original-exact-build.receipt"
+        reference_exact_build_receipt.write_text("original exact build\n", encoding="utf-8")
+        candidate_exact_build_receipt = self.root / "candidate-exact-build.receipt"
+        candidate_exact_build_receipt.write_text("candidate exact build\n", encoding="utf-8")
+        candidate_exact_capture_receipt = self.root / "candidate-exact-capture.receipt"
+        candidate_exact_capture_receipt.write_text("candidate exact capture\n", encoding="utf-8")
+        owners = {index: (({}, {}, {}, {}), {}) for index in range(1690)}
+        proof_calls = []
+
+        def validate_proof(
+            _candidate_root,
+            _source_receipt,
+            _reference_source_root,
+            role,
+            _build_receipt,
+            _exact_capture_receipt,
+            proof_output,
+            _bootstrap_runner,
+            dry_run=False,
+        ):
+            self.assertFalse(dry_run)
+            proof_output.mkdir()
+            adapter_capture = (
+                original_capture_receipt if role == "reference" else candidate_capture_receipt
+            )
+            proof_calls.append((role, adapter_capture))
+            return {
+                "capture": {
+                    "schema": "2",
+                    "adapter_capture_receipt": str(adapter_capture),
+                    "adapter_capture_receipt_sha256": self.runner.sha256_file(adapter_capture),
+                },
+                "owners": owners,
+            }
+
+        first_delta = ("0", expected_inputs[0].relative_path, "default", "diagnostics", "a" * 64, "b" * 64)
+
+        def source_identity(path):
+            if pathlib.Path(path) == derived_source_root:
+                return correction.SOURCE_COMMIT, correction.SOURCE_TREE
+            return self.source_commit, self.source_tree
+
+        def compare_full(*args, **kwargs):
+            self.assertIsNone(args[1])
+            self.assertTrue(kwargs["corrected_reference"])
+            self.assertEqual(kwargs["original_capture_receipt"], original_capture_receipt)
+            self.assertEqual(len(kwargs["reference_exact_owners"]), 1690)
+            adapter_runner._write_new_file(args[6], b"", self.runner)
+            return correction.EXPECTED_OUTCOME_COUNT, 0, first_delta
+
+        args = argparse.Namespace(
+            candidate_root=self.source_root,
+            candidate_source_receipt=source_receipt,
+            reference_source_root=original_source_root,
+            reference_capture_receipt=original_capture_receipt,
+            candidate_capture_receipt=candidate_capture_receipt,
+            reference_exact_build_receipt=reference_exact_build_receipt,
+            candidate_exact_build_receipt=candidate_exact_build_receipt,
+            reference_exact_capture_receipt=original_exact_capture_receipt,
+            candidate_exact_capture_receipt=candidate_exact_capture_receipt,
+            original_capture_receipt=original_capture_receipt,
+            derived_reference_source_root=derived_source_root,
+            derived_reference_correction_receipt=correction_receipt,
+            output=self.root / "source-qualified-comparison",
+        )
+        with (
+            patch.object(self.runner, "parse_candidate_receipt", return_value=source_record),
+            patch.object(self.runner, "source_identity", side_effect=source_identity),
+            patch.object(self.runner, "validate_source_cohort_inputs", return_value=(expected_inputs, {})),
+            patch.object(adapter_runner, "_prepare_reference_source", return_value=original_source_root),
+            patch.object(
+                adapter_runner,
+                "_parse_adapter_build_receipt",
+                return_value=derived_build,
+            ),
+            patch.object(
+                adapter_runner,
+                "_parse_capture_receipt",
+                return_value=derived_capture,
+            ),
+            patch.object(
+                correction,
+                "validate_receipt_associations",
+                wraps=correction.validate_receipt_associations,
+            ) as validate_associations,
+            patch.object(self.runner, "local_docker_environment", return_value={"PATH": os.environ["PATH"]}),
+            patch.object(
+                adapter_runner,
+                "_load_exact_owner_runner",
+                return_value=SimpleNamespace(validate_proof=validate_proof, ExactOwnerError=ValueError),
+            ),
+            patch.object(adapter_runner, "compare_full_publications", side_effect=compare_full),
+            patch("builtins.print"),
+        ):
+            result = adapter_runner.compare_captured_publications(args, self.runner)
+
+        self.assertEqual(result, 0)
+        validate_associations.assert_called_once()
+        self.assertEqual(
+            proof_calls,
+            [("reference", original_capture_receipt), ("candidate", candidate_capture_receipt)],
+        )
+        comparison_receipt = self.root / "source-qualified-comparison/comparison/derived-reference-comparison.receipt"
+        fields = dict(
+            line.split("\t", 1)
+            for line in comparison_receipt.read_text(encoding="utf-8").splitlines()
+        )
+        self.assertEqual(fields["original_capture_receipt"], str(original_capture_receipt))
+        self.assertEqual(fields["original_exact_capture_receipt"], str(original_exact_capture_receipt))
+        self.assertEqual(fields["outcome_count"], str(correction.EXPECTED_OUTCOME_COUNT))
+
+    def test_source_qualified_corrected_compare_aggregates_all_three_fresh_captures(self):
+        correction = adapter_runner.reference_correction
+        original_source_root, derived_source_root, patch_path, _correction_source = (
+            self._local_correction_sources(correction)
+        )
+        expected_inputs = {
+            index: self.runner.ManifestSource(
+                f"source/{index:04}.xsh", f"{index + 1:064x}", 0o444
+            )
+            for index in range(1690)
+        }
+        def owner_text(source):
+            sizes = source_fixtures.source_sizes(source)
+            sizes.update({source_id: sizes.get(source_id, 0) for source_id in range(max(sizes) + 1)})
+            owners = source_fixtures.owner_index(source)
+            lines = [
+                f"source\tSourceId({source_id})\t{size}"
+                for source_id, size in sorted(sizes.items())
+            ]
+            lines.extend(
+                f"owner\t{span}\t{kind}"
+                for span, kinds in sorted(owners.items())
+                for kind in sorted(kinds)
+            )
+            return "\n".join(lines) + "\n"
+
+        reference_owner_text = owner_text(source_fixtures.OLD_SOURCE)
+        candidate_owner_text = owner_text(source_fixtures.CURRENT_SOURCE)
+        reference_owner_projection = adapter_runner.adapter.parse_owner_index(reference_owner_text)
+        candidate_owner_projection = adapter_runner.adapter.parse_owner_index(candidate_owner_text)
+        empty_exact_owners = dict(EMPTY_EXACT_OWNER_FACTS)
+        empty_exact_owners.update(
+            runs={}, calls={}, field_accesses={}, binding_initializers={}
+        )
+        reference_exact_owners = {
+            index: (reference_owner_projection, empty_exact_owners)
+            for index in expected_inputs
+        }
+        candidate_exact_owners = {
+            index: (candidate_owner_projection, empty_exact_owners)
+            for index in expected_inputs
+        }
+        reference_publication = TuiPublicationRunnerAlignmentTests()._schema_publication(
+            source_fixtures.publication(source_fixtures.OLD_SOURCE)[0], "legacy"
+        )
+        candidate_publication = TuiPublicationRunnerAlignmentTests()._schema_publication(
+            source_fixtures.publication(
+                source_fixtures.CURRENT_SOURCE, reverse_maps=True
+            )[0],
+            "current",
+        )
+        source_record = {
+            "schema": self.runner.SOURCE_COHORT_SCHEMA,
+            "candidate_root": str(self.source_root),
+            "candidate_commit": self.source_commit,
+            "candidate_tree": self.source_tree,
+            "input_root": str(self.input_root),
+            "input_manifest": str(self.input_manifest),
+            "input_manifest_sha256": "a" * 64,
+            "corpus_blake3": self.runner.CORPUS_BLAKE3,
+            "builder_path": str(self.runner.SOURCE_BUILDER_PATH),
+        }
+        capture_roots = {}
+        builds = {}
+        captures = {}
+        build_paths = {}
+        capture_paths = {}
+        digest_pair = ("d" * 64, "e" * 64)
+
+        def write_ranges(receipt_directory):
+            for start, end in self.runner.expected_ranges(len(expected_inputs)):
+                shard = start // 100
+                lines = [
+                    f"corpus={len(expected_inputs)}",
+                    f"shard={shard}/{(len(expected_inputs) + 99) // 100}",
+                    f"range={start}..{end}",
+                    "shard_size=100",
+                    f"input_digest={self.runner.CORPUS_BLAKE3}",
+                    self.runner.OPTION_HEADER,
+                ]
+                for index in range(start, end):
+                    source = expected_inputs[index]
+                    input_digest = f"{index + 1:064x}"
+                    lines.append(f"input\t{index}\t{source.relative_path}\t{input_digest}")
+                    for profile in adapter_runner.PROFILES:
+                        lines.append(
+                            f"output\t{index}\t{source.relative_path}\t{profile}\t"
+                            f"{digest_pair[0]}\t{digest_pair[1]}"
+                        )
+                lines.append(f"terminal\tshard={shard}\tcompleted={end - start}")
+                receipt = self.runner.candidate_receipt_path(receipt_directory, start, end)
+                receipt.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        for role, source_root, commit, tree in (
+            ("derived-reference", derived_source_root, correction.SOURCE_COMMIT, correction.SOURCE_TREE),
+            ("original-reference", original_source_root, correction.BASE_COMMIT, correction.BASE_TREE),
+            ("candidate", self.source_root, self.source_commit, self.source_tree),
+        ):
+            capture_root = self.root / f"aggregate-{role}"
+            raw_root = capture_root / "raw"
+            receipt_directory = capture_root / "receipts"
+            raw_root.mkdir(parents=True)
+            (raw_root / "owners-0.tsv").write_text(
+                candidate_owner_text if role == "candidate" else reference_owner_text,
+                encoding="utf-8",
+            )
+            receipt_directory.mkdir()
+            write_ranges(receipt_directory)
+            build_path = self.root / f"aggregate-{role}.build"
+            build_path.write_text(f"build {role}\n", encoding="utf-8")
+            build_paths[role] = build_path
+            builds[build_path] = {
+                "schema": "2",
+                "role": "derived-reference" if role == "derived-reference" else role,
+                "source_root": str(source_root),
+                "source_commit": commit,
+                "source_tree": tree,
+                "binary": self.binary,
+                "helper_sha256": "c" * 64,
+                "owner_helper_sha256": "d" * 64,
+            }
+            capture_path = capture_root / "capture.receipt"
+            capture_path.write_text(
+                "schema\t2\n"
+                f"build_receipt\t{build_path}\n"
+                f"capture_root\t{capture_root}\n"
+                f"raw_root\t{raw_root}\n"
+                f"receipt_directory\t{receipt_directory}\n",
+                encoding="utf-8",
+            )
+            capture_paths[role] = capture_path
+            capture_roots[role] = (capture_root, raw_root, receipt_directory)
+            captures[capture_path] = {
+                "schema": "2",
+                "role": "derived-reference" if role == "derived-reference" else role,
+                "source_root": str(source_root),
+                "source_commit": commit,
+                "source_tree": tree,
+                "raw_root": str(raw_root),
+                "receipt_directory": str(receipt_directory),
+                "capture_root": str(capture_root),
+            }
+
+        raw_hashes = {
+            (index, profile, field): digest
+            for index in expected_inputs
+            for profile in adapter_runner.PROFILES
+            for field, digest in zip(("diagnostics", "publication"), digest_pair)
+        }
+        mismatch_root = self.root / "aggregate-comparison"
+        mismatch_root.mkdir()
+        mismatch_path = mismatch_root / "mismatches.tsv"
+        per_input_results = []
+
+        def compare_inputs(context, count, callback):
+            result = adapter_runner._compare_publication_input(0, context)
+            per_input_results.append((0, result))
+            callback(0, result)
+            for index in range(1, count):
+                callback(index, ())
+
+        candidate_raw_inode = capture_roots["candidate"][1].stat().st_ino
+
+        def read_record(root_fd, _key):
+            publication = (
+                candidate_publication
+                if os.fstat(root_fd).st_ino == candidate_raw_inode
+                else reference_publication
+            )
+            return "checked", "[]", publication, digest_pair
+
+        with (
+            patch.object(self.runner, "regular_file", side_effect=lambda path, *_args, **_kwargs: pathlib.Path(path)),
+            patch.object(self.runner, "require_sha256", return_value="a" * 64),
+            patch.object(self.runner, "validate_source_cohort_inputs", return_value=(expected_inputs, {})),
+            patch.object(self.runner, "validate_reference_receipt", side_effect=AssertionError("legacy baseline used")),
+            patch.object(adapter_runner, "_parse_adapter_build_receipt", side_effect=lambda path, *_args: builds[path]),
+            patch.object(adapter_runner, "_parse_capture_receipt", side_effect=lambda path, *_args: captures[path]),
+            patch.object(adapter_runner, "_hash_raw_outcomes", return_value=raw_hashes),
+            patch.object(adapter_runner, "_record", side_effect=read_record),
+            patch.object(
+                adapter_runner,
+                "_run_parallel_publication_comparisons",
+                side_effect=compare_inputs,
+            ),
+            patch.object(adapter_runner, "_load_publication_runner", return_value=self.runner),
+            patch("builtins.print"),
+        ):
+            result = adapter_runner.compare_full_publications(
+                self.runner,
+                None,
+                capture_roots["candidate"][2],
+                capture_roots["derived-reference"][1],
+                capture_roots["candidate"][1],
+                expected_inputs,
+                mismatch_path,
+                capture_paths["derived-reference"],
+                capture_paths["candidate"],
+                self.source_root,
+                derived_source_root,
+                source_record,
+                self.input_root,
+                self.input_manifest,
+                {"PATH": os.environ["PATH"]},
+                reference_exact_owners=reference_exact_owners,
+                candidate_exact_owners=candidate_exact_owners,
+                corrected_reference=True,
+                original_capture_receipt=capture_paths["original-reference"],
+                original_reference_source_root=original_source_root,
+            )
+
+        self.assertEqual(result, (correction.EXPECTED_OUTCOME_COUNT, 0, None))
+        self.assertEqual(mismatch_path.read_bytes(), b"")
+        self.assertEqual(per_input_results, [(0, ())])
+
+
+class AdapterRawOutcomeContinuationTests(unittest.TestCase):
     def test_build_and_capture_receipt_headers_keep_order_and_reject_missing_fields(self):
         for fields, label in (
             (adapter_runner.ADAPTER_BUILD_FIELDS, "adapter build"),
@@ -302,6 +1074,7 @@ class AdapterRawOutcomeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="w9-adapter-derived-", dir=scratch_root) as scratch:
             output = pathlib.Path(scratch) / "derived"
             helper, helper_hash, owner_hash, owner_source_hash = adapter_runner.derive_helper(
+                approved_helper=adapter_runner.SOURCE_APPROVED_HELPER,
                 output_directory=output,
                 output_root=repository,
             )
@@ -327,6 +1100,7 @@ class AdapterRawOutcomeTests(unittest.TestCase):
         try:
             first_directory = adapter_runner._new_derived_helper_directory(case_root, runner)
             first_helper, first_hash, _, _ = adapter_runner.derive_helper(
+                approved_helper=adapter_runner.SOURCE_APPROVED_HELPER,
                 output_directory=first_directory,
                 output_root=case_root,
             )
@@ -343,6 +1117,7 @@ class AdapterRawOutcomeTests(unittest.TestCase):
 
             retry_directory = adapter_runner._new_derived_helper_directory(case_root, runner)
             retry_helper, retry_hash, _, _ = adapter_runner.derive_helper(
+                approved_helper=adapter_runner.SOURCE_APPROVED_HELPER,
                 output_directory=retry_directory,
                 output_root=case_root,
             )
@@ -416,7 +1191,7 @@ class AdapterRawOutcomeTests(unittest.TestCase):
                 stderr=subprocess.PIPE,
             )
             subprocess.run(
-                ["git", "-C", str(historical_root), "commit", "--quiet", "-m", "initial"],
+                ["git", "-C", str(historical_root), "commit", "--quiet", "-m", "test(fixtures): initialize historical source"],
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -611,6 +1386,7 @@ class DerivedCaptureClaimTests(unittest.TestCase):
                 _load_exact_helper=lambda _runner: (None, b"", "c" * 64),
                 _parse_exact_capture_receipt=lambda *_args: (
                     {
+                        "schema": "1",
                         "legacy_capture_receipt": str(original_capture_path),
                         "legacy_capture_receipt_sha256": "d" * 64,
                     },
@@ -852,11 +1628,12 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.runner = adapter_runner._load_publication_runner(
             self.repository / "dev/consolidation/w9-publication-run.py"
         )
-        self.scratch_root = self.repository / ".work/wt"
+        self.scratch_root = self.repository / ".work/tmp"
         self.scratch_root.mkdir(parents=True, exist_ok=True)
         self.case_root = pathlib.Path(
             tempfile.mkdtemp(prefix="w9-adapter-reference-reuse-", dir=self.scratch_root)
         )
+        self.worktree_root = self.case_root / ".work/wt"
         self.helper_attempts = []
         allocate_helper = adapter_runner._new_derived_helper_directory
 
@@ -871,7 +1648,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.allocate_helper_patch.start()
         self.addCleanup(self._cleanup)
         self.addCleanup(self.allocate_helper_patch.stop)
-        self.candidate_root = self.case_root
+        self.candidate_root = self.worktree_root / "candidate"
         self.owner_helper_source = (
             self.candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
         )
@@ -884,9 +1661,43 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.runner.exclude_work_from_git(self.candidate_root)
         self.artifact_root = self.candidate_root / ".work/test"
         self.artifact_root.mkdir(parents=True)
-        self.reference_root = self.scratch_root / "w9-adapter-ref-e240"
-        self.reference_commit, self.reference_tree = self.runner.source_identity(
-            self.reference_root
+        self.test_builder = self.artifact_root / "native-build-runner"
+        self.test_builder.write_text(
+            f"#!/bin/sh\n{self.runner.PINNED_IMAGE}\n", encoding="utf-8"
+        )
+        self.test_builder.chmod(0o700)
+        self.test_wrapper = self.artifact_root / "native-test-wrapper"
+        self.test_wrapper.write_text(
+            f"#!/bin/sh\n{self.runner.PINNED_IMAGE}\n", encoding="utf-8"
+        )
+        self.test_wrapper.chmod(0o700)
+        self.test_builder_sha256 = self.runner.sha256_file(self.test_builder)
+        self.test_wrapper_sha256 = self.runner.sha256_file(self.test_wrapper)
+        build_contract = self.runner.w9_build_contract()
+        build_contract["W9_CACHE_BUILD_RUNNER_SHA256"] = self.test_builder_sha256
+        self.test_runner_patches = (
+            patch.object(self.runner, "APPROVED_BUILD_RUNNER", self.test_builder),
+            patch.object(
+                self.runner, "PINNED_BUILD_RUNNER_SHA256", self.test_builder_sha256
+            ),
+            patch.object(self.runner, "w9_build_contract", return_value=build_contract),
+            patch.object(
+                self.runner,
+                "APPROVED_HELPER_SOURCE",
+                adapter_runner.SOURCE_APPROVED_HELPER,
+            ),
+            patch.object(self.runner, "WRAPPER_SHA256", self.test_wrapper_sha256),
+        )
+        for runner_patch in self.test_runner_patches:
+            runner_patch.start()
+            self.addCleanup(runner_patch.stop)
+        self.reference_root = self.worktree_root / "w9-adapter-ref-e240"
+        self.reference_commit, self.reference_tree = self._initialize_source(
+            self.reference_root,
+            b"#[test]\nfn reference_source() {}\n",
+            adapter_runner.OWNER_HELPER.read_bytes(),
+            b"reference publication runner",
+            {"stdlib/tui.xsh": source_fixtures.OLD_SOURCE},
         )
         self.reference_head_patch = patch.object(
             self.runner, "REFERENCE_HEAD", self.reference_commit
@@ -900,7 +1711,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         self.addCleanup(self.reference_head_patch.stop)
         self.expected_inputs = {
             index: self.runner.ManifestSource(
-                f"source/{index:04}.xsh", f"{index + 1:064x}"
+                f"source/{index:04}.xsh", f"{index + 1:064x}", 0o444
             )
             for index in range(1690)
         }
@@ -912,7 +1723,9 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             shutil.rmtree(attempt, ignore_errors=True)
         shutil.rmtree(self.case_root, ignore_errors=True)
 
-    def _initialize_source(self, root, source, owner_helper=None, publication_runner=None):
+    def _initialize_source(
+        self, root, source, owner_helper=None, publication_runner=None, extra_files=None
+    ):
         root.mkdir(parents=True, exist_ok=True)
         tests = root / "tests/sema.rs"
         tests.parent.mkdir(parents=True)
@@ -928,12 +1741,25 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             runner_source.parent.mkdir(parents=True, exist_ok=True)
             runner_source.write_bytes(publication_runner)
             add_paths.append("dev/consolidation/w9-publication-run.py")
+        for relative_path, contents in (extra_files or {}).items():
+            path = root / relative_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(contents)
+            add_paths.append(relative_path)
         for command in (
             ["git", "init", "--quiet", str(root)],
             ["git", "-C", str(root), "config", "user.name", "Test"],
             ["git", "-C", str(root), "config", "user.email", "test@example.invalid"],
             ["git", "-C", str(root), "add", *add_paths],
-            ["git", "-C", str(root), "commit", "--quiet", "-m", "source"],
+            [
+                "git",
+                "-C",
+                str(root),
+                "commit",
+                "--quiet",
+                "-m",
+                "test(fixtures): initialize source",
+            ],
         ):
             subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         commit = subprocess.run(
@@ -957,6 +1783,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             self.candidate_root, self.runner
         )
         return adapter_runner.derive_helper(
+            approved_helper=adapter_runner.SOURCE_APPROVED_HELPER,
             output_directory=directory,
             output_root=self.candidate_root,
         )
@@ -1037,8 +1864,9 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             "reference_receipt": str(self.artifact_root / "pinned-reference.receipt"),
             "input_root": str(self.runner.REFERENCE_INPUT_ROOT),
             "input_manifest": str(self.artifact_root / "input-files.sha256.tsv"),
-            "wrapper": "/home/josh/d/laputa-systems/xsh-consolidation/.work/consolidation/infra/run-native-secondary.sh",
-            "wrapper_root": "/home/josh/d/laputa-systems/xsh",
+            "wrapper": str(self.test_wrapper),
+            "wrapper_sha256": self.test_wrapper_sha256,
+            "wrapper_root": str(self.runner.CONTROLLER_ROOT),
         }
 
     def _capture_receipt(
@@ -1221,7 +2049,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         terminals = (f"terminal\tshard={shard}\tcompleted={end - start}",)
         return self.runner.ParsedReceipt(header, inputs, outcomes, terminals)
 
-    def test_build_reuses_only_a_fully_pinned_reference_harness(self):
+    def test_build_reuse_rejects_historical_reference_build_receipt(self):
         owner_source = self.owner_helper_source
         reference_receipt, _record = self._write_build_receipt(
             "reference",
@@ -1233,6 +2061,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         source_receipt = self.artifact_root / "candidate-source.receipt"
         source_receipt.write_text("fixture\n", encoding="utf-8")
         source_record = self._candidate_source_record()
+        source_record["schema"] = self.runner.SOURCE_COHORT_SCHEMA
         build_roles = []
 
         def build(_source, _candidate, role, *_args, **_kwargs):
@@ -1243,33 +2072,29 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             patch.object(self.runner, "parse_candidate_receipt", return_value=source_record),
             patch.object(
                 self.runner,
-                "validate_all_inputs",
-                return_value=(self.expected_inputs, {}, self.reference),
+                "validate_source_cohort_inputs",
+                return_value=(self.expected_inputs, {}),
             ),
             patch.object(adapter_runner, "build_adapter_harness", side_effect=build),
         ):
-            adapter_runner.build_adapter_harnesses(
-                argparse.Namespace(
-                    candidate_root=self.candidate_root,
-                    candidate_source_receipt=source_receipt,
-                    reference_source_root=self.reference_root,
-                    reference_build_receipt=reference_receipt,
-                ),
-                self.runner,
-            )
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "reused reference adapter build is not source-qualified",
+            ):
+                adapter_runner.build_adapter_harnesses(
+                    argparse.Namespace(
+                        candidate_root=self.candidate_root,
+                        candidate_source_receipt=source_receipt,
+                        reference_source_root=self.reference_root,
+                        reference_build_receipt=reference_receipt,
+                    ),
+                    self.runner,
+                )
 
-        self.assertEqual(build_roles, ["candidate"])
+        self.assertEqual(build_roles, [])
 
-    def test_build_reuse_rejects_wrong_reference_root_and_helper(self):
-        owner_source = self.owner_helper_source
-        reference_receipt, _record = self._write_build_receipt(
-            "reference",
-            self.reference_root,
-            self.reference_commit,
-            self.reference_tree,
-            owner_source_path=owner_source,
-        )
-        other_root = self.artifact_root / "other/w9-adapter-ref-e240"
+    def test_reference_source_reuse_requires_approved_sibling_path(self):
+        other_root = self.worktree_root / "other/w9-adapter-ref-e240"
         other_root.parent.mkdir()
         subprocess.run(
             ["git", "clone", "--quiet", "--no-local", str(self.reference_root), str(other_root)],
@@ -1277,81 +2102,13 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        source_receipt = self.artifact_root / "candidate-source.receipt"
-        source_receipt.write_text("fixture\n", encoding="utf-8")
-        source_record = self._candidate_source_record()
-        build_roles = []
-
-        def build(_source, _candidate, role, *_args, **_kwargs):
-            build_roles.append(role)
-            return self.case_root / "candidate-harness", self.case_root / "candidate-build.receipt"
-
-        def run_build(reference_path, reference_root):
-            with (
-                patch.object(self.runner, "parse_candidate_receipt", return_value=source_record),
-                patch.object(
-                    self.runner,
-                    "validate_all_inputs",
-                    return_value=(self.expected_inputs, {}, self.reference),
-                ),
-                patch.object(adapter_runner, "build_adapter_harness", side_effect=build),
-            ):
-                adapter_runner.build_adapter_harnesses(
-                    argparse.Namespace(
-                        candidate_root=self.candidate_root,
-                        candidate_source_receipt=source_receipt,
-                        reference_source_root=reference_root,
-                        reference_build_receipt=reference_path,
-                    ),
-                    self.runner,
-                )
-
-        wrong_root_receipt, _record = self._write_build_receipt(
-            "reference",
-            other_root,
-            self.reference_commit,
-            self.reference_tree,
-            owner_source_path=owner_source,
-        )
-        with self.assertRaisesRegex(adapter_runner.PublicationError, "different source root"):
-            run_build(wrong_root_receipt, self.reference_root)
-        self.assertEqual(build_roles, [])
-
-        wrong_source_receipt, _record = self._write_build_receipt(
-            "reference",
-            self.reference_root,
-            "e" * 40,
-            self.reference_tree,
-            owner_source_path=owner_source,
-        )
-        with self.assertRaisesRegex(adapter_runner.PublicationError, "source commit differs from its pin"):
-            run_build(wrong_source_receipt, self.reference_root)
-        self.assertEqual(build_roles, [])
-
-        changed_helper_root = self.artifact_root / "changed-helper/derived"
-        changed_helper_root.mkdir(parents=True)
-        changed_helper = changed_helper_root / "w9-publication-adapter.rs"
-        changed_helper.write_bytes(self.helper[0].read_bytes() + b"\n")
-        (changed_helper_root / "w9-publication-owner-helper.rs").write_bytes(
-            (self.helper[0].parent / "w9-publication-owner-helper.rs").read_bytes()
-        )
-        changed_helper_sha = hashlib.sha256(changed_helper.read_bytes()).hexdigest()
-        changed_receipt, _record = self._write_build_receipt(
-            "reference",
-            self.reference_root,
-            self.reference_commit,
-            self.reference_tree,
-            helper=(
-                changed_helper,
-                changed_helper_sha,
-                self.helper[2],
-                self.helper[3],
-            ),
-            owner_source_path=owner_source,
-        )
-        with self.assertRaisesRegex(adapter_runner.PublicationError, "helper differs from the current helper"):
-            run_build(changed_receipt, self.reference_root)
-        self.assertEqual(build_roles, [])
+        with self.assertRaisesRegex(
+            adapter_runner.PublicationError,
+            "reference source clone must use the approved shared worktree path",
+        ):
+            adapter_runner._prepare_reference_source(
+                self.candidate_root, other_root, self.runner
+            )
 
     def test_reference_capture_reuse_rejects_partial_coverage(self):
         owner_source = self.owner_helper_source
@@ -1595,6 +2352,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             proof_calls.append((role, build_receipt, exact_capture_receipt, output))
             return {
                 "capture": {
+                    "schema": "1",
                     "legacy_capture_receipt": str(legacy_capture),
                     "legacy_capture_receipt_sha256": self.runner.sha256_file(legacy_capture),
                 },
@@ -1736,6 +2494,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             proof_calls.append((role, build_receipt, exact_capture_receipt))
             return {
                 "capture": {
+                    "schema": "1",
                     "legacy_capture_receipt": str(legacy_capture),
                     "legacy_capture_receipt_sha256": self.runner.sha256_file(legacy_capture),
                 },
@@ -1817,6 +2576,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             args[6].mkdir()
             return {
                 "capture": {
+                    "schema": "1",
                     "legacy_capture_receipt": str(wrong_capture),
                     "legacy_capture_receipt_sha256": self.runner.sha256_file(wrong_capture),
                 },
@@ -1842,7 +2602,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(
                 adapter_runner.PublicationError,
-                "exact-owner reference proof names a different legacy capture receipt",
+                "exact-owner reference proof names a different adapter capture receipt",
             ):
                 self._run_compare_to(case, "wrong-capture")
 
@@ -1866,6 +2626,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             legacy_capture = case["reference_capture_receipt"]
             return {
                 "capture": {
+                    "schema": "1",
                     "legacy_capture_receipt": str(legacy_capture),
                     "legacy_capture_receipt_sha256": "f" * 64,
                 },
@@ -1891,7 +2652,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(
                 adapter_runner.PublicationError,
-                "exact-owner reference proof legacy capture hash differs",
+                "exact-owner reference proof adapter capture hash differs",
             ):
                 self._run_compare_to(case, "stale-capture-hash")
 
@@ -3093,7 +3854,7 @@ raise SystemExit(runner.main(arguments))
 
     def test_compare_cli_loads_publication_runner_from_candidate_source(self):
         case = self._compare_case()
-        candidate_runner = object()
+        candidate_runner = SimpleNamespace(CONTROLLER_ROOT=self.runner.CONTROLLER_ROOT)
         loaded = []
         source_receipt = case["candidate_source_receipt"]
         candidate_runner_path = (

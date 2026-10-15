@@ -21,9 +21,22 @@ import tempfile
 import time
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Literal, overload
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
+_COMMON_GIT_DIRECTORY = pathlib.Path(
+    subprocess.run(
+        ["git", "-C", str(ROOT), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ).stdout.strip()
+).resolve()
+if _COMMON_GIT_DIRECTORY.name != ".git":
+    raise RuntimeError(f"unsupported publication Git common directory: {_COMMON_GIT_DIRECTORY}")
+CONTROLLER_ROOT = _COMMON_GIT_DIRECTORY.parent
 REFERENCE_RECEIPT_SHA256 = "8054e5f05ae740f746eea1ed980077b5d04bb57c0cc108dd3ee3c402bf9d85c8"
 REFERENCE_BINARY_SHA256 = "c58582007f4999eaa953ebdb54c62902557505099e928fc2f168afcc167fd8cc"
 REFERENCE_VALIDATION_SHA256 = "7d2883e623ec6b72093afc714307b89f2f0110ef447b64738d7da2a500a035cd"
@@ -73,6 +86,41 @@ DOCKER_RESOURCE_FLAGS = (
     "--memory-swappiness",
 )
 REFERENCE_HEAD = "e240efad273fe35d66d91f4037b6a8193527da2e"
+SOURCE_COHORT_SCHEMA = "3"
+SOURCE_BUILD_TARGET = "x86_64-unknown-linux-musl"
+SOURCE_BUILD_PROFILE = "verification"
+SOURCE_BUILD_IMAGE = PINNED_IMAGE
+SOURCE_BUILDER_RELATIVE_PATH = pathlib.Path("dev/consolidation/w9-source-build.sh")
+SOURCE_BUILDER_SHA256 = "ef12d889fb0d58bd76ec0fa35102492a9d991dcb726744bbcd2c86f19f3e9c07"
+SOURCE_BUILDER_PATH = ROOT / SOURCE_BUILDER_RELATIVE_PATH
+SOURCE_LINKER_PATH = CONTROLLER_ROOT / "dev/musl-linker.sh"
+SOURCE_LINKER_SHA256 = "583039d8ee08330c3eaab1970802181f1ed766f412bfe9d7493fb39135ebc727"
+SOURCE_RUSTFLAGS = (
+    "-C target-feature=+crt-static "
+    "-C link-arg=--defsym=__isoc23_sscanf=sscanf "
+    "-C link-arg=--defsym=__isoc23_strtol=strtol"
+)
+SOURCE_RECEIPT_FIELDS = (
+    "schema",
+    "role",
+    "candidate_root",
+    "candidate_commit",
+    "candidate_tree",
+    "input_root",
+    "input_manifest",
+    "input_manifest_sha256",
+    "corpus_blake3",
+    "builder_path",
+    "builder_sha256",
+    "builder_image",
+    "build_target",
+    "build_profile",
+    "rustflags",
+    "linker_path",
+    "linker_sha256",
+    "runner",
+    "runner_sha256",
+)
 REFERENCE_INPUT_ROOT = pathlib.Path(
     "/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver/"
     ".work/consolidation/w9-corrected-pair/reference/.work/consolidation/w9-root-e240"
@@ -141,6 +189,16 @@ class CleanupFailure(PublicationError):
 class ManifestSource:
     relative_path: str
     sha256: str
+    mode: int
+
+
+@dataclass(frozen=True)
+class HistoricalManifestSource:
+    relative_path: str
+    sha256: str
+
+
+ManifestInput = ManifestSource | HistoricalManifestSource
 
 
 @dataclass(frozen=True)
@@ -659,6 +717,16 @@ def git_output(root: pathlib.Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def git_common_controller_root(root: pathlib.Path) -> pathlib.Path:
+    common_directory = real_directory(
+        git_output(root, "rev-parse", "--path-format=absolute", "--git-common-dir"),
+        "shared source Git directory",
+    )
+    if common_directory.name != ".git":
+        raise PublicationError(f"unsupported source Git common directory: {common_directory}")
+    return real_directory(common_directory.parent, "source controller root")
+
+
 def require_only_parity_overlay(root: pathlib.Path, failure_message: str) -> None:
     status = git_output(root, "status", "--porcelain", "--untracked-files=all")
     if status != "M tests/sema.rs":
@@ -702,14 +770,34 @@ def validate_wrapper_root(wrapper_root: pathlib.Path, candidate_root: pathlib.Pa
         raise PublicationError(f"wrapper root does not contain candidate source: {wrapper_root}")
 
 
-def parse_input_manifest(path: pathlib.Path) -> tuple[dict[int, ManifestSource], dict[str, str]]:
-    by_index: dict[int, ManifestSource] = {}
+@overload
+def parse_input_manifest(
+    path: pathlib.Path,
+    *,
+    strict_modes: Literal[True],
+) -> tuple[dict[int, ManifestSource], dict[str, str]]: ...
+
+
+@overload
+def parse_input_manifest(
+    path: pathlib.Path,
+    *,
+    strict_modes: Literal[False] = False,
+) -> tuple[dict[int, HistoricalManifestSource], dict[str, str]]: ...
+
+
+def parse_input_manifest(
+    path: pathlib.Path,
+    *,
+    strict_modes: bool = False,
+) -> tuple[dict[int, ManifestInput], dict[str, str]]:
+    by_index: dict[int, ManifestInput] = {}
     by_path: dict[str, str] = {}
     for row_number, line in enumerate(read_regular_text(path).splitlines(), 1):
         fields = line.split("\t")
         if len(fields) != 4:
             raise PublicationError(f"input manifest row {row_number}: expected four tab-separated fields")
-        raw_index, relative, digest, _mode = fields
+        raw_index, relative, digest, raw_mode = fields
         try:
             index = int(raw_index)
         except ValueError as error:
@@ -719,22 +807,44 @@ def parse_input_manifest(path: pathlib.Path) -> tuple[dict[int, ManifestSource],
             raise PublicationError(f"input manifest row {row_number}: invalid index or path {relative!r}")
         if not re.fullmatch(r"[0-9a-f]{64}", digest):
             raise PublicationError(f"input manifest row {row_number}: malformed source SHA-256")
+        if strict_modes:
+            if (
+                not relative
+                or pure.as_posix() != relative
+                or "\\" in relative
+                or re.fullmatch(r"[0-7]{3,4}", raw_mode) is None
+            ):
+                raise PublicationError(f"input manifest row {row_number}: invalid source path or mode")
+            mode = int(raw_mode, 8)
+            if mode not in {0o444, 0o555}:
+                raise PublicationError(f"input manifest row {row_number}: unsupported source mode {raw_mode!r}")
+            source = ManifestSource(relative, digest, mode)
+        else:
+            source = HistoricalManifestSource(relative, digest)
         if index in by_index or relative in by_path:
             raise PublicationError(f"input manifest row {row_number}: duplicate index or path")
-        by_index[index] = ManifestSource(relative, digest)
+        by_index[index] = source
         by_path[relative] = digest
     if len(by_index) != 1690 or set(by_index) != set(range(1690)):
         raise PublicationError(f"input manifest: expected 1690 sequential sources, found {len(by_index)}")
     return by_index, by_path
 
 
-def verify_corpus_tree(root: pathlib.Path, expected_paths: dict[str, str]) -> None:
+def verify_corpus_tree(
+    root: pathlib.Path,
+    expected_paths: dict[str, str],
+    expected_modes: dict[str, int] | None = None,
+) -> None:
     actual_paths: list[str] = []
     for directory, names, files in os.walk(root, followlinks=False):
         base = pathlib.Path(directory)
         relative_directory = base.relative_to(root).as_posix()
         if base.stat().st_mode & 0o222:
             raise PublicationError(f"input corpus directory is writable: {base}")
+        if expected_modes is not None:
+            linked_directories = [name for name in names if name not in {".git", ".work", "target"} and (base / name).is_symlink()]
+            if linked_directories:
+                raise PublicationError(f"input corpus contains a symlink directory: {(base / linked_directories[0]).relative_to(root).as_posix()}")
         names[:] = [
             name
             for name in names
@@ -747,6 +857,8 @@ def verify_corpus_tree(root: pathlib.Path, expected_paths: dict[str, str]) -> No
                 continue
             path = base / name
             if path.is_symlink() or not path.is_file():
+                if expected_modes is not None:
+                    raise PublicationError(f"input corpus source is not a regular file: {path.relative_to(root).as_posix()}")
                 continue
             if path.stat().st_mode & 0o222:
                 raise PublicationError(f"input corpus source is writable: {path.relative_to(root).as_posix()}")
@@ -758,12 +870,56 @@ def verify_corpus_tree(root: pathlib.Path, expected_paths: dict[str, str]) -> No
         extra = sorted(set(actual_paths) - set(expected_names))[:10]
         raise PublicationError(f"input corpus file list differs from approved manifest: missing={missing} extra={extra}")
     for relative in actual_paths:
-        actual = sha256_file(root / relative)
+        source = root / relative
+        if expected_modes is not None:
+            descriptor = open_absolute_nofollow(source)
+            try:
+                metadata = os.fstat(descriptor)
+                if not stat.S_ISREG(metadata.st_mode):
+                    raise PublicationError(f"input corpus source is not a regular file: {relative}")
+                actual_mode = stat.S_IMODE(metadata.st_mode)
+                expected_mode = expected_modes[relative]
+                if actual_mode != expected_mode:
+                    raise PublicationError(
+                        f"input corpus mode changed at {relative}: expected={expected_mode:04o} actual={actual_mode:04o}"
+                    )
+            finally:
+                os.close(descriptor)
+        actual = sha256_file(source)
         expected = expected_paths[relative]
         if actual != expected:
             raise PublicationError(
                 f"input corpus source changed at {relative}: expected sha256={expected} actual={actual}"
             )
+
+
+def validate_source_qualified_inputs(
+    input_root: pathlib.Path,
+    input_manifest: pathlib.Path,
+) -> tuple[dict[int, ManifestSource], dict[str, str]]:
+    input_root = real_directory(input_root, "source-qualified input root")
+    input_manifest = regular_file(input_manifest, "source-qualified input manifest")
+    require_sha256(input_manifest, INPUT_MANIFEST_SHA256, "source-qualified input manifest")
+    by_index, by_path = parse_input_manifest(input_manifest, strict_modes=True)
+    expected_modes = {source.relative_path: source.mode for source in by_index.values()}
+    verify_corpus_tree(input_root, by_path, expected_modes)
+    return by_index, by_path
+
+
+def validate_work_ignored(root: pathlib.Path) -> None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "check-ignore", "--quiet", ".work/"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except OSError as error:
+        raise PublicationError(f"cannot verify source .work ignore rule: {error}") from error
+    if result.returncode != 0:
+        detail = result.stderr.strip()
+        raise PublicationError(f"source .work is not ignored{': ' + detail if detail else ''}")
 
 
 def parse_validation(path: pathlib.Path) -> dict[str, str]:
@@ -793,7 +949,7 @@ def parse_validation(path: pathlib.Path) -> dict[str, str]:
     return result
 
 
-def parse_receipt(path: pathlib.Path, expected_paths: dict[int, ManifestSource]) -> ParsedReceipt:
+def parse_receipt(path: pathlib.Path, expected_paths: dict[int, ManifestInput]) -> ParsedReceipt:
     lines = read_regular_text(path).splitlines()
     if len(lines) < 7:
         raise PublicationError(f"{path}: receipt is incomplete")
@@ -853,7 +1009,7 @@ def parse_receipt(path: pathlib.Path, expected_paths: dict[int, ManifestSource])
 
 def validate_reference_receipt(
     path: pathlib.Path,
-    expected_paths: dict[int, ManifestSource],
+    expected_paths: dict[int, HistoricalManifestSource],
     corpus_digest: str,
 ) -> ParsedReceipt:
     receipt = parse_receipt(path, expected_paths)
@@ -942,7 +1098,7 @@ def compare_outcomes(
 def compare_shard(
     reference: ParsedReceipt,
     path: pathlib.Path,
-    expected_paths: dict[int, ManifestSource],
+    expected_paths: dict[int, HistoricalManifestSource],
     start: int,
     end: int,
     corpus_digest: str,
@@ -986,7 +1142,7 @@ def discover_candidate_receipts(candidate_dir: pathlib.Path, count: int) -> dict
 def verify_receipt_bundle(
     reference: ParsedReceipt,
     candidate_dir: pathlib.Path,
-    expected_paths: dict[int, ManifestSource],
+    expected_paths: dict[int, HistoricalManifestSource],
     corpus_digest: str,
 ) -> str:
     count = len(expected_paths)
@@ -1025,7 +1181,7 @@ def validate_reference_inputs(
     validation: pathlib.Path,
     input_root: pathlib.Path,
     input_manifest: pathlib.Path,
-) -> tuple[dict[int, ManifestSource], dict[str, str], ParsedReceipt]:
+) -> tuple[dict[int, HistoricalManifestSource], dict[str, str], ParsedReceipt]:
     require_sha256(reference_receipt, REFERENCE_RECEIPT_SHA256, "approved reference receipt")
     require_sha256(reference_binary, REFERENCE_BINARY_SHA256, "approved reference binary")
     require_sha256(validation, REFERENCE_VALIDATION_SHA256, "approved reference validation")
@@ -1311,6 +1467,76 @@ def validate_candidate_files(record: dict[str, str]) -> tuple[pathlib.Path, path
     return root, binary, helper, wrapper
 
 
+def validate_source_receipt_record(record: dict[str, str]) -> dict[str, str]:
+    if set(record) != set(SOURCE_RECEIPT_FIELDS):
+        missing = sorted(set(SOURCE_RECEIPT_FIELDS) - set(record))
+        extra = sorted(set(record) - set(SOURCE_RECEIPT_FIELDS))
+        raise PublicationError(f"source-qualified receipt fields differ: missing={missing} extra={extra}")
+    if record["schema"] != SOURCE_COHORT_SCHEMA or record["role"] != "source-cohort":
+        raise PublicationError("source-qualified receipt schema or role differs")
+    for field in SOURCE_RECEIPT_FIELDS:
+        value = record[field]
+        if not value or any(char in value for char in "\r\n\t"):
+            raise PublicationError(f"source-qualified receipt has invalid {field}")
+    for field in ("candidate_commit", "candidate_tree"):
+        if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", record[field]):
+            raise PublicationError(f"source-qualified receipt has malformed {field}")
+    for field in ("input_manifest_sha256", "corpus_blake3", "builder_sha256", "linker_sha256", "runner_sha256"):
+        if not re.fullmatch(r"[0-9a-f]{64}", record[field]):
+            raise PublicationError(f"source-qualified receipt has malformed {field}")
+    root = real_directory(record["candidate_root"], "source-qualified candidate source")
+    if record["candidate_root"] != str(root):
+        raise PublicationError("source-qualified candidate root path is not canonical")
+    validate_work_ignored(root)
+    if source_identity(root) != (record["candidate_commit"], record["candidate_tree"]):
+        raise PublicationError("source-qualified candidate identity differs")
+    if git_common_controller_root(root) != CONTROLLER_ROOT:
+        raise PublicationError("source-qualified candidate does not share the publication controller Git root")
+    input_root = real_directory(record["input_root"], "source-qualified input root")
+    input_manifest = regular_file(record["input_manifest"], "source-qualified input manifest")
+    if record["input_root"] != str(input_root) or record["input_manifest"] != str(input_manifest):
+        raise PublicationError("source-qualified input paths are not canonical")
+    if record["input_manifest_sha256"] != INPUT_MANIFEST_SHA256:
+        raise PublicationError("source-qualified input manifest differs from its pin")
+    require_sha256(input_manifest, INPUT_MANIFEST_SHA256, "source-qualified input manifest")
+    if record["corpus_blake3"] != CORPUS_BLAKE3:
+        raise PublicationError("source-qualified corpus digest differs from its pin")
+    builder = regular_file(record["builder_path"], "source-qualified build runner", executable=True)
+    if git_common_controller_root(builder.parent) != CONTROLLER_ROOT:
+        raise PublicationError("source-qualified build runner uses a different controller Git root")
+    if SOURCE_BUILDER_SHA256 == "" or require_sha256(builder, SOURCE_BUILDER_SHA256, "source-qualified build runner") != record["builder_sha256"]:
+        raise PublicationError("source-qualified build runner hash differs")
+    if (
+        record["builder_image"] != SOURCE_BUILD_IMAGE
+        or record["build_target"] != SOURCE_BUILD_TARGET
+        or record["build_profile"] != SOURCE_BUILD_PROFILE
+        or record["rustflags"] != SOURCE_RUSTFLAGS
+    ):
+        raise PublicationError("source-qualified build contract differs")
+    linker = regular_file(record["linker_path"], "source-qualified musl linker")
+    if linker != SOURCE_LINKER_PATH or require_sha256(linker, SOURCE_LINKER_SHA256, "source-qualified musl linker") != record["linker_sha256"]:
+        raise PublicationError("source-qualified musl linker identity differs")
+    candidate_runner = regular_file(root / "dev/consolidation/w9-publication-run.py", "source-qualified publication runner")
+    if record["runner"] != str(candidate_runner):
+        raise PublicationError("source-qualified publication runner path is not canonical")
+    require_sha256(candidate_runner, record["runner_sha256"], "source-qualified publication runner")
+    return record
+
+
+def parse_source_receipt(path: pathlib.Path) -> dict[str, str]:
+    record: dict[str, str] = {}
+    for line_number, line in enumerate(read_regular_text(path).splitlines(), 1):
+        fields = line.split("\t")
+        if len(fields) != 2 or not fields[0] or not fields[1]:
+            raise PublicationError(f"{path}: malformed source-qualified receipt row {line_number}")
+        key, value = fields
+        if key in record:
+            raise PublicationError(f"{path}: duplicate source-qualified receipt field {key}")
+        record[key] = value
+    validate_source_receipt_record(record)
+    return record
+
+
 def validate_runner_binding(value: str | pathlib.Path, digest: str) -> pathlib.Path:
     current = pathlib.Path(__file__).resolve()
     runner = regular_file(value, "publication runner")
@@ -1351,6 +1577,9 @@ def parse_candidate_receipt(path: pathlib.Path) -> dict[str, str]:
         if key in record:
             raise PublicationError(f"{path}: duplicate candidate receipt field {key}")
         record[key] = value
+    if record.get("schema") == SOURCE_COHORT_SCHEMA:
+        validate_source_receipt_record(record)
+        return record
     validate_receipt_shape(record)
     return record
 
@@ -1468,7 +1697,18 @@ def seal_candidate(args: argparse.Namespace) -> None:
     print(f"candidate receipt: {receipt_path}")
 
 
-def validate_all_inputs(record: dict[str, str]) -> tuple[dict[int, ManifestSource], dict[str, str], ParsedReceipt]:
+def validate_source_cohort_inputs(
+    record: dict[str, str],
+) -> tuple[dict[int, ManifestSource], dict[str, str]]:
+    validate_source_receipt_record(record)
+    input_root = pathlib.Path(record["input_root"])
+    input_manifest = pathlib.Path(record["input_manifest"])
+    return validate_source_qualified_inputs(input_root, input_manifest)
+
+
+def validate_all_inputs(
+    record: dict[str, str],
+) -> tuple[dict[int, HistoricalManifestSource], dict[str, str], ParsedReceipt]:
     validate_receipt_shape(record)
     validate_recorded_pins(record)
     root, _binary, _helper, _wrapper = validate_candidate_files(record)
@@ -1492,6 +1732,51 @@ def validate_all_inputs(record: dict[str, str]) -> tuple[dict[int, ManifestSourc
     )
     verify_corpus_tree(input_root, paths_by_path)
     return paths_by_index, paths_by_path, reference
+
+
+def seal_source_cohort(args: argparse.Namespace) -> None:
+    root = real_directory(args.candidate_root, "source-qualified candidate source")
+    commit, tree = source_identity(root)
+    validate_work_ignored(root)
+    input_root = real_directory(args.input_root, "source-qualified input root")
+    input_manifest = regular_file(args.input_manifest, "source-qualified input manifest")
+    paths_by_index, _paths_by_path = validate_source_qualified_inputs(input_root, input_manifest)
+    if len(paths_by_index) != 1690:
+        raise PublicationError(f"source-qualified cohort count differs: {len(paths_by_index)}")
+    if git_common_controller_root(root) != CONTROLLER_ROOT:
+        raise PublicationError("source-qualified candidate does not share the publication controller Git root")
+    builder = regular_file(SOURCE_BUILDER_PATH, "source-qualified build runner", executable=True)
+    if SOURCE_BUILDER_SHA256 == "":
+        raise PublicationError("source-qualified build runner is not pinned")
+    builder_sha256 = require_sha256(builder, SOURCE_BUILDER_SHA256, "source-qualified build runner")
+    linker = regular_file(SOURCE_LINKER_PATH, "source-qualified musl linker")
+    linker_sha256 = require_sha256(linker, SOURCE_LINKER_SHA256, "source-qualified musl linker")
+    runner_path = regular_file(root / "dev/consolidation/w9-publication-run.py", "source-qualified publication runner")
+    record = {
+        "schema": SOURCE_COHORT_SCHEMA,
+        "role": "source-cohort",
+        "candidate_root": str(root),
+        "candidate_commit": commit,
+        "candidate_tree": tree,
+        "input_root": str(input_root),
+        "input_manifest": str(input_manifest),
+        "input_manifest_sha256": INPUT_MANIFEST_SHA256,
+        "corpus_blake3": CORPUS_BLAKE3,
+        "builder_path": str(builder),
+        "builder_sha256": builder_sha256,
+        "builder_image": SOURCE_BUILD_IMAGE,
+        "build_target": SOURCE_BUILD_TARGET,
+        "build_profile": SOURCE_BUILD_PROFILE,
+        "rustflags": SOURCE_RUSTFLAGS,
+        "linker_path": str(linker),
+        "linker_sha256": linker_sha256,
+        "runner": str(runner_path),
+        "runner_sha256": sha256_file(runner_path),
+    }
+    validate_source_receipt_record(record)
+    receipt_path = new_work_file_path(args.receipt, root, "source-qualified cohort receipt")
+    write_new_receipt(receipt_path, record, SOURCE_RECEIPT_FIELDS, "source-qualified cohort receipt")
+    print(f"source-qualified receipt: {receipt_path}")
 
 
 def output_lock_path(output: pathlib.Path) -> pathlib.Path:
@@ -2235,6 +2520,11 @@ def parser() -> argparse.ArgumentParser:
     seal.add_argument("--input-root", required=True)
     seal.add_argument("--input-manifest", required=True)
     seal.add_argument("--receipt", required=True)
+    source = commands.add_parser("seal-source", help="write a source-qualified W9 cohort receipt")
+    source.add_argument("--candidate-root", required=True)
+    source.add_argument("--input-root", required=True)
+    source.add_argument("--input-manifest", required=True)
+    source.add_argument("--receipt", required=True)
     run = commands.add_parser("run", help="run all 1690 sources in all four profiles")
     run.add_argument("--candidate-receipt", required=True)
     run.add_argument("--output", required=True)
@@ -2251,6 +2541,8 @@ def main(argv: list[str] | None = None) -> int:
             build_harness(args)
         elif args.command == "seal":
             seal_candidate(args)
+        elif args.command == "seal-source":
+            seal_source_cohort(args)
         elif args.command == "run":
             execute_run(args)
         else:
