@@ -4,7 +4,7 @@
 export error MetricError = Invalid(path: Str, line: Int, detail: Str) | Rise(name: Str, before: Int, after: Int) | Contract(detail: Str)
 
 type Token = {text: Str, start: Int, end: Int, line: Int, last_line: Int, literal: Bool}
-type Lexed = {tokens: Map[Int, Token], mates: Map[Int, Int], size: Int, lines: Int}
+type Lexed = {tokens: List[Token], mates: Map[Int, Int], size: Int, lines: Int}
 type Span = {start: Int, end: Int, line: Int, last_line: Int}
 type SpanLookupEntry = {start: Int, prefix_end: Int}
 type SpanLookup = {entries: List[SpanLookupEntry]}
@@ -224,10 +224,8 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
   }
   var stack = []
   var mates: Map[Int, Int] = {}
-  var token_table: Map[Int, Token] = {}
   var index = 0
   for item in tokens {
-    token_table[index] = item
     if ! item.literal and item.text in ["(", "[", "{"] { stack += [index] }
     if ! item.literal and item.text in [")", "]", "}"] {
       if stack.is_empty() { invalid(source_path, item.line, "unmatched closing delimiter") }
@@ -242,7 +240,7 @@ proc lex(source_path: Str, source: Str) [error] -> Result[Lexed] {
   }
   if ! stack.is_empty() { invalid(source_path, tokens[stack[0]].line, "unclosed Rust delimiter") }
   let physical = if source == "" { 0 } else { line - (if source.ends_with("\n") { 1 } else { 0 }) }
-  {tokens: token_table, mates: mates, size: chars.len(), lines: physical}
+  {tokens: tokens, mates: mates, size: chars.len(), lines: physical}
 }
 
 pure words(lexed: Lexed, start: Int, end: Int) -> Str {
@@ -297,19 +295,6 @@ proc satisfiable(source_path: Str, lexed: Lexed, predicates: List[CfgPredicate],
 }
 
 proc production_cfg(source_path: Str, lexed: Lexed, predicates: List[CfgPredicate]) [error] -> Result[Bool] {
-  # Recursive boolean evaluation needs only these predicates, not every
-  # source token. Original token indices preserve diagnostic evidence.
-  var cfg_tokens: Map[Int, Token] = {}
-  var cfg_mates: Map[Int, Int] = {}
-  for predicate in predicates {
-    var index = predicate.start - 1
-    while index <= predicate.end {
-      cfg_tokens[index] = lexed.tokens[index]
-      if let Ok(other) = lexed.mates.get(index) { cfg_mates[index] = other }
-      index += 1
-    }
-  }
-  let cfg_source = Lexed(tokens: cfg_tokens, mates: cfg_mates, size: lexed.size, lines: lexed.lines)
   var atoms = []
   for predicate in predicates {
     let end = predicate.end
@@ -319,12 +304,12 @@ proc production_cfg(source_path: Str, lexed: Lexed, predicates: List[CfgPredicat
       if (lexed.tokens.get(cursor + 1) ?? end_token).text == "(" or name in ["(", ")", ","] { cursor += 1; continue }
       var next = cursor + 1
       if (lexed.tokens.get(next) ?? end_token).text == "=" { next += 2 }
-      let atom = words(cfg_source, cursor, next)
+      let atom = words(lexed, cursor, next)
       if atom != "test" and ! (atom in atoms) { atoms += [atom] }
       cursor = next
     }
   }
-  satisfiable(source_path, cfg_source, predicates, atoms, 0, {})?
+  satisfiable(source_path, lexed, predicates, atoms, 0, {})?
 }
 
 proc attributes(source_path: Str, lexed: Lexed) [error] -> Result[List[Attribute]] {
@@ -588,7 +573,7 @@ pure count_lines(source_path: Str, lexed: Lexed, spans: List[Span], lookup: Span
     var line = span.line
     while line <= span.last_line { excluded[line] = true; line += 1 }
   }
-  for item in lexed.tokens.values() {
+  for item in lexed.tokens {
     if ! inside(item, lookup) {
       var line = item.line
       while line <= item.last_line { retained[line] = true; line += 1 }
