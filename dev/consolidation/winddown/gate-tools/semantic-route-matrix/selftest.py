@@ -11,6 +11,7 @@ import pathlib
 import re
 import tempfile
 import unittest
+from unittest import mock
 
 import generate
 
@@ -1237,7 +1238,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         self.assertEqual(empty_map["tag"], "ExprEmptyMap")
         self.assertEqual(
             empty_map["mode_expectations"]["normal"]["route_id"],
-            "recursive_bridge_to_explicit_frames",
+            "explicit_frame_apply_path",
         )
         self.assertEqual(
             empty_map["mode_expectations"]["forced"]["route_id"],
@@ -2312,6 +2313,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             source_bytes = generate.route_witness_source_bytes(
                 root, mapping, config["route_witness_source_commit"]
             )
+            self.assertEqual(source_bytes, mapping["child_source"].encode("utf-8"))
             self.assertTrue(generate.route_witness_artifact_matches(
                 artifact_bytes, mapping, "normal", ordinal, source_bytes
             ))
@@ -2360,7 +2362,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 mode="normal", expected_xsht_sha256="xsht-hash",
             )
             self.assertIsNotNone(proof)
-            self.assertEqual(proof["route_id"], "recursive_bridge_to_explicit_frames")
+            self.assertEqual(proof["route_id"], "explicit_frame_apply_path")
 
             missing_artifact = copy.deepcopy(receipt["steps"][0])
             del missing_artifact["route_witness_artifact"]
@@ -2392,6 +2394,73 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 expected_head="stale-head", expected_tree="tree", expected_ordinal=ordinal,
                 mode="normal", expected_xsht_sha256="xsht-hash",
             ))
+
+    def test_route_witness_artifacts_bind_reviewed_child_source_in_both_modes(self) -> None:
+        root = generate.HERE.parents[4]
+        scratch = root / ".work/tmp"
+        scratch.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch, prefix="route-witness-child-source-") as temporary:
+            base = pathlib.Path(temporary)
+            artifacts = {}
+            mapping = None
+            config = None
+            ordinal = 49
+            for mode in generate.ROUTE_WITNESS_EXPECTATION_MODES:
+                config, mapping, _, _, artifact_bytes = self.route_witness_receipt_fixture(
+                    root, base / mode, mode
+                )
+                source_bytes = generate.route_witness_source_bytes(
+                    root, mapping, config["route_witness_source_commit"]
+                )
+                self.assertEqual(source_bytes, mapping["child_source"].encode("utf-8"))
+                self.assertTrue(generate.route_witness_artifact_matches(
+                    artifact_bytes, mapping, mode, ordinal, source_bytes
+                ))
+                artifacts[mode] = artifact_bytes
+
+            self.assertIsNotNone(config)
+            self.assertIsNotNone(mapping)
+            normal_artifact = json.loads(artifacts["normal"])
+            for field, wrong in (
+                ("test_id", "tests/xsh/frame-apply-oracles.xsh::test_wrong"),
+                ("source_hash", "0" * 64),
+            ):
+                changed = {**normal_artifact, field: wrong}
+                self.assertFalse(generate.route_witness_artifact_matches(
+                    json.dumps(changed).encode(), mapping, "normal", ordinal,
+                    mapping["child_source"].encode("utf-8"),
+                ))
+            for field, wrong in (
+                ("tag_name", "ExprPath"),
+                ("tag_ordinal", 48),
+                ("route", "generic_operand_apply_path"),
+                ("mode", "forced"),
+            ):
+                changed = copy.deepcopy(normal_artifact)
+                changed["records"][0][field] = wrong
+                self.assertFalse(generate.route_witness_artifact_matches(
+                    json.dumps(changed).encode(), mapping, "normal", ordinal,
+                    mapping["child_source"].encode("utf-8"),
+                ))
+
+            changed_mapping = copy.deepcopy(mapping)
+            changed_mapping["child_source"] += "assert true\n"
+            changed_source = generate.route_witness_source_bytes(
+                root, changed_mapping, config["route_witness_source_commit"]
+            )
+            self.assertEqual(changed_source, changed_mapping["child_source"].encode("utf-8"))
+            self.assertFalse(generate.route_witness_artifact_matches(
+                artifacts["normal"], changed_mapping, "normal", ordinal, changed_source
+            ))
+
+            with mock.patch.object(
+                generate.subprocess,
+                "run",
+                return_value=mock.Mock(stdout=b"altered reviewed test file"),
+            ):
+                self.assertIsNone(generate.route_witness_source_bytes(
+                    root, mapping, config["route_witness_source_commit"]
+                ))
 
     def test_route_witness_receipts_credit_only_unique_exact_tuples(self) -> None:
         root = generate.HERE.parents[4]
@@ -2431,14 +2500,14 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
 
     def test_route_witness_closes_only_matching_tag_route_and_mode_gaps(self) -> None:
         gaps = [
-            {"tag": "ExprEmptyMap", "path": "normal", "route_id": "recursive_bridge_to_explicit_frames"},
+            {"tag": "ExprEmptyMap", "path": "normal", "route_id": "explicit_frame_apply_path"},
             {"tag": "ExprEmptyMap", "path": "forced", "route_id": "generic_operand_apply_path"},
             {"tag": "ExprEmptyMap", "path": "normal", "route_id": "other_route"},
-            {"tag": "ExprPath", "path": "normal", "route_id": "recursive_bridge_to_explicit_frames"},
+            {"tag": "ExprPath", "path": "normal", "route_id": "explicit_frame_apply_path"},
             {"tag": "ExprEmptyMap", "path": "normal", "reason": "receipt is missing"},
         ]
         witnesses = {
-            ("ExprEmptyMap", "normal"): {"route_id": "recursive_bridge_to_explicit_frames"},
+            ("ExprEmptyMap", "normal"): {"route_id": "explicit_frame_apply_path"},
             ("ExprEmptyMap", "forced"): {"route_id": "generic_operand_apply_path"},
         }
         self.assertEqual(

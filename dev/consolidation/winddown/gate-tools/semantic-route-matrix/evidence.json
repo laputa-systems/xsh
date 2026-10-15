@@ -702,13 +702,14 @@
           "status": "supported_by_artifact_format"
         },
         "normal": {
-          "route_id": "recursive_bridge_to_explicit_frames",
+          "route_id": "explicit_frame_apply_path",
           "status": "supported_by_artifact_format"
         }
       },
       "source_file": "tests/xsh/frame-apply-oracles.xsh",
       "tag": "ExprEmptyMap",
-      "test_id": "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map"
+      "test_id": "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map",
+      "child_source": "let empty: Map[Str, Int] = {}\nassert empty.len() == 0\n"
     },
     {
       "mapping_kind": "statement_expression",

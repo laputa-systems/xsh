@@ -54,7 +54,7 @@ ROUTE_WITNESS_SOURCE_FILES = {
     "scalar": {SCALAR_ROUTE_ORACLE_FILE: None},
 }
 ROUTE_WITNESS_CAPABILITY = {
-    ("ExprEmptyMap", "normal"): "recursive_bridge_to_explicit_frames",
+    ("ExprEmptyMap", "normal"): "explicit_frame_apply_path",
     ("ExprEmptyMap", "forced"): "generic_operand_apply_path",
 }
 ROUTE_WITNESS_EXPECTATION_MODES = ("normal", "forced")
@@ -4494,7 +4494,11 @@ def validate_route_witness_mappings(
     tag_modes: set[tuple[str, str]] = set()
     for mapping in mappings:
         required = {"tag", "test_id", "source_file", "mapping_kind", "mode_expectations"}
-        if not isinstance(mapping, dict) or set(mapping) != required:
+        if not isinstance(mapping, dict):
+            raise EvidenceError(f"route-witness mapping has an unexpected shape: {mapping}")
+        if mapping.get("mapping_kind") == "artifact_capability":
+            required.add("child_source")
+        if set(mapping) != required:
             raise EvidenceError(f"route-witness mapping has an unexpected shape: {mapping}")
         test_id = mapping.get("test_id")
         if not isinstance(test_id, str) or test_id not in expected:
@@ -4517,6 +4521,9 @@ def validate_route_witness_mappings(
             status = expectation.get("status")
             capability_route = ROUTE_WITNESS_CAPABILITY.get((tag, mode))
             if mapping["mapping_kind"] == "artifact_capability":
+                child_source = mapping.get("child_source")
+                if not isinstance(child_source, str) or not child_source or "\x00" in child_source:
+                    raise EvidenceError(f"reviewed route-witness child source is malformed: {test_id}")
                 if route_id != capability_route or status != "supported_by_artifact_format":
                     raise EvidenceError(f"unsupported route-witness capability claim: {test_id} {mode}")
             elif route_id is not None or status != "unsupported_by_artifact_format":
@@ -4715,10 +4722,16 @@ def route_witness_source_bytes(
     mapping: dict[str, Any],
     source_commit: str,
 ) -> bytes | None:
-    """Return source bytes only when the current test is identical to its reviewed mapping source."""
+    """Return reviewed child bytes only when their pinned test source is unchanged."""
     source_file = mapping.get("source_file")
     test_id = mapping.get("test_id")
-    if not isinstance(source_file, str) or not isinstance(test_id, str):
+    child_source = mapping.get("child_source")
+    if (
+        mapping.get("mapping_kind") != "artifact_capability"
+        or not isinstance(source_file, str)
+        or not isinstance(test_id, str)
+        or not isinstance(child_source, str)
+    ):
         return None
     source_path = root / source_file
     try:
@@ -4742,7 +4755,9 @@ def route_witness_source_bytes(
         }
     except UnicodeDecodeError:
         return None
-    return current if test_id in current_ids else None
+    if test_id not in current_ids:
+        return None
+    return child_source.encode("utf-8")
 
 
 def route_witness_artifact_matches(
