@@ -238,10 +238,19 @@ export proc check(image: Path, repair = false) -> Result[Report, Error] {
   var first_lost = 0
   var free = 0
   var next_free = 4294967295
+  let table = state.table
+  let changes = state.changes
+  let owners = state.owners
+  let bits = layout.bits
+  let bad = geom.bad(layout)
+  let entry_mask = geom.eoc(layout) + 1
   for index in range(layout.clusters) {
     let cluster = index + 2
-    var allocated = value(state, cluster)?
-    if allocated != 0 and allocated != geom.bad(layout) and cluster not in state.owners {
+    var allocated = if cluster in changes { changes[cluster] } else if bits == 12 {
+      let packed = bytes.unpack_le(table, 2, cluster + cluster / 2)?
+      if cluster % 2 == 0 { packed % entry_mask } else { packed / 16 }
+    } else if bits == 16 { bytes.unpack_le(table, 2, cluster * 2)? } else { bytes.unpack_le(table, 4, cluster * 4)? % entry_mask }
+    if allocated != 0 and allocated != bad and cluster not in owners {
       if lost == 0 { first_lost = cluster }
       lost += 1
       if repair {
