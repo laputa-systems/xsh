@@ -4,6 +4,52 @@ Status: active and incomplete 2026-10-15.
 
 ## Final-batch status, 2026-10-15
 
+### Preserve inline append separators and isolate the lint budget
+
+The `122261c23` selected-profile run passed 13,790 native cases, with zero
+failures and 136 skips. Its receipt remains bound to that source. The following
+canonical batch passed the root release and debug tests, then failed two XSHT
+cases. The batch stopped before its native suite. Preserve its failed receipt
+under `.work/final-review-evidence/final-performance-gates/122261c230e2f34907969424ad0c5f1e2b5cc65d-observers/`.
+
+The exact formatting-invariance case reproduced 18 layout-dependent warnings
+across 16 file/code groups. The collect rewrite consumed an inline semicolon,
+joined two statements, and rejected its own candidate before formatting.
+Repair `73da9be56` leaves the separator outside the replacement span. The new
+regression fails before the repair and passes afterward. All 21 prefer-collect
+unit cases pass. The exact repository formatting-invariance case also passes.
+Its 131 diagnostics include the 18 legitimate warnings that the bug hid.
+Evidence is in `.work/tmp/collect-layout-122-green-a2/`,
+`.work/tmp/collect-layout-122-area-a1/`, and
+`.work/tmp/collect-invariance-122-green-a1/`.
+
+Manual collect migrations cover the affected core scripts, string-pattern
+fixture, and scanner. The scanner passes scoped lint and all 39 ratchet tests.
+Its current SHA-256 is
+`d825cb11d4fd9ee2e0ec1215801d35041fad9dc162d46492a547afe9b80b6991`.
+Eight focused core cases, eleven text and byte cases, and a direct AWK sort
+probe pass. The integrated repository lint reports zero findings and 113
+notes across 1,524 files. That verification-profile check establishes clean
+diagnostics, not the release time budget. The integrated repository
+formatting-invariance case passes with those same 113 notes. Evidence is in
+`.work/tmp/post122-repo-lint-a1/` and `.work/tmp/post122-invariance-a1/`.
+
+The same compiled Rust budget test passes alone on 122, with both host
+readiness checks passing. The broad XSHT run had scheduled it alongside
+formatting, layout, and desugar work. Repair `42950a89f` excludes only that
+timed case from the broad functional plans. The termination and reaping test
+stays selected. `cargo dev check lint` builds the exact budget test first,
+then brackets its execution with host readiness checks. A postcheck failure
+rejects the measurement. A test failure retains its original error. All 37
+affected lifecycle, gate-selection, and Cargo-step cases pass. Evidence is in
+`.work/tmp/lint-budget-122-{lifecycle,gates,cargo-steps}-a9/`.
+
+Freeze this repair batch after focused corpus qualification. Refresh the
+functional record and launch pins without changing the immutable 208 W9
+capture. Run the exact Rust 15-second budget case separately after the
+canonical functional batch, with host readiness checks. The nine passing
+native suites and remaining final gates are still required on the new freeze.
+
 ### Isolate the closed-descriptor test from parallel workers
 
 The `88d5e6f08` release build passed its readiness checks. Its full native

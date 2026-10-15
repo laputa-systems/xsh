@@ -13,6 +13,9 @@ The repair passes its focused unit, hygiene, and authenticated native checks.
 The 88 native attempt exposed a closed-descriptor test race. The assertion now
 runs in an isolated child, retaining its exact errno contract. Focused checks pass.
 Final correctness, performance, and the ten semantic review rows remain open.
+The 122 profile suite passes. Its canonical XSHT failures led to the reviewed
+inline-separator repair, manual collect migrations, and isolation of the exact
+lint budget test. Focused checks pass. Final gates require the repaired freeze.
 [`HANDOFF.md`](HANDOFF.md) records current acceptance, integrated work, and
 remaining gates; the older grants and progress states below are planning and
 historical context, not a live lane queue. The campaign is active and

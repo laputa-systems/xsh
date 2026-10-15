@@ -86,7 +86,7 @@ required after the Rust repairs. The earlier 7e93 structural check covered 370
 source files and satisfied all non-advisory metrics and required-zero targets.
 The start-source scanner rerun and archived report are byte-identical.
 The ten semantic rows and final-close verifier remain open. The current
-successor scanner digest begins `352d27af`; its 39 focused policy tests pass.
+successor scanner digest begins `d825cb11`; its 39 focused policy tests pass.
 Source totals remain advisory.
 The 8ca feature-touch probe records
 38 XSH and 18 XSHT compiler demands from isolated placeholder arms. It does not

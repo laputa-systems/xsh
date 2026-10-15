@@ -10,6 +10,10 @@ hygiene violation. Final acceptance must run on the new freeze.
 The 88 native attempt exposed a closed-descriptor test race. The assertion now
 runs in an isolated child, retaining its exact errno contract. Focused checks pass.
 The current acceptance and remaining gates are in [`HANDOFF.md`](HANDOFF.md).
+The 122 selected-profile suite passes. Its canonical batch exposed a collect
+rewrite separator bug and a timed lint test running alongside corpus work.
+Both repairs are integrated with focused regressions and manual corpus
+migrations. Acceptance must resume on the repaired freeze.
 The owner approved the entire campaign and all six designs on 2026-10-11,
 including the Codex model policy and completeness-first sequence. The start
 commit remains `5e66b6b896a47d0c692739135d51200b007a2a67`. The owner moved
