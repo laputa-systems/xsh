@@ -166,6 +166,13 @@ work is authorized by this resume.
   identities. All 172 merged-source Python checks, shell syntax, and diff
   checks pass. [Tooling output](evidence/w9-recovery-b111/README.md) establishes
   no real harness build, capture, or parity result.
+- Real W9 builder qualification found two integration failures. Repair
+  `113a9ee7e` removes an unused generated Rust import; warnings stay denied and
+  all 65 adapter tests pass. The next attempt compiles the reference harness
+  but rejects its path outside the source checkout. The modern builder uses
+  an exact shared target directory, which needs a separate strict artifact
+  boundary. [Both failed attempts](evidence/w9-builder-preflight/README.md)
+  remain retained. No build receipt or capture is accepted yet.
 
 ### Current queue
 
