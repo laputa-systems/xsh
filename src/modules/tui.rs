@@ -148,10 +148,7 @@ pub(crate) fn safe_single_line(text: &str) -> String {
         if ch.is_control() || matches!(ch, '\u{2028}' | '\u{2029}') {
             safe.push(' ');
             has_base = true;
-        } else if is_bidi_control(ch) {
-            safe.push('\u{fffd}');
-            has_base = true;
-        } else if UnicodeWidthChar::width(ch) == Some(0) && !has_base {
+        } else if is_bidi_control(ch) || (UnicodeWidthChar::width(ch) == Some(0) && !has_base) {
             safe.push('\u{fffd}');
             has_base = true;
         } else {

@@ -5,6 +5,7 @@ use rustix::net::{
     AddressFamily, RecvFlags, SendFlags, SocketFlags, SocketType, bind, recvfrom, sendto,
     socket_with,
 };
+use rustc_hash::FxHashMap;
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::os::fd::OwnedFd;
@@ -382,7 +383,7 @@ impl NetworkIssue {
         }
     }
 
-    fn into_error(&self, kind: &str, span: Span) -> Value {
+    fn to_error(&self, kind: &str, span: Span) -> Value {
         Value::err(Value::Error(Box::new(
             RuntimeError::host(kind, &self.to_io_error()).with_span(span),
         )))
@@ -576,7 +577,7 @@ const ALL_DUMPS: [DumpKind; 4] = [
 pub(crate) fn interfaces(span: Span) -> Result<Value, RuntimeError> {
     let snapshot = collect_snapshot(&[DumpKind::Links, DumpKind::Addresses]);
     if let Some(issue) = snapshot.blocking_issue(&["socket", "link", "address"]) {
-        return Ok(issue.into_error("linux-interfaces", span));
+        return Ok(issue.to_error("linux-interfaces", span));
     }
     Ok(Value::ok(Value::stream(StreamValue::from_values_live(
         "linux.interfaces",
@@ -588,7 +589,7 @@ pub(crate) fn interfaces(span: Span) -> Result<Value, RuntimeError> {
 pub(crate) fn routes(span: Span) -> Result<Value, RuntimeError> {
     let snapshot = collect_snapshot(&[DumpKind::Links, DumpKind::Routes]);
     if let Some(issue) = snapshot.blocking_issue(&["socket", "link", "route"]) {
-        return Ok(issue.into_error("linux-routes", span));
+        return Ok(issue.to_error("linux-routes", span));
     }
     Ok(Value::ok(Value::stream(StreamValue::from_values_live(
         "linux.routes",
@@ -680,7 +681,7 @@ fn interface_records(snapshot: &Snapshot) -> Vec<Value> {
 }
 
 fn route_records(snapshot: &Snapshot) -> Vec<Value> {
-    let names: std::collections::HashMap<u32, String> = snapshot
+    let names: FxHashMap<u32, String> = snapshot
         .links
         .iter()
         .filter_map(|link| Some((u32::try_from(link.ifindex).ok()?, link_name(link))))

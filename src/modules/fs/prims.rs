@@ -138,7 +138,33 @@ pub(crate) fn stat_root(
 }
 
 fn stat_from_raw(stat: &rfs::Stat) -> Value {
+    #[cfg(target_os = "linux")]
+    let mode = stat.st_mode;
+    #[cfg(not(target_os = "linux"))]
     let mode = stat.st_mode as u32;
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let size = stat.st_size;
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let size = stat.st_size as i64;
+    #[cfg(any(
+        target_os = "macos",
+        all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))
+    ))]
+    let blocks_512 = stat.st_blocks;
+    #[cfg(not(any(
+        target_os = "macos",
+        all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64"))
+    )))]
+    let blocks_512 = stat.st_blocks as i64;
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    let blksize = stat.st_blksize;
+    #[cfg(target_os = "macos")]
+    let blksize = i64::from(stat.st_blksize);
+    #[cfg(not(any(
+        target_os = "macos",
+        all(target_os = "linux", target_arch = "x86_64")
+    )))]
+    let blksize = stat.st_blksize as i64;
     let kind = match rfs::FileType::from_raw_mode(mode as _) {
         rfs::FileType::Directory => "dir",
         rfs::FileType::RegularFile => "file",
@@ -152,9 +178,9 @@ fn stat_from_raw(stat: &rfs::Stat) -> Value {
     Value::Record(RecordMap::from([
         (key("kind"), Value::Str(kind.into())),
         (key("mode"), Value::Int(i64::from(mode))),
-        (key("size"), Value::Int(stat.st_size as i64)),
-        (key("blocks_512"), Value::Int(stat.st_blocks as i64)),
-        (key("blksize"), Value::Int(stat.st_blksize as i64)),
+        (key("size"), Value::Int(size)),
+        (key("blocks_512"), Value::Int(blocks_512)),
+        (key("blksize"), Value::Int(blksize)),
         (key("uid"), Value::Int(i64::from(stat.st_uid))),
         (key("gid"), Value::Int(i64::from(stat.st_gid))),
         (key("nlink"), Value::Int(stat.st_nlink as i64)),
@@ -413,7 +439,9 @@ pub(crate) fn statvfs_record(path: PathBuf, span: Span) -> Result<Value, Runtime
         rfs::statvfs(&path)
             .map_err(|error| RuntimeError::host("fs-statvfs", &error).with_span(span)),
     )?;
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", any(target_arch = "x86_64", target_arch = "aarch64")))]
+    let type_magic = rfs::statfs(&path).map_or(Value::Null, |fs| Value::Int(fs.f_type));
+    #[cfg(all(target_os = "linux", not(any(target_arch = "x86_64", target_arch = "aarch64"))))]
     let type_magic = rfs::statfs(&path).map_or(Value::Null, |fs| Value::Int(fs.f_type as i64));
     #[cfg(not(target_os = "linux"))]
     let type_magic = Value::Null;

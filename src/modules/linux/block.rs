@@ -14,6 +14,7 @@ use super::{
 };
 use crate::runtime::value::{LiveStream, PathValue, RecordMap, RuntimeError, StreamValue, Value};
 use crate::source::Span;
+use rustc_hash::FxHashSet;
 use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -560,7 +561,8 @@ fn read_gpt_table(device: &mut Device, header: &[u8], span: Span) -> Result<Valu
         return Err(invalid());
     }
     let mut partitions = Vec::new();
-    let mut identifiers = std::collections::HashSet::from([guid_from_gpt(&header[56..72])]);
+    let mut identifiers = FxHashSet::default();
+    identifiers.insert(guid_from_gpt(&header[56..72]));
     if identifiers.contains(&[0; 16]) {
         return Err(invalid());
     }
@@ -637,7 +639,7 @@ fn validate_partition_extents(
         return Err(partition_write_error("too many partitions for table", span));
     }
     let mut extents = Vec::new();
-    let mut indices = std::collections::HashSet::new();
+    let mut indices = FxHashSet::default();
     for value in partitions {
         let Value::Record(record) = value else {
             return Err(partition_write_error("partition must be a record", span));
@@ -782,7 +784,8 @@ fn write_gpt_table(
     }
     validate_partition_extents(partitions, entry_count as i64, first_usable, last_usable, span)?;
     let disk_guid = table_guid(table, "id", true, span)?;
-    let mut identifiers = std::collections::HashSet::from([disk_guid]);
+    let mut identifiers = FxHashSet::default();
+    identifiers.insert(disk_guid);
     let mut entries = vec![0_u8; entry_count as usize * entry_size as usize];
     for value in partitions {
         let Value::Record(record) = value else { unreachable!() };

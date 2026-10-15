@@ -50,7 +50,7 @@ impl GnuConfig {
             unsupported: Vec::new(),
         };
         for (field, value) in fields.iter() {
-            match (field.as_ref(), value) {
+            match (field, value) {
                 ("prog", Value::Str(prog)) => config.prog = Some(prog.to_string()),
                 ("status", Value::Int(status)) if (0..=255).contains(status) => {
                     config.status = *status;
@@ -464,7 +464,7 @@ impl Scan<'_> {
             } else if let (true, Some(name)) = (ch.is_ascii_digit(), self.numeric) {
                 let digits = cluster[pos..]
                     .find(|ch: char| !ch.is_ascii_digit())
-                    .map_or(cluster.len() - pos, |len| len);
+                    .unwrap_or(cluster.len() - pos);
                 let spec = &self.specs[name];
                 self.assign(state, name, spec, Some(&cluster[pos..pos + digits]), index)?;
                 stop = stop || spec.stop;
