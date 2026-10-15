@@ -56,12 +56,15 @@ HERE = Path(__file__).resolve().parent
 CONTAINER_RUNNER = HERE / "container-run.sh"
 OUTCOMES_MODULE = HERE / "outcomes.py"
 VALIDATOR = HERE / "validator.py"
-REFERENCE_PATCH_DIR = HERE.parent / "native-scheduler-reference-patches"
-REFERENCE_PATCHES = {
-    "bounded-admission-7205.patch": "ef9e2b8b8451a33ba7f6f885a9bd7709a6af9306223c5f6bf7e251cf4baef5b8",
-    "default-width-aa5.patch": "c9552064c03465ec5b0ae2d9ca4aaf03ebfca2a3bcea54b8293d92fc4e5cf3b6",
-    "round-robin-3a6c.patch": "bbea20f82ffc9ab0f4c5f9044d3fa36f02c606e6b242f09a532dd59ac32c1020",
-}
+REFERENCE_AGGREGATE_PATCH_RELATIVE = Path(
+    "dev/consolidation/winddown/unfinished/475-native-scheduler-reference-2083821edb768d2485479c7386289b82e43b1c7c.patch"
+)
+REFERENCE_AGGREGATE_PATCH_SHA256 = "b9b1d14e53bda60cd57523936f0a7a0fcc3c021fad5465edb05d85269076b26c"
+REFERENCE_SCHEDULER_COMMITS = (
+    ("bounded-admission", "7205a0", "7205a0b6afce7d9a0072b6727cae36a0b8301963"),
+    ("default-width", "aa5aca3", "aa5aca3acbd2dafd03bf3b5a4fb2cb63f399f896"),
+    ("round-robin", "3a6c3", "3a6c3daacf226f8f2c6049dbadf200dd38756c86"),
+)
 
 
 def parse_cpu_set(raw: str) -> list[int]:
@@ -473,7 +476,9 @@ def validate_build_receipt(
     }
 
 
-def validate_reference_overlay(candidate_source: dict, reference_source: dict) -> list[str]:
+def validate_reference_overlay(
+    candidate_source: dict, reference_source: dict, reference_source_root: Path
+) -> list[str]:
     candidate_files = {row["path"]: row for row in candidate_source["files"]}
     reference_files = {row["path"]: row for row in reference_source["files"]}
     if candidate_files.keys() != reference_files.keys():
@@ -489,6 +494,11 @@ def validate_reference_overlay(candidate_source: dict, reference_source: dict) -
         raise ValueError(f"reference source does not contain the required scheduler/help overlay: {changed}")
     if set(changed) != set(reference_source["changed_paths"]):
         raise ValueError("reference source Git diff and tracked-file hashes disagree")
+    reference_diff = subprocess.check_output([
+        "git", "-C", str(reference_source_root), "diff", "--binary", "--full-index", "HEAD"
+    ])
+    if sha256_bytes(reference_diff) != REFERENCE_AGGREGATE_PATCH_SHA256:
+        raise ValueError("reference source diff does not match the pinned scheduler reference overlay")
     return changed
 
 
@@ -532,17 +542,46 @@ def verify_timed_stage_inputs(
     return {"source": source_summary(source), "binaries": binaries, "unchanged": True}
 
 
-def capture_reference_derivation_patches() -> dict:
-    patches = {}
-    for name, expected_hash in sorted(REFERENCE_PATCHES.items()):
-        path = REFERENCE_PATCH_DIR / name
-        if not path.is_file():
-            raise ValueError(f"reference derivation patch is missing: {path}")
-        actual_hash = sha256_file(path)
-        if actual_hash != expected_hash:
-            raise ValueError(f"reference derivation patch hash changed: {path}")
-        patches[str(path)] = {"sha256": actual_hash, "size_bytes": path.stat().st_size}
-    return patches
+def capture_reference_derivation_patch(path: Path) -> dict:
+    if not path.is_file():
+        raise ValueError(f"reference derivation patch is missing: {path}")
+    actual_hash = sha256_file(path)
+    if actual_hash != REFERENCE_AGGREGATE_PATCH_SHA256:
+        raise ValueError(f"reference derivation patch hash changed: {path}")
+    return {"sha256": actual_hash, "size_bytes": path.stat().st_size}
+
+
+def validate_reference_scheduler_ancestry(source_root: Path, base_commit: str) -> None:
+    for name, abbreviation, expected_commit in REFERENCE_SCHEDULER_COMMITS:
+        try:
+            resolved_commit = git(source_root, "rev-parse", "--verify", f"{abbreviation}^{{commit}}")
+        except subprocess.CalledProcessError as error:
+            raise ValueError(f"reference scheduler commit cannot be resolved: {name} {abbreviation}") from error
+        if resolved_commit != expected_commit:
+            raise ValueError(
+                f"reference scheduler commit resolved unexpectedly: {name} {resolved_commit}"
+            )
+        result = subprocess.run(
+            ["git", "-C", str(source_root), "merge-base", "--is-ancestor", resolved_commit, base_commit],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 1:
+            raise ValueError(
+                f"reference scheduler commit {name} {resolved_commit} is not an ancestor of {base_commit}"
+            )
+        if result.returncode != 0:
+            raise ValueError(
+                f"could not verify reference scheduler ancestry for {name}: {result.stderr.strip()}"
+            )
+
+
+def capture_reference_derivation_patches(source_root: Path, base_commit: str) -> dict:
+    path = ROOT / REFERENCE_AGGREGATE_PATCH_RELATIVE
+    patch = capture_reference_derivation_patch(path)
+    validate_reference_scheduler_ancestry(source_root, base_commit)
+    return {str(path): patch}
 
 
 def capture_native_test_files(source_root: Path, source_manifest: dict, ids: list[str]) -> dict:
@@ -946,8 +985,13 @@ def run_comparison(args: argparse.Namespace) -> int:
         raise ValueError("runner artifacts are incomplete")
 
     source = capture_source(source_root, args.source_commit)
+    reference_derivation_patches = capture_reference_derivation_patches(
+        source_root, args.source_commit
+    )
     reference_source = capture_reference_source(reference_source_root, args.source_commit)
-    reference_changed_paths = validate_reference_overlay(source, reference_source)
+    reference_changed_paths = validate_reference_overlay(
+        source, reference_source, reference_source_root
+    )
     binary_dirs = {"reference": reference_dir, "candidate": candidate_dir}
     binaries = capture_binaries(reference_dir, candidate_dir)
 
@@ -976,7 +1020,6 @@ def run_comparison(args: argparse.Namespace) -> int:
         source_manifest=source,
         binaries=binaries["candidate"],
     )
-    reference_derivation_patches = capture_reference_derivation_patches()
     image_snapshot = inspect_pinned_image(args.image)
     output_dir.mkdir(parents=True, exist_ok=False)
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
