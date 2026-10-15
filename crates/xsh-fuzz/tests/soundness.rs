@@ -17,6 +17,7 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::grammar::earley::Recognizer;
 use xsh::frontend::syntax::grammar::{grammar, lex_grammar_tokens};
 use xsh::frontend::syntax::parser::Parser;
+use xsh_fuzz::ast::{Block, Expr, Program, Stmt};
 use xsh_fuzz::driver::{minimize, run_seed};
 use xsh_fuzz::generator::GenConfig;
 use xsh_fuzz::harness::{Sandbox, check_text};
@@ -196,12 +197,29 @@ fn generated_programs_are_grammar_sentences() {
 }
 
 #[test]
-fn generated_string_replacement_uses_the_required_with_label() {
-    let generated = xsh_fuzz::generator::generate(4, &GenConfig::default());
-    let report = check_text(xsh_fuzz::mutate::MUTANT_FILE, &generated.source);
-    assert!(report.accepted(), "{report:?}\n{}", generated.source);
-    assert!(generated.source.contains(".replace("), "{}", generated.source);
-    assert!(generated.source.contains(", with: "), "{}", generated.source);
+fn str_replace_prints_the_required_with_label() {
+    let source = Program {
+        consts: Vec::new(),
+        records: Vec::new(),
+        enums: Vec::new(),
+        functions: Vec::new(),
+        body: Block {
+            stmts: vec![Stmt::Out(Expr::Method {
+                recv: Box::new(Expr::Str("aba".into())),
+                name: "replace",
+                args: vec![Expr::Str("a".into()), Expr::Str("x".into())],
+            })],
+            tail: None,
+        },
+    }
+    .print();
+
+    assert!(
+        source.contains("\"aba\".replace(\"a\", with: \"x\")"),
+        "{source}"
+    );
+    let report = check_text(xsh_fuzz::mutate::MUTANT_FILE, &source);
+    assert!(report.accepted(), "{report:?}\n{source}");
 }
 
 #[test]
