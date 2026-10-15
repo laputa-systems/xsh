@@ -1,0 +1,67 @@
+Assignment producer focused verification
+Source: b26d3f5e2f4a831875531d11ee2c029be4576b56 (merged as 266421477)
+Pinned Linux image: sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+Target: x86_64-unknown-linux-musl; debug unit target; 8 CPUs, 16 GiB, no swap
+TMPDIR: /scratch, bound to repository .work/tmp
+Compiler: Kache and mold; static CRT and isoc23 sscanf/strtol aliases
+Jemalloc preload: compile only
+Command: cargo test --locked --offline --target x86_64-unknown-linux-musl -p xsh --lib --no-run
+Tests: same cargo prefix, filters shown below, without preload
+These focused results do not establish performance or full campaign acceptance.
+
+   Compiling xsh v0.0.1 (/work)
+    Finished `test` profile [unoptimized] target(s) in 9.10s
+  Executable unittests src/lib.rs (.work/target/assignment-producer/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+    Finished `test` profile [unoptimized] target(s) in 0.22s
+     Running unittests src/lib.rs (.work/target/assignment-producer/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 8 tests
+test sema::check::scopecheck::tests::empty_imported_module_without_source_identity_has_no_assignment_owner ... ok
+test sema::check::scopecheck::tests::unrelated_arena_roots_do_not_enter_lexical_facts ... ok
+test sema::check::scopecheck::tests::sibling_blocks_keep_distinct_declaration_identities ... ok
+test sema::check::scopecheck::tests::sequential_with_initializers_publish_runtime_identity ... ok
+test sema::check::scopecheck::tests::assignment_facts_keep_exact_source_and_statement_range_owners ... ok
+test sema::check::scopecheck::tests::assignment_facts_follow_statement_regions_and_raw_sugar_operands ... ok
+test sema::check::scopecheck::tests::checked_output_keeps_assignment_facts_when_semantic_checking_fails ... ok
+test sema::check::scopecheck::tests::invalid_compound_module_statements_contribute_their_source_owner_facts ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 719 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (.work/target/assignment-producer/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::assignment_facts::tests::assignment_fact_merge_requires_equal_complete_owner_summaries ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 726 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized] target(s) in 0.05s
+     Running unittests src/lib.rs (.work/target/assignment-producer/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test sema::check::expr::arena_tests::stmt_let_var_assign ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 726 filtered out; finished in 0.01s
+
+
+Exhaustive classifier focused verification
+Source: de83fe79d5e50c460566e156685e246ccb20e3ae (merged as 7afa88e06)
+Same pinned environment and flags. Existing variants retain their old decisions.
+
+   Compiling xsh v0.0.1 (/work)
+    Finished `test` profile [unoptimized] target(s) in 5.91s
+     Running unittests src/lib.rs (.work/target/assignment-producer/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test runtime::eval::lower::checked_control_flow_fact_tests::latent_stream_error_fact_is_owned_by_the_stream_call ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 726 filtered out; finished in 0.01s
+
+    Finished `test` profile [unoptimized] target(s) in 0.05s
+     Running unittests src/lib.rs (.work/target/assignment-producer/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test runtime::eval::lower::checked_control_flow_fact_tests::safe_stream_call_does_not_publish_a_latent_error_fact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 726 filtered out; finished in 0.01s
+

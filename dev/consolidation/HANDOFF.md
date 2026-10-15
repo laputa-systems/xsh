@@ -71,6 +71,15 @@ work is authorized by this resume.
   regions, original scope visibility, and erroneous checked output. The
   production traversal repair is pending. Its approved design is in
   [lint rules](designs/lint-rules.md#assignment-safety-facts).
+- The checked assignment producer is integrated at `266421477`.
+  Existing lexical preparation collects source-and-range-owned spelling sets.
+  Private storage preserves the public `ResolvedBindings` layout. Ten focused
+  tests pass, including error output, raw sugar regions, and owner separation.
+  The consumer is still pending. The classifier repair at `7afa88e06` requires
+  explicit decisions for future expression variants. Both existing latent
+  stream tests pass. [Focused output](evidence/resume-assignment-producer.log)
+  retains these checks. The frontend facade export is repaired at `f04cbfd6f`.
+  No final campaign gate has run on this batch.
 - Verification `xsh` and `xsht` products were rebuilt at `2688d52fc` for the
   assignment repair's output baseline. Repository and Laputa check and lint
   each exit zero. Preserve their complete outputs for candidate comparison.
