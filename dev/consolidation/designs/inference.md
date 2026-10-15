@@ -117,13 +117,15 @@ Keep `ConstraintResolutionError` variants unchanged. Detect representative
 cycles separately from semantic-depth exhaustion, even if both map to the
 existing public error.
 
-`resolve(&self)` needs compression without changing its callers. A parent
-`Cell` and transaction-local undo journal allow read-only resolution to
-compress. Resolution outside a constraint need not retain undo entries.
-During `constrain`, journal every parent, rank, binding, annotation, and
-provenance change after the operation marker. Failure restores every entry,
-including compression writes. Success discards those entries. Journal levels
-when the solver adds them. Clone cells and an idle journal by value so
+Match the accepted `b556b5656` implementation. Store non-root links as
+`Variable::Parent(AtomicU64)` and read or compress them with
+`Ordering::Relaxed`. Do not use `Cell` or `RefCell`; the atomic parent keeps
+`TypeConstraints` `Send + Sync`. `resolve(&self)` compresses links with atomic
+stores. Resolution outside a constraint needs no journal. During `constrain`,
+record each old parent value before a compression store and journal every
+parent, rank, binding, annotation, and provenance change. Failure restores the
+journal in reverse, including compression writes. Success discards it. Journal
+levels when the solver adds them. Clone each atomic parent by value so
 `constraint_probe` copies remain independent. Capture conflict provenance
 before mutation using the existing expected-first rule. Preserve the earliest
 origin, first establishing contribution, and annotation authority regardless
@@ -169,13 +171,15 @@ mutates them. They are not union-find cells. `Any` remains the ground
 `Type::Any` value. No conversion between these roles is implicit.
 
 Put immutable scheme data in `src/sema/schemes.rs`. `TypeScheme` is the one
-callable contract. It owns quantified binders, ordered parameter labels,
-parameter and return `SchemeType`s, schema expectations, default and rest
-flags, and the callable effect contract. `FunctionSig` in `src/sema/check.rs`
-owns declaration identity and checking metadata plus one `Arc<TypeScheme>`.
-It does not keep another parameter, return, or effect list. The existing
-`CallableType` and `CompactFunctionSig` remain ground projections. They do not
-represent generic functions.
+published callable contract. It owns quantified binders, ordered parameter
+labels, parameter and return `SchemeType`s, schema expectations, default and
+rest flags, and finalized callable effects, including whether they were
+inferred. `FunctionSig` in `src/sema/check.rs` owns declaration identity and
+checking metadata plus one `Arc<TypeScheme>`. It does not keep another
+parameter, return, or effect contract. `EffectDeclarationId` remains an
+analysis identity, not a second effect contract. The existing `CallableType`
+and `CompactFunctionSig` remain ground projections. They do not represent
+generic functions.
 
 `CheckSession::check_modules` passes a checked module's `UserModuleSig` to
 later modules. Keep that as the only checker import handoff. Its concrete
@@ -186,6 +190,37 @@ the same `Arc<TypeScheme>` under each qualified export.
 `CompactModuleGraph::from_file_unit` copies that reference into its qualified
 scheme index. It must not rebuild a generic contract from `CompactFunctionSig`
 or use `Any` as a placeholder.
+
+`DeclarationInference` is the checker-local map keyed by declaration identity.
+It has one closed transition: `Pending(PendingFunctionSig)` to
+`Checked(FunctionSig)`. `PendingFunctionSig` is the sole callable-contract
+owner during checking. It owns the ordered parameter shape, provisional
+parameter and return types, solver level, annotation authority, and the
+declaration's `EffectDeclarationId` when it has an effect contract. It is not
+published through `UserModuleSig`. The existing `EffectGraph` alone owns effect
+clauses, inference mode, call edges, and effect facts.
+
+When an acyclic body is solved, `PendingFunctionSig` may hold its generalized
+type and row binders for local callers. This remains the same pending
+declaration state, not a second scheme table. Calls in its active recursive
+component read its provisional monotype and do not instantiate it. Other local
+calls instantiate the solved pending shape once. Calls use the existing
+`EffectGraph` for effect analysis and do not copy effect data into a second
+pending contract.
+
+After effect facts are available, finalization consumes each pending entry
+into `Checked(FunctionSig)`. It moves the callable shape and binders into one
+`Arc<TypeScheme>` and stores the finalized effects there. Finalization rejects
+any type or row variable that is neither solved nor safely generalized, so
+neither solver IDs nor unresolved representatives enter the scheme. Do not
+retain parallel parameter, return, or effect lists. Imported calls can see
+only finalized schemes in `UserModuleSig`; the same applies to callers in the
+entry root after its declarations are finalized.
+
+Use `ReturnInferenceIndex` for the existing dependency order and recursive
+components. Keep its SCC members monomorphic through component checking and
+solve the component before generalizing any member. Do not instantiate a
+member of its own active component.
 
 `SchemeType` has ground types, type binders, and record rows. Its open-row tail
 refers to a `SchemeRowParameterId`, never a mutable `RowVariableId`. Row
@@ -304,6 +339,21 @@ records and passes each checked module's `UserModuleSig` to its importers.
 contains the declaration's `Arc<TypeScheme>`. `CheckedModuleFacts` keeps that
 existing signature cache. Do not add another scheme cache.
 
+In `check_module_record`, keep the existing effect graph as the sole effect
+analysis authority. It produces `FunctionEffectFact`s before the module
+signature enters `check_modules`' import cache. Keep declarations in
+checker-owned `DeclarationInference` while `check_user_module_arena` checks
+their bodies. Do not construct a `UserModuleSig` before finalization. After
+`effect_graph.facts` returns, consume `DeclarationInference` into the checked
+`UserModuleSig`. Publish checked declarations from those same finalized
+schemes. Replace the in-place `update_module_signature_effects` path. Build
+`CompactFunctionSig` from finalized schemes before `into_output`; do not mutate
+effect data afterward with `update_checked_function_effects`. Apply this order
+to the entry root before `into_output` as well. Proc and stream declarations
+pass through the same transition. Keep their existing ground parameter and
+return behavior, and store their finalized effects in `TypeScheme` before
+publication.
+
 `src/sema/check/checked_declarations.rs` and
 `src/sema/check/compact.rs` publish the same scheme reference and
 `SchemeBodyFacts`. `CompactDeclOutput` indexes schemes by qualified export and
@@ -350,11 +400,14 @@ recursive component publishes no quantified binder and checks every recursive
 call against the same provisional signature. Do not broaden recursive return
 inference in this slice.
 
-Instantiate each imported or local scheme once per call. Use one substitution
-for all occurrences of each quantified type and row parameter. Publish the
-target declaration, argument slots, instantiated argument and result types,
-and row evidence for that call. Keep overload candidates and effect contracts
-under their existing owners. This slice does not generalize either one.
+Instantiate an imported scheme or a solved acyclic local pending shape once per
+call. Use one substitution for all occurrences of each quantified type and row
+parameter. Publish the target declaration, argument slots, instantiated
+argument and result types, and row evidence for that call. Keep overload
+selection with its existing owner. The existing effect graph continues to
+compute effect facts; `TypeScheme` receives their finalized callable effect
+data once, after checking and before publication. This slice does not
+generalize effects or overload candidates.
 
 Explicit annotations remain fixed contracts. They constrain the inferred
 monotype before generalization. An exported annotation therefore restricts
