@@ -173,6 +173,12 @@ work is authorized by this resume.
   an exact shared target directory, which needs a separate strict artifact
   boundary. [Both failed attempts](evidence/w9-builder-preflight/README.md)
   remain retained. No build receipt or capture is accepted yet.
+- Artifact-boundary repair `7cf20b6c1` is integrated. Modern builds derive the
+  exact artifact directory from the pinned builder's plan for the same source,
+  overlay, role, and environment. Historical source-root checks remain strict.
+  All 178 merged-source Python checks, shell syntax, and diff checks pass.
+  [Boundary evidence](evidence/w9-artifact-boundary/README.md) retains the five
+  complete suite outputs. A fresh real build and capture remain pending.
 
 ### Current queue
 
