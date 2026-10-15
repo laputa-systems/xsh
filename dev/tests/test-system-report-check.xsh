@@ -7000,6 +7000,38 @@ test test_system_report_trace_ignores_syscall_names_inside_file_paths {
   assert report_checks.host_effect_trace_violations(trace).is_empty()
 }
 
+test test_system_report_trace_reassembles_interleaved_calls_and_rejects_unmatched_parts {
+  let interleaved = """10    execve("/target/xsh", ["xsh"], 0x0) = 0
+10    wait4(-1 <unfinished ...>
+11    getpid() = 11
+10    <... wait4 resumed>, [{WIFEXITED(s) && WEXITSTATUS(s) == 0}], 0, NULL) = 11
+"""
+  assert report_checks.host_effect_trace_violations(interleaved) == []
+  assert report_checks.process_trace_violations(interleaved) == []
+
+  let interrupted_write = """10    openat(AT_FDCWD, "/tmp/output", O_WRONLY <unfinished ...>
+11    getpid() = 11
+10    <... openat resumed>, 0) = 4
+"""
+  assert report_checks.host_effect_trace_violations(interrupted_write) == ["writable file open"]
+
+  let wrong_task = """10    openat(AT_FDCWD, "/tmp/output", O_WRONLY <unfinished ...>
+11    <... openat resumed>, 0) = 4
+"""
+  assert "incomplete syscall trace" in report_checks.host_effect_trace_violations(wrong_task)
+
+  let wrong_syscall = """10    openat(AT_FDCWD, "/tmp/output", O_WRONLY <unfinished ...>
+10    <... statx resumed>, 0x7fff, 0, 0x0) = 0
+"""
+  assert "incomplete syscall trace" in report_checks.host_effect_trace_violations(wrong_syscall)
+
+  let split_replay_read = """10    openat(AT_FDCWD, "/proc/meminfo", O_RDONLY <unfinished ...>
+11    getpid() = 11
+10    <... openat resumed>) = 4
+"""
+  assert report_checks.replay_host_read_violations(split_replay_read) == ["saved-report replay read a live source"]
+}
+
 test test_system_report_fixture_definition_check_ignores_comments_and_partial_names {
   let source = """# test test_system_report_comment_only {}
 test test_system_report_existing {}

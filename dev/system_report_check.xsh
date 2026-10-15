@@ -20650,12 +20650,106 @@ proc validate_fixture_test_definitions(root: Path, fixture_cases: List[FixtureCa
   }
 }
 
+type SyscallTraceRecords = {lines: List[Str], incomplete: Bool}
+
+pure trace_task_prefix_is_valid(prefix: Str) -> Bool {
+  let task = prefix.trim()
+  return true when task == ""
+
+  if let Ok(_) = task.parse_int() {
+    return true
+  }
+
+  let fields = task.split(" ")
+  return false when fields.len() != 2 or (fields.get(0) ?? "") != "[pid"
+
+  let pid = (fields.get(1) ?? "").replace("]", with: "")
+  if let Ok(_) = pid.parse_int() {
+    return true
+  }
+
+  false
+}
+
+pure trace_task_id(prefix: Str) -> Str {
+  let task = prefix.trim()
+  return "leader" when task == ""
+
+  if let Ok(_) = task.parse_int() {
+    return task
+  }
+
+  let fields = task.split(" ")
+  (fields.get(1) ?? "").replace("]", with: "")
+}
+
+pure reassemble_syscall_trace(trace: Str) -> SyscallTraceRecords {
+  var pending: Map[Str] = {}
+  var lines: List[Str] = []
+  var incomplete = false
+
+  for line in trace.lines() {
+    if line.trim().ends_with("<unfinished ...>") {
+      let call_prefix = (line.split("(", maxsplit: 1).get(0) ?? "").trim()
+      let call_parts = call_prefix.split(" ")
+      let syscall = call_parts.get(call_parts.len() - 1) ?? ""
+      let task_prefix = line.split(f"{syscall}(", maxsplit: 1).get(0) ?? ""
+
+      if syscall == "" or ! trace_task_prefix_is_valid(task_prefix) {
+        incomplete = true
+      } else {
+        let key = f"{trace_task_id(task_prefix)}:{syscall}"
+        if (pending.get(key) ?? "") != "" {
+          incomplete = true
+        } else {
+          let unfinished_parts = line.split("<unfinished ...>", maxsplit: 1)
+          if unfinished_parts.len() != 2 {
+            incomplete = true
+          } else {
+            pending = pending.set(key, unfinished_parts[0])
+          }
+        }
+      }
+
+      continue
+    }
+
+    let resumed_parts = line.split("<... ", maxsplit: 1)
+    if resumed_parts.len() == 2 and trace_task_prefix_is_valid(resumed_parts[0]) {
+      let call_parts = (resumed_parts.get(1) ?? "").split(" resumed>", maxsplit: 1)
+      if call_parts.len() == 2 {
+        let syscall = call_parts[0].trim()
+        let key = f"{trace_task_id(resumed_parts[0])}:{syscall}"
+        let prefix = pending.get(key) ?? ""
+        if syscall == "" or prefix == "" {
+          incomplete = true
+        } else {
+          let suffix = line.split(" resumed>", maxsplit: 1).get(1) ?? ""
+          lines += [f"{prefix}{suffix}"]
+          pending = pending.set(key, "")
+        }
+
+        continue
+      }
+    }
+
+    lines += [line]
+  }
+
+  for key in pending.keys() {
+    incomplete = true when (pending.get(key) ?? "") != ""
+  }
+
+  {lines: lines, incomplete: incomplete}
+}
+
 ## Flags child-process creation and secondary execution in a process trace.
 export pure process_trace_violations(trace: Str) -> List[Str] {
   var initial_execs = 0
+  let trace_records = reassemble_syscall_trace(trace)
 
   let violations: List[Str] = collect {
-    for line in trace.lines() {
+    for line in trace_records.lines {
       if traced_syscall(line, "execve") or traced_syscall(line, "execveat") {
         initial_execs += 1
         yield "secondary exec syscall" when initial_execs > 1
@@ -20847,12 +20941,11 @@ pure route_netlink_kernel_destination(destination: Str) -> Bool {
 
 ## Flags system mutations, non-query network operations, and incomplete syscall records.
 export pure host_effect_trace_violations(trace: Str) -> List[Str] {
+  let trace_records = reassemble_syscall_trace(trace)
   let violations: List[Str] = collect {
-    for line in trace.lines() {
-      if line.trim().ends_with("<unfinished ...>") or (" <... " in line and " resumed>" in line) {
-        yield "incomplete syscall trace"
-      }
+    yield "incomplete syscall trace" when trace_records.incomplete
 
+    for line in trace_records.lines {
       for name in ["openat", "openat2", "readlinkat", "newfstatat", "statx", "faccessat", "faccessat2"] {
         if traced_syscall(line, name) and unresolved_source_directory(line, name) {
           yield "unresolved source directory descriptor"
@@ -21130,8 +21223,9 @@ pure normalized_traced_call_path(line: Str, name: Str, path_index: Int) -> List[
 
 ## Rejects reads of per-process environments, command lines, memory, and open paths.
 export pure forbidden_process_read_violations(trace: Str) -> List[Str] {
+  let trace_records = reassemble_syscall_trace(trace)
   let violations: List[Str] = collect {
-    for line in trace.lines() {
+    for line in trace_records.lines {
       for name in ["open", "openat", "openat2", "readlink", "readlinkat"] {
         if traced_syscall(line, name) {
           let path_index = if name in ["openat", "openat2", "readlinkat"] { 1 } else { 0 }
@@ -21200,8 +21294,9 @@ pure replay_live_source_path(components: List[Str]) -> Bool {
 }
 
 pure replay_host_read_keys(trace: Str) -> List[Str] {
+  let trace_records = reassemble_syscall_trace(trace)
   let keys: List[Str] = collect {
-    for line in trace.lines() {
+    for line in trace_records.lines {
       for name in [
         "open",
         "openat",
