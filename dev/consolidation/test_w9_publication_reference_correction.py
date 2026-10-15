@@ -128,6 +128,27 @@ class ReferenceCorrectionTests(unittest.TestCase):
         with self.assertRaisesRegex(correction.CorrectionError, "not clean"):
             correction.validate_source(self.root, patch_path, self.runner)
 
+    def test_validate_source_rejects_source_identity_and_allowed_path_drift(self):
+        patch_path, _patch_bytes = self._source_fixture()
+        with patch.object(correction, "SOURCE_COMMIT", "0" * 40):
+            with self.assertRaisesRegex(correction.CorrectionError, "source commit or tree"):
+                correction.validate_source(self.root, patch_path, self.runner)
+        with patch.object(correction, "SOURCE_TREE", "0" * 40):
+            with self.assertRaisesRegex(correction.CorrectionError, "source commit or tree"):
+                correction.validate_source(self.root, patch_path, self.runner)
+        with patch.object(correction, "ALLOWED_PATCH_PATHS", correction.ALLOWED_PATCH_PATHS[:-1]):
+            with self.assertRaisesRegex(correction.CorrectionError, "changed paths"):
+                correction.validate_source(self.root, patch_path, self.runner)
+
+    def test_retry_correction_keeps_original_reference_base_and_full_coverage(self):
+        self.assertEqual(correction.BASE_COMMIT, "e240efad273fe35d66d91f4037b6a8193527da2e")
+        self.assertEqual(correction.BASE_TREE, "a1ef04ac7b6f759c272e8f841acee3a3b3a6ff08")
+        self.assertEqual(correction.SOURCE_ROOT.name, "w9-derived-retry-context-bb")
+        self.assertEqual(correction.SOURCE_PARENT, "bb29697265b29540f7d3a944a2454d2a4152dcc7")
+        self.assertEqual(correction.SOURCE_COMMIT, "1fd9e5f2f366833b786e57d1fc54bcd9a238731e")
+        self.assertEqual(correction.EXPECTED_RANGE_COUNT, 68)
+        self.assertEqual(correction.EXPECTED_OUTCOME_COUNT, 6760)
+
     def _receipt_record(self):
         patch_path, _patch_bytes = self._source_fixture()
         source = correction.validate_source(self.root, patch_path, self.runner)

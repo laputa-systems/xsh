@@ -7,14 +7,14 @@ import subprocess
 
 
 CHECKOUT_ROOT = pathlib.Path("/home/josh/d/laputa-systems/xsh")
-SOURCE_ROOT = CHECKOUT_ROOT / ".work/wt/w9-derived-reference-e240"
-PATCH_PATH = CHECKOUT_ROOT / ".work/tmp/w9-derived-reference-e240/patch.diff"
+SOURCE_ROOT = CHECKOUT_ROOT / ".work/wt/w9-derived-retry-context-bb"
+PATCH_PATH = SOURCE_ROOT / ".work/tmp/derived-reference-retry-full.patch"
 BASE_COMMIT = "e240efad273fe35d66d91f4037b6a8193527da2e"
 BASE_TREE = "a1ef04ac7b6f759c272e8f841acee3a3b3a6ff08"
-SOURCE_PARENT = "0979b7f9e4da3bf74de5e79a0e6e4fd72fe4f1e5"
-SOURCE_COMMIT = "bb29697265b29540f7d3a944a2454d2a4152dcc7"
-SOURCE_TREE = "cbbba40f43122a442e1ad59aeeed36df506de549"
-PATCH_SHA256 = "a1b0a0cd083547f689dc2ef0bb8b3d459ace438707445e15bb81ae6fd8b250df"
+SOURCE_PARENT = "bb29697265b29540f7d3a944a2454d2a4152dcc7"
+SOURCE_COMMIT = "1fd9e5f2f366833b786e57d1fc54bcd9a238731e"
+SOURCE_TREE = "1d1661f02f3126c05fb5a7d9487f4fa0c3845556"
+PATCH_SHA256 = "5f5de52a036b2410b93ead022d81b14f2ce5076b3263e581b18931cafcba1ad5"
 ALLOWED_PATCH_PATHS = (
     "src/sema/check/expr.rs",
     "src/sema/check/resource.rs",
@@ -22,6 +22,7 @@ ALLOWED_PATCH_PATHS = (
     "src/sema/types.rs",
     "tests/xsh/checker-streams.xsh",
     "tests/xsh/resource-ownership.xsh",
+    "tests/xsh/retry.xsh",
 )
 PROFILES = ("default", "reveal", "execution", "check-cli")
 EXPECTED_RANGE_COUNT = 68
