@@ -50,6 +50,10 @@ without swap. Runtime uses the invoking UID/GID, no network or preload, a
 read-only corpus mount, and dedicated disk-backed scratch. It must not expose
 the corpus through another writable scratch mount.
 
+Modern builds select the integration executable inside the exact Cargo target
+directory from `plan-build` for that same source, overlay, role, and environment.
+Historical builds continue to require the executable inside their source root.
+
 ## Commands
 
 Run these commands from the XSH repository root. Set the paths to the clean
