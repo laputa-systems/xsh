@@ -486,6 +486,18 @@ merge, with a native test: by the SPEC where it speaks, and otherwise by the
 copy the executor runs today, since that is the behavior programs have.
 Follows workstreams 2 and 4.
 
+**Internal record storage for the final lint repair.** CPU profiles show
+substantial copying and destruction of record type maps. `Type::Record` will
+share its immutable ordered fields through `Arc`, as module types already do.
+This changes an internal Rust payload, not XSH types, runtime values, or wire
+formats. Field order, structural equality, display, and debug output stay the
+same. A mutation must obtain unique fields through copy on write. Constraint
+resolution must preserve unresolved identities, foreign-variable failures, and
+the existing depth limit; ground records must not copy fields during resolution.
+Tests cover independent refinement of clones and unchanged failure behavior.
+Keep the representation only if scoped checks and the existing release lint,
+memory, and size gates justify it; no speedup is presumed from the profiles.
+
 ### 4. Checker structure and the open defects
 
 Each defect below is the visible end of a structural cause. The item fixes
