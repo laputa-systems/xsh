@@ -49,7 +49,7 @@ fn nearest_project_config_dir_with(
     let Some(cwd) = cwd else {
         return Some(dir.to_path_buf());
     };
-    Some(match dir.strip_prefix(lexically_normalized(&cwd)) {
+    Some(match dir.strip_prefix(lexically_normalized(cwd)) {
         Ok(below) if below.as_os_str().is_empty() => PathBuf::from("."),
         Ok(below) => below.to_path_buf(),
         Err(_) => dir.to_path_buf(),

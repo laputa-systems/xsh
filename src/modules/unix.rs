@@ -1470,7 +1470,7 @@ fn group_name(gid: libc::gid_t, span: Span) -> Result<String, RuntimeError> {
 
 pub(crate) fn read_fd(fd: i64, max_bytes: i64, span: Span) -> Result<Value, RuntimeError> {
     match read_fd_native(fd, max_bytes, span) {
-        Ok(data) => Ok(Value::ok(Value::Bytes(data.into()))),
+        Ok(data) => Ok(Value::ok(Value::Bytes(data))),
         Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
     }
 }

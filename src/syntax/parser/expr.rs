@@ -1965,9 +1965,7 @@ impl<'a> Parser<'a> {
                 self.bump();
                 self.bump();
                 self.bump();
-                let Some(expr) = self.parse_precedence_arena_only(0, arena) else {
-                    return None;
-                };
+                let expr = self.parse_precedence_arena_only(0, arena)?;
                 written_field = true;
                 entries.push(BraceEntry::Field(ArenaRecordFieldInput::Spread {
                     expr: expr.id,
@@ -1982,18 +1980,14 @@ impl<'a> Parser<'a> {
             }
             if self.consume(TokenKindMatch::LBracket).is_some() {
                 self.skip_comp_layout();
-                let Some(key) = self.parse_precedence_arena_only(0, arena) else {
-                    return None;
-                };
+                let key = self.parse_precedence_arena_only(0, arena)?;
                 self.skip_comp_layout();
                 self.expect(
                     TokenKindMatch::RBracket,
                     "expected `]` after computed map key",
                 );
                 self.expect(TokenKindMatch::Colon, "expected `:` after computed map key");
-                let Some(value) = self.parse_precedence_arena_only(0, arena) else {
-                    return None;
-                };
+                let value = self.parse_precedence_arena_only(0, arena)?;
                 self.skip_comp_layout();
                 if self.at_keyword(Keyword::For) {
                     self.report_map_comprehension_entries(leading_entries);
@@ -2039,10 +2033,7 @@ impl<'a> Parser<'a> {
                 self.bump();
                 name
             } else {
-                let Some(name) = self.expect_label_name("expected record field label") else {
-                    return None;
-                };
-                name
+                self.expect_label_name("expected record field label")?
             };
             let mut key_id =
                 arena.push_ident_expr(name, self.span(field_start, self.previous_end()));
@@ -2058,9 +2049,7 @@ impl<'a> Parser<'a> {
                 key_id = arena.push_field_expr(key_id, field_name, self.span(field_start, end));
             }
             if self.consume(TokenKindMatch::Colon).is_some() {
-                let Some(value) = self.parse_precedence_arena_only(0, arena) else {
-                    return None;
-                };
+                let value = self.parse_precedence_arena_only(0, arena)?;
                 self.skip_comp_layout();
                 if self.at_keyword(Keyword::For) {
                     self.report_map_comprehension_entries(leading_entries);

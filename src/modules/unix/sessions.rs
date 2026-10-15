@@ -50,7 +50,12 @@ fn read_utmp(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let bytes = std::fs::read(&path)
         .map_err(|error| name_error(&shown, host_error("unix-read-utmp", error, span)))?;
     Ok(Value::ok(Value::List(
-        bytes.chunks_exact(RECORD_SIZE).map(utmp_record).collect(),
+        bytes
+            .as_chunks::<RECORD_SIZE>()
+            .0
+            .iter()
+            .map(utmp_record)
+            .collect(),
     )))
 }
 
@@ -69,7 +74,7 @@ fn read_utmp(args: &Args<'_>) -> Result<Value, RuntimeError> {
 const RECORD_SIZE: usize = 384;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn utmp_record(raw: &[u8]) -> Value {
+fn utmp_record(raw: &[u8; RECORD_SIZE]) -> Value {
     let int16 = |at: usize| i64::from(i16::from_ne_bytes([raw[at], raw[at + 1]]));
     let int32 = |at: usize| {
         i64::from(i32::from_ne_bytes([

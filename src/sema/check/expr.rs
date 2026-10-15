@@ -15,7 +15,6 @@ use crate::syntax::literal;
 pub(super) fn expr_ty_auto_propagates(ty: &Type) -> bool {
     ty.is_result_unit()
 }
-
 /// Whether a checked argument can stand where a `Path` is required: a
 /// `Path`, or a recovery type whose own diagnostics apply. A string
 /// literal qualifies only by having taken the `Path` type from its expected
@@ -2171,7 +2170,15 @@ impl Checker {
                         if iter_ty == Type::Any {
                             self.reject_dynamic_use("a comprehension source", None, arena.arena.expr(iter).span);
                             Type::Unknown
-                        } else if iter_ty == Type::Unknown { Type::Unknown } else if self.reject_unnarrowed_union(&iter_ty, "iteration", arena.arena.expr(iter).span) { Type::Unknown } else {
+                        } else if iter_ty == Type::Unknown
+                            || self.reject_unnarrowed_union(
+                                &iter_ty,
+                                "iteration",
+                                arena.arena.expr(iter).span,
+                            )
+                        {
+                            Type::Unknown
+                        } else {
                             self.error(arena.arena.expr(iter).span, "comprehension iterates over List, Stream, Set, Map, Str, or Bytes values", if map { DiagnosticCode::CheckMapcompIterator } else { DiagnosticCode::CheckListcompIterator });
                             Type::Unknown
                         }
@@ -3708,7 +3715,6 @@ impl Checker {
         if self.reject_unnarrowed_union(&base_ty, "indexing", span) {
             return Type::Unknown;
         }
-        if guarded && base_ty.is_result() {}
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         let result = match base_ty {
             Type::Map(key, item) => {
@@ -3810,7 +3816,6 @@ impl Checker {
         if self.reject_unnarrowed_union(&base_ty, "slicing", span) {
             return Type::Unknown;
         }
-        if guarded && base_ty.is_result() {}
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         if let Some(start) = start {
             let ty = self.check_expr_with_schema_arena(
@@ -3854,6 +3859,35 @@ impl Checker {
         };
         Self::lift_postfix_type(result, lift)
     }
+}
+
+fn negative_literal_distance(arena: &ArenaProgram, index: ExprId) -> Option<u32> {
+    let ArenaExprKind::Unary {
+        op: UnaryOp::Neg,
+        expr,
+    } = arena.arena.expr(index).kind
+    else {
+        return None;
+    };
+    let ArenaExprKind::Int(literal) = arena.arena.expr(expr).kind else {
+        return None;
+    };
+    let distance = u32::try_from(arena.arena.int_literal(literal).value()?).ok()?;
+    (distance != 0).then_some(distance)
+}
+
+fn list_literal_len(arena: &ArenaProgram, base: ExprId) -> Option<usize> {
+    let ArenaExprKind::List(items) = arena.arena.expr(base).kind else {
+        return None;
+    };
+    let mut len = 0;
+    for element in arena.arena.list_elements(items) {
+        if element.splice_span.is_some() {
+            return None;
+        }
+        len += 1;
+    }
+    Some(len)
 }
 
 #[cfg(test)]
@@ -4190,37 +4224,4 @@ mod arena_tests {
         assert_arena_matches_raised("let x = {a: 1}.get(\"a\")");
         assert_arena_matches_raised("let x = maybe_undefined?.foo()");
     }
-}
-
-/// The distance from the end that an index written as a negative integer
-/// literal names: 1 for `-1`. `-0` is the first item, not a distance.
-fn negative_literal_distance(arena: &ArenaProgram, index: ExprId) -> Option<u32> {
-    let ArenaExprKind::Unary {
-        op: UnaryOp::Neg,
-        expr,
-    } = arena.arena.expr(index).kind
-    else {
-        return None;
-    };
-    let ArenaExprKind::Int(literal) = arena.arena.expr(expr).kind else {
-        return None;
-    };
-    let distance = u32::try_from(arena.arena.int_literal(literal).value()?).ok()?;
-    (distance != 0).then_some(distance)
-}
-
-/// The number of items of a list literal with no splice, whose length is
-/// known as written.
-fn list_literal_len(arena: &ArenaProgram, base: ExprId) -> Option<usize> {
-    let ArenaExprKind::List(items) = arena.arena.expr(base).kind else {
-        return None;
-    };
-    let mut len = 0;
-    for element in arena.arena.list_elements(items) {
-        if element.splice_span.is_some() {
-            return None;
-        }
-        len += 1;
-    }
-    Some(len)
 }

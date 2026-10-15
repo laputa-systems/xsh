@@ -921,7 +921,7 @@ fn checker_guarded_control_proofs_agree_on_full_and_compact_routes() {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let full = Checker::check_arena(&parsed.arena, source);
         assert!(full.diagnostics.is_empty(), "{:?}", full.diagnostics);
-        let declarations = compact_check(&parsed.arena, &source);
+        let declarations = compact_check(&parsed.arena, source);
         assert!(
             declarations.diagnostics.is_empty(),
             "{:?}",
@@ -956,7 +956,7 @@ fn checker_guarded_control_proofs_agree_on_full_and_compact_routes() {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let full = Checker::check_arena(&parsed.arena, source);
-        let declarations = compact_check(&parsed.arena, &source);
+        let declarations = compact_check(&parsed.arena, source);
         let compact = declarations.bodies;
         let mut receivers = 0;
         for index in 0..parsed.arena.arena.expr_tags.len() {

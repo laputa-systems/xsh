@@ -995,7 +995,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let fields = field_types
             .iter()
             .cloned()
-            .into_iter()
             .map(|ty| CheckedPatternField { name: None, ty })
             .collect();
         let key = CheckedPatternVariantKey {

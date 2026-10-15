@@ -578,10 +578,8 @@ fn stmt_expression_children_flow(arena: &ArenaProgram, id: StmtId, facts: &FlowF
     arena
         .arena
         .for_each_stmt_child(id, crate::syntax::arena::SugarView::Core, |child| {
-            if flow.completes {
-                if let ArenaChild::Expr(expr) = child {
-                    flow = flow.then(expr_control_flow(arena, expr, facts));
-                }
+            if flow.completes && let ArenaChild::Expr(expr) = child {
+                flow = flow.then(expr_control_flow(arena, expr, facts));
             }
         });
     flow

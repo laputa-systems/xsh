@@ -280,8 +280,10 @@ impl Checker {
                 for (param, span) in signature.params.iter_mut().zip(&declaration.parameter_spans) {
                     if let Some(ty) = self.parameter_types.get(span) { param.ty = ty.clone(); }
                 }
-                if declaration.kind != CheckedFunctionKind::Stream {
-                    if let Some(ty) = self.function_return_types.get(&declaration.body) { signature.return_ty = ty.clone(); }
+                if declaration.kind != CheckedFunctionKind::Stream
+                    && let Some(ty) = self.function_return_types.get(&declaration.body)
+                {
+                    signature.return_ty = ty.clone();
                 }
             }
         }

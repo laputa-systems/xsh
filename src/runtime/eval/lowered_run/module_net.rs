@@ -67,7 +67,7 @@ impl Evaluator {
                         match self.admit_net_job(reservation, span) {
                             Ok(()) => {
                                 let handle = self.net_job_value(
-                                    NetJobTask::Completed(Ok(*response)),
+                                    NetJobTask::Completed(Box::new(Ok(*response))),
                                     span,
                                     reservation,
                                 );

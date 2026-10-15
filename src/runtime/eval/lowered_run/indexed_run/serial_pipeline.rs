@@ -325,23 +325,23 @@ pub(super) enum IndexedStageStep {
 type IndexedMaterializedStep = IndexedStageStep;
 
 enum IndexedKeyedStage {
-    SortBy {
+    Sort {
         slot: usize,
         key: u32,
         descending: bool,
         values: Vec<(LoweredValue, LoweredValue)>,
     },
-    GroupBy {
+    Group {
         slot: usize,
         key: u32,
         groups: Vec<(LoweredValue, Vec<LoweredValue>)>,
     },
-    CountBy {
+    Count {
         slot: usize,
         key: u32,
         counts: std::collections::BTreeMap<String, i64>,
     },
-    UniqueBy {
+    Unique {
         slot: usize,
         key: u32,
         seen: Vec<LoweredValue>,
@@ -389,17 +389,17 @@ struct IndexedParMapStage {
 impl IndexedKeyedStage {
     fn slot_and_key(&self) -> (usize, u32) {
         match self {
-            Self::SortBy { slot, key, .. }
-            | Self::GroupBy { slot, key, .. }
-            | Self::CountBy { slot, key, .. }
-            | Self::UniqueBy { slot, key, .. } => (*slot, *key),
+            Self::Sort { slot, key, .. }
+            | Self::Group { slot, key, .. }
+            | Self::Count { slot, key, .. }
+            | Self::Unique { slot, key, .. } => (*slot, *key),
         }
     }
 
     fn add(&mut self, key: LoweredValue, item: LoweredValue, span: Span) -> Result<(), RuntimeError> {
         match self {
-            Self::SortBy { values, .. } => values.push((key, item)),
-            Self::GroupBy { groups, .. } => {
+            Self::Sort { values, .. } => values.push((key, item)),
+            Self::Group { groups, .. } => {
                 if let Some((_, values)) = groups.iter_mut().find(|(existing, _)| {
                     crate::runtime::eval::lowered_values_semantically_equal(existing, &key)
                 }) {
@@ -408,11 +408,11 @@ impl IndexedKeyedStage {
                     groups.push((key, vec![item]));
                 }
             }
-            Self::CountBy { counts, .. } => {
+            Self::Count { counts, .. } => {
                 let key = lowered_count_key(&key, span)?;
                 *counts.entry(key).or_default() += 1;
             }
-            Self::UniqueBy { seen, values, .. } => {
+            Self::Unique { seen, values, .. } => {
                 if !seen.iter().any(|existing| {
                     crate::runtime::eval::lowered_values_semantically_equal(existing, &key)
                 }) {
@@ -426,7 +426,7 @@ impl IndexedKeyedStage {
 
     fn into_value(self, span: Span) -> Result<LoweredValue, RuntimeError> {
         match self {
-            Self::SortBy {
+            Self::Sort {
                 mut values,
                 descending,
                 ..
@@ -453,7 +453,7 @@ impl IndexedKeyedStage {
                     values.into_iter().map(|(_, item)| item).collect(),
                 ))
             }
-            Self::GroupBy { groups, .. } => Ok(LoweredValue::List(
+            Self::Group { groups, .. } => Ok(LoweredValue::List(
                 groups
                     .into_iter()
                     .map(|(key, items)| {
@@ -464,13 +464,13 @@ impl IndexedKeyedStage {
                     })
                     .collect(),
             )),
-            Self::CountBy { counts, .. } => Ok(LoweredValue::Map(Arc::new(
+            Self::Count { counts, .. } => Ok(LoweredValue::Map(Arc::new(
                 counts
                     .into_iter()
                     .map(|(key, count)| (MapKey::from(key), LoweredValue::Int(count)))
                     .collect(),
             ))),
-            Self::UniqueBy { values, .. } => Ok(LoweredValue::List(values)),
+            Self::Unique { values, .. } => Ok(LoweredValue::List(values)),
         }
     }
 
@@ -479,20 +479,20 @@ impl IndexedKeyedStage {
         visitor: &mut dyn for<'a> FnMut(crate::runtime::eval::RetainedValueRef<'a>),
     ) {
         match self {
-            Self::SortBy { values, .. } => {
+            Self::Sort { values, .. } => {
                 for (key, item) in values {
                     crate::runtime::eval::visit_retained_lowered_value(key, visitor);
                     crate::runtime::eval::visit_retained_lowered_value(item, visitor);
                 }
             }
-            Self::GroupBy { groups, .. } => {
+            Self::Group { groups, .. } => {
                 for (key, items) in groups {
                     crate::runtime::eval::visit_retained_lowered_value(key, visitor);
                     crate::runtime::eval::visit_retained_lowered_values(items, visitor);
                 }
             }
-            Self::CountBy { .. } => {}
-            Self::UniqueBy { seen, values, .. } => {
+            Self::Count { .. } => {}
+            Self::Unique { seen, values, .. } => {
                 crate::runtime::eval::visit_retained_lowered_values(seen, visitor);
                 crate::runtime::eval::visit_retained_lowered_values(values, visitor);
             }
@@ -596,7 +596,7 @@ impl IndexedMaterializedStage {
                     span,
                 )?
                 .map(|(field, field_span)| (field.to_owned(), field_span));
-                keyed = Some(IndexedKeyedStage::SortBy {
+                keyed = Some(IndexedKeyedStage::Sort {
                     slot,
                     key: key.raw(),
                     descending: false,
@@ -611,21 +611,21 @@ impl IndexedMaterializedStage {
                     span,
                 )?
                 .map(|(field, field_span)| (field.to_owned(), field_span));
-                keyed = Some(IndexedKeyedStage::GroupBy {
+                keyed = Some(IndexedKeyedStage::Group {
                     slot,
                     key: key.raw(),
                     groups: Vec::new(),
                 });
             }
             StageView::CountBy { slot, key } => {
-                keyed = Some(IndexedKeyedStage::CountBy {
+                keyed = Some(IndexedKeyedStage::Count {
                     slot,
                     key: key.raw(),
                     counts: std::collections::BTreeMap::new(),
                 });
             }
             StageView::UniqueBy { slot, key } => {
-                keyed = Some(IndexedKeyedStage::UniqueBy {
+                keyed = Some(IndexedKeyedStage::Unique {
                     slot,
                     key: key.raw(),
                     seen: Vec::new(),
@@ -886,17 +886,17 @@ impl IndexedMaterializedStage {
         }
         if self.keyed.is_some() {
             if !self.keyed_preflight_done {
-                if let Some(IndexedKeyedStage::SortBy { descending, .. }) = &mut self.keyed {
-                    if let Some(value) = self.argument_values.first() {
-                        let LoweredValue::Bool(value) = value else {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                format!("desc expected Bool, found {}", value.type_name()),
-                            )
-                            .with_span(self.span));
-                        };
-                        *descending = *value;
-                    }
+                if let Some(IndexedKeyedStage::Sort { descending, .. }) = &mut self.keyed
+                    && let Some(value) = self.argument_values.first()
+                {
+                    let LoweredValue::Bool(value) = value else {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            format!("desc expected Bool, found {}", value.type_name()),
+                        )
+                        .with_span(self.span));
+                    };
+                    *descending = *value;
                 }
                 self.keyed_preflight_done = true;
             }
@@ -1362,7 +1362,7 @@ impl IndexedMaterializedStage {
             .expect("par-map input was collected")
             .len();
         if par_map.position == input_len {
-            return if let Some(_) = par_map.flatten {
+            return if par_map.flatten.is_some() {
                 Err(RuntimeError::new(
                     "frame-scheduler",
                     "sequential fused par-map path requires a worker stage",
@@ -2225,7 +2225,7 @@ impl IndexedSerialPipeline {
                         .where_predicate
                         .as_ref()
                         .map(|fast_path| {
-                            evaluator.eval_indexed_item_predicate(fast_path, &input, self.span)
+                            evaluator.eval_indexed_item_predicate(fast_path, &input)
                         })
                         .transpose()?;
                     match keep {

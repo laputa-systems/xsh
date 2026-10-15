@@ -256,17 +256,17 @@ fn transform_io(request: TransformRequest<'_>, span: Span) -> io::Result<()> {
     } else {
         Box::new(StdinReader)
     };
-    if let Some(destination) = request.destination {
-        if let Some(source) = request.source {
-            use std::os::unix::fs::MetadataExt;
-            let same_file = match fs::metadata(destination) {
-                Ok(destination) => metadata.as_ref().is_some_and(|source| source.dev() == destination.dev() && source.ino() == destination.ino()),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => false,
-                Err(error) => return Err(error),
-            };
-            if source == destination || same_file {
-                return Err(io::Error::new(io::ErrorKind::InvalidInput, "source and destination are the same file"));
-            }
+    if let Some(destination) = request.destination
+        && let Some(source) = request.source
+    {
+        use std::os::unix::fs::MetadataExt;
+        let same_file = match fs::metadata(destination) {
+            Ok(destination) => metadata.as_ref().is_some_and(|source| source.dev() == destination.dev() && source.ino() == destination.ino()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error),
+        };
+        if source == destination || same_file {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "source and destination are the same file"));
         }
     }
     let mut temp = request.destination.map(|path| {
@@ -355,7 +355,7 @@ fn lzma_header(header: &[u8], detected: bool) -> bool {
     }
     let dictionary = u32::from_le_bytes([header[1], header[2], header[3], header[4]]);
     // 2^n + 2^(n-1) is three times a power of two.
-    let standard_size = dictionary.is_power_of_two() || (dictionary % 3 == 0 && (dictionary / 3).is_power_of_two());
+    let standard_size = dictionary.is_power_of_two() || (dictionary.is_multiple_of(3) && (dictionary / 3).is_power_of_two());
     if detected && dictionary != u32::MAX && !standard_size {
         return false;
     }

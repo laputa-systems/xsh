@@ -311,7 +311,7 @@ fn grammar_corpus_discovery_skips_work_tree() {
     std::fs::write(blocked.join("scratch.xsh"), "print \"scratch\"\n")
         .expect("write scratch source");
     let _restore = RestoreDirectoryPermissions(blocked.clone());
-    std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0))
+    std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o000))
         .expect("make scratch child unreadable");
 
     let mut paths = Vec::new();

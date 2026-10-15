@@ -902,10 +902,10 @@ fn indexed_frame_apply_host_value(
         ExprView::FsFiles { gitignore, stat, hidden, exts, result_wrapped, span, .. }
         | ExprView::FsWalk { gitignore, stat, hidden, exts, result_wrapped, span, .. } => {
             let root = values.next().expect("filesystem walk root operand").path();
-            let gitignore = gitignore.map_or(true, |_| values.next().expect("gitignore operand").bool());
-            let stat = stat.map_or(true, |_| values.next().expect("stat operand").bool());
+            let gitignore = gitignore.is_none_or(|_| values.next().expect("gitignore operand").bool());
+            let stat = stat.is_none_or(|_| values.next().expect("stat operand").bool());
             let exts = exts.map_or_else(Vec::new, |_| values.next().expect("extensions operand").string_list());
-            let hidden = hidden.map_or(false, |_| values.next().expect("hidden operand").bool());
+            let hidden = hidden.is_some_and(|_| values.next().expect("hidden operand").bool());
             assert!(values.next().is_none(), "filesystem walk operand count mismatch");
             let emit = if tag == FullTag::ExprFsFiles { fs_module::WalkEmit::Files } else { fs_module::WalkEmit::All };
             let mut stream = match fs_module::walk_filesystem(
@@ -1512,9 +1512,9 @@ impl Evaluator {
                 };
             }
             FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
-                let (mut parts, mut fmt) =
+                let (parts, mut fmt) =
                     decode_fmt(execution, tag, payload, call_span)?;
-                while let Some(part) = parts.next() {
+                for part in parts {
                     match part.map_err(|error| indexed_error(error, call_span))? {
                         FmtPartView::Text(text) => fmt.push_text(text.as_ref()),
                         FmtPartView::Expr(expr, span, spec) => {
@@ -1533,10 +1533,10 @@ impl Evaluator {
                 let mut map = BTreeMap::new();
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?;
-                let ExprView::MapLiteral(mut entries) = view else {
+                let ExprView::MapLiteral(entries) = view else {
                     unreachable!("map literal tag has a typed map view")
                 };
-                while let Some(entry) = entries.next() {
+                for entry in entries {
                     let (key, value, span) =
                         entry.map_err(|error| indexed_error(error, call_span))?;
                     let key = if let Some(key) = key {
@@ -1581,11 +1581,11 @@ impl Evaluator {
             FullTag::ExprRecord => {
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?;
-                let ExprView::Record(mut entries) = view else {
+                let ExprView::Record(entries) = view else {
                     unreachable!("record literal tag has a typed record view")
                 };
                 let mut record = Vec::with_capacity(entries.len());
-                while let Some(entry) = entries.next() {
+                for entry in entries {
                     let entry = entry.map_err(|error| indexed_error(error, call_span))?;
                     let instruction = match &entry {
                         RecordEntryView::Field(_, value) | RecordEntryView::Spread(value) => {
@@ -1609,11 +1609,11 @@ impl Evaluator {
             FullTag::ExprList => {
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?;
-                let ExprView::List(mut items) = view else {
+                let ExprView::List(items) = view else {
                     unreachable!("list literal tag has a typed list view")
                 };
                 let mut result = Vec::with_capacity(items.len());
-                while let Some(item) = items.next() {
+                for item in items {
                     let expr = item.map_err(|error| indexed_error(error, call_span))?;
                     let span = call_span;
                     match self.eval_indexed_expr(execution, expr.raw(), slots, span)? {
@@ -1628,11 +1628,11 @@ impl Evaluator {
             FullTag::ExprListBuild => {
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?;
-                let ExprView::ListBuild(mut items) = view else {
+                let ExprView::ListBuild(items) = view else {
                     unreachable!("list build tag has a typed list build view")
                 };
                 let mut result = Vec::with_capacity(items.len());
-                while let Some(item) = items.next() {
+                for item in items {
                     let (splice, expr, span) =
                         item.map_err(|error| indexed_error(error, call_span))?;
                     match self.eval_indexed_expr(execution, expr.raw(), slots, span)? {
@@ -1652,7 +1652,6 @@ impl Evaluator {
                     unreachable!("field tag has a field view")
                 };
                 let base = base.raw();
-                let name = name.as_ref();
                 if let Some(base) = Self::indexed_field_chain_ref(execution, base, slots, span)?
                     && let Some(value) = lowered_record_field_value(base, name)
                 {

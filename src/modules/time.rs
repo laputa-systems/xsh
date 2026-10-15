@@ -64,7 +64,7 @@ const FORMAT_LIMIT: usize = 65_536;
 pub(crate) fn clock_resolution() -> Result<i64, String> {
     let resolution = rustix::time::clock_getres(rustix::time::ClockId::Realtime);
     resolution.tv_sec.checked_mul(NANOS_PER_SECOND)
-        .and_then(|seconds| seconds.checked_add(i64::from(resolution.tv_nsec)))
+        .and_then(|seconds| seconds.checked_add(resolution.tv_nsec))
         .ok_or_else(|| "clock resolution out of range".into())
 }
 
@@ -83,6 +83,10 @@ pub(crate) struct Calendar {
 
 pub(crate) fn to_calendar(epoch_ns: i64, utc: bool) -> Result<Calendar, String> {
     let tm = calendar(epoch_ns.div_euclid(NANOS_PER_SECOND), utc)?;
+    #[cfg(target_pointer_width = "64")]
+    let offset_seconds = tm.tm_gmtoff;
+    #[cfg(target_pointer_width = "32")]
+    let offset_seconds = tm.tm_gmtoff as i64;
     Ok(Calendar {
         year: tm.tm_year as i64 + 1900,
         month: tm.tm_mon as i64 + 1,
@@ -91,12 +95,13 @@ pub(crate) fn to_calendar(epoch_ns: i64, utc: bool) -> Result<Calendar, String> 
         minute: tm.tm_min as i64,
         second: tm.tm_sec as i64,
         weekday: tm.tm_wday as i64,
-        offset_seconds: tm.tm_gmtoff as i64,
+        offset_seconds,
         nanosecond: epoch_ns.rem_euclid(NANOS_PER_SECOND),
     })
 }
 
 fn calendar(seconds: i64, utc: bool) -> Result<libc::tm, String> {
+    #[cfg(not(all(target_env = "musl", target_pointer_width = "64")))]
     let seconds = seconds.try_into().map_err(|_| "timestamp out of range")?;
     let mut tm = unsafe { std::mem::zeroed() };
     let result = unsafe {
@@ -172,8 +177,11 @@ pub(crate) fn format(epoch_ns: i64, format: &str, utc: bool) -> Result<String, S
         let mut colons = 0;
         while chars.peek().is_some_and(|&(_, c)| c == ':') { chars.next(); colons += 1; }
         let Some((mut end, mut spec)) = chars.next() else { out.push_str(&format[start..]); break; };
-        if spec == 'E' || spec == 'O' {
-            if let Some((i, c)) = chars.next() { end = i; spec = c; }
+        if (spec == 'E' || spec == 'O')
+            && let Some((i, c)) = chars.next()
+        {
+            end = i;
+            spec = c;
         }
         let mut piece = match (spec, colons) {
             ('N', 0) => {
@@ -184,12 +192,14 @@ pub(crate) fn format(epoch_ns: i64, format: &str, utc: bool) -> Result<String, S
             ('s', 0) => seconds.to_string(),
             ('q', 0) => (tm.tm_mon / 3 + 1).to_string(),
             ('z', 1..=3) => {
+                #[cfg(target_pointer_width = "64")]
+                let offset = tm.tm_gmtoff;
+                #[cfg(target_pointer_width = "32")]
                 let offset = tm.tm_gmtoff as i64;
                 let sign = if offset < 0 { '-' } else { '+' };
                 let n = offset.abs();
                 if colons == 1 { std::format!("{sign}{:02}:{:02}", n / 3600, n / 60 % 60) }
-                else if colons == 2 { std::format!("{sign}{:02}:{:02}:{:02}", n / 3600, n / 60 % 60, n % 60) }
-                else if n % 60 != 0 { std::format!("{sign}{:02}:{:02}:{:02}", n / 3600, n / 60 % 60, n % 60) }
+                else if colons == 2 || n % 60 != 0 { std::format!("{sign}{:02}:{:02}:{:02}", n / 3600, n / 60 % 60, n % 60) }
                 else if n % 3600 != 0 { std::format!("{sign}{:02}:{:02}", n / 3600, n / 60 % 60) }
                 else { std::format!("{sign}{:02}", n / 3600) }
             }

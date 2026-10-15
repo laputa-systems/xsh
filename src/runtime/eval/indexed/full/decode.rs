@@ -467,8 +467,10 @@ impl<'a> ListView<'a, LoweredPipelineStage> {
         if self.remaining == 0 { return None; }
         self.remaining -= 1;
         let value = LoweredPipelineStage::borrow_with_id(self.context, &mut self.input);
-        if self.remaining == 0 {
-            if let Err(error) = self.input.finish() { return Some(Err(error)); }
+        if self.remaining == 0
+            && let Err(error) = self.input.finish()
+        {
+            return Some(Err(error));
         }
         Some(value)
     }
@@ -479,8 +481,10 @@ impl<'a, T: BorrowCodec> Iterator for ListView<'a, T> {
         if self.remaining == 0 { return None; }
         self.remaining -= 1;
         let value = T::borrow(self.context, &mut self.input);
-        if self.remaining == 0 {
-            if let Err(error) = self.input.finish() { return Some(Err(error)); }
+        if self.remaining == 0
+            && let Err(error) = self.input.finish()
+        {
+            return Some(Err(error));
         }
         Some(value)
     }
@@ -539,8 +543,10 @@ impl Iterator for TextHoleKinds<'_> {
         if self.remaining == 0 { return None; }
         self.remaining -= 1;
         let kind = self.input.raw().and_then(super::text_hole_kind);
-        if self.remaining == 0 {
-            if let Err(error) = self.input.finish() { return Some(Err(error)); }
+        if self.remaining == 0
+            && let Err(error) = self.input.finish()
+        {
+            return Some(Err(error));
         }
         Some(kind)
     }
@@ -557,8 +563,10 @@ impl<'a> Iterator for TextPatternSegments<'a> {
         if self.remaining == 0 { return None; }
         self.remaining -= 1;
         let segment = self.input.raw().and_then(|id| self.context.store.string(id));
-        if self.remaining == 0 {
-            if let Err(error) = self.input.finish() { return Some(Err(error)); }
+        if self.remaining == 0
+            && let Err(error) = self.input.finish()
+        {
+            return Some(Err(error));
         }
         Some(segment)
     }
@@ -812,14 +820,18 @@ macro_rules! decode_field {
 }
 
 macro_rules! enum_schema {
-    ($ty:ident => $view:ident [$message:literal] {
-        $(
-            $variant:ident
-            $(($($tuple_field:ident: $tuple_ty:ty $(as $wire_ty:ty)?),* $(,)?))?
-            $({$($field:ident: $field_ty:ty),* $(,)?})?
-            = $tag:literal $(encode |$slot:ident, $encode_builder:ident, $encode_output:ident| $encode:block)?;
-        )*
-    }) => {
+    (
+        $(#[$view_attribute:meta])*
+        $ty:ident => $view:ident [$message:literal] {
+            $(
+                $variant:ident
+                $(($($tuple_field:ident: $tuple_ty:ty $(as $wire_ty:ty)?),* $(,)?))?
+                $({$($field:ident: $field_ty:ty),* $(,)?})?
+                = $tag:literal $(encode |$slot:ident, $encode_builder:ident, $encode_output:ident| $encode:block)?;
+            )*
+        }
+    ) => {
+        $(#[$view_attribute])*
         pub(in crate::runtime::eval) enum $view<'a> {
             $(
                 $variant $(($(<$tuple_ty as BorrowCodec>::View<'a>),*))?
@@ -985,11 +997,16 @@ enum_schema!(LoweredCompQualifier => CompQualifierView ["comprehension qualifier
     For { target: Box<LoweredCompTarget>, iter: BuildExprId, span: Span } = 0;
     If { condition: BuildExprId, span: Span } = 1;
 });
-enum_schema!(LoweredProcessCommandBuilderEntry => ProcessCommandBuilderEntryView ["process command builder entry tag is invalid"] {
-    Field { name: Name, value: BuildExprId, span: Span } = 0;
-    Run { target: LoweredRunArg, args: Vec<LoweredRunArg>, env: Vec<LoweredRunEnv>,
-        timeout: Option<BuildExprId>, cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>,
-        span: Span } = 1;
+enum_schema!(
+    #[expect(
+        clippy::large_enum_variant,
+        reason = "boxing the borrowed Run view would allocate during indexed IR decoding"
+    )]
+    LoweredProcessCommandBuilderEntry => ProcessCommandBuilderEntryView ["process command builder entry tag is invalid"] {
+        Field { name: Name, value: BuildExprId, span: Span } = 0;
+        Run { target: LoweredRunArg, args: Vec<LoweredRunArg>, env: Vec<LoweredRunEnv>,
+            timeout: Option<BuildExprId>, cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>,
+            span: Span } = 1;
 });
 enum_schema!(LoweredErrorExpr => ErrorExprView ["error expression tag is invalid"] {
     Structured { family: String, family_identity: String, variant: String,

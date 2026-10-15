@@ -110,8 +110,8 @@ fn terminal_run(mut command: Command, streams: [bool; 3], size: (u16, u16), inpu
     if let Some(terminal) = &terminals[0] { command.stdin(terminal.stdio()); }
     if let Some(terminal) = &terminals[1] { command.stdout(terminal.stdio()); }
     if let Some(terminal) = &terminals[2] { command.stderr(terminal.stdio()); }
-    if !write_after_spawn {
-        if let Some(terminal) = &mut terminals[0] { terminal.master.write_all(input).unwrap(); }
+    if !write_after_spawn && let Some(terminal) = &mut terminals[0] {
+        terminal.master.write_all(input).unwrap();
     }
     let child = Running::spawn(&mut command);
     drop(command);
@@ -526,7 +526,7 @@ impl VirtualTerminal {
             return;
         }
 
-        let width = UnicodeWidthChar::width(character).expect("printable terminal character") as usize;
+        let width = UnicodeWidthChar::width(character).expect("printable terminal character");
         assert!(width > 0, "standalone zero-width output must be sanitized");
         assert!(
             self.cursor_row < self.rows && self.cursor_column + width <= self.columns,

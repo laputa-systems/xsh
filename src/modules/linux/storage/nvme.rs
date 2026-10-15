@@ -142,7 +142,7 @@ pub(super) fn call(
         RuntimeOp::LinuxNvmeLogPage => {
             let log_id = args.uint(1, "log_id", 255)? as u32;
             let length = args.uint_or(2, "data_len", 512, MAX_TRANSFER as u64)? as usize;
-            if length < 4 || length % 4 != 0 {
+            if length < 4 || !length.is_multiple_of(4) {
                 return Err(RuntimeError::new(
                     "invalid-argument",
                     "data_len must be a positive multiple of 4",

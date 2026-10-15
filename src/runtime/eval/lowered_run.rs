@@ -3769,9 +3769,9 @@ impl<'a> CompTargetFields<'a> {
         match self {
             Self::Lowered(fields) => Ok(fields.next().map(|(name, target, field_span)| {
                 (
-                    name.clone(),
+                    *name,
                     CompTargetNode::Lowered(target.as_ref()),
-                    field_span.clone(),
+                    *field_span,
                 )
             })),
             Self::Indexed(fields) => fields
@@ -5910,7 +5910,7 @@ impl Evaluator {
                     "bytes.squeeze",
                     span,
                 )?;
-                match bytes_module::squeeze(&data, byte, span) {
+                match bytes_module::squeeze(data, byte, span) {
                     Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes.into())),
                     Err(error) => lowered_result_err_value(error),
                 }
@@ -5926,7 +5926,7 @@ impl Evaluator {
                     "bytes.repeat_prefix_count",
                     span,
                 )?;
-                match bytes_module::repeat_prefix_count(&data, &pattern, span) {
+                match bytes_module::repeat_prefix_count(data, pattern, span) {
                     Ok(count) => lowered_result_ok(LoweredValue::Int(count)),
                     Err(error) => lowered_result_err_value(error),
                 }

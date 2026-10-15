@@ -382,11 +382,11 @@ fn hex_bytes(bytes: &[u8]) -> String {
 }
 
 fn parse_hex_bytes(text: &str) -> Result<Vec<u8>, String> {
-    if text.len() % 2 != 0 || !text.bytes().all(is_lower_hex) {
+    if !text.len().is_multiple_of(2) || !text.bytes().all(is_lower_hex) {
         return Err("byte strings require an even count of lowercase hex digits".to_string());
     }
     text.as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .map(|pair| {
             let digits = std::str::from_utf8(pair).expect("hex digits are ASCII");
             u8::from_str_radix(digits, 16).map_err(|_| "invalid byte hex".to_string())

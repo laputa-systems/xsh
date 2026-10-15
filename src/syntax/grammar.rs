@@ -1034,16 +1034,15 @@ pub fn name_has_postfix<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToken<'
 }
 
 pub fn name_has_binary<'s>(mut peek: impl FnMut(usize) -> Option<GrammarToken<'s>>) -> bool {
-    if let Some(next) = peek(1) {
-        if next.tag != TokenTag::Minus
+    if let Some(next) = peek(1)
+        && (next.tag != TokenTag::Minus
             && (next.keyword == Some(Keyword::Not)
                 || binary_operator_at(next.tag, next.keyword, peek(2).and_then(|token| token.keyword)).is_some())
             || next.tag == TokenTag::Minus && (next.glued || !next.next_glued)
             // Dollar-prefixed words carry these names but remain command arguments.
-            || next.tag == TokenTag::Ident && matches!(next.text, "is" | "as")
-        {
-            return true;
-        }
+            || next.tag == TokenTag::Ident && matches!(next.text, "is" | "as"))
+    {
+        return true;
     }
     let mut offset = 1;
     while peek(offset).is_some_and(|token| token.tag == TokenTag::Newline) { offset += 1; }
@@ -1102,9 +1101,7 @@ pub fn context_scope_suffix_lookahead<'s>(
     let mut offset = 1;
     let mut parens = 0usize;
     loop {
-        let Some(tag) = peek(offset).map(|token| token.tag) else {
-            return None;
-        };
+        let tag = peek(offset).map(|token| token.tag)?;
         match tag {
             TokenTag::LParen => parens += 1,
             TokenTag::RParen => {
@@ -1127,9 +1124,7 @@ pub fn context_scope_suffix_lookahead<'s>(
     }
     let mut braces = 0usize;
     loop {
-        let Some(tag) = peek(offset).map(|token| token.tag) else {
-            return None;
-        };
+        let tag = peek(offset).map(|token| token.tag)?;
         match tag {
             TokenTag::LBrace | TokenTag::DollarLBrace => braces += 1,
             TokenTag::RBrace => {

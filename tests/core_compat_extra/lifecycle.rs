@@ -139,11 +139,10 @@ fn test_couldnt_rename() {
             if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
-            if libc::geteuid() == 0 {
-                if libc::setgroups(0, std::ptr::null()) != 0
-                    || libc::setgid(65534) != 0 || libc::setuid(65534) != 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
+            if libc::geteuid() == 0
+                && (libc::setgroups(0, std::ptr::null()) != 0
+                    || libc::setgid(65534) != 0 || libc::setuid(65534) != 0) {
+                return Err(std::io::Error::last_os_error());
             }
             Ok(())
         });
