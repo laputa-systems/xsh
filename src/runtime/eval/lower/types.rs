@@ -400,42 +400,6 @@ pub(super) fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
     }
 }
 
-#[cfg(test)]
-mod mapping_tests {
-    use super::*;
-
-    #[test]
-    fn checked_type_mapping_keeps_its_recovery_policy() {
-        assert_eq!(lowered_checked_type(&Type::Invalid), Some(LoweredType::Any));
-        assert_eq!(
-            lowered_checked_type(&Type::ProcessError),
-            Some(LoweredType::Error)
-        );
-        assert_eq!(
-            lowered_checked_type(&Type::ErrorFacet(Name::intern("Error"))),
-            None
-        );
-        assert_eq!(
-            lowered_checked_type(&Type::non_empty(Type::Int)),
-            Some(LoweredType::List)
-        );
-        assert_eq!(
-            type_for_lowered_type(LoweredType::Set),
-            None,
-            "the kind does not retain the set element type"
-        );
-        assert_eq!(
-            type_for_lowered_type(LoweredType::Tag),
-            None,
-            "the kind does not retain tag identity"
-        );
-        assert_eq!(
-            type_for_lowered_type(LoweredType::Result),
-            Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error)))
-        );
-    }
-}
-
 impl<'p> CompactLowerConstructProbe<'p, '_> {
     /// The checker's published type for `value` when it is concrete, including
     /// a concrete `Result` success type.
@@ -713,5 +677,41 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .prepared_schemas
             .push((ty, schema.clone()));
         schema
+    }
+}
+
+#[cfg(test)]
+mod mapping_tests {
+    use super::*;
+
+    #[test]
+    fn checked_type_mapping_keeps_its_recovery_policy() {
+        assert_eq!(lowered_checked_type(&Type::Invalid), Some(LoweredType::Any));
+        assert_eq!(
+            lowered_checked_type(&Type::ProcessError),
+            Some(LoweredType::Error)
+        );
+        assert_eq!(
+            lowered_checked_type(&Type::ErrorFacet(Name::intern("Error"))),
+            None
+        );
+        assert_eq!(
+            lowered_checked_type(&Type::non_empty(Type::Int)),
+            Some(LoweredType::List)
+        );
+        assert_eq!(
+            type_for_lowered_type(LoweredType::Set),
+            None,
+            "the kind does not retain the set element type"
+        );
+        assert_eq!(
+            type_for_lowered_type(LoweredType::Tag),
+            None,
+            "the kind does not retain tag identity"
+        );
+        assert_eq!(
+            type_for_lowered_type(LoweredType::Result),
+            Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error)))
+        );
     }
 }

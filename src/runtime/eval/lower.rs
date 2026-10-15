@@ -1092,12 +1092,11 @@ fn compact_collect_expr_call_edges(
     index_of: &FxHashMap<LoweredFunctionKey, usize>,
     edges: &mut Vec<usize>,
 ) {
-    if let ArenaExprKind::Call { callee, .. } = program.arena.expr(id).kind {
-        if let ArenaExprKind::Ident(name) = program.arena.expr(callee).kind
-            && let Some(index) = index_of.get(&compact_function_key(namespace, name))
-        {
-            edges.push(*index);
-        }
+    if let ArenaExprKind::Call { callee, .. } = program.arena.expr(id).kind
+        && let ArenaExprKind::Ident(name) = program.arena.expr(callee).kind
+        && let Some(index) = index_of.get(&compact_function_key(namespace, name))
+    {
+        edges.push(*index);
     }
     if matches!(
         program.arena.expr(id).kind,
@@ -6111,11 +6110,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             } else {
                 return family;
             };
-            self.declarations
+            if self
+                .declarations
                 .qualified_error_families
                 .contains_key(&qualified)
-                .then(|| Name::intern(qualified.to_string()))
-                .unwrap_or(family)
+            {
+                Name::intern(qualified.to_string())
+            } else {
+                family
+            }
     }
 
     fn canonicalize_checked_callable(&self, mut signature: CallableType) -> CallableType {

@@ -3113,7 +3113,7 @@ impl Evaluator {
         command_name: String,
     ) -> Self {
         Self::new_with_sources_and_command_inner(
-            arguments.into_iter().map(|word| Value::Bytes(word.into())).collect(),
+            arguments.into_iter().map(Value::Bytes).collect(),
             Arc::new(sources), command_name, None,
         )
     }
@@ -4217,7 +4217,7 @@ impl Evaluator {
                     "script argument binding is not a list", DiagnosticCode::CompactMainArgs));
             };
             let words = words.iter().map(|word| match word {
-                Value::Str(text) => Some(Value::Bytes(text.as_bytes().to_vec().into())),
+                Value::Str(text) => Some(Value::Bytes(text.as_bytes().to_vec())),
                 Value::Bytes(bytes) => Some(Value::Bytes(bytes.clone())),
                 _ => None,
             }).collect::<Option<Vec<_>>>().ok_or_else(|| compact_lowerability_diagnostic(
@@ -6256,12 +6256,11 @@ impl Evaluator {
     }
 
     fn collect_stream_resources(&self, stream: &StreamValue, worklist: &mut ResourceTransferWorklist) {
-        if let Some(owner) = stream.owner() {
-            if Arc::ptr_eq(&owner.evaluator, &self.resource_owner)
-                && self.owned_streams.contains_key(&owner.id)
-            {
-                worklist.streams.push(StreamTransfer { owner: owner.clone(), revisit: false });
-            }
+        if let Some(owner) = stream.owner()
+            && Arc::ptr_eq(&owner.evaluator, &self.resource_owner)
+            && self.owned_streams.contains_key(&owner.id)
+        {
+            worklist.streams.push(StreamTransfer { owner: owner.clone(), revisit: false });
         }
         for item in &stream.items {
             self.collect_runtime_resources(&item.value, worklist);
@@ -7907,7 +7906,7 @@ fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
     std::thread::scope(|scope| {
         match std::thread::Builder::new()
             .stack_size(debug_test_eval_stack_size(EVAL_STACK_SIZE))
-            .spawn_scoped(scope, &execute)
+            .spawn_scoped(scope, execute)
         {
             Ok(worker) => worker.join()
                 .unwrap_or_else(|payload| std::panic::resume_unwind(payload)),
@@ -7953,7 +7952,7 @@ fn map_key_matches_type(key: &MapKey, ty: &Type) -> bool {
 /// one, milliseconds otherwise.
 fn within_limit_text(limit: Duration) -> String {
     let millis = limit.as_millis();
-    if millis % 1000 == 0 {
+    if millis.is_multiple_of(1000) {
         format!("{}s", millis / 1000)
     } else {
         format!("{millis}ms")

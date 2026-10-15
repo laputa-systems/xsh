@@ -781,7 +781,7 @@ mod tests {
                 } = parsed.arena.arena.stmt(statement).kind else {
                     return None;
                 };
-                let stage = match parsed.arena.arena.expr(expression).kind {
+                match parsed.arena.arena.expr(expression).kind {
                     crate::syntax::arena::ArenaExprKind::Pipeline { stages, .. } => parsed
                         .arena
                         .arena
@@ -800,8 +800,7 @@ mod tests {
                         .find(|stage| stage.kind == StreamStageKind::Fold)
                         .cloned(),
                     _ => return None,
-                };
-                stage
+                }
             })
             .expect("the fixture contains a fold stage");
         let block = stage.block.expect("fold carries its callback block");

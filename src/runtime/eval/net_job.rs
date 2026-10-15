@@ -21,7 +21,7 @@ const MAX_LIVE_NET_JOBS: usize = 64;
 const MAX_RESERVED_NET_JOB_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
 
 pub(super) enum NetJobTask {
-    Completed(Result<Value, RuntimeError>),
+    Completed(Box<Result<Value, RuntimeError>>),
     #[cfg(feature = "net")]
     Transport(NetOperation),
 }
@@ -470,7 +470,7 @@ impl Evaluator {
         let _ = (method_span, checkpoint);
         match task {
             NetJobTask::Completed(result) => {
-                (result.map_err(|error| error.with_span(start_span)), None)
+                ((*result).map_err(|error| error.with_span(start_span)), None)
             }
             #[cfg(feature = "net")]
             NetJobTask::Transport(operation) => {
@@ -700,7 +700,11 @@ fn middle_scope_job_assigned_from_deeper_scope_reaches_outer_owner() {
     let mut evaluator = Evaluator::new(Vec::new());
     let outer = evaluator.current_scope_id();
     let middle = evaluator.enter_owned_host_scope();
-    let job = evaluator.net_job_value(NetJobTask::Completed(Ok(Value::Int(7))), span, 0);
+    let job = evaluator.net_job_value(
+        NetJobTask::Completed(Box::new(Ok(Value::Int(7)))),
+        span,
+        0,
+    );
     let inner = evaluator.enter_owned_host_scope();
     evaluator.transfer_owned_host_resources_in_lowered_value(
         &super::super::LoweredValue::NetJob(Box::new(job.clone())), outer,
@@ -716,7 +720,11 @@ fn specialized_stats_blob_transfers_handles_in_its_map() {
     let mut evaluator = Evaluator::new(Vec::new());
     let outer = evaluator.current_scope_id();
     let scope = evaluator.enter_owned_host_scope();
-    let job = evaluator.net_job_value(NetJobTask::Completed(Ok(Value::Int(7))), span, 0);
+    let job = evaluator.net_job_value(
+        NetJobTask::Completed(Box::new(Ok(Value::Int(7)))),
+        span,
+        0,
+    );
     let summary = super::super::LoweredValue::StatsBlob(Box::new(super::super::LoweredStatsValue {
         blanks: 0,
         blobs: std::collections::BTreeMap::from([(crate::runtime::value::MapKey::Str("job".into()), super::super::LoweredValue::NetJob(Box::new(job.clone())))]),
@@ -732,7 +740,11 @@ fn specialized_stats_blob_transfers_handles_in_its_map() {
 fn borrowing_a_caller_owned_job_does_not_move_it_into_the_callee() {
     let span = super::super::zero_span();
     let mut evaluator = Evaluator::new(Vec::new());
-    let job = evaluator.net_job_value(NetJobTask::Completed(Ok(Value::Int(7))), span, 0);
+    let job = evaluator.net_job_value(
+        NetJobTask::Completed(Box::new(Ok(Value::Int(7)))),
+        span,
+        0,
+    );
     let callee = evaluator.enter_owned_host_scope();
     evaluator.transfer_owned_host_resources_in_lowered_value(
         &super::super::LoweredValue::NetJob(Box::new(job.clone())), callee,
@@ -747,7 +759,11 @@ fn borrowing_a_caller_owned_job_does_not_move_it_into_the_callee() {
         let mut evaluator = Evaluator::new(Vec::new());
         let consumer = evaluator.current_scope_id();
         let producer = evaluator.enter_owned_host_scope();
-        let job = evaluator.net_job_value(NetJobTask::Completed(Ok(Value::Int(7))), span, 0);
+        let job = evaluator.net_job_value(
+            NetJobTask::Completed(Box::new(Ok(Value::Int(7)))),
+            span,
+            0,
+        );
         evaluator.detach_owned_host_scopes(1);
         evaluator.transfer_owned_host_resources_in_value(&Value::NetJob(Box::new(job.clone())), consumer);
         evaluator.reattach_owned_host_scopes(&[producer]);
@@ -761,7 +777,11 @@ fn borrowing_a_caller_owned_job_does_not_move_it_into_the_callee() {
         let mut evaluator = Evaluator::new(Vec::new());
         let first_consumer = evaluator.enter_owned_host_scope();
         let producer = evaluator.enter_owned_host_scope();
-        let job = evaluator.net_job_value(NetJobTask::Completed(Ok(Value::Int(7))), span, 0);
+        let job = evaluator.net_job_value(
+            NetJobTask::Completed(Box::new(Ok(Value::Int(7)))),
+            span,
+            0,
+        );
         let nested = evaluator.enter_owned_host_scope();
         evaluator.detach_owned_host_scopes(2);
         evaluator.exit_owned_host_scope(first_consumer).expect("close first consumer");
@@ -782,7 +802,11 @@ fn borrowing_a_caller_owned_job_does_not_move_it_into_the_callee() {
         let mut evaluator = Evaluator::new(Vec::new());
         let outer = evaluator.current_scope_id();
         let scope = evaluator.enter_owned_host_scope();
-        let job = evaluator.net_job_value(NetJobTask::Completed(Ok(Value::Int(7))), span, 0);
+        let job = evaluator.net_job_value(
+            NetJobTask::Completed(Box::new(Ok(Value::Int(7)))),
+            span,
+            0,
+        );
         let mut payload = RuntimeError::new("inner", "payload");
         payload.payload = RecordMap::from([("job".into(), Value::NetJob(Box::new(job.clone())))]);
         let error = Value::RunError(Box::new(crate::runtime::value::RunError::new("unknown", "outer")))
@@ -797,8 +821,16 @@ fn borrowing_a_caller_owned_job_does_not_move_it_into_the_callee() {
         let span = Span::new(crate::source::SourceId::new(0), 0, 0);
         let mut parent = Evaluator::new(Vec::new());
         let mut worker = Evaluator::new(Vec::new());
-        let foreign = parent.net_job_value(NetJobTask::Completed(Ok(Value::Int(1))), span, 0);
-        let local = worker.net_job_value(NetJobTask::Completed(Ok(Value::Int(2))), span, 0);
+        let foreign = parent.net_job_value(
+            NetJobTask::Completed(Box::new(Ok(Value::Int(1)))),
+            span,
+            0,
+        );
+        let local = worker.net_job_value(
+            NetJobTask::Completed(Box::new(Ok(Value::Int(2)))),
+            span,
+            0,
+        );
         assert_eq!(foreign.id, local.id);
 
         let rejected = worker.wait_net_job(foreign.clone(), span);
@@ -812,8 +844,16 @@ fn borrowing_a_caller_owned_job_does_not_move_it_into_the_callee() {
         let span = Span::new(crate::source::SourceId::new(0), 0, 0);
         let mut parent = Evaluator::new(Vec::new());
         let mut worker = Evaluator::new(Vec::new());
-        let foreign = parent.net_job_value(NetJobTask::Completed(Ok(Value::Int(1))), span, 0);
-        let local = worker.net_job_value(NetJobTask::Completed(Ok(Value::Int(2))), span, 0);
+        let foreign = parent.net_job_value(
+            NetJobTask::Completed(Box::new(Ok(Value::Int(1)))),
+            span,
+            0,
+        );
+        let local = worker.net_job_value(
+            NetJobTask::Completed(Box::new(Ok(Value::Int(2)))),
+            span,
+            0,
+        );
         assert_eq!(foreign.id, local.id);
 
         let rejected = worker.cancel_net_job(foreign.clone(), span);
@@ -848,7 +888,11 @@ fn borrowing_a_caller_owned_job_does_not_move_it_into_the_callee() {
             Value::Bytes(b"job".to_vec()),
         )]));
         evaluator.admit_net_job(8, span).expect("admit mock job");
-        let job = evaluator.net_job_value(NetJobTask::Completed(Ok(response)), span, 8);
+        let job = evaluator.net_job_value(
+            NetJobTask::Completed(Box::new(Ok(response))),
+            span,
+            8,
+        );
 
         let snapshot = evaluator.net_runtime_snapshot();
         assert!(!snapshot.driver_started);
