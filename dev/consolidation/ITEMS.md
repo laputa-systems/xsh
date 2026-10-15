@@ -6,7 +6,10 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
 **Status: active and incomplete, 2026-10-15.** The implementation and focused
-repairs are integrated on `master`. W9 parity passed 1,690 inputs and 6,760
+repairs are integrated on `master`. The latest bounded corpus-worker and
+fixture repairs pass the exact 197-file desugar check. An earlier extra AWK
+outcome remains unexplained, and current final gates remain required.
+W9 parity passed 1,690 inputs and 6,760
 outcomes with zero mismatches on `2083821ed`. Independent review qualifies
 that result across the two-file route-witness repair `ae7cf8490`.
 The repair passes its focused unit, hygiene, and authenticated native checks.

@@ -1,7 +1,10 @@
 # XSH Consolidation Campaign
 
 Status: active and incomplete on 2026-10-15. The implementation and focused
-repairs are integrated on `master`. Fresh W9 parity on `2083821ed` passed
+repairs are integrated on `master`. The latest repair batch passes its exact
+197-file desugar corpus check after fixing root permission fixtures and
+six-digit `fuser` PID separators. The earlier extra AWK parity failure remains
+unexplained; final acceptance is still open. Fresh W9 parity on `2083821ed` passed
 1,690 inputs and 6,760 outcomes with zero mismatches. Independent review
 qualifies that result across the route-witness repair `ae7cf8490`.
 The earlier selected-profile native suite and clean 13.65-second lint pass

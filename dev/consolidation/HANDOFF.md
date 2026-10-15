@@ -4,6 +4,54 @@ Status: active and incomplete 2026-10-15.
 
 ## Final-batch status, 2026-10-15
 
+### Bound corpus workers and repair root and large-PID fixtures
+
+The `0ea216732` selected-profile suite passed 13,793 native cases, with zero
+failures and 136 skips. Its following canonical batch passed 1,021 Rust tests
+and 113 XSHT cases, then failed the desugar corpus comparison before reaching
+its native suite. The AWK report had 306 passes and one failure before
+desugaring, and 305 passes and two failures afterward. Shard `008` failed in
+both reports because root bypassed its mode-000 input. The extra shard `001`
+failure remains unexplained. Preserve that failed receipt and do not attribute
+it to the separately confirmed repairs below.
+
+Repair `010887a18` runs the same 197 corpus files through at most four scoped
+report workers, preserving sorted outcomes and joining started work before
+propagating a failure. It retains complete subprocess output on mismatches.
+Both focused worker tests pass. A diagnostic corpus run then exposed three
+`fuser` failures when the namespace's PIDs reached six digits: width-six
+formatting concatenated adjacent PIDs. An isolated namespace reproduces the
+existing assertion without a full corpus run. Repair `844ef18ee` adds an
+explicit separator and a privileged namespace regression. That regression
+fails against the old applet and passes against the repair, without skips.
+Evidence is in `.work/tmp/fuser-linux-priv-0ea-regression-a1/`.
+
+Repair `02a5293b1` removes only the AWK child's DAC bypass for root-launched,
+mode-bearing fixtures. It retains root identity so private workspace copies
+remain accessible. The recorded oracle and all case comparisons stay intact.
+All twelve stream/process shards pass as root, after desugaring as root, and
+as UID 1000; scoped check and lint also pass. Evidence is in
+`.work/tmp/awk-root-fixture-0ea-a2/`.
+
+The combined exact desugar comparison passes for 197 files on `844ef18ee`.
+Evidence is in `.work/tmp/desugar-loop-aggregate-844-a1/`. Independent review
+approves the bounded source change in `.work/tmp/final-source-review-844.md`.
+The Rust implementation under `src/` and `crates/xsht/src/` is unchanged from
+`0ea216732`; the immutable W9 capture remains qualified for its existing scope.
+Mutable script bodies still require current native acceptance. The original
+extra AWK outcome remains an open finding despite the passing combined check.
+
+Freeze this batch with the handoff, refresh the functional record and launch
+pins, and resume final gates. The old profile and failed canonical receipts
+remain source-bound historical evidence. Nine current passing native suites,
+the isolated Rust lint budget, supplemental contexts, scheduler, comparative,
+structural and semantic review gates are still required. No final gate or
+review row is closed by the diagnostic corpus pass.
+
+A Luna cleanup pass removed 54 inactive, clean worktree copies and reclaimed
+about 5 GiB. All branch refs retain their recorded commits. Active targets,
+captured evidence and Lean worktrees were preserved.
+
 ### Preserve inline append separators and isolate the lint budget
 
 The `122261c23` selected-profile run passed 13,790 native cases, with zero
