@@ -91,7 +91,7 @@ proc main(...argv: List[Str]) [fs, process, io, error] {
             access: access,
           }
           letters = letters + plain_letters(access)
-          io.write_stdout(f"{pid:>6}")
+          io.write_stdout(f" {pid:>5}")
         }
       }
       if table.is_empty() { io.write_stderr(f"{label}\n") } else if opts.verbose {

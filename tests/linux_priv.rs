@@ -583,6 +583,110 @@ fn linux_priv_kill_all_signals_contained_new_session_process() {
 }
 
 #[test]
+fn linux_priv_fuser_separates_six_digit_holder_pids() {
+    if !is_root() {
+        eprintln!("skipped: fuser PID namespace fixture requires root");
+        return;
+    }
+    const ISOLATED: &str = "XSH_TEST_FUSER_PID_ISOLATED";
+    if std::env::var_os(ISOLATED).is_none() {
+        let output = Command::new("unshare")
+            .args(["--pid", "--fork", "--mount-proc"])
+            .arg(std::env::current_exe().expect("current privileged test executable"))
+            .args([
+                "--exact",
+                "linux_priv_fuser_separates_six_digit_holder_pids",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(ISOLATED, "1")
+            .output()
+            .expect("start private PID namespace");
+        if !output.status.success() && lacks_capability(&output) {
+            eprintln!("skipped: CAP_SYS_ADMIN is required for a private PID namespace");
+            return;
+        }
+        assert!(
+            output.status.success(),
+            "stdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    assert_eq!(std::process::id(), 1);
+    std::fs::write("/proc/sys/kernel/ns_last_pid", "100000\n")
+        .expect("set private PID namespace counter");
+
+    let scratch = Path::new(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+    std::fs::create_dir_all(&scratch).expect("create ignored test scratch directory");
+    let root = tempfile::Builder::new()
+        .prefix("xsh-linux-priv-fuser-")
+        .tempdir_in(scratch)
+        .expect("create fuser fixture");
+    let held = root.path().join("held");
+    std::fs::write(&held, "held").expect("write held file");
+    let first = ChildCleanup(
+        Command::new("sleep")
+            .arg("30")
+            .stdin(Stdio::from(
+                std::fs::File::open(&held).expect("open held file for first holder"),
+            ))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start first file holder"),
+    );
+    let second = ChildCleanup(
+        Command::new("sleep")
+            .arg("30")
+            .stdin(Stdio::from(
+                std::fs::File::open(&held).expect("open held file for second holder"),
+            ))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start second file holder"),
+    );
+    let expected = [first.0.id().to_string(), second.0.id().to_string()];
+    assert!(
+        expected.iter().all(|pid| {
+            pid.parse::<u32>()
+                .is_ok_and(|number| number >= 100_000)
+        }),
+        "{expected:?}"
+    );
+
+    let fuser = Path::new(env!("CARGO_MANIFEST_DIR")).join("core/fuser.xsh");
+    let output = Command::new(test_bin!("xsh"))
+        .arg(fuser)
+        .arg("--")
+        .arg("-v")
+        .arg(&held)
+        .output()
+        .expect("run fuser on the held file");
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("fuser stdout is UTF-8");
+    let actual = stdout.split_whitespace().collect::<Vec<_>>();
+    let expected = expected.iter().map(String::as_str).collect::<Vec<_>>();
+    assert_eq!(actual, expected);
+    let stderr = String::from_utf8(output.stderr).expect("fuser stderr is UTF-8");
+    for pid in &expected {
+        assert!(
+            stderr
+                .lines()
+                .any(|line| line.split_whitespace().any(|field| field == *pid)),
+            "fuser table does not contain PID {pid}: {stderr}"
+        );
+    }
+}
+
+#[test]
 fn system_report_sysctl_denial_as_unprivileged_reader_creates_no_child() {
     assert_eq!(
         unsafe { libc::geteuid() },
