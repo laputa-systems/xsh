@@ -31,8 +31,8 @@ BUILD_COMMAND = [
 
 class SourceBuildRunnerTests(unittest.TestCase):
     def setUp(self):
-        (ROOT / ".work/tmp").mkdir(parents=True, exist_ok=True)
-        self.scratch = pathlib.Path(tempfile.mkdtemp(prefix="w9-source-build-", dir=ROOT / ".work/tmp"))
+        (ROOT / ".work/wt").mkdir(parents=True, exist_ok=True)
+        self.scratch = pathlib.Path(tempfile.mkdtemp(prefix="w9-source-build-", dir=ROOT / ".work/wt"))
         self.source = self.scratch / "source"
         self.source.mkdir()
         (self.source / "tests").mkdir()
@@ -43,7 +43,10 @@ class SourceBuildRunnerTests(unittest.TestCase):
         subprocess.run(["git", "-C", str(self.source), "config", "user.email", "test@example.invalid"], check=True)
         (self.source / ".git/info/exclude").write_text("/.work/\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(self.source), "add", "tests/sema.rs"], check=True)
-        subprocess.run(["git", "-C", str(self.source), "commit", "--quiet", "-m", "source"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.source), "commit", "--quiet", "-m", "test(fixtures): initialize source"],
+            check=True,
+        )
         self.commit = subprocess.run(
             ["git", "-C", str(self.source), "rev-parse", "HEAD"],
             check=True, text=True, capture_output=True,
@@ -72,10 +75,10 @@ class SourceBuildRunnerTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.scratch)
 
-    def run_builder(self, mode, args, extra_env=None, source=None):
+    def run_builder(self, mode, args, extra_env=None, source=None, builder=None):
         environment = {**self.environment, **(extra_env or {})}
         return subprocess.run(
-            [str(BUILDER), str(source or self.source), f"plan-{mode}", *args],
+            [str(builder or BUILDER), str(source or self.source), f"plan-{mode}", *args],
             check=False,
             env=environment,
             capture_output=True,
@@ -440,21 +443,56 @@ class SourceBuildRunnerTests(unittest.TestCase):
         self.assertNotEqual(overlapping_output.returncode, 0)
         self.assertIn(b"W9 output root overlaps a protected source or scratch root", overlapping_output.stderr)
 
-        nested_controller_output = self.scratch / "controller-output"
-        nested_controller_output.mkdir()
-        nested_source_output = self.run_builder(
-            "run",
+        nested_builder_root = self.scratch / "nested-builder"
+        builder_commit = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        subprocess.run(
             [
-                f"W9_PROGRAM_ROOT={PROGRAM_ROOT}",
-                f"W9_OUTPUT_ROOT={nested_controller_output}",
-                "env",
-                f"W9_RECEIPT_OUTPUT={nested_controller_output}/receipt.tsv",
-                "/bin/true",
+                "git",
+                "-C",
+                str(ROOT),
+                "worktree",
+                "add",
+                "--quiet",
+                "--detach",
+                str(nested_builder_root),
+                builder_commit,
             ],
-            run_env,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
-        self.assertNotEqual(nested_source_output.returncode, 0)
-        self.assertIn(b"W9 output root overlaps a protected source or scratch root", nested_source_output.stderr)
+        try:
+            nested_output_root = nested_builder_root / ".work/capture-output"
+            nested_output_root.mkdir(parents=True)
+            nested_source_output = self.run_builder(
+                "run",
+                [
+                    f"W9_PROGRAM_ROOT={PROGRAM_ROOT}",
+                    f"W9_OUTPUT_ROOT={nested_output_root}",
+                    "env",
+                    f"W9_RECEIPT_OUTPUT={nested_output_root}/receipt.tsv",
+                    "/bin/true",
+                ],
+                run_env,
+                builder=nested_builder_root / "dev/consolidation/w9-source-build.sh",
+            )
+            self.assertNotEqual(nested_source_output.returncode, 0)
+            self.assertIn(
+                b"W9 output root overlaps a protected source or scratch root",
+                nested_source_output.stderr,
+            )
+        finally:
+            subprocess.run(
+                ["git", "-C", str(ROOT), "worktree", "remove", "--force", str(nested_builder_root)],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
 
         for protected_root in (PROGRAM_ROOT, input_root):
             with self.subTest(protected_output_root=protected_root):
