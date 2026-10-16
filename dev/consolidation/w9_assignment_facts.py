@@ -81,8 +81,8 @@ def _validate_binding(binding: ProofBinding) -> None:
         raise AssignmentFactsError("helper SHA-256 is malformed")
     if re.fullmatch(r"[0-9a-f]{64}", binding.corpus_digest) is None:
         raise AssignmentFactsError("corpus digest is malformed")
-    if binding.input_index < 0:
-        raise AssignmentFactsError("input index is negative")
+    if type(binding.input_index) is not int or binding.input_index < 0:
+        raise AssignmentFactsError("input index is not a canonical unsigned integer")
     if not binding.input_path or "\0" in binding.input_path:
         raise AssignmentFactsError("input path is empty or contains NUL")
 
@@ -285,6 +285,13 @@ def validate_assignment_facts(
         for key, names in candidate.items():
             if not isinstance(key, OwnerKey):
                 raise AssignmentFactsError("candidate contains a malformed owner key")
+            if any(
+                type(value) is not int or value < 0
+                for value in (key.source_id, key.statement_start, key.statement_len)
+            ):
+                raise AssignmentFactsError(
+                    "candidate owner key contains a noncanonical unsigned integer"
+                )
             if isinstance(names, str):
                 raise AssignmentFactsError("candidate owner names are not a collection")
             normalized_names = frozenset(names)

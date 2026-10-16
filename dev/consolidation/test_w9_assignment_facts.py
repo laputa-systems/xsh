@@ -86,6 +86,28 @@ class AssignmentFactsProofTests(unittest.TestCase):
         proof = _parse(_proof())
         self.assertEqual(validate_assignment_facts(CANDIDATE_EMPTY, proof), {OWNER: frozenset()})
 
+    def test_input_index_requires_an_exact_nonnegative_integer(self):
+        for value in (True, 1.0, -1):
+            with self.subTest(value=value):
+                binding = ProofBinding(COMMIT, TREE, HELPER, CORPUS, value, INPUT_PATH)
+                contents = _proof()
+                digest = hashlib.sha256(contents.encode("ascii")).hexdigest()
+                with self.assertRaisesRegex(AssignmentFactsError, "input index"):
+                    parse_assignment_proof(contents, binding, digest)
+
+    def test_candidate_owner_coordinates_require_exact_integers(self):
+        proof = _parse(_proof())
+        for field, original in enumerate((OWNER.source_id, OWNER.statement_start, OWNER.statement_len)):
+            for value in (True, float(original)):
+                with self.subTest(field=field, value=value):
+                    coordinates = [OWNER.source_id, OWNER.statement_start, OWNER.statement_len]
+                    coordinates[field] = value
+                    malformed = OwnerKey(*coordinates)
+                    with self.assertRaisesRegex(
+                        AssignmentFactsError, "noncanonical unsigned integer"
+                    ):
+                        validate_assignment_facts({malformed: frozenset()}, proof)
+
     def test_diagnosed_empty_owner_validates_in_all_publication_profiles(self):
         proof = _parse(_proof())
         for profile in ("default", "reveal", "execution", "check-cli"):
