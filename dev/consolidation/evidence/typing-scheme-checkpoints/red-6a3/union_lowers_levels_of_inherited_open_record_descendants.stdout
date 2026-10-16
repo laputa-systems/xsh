@@ -1,0 +1,20 @@
+
+running 1 test
+test sema::constraints::tests::union_lowers_levels_of_inherited_open_record_descendants ... FAILED
+
+failures:
+
+---- sema::constraints::tests::union_lowers_levels_of_inherited_open_record_descendants stdout ----
+
+thread 'sema::constraints::tests::union_lowers_levels_of_inherited_open_record_descendants' (45) panicked at src/sema/constraints.rs:4393:13:
+assertion `left == right` failed
+  left: Ok(1)
+ right: Ok(0)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::constraints::tests::union_lowers_levels_of_inherited_open_record_descendants
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 774 filtered out; finished in 0.00s
+
