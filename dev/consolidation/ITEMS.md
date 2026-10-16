@@ -5,30 +5,28 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `master` in `/home/josh/d/laputa-systems/xsh`; the owner merged consolidation
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
-**Status: active and incomplete, 2026-10-16.** Current reported main is
-`e31732415`. Focused checks pass there: check 1,526, exact archive 1, workflow
-3 plus one skip, non-root 1, curl 2, and route 2. Lint has two warnings and 113
-notes, with fixes assigned; the full native suite remains unrun. On frozen
-source `915e9d8bd`, the
-canonical native suite recorded 13,720 passed, 160 failed, and 92 skipped.
-Root-UID, `/dev/full` fixture-pollution, and SGID repairs cleared 159 of the
-160 failure-census cases. The remaining head memory regression passes all
-seven focused file tests after its repair; the full native suite has not been
-rerun. The suffix `xsht check`, diff hygiene, approved metrics check, and docs
-check pass. Lint exits zero with 72 findings and 115 notes and is not clean.
-No functional close or performance credit is claimed.
+**Status: active and incomplete, 2026-10-16.** Main is frozen for canonical
+acceptance at `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542`, tree
+`08769a1d438d5d93f55bb21e7a4dbe8051f7b966`. Its live container reports btop
+58 passed and three skipped; root stage 223 is in progress. No terminal result
+is available. Integrated queue `b6` passes 11 tests and a four-file check/lint.
+Lint change `a22` recorded check 1,526, zero findings/113 notes, metrics, and
+three docs tests; its product qualification is pending a stable private-copy
+rerun because the shared `xsh` bootstrap changed from `a911` to `d058`. SGID
+private-scratch passes 288 Python scripts, and `f958` passes focused lint with
+zero findings/notes and three negative preflight cases. No functional close or
+performance credit is claimed.
 
 The owner authorized wider, staggered inference implementation in isolated
 worktrees while consolidation acceptance runs, superseding the old
-wait-before-lowerer sequence. No inference implementation is on main. Checker
-`f734` passes a fresh build and 57 tests. Pipeline `cbb` contains encoding,
-lowering, and runtime changes only; a combined compile with verifier changes at
-`340ae7a7a` failed with eight Rust errors and was routed for repairs. W9 `a8`
-passes 69 tests and a single-input proof; chain `03` has 1,690 ownership proofs
-and 68 validated ranges, with actual comparison pending. Canonical driver,
-queue, and final-prep checkpoints are isolated and under review. Native-witness
-and SPEC lanes and driver review are active. Lean remains paused. See [the
-current handoff](HANDOFF.md) for pins, per-lane status, and evidence.
+wait-before-lowerer sequence. No inference implementation is on main. The
+current typing branch compiles the library, `xsh`, `xsht`, and helper; ten
+encoding, semantic, and module-ground tests pass, while fixture and
+identity/projection cases still fail. The encoding-forwarder fix is not tested
+on the new pin. SPEC render passed only as a static check with old 787 products.
+W9's comparison stopped with 12 mismatches; a reference-row repair is under
+review, so no parity acceptance is claimed. See [the current handoff](HANDOFF.md)
+for pins, per-lane status, and evidence. Lean remains paused.
 
 **Earlier checkpoints:** The implementation and focused
 repairs are integrated on `master`. The latest bounded corpus-worker and

@@ -2,7 +2,9 @@
 
 Status: resumed on 2026-10-15 for consolidation acceptance and the typing
 successor. The owner explicitly resumed after the documentation refresh.
-Consolidation acceptance remains incomplete. The owner authorized staggered
+Consolidation acceptance remains incomplete. The current canonical batch is
+running on source `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542`; its terminal
+result is not yet available. The owner authorized staggered
 inference implementation in isolated worktrees on 2026-10-15 and widened that
 parallel authorization on 2026-10-16. This supersedes the earlier
 wait-before-lowerer sequence: independent successor work may continue while
