@@ -5,25 +5,38 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `master` in `/home/josh/d/laputa-systems/xsh`; the owner merged consolidation
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
-**Status: active and incomplete, 2026-10-16.** Main checkpoint `9fa01db64`
-integrates W9 closure tooling and the main-context fixture fix. The builder
-passes six tests and the combined 266-test run passes, but synthetic fixture
-outputs establish no genuine corpus parity. Controller `237ab426` has a sealed
-schema-4 receipt. Its base and composed d20 compiler builds pass. Seven exact
-Rust source, owner, and assignment tests pass against unchanged snapshots. No
-fresh corpus capture or parity result is qualified, and no final freeze exists.
+**Status: active and incomplete, 2026-10-16.** Main checkpoint `ccd844030`.
+Scheduler change `75fc` is integrated and source-identical to reviewed `3f536`.
+Its all-features metadata check reports no rustc warnings or errors. W9 source
+guard reviews pass for all path commits. Fixture repair `631` is integrated,
+and the corrected main W9 combined run passes 270/270. The canonical and script
+batches remain pending. Controller `237ab426`
+has a sealed schema-4 receipt. Its base and composed d20 builds pass with
+`success=true` and `fresh=false`. Seven Rust source, owner, and assignment
+tests pass against unchanged snapshots. These results qualify only those pins.
+No final W9 seal, build, capture, or comparison has run, so no final corpus
+parity is qualified.
 
 The canonical batch has not rerun after the `e89e35f29` native failures. All 13
 failure causes have focused repairs, and the corrected four-caller gate passes
-45/45. Observer readiness currently prevents memory-only runs on a busy host.
-A repair is active. The observer writes under `.work`. Disposable launch pins
-are missing, and the gap is in setup. Route target `79` passes 64 self-tests;
-its 184 actual outputs remain unrun.
+45/45. Observer readiness repair `747` and its self-test pass. The resource
+batch remains required, and disposable launch pins need setup. Route target
+`79` passes 64 self-tests and seven wrapper tests. Its 92 mapped files still
+match source pin `7d`, but final product pins are separate and its 184 actual
+outputs remain unrun.
 
-Inference and capture work remain in isolated pipelines. No inference
-implementation is on main. The campaign has no functional close or performance
-credit. Lean remains paused. See the [handoff](HANDOFF.md) for current lane
-status and remaining acceptance gates.
+Inference revision `28286879` passes 15 of 16 tests. The remaining rest test
+mutates a scheme and leaves unowned rows. Its fixture proof repair is pending.
+Capture harness `b538` ran all 15 tests. Twelve passed and three fixture
+failures remain under repair. The previous `bddb` run passed 8 of 15 tests.
+Memory baseline `fd8` passes the exact witness and five repeats with identical
+allocation counts. Arc candidate `2b4` builds, and its ownership check and five
+selectors pass. Five alternating direct-harness baseline/candidate pairs pass
+with identical allocation counts per arm and lower candidate allocation
+traffic. This comparison makes no timing or RSS claim. Earlier Cargo-invoked
+metrics remain separate. No inference implementation is on main. The campaign
+has no functional close or performance credit. Lean remains paused. See the
+[handoff](HANDOFF.md) for current lane status and remaining acceptance gates.
 
 **Earlier checkpoints:** The implementation and focused
 repairs are integrated on `master`. The latest bounded corpus-worker and

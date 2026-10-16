@@ -8,23 +8,45 @@ functional close or performance credit. Lean and Phase F remain paused.
 
 ## Current resume
 
-The main checkpoint is `9fa01db64`. It integrates W9 closure tooling `f2` and
-the main-context fixture fix `9fa`. The W9 builder passes six tests, and its
-combined 266-test run passes. Synthetic fixture outputs in that run do not
-establish genuine corpus parity. Controller `237ab426` has a sealed schema-4
-source receipt. Its base and composed d20 compiler builds pass with
-`success=true` and `fresh=false`. Seven exact Rust tests for source, owner, and
-assignment pass against unchanged source snapshots. The program remains pinned
-to immutable `e240`. A final main compiler run still needs a dedicated
-worktree, new seals, builds, and captures. No fresh corpus capture or parity
-result is qualified, and no final freeze exists.
+The main checkpoint is `ccd844030`. Exhaustive scheduler change `75fc` is
+integrated and source-identical to reviewed `3f536`. Its all-features metadata
+check reports no rustc warnings or errors. The canonical and script batches
+remain pending.
+
+W9 source guard reviews pass for all path commits. Fixture repair `631` is
+integrated, and the corrected main W9 combined run passes 270/270. Controller
+`237ab426` retains its sealed schema-4 receipt. Its base and composed d20
+compiler builds pass with `success=true` and `fresh=false`. Seven exact Rust
+source, owner, and assignment tests pass against unchanged snapshots. Those
+results qualify only those pins. No final W9 seal, build, capture, or comparison
+has run, so no final corpus parity is qualified.
 
 The canonical run on `e89e35f29` ended with 13 native failures. Focused repairs
 cover all 13 causes, and the corrected four-caller gate passes 45/45. A fresh
-canonical run has not started. Observer readiness currently prevents
-memory-only runs on a busy host. A repair is active. The observer writes under
-`.work`. Disposable launch pins are missing, and the gap is in setup. Route
-target `79` passes 64 self-tests; its 184 actual outputs remain unrun.
+canonical run has not started. Observer readiness repair `747` is integrated
+and its self-test passes. The observer writes under `.work`. The mandatory
+resource batch remains, and disposable launch pins still need setup. Route
+target `79` passes 64 self-tests and seven wrapper tests. Its 92 mapped files
+remain byte-identical to source pin `7d`, but final product pins are separate
+and its 184 actual outputs remain unrun.
+
+Isolated inference revision `28286879` passes 15 of 16 tests. The remaining
+rest test mutates a scheme and leaves unowned rows. Its fixture proof repair is
+pending. Fresh capture harness `b538` ran all 15 tests. Twelve passed and three
+fixture failures remain. One reports last-writer length 17 instead of 16. One
+reports a duplicate-origin error-message mismatch. One reports an out-of-bounds
+future/stale string ID. The owner is fixing these fixtures. The previous
+`bddb` run passed 8 of 15 tests. The `FullCapture` value is 20 bytes. The
+`FullDriverProgram` value is 24 bytes. The namespace/export-harvest collision
+predates `5e66` and remains assigned to isolated typing work. No backport is on
+main.
+
+Memory baseline `fd8` passes the exact witness and five repeats with identical
+allocation counts. Arc candidate `2b4` builds, and its ownership check and five
+selectors pass. Five alternating direct-harness baseline/candidate pairs pass
+with identical allocation counts per arm and lower allocation traffic for the
+candidate. This comparison makes no timing or RSS claim. Earlier Cargo-invoked
+metrics remain separate.
 
 No inference implementation is on main. Consolidation has no functional close
 or performance credit. Lean and Phase F remain paused.
@@ -626,41 +648,39 @@ rerun of `a22` passes check 1,526, lint with zero findings and 113 notes,
 metrics, and docs/tour tests (3 pass). These results do not close canonical
 acceptance.
 
-W9 closure tooling `f2` and the main-context fixture fix `9fa` are integrated
-on main `9fa01db64`. The builder passes six tests. The combined 266-test run
-passes, but its synthetic fixture outputs provide no genuine corpus or parity
-evidence. Controller `237ab426` has a sealed schema-4 source receipt. Base and
-composed d20 compiler builds pass with `success=true` and `fresh=false`. Seven
-exact Rust source, owner, and assignment tests pass against unchanged source
-snapshots. The program is pinned to immutable `e240`. The final main compiler
-needs a dedicated worktree with new seals, builds, and captures. No fresh
-captures, parity result, or final freeze is qualified.
+Scheduler change `75fc` is integrated and source-identical to reviewed `3f536`.
+Its all-features metadata check has no rustc warnings or errors. The canonical
+and script batches remain pending.
+
+W9 source guard reviews pass for all path commits. Fixture repair `631` is
+integrated, and the corrected main W9 combined run passes 270/270. Controller
+`237ab426` has a sealed schema-4 receipt. Its base and composed d20 builds pass
+with `success=true` and `fresh=false`. Seven Rust source, owner, and assignment
+tests pass against unchanged snapshots. Those results qualify only those pins.
+No final W9 seal, build, capture, or comparison has run, so no final corpus
+parity is qualified.
 
 The canonical run on `e89e35f29` ended with 13 native failures. Focused repairs
-cover all 13 causes, and the corrected four-caller gate passes 45/45. A fresh
-canonical run has not started. Observer readiness currently prevents
-memory-only runs on a busy host. A repair is active. The observer writes under
-`.work`. Disposable launch pins are missing, and the gap is in setup. Route
-target `79` passes 64 self-tests; its 184 actual outputs remain unrun.
+cover all 13 causes, and the corrected four-caller gate passes 45/45. The
+canonical batch has not rerun. Observer readiness repair `747` and its
+self-test passes. The resource batch remains required, and disposable launch
+pins need setup. Route target `79` passes 64 self-tests and seven wrapper
+tests. Its 92 mapped files still match source pin `7d`, but final product pins
+are separate and its 184 actual outputs remain unrun.
 
-Inference pipeline `520` has a last compiled result at `f4`: eight of eleven
-exact selectors pass. Two fixture fixes are integrated in the isolated
-pipeline but remain uncompiled. `CheckedValue` commit `e283` and annotation
-proof repairs are under review. The graph index has no production handoff.
-No inference implementation is on main.
+Isolated inference revision `28286879` passes 15 of 16 tests. The remaining
+rest test mutates a scheme and leaves unowned rows. Its fixture proof repair is
+pending. Fresh capture harness `b538` ran all 15 tests. Twelve passed and three
+fixture failures remain. The owner is fixing them. The previous `bddb` run
+passed 8 of 15 tests. The `FullCapture` value is 20 bytes. The
+`FullDriverProgram` value is 24 bytes. No inference implementation is on main.
 
-Earlier isolated compile `720cfe40` failed with 12 Rust errors. At that
-checkpoint, follow-up `9664a95de` remained uncompiled. Capture revision `77`
-compiled. Its tests first stopped on fixture docs, then review found a
-writer-definition and read-slot contradiction.
-Repair `6dbbe819b` removes the same-step contradiction and derives immutable-let
-evidence. Its `fresh=false` build compiles, but the first new positive selector
-fails the builtin argument invariant. The remaining eleven selectors are
-unrun. Review also found that typed callable `Let` validation does not prove
-the initializer signature. A source fix is active. No allocation numbers exist.
-Memory baseline products from `ac6` include 32 experimental warnings. The
-witness was rejected by the driver writer before allocation. There is no memory
-result or accepted `Arc` implementation.
+Earlier inference and capture checkpoints remain historical. Revision `f4`
+passed eight of eleven selectors. Revision `77` exposed a writer-definition
+and read-slot contradiction. Revision `720cfe40` failed to compile with 12
+Rust errors. Earlier memory baseline `fd8` passes the exact witness and five
+repeats with identical allocation counts. The current Arc candidate is recorded
+above.
 
 Each source revision and tree needs a separate Cargo target. Kache and the
 registry may be shared. A `fresh=true` run on the shared `720` target selected
