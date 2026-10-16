@@ -302,7 +302,50 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="w9-source-adapter-receipt-", dir=self.scratch)
         self.addCleanup(self.temporary.cleanup)
         self.root = pathlib.Path(self.temporary.name)
-        self.source_root = self.repository
+        self.source_root = self.root / "compiler-source"
+        self.source_root.mkdir()
+        source_paths = (
+            pathlib.Path("tests/sema.rs"),
+            pathlib.Path("dev/consolidation/w9-source-build.sh"),
+            pathlib.Path("dev/consolidation/w9-publication-run.py"),
+            pathlib.Path("dev/consolidation/w9-publication-owner-helper.rs"),
+            pathlib.Path("dev/consolidation/winddown/gate-tools/w9-repository-parity.rs"),
+        )
+        for source_path in source_paths:
+            destination = self.source_root / source_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.repository / source_path, destination)
+        subprocess.run(
+            ["git", "init", "--quiet", str(self.source_root)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        (self.source_root / ".git/info/exclude").write_text("/.work/\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "-C", str(self.source_root), "config", "user.name", "W9 test"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.source_root), "config", "user.email", "w9-test@example.invalid"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.source_root), "add", *(str(path) for path in source_paths)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.source_root), "commit", "--quiet", "-m", "test(fixtures): initialize candidate source"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         self.source_commit, self.source_tree = "a" * 40, "b" * 40
         self.input_root = self.root / "inputs"
         self.input_root.mkdir()
@@ -427,7 +470,10 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             "linker_sha256": self.source_record["linker_sha256"],
             "runner_path": self.source_record["runner"],
             "runner_sha256": self.source_record["runner_sha256"],
-            "approved_helper_path": str(adapter_runner.SOURCE_APPROVED_HELPER),
+            "approved_helper_path": str(
+                self.source_root
+                / "dev/consolidation/winddown/gate-tools/w9-repository-parity.rs"
+            ),
             "approved_helper_sha256": adapter_runner.APPROVED_HELPER_SHA256,
             "helper_path": str(self.helper),
             "helper_sha256": self.runner.sha256_file(self.helper),
@@ -1114,7 +1160,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         )
         self.addCleanup(
             lambda: subprocess.run(
-                ["git", "-C", str(controller_root), "worktree", "remove", "--force", str(candidate_root)],
+                ["git", "-C", str(controller_root), "worktree", "remove", str(candidate_root)],
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
