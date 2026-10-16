@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/typed-scalar-route-oracles.xsh::test_expr_prepared_constant","source_hash":"fce0abf1b35f53f5eedabc42ad2b677d93ad837c6793926dbf9628e65eecf5d4","records":[{"tag_name":"ExprPreparedConstant","tag_ordinal":27,"route":"eager_frame_apply_path","mode":"forced"}]}

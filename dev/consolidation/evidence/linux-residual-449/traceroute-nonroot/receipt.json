@@ -1,0 +1,185 @@
+{
+  "canonical_native_stdout": null,
+  "container_policy": {
+    "block_device_mount_policy": "container-private /scratch bind remounted nodev; fail before harness unless statvfs confirms ST_NODEV",
+    "cpu_limit": "8",
+    "memory_limit": "1g for block-device execution; 16g otherwise",
+    "runtime_preload": "none",
+    "scratch_host_path": ".work/tmp",
+    "swap": "disabled",
+    "tmpdir": "/scratch"
+  },
+  "mode": "traceroute-nonroot",
+  "native_suite_lock": {
+    "acquired": true,
+    "held": false,
+    "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock"
+  },
+  "pinned_image": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+  "pinned_image_verified": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+  "product_hashes": {
+    "xsh": {
+      "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh",
+      "sha256": "7fa9a4e517e7375af102b1e539429d1ba055201b2018f0028a8cbb079576567a"
+    },
+    "xshi": {
+      "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xshi",
+      "sha256": "5121c56402853320e396695d6854336067fa9754fcc957bdcdd98ffe74fcea53"
+    },
+    "xsht": {
+      "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht",
+      "sha256": "7fb101044a56b27be71debb5283a88302e244555c1b1eec46110098b00835267"
+    }
+  },
+  "products_after": {
+    "xsh": {
+      "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh",
+      "sha256": "7fa9a4e517e7375af102b1e539429d1ba055201b2018f0028a8cbb079576567a"
+    },
+    "xshi": {
+      "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xshi",
+      "sha256": "5121c56402853320e396695d6854336067fa9754fcc957bdcdd98ffe74fcea53"
+    },
+    "xsht": {
+      "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht",
+      "sha256": "7fb101044a56b27be71debb5283a88302e244555c1b1eec46110098b00835267"
+    }
+  },
+  "profile": "verification",
+  "required_observation": "gateway source-route test passed its exact EPERM assertion and reported the CAP_NET_RAW skip",
+  "schema": 1,
+  "selected_cases": {
+    "failed": 0,
+    "passed": 18,
+    "selected": 20,
+    "skipped": 2,
+    "state": "ok"
+  },
+  "source": {
+    "head": "449320b1844cb5c7cc361df2fe27e387b37b12d1",
+    "status": "",
+    "tree": "b1f2632d9fc3b48ceb5747843a6631db6e0aeb1c"
+  },
+  "source_after": {
+    "head": "449320b1844cb5c7cc361df2fe27e387b37b12d1",
+    "status": "",
+    "tree": "b1f2632d9fc3b48ceb5747843a6631db6e0aeb1c"
+  },
+  "state": "passed",
+  "steps": [
+    {
+      "argv": [
+        "docker",
+        "run",
+        "--rm",
+        "--init",
+        "--platform",
+        "linux/amd64",
+        "--cpus=8",
+        "--memory=16g",
+        "--memory-swap=16g",
+        "--tmpfs",
+        "/tmp:rw,nodev,exec,mode=1777",
+        "--volume",
+        "/home/josh/d/laputa-systems/xsh:/work:ro",
+        "--volume",
+        "/home/josh/d/laputa-systems/xsh/.work/target-final-canonical:/work/target:ro",
+        "--volume",
+        "/home/josh/d/laputa-systems/xsh/.work/tmp:/scratch:rw",
+        "--workdir",
+        "/work",
+        "--network",
+        "none",
+        "--user",
+        "1000:1000",
+        "--cidfile",
+        "/home/josh/d/laputa-systems/xsh/.work/tmp/final-residual-runs/traceroute-nonroot-016aebfa53ef5a10/traceroute-nonroot.cid",
+        "--env",
+        "TMPDIR=/scratch",
+        "--env",
+        "LD_PRELOAD=",
+        "--env",
+        "XSH_DEV_BUILD_PRELOAD=",
+        "--env",
+        "XSH_BIN=/work/target/x86_64-unknown-linux-musl/verification/xsh",
+        "--env",
+        "PATH=/work/target/x86_64-unknown-linux-musl/verification:/usr/local/bin:/usr/bin:/bin",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "/work/target/x86_64-unknown-linux-musl/verification/xsht",
+        "test",
+        "core/tests/test-traceroute.xsh"
+      ],
+      "container_id": "9ed87d4a00a2e59eeea18ec52b1f8e927526085320cab0682c24a09ca08c00af",
+      "container_policy": {
+        "capabilities": [],
+        "cpus": "8",
+        "device_cgroup_rule": null,
+        "environment": {
+          "LD_PRELOAD": "",
+          "PATH": "/work/target/x86_64-unknown-linux-musl/verification:/usr/local/bin:/usr/bin:/bin",
+          "TMPDIR": "/scratch",
+          "XSH_BIN": "/work/target/x86_64-unknown-linux-musl/verification/xsh",
+          "XSH_DEV_BUILD_PRELOAD": ""
+        },
+        "host_clock_access": false,
+        "host_device_mounts": [],
+        "host_pid_namespace": false,
+        "memory": "16g",
+        "network": "none",
+        "nodev_tmpfs": true,
+        "swap": "disabled",
+        "tmpdir": "/scratch",
+        "uid": "1000:1000"
+      },
+      "exit_status": 0,
+      "id": "traceroute-nonroot",
+      "outputs": {
+        "status": 0,
+        "status_file": "traceroute-nonroot.status",
+        "stderr": "traceroute-nonroot.stderr",
+        "stdout": "traceroute-nonroot.stdout"
+      },
+      "products_after": {
+        "xsh": {
+          "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh",
+          "sha256": "7fa9a4e517e7375af102b1e539429d1ba055201b2018f0028a8cbb079576567a"
+        },
+        "xshi": {
+          "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xshi",
+          "sha256": "5121c56402853320e396695d6854336067fa9754fcc957bdcdd98ffe74fcea53"
+        },
+        "xsht": {
+          "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht",
+          "sha256": "7fb101044a56b27be71debb5283a88302e244555c1b1eec46110098b00835267"
+        }
+      },
+      "products_before": {
+        "xsh": {
+          "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh",
+          "sha256": "7fa9a4e517e7375af102b1e539429d1ba055201b2018f0028a8cbb079576567a"
+        },
+        "xshi": {
+          "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xshi",
+          "sha256": "5121c56402853320e396695d6854336067fa9754fcc957bdcdd98ffe74fcea53"
+        },
+        "xsht": {
+          "path": ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht",
+          "sha256": "7fb101044a56b27be71debb5283a88302e244555c1b1eec46110098b00835267"
+        }
+      },
+      "source_after": {
+        "head": "449320b1844cb5c7cc361df2fe27e387b37b12d1",
+        "status": "",
+        "tree": "b1f2632d9fc3b48ceb5747843a6631db6e0aeb1c"
+      },
+      "source_before": {
+        "head": "449320b1844cb5c7cc361df2fe27e387b37b12d1",
+        "status": "",
+        "tree": "b1f2632d9fc3b48ceb5747843a6631db6e0aeb1c"
+      },
+      "started": true,
+      "state": "finished"
+    }
+  ],
+  "target": "x86_64-unknown-linux-musl"
+}

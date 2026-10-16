@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_fs_remove","source_hash":"1c3205ccf0f57fa86df42958d676005f8c454cab8a68cc4c4cf188261ef46370","records":[{"tag_name":"ExprFsRemove","tag_ordinal":83,"route":"generic_operand_apply_path","mode":"forced"}]}

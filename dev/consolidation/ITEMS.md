@@ -14,7 +14,12 @@ oracle. Its test-only repair at `8805a8ece` passes fourteen soundness cases;
 fresh canonical verification remains required. Reviewed compact W9 formatting
 is integrated at `71f7cd689`; bounded
 canonical equality and 121 Python tests pass. Five fresh harness roles build,
-and a full capture is running. Full cohort parity remains unaccepted.
+and the full comparison completes with 6,732 common checked-fact mismatches
+among 6,760 outcomes. The first mismatch exposes a candidate-only assignment
+summary that needs an independent legacy oracle. Full cohort parity remains
+unaccepted. Current `449320b18` passes 184 expression route probes, the bounded
+Linux residuals, and seven QEMU assertions. A second reproduced process-exit
+sampling race still blocks fresh canonical verification.
 The original-source AWK/curl reproducer establishes the cross-file fixture
 mutation. One isolated rank-1 inference lane is active. Lean remains paused.
 See [the current handoff](HANDOFF.md) for source pins and evidence.

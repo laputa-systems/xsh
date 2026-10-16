@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_path_readlink","source_hash":"7f320d106378617800f87e4d68c48d54cad884831fa66c044042cb6a39d89d75","records":[{"tag_name":"ExprPathReadlink","tag_ordinal":90,"route":"explicit_frame_apply_path","mode":"normal"}]}

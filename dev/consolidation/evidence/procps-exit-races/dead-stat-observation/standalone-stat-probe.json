@@ -1,0 +1,54 @@
+{
+  "elapsed_seconds": 3.408936,
+  "entries_seen": 114823,
+  "hard_deadline_seconds": 22.0,
+  "interpreter": "/usr/bin/python3",
+  "interpreter_sha256": "994dd208d5739f182434c9ffc8b486c9edcf725aa009088fa2ed5305ba22ae92",
+  "max_churn_children": 8,
+  "outcome": "first-parser-rejection",
+  "parser_failure": "negative selected counters [7, 8]: [0, 0, 0, 38168742, 0, 0, 0, -1, -1, 0, 0, 20, 0, 13]",
+  "pid": 28197,
+  "process_entry_observation": {
+    "directory_stat_error": {
+      "errno": 2,
+      "strerror": "No such file or directory"
+    },
+    "path": "/proc/28197",
+    "status_error": {
+      "errno": 2,
+      "strerror": "No such file or directory"
+    }
+  },
+  "read_errors_by_errno": {
+    "2": 14358,
+    "3": 535
+  },
+  "same_parser_source": "src/modules/process.rs::parse_linux_stat field selection and signed i64 checks",
+  "scan_number": 6416,
+  "scans": 6416,
+  "stat_byte_count": 133,
+  "stat_hex": "32383139372028747275652920582030202d31202d312030202d312034323237303834203734203020302030203020302030203020323020302030203020333831363837343220302030203020302030203020302030203020302030203020312030203020313720313320302030203020302030203020302030203020302030203020300a",
+  "stat_reads": 99930,
+  "stat_repr": "b'28197 (true) X 0 -1 -1 0 -1 4227084 74 0 0 0 0 0 0 0 20 0 0 0 38168742 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 17 13 0 0 0 0 0 0 0 0 0 0 0 0 0\\n'",
+  "worker_pids": [
+    8,
+    9,
+    12,
+    13,
+    22,
+    24,
+    38,
+    40
+  ],
+  "worker_return_codes": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "workers": 8
+}

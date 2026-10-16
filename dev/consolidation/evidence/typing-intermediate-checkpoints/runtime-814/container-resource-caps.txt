@@ -1,0 +1,7 @@
+LD_PRELOAD=unset
+XSH_TEST_HARNESS=/target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2
+Cpus_allowed_list:	14-15
+/sys/fs/cgroup/cpuset.cpus.effective=14-15
+/sys/fs/cgroup/cpu.max=200000 100000
+/sys/fs/cgroup/memory.max=4294967296
+/sys/fs/cgroup/memory.swap.max=0

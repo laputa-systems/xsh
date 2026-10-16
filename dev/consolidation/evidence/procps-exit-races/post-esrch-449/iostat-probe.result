@@ -1,0 +1,5 @@
+iterations=12
+status=3
+workers=8
+max_churn_children=8
+argv=/artifact/xsh /work/core/iostat.xsh -- -d -m 0.01 1

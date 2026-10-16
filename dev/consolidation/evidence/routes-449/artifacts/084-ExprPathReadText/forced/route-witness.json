@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_path_read_text","source_hash":"08ac3d43ac5e102ac9cb7051a1976ef2c9617dfcb782c266768fb71eba8fa7d8","records":[{"tag_name":"ExprPathReadText","tag_ordinal":84,"route":"generic_operand_apply_path","mode":"forced"}]}

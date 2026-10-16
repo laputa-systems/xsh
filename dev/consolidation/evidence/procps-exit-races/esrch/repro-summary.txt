@@ -1,0 +1,51 @@
+Task: iostat desugar parity failure
+Worktree: /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-iostat-fixture
+Branch/head: campaign/iostat-fixture ed90857bdd825439159b7d788ea5d57cd9652920
+Source tree from canonical replay: efc56a4a81c7993e35b2fd76a2549742eb8d8847
+Working tree: clean; no source changes
+
+Pinned runtime:
+image: xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c (linux/amd64)
+limits: --network none --cpus=2 --memory=4g --memory-swap=4g
+TMPDIR: /scratch, mounted from repository .work/tmp
+source mount: worktree read-only
+products: mounted read-only from .work/target-final-canonical/x86_64-unknown-linux-musl/verification
+xsh sha256 e0062e3280732626ebc3b2aa3eabe09ec3400156f112e0458e6694b9136ee9fa (matches canonical-replay.json)
+xsht sha256 29c80afd1c5ca7243fc4dea60355a273cc5883ffa3d9f1d2949069f04e2093fa (matches canonical-replay.json)
+LD_PRELOAD unset at runtime
+
+Original red:
+Canonical output/status retained in /home/josh/d/laputa-systems/xsh/.work/tmp/canonical-ed908/{stdout.log,stderr.log,canonical-replay.json}.
+stdout.log lines 1227-1267: written core/tests/test-procps.xsh 39 passed.
+stdout.log lines 1274-1322: desugared copy 38 passed, 1 failed at test_iostat_selects_blocks_and_units_with_options; assertion on MB header saw empty mebibytes.stdout.
+The test did not assert mebibytes.status or print mebibytes.stderr, so the recorded failure does not establish the child exit cause.
+
+Commands and green runs:
+1. ./run-native.sh
+   Runs: /artifact/xsht test --exact core/tests/test-procps.xsh::test_iostat_selects_blocks_and_units_with_options
+   Status: 0; 1 passed, 0 failed. Output: native.stdout (88 ms).
+2. ./run-direct.sh
+   Runs /artifact/xsh /work/core/iostat.xsh -- -d -m 0.01 1, with /proc/uptime and /proc/diskstats snapshots before/after.
+   Status: 0; applet_status=0; output includes the MB header and host device rows. Raw output: direct.stdout.
+3. Generated applet/library:
+   /artifact/xsht desugar core/iostat.xsh and core/lib/procps.xsh, then run generated iostat with generated lib.procps and XSH_MODULE_PATH=/scratch/desugared-core using -d -m 0.01 1.
+   Status: 0; output includes MB header. Raw output: generated-core-direct.stdout.
+4. Generated workspace exact test:
+   Desugared test-procps.xsh, iostat.xsh, and lib/procps.xsh copied into scratch workspace; run /artifact/xsht test --exact core/tests/test-procps.xsh::test_iostat_selects_blocks_and_units_with_options.
+   Status: 0; 1 passed. Raw output: generated-test.stdout.
+5. Generated workspace file:
+   Run /artifact/xsht test core/tests/test-procps.xsh with default 2-worker cgroup parallelism.
+   Status: 0; 39 passed. Raw output: generated-file.stdout.
+6. Diagnostic parallel run:
+   Scratch-only copy of generated test added an assertion on mebibytes.status.exited_with(0), printing exit_code/stderr if false. Run /artifact/xsht test --jobs 8 core/tests/test-procps.xsh under 2-CPU/4-GiB cap.
+   Status: 0; 39 passed; diagnostic status predicate held. Raw output: diagnostic-jobs8.stdout.
+7. Temporary xsh wrapper run:
+   Wrapper captured exact argv/status/stdout/stderr for iostat subprocesses across generated test file. Valid iostat -d -m call logged argv '-d -m 0.01 1', status 0, MB header, empty stderr. Expected invalid interval/operand calls status 3.
+   This run is not a valid full-file result: wrapping xsh changed process identity and caused unrelated process selector tests to fail (25 passed, 14 failed). Raw output and per-call logs are retained as instrumented-generated-file.* and iostat-call-*.
+
+Source/path observations:
+- Before the first iostat header, possible runtime failure points are option parsing, procps.sampling_args, linux.sample(), or procps.cpu_percent().
+- linux.sample() reads /proc/stat, vmstat, uptime, meminfo, process stat entries, and diskstats. Later disk delta or elapsed-clock failures occur after the header is printed.
+- run.capture --text returns status/stdout/stderr for completed nonzero exits. Test report normalization in crates/xsht/tests/desugar.rs only retains native test outcome lines; it does not expose child capture fields.
+- Transformed test body/helper around sample_tool and -m invocation is textually unchanged. Transformed iostat.xsh and lib.procps.xsh both work directly with the same header.
+- No direct cause or failing child status was recovered. No source edits or commit were made; adding status diagnostics alone would be observability, not a repair.

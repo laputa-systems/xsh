@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_index_from_end","source_hash":"be3c3e7c9b5db78b977d497d57960a9c8a09f5b22293236a1ab27fa9aeee6344","records":[{"tag_name":"ExprIndexFromEnd","tag_ordinal":58,"route":"generic_operand_apply_path","mode":"forced"}]}

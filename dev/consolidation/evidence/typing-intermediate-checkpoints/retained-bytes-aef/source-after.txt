@@ -1,0 +1,5 @@
+head=aef756e1a4dfbfdf6bd36c43c29f8637206e8bd3
+tree=953e452331fbb7771b9d2d0ed4b69a54680a18dc
+status=
+schemes_sha256=fd20d27ddfbccdc9f9de77bbcb40f54dedbbd08dccf69d538e75dd8ea11ae759  /home/josh/d/laputa-systems/xsh/.work/wt/typing-rank1-integration/src/sema/schemes.rs
+harness_sha256=64dc0169761f56fecf0e209de37558c0fc599ca2c6c96ab3c04b15e2cf3b4d71  /home/josh/d/laputa-systems/xsh/.work/target-typing-regressions/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2

@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_map_literal","source_hash":"1007eca215acee5a266178c3c980834f9615efe6545687e490e3cfc5cfb96cec","records":[{"tag_name":"ExprMapLiteral","tag_ordinal":45,"route":"in_place_evaluator_path","mode":"normal"}]}

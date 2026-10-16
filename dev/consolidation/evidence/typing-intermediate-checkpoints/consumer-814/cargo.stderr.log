@@ -1,0 +1,8 @@
+   Compiling xsh-registry v0.0.1 (/work/crates/xsh-registry)
+    Checking xsh-net v0.0.1 (/work/crates/xsh-net)
+    Checking xsh-applets v0.0.1 (/work/crates/xsh-applets)
+    Checking xsh-root v0.0.1 (/work/crates/xsh-root)
+    Checking regex-lite v0.1.9 (/work/third_party/regex-lite)
+   Compiling xsh v0.0.1 (/work)
+    Checking xsht v0.0.1 (/work/crates/xsht)
+    Finished `dev` profile [unoptimized] target(s) in 14.12s
