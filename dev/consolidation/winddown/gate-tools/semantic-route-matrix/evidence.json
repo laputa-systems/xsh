@@ -4786,6 +4786,15 @@
     "tests/xsh/operand-order-scalars.xsh",
     "tests/xsh/operand-order-simple-statements.xsh",
     "tests/xsh/statement-route-oracles.xsh",
-    "tests/xsh/typed-scalar-route-oracles.xsh"
+    "tests/xsh/typed-scalar-route-oracles.xsh",
+    "tests/xsh/fs-path-frame-oracles.xsh",
+    "tests/xsh/operand-order-control-oracles.xsh",
+    "tests/xsh/operand-order-host.xsh",
+    "tests/xsh/operand-order-resume-oracles.xsh",
+    "tests/xsh/stdlib/archive.xsh",
+    "tests/xsh/stdlib/process.xsh",
+    "tests/xsh/stdlib/process_frames.xsh",
+    "tests/xsh/test-declarations.xsh",
+    "tests/xsh/with-resource.xsh"
   ]
 }
