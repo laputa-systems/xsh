@@ -1,0 +1,2 @@
+guest_exit=101
+qemu_exit=0
