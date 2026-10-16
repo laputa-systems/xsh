@@ -92,7 +92,7 @@ export pure select(paths: List[Str]) -> Result[Selection, Error] {
   {areas: areas, native_files: native_files}
 }
 
-pure rust_gate(ctx: context.Context, profile: tests.TestProfile, name: Str, args: List[Str], debug: Bool = false) -> Result[contract.CommandSpec, Error] {
+pure rust_gate(ctx: context.Context, profile: tests.TestProfile, name: Str, args: List[Str], debug = false) -> Result[contract.CommandSpec, Error] {
   let profile_args = if debug { [] } else { ["--profile", tests.profile_name(profile)] }
   stages.command(name, ctx.target.triple, "cargo",
     ["cargo", "test", "--locked", "--target", ctx.target.triple, @profile_args, @args],
