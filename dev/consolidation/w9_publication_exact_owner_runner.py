@@ -22,7 +22,6 @@ EXACT_OWNER_HASH_LIBTEST_PREFIX = f"test {EXACT_OWNER_TEST} ... "
 SOURCE_AUDIT_HASH_PREFIX = "w9sourceaudit-hash"
 EXACT_OWNER_HELPER = pathlib.Path(__file__).with_name("w9-publication-exact-owners.rs")
 EXACT_OWNER_HELPER_SHA256 = "8056e761741414339cd10ffb6f2440aaeceeae63efa6eb3eca738af86949a048"
-ASSIGNMENT_FACTS_HELPER = pathlib.Path(__file__).with_name("w9-publication-assignment-facts.rs")
 ASSIGNMENT_FACTS_SCHEMA = "1"
 ASSIGNMENT_PROOF_AUTHORITY_SOURCES = (
     "dev/consolidation/w9-publication-assignment-facts.rs",
@@ -1508,8 +1507,19 @@ def _open_append_only(path: pathlib.Path, contents: bytes, runner) -> None:
         os.close(parent)
 
 
-def _load_exact_helper(runner) -> tuple[pathlib.Path, bytes, str]:
-    helper = runner.regular_file(EXACT_OWNER_HELPER, "approved exact-owner Rust helper")
+def _load_exact_helper(
+    runner, source_record: Mapping[str, str] | None = None
+) -> tuple[pathlib.Path, bytes, str]:
+    if source_record is not None and source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA:
+        helper_root = runner.real_directory(
+            runner.CONTROLLER_ROOT, "exact-owner helper controller root"
+        )
+        if source_record.get("controller_root") != str(helper_root):
+            raise ExactOwnerError("exact-owner helper controller root differs from its source receipt")
+        helper_path = helper_root / "dev/consolidation/w9-publication-exact-owners.rs"
+    else:
+        helper_path = EXACT_OWNER_HELPER
+    helper = runner.regular_file(helper_path, "approved exact-owner Rust helper")
     contents = runner.read_regular_bytes(helper)
     digest = hashlib.sha256(contents).hexdigest()
     if not EXACT_OWNER_HELPER_SHA256 or digest != EXACT_OWNER_HELPER_SHA256:
@@ -1571,7 +1581,9 @@ def _compose_exact_helper(
 
 
 def _assignment_controller_identity(runner) -> tuple[pathlib.Path, str, str]:
-    controller_root = runner.real_directory(adapter_runner.ROOT, "assignment helper controller root")
+    controller_root = runner.real_directory(
+        runner.CONTROLLER_ROOT, "assignment helper controller root"
+    )
     commit, tree = runner.source_identity(controller_root)
     if runner.git_output(controller_root, "status", "--porcelain"):
         raise ExactOwnerError("assignment helper controller source is not clean")
@@ -1629,12 +1641,15 @@ def _assignment_historical_controller_identity(
 def _assignment_facts_helper_source(
     controller_root: pathlib.Path, runner
 ) -> tuple[pathlib.Path, bytes, str]:
+    expected_controller_root = runner.real_directory(
+        runner.CONTROLLER_ROOT, "assignment facts helper controller root"
+    )
+    if controller_root != expected_controller_root:
+        raise ExactOwnerError("assignment facts helper controller root differs from the runner")
     helper = runner.regular_file(
-        controller_root / "dev/consolidation/w9-publication-assignment-facts.rs",
+        expected_controller_root / "dev/consolidation/w9-publication-assignment-facts.rs",
         "controller assignment facts Rust helper",
     )
-    if helper != ASSIGNMENT_FACTS_HELPER:
-        raise ExactOwnerError("assignment facts helper path differs from the controller pin")
     contents = runner.read_regular_bytes(helper)
     return helper, contents, hashlib.sha256(contents).hexdigest()
 
@@ -1707,7 +1722,9 @@ def _assignment_base_context(
         or exact_build.get("source_receipt_sha256") != runner.sha256_file(source_receipt)
     ):
         raise ExactOwnerError("candidate exact-owner build uses a different source cohort")
-    exact_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(runner)
+    exact_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(
+        runner, source_record
+    )
     exact_capture, _ranges, _hashes = _parse_exact_capture_receipt(
         exact_capture_receipt,
         "candidate",
@@ -2534,7 +2551,9 @@ def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> N
     owner_helper_source, _owner_helper_source_bytes = (
         adapter_runner._source_cohort_owner_helper_source(source_record, runner)
     )
-    owner_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(runner)
+    owner_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(
+        runner, source_record
+    )
     helper_attempt = adapter_runner._new_derived_helper_directory(candidate_root, runner)
     previous_root = adapter_runner.ROOT
     try:
@@ -3362,7 +3381,9 @@ def capture_exact_owner_role(args: argparse.Namespace, bootstrap_runner) -> int:
         or build["source_receipt_sha256"] != runner.sha256_file(source_receipt)
     ):
         raise ExactOwnerError(f"{role} exact-owner build uses a different source receipt")
-    exact_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(runner)
+    exact_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(
+        runner, source_record
+    )
     helper_path = runner.regular_file(build["helper_path"], f"{role} exact-owner derived helper")
     if not runner.under(helper_path, candidate_root / ".work"):
         raise ExactOwnerError(f"{role} exact-owner helper is outside candidate .work/: {helper_path}")
@@ -3817,7 +3838,9 @@ def validate_proof(
         or build["source_receipt_sha256"] != runner.sha256_file(source_receipt)
     ):
         raise ExactOwnerError(f"{role} exact-owner build uses a different source receipt")
-    exact_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(runner)
+    exact_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(
+        runner, source_record
+    )
     helper_path = runner.regular_file(build["helper_path"], f"{role} exact-owner derived helper")
     if not runner.under(helper_path, candidate_root / ".work"):
         raise ExactOwnerError(f"{role} exact-owner helper is outside candidate .work/: {helper_path}")
@@ -4049,7 +4072,7 @@ def main(argv: list[str] | None = None) -> int:
                 expected_inputs, _paths_by_name, _reference = _validate_source_inputs(record, runner)
                 if len(expected_inputs) != 1690:
                     raise ExactOwnerError(f"candidate input count differs: {len(expected_inputs)}")
-                _helper, _bytes, digest = _load_exact_helper(runner)
+                _helper, _bytes, digest = _load_exact_helper(runner, record)
                 print(
                     f"preflight ok: candidate={record['candidate_commit']}:{record['candidate_tree']} "
                     f"corpus=1690 exact_helper_sha256={digest} reference={args.reference_source_root}"

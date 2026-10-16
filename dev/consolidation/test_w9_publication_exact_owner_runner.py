@@ -718,8 +718,9 @@ class ExactOwnerHelperSourceTests(unittest.TestCase):
         )
 
     def test_assignment_facts_composition_removes_unused_exact_owner_functions(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
         suffix = exact_runner._assignment_facts_helper_suffix(
-            exact_runner.ASSIGNMENT_FACTS_HELPER.read_bytes(),
+            (repository / "dev/consolidation/w9-publication-assignment-facts.rs").read_bytes(),
             exact_runner.EXACT_OWNER_HELPER.read_bytes(),
         )
 
@@ -1227,7 +1228,7 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
         self.runner = adapter_runner._load_publication_runner(
             self.repository / "dev/consolidation/w9-publication-run.py"
         )
-        scratch_root = self.repository / ".work/tmp"
+        scratch_root = self.runner.CONTROLLER_ROOT / ".work/tmp"
         scratch_root.mkdir(parents=True, exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(
             prefix="w9-assignment-facts-validation-", dir=scratch_root
@@ -1299,12 +1300,18 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
         self.exact_helper_path = (
             self.controller_consolidation / "w9-publication-exact-owners.rs"
         )
-        shutil.copyfile(exact_runner.ASSIGNMENT_FACTS_HELPER, self.assignment_helper_path)
+        shutil.copyfile(
+            self.repository / "dev/consolidation/w9-publication-assignment-facts.rs",
+            self.assignment_helper_path,
+        )
         shutil.copyfile(
             self.repository / "dev/consolidation/w9_assignment_facts.py",
             self.validator_path,
         )
-        shutil.copyfile(exact_runner.EXACT_OWNER_HELPER, self.exact_helper_path)
+        shutil.copyfile(
+            self.repository / "dev/consolidation/w9-publication-exact-owners.rs",
+            self.exact_helper_path,
+        )
         subprocess.run(
             ["git", "init", "--quiet", str(self.controller_root)],
             check=True,
@@ -1324,6 +1331,15 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
             stderr=subprocess.PIPE,
         )
         self._commit_controller()
+        controller_commit, controller_tree = self.runner.source_identity(self.controller_root)
+        self.source_record["controller_root"] = str(self.controller_root)
+        self.source_record["controller_commit"] = controller_commit
+        self.source_record["controller_tree"] = controller_tree
+        controller_work = self.controller_root / ".work"
+        controller_work.mkdir()
+        (controller_work / "consolidation").mkdir()
+        exclude = self.controller_root / ".git/info/exclude"
+        exclude.write_text(exclude.read_text(encoding="utf-8") + ".work/\n", encoding="utf-8")
         self.outside_capture_root = self.root / "outside-capture"
         self.outside_capture_root.mkdir()
         self.base_build = {
@@ -1361,7 +1377,7 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
         }
         self.helper_identity = self._helper_identity()
         self.capture_root = (
-            self.runner.CONTROLLER_ROOT
+            self.controller_root
             / ".work/captures"
             / f"assignment-{self.root.name}"
         )
@@ -1537,16 +1553,7 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
             raise AssertionError(path)
 
         with (
-            mock.patch.object(adapter_runner, "ROOT", self.controller_root),
-            mock.patch.object(
-                exact_runner, "ASSIGNMENT_FACTS_HELPER", self.assignment_helper_path
-            ),
-            mock.patch.object(exact_runner, "EXACT_OWNER_HELPER", self.exact_helper_path),
-            mock.patch.object(
-                exact_runner,
-                "EXACT_OWNER_HELPER_SHA256",
-                self.runner.sha256_file(self.exact_helper_path),
-            ),
+            mock.patch.object(self.runner, "CONTROLLER_ROOT", self.controller_root),
             mock.patch.object(
                 adapter_runner,
                 "_load_candidate_publication_runner",
@@ -1691,6 +1698,37 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
         self.assertEqual(set(proofs), set(self.expected_inputs))
         self.assertEqual(module.SCHEMA_HEADER, "w9-assignment-facts\t1")
         self.assertEqual(record["input_count"], "1690")
+
+    def test_source_qualified_helper_paths_come_from_runner_controller(self):
+        consumer_root = pathlib.Path(exact_runner.__file__).resolve().parents[2]
+        self.assertNotEqual(consumer_root, self.controller_root)
+
+        with mock.patch.object(self.runner, "CONTROLLER_ROOT", self.controller_root):
+            exact_path, exact_bytes, exact_digest = exact_runner._load_exact_helper(
+                self.runner, self.source_record
+            )
+            assignment_path, assignment_bytes, assignment_digest = (
+                exact_runner._assignment_facts_helper_source(
+                    self.controller_root, self.runner
+                )
+            )
+
+        self.assertEqual(exact_path, self.exact_helper_path)
+        self.assertEqual(exact_digest, self.runner.sha256_file(self.exact_helper_path))
+        self.assertEqual(exact_bytes, self.exact_helper_path.read_bytes())
+        self.assertEqual(assignment_path, self.assignment_helper_path)
+        self.assertEqual(assignment_digest, self.runner.sha256_file(self.assignment_helper_path))
+        self.assertEqual(assignment_bytes, self.assignment_helper_path.read_bytes())
+
+        wrong_record = dict(self.source_record, controller_root=str(self.root / "other-controller"))
+        with (
+            mock.patch.object(self.runner, "CONTROLLER_ROOT", self.controller_root),
+            self.assertRaisesRegex(
+                exact_runner.ExactOwnerError,
+                "helper controller root differs from its source receipt",
+            ),
+        ):
+            exact_runner._load_exact_helper(self.runner, wrong_record)
 
     def test_stale_identity_cohort_and_receipt_associations_are_rejected(self):
         wrong = {
@@ -1959,7 +1997,7 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
         self._commit_controller()
         with self.assertRaisesRegex(
             exact_runner.ExactOwnerError,
-            "assignment proof authority source differs",
+            "approved exact-owner Rust helper SHA-256 differs from its pin",
         ):
             self._validate()
 
@@ -1969,6 +2007,9 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
         reference_module = self.controller_consolidation / "w9_publication_reference_derivation.py"
         reference_module.write_text("REFERENCE_SCHEMA = 3\n", encoding="utf-8")
         self._commit_controller()
+        self.source_record["controller_commit"], self.source_record["controller_tree"] = (
+            self.runner.source_identity(self.controller_root)
+        )
         _proofs, _module, record = self._validate()
         self.assertEqual(record["controller_commit"], recorded_commit)
         self.assertEqual(record["controller_tree"], recorded_tree)
