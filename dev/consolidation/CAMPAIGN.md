@@ -1,38 +1,52 @@
 # XSH Consolidation Campaign
 
-Status: active and incomplete at main checkpoint `ccd844030`. Scheduler change
-`75fc` is integrated and source-identical to reviewed `3f536`. Its all-features
-metadata check reports no rustc warnings or errors. The canonical and script
-batches remain pending.
+Status: active and incomplete at main commit
+`7b1485310abdf2190ce4532d840114e74ff7c2cd`, tree
+`0f3394902504cbe5271edd8916f504bd493f091a`.
 
-W9 source guard reviews pass for all path commits. Fixture repair `631` is
-integrated, and the corrected main W9 combined run passes 270/270. Controller
-`237ab426` has a sealed schema-4 receipt. Its base and composed d20 builds pass
-with `success=true` and `fresh=false`. Seven Rust source, owner, and assignment
-tests pass against unchanged snapshots. These results qualify only those pins.
-No final W9 seal, build, capture, or comparison has run, so no final corpus
-parity is qualified.
+The full canonical native run on main source `7b1485310abdf2190ce4532d840114e74ff7c2cd`
+terminated with receipt status `failed-or-incomplete`, exit 3. Cleanup resolved,
+and the source was clean through the end. The native suite reports 13,902
+passed, 3 failed, and 78 skipped. Root Rust (747 passed, 3 ignored), root
+integration (223 passed), XSHT (116 passed, 5 filtered), and soundness (14
+passed) stages passed.
 
-The canonical batch on `e89e35f29` has not rerun. Focused repairs cover all 13
-native failures, and the corrected four-caller gate passes 45/45. Observer
-readiness repair `747` and its self-test pass. The resource batch remains
-required, and disposable launch pins need setup. Route target `79` passes 64
-self-tests and seven wrapper tests. Its 92 mapped files still match source pin
-`7d`, but final product pins are separate and its 184 actual outputs remain
-unrun.
+The three native failures are GNU rm ext3perf (exit 3, empty stderr; failure
+entry at stdout line 9,121), uu-sort `buffer_sizes` (timeout at 4 minutes,
+canceled with signal 15), and PCI capture identity links (EAGAIN, errno 11, 9
+ms; failure entry at stdout line 15,061). The run does not establish that the
+GNU rm failure was a timeout. Default-product restoration remains available as
+a separate step for downstream focused gates and does not change the failed
+canonical result. Three hostname cases pass on source-identical fix
+`63734367c`. The source check passes on this tree:
+`blanket_dead_code_lines=0`, `lowering_type_resolver_definitions=0`,
+`manual_payload_calls=0`, `optional_raw_calls=0`, and
+`wide_arena_wildcards=0`; counts are 152 instructions, 17 patterns, 46 stages,
+5 factories, 1 predicate, and 2 storage mappings. The 268,495-line source
+count is advisory.
 
-Inference revision `28286879` passes 15 of 16 tests. The remaining rest test
-mutates a scheme and leaves unowned rows. Its fixture proof repair is pending.
-Capture harness `b538` ran all 15 tests. Twelve passed and three fixture
-failures remain under repair. The prior `bddb` run passed 8 of 15 tests. Memory
-baseline `fd8` passes the exact witness and five repeats with identical
-allocation counts. Arc candidate `2b4` builds, and its ownership check and five
-selectors pass. Five alternating direct-harness baseline/candidate pairs pass
-with identical allocation counts per arm and lower candidate allocation
-traffic. This comparison makes no timing or RSS claim. Earlier Cargo-invoked
-metrics remain separate. No inference implementation is on main. Consolidation
-has no functional close or performance credit. Lean and Phase F remain paused. See the
-[current handoff](HANDOFF.md) for the lane results and remaining gates.
+W9 final parity is not qualified. The 7b attempt stopped at helper compile
+error E0061. Isolated repair commits `f1e1d08` and `8932aaed` have reviewed
+reference, candidate, and derived builds (`fresh=false`), three passing
+structured fixtures, and 270 passing Python tests; integration, fresh capture
+of 1,690 inputs, and comparison of 6,760 outcomes remain pending. The
+profile-cost fallback cleanup `322889` is isolated. Correctness-input plan
+`8dae13e` is on HOLD pending owner approval because the original ignored
+manifest has not been recovered.
+
+Isolated inference pipeline `7a7418b5` passed 17 Rust and 20 native selectors;
+capture source `46ce549a` passed its Rust selectors. Root accepted the isolated
+Arc storage change after source, evidence, and ownership review. Its capture
+integration worktree now points to `e4d282457672a1fc87464c051820ebb64a9eb857`,
+tree `aa7eda1ae791a622cf831937a3f45cb2f94c3a02`; 16 candidate controls and 5
+matched pairs pass with lower candidate allocation traffic. It remains off
+main and distinct from the generic inference pipeline. No time, RSS, or general
+performance result is established. Evidence commit
+`cfcdd2737a941468d5d680d4e2418f289c0065bf` records the checks and allocation
+pairs in `dev/consolidation/evidence/typing-capture-memory-e4/`. The fast-forward
+adds no new runtime pass. Consolidation has no functional close or performance
+credit. Lean and Phase F remain paused. See the [current handoff](HANDOFF.md)
+for scoped evidence and the remaining gates.
 
 ## Owner steering, 2026-10-15
 
@@ -910,6 +924,38 @@ selection or fastest-profile claim is required.
 | Freeze on expressive surface | Rules |
 
 ## Handoff log
+
+### 2026-10-16 — main 7b checkpoint
+
+Main is frozen at `7b1485310abdf2190ce4532d840114e74ff7c2cd`, tree
+`0f3394902504cbe5271edd8916f504bd493f091a`. The full canonical native run
+started at 15:21 UTC and terminated `failed-or-incomplete`, exit 3. Cleanup
+resolved and the source was clean through the end. The native suite reports
+13,902 passed, 3 failed, and 78 skipped. Root Rust (747 passed, 3 ignored),
+root integration (223 passed), XSHT (116 passed, 5 filtered), and soundness
+(14 passed) stages passed.
+
+The failures are GNU rm ext3perf (exit 3, empty stderr; failure entry at stdout
+line 9,121; not established to be a timeout), uu-sort `buffer_sizes` (timeout
+after 4 minutes, canceled with signal 15), and PCI capture identity links
+(EAGAIN, errno 11, 9 ms; failure entry at stdout line 15,061). Three hostname
+cases pass on source-identical fix `63734367c`. The source check passes with
+`blanket_dead_code_lines=0`, `lowering_type_resolver_definitions=0`,
+`manual_payload_calls=0`, `optional_raw_calls=0`, and `wide_arena_wildcards=0`.
+Current instruction, pattern, stage, factory, predicate, storage, and advisory
+source counts are in the [handoff](HANDOFF.md).
+
+The final W9 attempt stopped at E0061; reviewed isolated repairs have focused
+build, fixture, and Python evidence, but final capture and comparison remain
+pending. The diagnostic baseline is unqualified because the source of older
+`27ec`/`0f204` binaries is unknown; it is separate from fallback cleanup
+`322889`. The correctness-input plan is on hold for owner approval. Isolated
+inference selectors pass on their named sources. Root accepted the isolated
+Arc storage change at `e4d282457672a1fc87464c051820ebb64a9eb857`; evidence
+commit `cfcdd2737a941468d5d680d4e2418f289c0065bf` records its matched
+allocation results, without a timing or RSS claim. No functional close or
+performance credit is claimed. This checkpoint replaces earlier live-status
+summaries below.
 
 ### 2026-10-11 — resumed with Luna xhigh
 

@@ -1,70 +1,43 @@
 # Consolidation items and ownership
 
 Approved campaign: `CAMPAIGN.md`. Start commit:
-`5e66b6b896a47d0c692739135d51200b007a2a67`. Integration branch:
-`master` in `/home/josh/d/laputa-systems/xsh`; the owner merged consolidation
-into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
+`5e66b6b896a47d0c692739135d51200b007a2a67`. All six design drafts were
+approved on 2026-10-11. The accepted designs and historical ownership records
+remain below; see [`HANDOFF.md`](HANDOFF.md) for the live checkpoint and queue.
 
-**Status: active and incomplete, 2026-10-16.** Main checkpoint `ccd844030`.
-Scheduler change `75fc` is integrated and source-identical to reviewed `3f536`.
-Its all-features metadata check reports no rustc warnings or errors. W9 source
-guard reviews pass for all path commits. Fixture repair `631` is integrated,
-and the corrected main W9 combined run passes 270/270. The canonical and script
-batches remain pending. Controller `237ab426`
-has a sealed schema-4 receipt. Its base and composed d20 builds pass with
-`success=true` and `fresh=false`. Seven Rust source, owner, and assignment
-tests pass against unchanged snapshots. These results qualify only those pins.
-No final W9 seal, build, capture, or comparison has run, so no final corpus
-parity is qualified.
+**Current status: active and incomplete at main commit
+`7b1485310abdf2190ce4532d840114e74ff7c2cd`, tree
+`0f3394902504cbe5271edd8916f504bd493f091a`.** The full canonical native run
+started at 2026-10-16 15:21 UTC and terminated `failed-or-incomplete`, exit 3.
+Cleanup resolved and the source was clean through the end. The native suite
+reports 13,902 passed, 3 failed, and 78 skipped. Root Rust passed 747 with 3
+ignored, root integration passed 223, XSHT passed 116 with 5 filtered, and
+soundness passed 14.
 
-The canonical batch has not rerun after the `e89e35f29` native failures. All 13
-failure causes have focused repairs, and the corrected four-caller gate passes
-45/45. Observer readiness repair `747` and its self-test pass. The resource
-batch remains required, and disposable launch pins need setup. Route target
-`79` passes 64 self-tests and seven wrapper tests. Its 92 mapped files still
-match source pin `7d`, but final product pins are separate and its 184 actual
-outputs remain unrun.
+The failures are GNU rm ext3perf (exit 3, empty stderr; stdout failure entry
+9,121, not established to be a timeout), uu-sort `buffer_sizes` (timeout after
+4 minutes, canceled with signal 15), and PCI capture identity links (EAGAIN,
+errno 11, 9 ms; stdout failure entry 15,061). Three hostname cases pass on
+source-identical fix `63734367c`. The source check reports
+`blanket_dead_code_lines=0`, `lowering_type_resolver_definitions=0`,
+`manual_payload_calls=0`, `optional_raw_calls=0`, and
+`wide_arena_wildcards=0`; 152 instructions, 17 patterns, 46 stages, 5
+factories, 1 predicate, and 2 storage mappings. Source size is 268,495 lines;
+growth is advisory.
 
-Inference revision `28286879` passes 15 of 16 tests. The remaining rest test
-mutates a scheme and leaves unowned rows. Its fixture proof repair is pending.
-Capture harness `b538` ran all 15 tests. Twelve passed and three fixture
-failures remain under repair. The previous `bddb` run passed 8 of 15 tests.
-Memory baseline `fd8` passes the exact witness and five repeats with identical
-allocation counts. Arc candidate `2b4` builds, and its ownership check and five
-selectors pass. Five alternating direct-harness baseline/candidate pairs pass
-with identical allocation counts per arm and lower candidate allocation
-traffic. This comparison makes no timing or RSS claim. Earlier Cargo-invoked
-metrics remain separate. No inference implementation is on main. The campaign
-has no functional close or performance credit. Lean remains paused. See the
-[handoff](HANDOFF.md) for current lane status and remaining acceptance gates.
+W9 final parity is pending after E0061 in the 7b attempt. Reviewed isolated
+repairs have build, fixture, and Python evidence, but no final integration,
+capture, or 1,690-input/6,760-outcome comparison. The correctness-input plan is
+on HOLD pending owner approval. Inference remains isolated and off main; no
+functional close or performance result is claimed. Lean and Phase F remain
+paused. The [handoff](HANDOFF.md) lists the remaining acceptance steps.
 
-**Earlier checkpoints:** The implementation and focused
-repairs are integrated on `master`. The latest bounded corpus-worker and
-fixture repairs pass the exact 197-file desugar check. The 31c profile suite
-passes. Its canonical btop PTY failure led to test-only frame acknowledgements
-and a deterministic regression. Focused checks pass. The final observer can
-reuse a separate Cargo cache without skipping acceptance commands. An earlier
-extra AWK outcome now has a source-pinned cross-file reproducer. Historical
-child output remains missing, and current final gates remain required.
-W9 parity passed 1,690 inputs and 6,760
-outcomes with zero mismatches on `2083821ed`. Independent review qualifies
-that result across the two-file route-witness repair `ae7cf8490`.
-The repair passes its focused unit, hygiene, and authenticated native checks.
-The 88 native attempt exposed a closed-descriptor test race. The assertion now
-runs in an isolated child, retaining its exact errno contract. Focused checks pass.
-Final correctness, performance, and the ten semantic review rows remain open.
-The 122 profile suite passes. Its canonical XSHT failures led to the reviewed
-inline-separator repair, manual collect migrations, and isolation of the exact
-lint budget test. Focused checks pass. Final gates require the repaired freeze.
-[`HANDOFF.md`](HANDOFF.md) records current acceptance, integrated work, and
-remaining gates; the older grants and progress states below are planning and
-historical context, not a live lane queue. The campaign is active and
-incomplete. The separate formal inventory has 685 fragment roots across 89
-owners, with all 72 universal obligations planned and `source_identity` null.
-It establishes no Rust conformance. The current pinned
-verification image is
+**Earlier checkpoints:** the progress and verification entries below are
+historical and source-specific. They are not the current work queue. The
+separate formal inventory does not establish Rust conformance. The pinned
+verification image remains
 `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`;
-all development and final platform gates are x86_64 Linux musl.
+development and final platform gates use x86_64 Linux musl.
 
 **Owner update, 2026-10-11:** source-line and touched-line budgets below are
 advisory estimates. Source growth, temporary ceilings, and final strict shrink
@@ -250,7 +223,7 @@ exceptions to the default zero-growth budget, not waivers of final ratchets.
   Adding a sized thread to the stub does not fix a stack defect. Reconcile
   the stale TODO rather than restore the removed interactive implementation.
 
-## Revalidation evidence
+## Historical revalidation evidence
 
 - Instruction table: 158 instruction variants (6 integer, 12 boolean,
   97 expression, 43 statement), 18 patterns and 46 stages. Manual execution
@@ -300,28 +273,21 @@ imports currently use `source.invalid-utf8`, not `parse.module-read`.
 
 ## Verification state
 
-The active pinned image is `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`.
-Development and final platform verification both use x86_64 Linux musl in
-`Dockerfile.test`; ARM64 and macOS are outside campaign scope. The initial
-source-qualified native baseline passed 5,996 cases with 118 capability or
-fixture skips. That baseline and its 1,162-file check are historical evidence,
-not current full acceptance. The 2026-10-13 checkpoint and current unresolved
-gates are in [`HANDOFF.md`](HANDOFF.md).
+The active pinned image is
+`sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`.
+Development and final platform gates use x86_64 Linux musl in
+`Dockerfile.test`; ARM64 and macOS are outside campaign scope. The terminal 7b
+result and failure details are recorded in [`HANDOFF.md`](HANDOFF.md). Restoring
+products separately may support downstream focused gates, but does not change
+the failed canonical result.
 
-Campaign-owned worktrees and scratch are kept under the repository's ignored
-`.work/`; older paths below describe preserved historical evidence. No
-worktree or build cache goes in `/tmp`. Compilation is serialized
-independently of agent concurrency, and only one full native corpus runs at a
-time. Historical final attempts do not accept the repaired source. Its lint
-preflight and focused checks pass; fresh W9 and structural qualification, nine
-passing full native suites, and remaining final acceptance are still required.
-The nine runs are canonical normal, selected release opt3 correctness,
-forced-frame, and three reference/candidate scheduler pairs. The profile-
-selection waiver preserves the selected release correctness run.
+Remaining acceptance is the final canonical result, 184 route outputs, final
+W9 capture and parity, ten semantic review rows, and functional close. Resource,
+profile, forced-frame, and scheduler comparisons follow functional close and
+must use the existing readiness checks. The initial source-qualified native
+baseline and 1,162-file check are historical evidence, not current acceptance.
 
-The owner subsequently excluded `dev/compat` from check and lint while its
-campaign remains WIP. Project discovery excludes its XSH scripts; the
-consolidation batch also omits compatibility ratchets. Preserve tests and
-tools for that campaign's explicit runs. Laputa verification stays focused
-and lightweight; full sibling formatting and lint-invariance corpus tests
-are filtered from automatic consolidation gates.
+Campaign worktrees and scratch stay under ignored `.work/`; only one full
+native corpus runs at a time. The owner excludes `dev/compat` from check/lint
+while that campaign remains WIP; its XSH scripts and ratchets stay outside this
+campaign's automatic gates. Laputa verification remains focused and lightweight.
