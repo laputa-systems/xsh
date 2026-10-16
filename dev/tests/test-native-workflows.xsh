@@ -25,9 +25,10 @@ test test_linux_root_native_tests_use_the_host_identity_and_home { |ctx|
 use unix
 let home = env.get("HOME")?
 let temp = env.get("TMPDIR")?
+let cache = env.get("XDG_CACHE_HOME")?
 fp"{{home}}/probe".write("writable")?
 fp"{{temp}}/probe".write("temporary")?
-p"{log}".write(f"{{unix.id()?.euid}}|{{unix.id()?.egid}}|{{home}}|{{env.get("TMPDIR")?}}|{{args.join("|")}}")?
+p"{log}".write(f"{{unix.id()?.euid}}|{{unix.id()?.egid}}|{{home}}|{{temp}}|{{cache}}|{{args.join("|")}}")?
 """,
     mode: 0o755,
   )
@@ -43,12 +44,12 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{unix.id()?.egid}}|{{home}}|{{env.get("TMP
   let padded_uid = f"00{host_uid}"
   let padded_gid = f"0{host_gid}"
 
-  env HOST_UID=$padded_uid HOST_GID=$padded_gid {
+  env HOST_UID=$padded_uid HOST_GID=$padded_gid XDG_CACHE_HOME="/root/.cache" {
     test_workflows.native(workflow_context, test_workflows.Verification,
       ["--exact", "native-workflow-contract"])
   }
 
-  assert log.read_text()? == f"{host_uid}|{host_gid}|{home}|{temp}|test|--exact|native-workflow-contract"
+  assert log.read_text()? == f"{host_uid}|{host_gid}|{home}|{temp}|{home}/.cache|test|--exact|native-workflow-contract"
   assert fp"{home}/probe".read_text()? == "writable"
   assert fp"{temp}/probe".read_text()? == "temporary"
   assert fs.stat(scratch)?.uid == host_uid and fs.stat(scratch)?.gid == host_gid
@@ -142,7 +143,8 @@ test test_linux_nonroot_native_tests_keep_the_callers_environment { |ctx|
   fp"{product_dir}/xsht".write(
     f"""#!{ctx.xsh_bin}
 use unix
-p"{log}".write(f"{{unix.id()?.euid}}|{{env.get("HOME")?}}|{{env.get("TMPDIR")?}}|{{args.join("|")}}")?
+let cache = env.get("XDG_CACHE_HOME")?
+p"{log}".write(f"{{unix.id()?.euid}}|{{env.get("HOME")?}}|{{env.get("TMPDIR")?}}|{{cache}}|{{args.join("|")}}")?
 """,
     mode: 0o755,
   )
@@ -153,17 +155,19 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{env.get("HOME")?}}|{{env.get("TMPDIR")?}}
   let identity = unix.id()?
   let home = fp"{fixture_root}/home"
   let temp = fp"{fixture_root}/temp"
+  let cache = fp"{fixture_root}/cache"
   let home_value = home.display()
   let temp_value = temp.display()
+  let cache_value = cache.display()
   home.mkdir()
   temp.mkdir()
 
-  env HOST_UID="" HOST_GID="" HOME=$home_value TMPDIR=$temp_value PATH="" {
+  env HOST_UID="" HOST_GID="" HOME=$home_value TMPDIR=$temp_value XDG_CACHE_HOME=$cache_value PATH="" {
     test_workflows.native(workflow_context, test_workflows.Verification,
       ["--exact", "native-workflow-contract"])
   }
 
-  assert log.read_text()? == f"{identity.euid}|{home}|{temp}|test|--exact|native-workflow-contract"
+  assert log.read_text()? == f"{identity.euid}|{home}|{temp}|{cache}|test|--exact|native-workflow-contract"
 }
 
 test test_nonlinux_native_tests_keep_the_direct_command { |ctx|
