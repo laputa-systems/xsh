@@ -2420,9 +2420,9 @@ def build_assignment_facts_harness(args: argparse.Namespace, bootstrap_runner) -
         binary,
         {
             **runner.local_docker_environment(),
-            "W9_SOURCE_COMMIT": source_record["candidate_commit"],
-            "W9_SOURCE_TREE": source_record["candidate_tree"],
+            **adapter_runner._source_qualified_runtime_environment(source_record),
         },
+        pathlib.Path(source_record["program_root"]),
     )
     print(
         f"assignment_helper={helper_identity['assignment_helper_path']} "
@@ -3794,7 +3794,7 @@ def validate_proof(
         source_record["candidate_commit"], source_record["candidate_tree"]
     ):
         raise ExactOwnerError("candidate source identity differs from its source receipt")
-    expected_inputs, _paths_by_name, reference = _validate_source_inputs(source_record, runner)
+    expected_inputs, paths_by_name, reference = _validate_source_inputs(source_record, runner)
     if len(expected_inputs) != 1690:
         raise ExactOwnerError(f"candidate input count differs: {len(expected_inputs)}")
     reference_root = adapter_runner._prepare_reference_source(

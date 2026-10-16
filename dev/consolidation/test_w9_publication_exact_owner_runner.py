@@ -6,6 +6,7 @@ import json
 import tempfile
 import shutil
 import subprocess
+import contextlib
 import unittest
 from unittest import mock
 from types import SimpleNamespace
@@ -1887,6 +1888,63 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
 
         build_adapter.assert_not_called()
 
+    def test_assignment_build_listing_uses_source_qualified_program_environment(self):
+        helper_path = self.candidate_work / "assignment-derived" / "w9-publication-adapter.rs"
+        helper_bytes = exact_runner._compose_assignment_facts_helper(
+            self.base_helper_path.read_bytes(),
+            self.assignment_helper_path.read_bytes(),
+            self.exact_helper_path.read_bytes(),
+        )
+        generic_build = {
+            "helper_path": str(helper_path),
+            "helper_sha256": hashlib.sha256(helper_bytes).hexdigest(),
+            "binary": str(self.binary),
+        }
+        listing = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=f"{exact_runner.EXACT_OWNER_TEST}: test\n",
+            stderr="",
+        )
+        original_run = subprocess.run
+
+        def run(command, **kwargs):
+            if command[0] == self.source_record["builder_path"]:
+                return listing
+            return original_run(command, **kwargs)
+
+        with (
+            mock.patch.object(
+                self.runner,
+                "local_docker_environment",
+                return_value={"PATH": "/usr/bin"},
+            ),
+            mock.patch.object(
+                adapter_runner,
+                "_parse_adapter_build_receipt",
+                return_value=generic_build,
+            ),
+            mock.patch.object(
+                exact_runner.subprocess,
+                "run",
+                side_effect=run,
+            ) as run,
+        ):
+            self._run_assignment_build(
+                build_adapter=mock.Mock(
+                    return_value=(self.binary, self.assignment_build_receipt)
+                )
+            )
+
+        command = run.call_args.args[0]
+        environment = run.call_args.kwargs["env"]
+        self.assertIn(f"W9_PROGRAM_ROOT={self.source_record['program_root']}", command)
+        self.assertEqual(
+            environment["W9_PROGRAM_ROOT"], self.source_record["program_root"]
+        )
+        self.assertEqual(environment["W9_SOURCE_COMMIT"], self.source_commit)
+        self.assertEqual(environment["W9_SOURCE_TREE"], self.source_tree)
+
     def test_changed_assignment_validator_cannot_reuse_capture(self):
         self.validator_path.write_bytes(self.validator_path.read_bytes() + b"\n")
         self._commit_controller()
@@ -2384,6 +2442,144 @@ class SourceQualifiedExactOwnerReceiptTests(unittest.TestCase):
                 )
 
         legacy_capture_reader.assert_not_called()
+
+    def test_full_proof_validation_passes_manifest_paths_to_owner_validation(self):
+        source_record = dict(
+            self.source_record,
+            schema="1",
+            candidate_root=str(self.candidate_root),
+            candidate_commit=self.source_commit,
+            candidate_tree=self.source_tree,
+        )
+        expected_inputs = {
+            index: self.runner.ManifestSource(f"src/{index}.xsh", f"{index + 1:064x}", 0o444)
+            for index in range(1690)
+        }
+        input_paths = {
+            item.relative_path: str(self.input_root / item.relative_path)
+            for item in expected_inputs.values()
+        }
+        helper_path = self.candidate_root / ".work/exact-owner-helper.rs"
+        helper_path.parent.mkdir(parents=True)
+        helper_path.write_bytes(b"qualified exact-owner helper\n")
+        self.binary.chmod(0o700)
+        build = {
+            "schema": "1",
+            "source_root": str(self.source_root),
+            "source_commit": self.source_commit,
+            "source_tree": self.source_tree,
+            "helper_path": str(helper_path),
+            "helper_sha256": self.runner.sha256_file(helper_path),
+            "binary": str(self.binary),
+            "binary_sha256": self.runner.sha256_file(self.binary),
+        }
+        self.exact_capture_receipt.write_text("schema\t1\n", encoding="utf-8")
+        capture = {
+            "legacy_capture_receipt": str(self.adapter_capture_receipt),
+            "legacy_capture_receipt_sha256": self.runner.sha256_file(
+                self.adapter_capture_receipt
+            ),
+            "raw_root": str(self.root / "exact-raw"),
+        }
+        exact_hashes = {index: "d" * 64 for index in expected_inputs}
+        original_build = {
+            "source_commit": self.source_commit,
+            "source_tree": self.source_tree,
+        }
+        observed_owner_context = []
+
+        def validate_owners(*args, **kwargs):
+            observed_owner_context.append(kwargs)
+            return {}
+
+        with (
+            mock.patch.object(
+                adapter_runner,
+                "_load_candidate_publication_runner",
+                return_value=self.runner,
+            ),
+            mock.patch.object(
+                self.runner, "parse_candidate_receipt", return_value=source_record
+            ),
+            mock.patch.object(
+                self.runner,
+                "source_identity",
+                return_value=(self.source_commit, self.source_tree),
+            ),
+            mock.patch.object(
+                exact_runner,
+                "_validate_source_inputs",
+                return_value=(expected_inputs, input_paths, None),
+            ),
+            mock.patch.object(
+                adapter_runner,
+                "_prepare_reference_source",
+                return_value=self.source_root,
+            ),
+            mock.patch.object(
+                adapter_runner, "_parse_adapter_build_receipt", return_value=build
+            ),
+            mock.patch.object(
+                exact_runner,
+                "_load_exact_helper",
+                return_value=(
+                    exact_runner.EXACT_OWNER_HELPER,
+                    exact_runner.EXACT_OWNER_HELPER.read_bytes(),
+                    self.runner.sha256_file(exact_runner.EXACT_OWNER_HELPER),
+                ),
+            ),
+            mock.patch.object(exact_runner, "_validate_exact_helper_artifact"),
+            mock.patch.object(
+                adapter_runner,
+                "_parse_receipt_header",
+                return_value=(capture, []),
+            ),
+            mock.patch.object(
+                exact_runner,
+                "_legacy_capture",
+                return_value=(original_build, self.adapter_raw_root, self.adapter_receipt_directory),
+            ),
+            mock.patch.object(
+                exact_runner,
+                "_parse_exact_capture_receipt",
+                return_value=(capture, {(0, 1690): self.range_receipt}, exact_hashes),
+            ),
+            mock.patch.object(
+                self.runner,
+                "require_output_path",
+                return_value=self.root / "proof-output",
+            ),
+            mock.patch.object(
+                exact_runner,
+                "_run_exact_owner_hashes",
+                return_value=exact_hashes,
+            ),
+            mock.patch.object(
+                exact_runner,
+                "_validate_owner_projections",
+                side_effect=validate_owners,
+            ),
+            mock.patch.object(exact_runner, "_proof_record", return_value={}),
+            mock.patch.object(exact_runner, "_write_proof_receipt"),
+            mock.patch.object(self.runner, "write_status"),
+            mock.patch.object(
+                self.runner, "claim_run_resources", return_value=contextlib.nullcontext()
+            ),
+        ):
+            result = exact_runner.validate_proof(
+                self.candidate_root,
+                self.source_receipt,
+                self.source_root,
+                "reference",
+                self.build_receipt,
+                self.exact_capture_receipt,
+                self.root / "proof-output",
+                self.runner,
+            )
+
+        self.assertEqual(result["owners"], {})
+        self.assertEqual(len(observed_owner_context), 1)
+        self.assertIs(observed_owner_context[0]["input_paths"], input_paths)
 
     def test_unknown_exact_owner_schema_cannot_fall_back_to_historical_receipts(self):
         unknown_capture = self.exact_capture_receipt.read_text(encoding="utf-8").replace(
