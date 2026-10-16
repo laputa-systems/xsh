@@ -32,11 +32,17 @@ Three exact failures remain in the terminal report:
   failed with EAGAIN (errno 11) in 9 ms; its failure entry is at stdout line
   15,061.
 
+The [canonical 7b evidence](evidence/canonical-7b148/README.md) preserves the
+receipt, full logs, and resource record.
+
 The default-product restore passed on the 7b source, with the `xsh` bootstrap
 matching. It supports downstream focused gates and does not change the failed
 canonical result. Three hostname cases pass on source-identical fix
-`63734367c`. The owned driver review is starting execution of all 184 route
-outputs; results are pending.
+`63734367c`. Driver review reports all 184 route outputs pass on 7b with stable
+hashes, along with 32 source-order checks. The route collector is blocked
+because it expects one top-level AST match tag while the reviewed dispatch uses
+`StmtView`. Driver review owns the collector repair. These runtime results do
+not earn route-matrix credit.
 
 The current source check passed on this main tree. It reports
 `blanket_dead_code_lines=0`, `lowering_type_resolver_definitions=0`,
@@ -58,7 +64,10 @@ lines; growth is advisory.
   older `27ec`/`0f204` binaries is unknown. This is separate from fallback
   cleanup `322889`.
 - **Correctness-input plan:** current proposal commit `c6616fad` has 15 passing
-  Python tests. Independent review is pending. Commit `8dae13e` is superseded
+  Python tests. The owner approved its replacement gates: one verification
+  product build, three harnesses, five Linux contexts, and workspace Clippy.
+  The gates have not run. Independent review, native-environment approval
+  recording, and pin recomputation are pending. Commit `8dae13e` is superseded
   as the current proposal.
 - **Arc storage comparison:** root accepted the isolated shared-storage change
   after source, evidence, and ownership review. The capture integration worktree
@@ -84,7 +93,8 @@ include the optional Arc storage change.
 The combined source still needs the existing [six-case capability matrix]
 (evidence/typing-witnesses-b6d4/test.stdout), verifier checks, native tests,
 the frontend-drop check, and both route gates. These gates are pending on the
-combined source. Pipeline source `7a7418b5` passed 17 Rust and 20 native
+combined source. Integration is in progress with six conflicts. Pipeline source
+`7a7418b5` passed 17 Rust and 20 native
 selectors; evidence commit `903004f98320ac5b5aef80ce8ff7144beb971a8b` records
 them at `dev/consolidation/evidence/typing-pipeline-7a741/README.md`. Capture
 source `46ce549a` passed 15 Rust selectors; evidence commit
@@ -106,16 +116,19 @@ the existing approved goals. Lean and Phase F remain paused.
    capability, verifier, native, frontend-drop, and two-route gates. Keep main
    integration blocked until consolidation closes; compose the next slice after
    this one closes.
-3. Complete the 184 route executions now starting under driver review, then
-   finish final W9 capture/comparison on qualified common program inputs.
-   Require all 1,690 inputs and 6,760 outcomes to pass before claiming parity.
+3. Resolve the route collector mismatch and qualify the route matrix. The 184
+   route outputs and 32 source-order checks pass on 7b, but earn no matrix
+   credit while collection is blocked. Then finish final W9 capture and
+   comparison on qualified common program inputs. Require all 1,690 inputs and
+   6,760 outcomes to pass before claiming parity.
 4. Close the ten semantic review rows and remaining functional acceptance
    work. Keep evidence tied to its exact source commit.
 5. Only after functional close, run the required resource, profile,
    forced-frame, and scheduler comparisons. Apply readiness checks before and
    after time-based measurements.
-6. Complete independent review of correctness-input proposal `c6616fad` before
-   treating its gates as ready. Phase F stays paused unless the owner resumes
+6. Complete independent review and record native-environment approval for the
+   owner-approved correctness-input gates, then recompute their pins. The gates
+   are approved but not executed. Phase F stays paused unless the owner resumes
    Lean.
 
 Run only one full native suite at a time. Development and final platform gates remain x86_64 Linux musl in the pinned test image. The campaign has no accepted performance result yet.

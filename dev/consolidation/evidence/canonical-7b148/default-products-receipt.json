@@ -1,0 +1,226 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "source": {
+    "commit": "7b1485310abdf2190ce4532d840114e74ff7c2cd",
+    "tree": "0f3394902504cbe5271edd8916f504bd493f091a",
+    "clean": true
+  },
+  "image": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+  "target": "x86_64-unknown-linux-musl",
+  "profile": "verification",
+  "rustflags": "-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol",
+  "cargo_argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "--offline",
+    "--message-format=json-render-diagnostics",
+    "--profile",
+    "verification",
+    "--target",
+    "x86_64-unknown-linux-musl",
+    "-p",
+    "xsh",
+    "-p",
+    "xsht",
+    "-p",
+    "xshi",
+    "--bins"
+  ],
+  "cargo_target_dir": "/work/target",
+  "build_json": {
+    "exit_code": 0,
+    "path": "/home/josh/d/laputa-systems/xsh/.work/tmp/canonical-default-products-final-7b148-20261016/cargo-build.jsonl",
+    "sha256": "f013f6294e165a74f2fb5b7d11434edf08eca394540f57a8689d00e2f09f6afe",
+    "record_count": 180
+  },
+  "container_environment": {
+    "TARGET": "x86_64-unknown-linux-musl",
+    "DIST_PROFILE": "verification",
+    "CARGO_TARGET_DIR": "/work/target",
+    "CARGO_BUILD_WARNINGS": "deny",
+    "CARGO_BUILD_JOBS": "12",
+    "CARGO_NET_OFFLINE": "true",
+    "CARGO_HOME": "/root/.cargo",
+    "XDG_CACHE_HOME": "/root/.cache",
+    "TMPDIR": "/scratch",
+    "HOST_UID": "1000",
+    "HOST_GID": "1000",
+    "RUSTC_WRAPPER": "/usr/local/bin/kache",
+    "XSH_DEV_BUILD_PRELOAD": "/usr/lib/libjemalloc.so.2",
+    "LD_PRELOAD": "/usr/lib/libjemalloc.so.2",
+    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER": "/usr/local/bin/xsh-mold-linker",
+    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS": "-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol"
+  },
+  "compiler_artifacts": [
+    {
+      "manifest_path": "/work/crates/xshi/Cargo.toml",
+      "target": {
+        "kind": [
+          "bin"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "xshi",
+        "src_path": "/work/crates/xshi/src/main.rs",
+        "edition": "2024",
+        "doc": true,
+        "doctest": false,
+        "test": true
+      },
+      "profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": false
+      },
+      "features": [
+        "default"
+      ],
+      "fresh": true,
+      "executable": "/work/target/x86_64-unknown-linux-musl/verification/xshi"
+    },
+    {
+      "manifest_path": "/work/Cargo.toml",
+      "target": {
+        "kind": [
+          "bin"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "xsh-test-helper",
+        "src_path": "/work/tests/helpers/main.rs",
+        "edition": "2024",
+        "doc": true,
+        "doctest": false,
+        "test": false
+      },
+      "profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": false
+      },
+      "features": [
+        "default",
+        "native-tests",
+        "net",
+        "tools"
+      ],
+      "fresh": true,
+      "executable": "/work/target/x86_64-unknown-linux-musl/verification/xsh-test-helper"
+    },
+    {
+      "manifest_path": "/work/Cargo.toml",
+      "target": {
+        "kind": [
+          "bin"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "xsh",
+        "src_path": "/work/src/entrypoints/xsh_main.rs",
+        "edition": "2024",
+        "doc": true,
+        "doctest": false,
+        "test": false
+      },
+      "profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": false
+      },
+      "features": [
+        "default",
+        "native-tests",
+        "net",
+        "tools"
+      ],
+      "fresh": true,
+      "executable": "/work/target/x86_64-unknown-linux-musl/verification/xsh"
+    },
+    {
+      "manifest_path": "/work/crates/xsht/Cargo.toml",
+      "target": {
+        "kind": [
+          "bin"
+        ],
+        "crate_types": [
+          "bin"
+        ],
+        "name": "xsht",
+        "src_path": "/work/crates/xsht/src/main.rs",
+        "edition": "2024",
+        "doc": true,
+        "doctest": false,
+        "test": true
+      },
+      "profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": false
+      },
+      "features": [
+        "default",
+        "native-tests"
+      ],
+      "fresh": true,
+      "executable": "/work/target/x86_64-unknown-linux-musl/verification/xsht"
+    }
+  ],
+  "products": [
+    {
+      "name": "xsh",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh",
+      "sha256": "7e66422d21b480da24308aac719df7ff1fbf806f6e285e26739a544a46f1fd0a",
+      "size_bytes": 31571632,
+      "features": [
+        "default",
+        "native-tests",
+        "net",
+        "tools"
+      ],
+      "fresh": true
+    },
+    {
+      "name": "xsht",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht",
+      "sha256": "e9671817dce3efb6d5bcfc74ed343be9b7ac3f8403888d6b03f5ef91315d7951",
+      "size_bytes": 38752808,
+      "features": [
+        "default",
+        "native-tests"
+      ],
+      "fresh": true
+    },
+    {
+      "name": "xshi",
+      "path": "/home/josh/d/laputa-systems/xsh/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xshi",
+      "sha256": "5121c56402853320e396695d6854336067fa9754fcc957bdcdd98ffe74fcea53",
+      "size_bytes": 587320,
+      "features": [
+        "default"
+      ],
+      "fresh": true
+    }
+  ],
+  "bootstrap_xsh_sha256": "7e66422d21b480da24308aac719df7ff1fbf806f6e285e26739a544a46f1fd0a",
+  "default_xsh_matches_bootstrap": true,
+  "restoration": {
+    "purpose": "default products restored after failed canonical batch",
+    "canonical_receipt": "/home/josh/d/laputa-systems/xsh/.work/tmp/canonical-final-7b148-20261016/canonical-replay.json",
+    "canonical_status": "failed-or-incomplete",
+    "canonical_exit_code": 3,
+    "canonical_cleanup_resolved": true
+  }
+}

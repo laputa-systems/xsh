@@ -14,12 +14,16 @@ passed) stages passed.
 The three native failures are GNU rm ext3perf (exit 3, empty stderr; failure
 entry at stdout line 9,121), uu-sort `buffer_sizes` (timeout at 4 minutes,
 canceled with signal 15), and PCI capture identity links (EAGAIN, errno 11, 9
-ms; failure entry at stdout line 15,061). The run does not establish that the
-GNU rm failure was a timeout. The default-product restore passed on 7b with
-the `xsh` bootstrap matching; it does not change the failed canonical result.
-Three hostname cases pass on source-identical fix `63734367c`. Execution of
-the 184 actual route outputs is starting under the owned driver review. The
-source check passes on this tree:
+ms; failure entry at stdout line 15,061). The run does not establish the GNU
+rm or PCI failure causes. The [canonical 7b evidence](evidence/canonical-7b148/README.md)
+contains the receipt, full logs, and resource record. The default-product
+restore passed on 7b with the `xsh` bootstrap matching; it does not change the
+failed canonical result. Three hostname cases pass on source-identical fix
+`63734367c`. Driver review reports all 184 route outputs pass on 7b with stable
+hashes, along with 32 source-order checks. The route collector is blocked
+because it expects one top-level AST match tag while the reviewed dispatch uses
+`StmtView`; driver review owns the collector repair. These runtime results do
+not earn route-matrix credit. The source check passes on this tree:
 `blanket_dead_code_lines=0`, `lowering_type_resolver_definitions=0`,
 `manual_payload_calls=0`, `optional_raw_calls=0`, and
 `wide_arena_wildcards=0`; counts are 152 instructions, 17 patterns, 46 stages,
@@ -32,19 +36,23 @@ reference, candidate, and derived builds (`fresh=false`), three passing
 structured fixtures, and 270 passing Python tests; integration, fresh capture
 of 1,690 inputs, and comparison of 6,760 outcomes remain pending. The
 profile-cost fallback cleanup `322889` is isolated. Current correctness-input
-proposal `c6616fad` has 15 passing Python tests, with independent review
-pending; `8dae13e` is superseded as the current proposal.
+proposal `c6616fad` has 15 passing Python tests. The owner approved its
+replacement gates: one verification product build, three harnesses, five
+Linux contexts, and workspace Clippy. The gates have not run. Independent
+review, repository approval recording, and pin recomputation are pending;
+`8dae13e` is superseded as the current proposal.
 
 The owner authorized closing one coherent typing slice in isolation while
 consolidation continues. `typing_scheme_encoding` is its sole coherence owner.
-It will integrate mandatory capture identity source `46ce` into pipeline source
-`7a7418b5` in the existing `typing-pipeline-integration` worktree. The combined
-six-case capability matrix, verifier checks, native tests, frontend-drop check,
-and both route gates remain pending. The separate pipeline and capture selector
-passes are component evidence, not feature acceptance. Main merge remains
-blocked until consolidation closes; isolated integration, convergence, and
-lowerer work are authorized now. The next composition follows the first
-slice's closure. Broader approved goals remain in force.
+Integration of mandatory capture identity source `46ce` into pipeline source
+`7a7418b5` is in progress in the existing `typing-pipeline-integration`
+worktree, with six conflicts. The combined six-case capability matrix,
+verifier checks, native tests, frontend-drop check, and both route gates remain
+pending. Separate pipeline and capture selector passes are component evidence,
+not feature acceptance. Main merge remains blocked until consolidation closes.
+Isolated integration, convergence, acceptance, and lowerer work are authorized.
+The next composition follows the first slice's closure. Broader approved goals
+remain in force.
 
 Isolated inference pipeline `7a7418b5` passed 17 Rust and 20 native selectors;
 capture source `46ce549a` passed its Rust selectors. Root accepted the isolated
@@ -951,8 +959,14 @@ root integration (223 passed), XSHT (116 passed, 5 filtered), and soundness
 The failures are GNU rm ext3perf (exit 3, empty stderr; failure entry at stdout
 line 9,121; not established to be a timeout), uu-sort `buffer_sizes` (timeout
 after 4 minutes, canceled with signal 15), and PCI capture identity links
-(EAGAIN, errno 11, 9 ms; failure entry at stdout line 15,061). Three hostname
-cases pass on source-identical fix `63734367c`. The source check passes with
+(EAGAIN, errno 11, 9 ms; failure entry at stdout line 15,061). The [canonical
+7b evidence](evidence/canonical-7b148/README.md) preserves the receipt and logs.
+Three hostname cases pass on source-identical fix `63734367c`. Driver review
+reports all 184 route outputs pass on 7b with stable hashes, along with 32
+source-order checks. The route collector is blocked because it expects one
+top-level AST match tag while the reviewed dispatch uses `StmtView`; driver
+review owns the collector repair. These runtime results do not earn
+route-matrix credit. The source check passes with
 `blanket_dead_code_lines=0`, `lowering_type_resolver_definitions=0`,
 `manual_payload_calls=0`, `optional_raw_calls=0`, and `wide_arena_wildcards=0`.
 Current instruction, pattern, stage, factory, predicate, storage, and advisory
@@ -962,8 +976,11 @@ The final W9 attempt stopped at E0061; reviewed isolated repairs have focused
 build, fixture, and Python evidence, but final capture and comparison remain
 pending. The diagnostic baseline is unqualified because the source of older
 `27ec`/`0f204` binaries is unknown; it is separate from fallback cleanup
-`322889`. The correctness-input plan is on hold for owner approval. Isolated
-inference selectors pass on their named sources. Root accepted the isolated
+`322889`. The owner approved replacement correctness-input gates: one
+verification product build, three harnesses, five Linux contexts, and
+workspace Clippy. The gates are not executed. Independent review, repository
+approval recording, and pin recomputation remain pending. Isolated inference
+selectors pass on their named sources. Root accepted the isolated
 Arc storage change at `e4d282457672a1fc87464c051820ebb64a9eb857`; evidence
 commit `cfcdd2737a941468d5d680d4e2418f289c0065bf` records its matched
 allocation results, without a timing or RSS claim. No functional close or

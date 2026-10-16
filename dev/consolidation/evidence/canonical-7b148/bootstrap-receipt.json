@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "source": {
+    "commit": "7b1485310abdf2190ce4532d840114e74ff7c2cd",
+    "tree": "0f3394902504cbe5271edd8916f504bd493f091a",
+    "clean": true
+  },
+  "image": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+  "target": "x86_64-unknown-linux-musl",
+  "profile": "verification",
+  "rustflags": "-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol",
+  "cargo_argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "--profile",
+    "verification",
+    "--target",
+    "x86_64-unknown-linux-musl",
+    "-p",
+    "xsh",
+    "--bin",
+    "xsh",
+    "--message-format=json-render-diagnostics"
+  ],
+  "cargo_target_dir": "/work/target",
+  "build_json": {
+    "exit_code": 0,
+    "path": "/home/josh/d/laputa-systems/xsh/.work/tmp/canonical-bootstrap-final-7b148-20261016/cargo-build.jsonl",
+    "sha256": "fd5ab75cdb930a1b4059385987ef9f8cc5eb6bdcc9efb915eb6783d2a3510dd7",
+    "record_count": 172
+  },
+  "container_environment": {
+    "TARGET": "x86_64-unknown-linux-musl",
+    "DIST_PROFILE": "verification",
+    "CARGO_TARGET_DIR": "/work/target",
+    "CARGO_BUILD_WARNINGS": "deny",
+    "CARGO_BUILD_JOBS": "12",
+    "CARGO_NET_OFFLINE": "true",
+    "CARGO_HOME": "/root/.cargo",
+    "XDG_CACHE_HOME": "/root/.cache",
+    "TMPDIR": "/scratch",
+    "HOST_UID": "1000",
+    "HOST_GID": "1000",
+    "RUSTC_WRAPPER": "/usr/local/bin/kache",
+    "XSH_DEV_BUILD_PRELOAD": "/usr/lib/libjemalloc.so.2",
+    "LD_PRELOAD": "/usr/lib/libjemalloc.so.2",
+    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER": "/usr/local/bin/xsh-mold-linker",
+    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS": "-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol"
+  },
+  "compiler_artifact": {
+    "manifest_path": "/work/Cargo.toml",
+    "target": {
+      "kind": [
+        "bin"
+      ],
+      "crate_types": [
+        "bin"
+      ],
+      "name": "xsh",
+      "src_path": "/work/src/entrypoints/xsh_main.rs",
+      "edition": "2024",
+      "doc": true,
+      "doctest": false,
+      "test": false
+    },
+    "profile": {
+      "opt_level": "3",
+      "debuginfo": 0,
+      "debug_assertions": false,
+      "overflow_checks": false,
+      "test": false
+    },
+    "features": [
+      "default",
+      "native-tests",
+      "net",
+      "tools"
+    ],
+    "fresh": false,
+    "executable": "/work/target/x86_64-unknown-linux-musl/verification/xsh"
+  },
+  "artifact": {
+    "path": "/home/josh/d/laputa-systems/xsh/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh",
+    "sha256": "7e66422d21b480da24308aac719df7ff1fbf806f6e285e26739a544a46f1fd0a",
+    "size_bytes": 31571632
+  },
+  "target_reset": {
+    "previous_target_archive": "/home/josh/d/laputa-systems/xsh/.work/target-final-canonical-unknown-origin-final-7b148-20261016"
+  }
+}
