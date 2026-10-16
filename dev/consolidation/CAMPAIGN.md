@@ -1,73 +1,39 @@
 # XSH Consolidation Campaign
 
-Status: active and incomplete at main commit
-`7b1485310abdf2190ce4532d840114e74ff7c2cd`, tree
-`0f3394902504cbe5271edd8916f504bd493f091a`.
+Status: active and incomplete. The next production acceptance freeze must be
+sealed after this reviewed repair checkpoint. No inference implementation is
+on main. Lean and Phase F remain paused.
 
-The full canonical native run on main source `7b1485310abdf2190ce4532d840114e74ff7c2cd`
-terminated with receipt status `failed-or-incomplete`, exit 3. Cleanup resolved,
-and the source was clean through the end. The native suite reports 13,902
-passed, 3 failed, and 78 skipped. Root Rust (747 passed, 3 ignored), root
-integration (223 passed), XSHT (116 passed, 5 filtered), and soundness (14
-passed) stages passed.
+The last full canonical run, on `7b1485310abdf2190ce4532d840114e74ff7c2cd`,
+failed: 13,902 passed, 3 failed, 78 skipped. Qualified default products on
+`be0b79a48403d74b11186166ba739a81dcbed702` and its focused PCI before/after
+check pass. Isolated rm and sort selectors also pass; they do not close the
+full-suite failures. See [canonical evidence](evidence/canonical-7b148/README.md),
+[PCI evidence](evidence/rooted-path-openat2-9b2/README.md), and
+[rm/sort evidence](evidence/rm-sort-isolated-be0b/README.md).
 
-The three native failures are GNU rm ext3perf (exit 3, empty stderr; failure
-entry at stdout line 9,121), uu-sort `buffer_sizes` (timeout at 4 minutes,
-canceled with signal 15), and PCI capture identity links (EAGAIN, errno 11, 9
-ms; failure entry at stdout line 15,061). The run does not establish the GNU
-rm or PCI failure causes. The [canonical 7b evidence](evidence/canonical-7b148/README.md)
-contains the receipt, full logs, and resource record. The default-product
-restore passed on 7b with the `xsh` bootstrap matching; it does not change the
-failed canonical result. Three hostname cases pass on source-identical fix
-`63734367c`. Driver review reports all 184 route outputs pass on 7b with stable
-hashes, along with 32 source-order checks. The route collector is blocked
-because it expects one top-level AST match tag while the reviewed dispatch uses
-`StmtView`; driver review owns the collector repair. These runtime results do
-not earn route-matrix credit. The source check passes on this tree:
-`blanket_dead_code_lines=0`, `lowering_type_resolver_definitions=0`,
-`manual_payload_calls=0`, `optional_raw_calls=0`, and
-`wide_arena_wildcards=0`; counts are 152 instructions, 17 patterns, 46 stages,
-5 factories, 1 predicate, and 2 storage mappings. The 268,495-line source
-count is advisory.
+The behavioral acceptance blockers are a fresh canonical run, W9 parity,
+current route-matrix collection, and mandatory resource gates. W9's be0b
+captures failed strict validation because the derived helper removed AST-owner
+rows. The producer repair and consumer repairs are integrated; 274 Python
+checks pass. The next discriminating W9 test is a newly sealed input-0 capture
+with independent owner projection and source-audit checks before the full
+1,690-input / 6,760-outcome run. [Failure evidence](evidence/w9-owner-row-derivation-be0b/README.md)
+retains the rejected captures' minimal reproducer.
 
-W9 final parity is not qualified. The 7b attempt stopped at helper compile
-error E0061. Isolated repair commits `f1e1d08` and `8932aaed` have reviewed
-reference, candidate, and derived builds (`fresh=false`), three passing
-structured fixtures, and 270 passing Python tests; integration, fresh capture
-of 1,690 inputs, and comparison of 6,760 outcomes remain pending. The
-profile-cost fallback cleanup `322889` is isolated. Current correctness-input
-proposal `c6616fad` has 15 passing Python tests. The owner approved its
-replacement gates: one verification product build, three harnesses, five
-Linux contexts, and workspace Clippy. The gates have not run. Independent
-review, repository approval recording, and pin recomputation are pending;
-`8dae13e` is superseded as the current proposal.
+The approved supplemental gate reached Clippy and failed on a needless borrow
+in an mdev test. Its focused repair passes; a separately identified full attempt
+is required. Be0b route executions pass 184/184 and source-order executions
+64/64. The isolated collector still needs its typed-scalar decoder contract
+updated before those results earn matrix credit. See the [handoff](HANDOFF.md)
+for exact sources, failed attempts, and the bounded closure queue.
 
-The owner authorized closing one coherent typing slice in isolation while
-consolidation continues. `typing_scheme_encoding` is its sole coherence owner.
-Integration of mandatory capture identity source `46ce` into pipeline source
-`7a7418b5` is in progress in the existing `typing-pipeline-integration`
-worktree, with six conflicts. The combined six-case capability matrix,
-verifier checks, native tests, frontend-drop check, and both route gates remain
-pending. Separate pipeline and capture selector passes are component evidence,
-not feature acceptance. Main merge remains blocked until consolidation closes.
-Isolated integration, convergence, acceptance, and lowerer work are authorized.
-The next composition follows the first slice's closure. Broader approved goals
-remain in force.
-
-Isolated inference pipeline `7a7418b5` passed 17 Rust and 20 native selectors;
-capture source `46ce549a` passed its Rust selectors. Root accepted the isolated
-Arc storage change after source, evidence, and ownership review. Its capture
-integration worktree now points to `e4d282457672a1fc87464c051820ebb64a9eb857`,
-tree `aa7eda1ae791a622cf831937a3f45cb2f94c3a02`; 16 candidate controls and 5
-matched pairs pass with lower candidate allocation traffic. It remains off
-main and distinct from the generic inference pipeline; it is excluded from the
-first slice. No time, RSS, or general performance result is established.
-Evidence commit
-`cfcdd2737a941468d5d680d4e2418f289c0065bf` records the checks and allocation
-pairs in `dev/consolidation/evidence/typing-capture-memory-e4/`. The fast-forward
-adds no new runtime pass. Consolidation has no functional close or performance
-credit. Lean and Phase F remain paused. See the [current handoff](HANDOFF.md)
-for scoped evidence and the remaining gates.
+The inference slice remains isolated under one coherence owner. At `e2ecbb906`,
+the prepared frontend-disposal test passes on both routes, but the expanded
+Rust/native groups expose new driver-annotation verification regressions.
+They are being repaired before one final named capability matrix is accepted.
+Main merge remains blocked on consolidation acceptance. Optional Arc storage
+is separate; no performance or general-inference completion is claimed.
 
 ## Owner steering, 2026-10-15
 
@@ -97,13 +63,12 @@ Judge these outcomes separately:
    post-consolidation source freeze before claiming Rust correspondence.
 
 Use the existing acceptance owners and pinned x86_64 Linux musl environment.
-General inference changes language acceptance. The owner has authorized
-isolated first-slice integration, convergence, acceptance, and lowerer work
-while consolidation proceeds. Main merge and whole-campaign convergence
-acceptance remain blocked until consolidation closes. The post-consolidation
-performance baseline retains its gate. Do not put inference implementation on
-main before consolidation acceptance closes.
-Do not add another language-surface campaign or expand consolidation's scope.
+General inference changes language acceptance. The first slice remains in its
+isolated worktree; it is not on main. Isolated acceptance is authorized, but
+main merge remains blocked until consolidation closes. Do not start the next
+composition until this slice closes. The post-consolidation
+performance baseline retains its gate. Do not add another language-surface
+campaign or expand consolidation's scope.
 The [restart handoff](HANDOFF.md) owns the current stop and remaining gates.
 
 The implementation and focused
@@ -946,12 +911,13 @@ selection or fastest-profile claim is required.
 
 ## Handoff log
 
-### 2026-10-16 — main 7b checkpoint
+### 2026-10-16 — failed 7b canonical run
 
-Main is frozen at `7b1485310abdf2190ce4532d840114e74ff7c2cd`, tree
-`0f3394902504cbe5271edd8916f504bd493f091a`. The full canonical native run
-started at 15:21 UTC and terminated `failed-or-incomplete`, exit 3. Cleanup
-resolved and the source was clean through the end. The native suite reports
+This historical full native run used source
+`7b1485310abdf2190ce4532d840114e74ff7c2cd`, tree
+`0f3394902504cbe5271edd8916f504bd493f091a`. It started at 15:21 UTC and
+terminated `failed-or-incomplete`, exit 3. Cleanup resolved and source checks
+were clean before and after the run. The native suite reports
 13,902 passed, 3 failed, and 78 skipped. Root Rust (747 passed, 3 ignored),
 root integration (223 passed), XSHT (116 passed, 5 filtered), and soundness
 (14 passed) stages passed.
@@ -972,20 +938,30 @@ route-matrix credit. The source check passes with
 Current instruction, pattern, stage, factory, predicate, storage, and advisory
 source counts are in the [handoff](HANDOFF.md).
 
-The final W9 attempt stopped at E0061; reviewed isolated repairs have focused
-build, fixture, and Python evidence, but final capture and comparison remain
-pending. The diagnostic baseline is unqualified because the source of older
+At this 7b checkpoint, the final W9 attempt had stopped at E0061; reviewed
+isolated repairs had focused build, fixture, and Python evidence, but final
+capture and comparison remained pending. The diagnostic baseline is unqualified because the source of older
 `27ec`/`0f204` binaries is unknown; it is separate from fallback cleanup
 `322889`. The owner approved replacement correctness-input gates: one
 verification product build, three harnesses, five Linux contexts, and
-workspace Clippy. The gates are not executed. Independent review, repository
-approval recording, and pin recomputation remain pending. Isolated inference
-selectors pass on their named sources. Root accepted the isolated
+workspace Clippy. At this checkpoint, the gates had not run. Independent
+review, repository approval recording, and pin recomputation remained pending.
+Isolated inference selectors had passed on their named sources. Root accepted the isolated
 Arc storage change at `e4d282457672a1fc87464c051820ebb64a9eb857`; evidence
 commit `cfcdd2737a941468d5d680d4e2418f289c0065bf` records its matched
 allocation results, without a timing or RSS claim. No functional close or
 performance credit is claimed. This checkpoint replaces earlier live-status
 summaries below.
+
+### 2026-10-16 — main be0b follow-up
+
+Main advanced to `be0b79a48403d74b11186166ba739a81dcbed702`, tree
+`cc80212504507d34c7d07413ce33f42ea68b6028`. No full native suite has run on
+this commit. W9, routes, supplemental gates, PCI, and isolated inference have
+source-specific follow-ups described at the top of this document and in
+[`HANDOFF.md`](HANDOFF.md). The default-products-only build does not qualify
+native acceptance. Inference remains off main; the consolidation merge gate is
+open. Await the owner final pin and results before publishing the final matrix.
 
 ### 2026-10-11 — resumed with Luna xhigh
 

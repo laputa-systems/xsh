@@ -1,56 +1,33 @@
 # Consolidation items and ownership
 
 Approved campaign: `CAMPAIGN.md`. Start commit:
-`5e66b6b896a47d0c692739135d51200b007a2a67`. All six design drafts were
-approved on 2026-10-11. The accepted designs and historical ownership records
-remain below; see [`HANDOFF.md`](HANDOFF.md) for the live checkpoint and queue.
+`5e66b6b896a47d0c692739135d51200b007a2a67`. The accepted designs and historical
+ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
-**Current status: active and incomplete at main commit
-`7b1485310abdf2190ce4532d840114e74ff7c2cd`, tree
-`0f3394902504cbe5271edd8916f504bd493f091a`.** The full canonical native run
-started at 2026-10-16 15:21 UTC and terminated `failed-or-incomplete`, exit 3.
-Cleanup resolved and the source was clean through the end. The native suite
-reports 13,902 passed, 3 failed, and 78 skipped. Root Rust passed 747 with 3
-ignored, root integration passed 223, XSHT passed 116 with 5 filtered, and
-soundness passed 14.
+**Current status: active and incomplete.** Reviewed runner/W9/mdev repairs and
+failed evidence are integrated; the next clean production input set must be
+sealed before acceptance runs. No inference implementation is on main. Lean and
+Phase F remain paused.
 
-The failures are GNU rm ext3perf (exit 3, empty stderr; stdout failure entry
-9,121, not established to be a timeout), uu-sort `buffer_sizes` (timeout after
-4 minutes, canceled with signal 15), and PCI capture identity links (EAGAIN,
-errno 11, 9 ms; stdout failure entry 15,061). Three hostname cases pass on
-source-identical fix `63734367c`. The default-product restore passed on 7b and
-the `xsh` bootstrap matches. The [canonical 7b evidence](evidence/canonical-7b148/README.md)
-preserves the receipt and full logs. Driver review reports all 184 route
-outputs pass on 7b with stable hashes, along with 32 source-order checks. The
-route collector is blocked because it expects one top-level AST match tag
-while the reviewed dispatch uses `StmtView`; driver review owns the collector
-repair. These runtime results do not earn route-matrix credit. The source check
-reports
-`blanket_dead_code_lines=0`, `lowering_type_resolver_definitions=0`,
-`manual_payload_calls=0`, `optional_raw_calls=0`, and
-`wide_arena_wildcards=0`; 152 instructions, 17 patterns, 46 stages, 5
-factories, 1 predicate, and 2 storage mappings. Source size is 268,495 lines;
-growth is advisory.
+- Canonical: the 7b full run failed (13,902/3/78). Be0b products, focused PCI,
+  and isolated rm/sort selectors pass; none substitutes for a fresh full run.
+- W9: be0b captures failed strict owner projection because helper derivation
+  dropped AST-owner rows. The repaired producer and consumers pass 274 Python
+  tests; a new sealed input-0 smoke, full captures, assignment proof, and
+  comparison remain required. Old captures and minimal failure evidence stay.
+- Supplemental gates: r4 failed mdev Clippy. The focused repair and 26 runner
+  controls pass; a new complete approved gate attempt is pending.
+- Routes: be0b 184/184 route and 64/64 source-order executions pass. The isolated
+  collector must repair its typed-scalar contract before matrix credit.
+- Inference: e2ecbb906 builds and its prepared disposal test passes on both
+  routes, but expanded groups expose driver-writer ownership regressions and
+  one lowering-fixture failure. The complete named first slice is not accepted;
+  actual warnings denial and the same-pin final matrix remain open.
 
-W9 final parity is pending after E0061 in the 7b attempt. Reviewed isolated
-repairs have build, fixture, and Python evidence, but no final integration,
-capture, or 1,690-input/6,760-outcome comparison. Current correctness-input
-proposal `c6616fad` has 15 passing Python tests. The owner approved its
-replacement gates: one verification product build, three harnesses, five
-Linux contexts, and workspace Clippy. The gates have not run. Independent
-review, repository approval recording, and pin recomputation are pending.
-
-The owner authorized closing one coherent typing slice in isolation while
-consolidation continues. `typing_scheme_encoding` is the sole coherence owner
-for integrating mandatory capture identity source `46ce` into pipeline source
-`7a7418b5` in the existing `typing-pipeline-integration` worktree. Its combined
-six-case capability matrix, verifier, native, frontend-drop, and both route
-gates are pending. Integration is in progress with six conflicts. Separate
-selector passes are component evidence only; they do not accept the feature.
-Main merge remains blocked until consolidation closes. Isolated integration,
-convergence, acceptance, and lowerer work are authorized. The next composition
-follows this slice's closure. Lean and Phase F remain paused. The
-[handoff](HANDOFF.md) records the sequence and remaining gates.
+Isolated inference acceptance proceeds while consolidation continues. Its main
+merge remains gated on consolidation closure. Optional Arc storage, broader
+composition, corpus removal, paired performance baselines, and Lean are not
+first-slice acceptance substitutes. No speed claim or functional close is made.
 
 **Earlier checkpoints:** the progress and verification entries below are
 historical and source-specific. They are not the current work queue. The
@@ -296,15 +273,17 @@ imports currently use `source.invalid-utf8`, not `parse.module-read`.
 The active pinned image is
 `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`.
 Development and final platform gates use x86_64 Linux musl in
-`Dockerfile.test`; ARM64 and macOS are outside campaign scope. The terminal 7b
-result and failure details are recorded in [`HANDOFF.md`](HANDOFF.md). Restoring
-products separately may support downstream focused gates, but does not change
-the failed canonical result.
+`Dockerfile.test`; ARM64 and macOS are outside campaign scope. No full native
+suite has run on current main `be0b79a48403d74b11186166ba739a81dcbed702`.
+The last full run used 7b source and failed; its receipt and logs are linked in
+[`HANDOFF.md`](HANDOFF.md).
 
-Remaining acceptance includes triaging the terminal canonical failures and
-rerunning on a qualified source freeze, resolving the route collector mismatch
-and qualifying the route matrix, final W9 capture and parity, ten semantic
-review rows, and functional close.
+Remaining acceptance includes resolving the canonical GNU rm and uu-sort
+failures, completing the full canonical gate, resolving collector `917` binding
+holes, applying the W9 helper-path qualification fix before validation and
+comparison, rerunning the current inference group and completing its named
+matrix, repairing supplemental gate r4, closing ten semantic review rows, and
+functional close.
 Resource, profile, forced-frame, and scheduler comparisons follow functional
 close and must use the existing readiness checks. The initial source-qualified
 native baseline and 1,162-file check are historical evidence, not current

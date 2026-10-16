@@ -1,141 +1,133 @@
 # Consolidation handoff
 
-Status: active and incomplete at main commit
-`7b1485310abdf2190ce4532d840114e74ff7c2cd`, tree
-`0f3394902504cbe5271edd8916f504bd493f091a`. No functional close or performance
-credit is recorded. The live checkpoint below supersedes older status summaries
-in this file and in `CAMPAIGN.md` and `ITEMS.md`.
+Status: active and incomplete. Reviewed runner, mdev-test, W9 consumer, and W9
+producer repairs are integrated. The next acceptance attempts must seal the
+clean checkout after this status commit. Main has no inference implementation;
+Lean and Phase F remain paused. No functional close or performance credit is
+recorded.
 
-## Latest canonical run
+## Production qualification
 
-The full native run on main source `7b1485310abdf2190ce4532d840114e74ff7c2cd`
-started at 2026-10-16 15:21 UTC and terminated with receipt status
-`failed-or-incomplete`, exit 3. Cleanup resolved, and the source was clean
-through the end. The native suite reports 13,902 passed, 3 failed, and 78
-skipped. The run does not pass canonical acceptance.
+The last full canonical run used `7b1485310abdf2190ce4532d840114e74ff7c2cd`
+(tree `0f3394902504cbe5271edd8916f504bd493f091a`). It failed with 13,902
+native passes, 3 failures, and 78 skips; cleanup resolved and source stayed
+clean. Root Rust passed 747 with 3 ignored, integration 223, XSHT 116 with 5
+filtered, and soundness 14. The [complete evidence](evidence/canonical-7b148/README.md)
+retains the failed receipt and logs.
 
-Terminal stage results:
+The failures were GNU rm ext3perf (exit 3, empty stderr), uu-sort buffer_sizes
+(240-second timeout), and PCI capture identity links (EAGAIN). A bounded
+production fix retries the identical confined openat2 request at most eight
+times for EAGAIN, preserving flags and final errors. The qualified be0b PCI
+comparison passes under the corrected resource constraints while the old 7b
+stress case fails; see [PCI evidence](evidence/rooted-path-openat2-9b2/README.md).
 
-- Root Rust: 747 passed, 3 ignored.
-- Root integration: 223 passed.
-- XSHT: 116 passed, 5 filtered.
-- Soundness: 14 passed.
+On be0b, exact rm and sort selectors each pass once. Rm's 38.144-second timing
+is unqualified because a Cargo build overlapped despite passing readiness.
+Sort's 139.973 seconds is one readiness-bracketed observation, not a speed
+comparison. Neither pass establishes the full-suite failure cause or replaces
+the required fresh full run. [Evidence and scheduler findings](evidence/rm-sort-isolated-be0b/README.md)
+retain the initial launcher failures and corrected runs. No scheduler or timeout
+budget was changed.
 
-The root Rust, root integration, XSHT, and soundness stage counts above pass.
-Three exact failures remain in the terminal report:
+Be0b default products were qualified separately: bootstrap xsh was fresh=false;
+product xsh was fresh=true with the same hash; xsht and xshi were fresh=false.
+That products-only run earns no canonical credit. Earlier 7b focused semantic,
+lint, source-order, diagnostic, module-cache, and structural results remain
+source-specific evidence under the historical links below.
 
-- GNU rm ext3perf exited 3 with empty stderr. Its failure entry is at stdout
-  line 9,121; the run does not establish that this was a timeout.
-- uu-sort `buffer_sizes` timed out after 4 minutes and was canceled with signal
-  15.
-- `dev/tests/test-system-report-check.xsh::test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampering`
-  failed with EAGAIN (errno 11) in 9 ms; its failure entry is at stdout line
-  15,061.
+## W9: failed captures and corrected producer
 
-The [canonical 7b evidence](evidence/canonical-7b148/README.md) preserves the
-receipt, full logs, and resource record.
+All be0b producer captures completed for 1,690 inputs and 6,760 outcomes.
+Initial consumers failed on an undefined path map and a missing program root
+in a second harness listing. Repairs `81419c0e3` and `23ad103a2` correct those
+contracts and bind helper authority to the validated controller root.
 
-The default-product restore passed on the 7b source, with the `xsh` bootstrap
-matching. It supports downstream focused gates and does not change the failed
-canonical result. Three hostname cases pass on source-identical fix
-`63734367c`. Driver review reports all 184 route outputs pass on 7b with stable
-hashes, along with 32 source-order checks. The route collector is blocked
-because it expects one top-level AST match tag while the reviewed dispatch uses
-`StmtView`. Driver review owns the collector repair. These runtime results do
-not earn route-matrix credit.
+Full strict reference validation then failed at owner 0. The adapter sidecar
+has statement rows but no AST-owner rows: `_derived_owner_helper_bytes` removed
+the owner-emission loop while adding flush/sync. This was a producer defect,
+not an invalid source span or an error to normalize. Repair `1c4962e62` retains
+the loop. The Python gates pass 220 module tests plus 54 publication-run tests.
+[Tracked failure evidence](evidence/w9-owner-row-derivation-be0b/README.md)
+contains the source, both owner-0 sidecars, receipts, and failed validator log.
+Full ignored captures remain intact. They cannot qualify the repaired producer.
 
-The current source check passed on this main tree. It reports
-`blanket_dead_code_lines=0`, `lowering_type_resolver_definitions=0`,
-`manual_payload_calls=0`, `optional_raw_calls=0`, and
-`wide_arena_wildcards=0`; 152 instructions, 17 patterns, 46 stages, 5
-factories, 1 predicate, and 2 storage mappings. The source count is 268,495
-lines; growth is advisory.
+Next: seal a fresh source cohort, build the required products, and exercise
+input 0 through the actual adapter and exact-owner capture entries. Strictly
+compare projections and independently validate source-audit bytes/hashes before
+starting the full cohort. Assignment facts still require their owned proof;
+no field may be removed to obtain parity. No W9 parity is currently accepted.
 
-## Other active evidence
+## Routes and supplemental correctness gates
 
-- **W9 final comparison:** the 7b final attempt stopped at helper compile error
-  E0061. Isolated repair commits `f1e1d08` and `8932aaed` have reviewed
-  reference, candidate, and derived builds (`fresh=false`), one passing
-  structured fixture per role, and 270 passing Python tests. Final integration,
-  fresh 1,690-input capture, and 6,760-outcome parity remain pending. These
-  checks qualify only the isolated pins.
-- **Profile-cost fallback:** cleanup commit `322889` is isolated and not integrated.
-- **Diagnostic baseline:** qualification remains open because the source of
-  older `27ec`/`0f204` binaries is unknown. This is separate from fallback
-  cleanup `322889`.
-- **Correctness-input plan:** current proposal commit `c6616fad` has 15 passing
-  Python tests. The owner approved its replacement gates: one verification
-  product build, three harnesses, five Linux contexts, and workspace Clippy.
-  The gates have not run. Independent review, native-environment approval
-  recording, and pin recomputation are pending. Commit `8dae13e` is superseded
-  as the current proposal.
-- **Arc storage comparison:** root accepted the isolated shared-storage change
-  after source, evidence, and ownership review. The capture integration worktree
-  now fast-forwards from `46ce` to source commit
-  `e4d282457672a1fc87464c051820ebb64a9eb857`, tree
-  `aa7eda1ae791a622cf831937a3f45cb2f94c3a02`. Sixteen candidate controls and
-  five matched pairs pass at that pin, with lower candidate allocation traffic.
-  Evidence commit `cfcdd2737a941468d5d680d4e2418f289c0065bf` records the source
-  pins, checks, allocation pairs, and binary sizes in
-  `dev/consolidation/evidence/typing-capture-memory-e4/`. This is separate from
-  generic inference source `7a7418b5`, remains off main, and gives no time, RSS,
-  or general performance result. The fast-forward adds no new runtime pass and
-  this optional change is excluded from the first slice.
+Be0b actual runtime results are 184/184 route probes and 64/64 source-order
+executions. Product hashes and source checks match before/after. Isolated
+collector `2388c7010` closes reviewed call-input and shadowing holes (53 focused
+Rust and 65 Python checks), but actual collection fails on the separate typed
+scalar inventory's obsolete `match tag` assumption. Current production uses
+`match tag.kind()` and decoder errors, rather than the old mismatched-view
+wildcard labels. Repair must describe actual branches and keep strict coverage;
+no matrix credit is recorded. The failed collection and old source lock remain
+preserved. Collector work stays isolated while the next production freeze runs.
 
-## First isolated typing slice
+The owner approved the replacement gate plan: one verification-product build,
+three harness builds, workspace Clippy, and five existing Linux contexts.
+Attempts r1-r3 failed in plumbing. R4 built products/harnesses, then failed
+Clippy at mdev.rs:1689. Integrated runner `82248fa7d` separates child stdout
+and stderr artifacts, retains bounded cleanup, protects read-only source and
+runtime targets, and fixes Cargo argument selection. All 26 runner controls
+pass. The mdev borrow repair passes pinned-musl xsh-applets lib/test Clippy with
+-D warnings. [Failure evidence](winddown/evidence/final-correctness-gates/README.md)
+retains each earlier failure. The full replacement gate still needs a new
+attempt; the five Linux contexts have no credit.
 
-The owner authorized closing one coherent slice in isolation while
-consolidation continues. `typing_scheme_encoding` is its sole coherence owner.
-The target is the existing `typing-pipeline-integration` worktree: integrate
-mandatory capture identity source `46ce` into pipeline source `7a7418b5`. Do not
-include the optional Arc storage change.
+## Isolated inference checkpoint
 
-The combined source still needs the existing [six-case capability matrix]
-(evidence/typing-witnesses-b6d4/test.stdout), verifier checks, native tests,
-the frontend-drop check, and both route gates. These gates are pending on the
-combined source. Integration is in progress with six conflicts. Pipeline source
-`7a7418b5` passed 17 Rust and 20 native
-selectors; evidence commit `903004f98320ac5b5aef80ce8ff7144beb971a8b` records
-them at `dev/consolidation/evidence/typing-pipeline-7a741/README.md`. Capture
-source `46ce549a` passed 15 Rust selectors; evidence commit
-`cdeeebcd7aaf23d8821d4f4107b357021ffafdc2` records them at
-`dev/consolidation/evidence/typing-capture-46ce/README.md`. These remain
-component evidence only and do not accept the combined feature.
+`typing_scheme_encoding` remains sole coherence owner in
+`.work/wt/typing-pipeline-integration`. At clean `e2ecbb906`, lib harness and
+verification products build. The same-pin 286-selector Rust group is 261 pass /
+25 fail; the native 20-selector group is 11 pass / 9 fail. Twenty-four Rust and
+all nine native failures are new regressions in the driver-annotation proof:
+it mistakes initializer read slots for the newly declared writer binding. The
+remaining Rust failure is a repeated-call lowering fixture missing embedded
+implementation facts. These failures remain failures and are being repaired.
 
-Isolated integration, convergence, and acceptance work are authorized now,
-including lowerer work. Main integration remains blocked until consolidation
-closes. After this first slice closes, continue with the next composition in
-the existing approved goals. Lean and Phase F remain paused.
+The prepared-program frontend-disposal test passes on both indexed routes at
+that pin. Five metadata tests, recursive monomorphism, 47 constraint tests,
+nine scheme tests, and eight frontend-stats tests pass. These are component
+results, not acceptance of the six named native requirements. The final named
+matrix must bind all required results to one qualified isolated checkpoint.
 
-## Next acceptance steps
+The integrated solver counter source includes `714507b43` via `a730d4199`.
+Repeated calls and retained-memory accounting have bounded tests and review,
+but total body work across effect probes and historical cached modules is not
+measured by the final-Checker count. Retained semantic bytes are stage estimates,
+not one simultaneously live graph or RSS. Direct Cargo's CARGO_BUILD_WARNINGS
+marker did not enforce rustc denial: non-test products still emit 15 dead-code
+warnings at e2. An actual warnings-denied check remains open.
 
-1. Preserve the terminal canonical receipt. Triage the three failures, review
-   repairs separately, qualify a new source freeze, then rerun affected gates.
-   The default products are restored and `xsh` bootstrap-matched on 7b.
-2. Close the first isolated typing slice on combined source using its named
-   capability, verifier, native, frontend-drop, and two-route gates. Keep main
-   integration blocked until consolidation closes; compose the next slice after
-   this one closes.
-3. Resolve the route collector mismatch and qualify the route matrix. The 184
-   route outputs and 32 source-order checks pass on 7b, but earn no matrix
-   credit while collection is blocked. Then finish final W9 capture and
-   comparison on qualified common program inputs. Require all 1,690 inputs and
-   6,760 outcomes to pass before claiming parity.
-4. Close the ten semantic review rows and remaining functional acceptance
-   work. Keep evidence tied to its exact source commit.
-5. Only after functional close, run the required resource, profile,
-   forced-frame, and scheduler comparisons. Apply readiness checks before and
-   after time-based measurements.
-6. Complete independent review and record native-environment approval for the
-   owner-approved correctness-input gates, then recompute their pins. The gates
-   are approved but not executed. Phase F stays paused unless the owner resumes
-   Lean.
+Isolated integration and acceptance are authorized now. Inference merging onto
+main waits for consolidation closure. The next compositional witness follows
+the closed first slice; broader rank-1, row, recursion, effect, corpus, and
+performance goals remain in force. Optional Arc work is separate.
 
-Run only one full native suite at a time. Development and final platform gates remain x86_64 Linux musl in the pinned test image. The campaign has no accepted performance result yet.
+## Bounded closure queue
+
+1. Seal the reviewed consolidation checkout and pass the W9 input-0 smoke.
+2. Execute the approved replacement gate as a new attempt. Rerun the canonical
+   full gate on the repaired freeze, with existing locks and resource checks.
+3. Complete W9 fresh captures, exact/assignment proofs, and strict comparison.
+4. Finish the isolated route collector, execute current routes as required by
+   source qualification, and collect the actual matrix.
+5. Repair inference's driver ownership and lowering fixture, then close the
+   complete named first-slice/verifier group on one isolated source.
+6. Close remaining semantic review/resource gates. Timing claims require the
+   existing readiness and overlap rules; paired successor baselines still wait
+   for the approved post-consolidation freeze.
 
 ## Historical evidence links
 
-The links below are retained from earlier handoffs. They describe their own source pins and limits; none substitutes for the live 7b gates above.
+The links below are retained from earlier handoffs. They describe their own source pins and limits; none substitutes for the current-source gates above.
 
 **Canonical, fixtures, and source checks:** [fixture repair](evidence/fixture-fixes-577b/driver.stdout), [failed 0d6 canonical receipt](evidence/canonical-0d6/canonical-replay.json), [0d6 product sidecar](evidence/canonical-0d6/actual-products.json), [cross-file AWK cause](evidence/awk-cross-file-0ea/README.md), [bounded AWK replay](evidence/awk-replay-0ea/README.md), [Clippy batch](evidence/clippy-4d7b/README.md), [Clippy scope outputs](evidence/clippy-ed908/README.md), [canonical e89 receipt](evidence/canonical-e89/canonical-replay.json), [e89 stdout](evidence/canonical-e89/stdout.log), [e89 stderr](evidence/canonical-e89/stderr.log), [e89 resource capture](evidence/canonical-e89/container-resources.json), [e89 bootstrap receipt](evidence/canonical-e89/bootstrap-receipt.json), [canonical 787](evidence/canonical-787/README.md), [canonical ed908](evidence/canonical-ed908/README.md), [canonical 45b4](evidence/canonical-45b4/README.md), [canonical 0d6 resources](evidence/canonical-0d6/actual-products.json), [structural scan](evidence/structural-787/README.md), [source review](evidence/source-review-6198/README.md), [assignment producer output](evidence/resume-assignment-producer.log), [merged project-test output](evidence/resume-a86d4-project-tests.log), [interrupted canonical output](evidence/resume-fff13082-canonical.log), [interrupted canonical resources](evidence/resume-fff13082-resources.json), [lint-flow evidence](evidence/lint-flow-d2c8/README.md), [feature-touch recount](evidence/feature-touch-d2c8/README.md), [replacement-label soundness evidence](evidence/fuzz-replacement-1d64/README.md).
 
