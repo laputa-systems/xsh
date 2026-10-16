@@ -19,6 +19,9 @@ HERE = pathlib.Path(__file__).resolve().parent
 CONFIG = HERE / "evidence.json"
 SOURCE_LOCK_RELATIVE = pathlib.Path(".work/final-review-evidence/semantic-route-matrix/source-lock.json")
 OUTPUT_RELATIVE = pathlib.Path(".work/final-review-evidence/semantic-route-matrix/matrix.json")
+CANONICAL_VERIFICATION_XSHT_RELATIVE = pathlib.Path(
+    ".work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht"
+)
 AST_EXTRACTOR_MANIFEST = HERE / "ast-extractor/Cargo.toml"
 CARGO_EXE = pathlib.Path.home() / ".cargo/bin/cargo"
 SCHEMA_PATH = pathlib.Path("src/runtime/eval/indexed/full/schema.rs")
@@ -593,6 +596,18 @@ def sha256_bytes(data: bytes) -> str:
 
 def sha256_file(path: pathlib.Path) -> str:
     return sha256_bytes(path.read_bytes())
+
+
+def canonical_verification_xsht_path(root: pathlib.Path) -> pathlib.Path:
+    product = root / CANONICAL_VERIFICATION_XSHT_RELATIVE
+    component = root
+    for part in CANONICAL_VERIFICATION_XSHT_RELATIVE.parts:
+        component /= part
+        if component.is_symlink():
+            raise EvidenceError(f"canonical verification xsht path contains a symlink: {component}")
+    if product.exists() and (not product.is_file() or not os.access(product, os.X_OK)):
+        raise EvidenceError(f"canonical verification xsht must be an executable file: {product}")
+    return product
 
 
 def git_value(root: pathlib.Path, *args: str) -> str:
@@ -5627,7 +5642,7 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
     if len(seen_assignments) != len(routed):
         raise EvidenceError("row mapping count mismatch")
 
-    xsht_path = root / "target/x86_64-unknown-linux-musl/verification/xsht"
+    xsht_path = canonical_verification_xsht_path(root)
     expected_xsht_sha256 = sha256_file(xsht_path) if xsht_path.is_file() else ""
     reusable = final_correctness_receipts(
         root, actual["head"], actual["tree"], routed, expected_xsht_sha256

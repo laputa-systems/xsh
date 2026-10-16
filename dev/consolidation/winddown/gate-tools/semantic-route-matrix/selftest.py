@@ -920,6 +920,33 @@ ARENA_SHAPES = arena_shape_source()
 
 
 class SemanticRouteMatrixTests(unittest.TestCase):
+    def test_receipt_collector_uses_canonical_xsht_and_rejects_symlinks(self) -> None:
+        root = generate.HERE.parents[4]
+        scratch = root / ".work/tmp"
+        scratch.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch, prefix="route-witness-product-") as temporary:
+            fixture_root = pathlib.Path(temporary)
+            canonical = fixture_root / generate.CANONICAL_VERIFICATION_XSHT_RELATIVE
+            canonical.parent.mkdir(parents=True)
+            canonical.write_bytes(b"canonical product")
+            canonical.chmod(0o755)
+            target_copy = fixture_root / "target/x86_64-unknown-linux-musl/verification/xsht"
+            target_copy.parent.mkdir(parents=True)
+            target_copy.write_bytes(b"stale target product")
+            target_copy.chmod(0o755)
+
+            self.assertEqual(generate.canonical_verification_xsht_path(fixture_root), canonical)
+            self.assertEqual(
+                generate.sha256_file(generate.canonical_verification_xsht_path(fixture_root)),
+                generate.sha256_bytes(b"canonical product"),
+            )
+
+            linked_root = fixture_root / "linked"
+            linked_root.mkdir()
+            (linked_root / ".work").symlink_to(fixture_root / ".work", target_is_directory=True)
+            with self.assertRaisesRegex(generate.EvidenceError, "contains a symlink"):
+                generate.canonical_verification_xsht_path(linked_root)
+
     def test_runtime_oracle_commands_select_native_or_rust_runner(self) -> None:
         xsh_id = "tests/xsh/expression-route-oracles.xsh::test_expr_match"
         rust_id = "runtime::eval::indexed::full::tests::verifier_rejects_a_pipeline_input_that_names_a_statement"
