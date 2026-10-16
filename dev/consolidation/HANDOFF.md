@@ -9,15 +9,19 @@ functional close or performance credit. Lean and Phase F remain paused.
 ## Current resume
 
 The owner resumed the typing consolidation campaign after the documentation
-refresh at `bfffd3af5e0002668e685e1711d7e6d9ee90ad51`. Main is frozen at
-`e89e35f29`. The accepted `df` repair from `507` is integrated. Integrated
+refresh at `bfffd3af5e0002668e685e1711d7e6d9ee90ad51`. Canonical source
+`e89e35f29` includes the accepted `df` repair from `507`. Integrated
 `xsht check` and lint pass on four files. Fake runner lane `5f21` passes 11
 tests and its plan test passes 1/1. Shell syntax check and real workload test
 `2ab` (1/1) pass.
-One fresh bootstrap and canonical batch are authorized for `loop_speed` and are
-being prepared. No batch result is available yet. The preceding canonical run
-at `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542` ended with the failure detailed
-below. Historical gate helpers require fresh paths and source qualification.
+The canonical batch on `e89e35f29` ended with exit 3 and 13 native failures.
+It left source clean before and after. Cleanup resolved, with no OOM or swap;
+the container is absent. No canonical suffix or performance close was reached.
+Main later integrated hostname repair `06a` at `63734367c`; its 22 driver unit
+tests and three focused hostname tests pass. No full canonical rerun followed.
+The preceding canonical run at `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542`
+ended with the failure detailed below. Historical gate helpers require fresh
+paths and source qualification.
 
 Acceptance launch, structural/semantic review, loop selection, typing witness
 readiness, and historical AWK evidence were inventoried independently. No Lean
@@ -95,6 +99,45 @@ work is authorized by this resume.
 
 ### Latest canonical and solver checkpoints
 
+- The canonical batch on source `e89e35f29` ended with status
+  `failed-or-incomplete` and exit 3. It passed integration 223, auxiliary 23,
+  symbol 1, PTY 58 (3 ignored), debug 747 (3 ignored), XSHT 116 (5 filtered),
+  soundness 14, privileged 82 (4 ignored and 4 filtered), and linuxpriv 10.
+  Native tests finished with 13,891 passed, 13 failed, and 78 skipped out of
+  13,982 selected. Source was clean before and after; cleanup resolved, with no
+  OOM or swap, and the container is absent. No suffix stages or performance
+  close were reached. Strict Clippy on root source `e89` passed with empty
+  output; its receipt is under `.work/tmp/clippy-e89e35f295`. The retained
+  [canonical receipt](evidence/canonical-e89/canonical-replay.json),
+  [stdout](evidence/canonical-e89/stdout.log),
+  [stderr](evidence/canonical-e89/stderr.log),
+  [container resources](evidence/canonical-e89/container-resources.json), and
+  [bootstrap receipt](evidence/canonical-e89/bootstrap-receipt.json) preserve
+  the failure and source qualification.
+- The 13 native failures fall into three groups:
+  - Hostname (3): `core/tests/test-bb-hostname.xsh::test_bb_hostname_hostname_i_works_89c47685`,
+    `core/tests/test-hostname.xsh::test_hostname_ip_address_lists_distinct_addresses`,
+    and `core/tests/test-uu-hostname.xsh::test_uu_hostname_hostname_ip`. The
+    kernel hostname is absent from `/etc/hosts`; DNS returned `EAI_AGAIN`.
+  - Lifecycle (8), all in `dev/tests/test-lifecycle.xsh`:
+    `test_build_failure_stops_at_the_cargo_boundary`,
+    `test_check_lint_guards_the_exact_budget_test_before_later_checks`,
+    `test_check_lint_keeps_the_test_error_when_the_postcheck_fails`,
+    `test_check_lint_rejects_a_successful_test_when_the_postcheck_fails`,
+    `test_check_lint_skips_the_test_when_the_host_is_busy`,
+    `test_codesign_failure_stops_darwin_installation`,
+    `test_docker_container_failure_runs_target_ownership_cleanup`, and
+    `test_lint_fix_rebuilds_the_debug_xsh_binary`. The build-boundary test
+    attempted a real rustup download and failed on DNS; the other seven hit
+    missing fake flock or runner tools.
+  - Host filesystem/socket (2):
+    `core/tests/test-uu-cat.xsh::test_uu_cat_domain_socket` and
+    `tests/xsh/stdlib/fs.xsh::test_fs_tree_metadata_install_and_locking`.
+    The socket reports `invalid-argument: unix socket name is too long or
+    contains NUL`; the filesystem test reports `fs-dir: Permission denied`.
+    Both remain under investigation. Full native uses
+    `/work/.work/tmp/native-tests-1000-1000/tmp`; the socket path may exceed
+    108 bytes, so path length is not ruled out.
 - The [8d acceptance follow-up](evidence/acceptance-follow-up-8d/README.md)
   records the terminal canonical batch on clean source
   `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542`: exit 3 at XSHT after integration
@@ -128,20 +171,28 @@ work is authorized by this resume.
 - Cargo runner lock handoff `fcf` and selector fix `e89` are integrated. The
   integrated check and lint each pass four files. Fake runner lane `5f21` passes
   11 tests and its plan test passes 1/1. `sh -n` passes, and real workload test
-  `2ab` passes 1/1. The new `loop_speed` bootstrap and canonical batch are
-  authorized and being prepared; no run result is available.
+  `2ab` passes 1/1. These focused results are separate from the failed
+  canonical outcome above.
 - W9 source repair `b8` is integrated and passes 213 Python tests. The full
   schema-3 comparison at controller `bef` processed 1,690 inputs and 6,760
   outcomes, then exited 1. It found seven exact-owner legacy-projection
-  mismatches at indices 885, 887, 889, 897, 899, 1686, and 1688. Investigation
-  is active; no rerun has started. W9 parity is not accepted.
-- Inference checkpoint `037` passes 183/207 full tests, 35/46 lowerer tests
-  outside the corpus, semantic 19, schemes 5, scheme-body 3, and alias 1. Paired
-  native routes pass 3/9. Shape fix `9ad` and module fixture `4f1` are
-  integrated but unverified. Checker `85e` is under review; BlockOwner and
-  rest-parameter proofs remain in progress. No inference is on main.
-- The preliminary cohort scan found 9,194 sites; the count is not accepted.
-  Ten P2 repair units are under review, with no annotation removals accepted.
+  mismatches at indices 885, 887, 889, 897, 899, 1686, and 1688. A later review
+  found all chain 01, 03, and 04 captures unqualified: 64 mutable main-import
+  paths across 218 source entries make the seven mismatches only a subset.
+  The closure builder passes 8 tests as root. Controller wiring is active on a
+  separate e240 program snapshot; no new captures exist. W9 parity is not
+  accepted.
+- Pure inference pipeline `360ed` carries the cohort record and raw 9,194-site
+  count. Its `0ea` diagnostic passes 206/207 full tests, 44/46 lowerer tests
+  outside the corpus, semantic 23, schemes 8, declarations 9, and two module
+  tests. Lower diagnostic fixes `0624` and docs `4c390` are integrated, with
+  compilation pending. Red type-forgery capture `067` is confirmed; its origin
+  fix and scalar/list proofs are active. Shape fix `9ad` and module fixture
+  `4f1` are integrated but unverified. Checker `85e` remains under review, with
+  BlockOwner and rest-parameter proofs in progress. No inference is on main.
+- Review found a config-deletion bypass in the cohort scan. Its 9,194-site
+  count and ten P2 repair units are not accepted while that repair is underway.
+  No annotations have been removed.
 - Earlier typing results include a fresh compile of the library, `xsh`, `xsht`,
   and helper, with four encoding, five semantic, and one module-ground tests
   passing. Prepared and three forged tests failed on invalid doc/`Result`
@@ -164,13 +215,14 @@ work is authorized by this resume.
   the exact nine-line source patch and leaves prior refs/captures unchanged.
   Schema 3's explicit combined-derivation controller at `aac` passes 85 Python
   tests. Corrected reference source `74f1551ee9e3066b653ae190779e16d511c90293`
-  builds successfully. Chain `04` on that source and schema 3 passes the
-  corrected capture: 6,760 outcomes across 68 ranges; both original exact-owner
-  proofs cover 1,690 inputs. Historical source qualification fix `bef85594c`
-  passes 71 focused tests and revalidates all 1,690 chain-03 assignment proofs
-  without changing the receipt. It checks the ancestor controller's tree and
-  unchanged proof authorities. The later full comparison at controller `bef`
-  is recorded above. It exited 1; investigation continues without a rerun.
+  builds successfully. Chain `04` on that source and schema 3 recorded a
+  capture with 6,760 outcomes across 68 ranges; both original exact-owner proofs
+  cover 1,690 inputs. Historical source qualification fix `bef85594c` passes 71
+  focused tests and revalidates all 1,690 chain-03 assignment proofs without
+  changing the receipt. It checks the ancestor controller's tree and unchanged
+  proof authorities. Later review found all chain 01, 03, and 04 captures
+  unqualified because of mutable main-import paths. The controller `bef`
+  comparison is recorded above; no new capture or rerun has started.
 - The [915 acceptance follow-up](evidence/acceptance-follow-up-915/README.md)
   records the suffix checks and focused head rerun. `xsht check` passes 1,542
   files; `xsht lint` exits zero with 72 findings and 115 notes, so lint is not
@@ -528,12 +580,13 @@ work is authorized by this resume.
 
 ### Current queue
 
-The integrator owns `master`, frozen at `e89e35f29`. The `df` capacity repair
-from `507` is integrated. The focused check and lint, fake runner 11/11, plan
-1/1, `sh -n`, and real workload test `2ab` 1/1 pass as detailed above. The
-`loop_speed` lane has one fresh bootstrap and canonical batch authorized and is
-preparing; no run result is available. The earlier `8d` canonical failure is
-historical and remains documented above.
+The canonical batch on `e89e35f29` ended at native tests with exit 3, as
+recorded above. Main later integrated hostname repair `06a` at `63734367c`; 22
+driver unit tests and three focused hostname tests pass, but the full canonical
+batch has not been rerun. The `df` capacity repair from `507` is integrated.
+The focused check and lint, fake runner 11/11, plan 1/1, `sh -n`, and real
+workload test `2ab` 1/1 pass as detailed above. The earlier `8d` canonical
+failure is historical and remains documented above.
 
 Stable copied-artifact suffix rerun of `a22` passes check 1,526, lint zero
 findings/113 notes, metrics, and docs/tour 3. The shared `xsh` drift from

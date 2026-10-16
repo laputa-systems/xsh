@@ -2,21 +2,25 @@
 
 Status: resumed on 2026-10-15 for consolidation acceptance and the typing
 successor. The owner explicitly resumed after the documentation refresh.
-Consolidation acceptance remains incomplete. Main is frozen at `e89e35f29`.
+Consolidation acceptance remains incomplete. Canonical batch source `e89e35f29`
+reached native tests and exited 3: 13,891 passed, 13 failed, and 78 skipped out
+of 13,982 selected. No canonical suffix or performance close ran. Main later
+integrated hostname repair `06a` at `63734367c`; its 22 driver unit tests and
+three focused hostname tests pass, but no full canonical rerun followed. See
+the [current handoff](HANDOFF.md) for exact failures and retained replay files.
 The accepted `df` repair from `507` is integrated. Integrated check and lint
 pass on four files. Fake runner lane `5f21` passes 11 tests and its plan test
-passes 1/1. `sh -n` passes, and real workload test `2ab` passes 1/1. One fresh
-bootstrap and canonical batch are authorized for `loop_speed` and are being
-prepared. No result is available. W9 source repair `b8` is integrated. The
-schema-3 comparison at controller `bef` processed 1,690 inputs and 6,760
-outcomes, then exited 1. It found seven exact-owner legacy-projection
-mismatches at indices 885, 887, 889, 897, 899, 1686, and 1688. Investigation
-is active. No rerun or W9 parity acceptance is reported. The owner authorized
-staggered inference work in isolated worktrees on 2026-10-15 and widened that
-authorization on 2026-10-16. Inference remains off main until consolidation
-closes. The accepted post-consolidation performance baseline still waits for
-close. Lean and Phase F remain paused. Parked source is recovery material, not
-accepted implementation.
+passes 1/1. `sh -n` passes, and real workload test `2ab` passes 1/1. W9 source
+repair `b8` passes 213 Python tests. The schema-3 comparison at controller
+`bef` processed 1,690 inputs and 6,760 outcomes, then exited 1 with seven
+visible mismatches. Later review found all chain 01, 03, and 04 captures
+unqualified because 64 mutable main-import paths crossed 218 source entries;
+W9 parity is not accepted and no new captures exist. Staggered inference work
+continues in isolated worktrees. Inference remains off main until consolidation
+closes; the cohort scan count and P2 units are not accepted while a
+config-deletion bypass remains under repair. The accepted post-consolidation performance
+baseline still waits for close. Lean and Phase F remain paused. Parked source is
+recovery material, not accepted implementation.
 
 ## Owner steering, 2026-10-15
 

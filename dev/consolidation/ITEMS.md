@@ -14,34 +14,47 @@ and XSHT 115 passed/1 failed/5 filtered. No later stage, full native suite, or
 canonical suffix ran. Source checks matched before and after. No OOM or swap
 occurred; cleanup resolved and the container is gone. This remains historical.
 
-Main is frozen at `e89e35f29`. The accepted `df` repair from `507` replaces the
-shared-filesystem counter comparison with same-output invariants and exact
-counters on a private 64 MiB tmpfs, using a controlled 256 KiB host writer.
-Cargo runner lock handoff `fcf` and selector fix `e89` are integrated. Integrated
-check and lint pass on four files. Fake runner lane `5f21` passes 11 tests, its
-plan test passes 1/1, and `sh -n` passes. Real workload test `2ab` passes 1/1.
-One fresh bootstrap and canonical batch are authorized for `loop_speed` and
-being prepared. No batch result is available. The stable copied-artifact suffix
-rerun of `a22` passes check 1,526, lint zero findings/113 notes, metrics, and
-docs/tour 3. Queue `b6` passes 11 tests and four-file check/lint; SGID private-
-scratch passes three Python regression scripts; `f958` passes focused lint with
-zero findings/notes and three negative preflight cases. These suffix results
-use immutable copied products after the shared `xsh` hash changed `a911`→`d058`.
+The canonical batch on source `e89e35f29` ended at native tests with exit 3:
+13,891 passed, 13 failed, and 78 skipped out of 13,982 selected. Earlier Rust,
+XSHT, soundness, and privileged stages passed; no suffix stages or performance
+close ran. Source was clean before and after, cleanup resolved, and no OOM or
+swap occurred. Hostname repair `06a` was later integrated at `63734367c`; 22
+driver unit tests and three focused hostname tests pass, but no full canonical
+rerun followed. The [current handoff](HANDOFF.md) lists the failures and links
+the retained replay evidence.
+
+The accepted `df` repair from `507` replaces the shared-filesystem counter
+comparison with same-output invariants and exact counters on a private 64 MiB
+tmpfs, using a controlled 256 KiB host writer. Cargo runner lock handoff `fcf`
+and selector fix `e89` are integrated. Integrated check and lint pass on four
+files. Fake runner lane `5f21` passes 11 tests, its plan test passes 1/1, and
+`sh -n` passes. Real workload test `2ab` passes 1/1. The stable copied-artifact
+suffix rerun of `a22` passes check 1,526, lint zero findings/113 notes, metrics,
+and docs/tour 3. Queue `b6` passes 11 tests and four-file check/lint; SGID
+private-scratch passes three Python regression scripts; `f958` passes focused
+lint with zero findings/notes and three negative preflight cases. These suffix
+results use immutable copied products after the shared `xsh` hash changed
+`a911`→`d058`.
 
 W9 source repair `b8` passes 213 Python tests and is integrated. The full
 schema-3 comparison at controller `bef` processed 1,690 inputs and 6,760
 outcomes, then exited 1. It found seven exact-owner legacy-projection
 mismatches at indices 885, 887, 889, 897, 899, 1686, and 1688. Investigation
-is active; no rerun or parity acceptance is reported.
+is active. Later review found all chain 01, 03, and 04 captures unqualified
+because 64 mutable main-import paths crossed 218 source entries; the seven
+mismatches are only the visible subset. The closure builder passes 8 tests as
+root and controller wiring is active on a separate e240 program snapshot. No
+new captures exist and W9 parity is not accepted.
 
 Inference checkpoint `037` passes 183/207 full tests, lowerer 35/46 outside the
 corpus, semantic 19, schemes 5, scheme-body 3, and alias 1. Paired native routes
 pass 3/9. Shape fix `9ad` and module fixture `4f1` are integrated but
 unverified. Checker `85e` is under review; BlockOwner and rest-parameter proofs
-remain in progress. The preliminary cohort scan found 9,194 sites; the count is
-not accepted. Ten P2 repair units are under review. No annotations have been
-removed. No inference is on main; Lean remains paused. Final acceptance and
-the post-consolidation performance baseline remain incomplete. See
+remain in progress. The cohort scan's 9,194-site count and ten P2 repair units are not accepted
+while a config-deletion bypass is under repair. No annotations have been
+removed. No inference is on main; Lean remains paused. Final acceptance and the
+post-consolidation performance baseline remain
+incomplete. See
 [the current handoff](HANDOFF.md) for per-lane evidence.
 
 **Earlier checkpoints:** The implementation and focused
