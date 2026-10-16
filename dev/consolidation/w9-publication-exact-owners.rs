@@ -594,10 +594,29 @@ fn w9_exact_assert_structured_stage_is_published(outputdir: &std::path::Path) {
     use xsh::frontend::load::{entry_source_from_text, parse_load_entry_source_arena_only};
 
     let source = "let values = [1, 2] |> drop(1) |> values\n";
+    let scratch_root = std::path::PathBuf::from(std::env::var_os("TMPDIR").expect("TMPDIR"));
+    std::fs::create_dir_all(&scratch_root).expect("create structured-stage scratch root");
+    let scratch = tempfile::Builder::new()
+        .prefix("w9-exact-stage-owner-")
+        .tempdir_in(scratch_root)
+        .expect("create structured-stage fixture directory");
+    let input_root = scratch.path().join("input");
+    let program_root = scratch.path().join("program");
+    std::fs::create_dir(&input_root).expect("create structured-stage input root");
+    std::fs::create_dir(&program_root).expect("create structured-stage program root");
+    let input_file = input_root.join("structured-stage-owner.xsh");
+    let program_entry = program_root.join("structured-stage-owner.xsh");
+    let program_config = program_root.join(xsh::frontend::load::PROJECT_CONFIG_FILE_NAME);
+    std::fs::write(&input_file, source).expect("write structured-stage input source");
+    std::fs::write(&program_entry, source).expect("write structured-stage program entry");
+    std::fs::write(&program_config, "").expect("write structured-stage program config");
+    let resolved_config = w9_resolve_project_module_config(&program_entry, &program_root)
+        .expect("resolve structured-stage program config");
+    let input_file_text = input_file.to_string_lossy().into_owned();
     let (sources, parsed) = parse_load_entry_source_arena_only(
-        "structured-stage-owner.xsh",
-        entry_source_from_text("structured-stage-owner.xsh", source.to_owned()),
-        Vec::new(),
+        &input_file_text,
+        entry_source_from_text(&input_file_text, source.to_owned()),
+        resolved_config.module_roots.clone(),
     );
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     assert_eq!(parsed.arena.arena.stream_stages.len(), 1);
@@ -610,7 +629,15 @@ fn w9_exact_assert_structured_stage_is_published(outputdir: &std::path::Path) {
     assert_ne!(span, pipe_stage_span);
     let directory = tempfile::tempdir_in(outputdir)
         .expect("create structured-stage owner directory");
-    w9_write_exact_adapter_owners(directory.path(), 0, &parsed.arena, &sources)
+    w9_write_exact_adapter_owners(
+        directory.path(),
+        0,
+        &parsed.arena,
+        &sources,
+        &input_root,
+        &program_root,
+        &resolved_config,
+    )
         .expect("write structured-stage owner index");
     let owners = std::fs::read_to_string(directory.path().join("owners-0.tsv"))
         .expect("read structured-stage owner index");
