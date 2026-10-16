@@ -55,7 +55,7 @@ proc write_fake_lint_tools(
   ready_after_exit: Int,
 ) [fs, error] {
   tools.mkdir()
-  write_fake_flock(tools)?
+  write_fake_flock(tools)
   library.write("")
   write_fake_tool(
     fp"{tools}/rustc",
@@ -92,7 +92,7 @@ test test_build_failure_stops_at_the_cargo_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "build-failure")?
   let tools = fp"{root}/tools"
   tools.mkdir()
-  write_fake_flock(tools)?
+  write_fake_flock(tools)
   let cargo_marker = fp"{root}/cargo-marker"
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
@@ -346,7 +346,7 @@ test test_lint_fix_rebuilds_the_debug_xsh_binary { |ctx|
   let root = test.temp_dir(ctx, name: "lint-build-xsh")?
   let tools = fp"{root}/tools"
   tools.mkdir()
-  write_fake_flock(tools)?
+  write_fake_flock(tools)
   let target = fp"{root}/target"
   target.mkdir()
   let debug = fp"{target}/debug"
@@ -391,7 +391,7 @@ test test_docker_container_failure_runs_target_ownership_cleanup { |ctx|
   let root = test.temp_dir(ctx, name: "container-cleanup")?
   let tools = fp"{root}/tools"
   tools.mkdir()
-  write_fake_flock(tools)?
+  write_fake_flock(tools)
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
   let cargo_marker = fp"{root}/cargo-marker"
@@ -604,7 +604,7 @@ test test_codesign_failure_stops_darwin_installation { |ctx|
   let root = test.temp_dir(ctx, name: "codesign-failure")?
   let tools = fp"{root}/tools"
   tools.mkdir()
-  write_fake_flock(tools)?
+  write_fake_flock(tools)
   let release_dir = fp"{root}/target/aarch64-apple-darwin/release"
   release_dir.mkdir()
   fp"{release_dir}/xsh".write("binary", mode: 0o755)
