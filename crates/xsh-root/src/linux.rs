@@ -70,23 +70,29 @@ fn openat2(
         0
     };
     how.resolve = libc::RESOLVE_BENEATH | libc::RESOLVE_NO_MAGICLINKS;
-    // SAFETY: `path` points to a NUL-terminated string, `how` is a valid
-    // `open_how` with its exact ABI size, and `dirfd` remains borrowed for the
-    // duration of this direct syscall.
-    let fd = unsafe {
-        libc::syscall(
-            libc::SYS_openat2,
-            dirfd.as_raw_fd(),
-            path.as_ptr(),
-            &how,
-            size_of::<libc::open_how>(),
-        )
-    };
-    if fd < 0 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(fd as libc::c_int)
-    }
+    retry_openat2(|| {
+        // SAFETY: `path` points to a NUL-terminated string, `how` is a valid
+        // `open_how` with its exact ABI size, and `dirfd` remains borrowed for
+        // the duration of this direct syscall.
+        let fd = unsafe {
+            libc::syscall(
+                libc::SYS_openat2,
+                dirfd.as_raw_fd(),
+                path.as_ptr(),
+                &how,
+                size_of::<libc::open_how>(),
+            )
+        };
+        if fd < 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(fd as libc::c_int)
+        }
+    })
+}
+
+fn retry_openat2(mut open: impl FnMut() -> io::Result<libc::c_int>) -> io::Result<libc::c_int> {
+    open()
 }
 
 fn file_from_fd(fd: libc::c_int) -> io::Result<File> {
@@ -106,4 +112,37 @@ fn root_from_fd(fd: libc::c_int) -> io::Result<OwnedFd> {
     // SAFETY: a nonnegative descriptor returned by this module's root-open
     // syscall is newly owned here and has not been wrapped elsewhere.
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::retry_openat2;
+    use std::io;
+
+    #[test]
+    fn retries_eagain_for_the_same_openat2_operation() {
+        let operation = (
+            3,
+            "sys/bus/pci/devices/0000:00:1f.0",
+            libc::O_PATH | libc::O_DIRECTORY,
+            libc::RESOLVE_BENEATH | libc::RESOLVE_NO_MAGICLINKS,
+        );
+        let mut attempts = 0;
+        let mut observed = Vec::new();
+
+        let fd = retry_openat2(|| {
+            attempts += 1;
+            observed.push(operation);
+            if attempts == 1 {
+                Err(io::Error::from_raw_os_error(libc::EAGAIN))
+            } else {
+                Ok(37)
+            }
+        })
+        .expect("transient EAGAIN should retry");
+
+        assert_eq!(fd, 37);
+        assert_eq!(attempts, 2);
+        assert_eq!(observed, vec![operation, operation]);
+    }
 }
