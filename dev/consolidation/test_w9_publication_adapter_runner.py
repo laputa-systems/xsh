@@ -1724,7 +1724,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             per_input_results.append((0, result))
             callback(0, result)
             for index in range(1, count):
-                callback(index, ())
+                callback(index, adapter_runner._PublicationInputResult((), None))
 
         candidate_raw_inode = capture_roots["candidate"][1].stat().st_ino
 
@@ -1781,7 +1781,10 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
 
         self.assertEqual(result, (correction.EXPECTED_OUTCOME_COUNT, 0, None))
         self.assertEqual(mismatch_path.read_bytes(), b"")
-        self.assertEqual(per_input_results, [(0, ())])
+        self.assertEqual(
+            per_input_results,
+            [(0, adapter_runner._PublicationInputResult((), None))],
+        )
         self.assertEqual(
             [name.rsplit("-hash-", 1)[1] for name in planned_container_names],
             ["derived-reference", "candidate", "reference"],
@@ -2099,6 +2102,227 @@ class AdapterRawOutcomeContinuationTests(unittest.TestCase):
             self.assertEqual(commands[0][0:2], ["timeout", "900s"])
             self.assertIn("--cpuset-cpus=0", (capture_output / "hashjobs/reference/docker-shim/docker").read_text())
             self.assertEqual(cleanup_calls, [1])
+
+
+class AdapterCorrectedReferenceInputTests(unittest.TestCase):
+    def _capture(self, root, label, contents, input_count):
+        capture = root / label
+        capture.mkdir()
+        raw = capture / "raw"
+        raw.mkdir()
+        hashes = {}
+        outcomes = {}
+        for index in range(input_count):
+            (raw / f"owners-{index}.tsv").write_text("invalid owner index\n", encoding="utf-8")
+            for profile, (kind, diagnostics, publication) in contents.items():
+                record = raw / f"record-{index}-{profile}"
+                record.mkdir()
+                (record / "kind").write_text(kind, encoding="utf-8")
+                (record / "diagnostics").write_text(diagnostics, encoding="utf-8")
+                (record / "publication").write_text(publication, encoding="utf-8")
+                diagnostics_hash = hashlib.sha256(diagnostics.encode("utf-8")).hexdigest()
+                publication_hash = hashlib.sha256(publication.encode("utf-8")).hexdigest()
+                hashes[(index, profile, "diagnostics")] = diagnostics_hash
+                hashes[(index, profile, "publication")] = publication_hash
+                outcomes[(index, f"source/{index}.xsh", profile)] = (
+                    diagnostics_hash,
+                    publication_hash,
+                )
+                (record / "receipt-hashes").write_text(
+                    f"{diagnostics_hash}\t{publication_hash}", encoding="utf-8"
+                )
+        return raw, hashes, outcomes
+
+    def _context(self, root, input_count=1, zero_delta=False):
+        original_contents = {
+            profile: ("checked", "[]", f"original-{profile}")
+            for profile in adapter_runner.PROFILES
+        }
+        derived_contents = dict(original_contents)
+        if not zero_delta:
+            derived_contents[adapter_runner.PROFILES[0]] = (
+                "load-error",
+                "derived-first-diagnostics",
+                "derived-first-publication",
+            )
+            if len(adapter_runner.PROFILES) > 1:
+                derived_contents[adapter_runner.PROFILES[1]] = (
+                    "checked",
+                    "derived-later-kind",
+                    f"original-{adapter_runner.PROFILES[1]}",
+                )
+        candidate_contents = dict(derived_contents)
+        original_raw, original_hashes, original_outcomes = self._capture(
+            root, "original", original_contents, input_count
+        )
+        derived_raw, derived_hashes, derived_outcomes = self._capture(
+            root, "derived", derived_contents, input_count
+        )
+        candidate_raw, candidate_hashes, candidate_outcomes = self._capture(
+            root, "candidate", candidate_contents, input_count
+        )
+        roots = {
+            label: os.open(raw, os.O_RDONLY | os.O_DIRECTORY)
+            for label, raw in (
+                ("original", original_raw),
+                ("derived", derived_raw),
+                ("candidate", candidate_raw),
+            )
+        }
+        self.addCleanup(lambda: [os.close(root_fd) for root_fd in roots.values()])
+        context = adapter_runner._PublicationComparisonContext(
+            reference_root=roots["derived"],
+            candidate_root=roots["candidate"],
+            expected_inputs={
+                index: SimpleNamespace(relative_path=f"source/{index}.xsh")
+                for index in range(input_count)
+            },
+            expected_reference_outcomes=SimpleNamespace(outcomes=derived_outcomes),
+            candidate_outcomes=candidate_outcomes,
+            reference_raw_hashes=derived_hashes,
+            candidate_raw_hashes=candidate_hashes,
+            reference_exact_owners={},
+            candidate_exact_owners={},
+            reference_tui_source=b"",
+            candidate_tui_source=b"",
+            candidate_assignment_proofs=None,
+            assignment_facts_module=None,
+            source_audit=False,
+            original_capture=adapter_runner._OriginalPublicationCapture(
+                root=roots["original"],
+                outcomes=original_outcomes,
+                raw_hashes=original_hashes,
+            ),
+        )
+        return context, {
+            "original": original_raw,
+            "derived": derived_raw,
+            "candidate": candidate_raw,
+        }
+
+    def test_corrected_input_reuses_derived_records_and_keeps_first_delta_order(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        scratch_root = repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="w9-corrected-input-", dir=scratch_root) as scratch:
+            context, _raw_roots = self._context(pathlib.Path(scratch))
+            original_record = adapter_runner._record
+            record_roots = {
+                os.fstat(context.original_capture.root).st_ino: "original",
+                os.fstat(context.reference_root).st_ino: "derived",
+                os.fstat(context.candidate_root).st_ino: "candidate",
+            }
+            record_counts = {label: {} for label in record_roots.values()}
+
+            def count_record(root_fd, key):
+                label = record_roots[os.fstat(root_fd).st_ino]
+                record_counts[label][key[2]] = record_counts[label].get(key[2], 0) + 1
+                return original_record(root_fd, key)
+
+            with patch.object(adapter_runner, "_record", side_effect=count_record):
+                result = adapter_runner._compare_publication_input(0, context)
+
+        first_profile = adapter_runner.PROFILES[0]
+        original_value = "checked"
+        derived_value = "load-error"
+        self.assertEqual(
+            result.first_delta,
+            (
+                "0",
+                "source/0.xsh",
+                first_profile,
+                "kind",
+                hashlib.sha256(original_value.encode("utf-8")).hexdigest(),
+                hashlib.sha256(derived_value.encode("utf-8")).hexdigest(),
+            ),
+        )
+        self.assertTrue(any("owner-index" in mismatch for mismatch in result.mismatches))
+        for label in ("original", "derived", "candidate"):
+            self.assertEqual(record_counts[label], {profile: 1 for profile in adapter_runner.PROFILES})
+
+    def test_corrected_input_validates_later_profiles_after_finding_a_delta(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        scratch_root = repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="w9-corrected-late-mutation-", dir=scratch_root) as scratch:
+            context, raw_roots = self._context(pathlib.Path(scratch))
+            last_profile = adapter_runner.PROFILES[-1]
+            path = raw_roots["derived"] / f"record-0-{last_profile}" / "diagnostics"
+            path.write_text("changed-after-admission", encoding="utf-8")
+            context.reference_raw_hashes[(0, last_profile, "diagnostics")] = hashlib.sha256(
+                b"changed-after-admission"
+            ).hexdigest()
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "derived reference raw bytes hash differs",
+            ):
+                adapter_runner._compare_publication_input(0, context)
+
+    def test_corrected_parallel_results_keep_the_earliest_input_delta(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        scratch_root = repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="w9-corrected-order-", dir=scratch_root) as scratch:
+            context, _raw_roots = self._context(pathlib.Path(scratch), input_count=2)
+            results = []
+            adapter_runner._run_parallel_publication_comparisons(
+                context,
+                2,
+                lambda index, result: results.append((index, result.first_delta)),
+            )
+
+        self.assertEqual([index for index, _delta in results], [0, 1])
+        self.assertEqual([delta[0] for _index, delta in results], ["0", "1"])
+
+    def test_corrected_input_accepts_a_zero_delta_after_full_admission(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        scratch_root = repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix="w9-corrected-zero-delta-", dir=scratch_root
+        ) as scratch:
+            context, _raw_roots = self._context(pathlib.Path(scratch), zero_delta=True)
+            result = adapter_runner._compare_publication_input(0, context)
+
+        self.assertIsNone(result.first_delta)
+
+    def test_corrected_input_rejects_post_admission_mutations_for_all_roles(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        scratch_root = repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        for role in ("original", "derived", "candidate"):
+            for member in ("diagnostics", "receipt-hashes"):
+                with self.subTest(role=role, member=member):
+                    with tempfile.TemporaryDirectory(
+                        prefix="w9-corrected-mutation-", dir=scratch_root
+                    ) as scratch:
+                        context, raw_roots = self._context(pathlib.Path(scratch))
+                        path = (
+                            raw_roots[role]
+                            / f"record-0-{adapter_runner.PROFILES[0]}"
+                            / member
+                        )
+                        if member == "diagnostics":
+                            path.write_text("changed-after-admission", encoding="utf-8")
+                            changed_hash = hashlib.sha256(b"changed-after-admission").hexdigest()
+                            if role == "original":
+                                raw_hashes = context.original_capture.raw_hashes
+                            elif role == "derived":
+                                raw_hashes = context.reference_raw_hashes
+                            else:
+                                raw_hashes = context.candidate_raw_hashes
+                            raw_hashes[(0, adapter_runner.PROFILES[0], "diagnostics")] = changed_hash
+                        else:
+                            path.write_text("f" * 64 + "\t" + "e" * 64, encoding="utf-8")
+                        if role == "candidate":
+                            result = adapter_runner._compare_publication_input(0, context)
+                            self.assertTrue(
+                                any("candidate-raw-bytes-hash" in mismatch for mismatch in result.mismatches)
+                            )
+                        else:
+                            expected = "immutable original raw bytes hash differs" if role == "original" else "derived reference raw bytes hash differs"
+                            with self.assertRaisesRegex(adapter_runner.PublicationError, expected):
+                                adapter_runner._compare_publication_input(0, context)
 
 
 class DerivedCaptureClaimTests(unittest.TestCase):

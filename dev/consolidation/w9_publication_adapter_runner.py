@@ -200,6 +200,12 @@ class _PublicationComparisonTermination(BaseException):
         self.signum = signum
 
 
+class _OriginalPublicationCapture(NamedTuple):
+    root: int
+    outcomes: dict[tuple[int, str, str], tuple[str, str]]
+    raw_hashes: dict[tuple[int, str, str], str]
+
+
 class _PublicationComparisonContext(NamedTuple):
     reference_root: int
     candidate_root: int
@@ -215,6 +221,12 @@ class _PublicationComparisonContext(NamedTuple):
     candidate_assignment_proofs: dict[int, object] | None
     assignment_facts_module: object | None
     source_audit: bool
+    original_capture: _OriginalPublicationCapture | None = None
+
+
+class _PublicationInputResult(NamedTuple):
+    mismatches: tuple[str, ...]
+    first_delta: tuple[str, ...] | None
 
 
 def _replace_once(source: str, before: str, after: str) -> str:
@@ -2823,8 +2835,50 @@ def _report_comparison_progress(
 def _compare_publication_input(
     index: int,
     context: _PublicationComparisonContext,
-) -> tuple[str, ...]:
+) -> _PublicationInputResult:
     mismatches: list[str] = []
+    first_delta = None
+    reference_records = {}
+    if context.original_capture is not None:
+        original_capture = context.original_capture
+        for profile in PROFILES:
+            key = (index, context.expected_inputs[index].relative_path, profile)
+            original_kind, original_diagnostics, original_publication, original_hashes = _record(
+                original_capture.root, key
+            )
+            if not _raw_hash_pair_matches(original_capture.raw_hashes, index, profile, original_hashes):
+                raise PublicationError(f"{key}: immutable original raw bytes hash differs")
+            if original_hashes != original_capture.outcomes[key]:
+                raise PublicationError(f"{key}: immutable original receipt hash differs")
+            reference_kind, reference_diagnostics, reference_publication, reference_hashes = _record(
+                context.reference_root, key
+            )
+            if not _raw_hash_pair_matches(context.reference_raw_hashes, index, profile, reference_hashes):
+                raise PublicationError(f"{key}: derived reference raw bytes hash differs")
+            if reference_hashes != context.expected_reference_outcomes.outcomes[key]:
+                raise PublicationError(f"{key}: derived reference receipt hash differs")
+            if first_delta is None:
+                original_values = (original_kind, original_diagnostics, original_publication)
+                reference_values = (reference_kind, reference_diagnostics, reference_publication)
+                for field, value_index in (("kind", 0), ("diagnostics", 1), ("publication", 2)):
+                    original_value = original_values[value_index]
+                    reference_value = reference_values[value_index]
+                    if original_value != reference_value:
+                        first_delta = (
+                            str(index),
+                            key[1],
+                            key[2],
+                            field,
+                            hashlib.sha256(original_value.encode("utf-8")).hexdigest(),
+                            hashlib.sha256(reference_value.encode("utf-8")).hexdigest(),
+                        )
+                        break
+            reference_records[profile] = (
+                reference_kind,
+                reference_diagnostics,
+                reference_publication,
+                reference_hashes,
+            )
     owner_error = False
     try:
         reference_owner = adapter.parse_owner_index(
@@ -2850,9 +2904,17 @@ def _compare_publication_input(
     for profile in PROFILES:
         key = (index, context.expected_inputs[index].relative_path, profile)
         try:
-            reference_kind, reference_diagnostics, reference_publication, reference_hashes = _record(
-                context.reference_root, key
-            )
+            if context.original_capture is None:
+                reference_kind, reference_diagnostics, reference_publication, reference_hashes = _record(
+                    context.reference_root, key
+                )
+            else:
+                (
+                    reference_kind,
+                    reference_diagnostics,
+                    reference_publication,
+                    reference_hashes,
+                ) = reference_records[profile]
             candidate_kind, candidate_diagnostics, candidate_publication, candidate_hashes = _record(
                 context.candidate_root, key
             )
@@ -2860,11 +2922,16 @@ def _compare_publication_input(
                 context.expected_reference_outcomes.outcomes[key]
             )
             candidate_diagnostic_hash, candidate_publication_hash = context.candidate_outcomes[key]
-            if not _raw_hash_pair_matches(context.reference_raw_hashes, index, profile, reference_hashes):
+            if context.original_capture is None and not _raw_hash_pair_matches(
+                context.reference_raw_hashes, index, profile, reference_hashes
+            ):
                 mismatches.append(f"{key}\treference-raw-bytes-hash")
             if not _raw_hash_pair_matches(context.candidate_raw_hashes, index, profile, candidate_hashes):
                 mismatches.append(f"{key}\tcandidate-raw-bytes-hash")
-            if reference_hashes != (reference_diagnostic_hash, reference_publication_hash):
+            if context.original_capture is None and reference_hashes != (
+                reference_diagnostic_hash,
+                reference_publication_hash,
+            ):
                 mismatches.append(f"{key}\treference-raw-receipt-hash")
             if candidate_hashes != (candidate_diagnostic_hash, candidate_publication_hash):
                 mismatches.append(f"{key}\tcandidate-raw-receipt-hash")
@@ -2896,7 +2963,7 @@ def _compare_publication_input(
             mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
             profile_error = True
     if owner_error or profile_error or not profile_records:
-        return tuple(mismatches)
+        return _PublicationInputResult(tuple(mismatches), first_delta)
     try:
         profile_by_name = {record[0]: record for record in profile_records}
         candidate_publications = []
@@ -2942,7 +3009,7 @@ def _compare_publication_input(
         )
     except (adapter.AdapterError, PublicationError, UnicodeError, KeyError) as error:
         mismatches.append(f"{index}\ttui-alignment\t{type(error).__name__}\t{error}")
-        return tuple(mismatches)
+        return _PublicationInputResult(tuple(mismatches), first_delta)
     comparison_outcomes: dict[
         tuple[str, str, str, str], tuple[type[Exception], str] | None
     ] = {}
@@ -3009,7 +3076,7 @@ def _compare_publication_input(
             mismatches.append(f"{key}\tadapter\t{type(error).__name__}\t{error}")
         else:
             comparison_outcomes[comparison_pair] = None
-    return tuple(mismatches)
+    return _PublicationInputResult(tuple(mismatches), first_delta)
 
 
 def _publication_comparison_worker(
@@ -3442,6 +3509,7 @@ def compare_full_publications(
             count, mismatch_path.parent, "candidate", 1, docker_environment, runner,
         )
         first_delta = None
+        original_raw_hashes = None
         if corrected_reference:
             if original_build is None or original_capture is None or original_root < 0:
                 raise PublicationError("immutable original reference capture validation is incomplete")
@@ -3449,52 +3517,40 @@ def compare_full_publications(
                 pathlib.Path(original_build["binary"]), original_raw, candidate_source_record,
                 count, mismatch_path.parent, "reference", 2, docker_environment, runner,
             )
-
-            def original_rows():
-                for index in range(count):
-                    for profile in PROFILES:
-                        key = (index, expected_inputs[index].relative_path, profile)
-                        kind, diagnostics, publication, hashes = _record(original_root, key)
-                        if not _raw_hash_pair_matches(original_raw_hashes, index, profile, hashes):
-                            raise PublicationError(f"{key}: immutable original raw bytes hash differs")
-                        if hashes != original_capture.outcomes[key]:
-                            raise PublicationError(f"{key}: immutable original receipt hash differs")
-                        yield key, (kind, diagnostics, publication)
-
-            def derived_rows():
-                for index in range(count):
-                    for profile in PROFILES:
-                        key = (index, expected_inputs[index].relative_path, profile)
-                        kind, diagnostics, publication, hashes = _record(reference_root, key)
-                        if not _raw_hash_pair_matches(reference_raw_hashes, index, profile, hashes):
-                            raise PublicationError(f"{key}: derived reference raw bytes hash differs")
-                        if hashes != captured_reference.outcomes[key]:
-                            raise PublicationError(f"{key}: derived reference receipt hash differs")
-                        yield key, (kind, diagnostics, publication)
-
-            first_delta = reference_correction.first_difference(original_rows(), derived_rows())
         if len(keys) != count * len(PROFILES):
             raise PublicationError(f"receipt outcome count differs: {len(keys)}")
 
         comparison_context = _PublicationComparisonContext(
-            reference_root,
-            candidate_root,
-            expected_inputs,
-            expected_reference_outcomes,
-            candidate.outcomes,
-            reference_raw_hashes,
-            candidate_raw_hashes,
-            reference_exact_owners,
-            candidate_exact_owners,
-            reference_tui_source,
-            candidate_tui_source,
-            candidate_assignment_proofs,
-            assignment_facts_module,
-            source_qualified,
+            reference_root=reference_root,
+            candidate_root=candidate_root,
+            expected_inputs=expected_inputs,
+            expected_reference_outcomes=expected_reference_outcomes,
+            candidate_outcomes=candidate.outcomes,
+            reference_raw_hashes=reference_raw_hashes,
+            candidate_raw_hashes=candidate_raw_hashes,
+            reference_exact_owners=reference_exact_owners,
+            candidate_exact_owners=candidate_exact_owners,
+            reference_tui_source=reference_tui_source,
+            candidate_tui_source=candidate_tui_source,
+            candidate_assignment_proofs=candidate_assignment_proofs,
+            assignment_facts_module=assignment_facts_module,
+            source_audit=source_qualified,
+            original_capture=(
+                _OriginalPublicationCapture(
+                    root=original_root,
+                    outcomes=original_capture.outcomes,
+                    raw_hashes=original_raw_hashes,
+                )
+                if original_capture is not None and original_raw_hashes is not None
+                else None
+            ),
         )
 
-        def accept_input_result(index: int, input_mismatches: tuple[str, ...]) -> None:
-            mismatches.extend(input_mismatches)
+        def accept_input_result(index: int, input_result: _PublicationInputResult) -> None:
+            nonlocal first_delta
+            mismatches.extend(input_result.mismatches)
+            if first_delta is None:
+                first_delta = input_result.first_delta
             _report_comparison_progress(index + 1, count, len(keys), len(mismatches))
 
         if count <= 1:
