@@ -30,6 +30,16 @@ assert selected == "selected"
 """, status: 0)?
 }
 
+test test_expr_if_pure_selection { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""assert (if true { 1 } else { 0 }) == 1
+""",
+    status: 0,
+  )?
+  assert output.stdout == ""
+}
+
 test test_expr_if_non_in_place_selection { |ctx|
   let output = test.expect(
     ctx,
