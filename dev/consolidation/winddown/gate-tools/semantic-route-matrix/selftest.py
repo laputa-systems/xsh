@@ -181,12 +181,12 @@ def expression_dispatch_fixture(rows: list[dict]) -> dict:
             "normal_executor": [
                 {
                     "path": "eval_indexed_expr_with_frames",
-                    "predicate": selectors["normal_entry"]["predicate"],
+                    "predicate": selectors["normal_frame_dispatch"]["predicate"],
                     "source": source(paths["normal_dispatch"], 1),
                 },
                 {
                     "path": "eval_indexed_expr_inner",
-                    "predicate": selectors["normal_entry"]["predicate"],
+                    "predicate": selectors["normal_recursive_entry"]["predicate"],
                     "source": source(paths["normal_dispatch"], 2),
                 },
             ],
@@ -2075,6 +2075,17 @@ fn eval_indexed_expr() {
         self.assertIsNone(fallback["no_fallback"])
         self.assertEqual(fallback["branches"][0]["normal_dispatch"]["kind"], "in_place_recursive_dispatch")
         self.assertEqual(fallback["branches"][0]["forced_dispatch"]["kind"], "explicit_frame_view_dispatch")
+        normal_dispatch = fallback["branches"][0]["normal_dispatch"]
+        self.assertTrue(normal_dispatch["in_place_eligible"])
+        self.assertEqual(normal_dispatch["selected_when"]["path"], "eval_indexed_expr_inner")
+        self.assertEqual(
+            normal_dispatch["selected_when"]["predicate"],
+            inventory["selectors"]["normal_recursive_entry"]["predicate"],
+        )
+        self.assertEqual(
+            {branch["path"] for branch in normal_dispatch["executor_branches"]},
+            {"eval_indexed_expr_with_frames", "eval_indexed_expr_inner"},
+        )
         bypass = fallback["branches"][0]["normal_dispatch"]["in_place_bypass"]
         self.assertEqual(bypass["kind"], "normal_in_place_bypass")
         self.assertEqual(bypass["mode"], "normal")
@@ -2131,8 +2142,18 @@ pattern_schema! {}
             generate.expression_dispatch_source_refs(by_tag["ExprProcessCommandArgv"], inventory),
             inventory,
         )
-        self.assertFalse(result_call["branches"][0]["normal_dispatch"]["selected"])
+        normal_dispatch = result_call["branches"][0]["normal_dispatch"]
+        self.assertFalse(normal_dispatch["in_place_eligible"])
         self.assertFalse(result_call["branches"][0]["normal_dispatch"]["recursive_match_reachable"])
+        self.assertEqual(normal_dispatch["selected_when"]["path"], "eval_indexed_expr_with_frames")
+        self.assertEqual(
+            normal_dispatch["selected_when"]["predicate"],
+            inventory["selectors"]["normal_frame_dispatch"]["predicate"],
+        )
+        self.assertEqual(
+            {branch["path"] for branch in normal_dispatch["executor_branches"]},
+            {"eval_indexed_expr_with_frames", "eval_indexed_expr_inner"},
+        )
         bypass = result_call["branches"][0]["normal_dispatch"]["in_place_bypass"]
         self.assertFalse(bypass["reachable_for_schema_row"])
         self.assertEqual(bypass["required_schema_class"], "Operands")
@@ -2142,7 +2163,6 @@ pattern_schema! {}
             boundary["reachable_for_valid_schema_row"] is False
             for boundary in result_call["defensive_boundaries"]
         ))
-        self.assertEqual(result_call["branches"][0]["normal_dispatch"]["executor"], "eval_indexed_expr_with_frames")
         self.assertTrue(process_argv["branches"][0]["forced_dispatch"]["indexed_frame_apply_selected"])
         self.assertFalse(process_argv["branches"][0]["forced_dispatch"]["frame_strategy_overridden"])
         self.assertEqual(process_argv["branches"][0]["normal_dispatch"]["kind"], "scheduled_frame_apply_dispatch")

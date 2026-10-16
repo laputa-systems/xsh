@@ -4220,7 +4220,7 @@ def expression_dispatch_fallback_path_map(
             raise EvidenceError(f"in-place expression has no supported recursive path: {tag}")
         normal_kind = "in_place_eager_atom_value" if eager_atom else "in_place_recursive_dispatch"
         normal_dispatch = recursive
-        normal_is_selected = True
+        in_place_eligible = True
     elif class_name == "Scheduled":
         normal_kind = (
             "scheduled_frame_apply_dispatch"
@@ -4228,7 +4228,7 @@ def expression_dispatch_fallback_path_map(
             else "scheduled_explicit_view_dispatch"
         )
         normal_dispatch = forced if apply_selected else explicit
-        normal_is_selected = False
+        in_place_eligible = False
     else:
         raise EvidenceError(f"expression dispatch has an unknown schema class for {tag}: {class_name}")
 
@@ -4270,6 +4270,23 @@ def expression_dispatch_fallback_path_map(
     bypass_selector_source_ref = (
         f"{bypass_selector['source']['path']}:{bypass_selector['source']['start_line']}"
     )
+    normal_executor_branches = [
+        {
+            "path": executor["path"],
+            "predicate": executor["predicate"],
+            "source_ref": f"{executor['source']['path']}:{executor['source']['start_line']}",
+        }
+        for executor in item["normal_executor"]
+    ]
+    selected_normal_executor = next(
+        executor
+        for executor in normal_executor_branches
+        if executor["path"] == (
+            "eval_indexed_expr_inner"
+            if class_name == "Operands"
+            else "eval_indexed_expr_with_frames"
+        )
+    )
     defensive_boundaries = [
         {
             "function": boundary["function"],
@@ -4296,16 +4313,9 @@ def expression_dispatch_fallback_path_map(
             "frame_strategy": strategy,
             "normal_dispatch": {
                 "kind": normal_kind,
-                "executor": next(
-                    executor["path"]
-                    for executor in item["normal_executor"]
-                    if executor["path"] == (
-                        "eval_indexed_expr_inner"
-                        if class_name == "Operands"
-                        else "eval_indexed_expr_with_frames"
-                    )
-                ),
-                "selected": normal_is_selected,
+                "in_place_eligible": in_place_eligible,
+                "selected_when": selected_normal_executor,
+                "executor_branches": normal_executor_branches,
                 "behavior": normal_dispatch["behavior"],
                 "source_ref": (
                     f"{normal_dispatch['source']['path']}:{normal_dispatch['source']['start_line']}"
