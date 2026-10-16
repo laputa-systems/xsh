@@ -1136,7 +1136,23 @@ pub fn extract_expression_dispatch_inventory(
         indexed_path,
     )?;
     let explicit_block = find_function(&explicit, "eval_expr")?;
+    let (explicit_in_place_index, explicit_in_place_condition) =
+        top_level_local_binding_expression(explicit_block, "in_place")?;
+    if !is_force_guarded_in_place_initializer(explicit_in_place_condition) {
+        return Err("expression frame dispatch no longer guards in-place with force_frames and the schema mark".into());
+    }
     let explicit_in_place = top_level_if_condition(explicit_block, |expression| path_is_ident(expression, "in_place"), "in-place entry")?;
+    let explicit_in_place_branch_index = explicit_block.stmts.iter().position(|statement| {
+        matches!(statement, Stmt::Expr(Expr::If(branch), _) if std::ptr::eq(branch, explicit_in_place))
+    }).ok_or_else(|| "in-place entry is not a top-level dispatch branch".to_string())?;
+    if explicit_in_place_index >= explicit_in_place_branch_index {
+        return Err("in-place entry does not follow its force-aware condition binding".into());
+    }
+    validate_expression_in_place_bypass(explicit_in_place)?;
+    forced_eager_atom_route(&explicit)?;
+    validate_explicit_scalar_entry(&explicit)?;
+    frame_constructor_scheduled_route(&explicit, "forced")?;
+    call_frame_forced_route(&indexed, &explicit)?;
     let explicit_eager = eager_atom_branch(explicit_block, "eval_expr")?.1;
     let explicit_typed = top_level_typed_scalar_branch(explicit_block)?;
     let (explicit_apply_index, explicit_apply) = find_frame_apply_branch(explicit_block, true)?;
@@ -1156,7 +1172,10 @@ pub fn extract_expression_dispatch_inventory(
     }
     let forced_selector = ExpressionExecutorPath {
         path: "ExplicitFrames::eval_expr".into(),
-        predicate: format!("forced path takes the false arm of {}", expression_source_ref(explicit_path, explicit_source, explicit_in_place.cond.span()).snippet),
+        predicate: format!(
+            "forced path takes the false arm of in_place, guarded by {}",
+            expression_source_ref(explicit_path, explicit_source, explicit_in_place_condition.span()).snippet
+        ),
         source: expression_source_ref(explicit_path, explicit_source, explicit_in_place.span()),
     };
     let explicit_view_block = find_function(&explicit, "eval_expr_view")?;
@@ -1241,6 +1260,23 @@ pub fn extract_expression_dispatch_inventory(
             },
         ),
         ("forced_frame_entry".into(), forced_selector.clone()),
+        (
+            "forced_in_place_condition".into(),
+            ExpressionExecutorPath {
+                path: "eval_expr.in_place".into(),
+                predicate: expression_source_ref(
+                    explicit_path,
+                    explicit_source,
+                    explicit_in_place_condition.span(),
+                )
+                .snippet,
+                source: expression_source_ref(
+                    explicit_path,
+                    explicit_source,
+                    explicit_in_place_condition.span(),
+                ),
+            },
+        ),
         (
             "forced_in_place_bypass".into(),
             ExpressionExecutorPath {
@@ -2699,6 +2735,72 @@ fn is_force_guarded_in_place_initializer(expression: &Expr) -> bool {
             && path_is_ident(&call.args[0], "instruction")
             && path_is_ident(&call.receiver, "execution"));
     forced && in_place
+}
+
+fn validate_expression_in_place_bypass(branch: &syn::ExprIf) -> Result<(), String> {
+    if branch.else_branch.is_some() {
+        return Err("in-place expression bypass must not have a frame-dispatch else arm".into());
+    }
+    let [Stmt::Local(flow_local), Stmt::Expr(Expr::Match(flow_match), None), returned] =
+        branch.then_branch.stmts.as_slice()
+    else {
+        return Err("in-place expression bypass must evaluate, consume flow, then return".into());
+    };
+    if !matches!(&flow_local.pat, Pat::Ident(binding) if binding.ident == "flow") {
+        return Err("in-place expression bypass does not bind evaluator flow".into());
+    }
+    let flow_initializer = flow_local
+        .init
+        .as_ref()
+        .ok_or_else(|| "in-place expression flow binding has no initializer".to_string())?;
+    let Expr::Block(flow_block) = flow_initializer.expr.as_ref() else {
+        return Err("in-place expression flow binding is not scoped around frame-local state".into());
+    };
+    let [Stmt::Local(call_local), evaluation] = flow_block.block.stmts.as_slice() else {
+        return Err("in-place expression flow must bind its frame-local call before evaluation".into());
+    };
+    if !matches!(&call_local.pat, Pat::Ident(binding) if binding.ident == "call") {
+        return Err("in-place expression flow uses an unexpected frame-local binding".into());
+    }
+    let call_initializer = call_local
+        .init
+        .as_ref()
+        .ok_or_else(|| "in-place expression frame-local call has no initializer".to_string())?;
+    if !typed_scalar_call_binding(call_initializer.expr.as_ref()) {
+        return Err("in-place expression flow does not borrow the selected frame-local call".into());
+    }
+    let Stmt::Expr(Expr::Try(propagation), _) = evaluation else {
+        return Err("in-place expression flow does not propagate eval_indexed_expr".into());
+    };
+    let Expr::MethodCall(evaluation) = propagation.expr.as_ref() else {
+        return Err("in-place expression flow does not call eval_indexed_expr".into());
+    };
+    if evaluation.method != "eval_indexed_expr"
+        || evaluation.turbofish.is_some()
+        || !is_field_access(&evaluation.receiver, "self", "evaluator")
+        || evaluation.args.len() != 4
+        || !is_reference_field(&evaluation.args[0], false, "call", "execution")
+        || !path_is_ident(&evaluation.args[1], "instruction")
+        || !is_reference_field(&evaluation.args[2], true, "call", "slots")
+        || !path_is_ident(&evaluation.args[3], "span")
+    {
+        return Err("in-place expression bypass does not evaluate the selected instruction with its call slots".into());
+    }
+    if !path_is_ident(&flow_match.expr, "flow")
+        || flow_match.arms.len() != 3
+        || enum_pattern_name(&flow_match.arms[0].pat, "ControlFlow")? != "Continue"
+        || enum_pattern_name(&flow_match.arms[1].pat, "ControlFlow")? != "Break"
+        || enum_pattern_name(&flow_match.arms[2].pat, "ControlFlow")? != "Break"
+        || flow_match.arms[0].guard.is_some()
+        || flow_match.arms[1].guard.is_none()
+        || flow_match.arms[2].guard.is_some()
+    {
+        return Err("in-place expression bypass no longer consumes indexed expression flow before returning".into());
+    }
+    if !is_success_return(returned) {
+        return Err("in-place expression bypass does not return before frame dispatch".into());
+    }
+    Ok(())
 }
 
 fn is_in_place_short_circuit_condition(expression: &Expr) -> bool {
@@ -11821,6 +11923,11 @@ mod tests {
         assert!(inventory.classifiers["ExprViewKind"].pattern.contains("ExprViewKind::$variant"));
         assert_eq!(inventory.classifiers["ExprViewKind"].tags.len(), inventory.rows.len());
         assert!(inventory.selectors["forced_frame_apply"].predicate.contains("indexed_frame_apply_tag(tag)"));
+        assert_eq!(
+            inventory.selectors["forced_in_place_condition"].predicate,
+            "!self.evaluator.force_frames\n            && execution.is_in_place(instruction)"
+        );
+        assert!(inventory.selectors["forced_frame_entry"].predicate.contains("guarded by"));
         assert!(inventory.selectors["normal_frame_dispatch"].predicate.contains("!execution.is_in_place(instruction)"));
         assert!(inventory.selectors["normal_recursive_entry"].predicate.starts_with("else branch of "));
         assert_eq!(
@@ -11872,6 +11979,35 @@ mod tests {
             .iter()
             .all(|row| row.schema.source.path == "src/runtime/eval/indexed/full/schema.rs"));
         assert!(inventory.to_json().contains("\"runtime_behavior_proven\":false"));
+    }
+
+    #[test]
+    fn expression_forced_selector_rejects_in_place_guard_mutations() {
+        let schema = read("src/runtime/eval/indexed/full/schema.rs");
+        let indexed = read("src/runtime/eval/lowered_run/indexed_run.rs");
+        let explicit = read("src/runtime/eval/lowered_run/indexed_run/explicit_run.rs");
+        let original = "!self.evaluator.force_frames\n            && execution.is_in_place(instruction)";
+        assert_eq!(explicit.matches(original).count(), 1);
+        let replacements = [
+            "execution.is_in_place(instruction)",
+            "execution.is_in_place(instruction)\n            && !self.evaluator.force_frames",
+        ];
+        for replacement in replacements {
+            let mutated = explicit.replacen(original, replacement, 1);
+            assert_ne!(mutated, explicit);
+            let result = extract_expression_dispatch_inventory(
+                &schema,
+                &indexed,
+                &mutated,
+                "src/runtime/eval/indexed/full/schema.rs",
+                "src/runtime/eval/lowered_run/indexed_run.rs",
+                "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+            );
+            assert!(matches!(
+                result,
+                Err(error) if error.contains("no longer guards in-place with force_frames and the schema mark")
+            ), "mutated in-place guard did not fail its source predicate: {replacement}");
+        }
     }
 
     const SCHEMA: &str = r#"
