@@ -28,7 +28,7 @@ CONTROLLER_ROOT = pathlib.Path("/home/josh/d/laputa-systems/xsh")
 WORKTREE_ROOT = CONTROLLER_ROOT / ".work/wt"
 TOOL_DIR = pathlib.Path(__file__).resolve().parent
 OUTPUT_ROOT = CONTROLLER_ROOT / ".work/final-review-evidence/final-correctness-gates"
-PLAN_PATH = OUTPUT_ROOT / "manifest-source-root-v2.json"
+PLAN_PATH = OUTPUT_ROOT / "manifest-correctness-e048-20261016-source-root-r2.json"
 RUNNER = TOOL_DIR / "run-native-final.sh"
 PLAN_SOURCE_PATH = TOOL_DIR / "plan_source.py"
 MANIFEST_GENERATOR_PATH = TOOL_DIR / "generate_manifest.py"
@@ -46,7 +46,7 @@ BASE_RUNNER = INFRA / "run-native.sh"
 NATIVE_LOCK = INFRA / "native-suite.lock"
 NATIVE_CLEANUP_MARKER = INFRA / "native-suite.cleanup-unresolved"
 BASE_RUNNER_SHA256 = "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15"
-APPROVED_MANIFEST_BODY_SHA256 = "51564533c167c99664500ec343c162a128f5b695d8803577f29d814def87f497"
+APPROVED_MANIFEST_BODY_SHA256 = "0f79322cfedea17bae5e9a14cb24569256fa325e527da490b0a4b9141ec49d12"
 RUNTIME_CARGO_FORWARDER = TOOL_DIR / "cargo-forwarder.sh"
 RUNTIME_RUSTC_WRAPPER = TOOL_DIR / "rustc-jemalloc.sh"
 TOOL_HASHES = {
@@ -1300,7 +1300,7 @@ class Launch:
             args.append("--privileged")
         args.extend([
             "--tmpfs", "/tmp:rw,nodev,exec,nosuid,mode=1777",
-            "-v", f"{self.source_root}:{self.source_root}:ro",
+            "-v", f"{self.source_root}:{self.source_root}:rw",
             "-v", f"{scratch}:{scratch}:rw",
             "-v", f"{CONTROLLER_ROOT}/.git:{CONTROLLER_ROOT}/.git:ro",
             "-v", "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",

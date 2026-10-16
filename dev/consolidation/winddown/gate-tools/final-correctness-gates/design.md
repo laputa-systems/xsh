@@ -51,13 +51,15 @@ The product command names the four packages and uses Cargo's single `--bins`
 selector. It builds the same five required executables: `xsh`, `xsht`, `xshi`,
 `xsh-fuzz`, and `xsh-test-helper`.
 
-The final runner mounts the frozen source tree read-only in every mode. Cargo
-targets are mounted separately, explicitly read-write for build, lint, and
-cache preparation and read-only for runtime execution. Each mode gets an
-explicitly read-write host-backed `.work/tmp` mount and sets `TMPDIR` to that
-path. Target paths must stay within the gate's ignored outputs and may not pass
-through symlinks. The runner checks the repository's `.work` exclusion before
-creating the target directory.
+Build, lint, and Cargo cache modes mount the source tree read-only and mount
+their Cargo targets separately. Supplemental compatibility contexts mount the
+selected worktree read-write because the harness creates fixtures under the
+manifest's `target` directory. The shared Git directory remains read-only, and
+source snapshots verify the requested commit, tree, and clean status around
+each command. Every mode gets an explicitly read-write host-backed `.work/tmp`
+mount and sets `TMPDIR` to that path. Target paths must stay within the gate's
+ignored outputs and may not pass through symlinks. The runner checks the
+repository's `.work` exclusion before creating the target directory.
 
 ## Output streams and attempt records
 
@@ -114,6 +116,16 @@ compilation because the product command repeated `--bins`. The replacement uses
 one package-wide selector. Pinned Cargo parser probes for the product, all three
 harness, and Clippy commands reached the intentionally missing manifest error
 without invoking compilation.
+
+The `correctness-e048-20261016-source-root` attempt passed the product build,
+all three harness builds, and workspace Clippy, then failed in the first Linux
+context. Nine of 23 boundary tests returned `EROFS` while creating
+`$CARGO_MANIFEST_DIR/target/core-compat-boundaries`; the selected source bind
+had accidentally become read-only. The failed receipt and complete logs remain
+in that attempt directory. The supplemental context bind is restored to the
+historical read-write mode, while the shared Git directory and runtime artifact
+target remain read-only. The retry has separate manifest and attempt paths so
+the failed input and receipt stay intact.
 
 ## Approval and execution
 

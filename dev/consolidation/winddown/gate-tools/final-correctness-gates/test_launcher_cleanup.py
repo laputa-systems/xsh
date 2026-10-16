@@ -365,7 +365,7 @@ class SourceAdmissionTests(unittest.TestCase):
         command = gate.run.call_args.args[1]
         self.assertEqual(command[:2], [str(LAUNCHER.RUNNER), str(FROZEN_E048_SOURCE_ROOT)])
 
-    def test_supplemental_context_mounts_the_selected_source_and_scratch(self):
+    def test_supplemental_context_keeps_manifest_target_writable(self):
         _, git_common_dir = LAUNCHER.resolve_source_root(FROZEN_E048_SOURCE_ROOT)
         gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
         gate.source_root = FROZEN_E048_SOURCE_ROOT
@@ -387,10 +387,13 @@ class SourceAdmissionTests(unittest.TestCase):
         volumes = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "-v"]
         environment = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "-e"]
         scratch = FROZEN_E048_SOURCE_ROOT / ".work/tmp"
+        harness_scratch = FROZEN_E048_SOURCE_ROOT / "target/core-compat-boundaries"
 
-        self.assertIn(f"{FROZEN_E048_SOURCE_ROOT}:{FROZEN_E048_SOURCE_ROOT}:ro", volumes)
+        self.assertEqual(harness_scratch.relative_to(FROZEN_E048_SOURCE_ROOT), pathlib.Path("target/core-compat-boundaries"))
+        self.assertIn(f"{FROZEN_E048_SOURCE_ROOT}:{FROZEN_E048_SOURCE_ROOT}:rw", volumes)
         self.assertIn(f"{git_common_dir}:{git_common_dir}:ro", volumes)
         self.assertIn(f"{scratch}:{scratch}:rw", volumes)
+        self.assertIn(f"{gate.target_dir}:{gate.target_dir}:ro", volumes)
         self.assertIn(f"TMPDIR={scratch}", environment)
         self.assertIn("--tmpfs", command)
         self.assertEqual(command[command.index("--tmpfs") + 1], "/tmp:rw,nodev,exec,nosuid,mode=1777")
