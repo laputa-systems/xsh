@@ -195,14 +195,25 @@ export proc native(
       ))
     }
 
-    let scratch = fp"{ctx.root}/.work/tmp"
-    let home = fp"{scratch}/native-home-{host_uid}-{host_gid}"
+    let scratch = fp"{ctx.root}/.work/tmp/native-tests-{host_uid}-{host_gid}"
+    let home = fp"{scratch}/home"
+    let temp = fp"{scratch}/tmp"
     let as_host = ["setpriv", f"--reuid={host_uid}", f"--regid={host_gid}", "--clear-groups"]
     stages.execute(stages.command("test-xsh-scratch", ctx.target.triple, "setpriv",
-      [@as_host, "/bin/mkdir", "-p", scratch.display(), home.display()], ctx.root, {}))
+      [@as_host, "/bin/mkdir", "-p", scratch.display()], ctx.root, {}))
+    stages.execute(stages.command("test-xsh-scratch-group", ctx.target.triple, "setpriv",
+      [@as_host, "/bin/chgrp", f"{host_gid}", scratch.display()], ctx.root, {}))
+    stages.execute(stages.command("test-xsh-scratch-mode", ctx.target.triple, "setpriv",
+      [@as_host, "/bin/chmod", "700", scratch.display()], ctx.root, {}))
+    stages.execute(stages.command("test-xsh-directories", ctx.target.triple, "setpriv",
+      [@as_host, "/bin/mkdir", "-p", home.display(), temp.display()], ctx.root, {}))
+    stages.execute(stages.command("test-xsh-directory-groups", ctx.target.triple, "setpriv",
+      [@as_host, "/bin/chgrp", f"{host_gid}", home.display(), temp.display()], ctx.root, {}))
+    stages.execute(stages.command("test-xsh-directory-modes", ctx.target.triple, "setpriv",
+      [@as_host, "/bin/chmod", "700", home.display(), temp.display()], ctx.root, {}))
     stages.execute(stages.command("test-xsh", ctx.target.triple, "setpriv",
       [@as_host, xsht.display(), "test", @filters], ctx.root,
-      {HOME: home.display(), TMPDIR: scratch.display()}))
+      {HOME: home.display(), TMPDIR: temp.display()}))
   } else {
     stages.execute(stages.command("test-xsh", ctx.target.triple, xsht.display(),
       [xsht.display(), "test", @filters], ctx.root, {}))

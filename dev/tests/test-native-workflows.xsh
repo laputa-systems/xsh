@@ -1,4 +1,5 @@
 use fixtures
+use fs
 use test_workflows
 use unix
 
@@ -10,6 +11,9 @@ test test_linux_root_native_tests_use_the_host_identity_and_home { |ctx|
 
   let fixture_root = test.temp_dir(ctx, name: "native-root-identity")?
   fixture_root.chmod(0o777)
+  let work_root = fp"{fixture_root}/.work"
+  work_root.mkdir()
+  work_root.chmod(0o2777)
   let target_dir = fp"{fixture_root}/target"
   target_dir.mkdir()
   let product_dir = fp"{target_dir}/x86_64-unknown-linux-musl/verification"
@@ -20,7 +24,9 @@ test test_linux_root_native_tests_use_the_host_identity_and_home { |ctx|
     f"""#!{ctx.xsh_bin}
 use unix
 let home = env.get("HOME")?
+let temp = env.get("TMPDIR")?
 fp"{{home}}/probe".write("writable")?
+fp"{{temp}}/probe".write("temporary")?
 p"{log}".write(f"{{unix.id()?.euid}}|{{unix.id()?.egid}}|{{home}}|{{env.get("TMPDIR")?}}|{{args.join("|")}}")?
 """,
     mode: 0o755,
@@ -31,7 +37,9 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{unix.id()?.egid}}|{{home}}|{{env.get("TMP
   }
   let host_uid = env.get("HOST_UID")?.trim().parse_int()?
   let host_gid = env.get("HOST_GID")?.trim().parse_int()?
-  let home = fp"{fixture_root}/.work/tmp/native-home-{host_uid}-{host_gid}"
+  let scratch = fp"{work_root}/tmp/native-tests-{host_uid}-{host_gid}"
+  let home = fp"{scratch}/home"
+  let temp = fp"{scratch}/tmp"
   let padded_uid = f"00{host_uid}"
   let padded_gid = f"0{host_gid}"
 
@@ -40,8 +48,15 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{unix.id()?.egid}}|{{home}}|{{env.get("TMP
       ["--exact", "native-workflow-contract"])?
   }
 
-  assert log.read_text()? == f"{host_uid}|{host_gid}|{home}|{fixture_root}/.work/tmp|test|--exact|native-workflow-contract"
+  assert log.read_text()? == f"{host_uid}|{host_gid}|{home}|{temp}|test|--exact|native-workflow-contract"
   assert fp"{home}/probe".read_text()? == "writable"
+  assert fp"{temp}/probe".read_text()? == "temporary"
+  assert fs.stat(scratch)?.uid == host_uid and fs.stat(scratch)?.gid == host_gid
+  assert fs.stat(home)?.uid == host_uid and fs.stat(home)?.gid == host_gid
+  assert fs.stat(temp)?.uid == host_uid and fs.stat(temp)?.gid == host_gid
+  assert fs.stat(scratch)?.mode.bit_and(0o2777) == 0o700
+  assert fs.stat(home)?.mode.bit_and(0o2777) == 0o700
+  assert fs.stat(temp)?.mode.bit_and(0o2777) == 0o700
 }
 
 test test_linux_root_native_tests_fail_when_setpriv_is_unavailable_or_identity_is_missing { |ctx|
