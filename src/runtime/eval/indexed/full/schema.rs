@@ -1749,6 +1749,7 @@ mod tests {
                 "ExprPathMkdir",
                 "ExprPathRemove",
                 "ExprArchiveTarCreate",
+                "ExprProcessCommandArgv",
                 "ExprAbort",
                 "ExprFail",
                 "ExprError",
