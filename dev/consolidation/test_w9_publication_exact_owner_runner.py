@@ -1090,6 +1090,62 @@ class ExactOwnerReceiptTests(unittest.TestCase):
                 exact_runner.parse_exact_owner_ledger(invalid, [(0, 1), (1, 2)])
 
 
+class AssignmentFactsCaptureTests(unittest.TestCase):
+    def setUp(self):
+        self.repository = pathlib.Path(__file__).resolve().parents[2]
+        self.runner = adapter_runner._load_publication_runner(
+            self.repository / "dev/consolidation/w9-publication-run.py"
+        )
+        self.expected_inputs = {
+            0: SimpleNamespace(relative_path="src/a.xsh", blake3="a" * 64)
+        }
+        self.range_receipt = (
+            "corpus=1\n"
+            "shard=0/1\n"
+            "range=0..1\n"
+            "shard_size=100\n"
+            f"input_digest={'c' * 64}\n"
+            f"assignment\t0\tsrc/a.xsh\t{'a' * 64}\n"
+            "complete=1\n"
+        )
+
+    def test_range_receipt_binds_each_assignment_to_source_manifest(self):
+        observed = exact_runner.parse_assignment_facts_range_receipt(
+            self.range_receipt,
+            0,
+            1,
+            self.expected_inputs,
+            "c" * 64,
+        )
+
+        self.assertEqual(observed, {0: "a" * 64})
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "input identity"):
+            exact_runner.parse_assignment_facts_range_receipt(
+                self.range_receipt.replace("src/a.xsh", "src/changed.xsh"),
+                0,
+                1,
+                self.expected_inputs,
+                "c" * 64,
+            )
+
+    def test_missing_assignment_proof_sidecar_is_rejected(self):
+        scratch_root = self.repository / ".work/tmp"
+        with tempfile.TemporaryDirectory(
+            prefix="w9-assignment-facts-capture-", dir=scratch_root
+        ) as scratch:
+            with self.assertRaisesRegex(exact_runner.ExactOwnerError, "sidecar set differs"):
+                exact_runner._assignment_sidecar_proofs(
+                    pathlib.Path(scratch),
+                    self.expected_inputs,
+                    {},
+                    "b" * 64,
+                    "c" * 64,
+                    None,
+                    None,
+                    self.runner,
+                )
+
+
 class SourceQualifiedExactOwnerReceiptTests(unittest.TestCase):
     def setUp(self):
         repository = pathlib.Path(__file__).resolve().parents[2]
@@ -1576,7 +1632,8 @@ class ExactOwnerCaptureSchedulingTests(unittest.TestCase):
             build = {"source_root": str(output), "source_commit": "commit", "source_tree": "tree"}
 
             def launch(_runner, _source_record, _role, role_output, _build, _raw_root,
-                       _receipt_directory, start, end, worker, active, _docker_environment):
+                       _receipt_directory, start, end, worker, active, _docker_environment,
+                       _assignment_helper_sha256):
                 process = Process(
                     4 if worker == "A" and failing_worker is None else 0,
                     1 if worker == failing_worker else 0,

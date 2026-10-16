@@ -172,6 +172,8 @@ class _PublicationComparisonContext(NamedTuple):
     candidate_exact_owners: dict[int, tuple[object, dict[str, object]]]
     reference_tui_source: bytes
     candidate_tui_source: bytes
+    candidate_assignment_proofs: dict[int, object] | None
+    assignment_facts_module: object | None
 
 
 def _replace_once(source: str, before: str, after: str) -> str:
@@ -2700,15 +2702,31 @@ def _compare_publication_input(
         return tuple(mismatches)
     try:
         profile_by_name = {record[0]: record for record in profile_records}
+        candidate_publications = []
+        for profile in PROFILES:
+            record = profile_by_name.get(profile)
+            if record is None:
+                candidate_publications.append("")
+                continue
+            candidate_publication = record[5]
+            if context.candidate_assignment_proofs is not None:
+                proof = context.candidate_assignment_proofs.get(index)
+                if proof is None or context.assignment_facts_module is None:
+                    raise PublicationError(
+                        f"assignment facts proof is missing for checked input {index}"
+                    )
+                candidate_publication = adapter.project_assignment_facts(
+                    candidate_publication,
+                    proof,
+                    context.assignment_facts_module,
+                )
+            candidate_publications.append(candidate_publication)
         publication_alignment = _align_profile_publications_with_parsed(
             [
                 profile_by_name[profile][3] if profile in profile_by_name else ""
                 for profile in PROFILES
             ],
-            [
-                profile_by_name[profile][5] if profile in profile_by_name else ""
-                for profile in PROFILES
-            ],
+            candidate_publications,
             reference_owner,
             candidate_owner,
             context.reference_tui_source,
@@ -3035,6 +3053,8 @@ def compare_full_publications(
     corrected_reference: bool = False,
     original_capture_receipt: pathlib.Path | None = None,
     original_reference_source_root: pathlib.Path | None = None,
+    candidate_assignment_proofs: dict[int, object] | None = None,
+    assignment_facts_module: object | None = None,
 ) -> tuple[int, int, tuple[str, ...] | None]:
     count = len(expected_inputs)
     expected_owner_indexes = set(range(count))
@@ -3043,6 +3063,11 @@ def compare_full_publications(
         or set(candidate_exact_owners) != expected_owner_indexes
     ):
         raise PublicationError("exact-owner proof coverage differs from the comparison corpus")
+    if candidate_assignment_proofs is not None and (
+        set(candidate_assignment_proofs) != expected_owner_indexes
+        or assignment_facts_module is None
+    ):
+        raise PublicationError("assignment facts proof does not cover the comparison corpus")
     input_manifest = runner.regular_file(input_manifest, "approved input manifest")
     runner.require_sha256(input_manifest, runner.INPUT_MANIFEST_SHA256, "approved input manifest")
     source_qualified = candidate_source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
@@ -3271,6 +3296,8 @@ def compare_full_publications(
             candidate_exact_owners,
             reference_tui_source,
             candidate_tui_source,
+            candidate_assignment_proofs,
+            assignment_facts_module,
         )
 
         def accept_input_result(index: int, input_mismatches: tuple[str, ...]) -> None:
@@ -3433,6 +3460,9 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
     comparison_output = output / "comparison"
     try:
         exact_owner_runner = _load_exact_owner_runner(runner)
+        assignment_facts_proofs = None
+        assignment_facts_module = None
+        assignment_facts_receipt = getattr(args, "assignment_facts_capture_receipt", None)
 
         def validate_exact_owner_proof(
             role: str,
@@ -3483,6 +3513,22 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
         candidate_exact_owners = _validated_exact_owners(
             candidate_exact_proof, "candidate", len(expected_inputs)
         )
+        if assignment_facts_receipt is not None:
+            try:
+                assignment_facts_proofs, assignment_facts_module, _assignment_facts_record = (
+                    exact_owner_runner.validate_assignment_facts_capture(
+                        candidate_root,
+                        source_receipt,
+                        candidate_capture_path,
+                        candidate_exact_build_path,
+                        candidate_exact_capture_path,
+                        assignment_facts_receipt,
+                        candidate_exact_proof,
+                        runner,
+                    )
+                )
+            except exact_owner_runner.ExactOwnerError as error:
+                raise PublicationError(f"candidate assignment facts proof failed: {error}") from error
 
         comparison_output = runner.require_output_path(
             str(comparison_output), candidate_root
@@ -3517,6 +3563,8 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
                 corrected_reference=corrected_reference,
                 original_capture_receipt=original_capture_path,
                 original_reference_source_root=reference_source_root,
+                candidate_assignment_proofs=assignment_facts_proofs,
+                assignment_facts_module=assignment_facts_module,
             )
             if corrected_reference:
                 outcomes, mismatches, first_delta = compare_result
@@ -3554,9 +3602,20 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
                     f"first_difference\t{first_difference_value}\n"
                 ).encode("utf-8")
                 _write_new_file(comparison_receipt, comparison_lines, runner)
-            summary = f"corpus={len(expected_inputs)} outcomes={outcomes} mismatches={mismatches}"
-            runner.write_status(comparison_output, "complete", completed, summary)
-        runner.write_status(output, "complete", [], summary)
+            proof_state = "verified" if assignment_facts_proofs is not None else "missing"
+            summary = (
+                f"corpus={len(expected_inputs)} outcomes={outcomes} mismatches={mismatches} "
+                f"assignment_facts_proof={proof_state}"
+            )
+            result_status = (
+                "complete"
+                if assignment_facts_proofs is not None and mismatches == 0
+                else "diagnostic-only"
+                if assignment_facts_proofs is None
+                else "mismatches"
+            )
+            runner.write_status(comparison_output, result_status, completed, summary)
+        runner.write_status(output, result_status, [], summary)
     except BaseException as error:
         try:
             runner.write_status(output, "incomplete", [], f"{type(error).__name__}: {error}")
@@ -3569,6 +3628,12 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
         f"reference_exact_proof={reference_exact_output}\n"
         f"candidate_exact_proof={candidate_exact_output}\n"
         f"mismatch_file={comparison_output / 'mismatches.tsv'}"
+        f"\nassignment_facts_proof={'verified' if assignment_facts_proofs is not None else 'missing'}"
+        + (
+            f"\nassignment_facts_capture={assignment_facts_receipt}"
+            if assignment_facts_receipt is not None
+            else ""
+        )
         + (
             f"\noriginal_to_derived_delta={comparison_output / 'original-to-derived-reference.tsv'}"
             f"\nderived_reference_comparison_receipt={comparison_output / 'derived-reference-comparison.receipt'}"
@@ -3576,7 +3641,7 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
             else ""
         )
     )
-    return 0 if mismatches == 0 else 1
+    return 0 if assignment_facts_proofs is not None and mismatches == 0 else 1
 
 
 def _capture_field(path: pathlib.Path, field: str, runner) -> str:
@@ -3653,6 +3718,7 @@ def main(argv: list[str] | None = None) -> int:
     compare.add_argument("--candidate-capture-receipt", type=pathlib.Path, required=True)
     compare.add_argument("--reference-exact-capture-receipt", type=pathlib.Path, required=True)
     compare.add_argument("--candidate-exact-capture-receipt", type=pathlib.Path, required=True)
+    compare.add_argument("--assignment-facts-capture-receipt", type=pathlib.Path)
     compare.add_argument("--output", required=True)
     compare_derived = commands.add_parser("compare-derived-captures")
     compare_derived.add_argument("--candidate-root", type=pathlib.Path, required=True)
@@ -3666,6 +3732,7 @@ def main(argv: list[str] | None = None) -> int:
     compare_derived.add_argument("--candidate-capture-receipt", type=pathlib.Path, required=True)
     compare_derived.add_argument("--reference-exact-capture-receipt", type=pathlib.Path, required=True)
     compare_derived.add_argument("--candidate-exact-capture-receipt", type=pathlib.Path, required=True)
+    compare_derived.add_argument("--assignment-facts-capture-receipt", type=pathlib.Path)
     compare_derived.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     try:

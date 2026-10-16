@@ -1,7 +1,9 @@
+import hashlib
 import unittest
 from unittest.mock import patch
 
 import w9_publication_adapter as adapter
+from w9_assignment_facts import ProofBinding, parse_assignment_proof
 from w9_publication_adapter import (
     AdapterError,
     _split_first_top_level,
@@ -1034,6 +1036,55 @@ class PublicationAdapterTests(unittest.TestCase):
 
         self.assertEqual(legacy, current)
         self.assertIn('opaque:Other{global_bindings:"keep"}', legacy)
+
+    def test_assignment_projection_requires_complete_legacy_proof(self):
+        input_path = "bench/consolidation/xsh/directory.xsh"
+        source_path = "/capture/bench/consolidation/xsh/directory.xsh"
+        source_identity = "root\0" + source_path
+        proof_contents = (
+            "w9-assignment-facts\t1\n"
+            f"binding\t{'1' * 40}\t{'2' * 40}\t{'3' * 64}\t{'4' * 64}\t0\t{input_path.encode().hex()}\n"
+            f"source\t0\t{source_path.encode().hex()}\t100\n"
+            "counts\t1\t1\t0\n"
+            f"owner\t0\t10\t6\t{source_identity.encode().hex()}\t\n"
+        )
+        binding = ProofBinding(
+            "1" * 40, "2" * 40, "3" * 64, "4" * 64, 0, input_path
+        )
+        proof = parse_assignment_proof(
+            proof_contents,
+            binding,
+            hashlib.sha256(proof_contents.encode("ascii")).hexdigest(),
+        )
+        facts = (
+            "AssignmentFacts{owners:{AssignmentFactOwner{source_id:SourceId(0),"
+            "statement_start:10,statement_len:6}:{}}}"
+        )
+        publication = CURRENT_PUBLICATION.replace(
+            "CheckOutput{", f"CheckOutput{{assignment_facts:{facts},", 1
+        )
+
+        projected = adapter.project_assignment_facts(publication, proof)
+        self.assertNotIn("assignment_facts", projected)
+        self.assertEqual(
+            project_publication("current", projected, SOURCE_SIZES, SOURCE_OWNERS),
+            project_publication("current", CURRENT_PUBLICATION, SOURCE_SIZES, SOURCE_OWNERS),
+        )
+
+        for mutation in (
+            publication.replace("statement_start:10", "statement_start:11"),
+            publication.replace(f"{facts}", "AssignmentFacts{owners:{}}"),
+            publication.replace(
+                ":{}}}", ":{Name(\"added\")}}}",
+            ),
+        ):
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(
+                AdapterError, "assignment facts proof failed"
+            ):
+                adapter.project_assignment_facts(mutation, proof)
+
+        with self.assertRaisesRegex(AdapterError, "assignment facts proof failed"):
+            adapter.project_assignment_facts(CURRENT_PUBLICATION, proof)
 
     def test_projection_keeps_opaque_quoted_delimiters_and_rejects_root_corruption(self):
         opaque_field = r'opaque:Other{global_bindings:"brace } , { : \"quoted\" keep"}'

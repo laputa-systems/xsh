@@ -20,6 +20,48 @@ EXACT_OWNER_TEST = "sema::w9_exact_repository_owners_receipt"
 EXACT_OWNER_HASH_LIBTEST_PREFIX = f"test {EXACT_OWNER_TEST} ... "
 EXACT_OWNER_HELPER = pathlib.Path(__file__).with_name("w9-publication-exact-owners.rs")
 EXACT_OWNER_HELPER_SHA256 = "33c77273d9f9096d3e6478622d0b29a3f0f1f79dee772cdea12b06f2ac8200d8"
+ASSIGNMENT_FACTS_HELPER = pathlib.Path(__file__).with_name("w9-publication-assignment-facts.rs")
+ASSIGNMENT_FACTS_SCHEMA = "1"
+ASSIGNMENT_FACTS_CAPTURE_FIELDS = (
+    "schema",
+    "role",
+    "source_receipt",
+    "source_receipt_sha256",
+    "source_root",
+    "source_commit",
+    "source_tree",
+    "build_receipt",
+    "build_receipt_sha256",
+    "binary",
+    "binary_sha256",
+    "helper_sha256",
+    "assignment_helper_path",
+    "assignment_helper_sha256",
+    "validator_path",
+    "validator_sha256",
+    "controller_root",
+    "controller_commit",
+    "controller_tree",
+    "exact_helper_path",
+    "exact_helper_sha256",
+    "adapter_capture_receipt",
+    "adapter_capture_receipt_sha256",
+    "exact_build_receipt",
+    "exact_build_receipt_sha256",
+    "exact_capture_receipt",
+    "exact_capture_receipt_sha256",
+    "input_root",
+    "input_manifest",
+    "input_manifest_sha256",
+    "corpus_blake3",
+    "capture_root",
+    "sidecar_root",
+    "receipt_directory",
+    "range_count",
+    "input_count",
+    "ledger_sha256",
+)
+ASSIGNMENT_RANGE_FIELDS = ("corpus", "shard", "range", "shard_size", "input_digest")
 EXACT_PROOF_SCHEMA = "w9-exact-owner-proof\t1\n"
 SOURCE_EXACT_PROOF_SCHEMA = "w9-exact-owner-proof\t2\n"
 EXACT_PROOF_FIELDS = (
@@ -884,6 +926,49 @@ def parse_exact_owner_range_receipt(
     return hashes
 
 
+def parse_assignment_facts_range_receipt(
+    contents: str,
+    start: int,
+    end: int,
+    expected_inputs: Mapping[int, object],
+    corpus_digest: str,
+    path: pathlib.Path | None = None,
+) -> dict[int, str]:
+    label = str(path or "assignment facts range receipt")
+    lines = contents.splitlines()
+    if len(lines) != len(ASSIGNMENT_RANGE_FIELDS) + end - start + 1:
+        raise ExactOwnerError(f"{label}: assignment range row count differs")
+    expected_header = {
+        "corpus": str(len(expected_inputs)),
+        "shard": f"{start // 100}/{(len(expected_inputs) + 99) // 100}",
+        "range": f"{start}..{end}",
+        "shard_size": "100",
+        "input_digest": corpus_digest,
+    }
+    for line, field in zip(lines, ASSIGNMENT_RANGE_FIELDS):
+        parts = line.split("=", 1)
+        if len(parts) != 2 or parts[0] != field or parts[1] != expected_header[field]:
+            raise ExactOwnerError(f"{label}: malformed or stale assignment {field}")
+    rows = lines[len(ASSIGNMENT_RANGE_FIELDS):-1]
+    terminal = lines[-1].split("=", 1)
+    if len(terminal) != 2 or terminal != ["complete", str(end - start)]:
+        raise ExactOwnerError(f"{label}: assignment completion count differs")
+    source_digests: dict[int, str] = {}
+    for row, index in zip(rows, range(start, end)):
+        fields = row.split("\t")
+        if len(fields) != 4 or fields[0] != "assignment":
+            raise ExactOwnerError(f"{label}: malformed assignment row for input {index}")
+        if fields[1] != str(index):
+            raise ExactOwnerError(f"{label}: assignment inputs are out of order")
+        source = expected_inputs[index]
+        if fields[2] != source.relative_path or fields[3] != source.blake3:
+            raise ExactOwnerError(f"{label}: assignment input identity differs at {index}")
+        if not re.fullmatch(r"[0-9a-f]{64}", fields[3]):
+            raise ExactOwnerError(f"{label}: malformed assignment input digest at {index}")
+        source_digests[index] = fields[3]
+    return source_digests
+
+
 def _exact_range_receipt_path(directory: pathlib.Path, start: int, end: int) -> pathlib.Path:
     return directory / f"range-{start}-{end}.tsv"
 
@@ -1290,6 +1375,289 @@ def _compose_exact_helper(
     return base_helper_bytes + separator + payload
 
 
+def _assignment_controller_identity(runner) -> tuple[pathlib.Path, str, str]:
+    controller_root = runner.real_directory(adapter_runner.ROOT, "assignment helper controller root")
+    commit, tree = runner.source_identity(controller_root)
+    if runner.git_output(controller_root, "status", "--porcelain"):
+        raise ExactOwnerError("assignment helper controller source is not clean")
+    return controller_root, commit, tree
+
+
+def _assignment_facts_helper_source(
+    controller_root: pathlib.Path, runner
+) -> tuple[pathlib.Path, bytes, str]:
+    helper = runner.regular_file(
+        controller_root / "dev/consolidation/w9-publication-assignment-facts.rs",
+        "controller assignment facts Rust helper",
+    )
+    if helper != ASSIGNMENT_FACTS_HELPER:
+        raise ExactOwnerError("assignment facts helper path differs from the controller pin")
+    contents = runner.read_regular_bytes(helper)
+    return helper, contents, hashlib.sha256(contents).hexdigest()
+
+
+def _load_assignment_facts_module(
+    controller_root: pathlib.Path,
+    expected_validator_sha256: str,
+    runner,
+):
+    helper = runner.regular_file(
+        controller_root / "dev/consolidation/w9_assignment_facts.py",
+        "controller assignment facts validator",
+    )
+    module_hash = runner.sha256_file(helper)
+    if module_hash != expected_validator_sha256:
+        raise ExactOwnerError("controller assignment facts validator hash differs")
+    module_name = f"_w9_assignment_facts_{module_hash[:16]}"
+    loaded = sys.modules.get(module_name)
+    if loaded is not None:
+        return loaded
+    spec = importlib.util.spec_from_file_location(module_name, helper)
+    if spec is None or spec.loader is None:
+        raise ExactOwnerError(f"could not load assignment facts validator: {helper}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[module_name]
+        raise
+    if not callable(getattr(module, "parse_assignment_proof", None)) or not callable(
+        getattr(module, "validate_assignment_facts", None)
+    ):
+        raise ExactOwnerError("controller assignment facts validator has an unsupported API")
+    return module
+
+
+def _assignment_base_context(
+    candidate_root: pathlib.Path,
+    source_receipt: pathlib.Path,
+    source_record: Mapping[str, str],
+    expected_inputs: Mapping[int, object],
+    adapter_capture_receipt: pathlib.Path,
+    exact_build_receipt: pathlib.Path,
+    exact_capture_receipt: pathlib.Path,
+    runner,
+):
+    base_build, _raw, _ranges, _capture, _inputs = _source_adapter_capture(
+        adapter_capture_receipt,
+        "candidate",
+        dict(source_record),
+        candidate_root,
+        dict(expected_inputs),
+        pathlib.Path(source_record["input_root"]),
+        pathlib.Path(source_record["input_manifest"]),
+        source_receipt,
+        runner,
+    )
+    exact_build = adapter_runner._parse_adapter_build_receipt(
+        exact_build_receipt,
+        "candidate",
+        runner,
+        candidate_root / "dev/consolidation/w9-publication-owner-helper.rs",
+    )
+    if (
+        exact_build.get("schema") != "2"
+        or exact_build.get("source_root") != str(candidate_root)
+        or exact_build.get("source_receipt") != str(source_receipt)
+        or exact_build.get("source_receipt_sha256") != runner.sha256_file(source_receipt)
+    ):
+        raise ExactOwnerError("candidate exact-owner build uses a different source cohort")
+    exact_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(runner)
+    exact_capture, _ranges, _hashes = _parse_exact_capture_receipt(
+        exact_capture_receipt,
+        "candidate",
+        exact_build_receipt,
+        exact_build,
+        dict(expected_inputs),
+        None,
+        pathlib.Path(source_record["input_root"]),
+        pathlib.Path(source_record["input_manifest"]),
+        exact_helper_sha256,
+        runner,
+    )
+    if (
+        exact_capture.get("adapter_capture_receipt") != str(adapter_capture_receipt)
+        or exact_capture.get("adapter_capture_receipt_sha256")
+        != runner.sha256_file(adapter_capture_receipt)
+    ):
+        raise ExactOwnerError("candidate exact-owner capture uses a different adapter capture")
+    controller_root, controller_commit, controller_tree = _assignment_controller_identity(runner)
+    assignment_helper_path, assignment_helper_bytes, assignment_helper_sha256 = (
+        _assignment_facts_helper_source(controller_root, runner)
+    )
+    validator_path = runner.regular_file(
+        controller_root / "dev/consolidation/w9_assignment_facts.py",
+        "controller assignment facts validator",
+    )
+    validator_sha256 = runner.sha256_file(validator_path)
+    assignment_module = _load_assignment_facts_module(controller_root, validator_sha256, runner)
+    helper_identity = {
+        "assignment_helper_path": str(assignment_helper_path),
+        "assignment_helper_sha256": assignment_helper_sha256,
+        "validator_path": str(validator_path),
+        "validator_sha256": validator_sha256,
+        "controller_root": str(controller_root),
+        "controller_commit": controller_commit,
+        "controller_tree": controller_tree,
+        "exact_helper_path": str(exact_helper_path),
+        "exact_helper_sha256": exact_helper_sha256,
+    }
+    return (
+        base_build,
+        assignment_helper_bytes,
+        exact_helper_bytes,
+        helper_identity,
+        assignment_module,
+        exact_capture,
+    )
+
+
+def _assignment_harness_context(
+    candidate_root: pathlib.Path,
+    source_receipt: pathlib.Path,
+    source_record: Mapping[str, str],
+    expected_inputs: Mapping[int, object],
+    adapter_capture_receipt: pathlib.Path,
+    build_receipt: pathlib.Path,
+    exact_build_receipt: pathlib.Path,
+    exact_capture_receipt: pathlib.Path,
+    runner,
+):
+    (
+        base_build,
+        assignment_helper_bytes,
+        exact_helper_bytes,
+        helper_identity,
+        assignment_module,
+        exact_capture,
+    ) = (
+        _assignment_base_context(
+            candidate_root,
+            source_receipt,
+            source_record,
+            expected_inputs,
+            adapter_capture_receipt,
+            exact_build_receipt,
+            exact_capture_receipt,
+            runner,
+        )
+    )
+    build = adapter_runner._parse_adapter_build_receipt(
+        build_receipt,
+        "candidate",
+        runner,
+        candidate_root / "dev/consolidation/w9-publication-owner-helper.rs",
+    )
+    if (
+        build.get("schema") != "2"
+        or build.get("role") != "candidate"
+        or build.get("source_root") != str(candidate_root)
+        or build.get("source_receipt") != str(source_receipt)
+        or build.get("source_receipt_sha256") != runner.sha256_file(source_receipt)
+        or build.get("owner_helper_sha256") != base_build["owner_helper_sha256"]
+        or build.get("owner_helper_source_sha256") != base_build["owner_helper_source_sha256"]
+    ):
+        raise ExactOwnerError("assignment harness build differs from its candidate source cohort")
+    base_helper_path = runner.regular_file(base_build["helper_path"], "candidate base adapter helper")
+    helper_path = runner.regular_file(build["helper_path"], "assignment facts composed helper")
+    if not runner.under(helper_path, candidate_root / ".work"):
+        raise ExactOwnerError("assignment facts helper is outside candidate .work/")
+    helper_bytes = runner.read_regular_bytes(helper_path)
+    expected_helper = _compose_assignment_facts_helper(
+        runner.read_regular_bytes(base_helper_path),
+        assignment_helper_bytes,
+        exact_helper_bytes,
+    )
+    if (
+        hashlib.sha256(helper_bytes).hexdigest() != build["helper_sha256"]
+        or helper_bytes != expected_helper
+    ):
+        raise ExactOwnerError("assignment harness helper differs from the validated composition")
+    return build, helper_identity, assignment_module, exact_capture
+
+
+def _replace_exact_helper_once(contents: str, before: str, after: str, label: str) -> str:
+    count = contents.count(before)
+    if count != 1:
+        raise ExactOwnerError(
+            f"assignment facts helper composition drift: expected one {label}, found {count}"
+        )
+    return contents.replace(before, after, 1)
+
+
+def _assignment_facts_helper_suffix(
+    assignment_helper_bytes: bytes,
+    exact_helper_bytes: bytes,
+) -> bytes:
+    try:
+        assignment_helper = assignment_helper_bytes.decode("utf-8")
+        exact_helper = _project_exact_owner_helper(exact_helper_bytes).decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ExactOwnerError("assignment facts helper source is not UTF-8") from error
+    exact_helper = _replace_exact_helper_once(
+        exact_helper,
+        "    w9_exact_assert_structured_stage_is_published(&outputdir);\n",
+        "",
+        "assignment-only capture guard",
+    )
+    exact_helper = _replace_exact_helper_once(
+        exact_helper,
+        "        w9_write_exact_adapter_owners(&outputdir, index, &parsed.arena, &sources)\n"
+        "            .unwrap_or_else(|error| panic!(\"write exact owner sidecar {index}: {error}\"));\n"
+        "        let owner_path = format!(\"owners-{index}.tsv\");\n"
+        "        let owner_bytes = w9_exact_read_file_at(&w9_exact_open_directory(&outputdir).expect(\"open owner output directory\"), &owner_path)\n"
+        "            .unwrap_or_else(|error| panic!(\"read exact owner sidecar {index}: {error}\"));\n"
+        "        receipt_rows.push(format!(\n"
+        "            \"owner\\t{index}\\t{relative}\\t{}\\t{}\",\n"
+        "            source_hashes[index],\n"
+        "            blake3::hash(&owner_bytes).to_hex()\n"
+        "        ));\n",
+        "        let binding = W9AssignmentFactsBinding {\n"
+        "            source_commit: &source_commit,\n"
+        "            source_tree: &source_tree,\n"
+        "            helper_sha256: &assignment_helper_sha256,\n"
+        "            corpus_digest: &input_digest,\n"
+        "            input_index: index,\n"
+        "            input_path: &relative,\n"
+        "        };\n"
+        "        let facts = w9_assignment_facts_tsv(&parsed.arena, &sources, &binding)\n"
+        "            .unwrap_or_else(|error| panic!(\"assignment facts for input {index}: {error}\"));\n"
+        "        let sidecar = outputdir.join(format!(\"facts-{index}.tsv\"));\n"
+        "        w9_exact_write_absolute_file(&sidecar, facts.as_bytes())\n"
+        "            .unwrap_or_else(|error| panic!(\"write assignment facts {index}: {error}\"));\n"
+        "        receipt_rows.push(format!(\"assignment\\t{index}\\t{relative}\\t{}\", source_hashes[index]));\n",
+        "assignment facts collector invocation",
+    )
+    exact_helper = _replace_exact_helper_once(
+        exact_helper,
+        "    let input_digest = blake3::hash(manifest.join(\"\\n\").as_bytes())\n"
+        "        .to_hex()\n"
+        "        .to_string();\n"
+        "    assert_eq!(input_digest, EXPECTED_CORPUS_BLAKE3, \"frozen corpus digest changed\");\n",
+        "    let input_digest = blake3::hash(manifest.join(\"\\n\").as_bytes())\n"
+        "        .to_hex()\n"
+        "        .to_string();\n"
+        "    assert_eq!(input_digest, EXPECTED_CORPUS_BLAKE3, \"frozen corpus digest changed\");\n"
+        "    let source_commit = std::env::var(\"W9_SOURCE_COMMIT\").expect(\"W9_SOURCE_COMMIT\");\n"
+        "    let source_tree = std::env::var(\"W9_SOURCE_TREE\").expect(\"W9_SOURCE_TREE\");\n"
+        "    let assignment_helper_sha256 = std::env::var(\"W9_ASSIGNMENT_HELPER_SHA256\")\n"
+        "        .expect(\"W9_ASSIGNMENT_HELPER_SHA256\");\n",
+        "assignment facts binding inputs",
+    )
+    return assignment_helper_bytes + b"\n" + exact_helper.encode("utf-8")
+
+
+def _compose_assignment_facts_helper(
+    base_helper_bytes: bytes,
+    assignment_helper_bytes: bytes,
+    exact_helper_bytes: bytes,
+) -> bytes:
+    suffix = _assignment_facts_helper_suffix(assignment_helper_bytes, exact_helper_bytes)
+    separator = b"" if base_helper_bytes.endswith(b"\n") else b"\n"
+    return base_helper_bytes + separator + suffix
+
+
 def _validate_exact_helper_artifact(
     helper_bytes: bytes,
     expected_sha256: str,
@@ -1303,6 +1671,407 @@ def _validate_exact_helper_artifact(
     payload = _exact_helper_payload(source_record, exact_helper_bytes, runner)
     if not helper_bytes.endswith(payload):
         raise ExactOwnerError(f"{artifact_name} does not end with its approved helper projection")
+
+
+def _write_assignment_capture_receipt(
+    path: pathlib.Path,
+    record: dict[str, str],
+    range_receipts: dict[tuple[int, int], pathlib.Path],
+    sidecar_hashes: dict[int, str],
+    expected_inputs: Mapping[int, object],
+    runner,
+) -> None:
+    if set(record) != set(ASSIGNMENT_FACTS_CAPTURE_FIELDS) or record.get("schema") != ASSIGNMENT_FACTS_SCHEMA:
+        raise ExactOwnerError("assignment facts capture receipt fields differ")
+    rows = [
+        f"range\t{start}\t{end}\t{runner.sha256_file(receipt)}\n"
+        for (start, end), receipt in sorted(range_receipts.items())
+    ]
+    rows.extend(
+        f"proof\t{index}\t{sidecar_hashes[index]}\n"
+        for index in range(len(expected_inputs))
+    )
+    ledger = "".join(rows)
+    if record["ledger_sha256"] != hashlib.sha256(ledger.encode("utf-8")).hexdigest():
+        raise ExactOwnerError("assignment facts ledger hash differs before receipt write")
+    contents = "".join(f"{field}\t{record[field]}\n" for field in ASSIGNMENT_FACTS_CAPTURE_FIELDS)
+    adapter_runner._write_new_file(path, (contents + ledger).encode("utf-8"), runner)
+
+
+def _assignment_capture_record(
+    build_receipt: pathlib.Path,
+    build: dict[str, str],
+    helper_identity: dict[str, str],
+    source_receipt: pathlib.Path,
+    adapter_capture_receipt: pathlib.Path,
+    exact_build_receipt: pathlib.Path,
+    exact_capture_receipt: pathlib.Path,
+    source_record: Mapping[str, str],
+    capture_root: pathlib.Path,
+    sidecar_root: pathlib.Path,
+    receipt_directory: pathlib.Path,
+    range_receipts: Mapping[tuple[int, int], pathlib.Path],
+    sidecar_hashes: Mapping[int, str],
+    expected_inputs: Mapping[int, object],
+    runner,
+) -> dict[str, str]:
+    ledger = "".join(
+        f"range\t{start}\t{end}\t{runner.sha256_file(path)}\n"
+        for (start, end), path in sorted(range_receipts.items())
+    ) + "".join(
+        f"proof\t{index}\t{sidecar_hashes[index]}\n"
+        for index in range(len(expected_inputs))
+    )
+    return {
+        "schema": ASSIGNMENT_FACTS_SCHEMA,
+        "role": "candidate",
+        "source_receipt": str(source_receipt),
+        "source_receipt_sha256": runner.sha256_file(source_receipt),
+        "source_root": source_record["candidate_root"],
+        "source_commit": source_record["candidate_commit"],
+        "source_tree": source_record["candidate_tree"],
+        "build_receipt": str(build_receipt),
+        "build_receipt_sha256": runner.sha256_file(build_receipt),
+        "binary": build["binary"],
+        "binary_sha256": build["binary_sha256"],
+        "helper_sha256": build["helper_sha256"],
+        "assignment_helper_path": helper_identity["assignment_helper_path"],
+        "assignment_helper_sha256": helper_identity["assignment_helper_sha256"],
+        "validator_path": helper_identity["validator_path"],
+        "validator_sha256": helper_identity["validator_sha256"],
+        "controller_root": helper_identity["controller_root"],
+        "controller_commit": helper_identity["controller_commit"],
+        "controller_tree": helper_identity["controller_tree"],
+        "exact_helper_path": helper_identity["exact_helper_path"],
+        "exact_helper_sha256": helper_identity["exact_helper_sha256"],
+        "adapter_capture_receipt": str(adapter_capture_receipt),
+        "adapter_capture_receipt_sha256": runner.sha256_file(adapter_capture_receipt),
+        "exact_build_receipt": str(exact_build_receipt),
+        "exact_build_receipt_sha256": runner.sha256_file(exact_build_receipt),
+        "exact_capture_receipt": str(exact_capture_receipt),
+        "exact_capture_receipt_sha256": runner.sha256_file(exact_capture_receipt),
+        "input_root": source_record["input_root"],
+        "input_manifest": source_record["input_manifest"],
+        "input_manifest_sha256": source_record["input_manifest_sha256"],
+        "corpus_blake3": source_record["corpus_blake3"],
+        "capture_root": str(capture_root),
+        "sidecar_root": str(sidecar_root),
+        "receipt_directory": str(receipt_directory),
+        "range_count": str(len(range_receipts)),
+        "input_count": str(len(expected_inputs)),
+        "ledger_sha256": hashlib.sha256(ledger.encode("utf-8")).hexdigest(),
+    }
+
+
+def _assignment_sidecar_proofs(
+    sidecar_root: pathlib.Path,
+    expected_inputs: Mapping[int, object],
+    source_record: Mapping[str, str],
+    assignment_helper_sha256: str,
+    corpus_digest: str,
+    assignment_module,
+    expected_hashes: Mapping[int, str] | None,
+    runner,
+) -> dict[int, object]:
+    sidecar_root = runner.real_directory(sidecar_root, "assignment facts sidecar root")
+    descriptor = runner.open_absolute_nofollow(sidecar_root, directory=True)
+    try:
+        expected_names = {f"facts-{index}.tsv" for index in expected_inputs}
+        if set(os.listdir(descriptor)) != expected_names:
+            raise ExactOwnerError("assignment facts sidecar set differs from complete corpus")
+        proofs: dict[int, object] = {}
+        for index, item in expected_inputs.items():
+            name = f"facts-{index}.tsv"
+            contents = adapter_runner._read_regular_bytes_at(descriptor, name)
+            digest = hashlib.sha256(contents).hexdigest()
+            if expected_hashes is not None and expected_hashes.get(index) != digest:
+                raise ExactOwnerError(f"assignment facts sidecar hash differs at input {index}")
+            try:
+                text = contents.decode("utf-8")
+                binding = assignment_module.ProofBinding(
+                    source_record["candidate_commit"],
+                    source_record["candidate_tree"],
+                    assignment_helper_sha256,
+                    corpus_digest,
+                    index,
+                    item.relative_path,
+                )
+                proofs[index] = assignment_module.parse_assignment_proof(
+                    text, binding, digest
+                )
+            except (UnicodeError, assignment_module.AssignmentFactsError) as error:
+                raise ExactOwnerError(
+                    f"assignment facts proof for input {index} is invalid: {error}"
+                ) from error
+        return proofs
+    finally:
+        os.close(descriptor)
+
+
+def validate_assignment_facts_capture(
+    candidate_root: pathlib.Path,
+    source_receipt: pathlib.Path,
+    adapter_capture_receipt: pathlib.Path,
+    exact_build_receipt: pathlib.Path,
+    exact_capture_receipt: pathlib.Path,
+    assignment_capture_receipt: pathlib.Path,
+    candidate_exact_proof: dict[str, object],
+    bootstrap_runner,
+) -> tuple[dict[int, object], object, dict[str, str]]:
+    candidate_root = bootstrap_runner.real_directory(candidate_root, "candidate source")
+    source_receipt = bootstrap_runner.regular_file(source_receipt, "candidate source receipt")
+    runner = adapter_runner._load_candidate_publication_runner(
+        candidate_root, source_receipt, bootstrap_runner
+    )
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+        raise ExactOwnerError("assignment facts validation requires a source-cohort receipt")
+    if runner.source_identity(candidate_root) != (
+        source_record["candidate_commit"], source_record["candidate_tree"]
+    ):
+        raise ExactOwnerError("candidate source identity differs from its source receipt")
+    expected_inputs, _paths_by_name = runner.validate_source_cohort_inputs(source_record)
+    if len(expected_inputs) != 1690:
+        raise ExactOwnerError("assignment facts source cohort does not cover all 1690 inputs")
+    adapter_capture_receipt = runner.regular_file(
+        adapter_capture_receipt, "candidate adapter capture receipt"
+    )
+    exact_build_receipt = runner.regular_file(exact_build_receipt, "candidate exact-owner build receipt")
+    exact_capture = candidate_exact_proof.get("capture")
+    if not isinstance(exact_capture, dict):
+        raise ExactOwnerError("candidate exact-owner proof has no validated capture")
+    exact_capture_receipt = runner.regular_file(
+        exact_capture_receipt, "candidate exact-owner capture receipt"
+    )
+    receipt = runner.regular_file(assignment_capture_receipt, "assignment facts capture receipt")
+    record, ledger_lines = adapter_runner._parse_receipt_header(
+        receipt,
+        runner.read_regular_text(receipt).splitlines(),
+        ASSIGNMENT_FACTS_CAPTURE_FIELDS,
+        "assignment facts capture",
+    )
+    if record["schema"] != ASSIGNMENT_FACTS_SCHEMA or record["role"] != "candidate":
+        raise ExactOwnerError(f"{receipt}: assignment facts capture schema or role differs")
+    build_receipt = runner.regular_file(record["build_receipt"], "assignment harness build receipt")
+    if runner.sha256_file(build_receipt) != record["build_receipt_sha256"]:
+        raise ExactOwnerError(f"{receipt}: assignment harness build receipt hash differs")
+    build, helper_identity, module, captured_exact = _assignment_harness_context(
+        candidate_root,
+        source_receipt,
+        source_record,
+        expected_inputs,
+        adapter_capture_receipt,
+        build_receipt,
+        exact_build_receipt,
+        exact_capture_receipt,
+        runner,
+    )
+    if exact_capture != captured_exact:
+        raise ExactOwnerError("candidate exact-owner proof and capture receipt differ")
+    expected_fields = {
+        "source_receipt": str(source_receipt),
+        "source_receipt_sha256": runner.sha256_file(source_receipt),
+        "source_root": str(candidate_root),
+        "source_commit": source_record["candidate_commit"],
+        "source_tree": source_record["candidate_tree"],
+        "build_receipt": str(build_receipt),
+        "build_receipt_sha256": runner.sha256_file(build_receipt),
+        "binary": build["binary"],
+        "binary_sha256": build["binary_sha256"],
+        "helper_sha256": build["helper_sha256"],
+        **helper_identity,
+        "adapter_capture_receipt": str(adapter_capture_receipt),
+        "adapter_capture_receipt_sha256": runner.sha256_file(adapter_capture_receipt),
+        "exact_build_receipt": str(exact_build_receipt),
+        "exact_build_receipt_sha256": runner.sha256_file(exact_build_receipt),
+        "exact_capture_receipt": str(exact_capture_receipt),
+        "exact_capture_receipt_sha256": runner.sha256_file(exact_capture_receipt),
+        "input_root": source_record["input_root"],
+        "input_manifest": source_record["input_manifest"],
+        "input_manifest_sha256": source_record["input_manifest_sha256"],
+        "corpus_blake3": source_record["corpus_blake3"],
+    }
+    for field, expected in expected_fields.items():
+        if record[field] != expected:
+            raise ExactOwnerError(f"{receipt}: {field} differs from validated dependencies")
+    count = len(expected_inputs)
+    expected_ranges = runner.expected_ranges(count)
+    if record["range_count"] != str(len(expected_ranges)) or record["input_count"] != str(count):
+        raise ExactOwnerError(f"{receipt}: complete assignment coverage differs")
+    capture_root = runner.real_directory(record["capture_root"], "assignment facts capture root")
+    sidecar_root = runner.real_directory(record["sidecar_root"], "assignment facts sidecar root")
+    receipt_directory = runner.real_directory(record["receipt_directory"], "assignment facts range receipts")
+    if (
+        receipt.parent != capture_root
+        or sidecar_root != capture_root / "facts"
+        or receipt_directory != capture_root / "receipts"
+        or not runner.under(capture_root, candidate_root / ".work")
+    ):
+        raise ExactOwnerError(f"{receipt}: assignment facts output paths differ")
+    range_count = len(expected_ranges)
+    range_rows, _range_ledger_sha256 = parse_exact_owner_ledger(
+        ledger_lines[:range_count],
+        expected_ranges,
+        str(receipt),
+        len(ASSIGNMENT_FACTS_CAPTURE_FIELDS),
+    )
+    proof_rows: list[tuple[int, str]] = []
+    proof_lines = ledger_lines[range_count:]
+    if len(proof_lines) != count:
+        raise ExactOwnerError(f"{receipt}: assignment proof coverage differs")
+    for row_number, line in enumerate(
+        proof_lines, len(ASSIGNMENT_FACTS_CAPTURE_FIELDS) + range_count + 1
+    ):
+        fields = line.split("\t")
+        if len(fields) == 3 and fields[0] == "proof":
+            index = _decimal(fields[1], "assignment facts input index")
+            if not HEX256.fullmatch(fields[2]):
+                raise ExactOwnerError(f"{receipt}: malformed proof digest at row {row_number}")
+            proof_rows.append((index, fields[2]))
+        else:
+            raise ExactOwnerError(f"{receipt}: malformed assignment ledger row {row_number}")
+    if [index for index, _digest in proof_rows] != list(range(count)):
+        raise ExactOwnerError(f"{receipt}: assignment proof coverage differs")
+    canonical_rows = "".join(
+        f"range\t{start}\t{end}\t{digest}\n" for start, end, digest in range_rows
+    ) + "".join(
+        f"proof\t{index}\t{digest}\n" for index, digest in proof_rows
+    )
+    if hashlib.sha256(canonical_rows.encode("utf-8")).hexdigest() != record["ledger_sha256"]:
+        raise ExactOwnerError(f"{receipt}: assignment ledger hash differs")
+    sidecar_hashes = dict(proof_rows)
+    for start, end, digest in range_rows:
+        path = _exact_range_receipt_path(receipt_directory, start, end)
+        if runner.sha256_file(path) != digest:
+            raise ExactOwnerError(f"{receipt}: assignment range receipt hash differs at {start}..{end}")
+        parse_assignment_facts_range_receipt(
+            runner.read_regular_text(path),
+            start,
+            end,
+            expected_inputs,
+            source_record["corpus_blake3"],
+            path,
+        )
+    proofs = _assignment_sidecar_proofs(
+        sidecar_root,
+        expected_inputs,
+        source_record,
+        record["assignment_helper_sha256"],
+        source_record["corpus_blake3"],
+        module,
+        sidecar_hashes,
+        runner,
+    )
+    return proofs, module, record
+
+
+def build_assignment_facts_harness(args: argparse.Namespace, bootstrap_runner) -> int:
+    candidate_root = bootstrap_runner.real_directory(args.candidate_root, "candidate source")
+    source_receipt = bootstrap_runner.regular_file(args.candidate_source_receipt, "candidate source receipt")
+    runner = adapter_runner._load_candidate_publication_runner(
+        candidate_root, source_receipt, bootstrap_runner
+    )
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+        raise ExactOwnerError("assignment facts capture requires a source-cohort receipt")
+    if pathlib.Path(source_record["candidate_root"]) != candidate_root:
+        raise ExactOwnerError("candidate source receipt names a different checkout")
+    if runner.source_identity(candidate_root) != (
+        source_record["candidate_commit"], source_record["candidate_tree"]
+    ):
+        raise ExactOwnerError("candidate source identity differs from its source receipt")
+    expected_inputs, _paths_by_name = runner.validate_source_cohort_inputs(source_record)
+    if len(expected_inputs) != 1690:
+        raise ExactOwnerError("assignment facts cohort does not contain all 1690 inputs")
+    adapter_capture_receipt = runner.regular_file(
+        args.adapter_capture_receipt, "candidate adapter capture receipt"
+    )
+    exact_build_receipt = runner.regular_file(args.exact_build_receipt, "candidate exact-owner build receipt")
+    exact_capture_receipt = runner.regular_file(args.exact_capture_receipt, "candidate exact-owner capture receipt")
+    (
+        base_build,
+        assignment_helper_bytes,
+        exact_helper_bytes,
+        helper_identity,
+        _assignment_module,
+        _exact_capture,
+    ) = _assignment_base_context(
+        candidate_root,
+        source_receipt,
+        source_record,
+        expected_inputs,
+        adapter_capture_receipt,
+        exact_build_receipt,
+        exact_capture_receipt,
+        runner,
+    )
+    base_helper_path = runner.regular_file(base_build["helper_path"], "candidate base adapter helper")
+    owner_helper_path = runner.regular_file(base_build["owner_helper_path"], "candidate owner helper")
+    owner_helper_bytes = runner.read_regular_bytes(owner_helper_path)
+    composed_helper = _compose_assignment_facts_helper(
+        runner.read_regular_bytes(base_helper_path),
+        assignment_helper_bytes,
+        exact_helper_bytes,
+    )
+    if args.dry_run:
+        print(
+            f"preflight ok: candidate={source_record['candidate_commit']}:{source_record['candidate_tree']} "
+            f"controller={helper_identity['controller_commit']}:{helper_identity['controller_tree']} "
+            f"assignment_helper_sha256={helper_identity['assignment_helper_sha256']} "
+            f"validator_sha256={helper_identity['validator_sha256']} "
+            f"exact_helper_sha256={helper_identity['exact_helper_sha256']} "
+            f"corpus=1690 adapter_capture={adapter_capture_receipt} exact_capture={exact_capture_receipt}"
+        )
+        return 0
+    derived_directory = adapter_runner._new_derived_helper_directory(candidate_root, runner)
+    adapter_runner._mkdir_new_directory(derived_directory, runner)
+    helper = derived_directory / "w9-publication-adapter.rs"
+    owner_helper = derived_directory / "w9-publication-owner-helper.rs"
+    adapter_runner._write_new_file(owner_helper, owner_helper_bytes, runner)
+    adapter_runner._write_new_file(helper, composed_helper, runner)
+    helper_sha256 = hashlib.sha256(composed_helper).hexdigest()
+    binary, build_receipt = adapter_runner.build_adapter_harness(
+        candidate_root,
+        candidate_root,
+        source_receipt,
+        source_record,
+        "candidate",
+        helper,
+        helper_sha256,
+        base_build["owner_helper_sha256"],
+        base_build["owner_helper_source_sha256"],
+        runner,
+    )
+    generic_build = adapter_runner._parse_adapter_build_receipt(
+        build_receipt,
+        "candidate",
+        runner,
+        candidate_root / "dev/consolidation/w9-publication-owner-helper.rs",
+    )
+    _validate_exact_helper_artifact(
+        runner.read_regular_bytes(helper),
+        generic_build["helper_sha256"],
+        source_record,
+        exact_helper_bytes,
+        runner,
+        "assignment facts composed helper",
+    )
+    _check_exact_harness_listing(
+        pathlib.Path(source_record["builder_path"]),
+        candidate_root,
+        binary,
+        {
+            **runner.local_docker_environment(),
+            "W9_SOURCE_COMMIT": source_record["candidate_commit"],
+            "W9_SOURCE_TREE": source_record["candidate_tree"],
+        },
+    )
+    print(
+        f"assignment_helper={helper_identity['assignment_helper_path']} "
+        f"sha256={helper_identity['assignment_helper_sha256']}\n"
+        f"candidate_binary={generic_build['binary']}\ncandidate_build_receipt={build_receipt}"
+    )
+    return 0
 
 
 def parse_harness_test_names(stdout: str) -> list[str]:
@@ -1803,6 +2572,7 @@ def _launch_exact_owner_job(
     worker: str,
     active: list[dict[str, object]],
     docker_environment: dict[str, str],
+    assignment_helper_sha256: str | None = None,
 ) -> dict[str, object]:
     cpu = next((cpu for slot, cpu in adapter_runner.CAPTURE_SLOTS if slot == worker), None)
     if cpu is None:
@@ -1818,6 +2588,11 @@ def _launch_exact_owner_job(
         raise ExactOwnerError(f"exact-owner Docker container already exists: {container}")
     source_qualified = source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
     if source_qualified:
+        assignment_environment = (
+            [f"W9_ASSIGNMENT_HELPER_SHA256={assignment_helper_sha256}"]
+            if assignment_helper_sha256 is not None
+            else []
+        )
         command = [
             "timeout", "900s", source_record["builder_path"], source_record["candidate_root"], "run",
             f"W9_INPUT_ROOT={source_record['input_root']}",
@@ -1830,6 +2605,7 @@ def _launch_exact_owner_job(
             "W9_SHARD_SIZE=100",
             f"W9_START={start}",
             f"W9_END={end}",
+            *assignment_environment,
             "taskset", "-c", str(cpu), build["binary"], "--exact", EXACT_OWNER_TEST, "--nocapture",
         ]
         environment = {
@@ -1839,6 +2615,11 @@ def _launch_exact_owner_job(
         }
         job_root = pathlib.Path(source_record["candidate_root"])
     else:
+        assignment_environment = (
+            [f"W9_ASSIGNMENT_HELPER_SHA256={assignment_helper_sha256}"]
+            if assignment_helper_sha256 is not None
+            else []
+        )
         shim_dir = runner.docker_shim(
             job_dir, container, cpu, pathlib.Path(source_record["input_root"])
         )
@@ -1851,6 +2632,7 @@ def _launch_exact_owner_job(
             "W9_SHARD_SIZE=100",
             f"W9_START={start}",
             f"W9_END={end}",
+            *assignment_environment,
             "taskset", "-c", str(cpu), build["binary"], "--exact", EXACT_OWNER_TEST, "--nocapture",
         ]
         environment = dict(docker_environment)
@@ -1905,8 +2687,10 @@ def _capture_exact_owner_role(
     output: pathlib.Path,
     completed: list[tuple[int, int]],
     docker_environment: dict[str, str],
+    assignment_context: dict[str, object] | None = None,
 ) -> dict[str, str]:
-    raw_root = output / "owners"
+    assignment_mode = assignment_context is not None
+    raw_root = output / ("facts" if assignment_mode else "owners")
     receipt_inputs = reference if reference is not None else expected_inputs
     receipt_directory = output / "receipts"
     jobs_root = output / "jobs"
@@ -1926,6 +2710,7 @@ def _capture_exact_owner_role(
             _launch_exact_owner_job(
                 runner, source_record, role, output, build, raw_root,
                 receipt_directory, start, end, worker, active, docker_environment,
+                assignment_context["helper_identity"]["assignment_helper_sha256"] if assignment_mode else None,
             )
         while active:
             changed = False
@@ -1945,7 +2730,17 @@ def _capture_exact_owner_role(
                         f"failed with status {status}; log={job['log']}"
                     )
                 receipt = runner.regular_file(job["receipt"], f"{role} exact-owner range receipt")
-                observed = _read_exact_owner_receipt(receipt, start, end, receipt_inputs, runner)
+                if assignment_mode:
+                    observed = parse_assignment_facts_range_receipt(
+                        runner.read_regular_text(receipt),
+                        start,
+                        end,
+                        expected_inputs,
+                        source_record["corpus_blake3"],
+                        receipt,
+                    )
+                else:
+                    observed = _read_exact_owner_receipt(receipt, start, end, receipt_inputs, runner)
                 if set(owner_hashes) & set(observed):
                     raise ExactOwnerError(f"{role} exact-owner ranges duplicate an input index")
                 owner_hashes.update(observed)
@@ -1964,6 +2759,7 @@ def _capture_exact_owner_role(
                     _launch_exact_owner_job(
                         runner, source_record, role, output, build, raw_root,
                         receipt_directory, next_start, next_end, worker, active, docker_environment,
+                        assignment_context["helper_identity"]["assignment_helper_sha256"] if assignment_mode else None,
                     )
             if not changed:
                 time.sleep(1)
@@ -1979,6 +2775,53 @@ def _capture_exact_owner_role(
             build["source_commit"], build["source_tree"]
         ):
             raise ExactOwnerError(f"{role} source identity changed during exact-owner capture")
+        if assignment_mode:
+            if set(owner_hashes) != set(range(len(expected_inputs))):
+                raise ExactOwnerError("assignment facts range coverage differs")
+            module = assignment_context["assignment_module"]
+            proofs = _assignment_sidecar_proofs(
+                raw_root,
+                expected_inputs,
+                source_record,
+                assignment_context["helper_identity"]["assignment_helper_sha256"],
+                source_record["corpus_blake3"],
+                module,
+                None,
+                runner,
+            )
+            sidecar_hashes = {
+                index: runner.sha256_file(raw_root / f"facts-{index}.tsv")
+                for index in range(len(expected_inputs))
+            }
+            if set(proofs) != set(sidecar_hashes):
+                raise ExactOwnerError("assignment facts proof sidecars do not cover the corpus")
+            record = _assignment_capture_record(
+                build_receipt,
+                build,
+                assignment_context["helper_identity"],
+                pathlib.Path(assignment_context["source_receipt"]),
+                adapter_capture_receipt,
+                pathlib.Path(assignment_context["exact_build_receipt"]),
+                pathlib.Path(assignment_context["exact_capture_receipt"]),
+                source_record,
+                output,
+                raw_root,
+                receipt_directory,
+                range_receipts,
+                sidecar_hashes,
+                expected_inputs,
+                runner,
+            )
+            capture_receipt = output / "assignment-capture.receipt"
+            _write_assignment_capture_receipt(
+                capture_receipt,
+                record,
+                range_receipts,
+                sidecar_hashes,
+                expected_inputs,
+                runner,
+            )
+            return record
         record = _exact_capture_record(
             role, build_receipt, build, adapter_capture_receipt, output, raw_root,
             receipt_directory, input_root, input_manifest, range_receipts, owner_hashes,
@@ -2121,6 +2964,92 @@ def capture_exact_owner_role(args: argparse.Namespace, bootstrap_runner) -> int:
         )
         runner.write_status(output, "complete", completed, f"role={role} owners={record['owner_count']}")
     print(f"role={role} owners=1690 capture_receipt={output / 'capture.receipt'}")
+    return 0
+
+
+def capture_assignment_facts(args: argparse.Namespace, bootstrap_runner) -> int:
+    candidate_root = bootstrap_runner.real_directory(args.candidate_root, "candidate source")
+    source_receipt = bootstrap_runner.regular_file(args.candidate_source_receipt, "candidate source receipt")
+    runner = adapter_runner._load_candidate_publication_runner(
+        candidate_root, source_receipt, bootstrap_runner
+    )
+    source_record = runner.parse_candidate_receipt(source_receipt)
+    if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+        raise ExactOwnerError("assignment facts capture requires a source-cohort receipt")
+    if pathlib.Path(source_record["candidate_root"]) != candidate_root:
+        raise ExactOwnerError("candidate source receipt names a different checkout")
+    if runner.source_identity(candidate_root) != (
+        source_record["candidate_commit"], source_record["candidate_tree"]
+    ):
+        raise ExactOwnerError("candidate source identity differs from its source receipt")
+    expected_inputs, _paths_by_name = runner.validate_source_cohort_inputs(source_record)
+    if len(expected_inputs) != 1690:
+        raise ExactOwnerError("assignment facts source cohort does not cover all 1690 inputs")
+    adapter_capture_receipt = runner.regular_file(
+        args.adapter_capture_receipt, "candidate adapter capture receipt"
+    )
+    exact_build_receipt = runner.regular_file(args.exact_build_receipt, "candidate exact-owner build receipt")
+    exact_capture_receipt = runner.regular_file(args.exact_capture_receipt, "candidate exact-owner capture receipt")
+    build_receipt = runner.regular_file(args.build_receipt, "assignment facts harness build receipt")
+    build, helper_identity, module, _exact_capture = _assignment_harness_context(
+        candidate_root,
+        source_receipt,
+        source_record,
+        expected_inputs,
+        adapter_capture_receipt,
+        build_receipt,
+        exact_build_receipt,
+        exact_capture_receipt,
+        runner,
+    )
+    exact_helper_sha256 = helper_identity["exact_helper_sha256"]
+    output = runner.require_output_path(args.output, candidate_root)
+    if args.dry_run:
+        print(
+            f"preflight ok: source={source_record['candidate_commit']}:{source_record['candidate_tree']} "
+            f"assignment_helper={helper_identity['assignment_helper_sha256']} corpus=1690 "
+            f"ranges={len(runner.expected_ranges(len(expected_inputs)))} workers=4 "
+            f"cpus=0,1,2,3 memory_per_worker=1GiB output={output}"
+        )
+        return 0
+    assignment_context = {
+        "helper_identity": helper_identity,
+        "assignment_module": module,
+        "source_receipt": source_receipt,
+        "exact_build_receipt": exact_build_receipt,
+        "exact_capture_receipt": exact_capture_receipt,
+    }
+    completed: list[tuple[int, int]] = []
+    docker_environment = runner.local_docker_environment()
+    with runner.claim_run_resources(candidate_root, output, completed):
+        runner.write_status(output, "incomplete", completed)
+        record = _capture_exact_owner_role(
+            runner,
+            source_record,
+            "candidate",
+            build_receipt,
+            build,
+            adapter_capture_receipt,
+            exact_helper_sha256,
+            expected_inputs,
+            None,
+            pathlib.Path(source_record["input_root"]),
+            pathlib.Path(source_record["input_manifest"]),
+            output,
+            completed,
+            docker_environment,
+            assignment_context,
+        )
+        runner.write_status(
+            output,
+            "complete",
+            completed,
+            f"assignment_facts_proofs={record['input_count']}",
+        )
+    print(
+        f"assignment_facts_proofs=1690 capture_receipt="
+        f"{output / 'assignment-capture.receipt'}"
+    )
     return 0
 
 
@@ -2497,6 +3426,13 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--reference-source-root", type=pathlib.Path, required=True)
     build.add_argument("--reference-build-receipt", type=pathlib.Path)
     build.add_argument("--dry-run", action="store_true")
+    assignment_build = commands.add_parser("build-assignment-facts-harness")
+    assignment_build.add_argument("--candidate-root", type=pathlib.Path, required=True)
+    assignment_build.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
+    assignment_build.add_argument("--adapter-capture-receipt", type=pathlib.Path, required=True)
+    assignment_build.add_argument("--exact-build-receipt", type=pathlib.Path, required=True)
+    assignment_build.add_argument("--exact-capture-receipt", type=pathlib.Path, required=True)
+    assignment_build.add_argument("--dry-run", action="store_true")
     capture = commands.add_parser("capture")
     capture.add_argument("--candidate-root", type=pathlib.Path, required=True)
     capture.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
@@ -2508,6 +3444,15 @@ def main(argv: list[str] | None = None) -> int:
     capture_receipt_group.add_argument("--adapter-capture-receipt", type=pathlib.Path)
     capture.add_argument("--output", required=True)
     capture.add_argument("--dry-run", action="store_true")
+    assignment_capture = commands.add_parser("capture-assignment-facts")
+    assignment_capture.add_argument("--candidate-root", type=pathlib.Path, required=True)
+    assignment_capture.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
+    assignment_capture.add_argument("--build-receipt", type=pathlib.Path, required=True)
+    assignment_capture.add_argument("--adapter-capture-receipt", type=pathlib.Path, required=True)
+    assignment_capture.add_argument("--exact-build-receipt", type=pathlib.Path, required=True)
+    assignment_capture.add_argument("--exact-capture-receipt", type=pathlib.Path, required=True)
+    assignment_capture.add_argument("--output", required=True)
+    assignment_capture.add_argument("--dry-run", action="store_true")
     validate = commands.add_parser("validate")
     validate.add_argument("--candidate-root", type=pathlib.Path, required=True)
     validate.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
@@ -2540,8 +3485,12 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             build_exact_owner_harnesses(args, bootstrap_runner)
             return 0
+        if args.command == "build-assignment-facts-harness":
+            return build_assignment_facts_harness(args, bootstrap_runner)
         if args.command == "capture":
             return capture_exact_owner_role(args, bootstrap_runner)
+        if args.command == "capture-assignment-facts":
+            return capture_assignment_facts(args, bootstrap_runner)
         result = validate_proof(
             args.candidate_root,
             args.candidate_source_receipt,

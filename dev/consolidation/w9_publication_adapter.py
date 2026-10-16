@@ -1984,6 +1984,28 @@ def _format_struct_fields(prefix: str, fields: list[tuple[str, str]]) -> str:
     return f"{prefix}{{{','.join(f'{name}:{value}' for name, value in fields)}}}"
 
 
+def project_assignment_facts(rendered: str, proof, validator_module=None) -> str:
+    if validator_module is None:
+        try:
+            import w9_assignment_facts as validator_module
+        except ImportError as error:
+            raise AdapterError("assignment facts validator is unavailable") from error
+    prefix, entries = _struct_parts(rendered, "CheckOutput")
+    common_fields, fields = _parse_struct_fields(entries, "CheckOutput")
+    try:
+        if "assignment_facts" not in fields:
+            raise validator_module.AssignmentFactsError(
+                "candidate publication has no assignment facts"
+            )
+        validator_module.validate_assignment_facts(fields["assignment_facts"], proof)
+    except validator_module.AssignmentFactsError as error:
+        raise AdapterError(f"assignment facts proof failed: {error}") from error
+    common_fields, _ = _remove_field_pairs(
+        common_fields, (("CheckOutput", "assignment_facts"),)
+    )
+    return _format_struct_fields(prefix, common_fields)
+
+
 def project_publication(
     source_schema: str,
     rendered: str,

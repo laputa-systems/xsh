@@ -800,6 +800,10 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         candidate_exact_capture_receipt = self.root / "candidate-exact-capture.receipt"
         candidate_exact_capture_receipt.write_text("candidate exact capture\n", encoding="utf-8")
         owners = {index: (({}, {}, {}, {}), {}) for index in range(1690)}
+        assignment_capture_receipt = self.root / "assignment-facts-capture.receipt"
+        assignment_capture_receipt.write_text("assignment proof fixture\n", encoding="utf-8")
+        assignment_proofs = {index: {} for index in expected_inputs}
+        assignment_module = SimpleNamespace()
         proof_calls = []
 
         def validate_proof(
@@ -840,6 +844,8 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             self.assertTrue(kwargs["corrected_reference"])
             self.assertEqual(kwargs["original_capture_receipt"], original_capture_receipt)
             self.assertEqual(len(kwargs["reference_exact_owners"]), 1690)
+            self.assertIs(kwargs["candidate_assignment_proofs"], assignment_proofs)
+            self.assertIs(kwargs["assignment_facts_module"], assignment_module)
             adapter_runner._write_new_file(args[6], b"", self.runner)
             return correction.EXPECTED_OUTCOME_COUNT, 0, first_delta
 
@@ -853,6 +859,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             candidate_exact_build_receipt=candidate_exact_build_receipt,
             reference_exact_capture_receipt=original_exact_capture_receipt,
             candidate_exact_capture_receipt=candidate_exact_capture_receipt,
+            assignment_facts_capture_receipt=assignment_capture_receipt,
             original_capture_receipt=original_capture_receipt,
             derived_reference_source_root=derived_source_root,
             derived_reference_correction_receipt=correction_receipt,
@@ -882,7 +889,15 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             patch.object(
                 adapter_runner,
                 "_load_exact_owner_runner",
-                return_value=SimpleNamespace(validate_proof=validate_proof, ExactOwnerError=ValueError),
+                return_value=SimpleNamespace(
+                    validate_proof=validate_proof,
+                    validate_assignment_facts_capture=lambda *_args: (
+                        assignment_proofs,
+                        assignment_module,
+                        {},
+                    ),
+                    ExactOwnerError=ValueError,
+                ),
             ),
             patch.object(adapter_runner, "compare_full_publications", side_effect=compare_full),
             patch("builtins.print"),
@@ -1780,6 +1795,8 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             {},
             b"",
             b"",
+            None,
+            None,
         )
 
     def setUp(self):
@@ -2119,6 +2136,14 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             candidate_exact_capture_receipt=case["candidate_exact_capture_receipt"],
             output=str(self.artifact_root / suffix),
         )
+
+    def _assignment_facts_fixture(self, args):
+        receipt = self.artifact_root / "assignment-facts-capture.receipt"
+        receipt.write_text("assignment proof fixture\n", encoding="utf-8")
+        args.assignment_facts_capture_receipt = receipt
+        proofs = {index: {} for index in self.expected_inputs}
+        module = SimpleNamespace()
+        return proofs, module
 
     def _run_compare(self, case):
         return self._run_compare_to(case, "compare")
@@ -2479,6 +2504,8 @@ class AdapterReferenceReuseTests(unittest.TestCase):
 
     def test_compare_captures_rechecks_source_and_routes_both_roles_to_comparator(self):
         case = self._compare_case()
+        args = self._compare_args(case)
+        assignment_proofs, assignment_module = self._assignment_facts_fixture(args)
         comparisons = []
         proof_calls = []
         reference_exact_owners = {
@@ -2520,6 +2547,8 @@ class AdapterReferenceReuseTests(unittest.TestCase):
 
         def compare(*args, **kwargs):
             comparisons.append((args, kwargs))
+            self.assertIs(kwargs["candidate_assignment_proofs"], assignment_proofs)
+            self.assertIs(kwargs["assignment_facts_module"], assignment_module)
             args[6].write_text("", encoding="utf-8")
             return len(self.expected_inputs) * len(adapter_runner.PROFILES), 0
 
@@ -2537,12 +2566,17 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 "_load_exact_owner_runner",
                 return_value=SimpleNamespace(
                     validate_proof=validate_proof,
+                    validate_assignment_facts_capture=lambda *_args: (
+                        assignment_proofs,
+                        assignment_module,
+                        {},
+                    ),
                     ExactOwnerError=ValueError,
                 ),
             ),
             patch.object(adapter_runner, "compare_full_publications", side_effect=compare),
         ):
-            result = self._run_compare(case)
+            result = adapter_runner.compare_captured_publications(args, self.runner)
 
         self.assertEqual(result, 0)
         self.assertEqual(len(comparisons), 1)
@@ -2578,6 +2612,74 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             "status=complete",
         )
         self.assertTrue((output / "comparison/attempt-status.txt").is_file())
+
+    def test_compare_without_assignment_facts_proof_is_diagnostic_only(self):
+        case = self._compare_case()
+        args = self._compare_args(case)
+        exact_owners = {
+            index: (({}, {}, {}, {}), {}) for index in self.expected_inputs
+        }
+
+        def validate_proof(
+            _candidate_root,
+            _source_receipt,
+            _reference_source_root,
+            role,
+            _build_receipt,
+            _exact_capture_receipt,
+            output,
+            _bootstrap_runner,
+            dry_run=False,
+        ):
+            self.assertFalse(dry_run)
+            output.mkdir()
+            legacy_capture = (
+                case["reference_capture_receipt"]
+                if role == "reference"
+                else case["candidate_capture_receipt"]
+            )
+            return {
+                "capture": {
+                    "schema": "1",
+                    "legacy_capture_receipt": str(legacy_capture),
+                    "legacy_capture_receipt_sha256": self.runner.sha256_file(legacy_capture),
+                },
+                "owners": exact_owners,
+            }
+
+        def compare(*args, **_kwargs):
+            args[6].write_text("", encoding="utf-8")
+            return len(self.expected_inputs) * len(adapter_runner.PROFILES), 0
+
+        with (
+            patch.object(self.runner, "parse_candidate_receipt", return_value=case["source_record"]),
+            patch.object(
+                self.runner,
+                "validate_all_inputs",
+                return_value=(self.expected_inputs, {}, self.reference),
+            ),
+            patch.object(self.runner, "parse_receipt", side_effect=self._parse_shard),
+            patch.object(self.runner, "local_docker_environment", return_value={"PATH": os.environ["PATH"]}),
+            patch.object(
+                adapter_runner,
+                "_load_exact_owner_runner",
+                return_value=SimpleNamespace(
+                    validate_proof=validate_proof,
+                    ExactOwnerError=ValueError,
+                ),
+            ),
+            patch.object(adapter_runner, "compare_full_publications", side_effect=compare),
+            patch("builtins.print"),
+        ):
+            result = adapter_runner.compare_captured_publications(args, self.runner)
+
+        self.assertEqual(result, 1)
+        self.assertEqual(
+            (self.artifact_root / "compare/comparison/attempt-status.txt")
+            .read_text(encoding="utf-8")
+            .splitlines()[0],
+            "status=diagnostic-only",
+        )
 
     def test_compare_derived_captures_writes_delta_before_hashing_receipt(self):
         case = self._compare_case()
@@ -2666,6 +2768,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             return 6760, 0, first_delta
 
         args = self._compare_args(case, "derived-compare")
+        assignment_proofs, assignment_module = self._assignment_facts_fixture(args)
         args.derived_reference_source_root = self.reference_root
         args.derived_reference_correction_receipt = correction_receipt
         args.original_capture_receipt = case["reference_capture_receipt"]
@@ -2694,6 +2797,11 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 "_load_exact_owner_runner",
                 return_value=SimpleNamespace(
                     validate_proof=validate_proof,
+                    validate_assignment_facts_capture=lambda *_args: (
+                        assignment_proofs,
+                        assignment_module,
+                        {},
+                    ),
                     ExactOwnerError=ValueError,
                 ),
             ),
@@ -2825,6 +2933,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         *,
         verify_serial_parity=False,
         mismatch_name="full-mismatches.tsv",
+        assignment_proof=False,
     ):
         expected_inputs = self.expected_inputs
         reference_receipt = self.reference
@@ -2834,7 +2943,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             if scenario in {
                 "cache-identical", "cache-variants", "cache-boundary", "cache-failure",
                 "statement-flow", "parse-error", "empty-checked",
-                "empty-checked-diagnostics",
+                "empty-checked-diagnostics", "assignment-map", "assignment-no-field",
             }
             else ("default",)
         )
@@ -3004,6 +3113,12 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             if scenario == "statement-flow":
                 reference_publication = add_statement_flow(reference_publication, False)
                 candidate_publication = add_statement_flow(candidate_publication, True)
+            if scenario == "assignment-map":
+                candidate_publication = candidate_publication.replace(
+                    "CheckOutput{",
+                    "CheckOutput{assignment_facts:AssignmentFacts{owners:{}},",
+                    1,
+                )
             diagnostics = "[]"
             if scenario == "load-error":
                 reference_publication = ""
@@ -3193,6 +3308,12 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             "stage_arguments": {},
             "stage_callbacks": {},
         }
+        assignment_validation_calls = multiprocessing.get_context("fork").Value("i", 0)
+
+        def validate_assignment(_rendered, _proof):
+            with assignment_validation_calls.get_lock():
+                assignment_validation_calls.value += 1
+
         reference_exact_owners = dict(candidate_exact_owners)
         if scenario == "statement-flow":
             reference_exact_owners["exprs"] = {
@@ -3393,10 +3514,24 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 {"PATH": os.environ["PATH"]},
                 reference_exact_owners=exact_owner_projection["reference"],
                 candidate_exact_owners=exact_owner_projection["candidate"],
+                candidate_assignment_proofs=(
+                    {index: object() for index in self.expected_inputs}
+                    if assignment_proof
+                    else None
+                ),
+                assignment_facts_module=(
+                    SimpleNamespace(
+                        AssignmentFactsError=ValueError,
+                        validate_assignment_facts=validate_assignment,
+                    )
+                    if assignment_proof
+                    else None
+                ),
             )
 
         self.expected_inputs = expected_inputs
         self.reference = reference_receipt
+        self.assignment_validation_calls = assignment_validation_calls.value
         if input_count > 1 and observed_count.value:
             observed = [None] * observed_count.value
         return result, observed, stderr.getvalue(), candidate_start
@@ -3501,13 +3636,40 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         )
 
     def test_full_compare_reports_load_error_sources_as_processed_outcomes(self):
-        result, observed, progress, _candidate_start = self._run_full_compare_progress_case("load-error")
+        result, observed, progress, _candidate_start = self._run_full_compare_progress_case(
+            "load-error", assignment_proof=True
+        )
 
         self.assertEqual(result, (1, 0))
         self.assertEqual(observed, [])
+        self.assertEqual(self.assignment_validation_calls, 0)
         self.assertEqual(
             progress,
             "comparison_progress inputs=1/1 outcomes=1/1 mismatches=0\n",
+        )
+
+    def test_assignment_projection_validates_all_checked_profile_publications(self):
+        result, _observed, progress, _candidate_start = self._run_full_compare_progress_case(
+            "assignment-map", assignment_proof=True
+        )
+
+        self.assertEqual(result, (4, 0))
+        self.assertEqual(self.assignment_validation_calls, 4)
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=1/1 outcomes=4/4 mismatches=0\n",
+        )
+
+    def test_assignment_projection_rejects_checked_publication_without_facts(self):
+        result, _observed, progress, _candidate_start = self._run_full_compare_progress_case(
+            "assignment-no-field", assignment_proof=True
+        )
+
+        self.assertEqual(result, (4, 1))
+        self.assertEqual(self.assignment_validation_calls, 0)
+        self.assertEqual(
+            progress,
+            "comparison_progress inputs=1/1 outcomes=4/4 mismatches=1\n",
         )
 
     def test_full_compare_reports_owner_errors_with_recorded_mismatch_count(self):
@@ -3791,7 +3953,7 @@ candidate_root.mkdir()
 (candidate_root / ".work").mkdir()
 subprocess.run(["git", "init", "--quiet", str(candidate_root)], check=True)
 output = candidate_root / ".work" / "comparison"
-context = runner._PublicationComparisonContext(-1, -1, {}, None, {}, {}, {}, {}, {}, b"", b"")
+context = runner._PublicationComparisonContext(-1, -1, {}, None, {}, {}, {}, {}, {}, b"", b"", None, None)
 original_kill = os.kill
 original_excepthook = sys.excepthook
 
