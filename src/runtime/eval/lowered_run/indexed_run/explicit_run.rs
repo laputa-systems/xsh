@@ -6097,7 +6097,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             } => self.step_for_statement(
                 &execution,
                 index,
-                instruction,
                 LoweredCompTarget::Slot(slot),
                 iter.raw(),
                 body.block_id(),
@@ -6115,7 +6114,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.step_for_statement(
                     &execution,
                     index,
-                    instruction,
                     target,
                     iter.raw(),
                     body.block_id(),
@@ -6330,7 +6328,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &mut self,
         execution: &FullExecution<'_>,
         index: usize,
-        instruction: u32,
         target: LoweredCompTarget,
         iter: u32,
         body: u32,
