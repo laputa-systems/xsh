@@ -184,6 +184,35 @@ class CoverageTests(unittest.TestCase):
             {"core-compat-boundaries", "core-compat-extra", "core-compat-extra-privileged"},
         )
 
+    def test_split_infinite_device_context_passes_approved_resource_caps(self):
+        split = next(
+            run for run in self.plan["linux_context_runs"]
+            if run.get("filter") == "split::"
+        )
+        self.assertEqual((split["cpus"], split["memory"]), ("0.01", "1g"))
+
+        gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        gate.source_root = SOURCE_ROOT
+        gate.git_common_dir = LAUNCHER.resolve_source_root(SOURCE_ROOT)[1]
+        gate.cid_dir = SCRATCH_ROOT
+        gate.step_number = 0
+        gate.target_dir = SCRATCH_ROOT / "split-resource-target"
+        gate.run = mock.Mock(return_value={})
+        gate.run_special_container(
+            "split-resource-caps",
+            ["/bin/true"],
+            target_dir=gate.target_dir,
+            privileged=split["privileged"],
+            memory=split["memory"],
+            cpus=split["cpus"],
+            network=split["network"],
+        )
+
+        argv = gate.run.call_args.args[1]
+        self.assertIn("--cpus=0.01", argv)
+        self.assertIn("--memory=1g", argv)
+        self.assertIn("--memory-swap=1g", argv)
+
     def test_approved_plan_matches_current_product_and_lint_contract(self):
         self.assertEqual(self.plan["plan_status"], "approved")
         self.assertEqual(

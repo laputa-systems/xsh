@@ -98,7 +98,8 @@ def plan_data() -> dict[str, Any]:
                 "filter": "split::",
                 "network": "none",
                 "privileged": False,
-                "memory": "4g",
+                "memory": "1g",
+                "cpus": "0.01",
             },
             {
                 "harness": "core-compat-extra-privileged",

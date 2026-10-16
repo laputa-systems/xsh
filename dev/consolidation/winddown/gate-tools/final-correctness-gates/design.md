@@ -32,6 +32,10 @@ target read-only and the harness target read-write; runtime contexts mount both
 targets read-only. Staging rejects a symlink or a different existing sibling
 and records the source and destination hashes with their qualified variants.
 
+The split infinite-device context uses a 0.01 CPU quota and 1 GiB memory limit.
+Its child process applies the 768 MiB address-space limit needed by the
+infinite-input observation.
+
 `generate_manifest.py` deterministically renders the tracked plan and binds its
 source, launcher, runner, cleanup test, and generator with one-way hashes. The
 runtime manifest remains ignored state generated for the approved source tree.
