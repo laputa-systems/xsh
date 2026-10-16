@@ -31,6 +31,208 @@ pattern_schema! {}
 """
 
 
+def expression_dispatch_fixture(rows: list[dict]) -> dict:
+    expression_rows = [row for row in rows if row["kind"] == "Expr"]
+    paths = {
+        "schema": str(generate.SCHEMA_PATH),
+        "normal_dispatch": generate._INDEXED_DISPATCH,
+        "forced_dispatch": generate._EXPLICIT_DISPATCH,
+    }
+
+    def source(path: str, line: int) -> dict:
+        return {
+            "path": path,
+            "start_line": line,
+            "start_column": 0,
+            "end_line": line,
+            "end_column": 1,
+            "snippet": "x",
+        }
+
+    selector_contract = {
+        "forced_eager_atom": ("ExplicitFrames::eval_expr", "tag.is_eager_atom()"),
+        "forced_expr_view_kind": ("ExplicitFrames::eval_expr", "tag.expr_view_kind()"),
+        "forced_frame_apply": ("ExplicitFrames::eval_expr", "super::indexed_frame_apply_tag(tag)"),
+        "forced_frame_entry": (
+            "ExplicitFrames::eval_expr",
+            generate.EXPRESSION_FORCED_FRAME_ENTRY_PREDICATE,
+        ),
+        "forced_in_place_condition": (
+            "eval_expr.in_place",
+            "!self.evaluator.force_frames\n            && execution.is_in_place(instruction)",
+        ),
+        "forced_in_place_bypass": ("ExplicitFrames::eval_expr", "in_place"),
+        "forced_typed_scalar": ("ExplicitFrames::eval_expr", "is_typed_scalar_tag(tag)"),
+        "normal_entry": (
+            "eval_indexed_expr",
+            "self.force_frames || !execution.is_in_place(instruction)",
+        ),
+        "normal_frame_dispatch": (
+            "eval_indexed_expr_with_frames",
+            "self.force_frames || !execution.is_in_place(instruction)",
+        ),
+        "normal_recursive_entry": (
+            "eval_indexed_expr_inner",
+            "else branch of self.force_frames || !execution.is_in_place(instruction)",
+        ),
+        "prepared_operand_value": ("indexed_frame_apply_value", "indexed_frame_apply_prepares_operands(tag)"),
+        "recursive_eager_atom": ("eval_indexed_expr_inner", "tag.is_eager_atom()"),
+        "recursive_expr_view_kind": ("eval_indexed_expr_inner", "ExprViewKind"),
+        "recursive_selection": ("eval_indexed_expr_inner", "matches!(tag, FullTag::ExprIf | FullTag::ExprMatch)"),
+        "recursive_tag_to_view_kind": ("FullTag::expr_view_kind", "Self::$tag => Some(ExprViewKind::$variant)"),
+    }
+    forced_order = {
+        "forced_in_place_condition": 1,
+        "forced_in_place_bypass": 2,
+        "forced_frame_apply": 3,
+        "forced_expr_view_kind": 4,
+    }
+    selectors = {
+        name: {
+            "path": path,
+            "predicate": predicate,
+            "source": source(
+                paths["forced_dispatch"] if path.startswith("ExplicitFrames") or path == "eval_expr.in_place"
+                else paths["normal_dispatch"],
+                forced_order.get(name, line + 10),
+            ),
+        }
+        for line, (name, (path, predicate)) in enumerate(selector_contract.items(), start=1)
+    }
+    forced_selector = {
+        "path": selectors["forced_frame_entry"]["path"],
+        "predicate": selectors["forced_frame_entry"]["predicate"],
+        "source": selectors["forced_in_place_bypass"]["source"],
+    }
+    normal_selector = dict(selectors["normal_entry"])
+    schema_rows = []
+    dispatch_rows = []
+    frame_apply_tags = []
+    eager_tags = []
+    for index, row in enumerate(expression_rows, start=10):
+        eager = row["eager_atom"]
+        apply = row["frame_strategy"] == "FrameApply" and not eager
+        if eager:
+            eager_tags.append(row["tag"])
+        if apply:
+            frame_apply_tags.append(row["tag"])
+        schema = {
+            "tag": row["tag"],
+            "variant": row["variant"],
+            "ordinal": row["ordinal"],
+            "effects": "|".join(effect.strip() for effect in row["effects"].split("|")),
+            "class": row["in_place"],
+            "strategy": row["frame_strategy"],
+            "classification": "EagerAtom" if eager else None,
+            "line": index,
+            "source": source(paths["schema"], index),
+        }
+        schema_rows.append(schema)
+        child_dispatch = [{
+            "function": "indexed_frame_apply_child",
+            "variant": row["variant"],
+            "predicate": f"ExprView::{row['variant']}",
+            "behavior": "handled",
+            "arm_index": 0,
+            "defensive_unreachable": False,
+            "source": source(paths["normal_dispatch"], index),
+        }] if apply else []
+        value_dispatch = [{
+            "function": "indexed_frame_apply_value",
+            "variant": row["variant"],
+            "predicate": f"ExprView::{row['variant']}",
+            "behavior": "handled",
+            "arm_index": 0,
+            "defensive_unreachable": False,
+            "source": source(paths["normal_dispatch"], index),
+        }] if apply else []
+        dispatch_rows.append({
+            "schema": schema,
+            "recursive_dispatch": {
+                "function": "eval_indexed_expr_inner",
+                "variant": row["variant"],
+                "predicate": f"ExprViewKind::{row['variant']}",
+                "behavior": "eager_atom_value" if eager else "handled",
+                "arm_index": None if eager else 0,
+                "defensive_unreachable": False,
+                "source": source(paths["normal_dispatch"], index),
+            },
+            "explicit_view_dispatch": {
+                "function": "eval_expr_view",
+                "variant": row["variant"],
+                "predicate": f"ExprViewKind::{row['variant']}",
+                "behavior": "frame_strategy_error" if apply or eager else "handled",
+                "arm_index": 0,
+                "defensive_unreachable": False,
+                "source": source(paths["forced_dispatch"], index),
+            },
+            "forced_dispatch": {
+                "function": "eval_expr",
+                "variant": row["variant"],
+                "predicate": "indexed_frame_apply_tag(tag)" if apply else "expr_view_kind",
+                "behavior": "schedule_frame_apply_operands" if apply else "eager_atom_value" if eager else "handled",
+                "arm_index": None if eager else 0,
+                "defensive_unreachable": False,
+                "source": source(paths["forced_dispatch"], index),
+            },
+            "indexed_frame_apply_selected": apply,
+            "frame_strategy_overridden": False,
+            "prepared_operands_selected": False,
+            "normal_executor": [
+                {
+                    "path": "eval_indexed_expr_with_frames",
+                    "predicate": selectors["normal_entry"]["predicate"],
+                    "source": source(paths["normal_dispatch"], 1),
+                },
+                {
+                    "path": "eval_indexed_expr_inner",
+                    "predicate": selectors["normal_entry"]["predicate"],
+                    "source": source(paths["normal_dispatch"], 2),
+                },
+            ],
+            "child_dispatch": child_dispatch,
+            "value_dispatch": value_dispatch,
+            "host_value_dispatch": [],
+        })
+    classifier = lambda tags, line: {
+        "function": "classifier",
+        "target": "tag",
+        "pattern": "tag pattern",
+        "tags": tags,
+        "source": source(paths["normal_dispatch"], line),
+        "predicate_source": source(paths["normal_dispatch"], line),
+    }
+    boundaries = [
+        {
+            "function": function,
+            "kind": kind,
+            "outcome": outcome,
+            "predicate": "boundary predicate",
+            "source": source(paths["normal_dispatch"], 1),
+        }
+        for function, kind, outcome in generate.EXPRESSION_DISPATCH_BOUNDARY_IDENTITIES
+    ]
+    return {
+        "source_paths": paths,
+        "source_classification_only": True,
+        "runtime_behavior_proven": False,
+        "schema_rows": schema_rows,
+        "rows": dispatch_rows,
+        "normal_selector": normal_selector,
+        "forced_selector": forced_selector,
+        "selectors": selectors,
+        "classifiers": {
+            "Bool": classifier([row["tag"] for row in rows if row["kind"] == "Bool"], 1),
+            "EagerAtom": classifier(eager_tags, 2),
+            "ExprViewKind": classifier([row["tag"] for row in expression_rows], 3),
+            "FrameApply": classifier(frame_apply_tags, 4),
+            "Int": classifier([row["tag"] for row in rows if row["kind"] == "Int"], 5),
+            "prepared_operands": classifier([], 6),
+        },
+        "boundaries": boundaries,
+    }
+
+
 def operand_manifest(rows: list[dict]) -> str:
     headers = [
         "record", "tag", "ordinal", "kind", "variant", "field", "type", "policy", "child_paths"
@@ -1820,7 +2022,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             expected_xsht_sha256="xsht-hash",
         ))
 
-    def test_dispatch_classification_needs_both_normal_and_forced_routes(self) -> None:
+    def test_expression_dispatch_requires_and_consumes_ast_inventory(self) -> None:
         rows = generate.parse_schema(SCHEMA)
         indexed = """fn indexed_frame_apply_tag(tag: FullTag) -> bool {
     matches!(tag, FullTag::ExprInt)
@@ -1847,15 +2049,63 @@ fn eval_indexed_expr() {
         self.assertEqual(by_tag["StmtPrint"]["normal_route"], "eval_statement")
         self.assertEqual(by_tag["StmtPrint"]["forced_route"], "eval_statement")
         self.assertEqual(by_tag["ExprBinary"]["runtime_operand_order"]["status"], "unverified")
-        fallback = generate.build_fallback_path_map(
-            by_tag["ExprBinary"],
-            {"schema_row": ["schema.rs:3"], "normal_dispatch": ["indexed.rs:8"], "forced_dispatch": ["explicit.rs:5"]},
+        with self.assertRaisesRegex(generate.EvidenceError, "missing AST expression dispatch inventory"):
+            generate.build_fallback_path_map(
+                by_tag["ExprBinary"],
+                {"schema_row": ["schema.rs:3"], "normal_dispatch": ["indexed.rs:8"], "forced_dispatch": ["explicit.rs:5"]},
+            )
+        inventory = generate.validate_expression_dispatch_inventory(
+            rows,
+            expression_dispatch_fixture(rows),
         )
-        self.assertEqual(fallback["review_status"], "unreviewed")
-        self.assertEqual(fallback["branches"], [])
-        self.assertFalse(fallback["branches_exhaustive"])
+        row = by_tag["ExprBinary"]
+        fallback = generate.build_fallback_path_map(
+            row,
+            generate.expression_dispatch_source_refs(row, inventory),
+            expression_dispatch_inventory=inventory,
+        )
+        self.assertEqual(fallback["review_status"], "source_exhaustive_dispatch_path")
+        self.assertEqual(len(fallback["branches"]), 1)
+        self.assertTrue(fallback["branches_exhaustive"])
         self.assertIsNone(fallback["no_fallback"])
-        self.assertTrue(fallback["source_refs"]["schema_row"])
+        self.assertEqual(fallback["branches"][0]["normal_dispatch"]["kind"], "in_place_recursive_dispatch")
+        self.assertEqual(fallback["branches"][0]["forced_dispatch"]["kind"], "explicit_frame_view_dispatch")
+        self.assertFalse(fallback["runtime_behavior_proven"])
+
+    def test_expression_fallback_uses_schema_class_and_frame_apply_classifier(self) -> None:
+        schema = """instruction_schema! {
+    BuildExprRow => ExprView [Expr] {
+        ProcCallResult { value: BuildExprId } => ExprProcCallResult = 0 [0; Scheduled; FrameControl];
+        ProcessCommandArgv { value: BuildExprId } => ExprProcessCommandArgv = 1 [0; Scheduled; FrameApply];
+    }
+}
+
+pattern_schema! {}
+"""
+        rows = generate.parse_schema(schema)
+        inventory = generate.validate_expression_dispatch_inventory(
+            rows,
+            expression_dispatch_fixture(rows),
+        )
+        by_tag = {row["tag"]: row for row in rows}
+        result_call = generate.expression_dispatch_fallback_path_map(
+            by_tag["ExprProcCallResult"],
+            generate.expression_dispatch_source_refs(by_tag["ExprProcCallResult"], inventory),
+            inventory,
+        )
+        process_argv = generate.expression_dispatch_fallback_path_map(
+            by_tag["ExprProcessCommandArgv"],
+            generate.expression_dispatch_source_refs(by_tag["ExprProcessCommandArgv"], inventory),
+            inventory,
+        )
+        self.assertFalse(result_call["branches"][0]["normal_dispatch"]["selected"])
+        self.assertFalse(result_call["branches"][0]["normal_dispatch"]["recursive_match_reachable"])
+        self.assertEqual(result_call["branches"][0]["normal_dispatch"]["executor"], "eval_indexed_expr_with_frames")
+        self.assertTrue(process_argv["branches"][0]["forced_dispatch"]["indexed_frame_apply_selected"])
+        self.assertFalse(process_argv["branches"][0]["forced_dispatch"]["frame_strategy_overridden"])
+        self.assertEqual(process_argv["branches"][0]["normal_dispatch"]["kind"], "scheduled_frame_apply_dispatch")
+        self.assertEqual(len(process_argv["branches"][0]["forced_dispatch"]["child_arms"]), 1)
+        self.assertEqual(len(process_argv["branches"][0]["forced_dispatch"]["value_arms"]), 1)
 
     def test_if_and_match_keep_distinct_normal_routes(self) -> None:
         schema = """instruction_schema! {

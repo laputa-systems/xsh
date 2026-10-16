@@ -34,6 +34,45 @@ OPERANDS_HELPER_PATH = pathlib.Path("src/runtime/eval/lowered_run/indexed_run/op
 OPERAND_MANIFEST = HERE / "operand-order-manifest.tsv"
 ORDINAL_HOLES = [50, 64, 95, 97, 98, 147]
 EXPECTED_LIVE_COUNT = 152
+EXPRESSION_FORCED_FRAME_ENTRY_PREDICATE = (
+    "forced path takes the false arm of in_place, guarded by "
+    "!self.evaluator.force_frames\n            && execution.is_in_place(instruction)"
+)
+EXPRESSION_DISPATCH_SELECTOR_KEYS = {
+    "forced_eager_atom",
+    "forced_expr_view_kind",
+    "forced_frame_apply",
+    "forced_frame_entry",
+    "forced_in_place_condition",
+    "forced_in_place_bypass",
+    "forced_typed_scalar",
+    "normal_entry",
+    "normal_frame_dispatch",
+    "normal_recursive_entry",
+    "prepared_operand_value",
+    "recursive_eager_atom",
+    "recursive_expr_view_kind",
+    "recursive_selection",
+    "recursive_tag_to_view_kind",
+}
+EXPRESSION_DISPATCH_CLASSIFIER_KEYS = {
+    "Bool",
+    "EagerAtom",
+    "ExprViewKind",
+    "FrameApply",
+    "Int",
+    "prepared_operands",
+}
+EXPRESSION_DISPATCH_BOUNDARY_IDENTITIES = {
+    ("eval_indexed_expr_inner", "in_place_admission_error", "indexed-ir error for unmarked instruction"),
+    ("eval_indexed_expr_inner", "direct_view_unsupported_group", "indexed-ir unsupported-expression error"),
+    ("eval_expr", "normal_in_place_bypass", "delegates to eval_indexed_expr and returns before frame dispatch"),
+    ("eval_expr", "missing_view_kind_error", "frame_strategy_error(tag, span)"),
+    ("eval_expr_view", "defensive_wrong_executor_error_group", "frame_strategy_error(tag, span)"),
+    ("indexed_frame_apply_child", "typed_view_unreachable_boundary", 'unreachable!("frame apply tag has a matching typed view")'),
+    ("indexed_frame_apply_value", "typed_view_unreachable_boundary", '{\n            unreachable!("error and abort values are applied before generic operands")\n        }'),
+    ("indexed_frame_apply_value", "typed_view_unreachable_boundary", 'unreachable!("frame apply tag has a matching typed view")'),
+}
 EAGER_ATOM_PROVENANCE = {
     "Null": ("ExprNull", "none", "construct", "LoweredValue::Null"),
     "Unit": ("ExprUnit", "none", "construct", "LoweredValue::Unit"),
@@ -1604,6 +1643,387 @@ def statement_ast_inventory(
     if len(fallbacks) != 1 or fallbacks[0].get("outcome") != "frame_strategy_error":
         raise EvidenceError("statement AST inventory has no exact frame-strategy fallback")
     return inventory
+
+
+def expression_dispatch_ast_inventory(
+    root: pathlib.Path,
+    rows: list[dict[str, Any]],
+    indexed_path: str,
+    explicit_path: str,
+) -> dict[str, Any]:
+    inventory = run_ast_extractor(
+        root,
+        [
+            "--expression-dispatch",
+            str(root / SCHEMA_PATH),
+            str(root / indexed_path),
+            str(root / explicit_path),
+            str(SCHEMA_PATH),
+            indexed_path,
+            explicit_path,
+        ],
+        "expression dispatch",
+    )
+    return validate_expression_dispatch_inventory(
+        rows,
+        inventory,
+        root,
+        indexed_path,
+        explicit_path,
+    )
+
+
+def expression_dispatch_source_record(
+    record: Any,
+    source_paths: set[str],
+    source_texts: dict[str, str] | None,
+) -> None:
+    expected_keys = {
+        "path", "start_line", "start_column", "end_line", "end_column", "snippet"
+    }
+    if not isinstance(record, dict) or set(record) != expected_keys:
+        raise EvidenceError("expression dispatch source reference has an invalid shape")
+    path = record.get("path")
+    start_line = record.get("start_line")
+    end_line = record.get("end_line")
+    start_column = record.get("start_column")
+    end_column = record.get("end_column")
+    snippet = record.get("snippet")
+    if (
+        path not in source_paths
+        or not isinstance(start_line, int)
+        or not isinstance(end_line, int)
+        or start_line < 1
+        or end_line < start_line
+        or not isinstance(start_column, int)
+        or not isinstance(end_column, int)
+        or start_column < 0
+        or end_column < 0
+        or not isinstance(snippet, str)
+        or not snippet.strip()
+    ):
+        raise EvidenceError("expression dispatch source reference is incomplete")
+    if source_texts is None:
+        return
+    lines = source_texts[path].splitlines()
+    if end_line > len(lines):
+        raise EvidenceError(f"expression dispatch source line is out of range: {path}:{end_line}")
+    if start_column > len(lines[start_line - 1]) or end_column > len(lines[end_line - 1]):
+        raise EvidenceError(f"expression dispatch source column is out of range: {path}:{start_line}")
+    region = " ".join(" ".join(line.split()) for line in lines[start_line - 1:end_line])
+    extracted = " ".join(snippet.split())
+    if extracted not in region:
+        raise EvidenceError(f"expression dispatch snippet differs from source: {path}:{start_line}")
+
+
+def schema_effect_tokens(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, str):
+        raise EvidenceError("expression dispatch schema effects are malformed")
+    tokens = tuple(token.strip() for token in value.split("|"))
+    if any(not token for token in tokens):
+        raise EvidenceError("expression dispatch schema effects contain an empty token")
+    return tokens
+
+
+def validate_expression_dispatch_inventory(
+    rows: list[dict[str, Any]],
+    inventory: dict[str, Any],
+    root: pathlib.Path | None = None,
+    indexed_path: str = _INDEXED_DISPATCH,
+    explicit_path: str = _EXPLICIT_DISPATCH,
+) -> dict[str, Any]:
+    expression_rows = [row for row in rows if row["kind"] == "Expr"]
+    expected_tags = [row["tag"] for row in expression_rows]
+    expected_paths = {
+        "schema": str(SCHEMA_PATH),
+        "normal_dispatch": indexed_path,
+        "forced_dispatch": explicit_path,
+    }
+    if set(inventory) != {
+        "boundaries",
+        "classifiers",
+        "forced_selector",
+        "normal_selector",
+        "rows",
+        "runtime_behavior_proven",
+        "schema_rows",
+        "selectors",
+        "source_classification_only",
+        "source_paths",
+    }:
+        raise EvidenceError("expression dispatch AST inventory has an unexpected shape")
+    if inventory.get("source_paths") != expected_paths:
+        raise EvidenceError("expression dispatch AST source paths differ from the matrix inputs")
+    if inventory.get("source_classification_only") is not True or inventory.get("runtime_behavior_proven") is not False:
+        raise EvidenceError("expression dispatch inventory must remain source-only")
+
+    selector_keys = inventory.get("selectors")
+    if not isinstance(selector_keys, dict) or set(selector_keys) != EXPRESSION_DISPATCH_SELECTOR_KEYS:
+        raise EvidenceError("expression dispatch selector inventory differs from its required paths")
+    for selector in selector_keys.values():
+        if (
+            not isinstance(selector, dict)
+            or set(selector) != {"path", "predicate", "source"}
+            or not isinstance(selector["path"], str)
+            or not selector["path"]
+            or not isinstance(selector["predicate"], str)
+            or not selector["predicate"]
+        ):
+            raise EvidenceError("expression dispatch selector is malformed")
+    selector_contract = {
+        "normal_entry": ("eval_indexed_expr", "self.force_frames || !execution.is_in_place(instruction)"),
+        "normal_frame_dispatch": ("eval_indexed_expr_with_frames", "self.force_frames || !execution.is_in_place(instruction)"),
+        "normal_recursive_entry": (
+            "eval_indexed_expr_inner",
+            "else branch of self.force_frames || !execution.is_in_place(instruction)",
+        ),
+        "forced_in_place_bypass": ("ExplicitFrames::eval_expr", "in_place"),
+        "forced_in_place_condition": (
+            "eval_expr.in_place",
+            "!self.evaluator.force_frames\n            && execution.is_in_place(instruction)",
+        ),
+        "forced_frame_entry": (
+            "ExplicitFrames::eval_expr",
+            EXPRESSION_FORCED_FRAME_ENTRY_PREDICATE,
+        ),
+        "forced_frame_apply": ("ExplicitFrames::eval_expr", "super::indexed_frame_apply_tag(tag)"),
+    }
+    for name, (path, predicate) in selector_contract.items():
+        actual = selector_keys[name]
+        if (actual["path"], actual["predicate"]) != (path, predicate):
+            raise EvidenceError(f"expression dispatch selector changed: {name}")
+    forced_selector = inventory.get("forced_selector")
+    if (
+        not isinstance(forced_selector, dict)
+        or set(forced_selector) != {"path", "predicate", "source"}
+        or forced_selector.get("path") != "ExplicitFrames::eval_expr"
+        or forced_selector.get("predicate") != EXPRESSION_FORCED_FRAME_ENTRY_PREDICATE
+        or forced_selector.get("source") != selector_keys["forced_in_place_bypass"]["source"]
+    ):
+        raise EvidenceError("expression dispatch forced selector does not identify the bypass branch")
+    normal_selector = inventory.get("normal_selector")
+    if (
+        not isinstance(normal_selector, dict)
+        or set(normal_selector) != {"path", "predicate", "source"}
+        or normal_selector.get("path") != selector_keys["normal_entry"]["path"]
+        or normal_selector.get("predicate") != selector_keys["normal_entry"]["predicate"]
+        or normal_selector.get("source") != selector_keys["normal_entry"]["source"]
+    ):
+        raise EvidenceError("expression dispatch normal selector differs from its wrapper branch")
+    forced_lines = [
+        selector_keys[name]["source"]["start_line"]
+        for name in (
+            "forced_in_place_condition",
+            "forced_in_place_bypass",
+            "forced_frame_apply",
+            "forced_expr_view_kind",
+        )
+    ]
+    if forced_lines != sorted(forced_lines):
+        raise EvidenceError("expression dispatch forced selector order changed")
+
+    classifiers = inventory.get("classifiers")
+    if not isinstance(classifiers, dict) or set(classifiers) != EXPRESSION_DISPATCH_CLASSIFIER_KEYS:
+        raise EvidenceError("expression dispatch classifiers differ from their required inputs")
+    classifier_tags: dict[str, set[str]] = {}
+    known_tags = set(expected_tags)
+    for name, classifier in classifiers.items():
+        if not isinstance(classifier, dict) or not isinstance(classifier.get("tags"), list):
+            raise EvidenceError(f"expression dispatch classifier is malformed: {name}")
+        tags = classifier["tags"]
+        if any(not isinstance(tag, str) for tag in tags) or len(tags) != len(set(tags)):
+            raise EvidenceError(f"expression dispatch classifier has duplicate or invalid tags: {name}")
+        classifier_tags[name] = set(tags)
+    frame_apply_tags = classifier_tags["FrameApply"]
+    prepared_tags = classifier_tags["prepared_operands"]
+    eager_tags = classifier_tags["EagerAtom"]
+    if frame_apply_tags - known_tags or prepared_tags - frame_apply_tags:
+        raise EvidenceError("expression dispatch classifier names an unknown or ineligible tag")
+    if classifier_tags["ExprViewKind"] != known_tags:
+        raise EvidenceError("expression view-kind classifier differs from schema tags")
+    if classifier_tags["Int"] != {row["tag"] for row in rows if row["kind"] == "Int"}:
+        raise EvidenceError("expression dispatch Int classifier differs from the matrix schema")
+    if classifier_tags["Bool"] != {row["tag"] for row in rows if row["kind"] == "Bool"}:
+        raise EvidenceError("expression dispatch Bool classifier differs from the matrix schema")
+
+    expected_boundaries = EXPRESSION_DISPATCH_BOUNDARY_IDENTITIES
+    boundaries = inventory.get("boundaries")
+    if not isinstance(boundaries, list) or any(not isinstance(boundary, dict) for boundary in boundaries):
+        raise EvidenceError("expression dispatch defensive boundaries are malformed")
+    actual_boundaries = {
+        (boundary.get("function"), boundary.get("kind"), boundary.get("outcome"))
+        for boundary in boundaries
+    }
+    if actual_boundaries != expected_boundaries or len(boundaries) != len(expected_boundaries):
+        raise EvidenceError("expression dispatch defensive boundary inventory changed")
+    if any(
+        not isinstance(boundary.get("predicate"), str)
+        or not boundary["predicate"]
+        for boundary in boundaries
+    ):
+        raise EvidenceError("expression dispatch defensive boundary has no predicate")
+
+    schema_rows = inventory.get("schema_rows")
+    dispatch_rows = inventory.get("rows")
+    if not isinstance(schema_rows, list) or not isinstance(dispatch_rows, list):
+        raise EvidenceError("expression dispatch schema rows are malformed")
+    schema_tags = [entry.get("tag") for entry in schema_rows if isinstance(entry, dict)]
+    dispatch_tags = [entry.get("schema", {}).get("tag") for entry in dispatch_rows if isinstance(entry, dict)]
+    if (
+        len(schema_tags) != len(schema_rows)
+        or schema_tags != expected_tags
+        or len(dispatch_tags) != len(dispatch_rows)
+        or dispatch_tags != expected_tags
+    ):
+        raise EvidenceError("expression dispatch rows do not cover each expression schema tag once")
+
+    source_texts = None
+    if root is not None:
+        source_texts = {
+            expected_paths["schema"]: (root / expected_paths["schema"]).read_text(),
+            expected_paths["normal_dispatch"]: (root / expected_paths["normal_dispatch"]).read_text(),
+            expected_paths["forced_dispatch"]: (root / expected_paths["forced_dispatch"]).read_text(),
+        }
+    source_paths = set(expected_paths.values())
+
+    def validate_sources(value: Any) -> None:
+        if isinstance(value, dict):
+            if {"path", "start_line", "start_column", "end_line", "end_column", "snippet"} == set(value):
+                expression_dispatch_source_record(value, source_paths, source_texts)
+                return
+            for child in value.values():
+                validate_sources(child)
+        elif isinstance(value, list):
+            for child in value:
+                validate_sources(child)
+
+    validate_sources(inventory)
+    matrix_by_tag = {row["tag"]: row for row in expression_rows}
+    rows_by_tag: dict[str, dict[str, Any]] = {}
+    for schema in schema_rows:
+        matrix_row = matrix_by_tag[schema["tag"]]
+        if (
+            schema.get("variant") != matrix_row["variant"]
+            or schema.get("ordinal") != matrix_row["ordinal"]
+            or schema_effect_tokens(schema.get("effects"))
+            != schema_effect_tokens(matrix_row["effects"])
+            or schema.get("class") != matrix_row["in_place"]
+            or schema.get("strategy") != matrix_row["frame_strategy"]
+            or schema.get("classification") != ("EagerAtom" if matrix_row["eager_atom"] else None)
+            or not isinstance(schema.get("line"), int)
+            or schema["line"] < 1
+            or schema.get("source", {}).get("path") != expected_paths["schema"]
+            or schema["source"].get("start_line") != schema["line"]
+        ):
+            raise EvidenceError(f"expression dispatch schema metadata differs for {schema['tag']}")
+
+    for item in dispatch_rows:
+        schema = item.get("schema")
+        tag = schema["tag"]
+        matrix_row = matrix_by_tag[tag]
+        if schema != next(entry for entry in schema_rows if entry["tag"] == tag):
+            raise EvidenceError(f"expression dispatch row schema differs for {tag}")
+        if set(item) != {
+            "schema",
+            "recursive_dispatch",
+            "explicit_view_dispatch",
+            "forced_dispatch",
+            "indexed_frame_apply_selected",
+            "frame_strategy_overridden",
+            "prepared_operands_selected",
+            "normal_executor",
+            "child_dispatch",
+            "value_dispatch",
+            "host_value_dispatch",
+        }:
+            raise EvidenceError(f"expression dispatch row has an unexpected shape: {tag}")
+        for name in ("indexed_frame_apply_selected", "frame_strategy_overridden", "prepared_operands_selected"):
+            if type(item.get(name)) is not bool:
+                raise EvidenceError(f"expression dispatch flag is malformed: {tag}.{name}")
+        apply_selected = tag in frame_apply_tags
+        prepared_selected = tag in prepared_tags
+        eager_selected = tag in eager_tags
+        if (
+            item["indexed_frame_apply_selected"] != apply_selected
+            or item["prepared_operands_selected"] != prepared_selected
+            or item["frame_strategy_overridden"] != (apply_selected and matrix_row["frame_strategy"] != "FrameApply")
+            or eager_selected != matrix_row["eager_atom"]
+        ):
+            raise EvidenceError(f"expression dispatch selector flags differ from classifiers for {tag}")
+        recursive = item.get("recursive_dispatch")
+        explicit = item.get("explicit_view_dispatch")
+        forced = item.get("forced_dispatch")
+        for name, branch in (("recursive", recursive), ("explicit view", explicit), ("forced", forced)):
+            arm_index = branch.get("arm_index") if isinstance(branch, dict) else None
+            arm_index_valid = (
+                type(arm_index) is int and arm_index >= 0
+            ) or (
+                arm_index is None
+                and eager_selected
+                and name in {"recursive", "forced"}
+            )
+            if (
+                not isinstance(branch, dict)
+                or branch.get("variant") != matrix_row["variant"]
+                or not isinstance(branch.get("behavior"), str)
+                or not arm_index_valid
+                or type(branch.get("defensive_unreachable")) is not bool
+            ):
+                raise EvidenceError(f"expression {name} dispatch is malformed for {tag}")
+        if matrix_row["in_place"] == "Operands":
+            if recursive["behavior"] not in {"handled", "eager_atom_value"}:
+                raise EvidenceError(f"in-place expression lacks a live recursive dispatch: {tag}")
+        elif matrix_row["in_place"] != "Scheduled":
+            raise EvidenceError(f"expression schema has an unknown evaluator class: {tag}")
+        expected_forced_behavior = (
+            "eager_atom_value"
+            if eager_selected
+            else "schedule_frame_apply_operands"
+            if apply_selected
+            else "handled"
+        )
+        if forced["behavior"] != expected_forced_behavior:
+            raise EvidenceError(f"expression forced dispatch differs from selector precedence for {tag}")
+        if not eager_selected and not apply_selected and explicit["behavior"] != "handled":
+            raise EvidenceError(f"expression view dispatch is unsupported for an eligible row: {tag}")
+        if (
+            not isinstance(item.get("normal_executor"), list)
+            or [executor.get("path") for executor in item["normal_executor"] if isinstance(executor, dict)]
+            != ["eval_indexed_expr_with_frames", "eval_indexed_expr_inner"]
+            or len(item["normal_executor"]) != 2
+        ):
+            raise EvidenceError(f"expression normal evaluator selector is incomplete for {tag}")
+        for executor in item["normal_executor"]:
+            if set(executor) != {"path", "predicate", "source"}:
+                raise EvidenceError(f"expression normal evaluator branch is malformed for {tag}")
+
+        dispatch_lists = ("child_dispatch", "value_dispatch", "host_value_dispatch")
+        for name in dispatch_lists:
+            arms = item.get(name)
+            if not isinstance(arms, list) or any(not isinstance(arm, dict) for arm in arms):
+                raise EvidenceError(f"expression dispatch arm list is malformed: {tag}.{name}")
+            for arm in arms:
+                if (
+                    arm.get("variant") != matrix_row["variant"]
+                    or not isinstance(arm.get("function"), str)
+                    or not isinstance(arm.get("behavior"), str)
+                    or type(arm.get("arm_index")) is not int
+                    or arm["arm_index"] < 0
+                    or type(arm.get("defensive_unreachable")) is not bool
+                ):
+                    raise EvidenceError(f"expression dispatch arm is malformed: {tag}.{name}")
+        if apply_selected:
+            if len(item["child_dispatch"]) != 1 or len(item["value_dispatch"]) != 1:
+                raise EvidenceError(f"FrameApply row lacks exact child/value view arms for {tag}")
+        elif item["child_dispatch"] or item["value_dispatch"] or item["host_value_dispatch"]:
+            raise EvidenceError(f"non-FrameApply row has frame-apply value arms: {tag}")
+        if prepared_selected != bool(item["host_value_dispatch"]):
+            raise EvidenceError(f"prepared-operand classifier differs from host value arm for {tag}")
+        rows_by_tag[tag] = item
+
+    checked = dict(inventory)
+    checked["rows_by_tag"] = rows_by_tag
+    return checked
 
 
 def run_ast_extractor(
@@ -3609,6 +4029,71 @@ def source_line_refs(
     return []
 
 
+def expression_dispatch_source_refs(
+    row: dict[str, Any],
+    inventory: dict[str, Any],
+) -> dict[str, list[str]]:
+    item = inventory["rows_by_tag"].get(row["tag"])
+    if item is None:
+        raise EvidenceError(f"expression dispatch inventory has no exact row for {row['tag']}")
+    selectors = inventory["selectors"]
+    schema = item["schema"]
+    paths = inventory["source_paths"]
+
+    def reference(source: dict[str, Any]) -> str:
+        return f"{source['path']}:{source['start_line']}"
+
+    normal_executor = next(
+        executor
+        for executor in item["normal_executor"]
+        if executor["path"] == (
+            "eval_indexed_expr_inner"
+            if schema["class"] == "Operands"
+            else "eval_indexed_expr_with_frames"
+        )
+    )
+    normal_dispatch = [reference(normal_executor["source"])]
+    if schema["class"] == "Operands":
+        normal_dispatch.append(reference(item["recursive_dispatch"]["source"]))
+    else:
+        normal_dispatch.append(reference(selectors["normal_entry"]["source"]))
+        if item["indexed_frame_apply_selected"]:
+            normal_dispatch.extend([
+                reference(selectors["forced_frame_apply"]["source"]),
+                reference(item["forced_dispatch"]["source"]),
+            ])
+        else:
+            normal_dispatch.append(reference(item["explicit_view_dispatch"]["source"]))
+
+    forced_dispatch = [reference(item["forced_dispatch"]["source"])]
+    if item["indexed_frame_apply_selected"]:
+        forced_dispatch.extend([
+            reference(selectors["forced_frame_apply"]["source"]),
+            reference(item["child_dispatch"][0]["source"]),
+            reference(item["value_dispatch"][0]["source"]),
+        ])
+        forced_dispatch.extend(
+            reference(branch["source"]) for branch in item["host_value_dispatch"]
+        )
+    elif not row["eager_atom"]:
+        forced_dispatch.append(reference(item["explicit_view_dispatch"]["source"]))
+
+    return {
+        "schema_row": [f"{paths['schema']}:{schema['line']}"],
+        "normal_selector": [reference(selectors["normal_entry"]["source"])],
+        "normal_dispatch": sorted(set(normal_dispatch)),
+        "forced_selector": [
+            reference(selectors["forced_in_place_condition"]["source"]),
+            reference(inventory["forced_selector"]["source"]),
+            reference(selectors["forced_in_place_bypass"]["source"]),
+        ],
+        "forced_dispatch": sorted(set(forced_dispatch)),
+        "defensive_boundaries": sorted({
+            reference(boundary["source"]) for boundary in inventory["boundaries"]
+        }),
+    }
+
+
 def fallback_source_refs(
     row: dict[str, Any],
     schema_source: str,
@@ -3617,6 +4102,7 @@ def fallback_source_refs(
     indexed_path: str,
     explicit_path: str,
     statement_inventory: dict[str, Any] | None = None,
+    expression_dispatch_inventory: dict[str, Any] | None = None,
 ) -> dict[str, list[str]]:
     tag = row["tag"]
     variant = row["variant"]
@@ -3643,6 +4129,8 @@ def fallback_source_refs(
         ]
         normal_refs = [branch_ref, *fallback_refs]
         forced_refs = normal_refs
+    elif expression_dispatch_inventory is not None:
+        return expression_dispatch_source_refs(row, expression_dispatch_inventory)
     else:
         normal_refs = source_line_refs(
             indexed_source,
@@ -3664,6 +4152,184 @@ def fallback_source_refs(
             {"statement_match": [f"{statement_inventory['owner']}:{statement_inventory['match_line']}"]}
             if row["kind"] == "Stmt" and statement_inventory is not None
             else {}
+        ),
+    }
+
+
+def expression_dispatch_fallback_path_map(
+    row: dict[str, Any],
+    source_refs: dict[str, list[str]],
+    inventory: dict[str, Any],
+) -> dict[str, Any]:
+    tag = row["tag"]
+    item = inventory["rows_by_tag"].get(tag)
+    if item is None:
+        raise EvidenceError(f"expression dispatch inventory has no exact row for {tag}")
+    schema = item["schema"]
+    expected_schema = (
+        row["tag"],
+        row["variant"],
+        row["ordinal"],
+        row["effects"],
+        row["in_place"],
+        row["frame_strategy"],
+    )
+    actual_schema = (
+        schema["tag"],
+        schema["variant"],
+        schema["ordinal"],
+        schema["effects"],
+        schema["class"],
+        schema["strategy"],
+    )
+    if (
+        actual_schema[:3] != expected_schema[:3]
+        or schema_effect_tokens(actual_schema[3]) != schema_effect_tokens(expected_schema[3])
+        or actual_schema[4:] != expected_schema[4:]
+    ):
+        raise EvidenceError(f"expression dispatch schema row differs from matrix row for {tag}")
+    if source_refs != expression_dispatch_source_refs(row, inventory):
+        raise EvidenceError(f"expression dispatch source references differ for {tag}")
+
+    class_name = schema["class"]
+    strategy = schema["strategy"]
+    eager_atom = row["eager_atom"]
+    apply_selected = item["indexed_frame_apply_selected"]
+    recursive = item["recursive_dispatch"]
+    explicit = item["explicit_view_dispatch"]
+    forced = item["forced_dispatch"]
+    if class_name == "Operands":
+        if recursive["behavior"] not in {"handled", "eager_atom_value"}:
+            raise EvidenceError(f"in-place expression has no supported recursive path: {tag}")
+        normal_kind = "in_place_eager_atom_value" if eager_atom else "in_place_recursive_dispatch"
+        normal_dispatch = recursive
+        normal_is_selected = True
+    elif class_name == "Scheduled":
+        normal_kind = (
+            "scheduled_frame_apply_dispatch"
+            if apply_selected
+            else "scheduled_explicit_view_dispatch"
+        )
+        normal_dispatch = forced if apply_selected else explicit
+        normal_is_selected = False
+    else:
+        raise EvidenceError(f"expression dispatch has an unknown schema class for {tag}: {class_name}")
+
+    if eager_atom:
+        if forced["behavior"] != "eager_atom_value":
+            raise EvidenceError(f"forced eager-atom dispatch changed for {tag}")
+        forced_kind = "explicit_frame_eager_atom_value"
+        forced_dispatch = forced
+    elif apply_selected:
+        if forced["behavior"] != "schedule_frame_apply_operands":
+            raise EvidenceError(f"forced FrameApply dispatch changed for {tag}")
+        if len(item["child_dispatch"]) != 1 or len(item["value_dispatch"]) != 1:
+            raise EvidenceError(f"FrameApply row lacks one child/value view arm for {tag}")
+        forced_kind = "explicit_frame_apply"
+        forced_dispatch = forced
+    else:
+        if explicit["behavior"] != "handled" or forced["behavior"] != "handled":
+            raise EvidenceError(f"forced expression view dispatch changed for {tag}")
+        forced_kind = "explicit_frame_view_dispatch"
+        forced_dispatch = explicit
+
+    if item["frame_strategy_overridden"] != (
+        apply_selected and strategy != "FrameApply"
+    ):
+        raise EvidenceError(f"FrameApply override metadata differs from schema for {tag}")
+    if item["prepared_operands_selected"] != bool(item["host_value_dispatch"]):
+        raise EvidenceError(f"prepared-operand dispatch lacks its host value arm for {tag}")
+
+    boundaries = [
+        {
+            "function": boundary["function"],
+            "kind": boundary["kind"],
+            "outcome": boundary["outcome"],
+            "source_ref": f"{boundary['source']['path']}:{boundary['source']['start_line']}",
+            "reachable_for_valid_schema_row": False,
+        }
+        for boundary in inventory["boundaries"]
+    ]
+    return {
+        "review_status": "source_exhaustive_dispatch_path",
+        "scope": (
+            "schema-gated normal evaluator selection, forced eager/FrameApply/view dispatch, and exact typed child/value "
+            "arms; expression semantics and runtime behavior are outside this source classification"
+        ),
+        "branches": [{
+            "tag": tag,
+            "variant": row["variant"],
+            "ordinal": row["ordinal"],
+            "schema_class": class_name,
+            "frame_strategy": strategy,
+            "normal_dispatch": {
+                "kind": normal_kind,
+                "executor": next(
+                    executor["path"]
+                    for executor in item["normal_executor"]
+                    if executor["path"] == (
+                        "eval_indexed_expr_inner"
+                        if class_name == "Operands"
+                        else "eval_indexed_expr_with_frames"
+                    )
+                ),
+                "selected": normal_is_selected,
+                "behavior": normal_dispatch["behavior"],
+                "source_ref": (
+                    f"{normal_dispatch['source']['path']}:{normal_dispatch['source']['start_line']}"
+                ),
+                "recursive_match_reachable": class_name == "Operands",
+            },
+            "forced_dispatch": {
+                "kind": forced_kind,
+                "behavior": forced_dispatch["behavior"],
+                "source_ref": (
+                    f"{forced_dispatch['source']['path']}:{forced_dispatch['source']['start_line']}"
+                ),
+                "indexed_frame_apply_selected": apply_selected,
+                "frame_strategy_overridden": item["frame_strategy_overridden"],
+                "prepared_operands_selected": item["prepared_operands_selected"],
+                "child_arms": [
+                    {
+                        "function": branch["function"],
+                        "variant": branch["variant"],
+                        "behavior": branch["behavior"],
+                        "arm_index": branch["arm_index"],
+                        "source_ref": f"{branch['source']['path']}:{branch['source']['start_line']}",
+                    }
+                    for branch in item["child_dispatch"]
+                ],
+                "value_arms": [
+                    {
+                        "function": branch["function"],
+                        "variant": branch["variant"],
+                        "behavior": branch["behavior"],
+                        "arm_index": branch["arm_index"],
+                        "source_ref": f"{branch['source']['path']}:{branch['source']['start_line']}",
+                    }
+                    for branch in item["value_dispatch"]
+                ],
+                "host_value_arms": [
+                    {
+                        "function": branch["function"],
+                        "variant": branch["variant"],
+                        "behavior": branch["behavior"],
+                        "arm_index": branch["arm_index"],
+                        "source_ref": f"{branch['source']['path']}:{branch['source']['start_line']}",
+                    }
+                    for branch in item["host_value_dispatch"]
+                ],
+            },
+        }],
+        "branches_exhaustive": True,
+        "no_fallback": None,
+        "fallbacks": boundaries,
+        "defensive_boundaries": boundaries,
+        "runtime_behavior_proven": False,
+        "source_refs": source_refs,
+        "unreviewed_branch_behavior": (
+            "the inventory classifies dispatch predicates and typed view arms from source; it does not establish "
+            "expression outcomes, operand order, error behavior, or runtime route receipts"
         ),
     }
 
@@ -3918,6 +4584,7 @@ def build_fallback_path_map(
     call_frame_inventory: dict[str, Any] | None = None,
     field_index_inventory: dict[str, Any] | None = None,
     root: pathlib.Path | None = None,
+    expression_dispatch_inventory: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if row["kind"] == "Stmt":
         if statement_inventory is None:
@@ -3991,6 +4658,14 @@ def build_fallback_path_map(
         if field_index_inventory is None:
             raise EvidenceError(f"missing AST field/index inventory for {row['tag']}")
         fallback_map = field_index_fallback_path_map(row, source_refs, field_index_inventory)
+    elif row["kind"] == "Expr":
+        if expression_dispatch_inventory is None:
+            raise EvidenceError(f"missing AST expression dispatch inventory for {row['tag']}")
+        fallback_map = expression_dispatch_fallback_path_map(
+            row,
+            source_refs,
+            expression_dispatch_inventory,
+        )
     else:
         known_branches = row.get("fallback_path_map", [])
         fallback_map = {
@@ -5614,6 +6289,12 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
         SCHEMA_PATH,
         config["explicit_dispatch"],
     )
+    expression_dispatch_inventory = expression_dispatch_ast_inventory(
+        root,
+        rows,
+        config["indexed_dispatch"],
+        config["explicit_dispatch"],
+    )
     scalar_inventory = typed_scalar_ast_inventory(
         root,
         rows,
@@ -5889,6 +6570,7 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                 config["indexed_dispatch"],
                 config["explicit_dispatch"],
                 statement_inventory if row["kind"] == "Stmt" else None,
+                expression_dispatch_inventory if row["kind"] == "Expr" else None,
             ),
             statement_inventory if row["kind"] == "Stmt" else None,
             scalar_inventory if row["kind"] in {"Int", "Bool"} else None,
@@ -5907,6 +6589,9 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
             if row["tag"] in FIELD_INDEX_ROWS
             else None,
             root=root,
+            expression_dispatch_inventory=(
+                expression_dispatch_inventory if row["kind"] == "Expr" else None
+            ),
         )
         if row["eager_atom"]:
             proof = eager_operand_proof[tag]
@@ -6156,6 +6841,8 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                 and row["fallback_path_map"].get("review_status") == "source_exhaustive_dispatch_path"
                 for row in routed
             ),
+            "expression_dispatch_rows": len(expression_dispatch_inventory["rows_by_tag"]),
+            "expression_dispatch_defensive_boundaries": len(expression_dispatch_inventory["boundaries"]),
             "typed_scalar_runtime_error_rows_source_classified": sum(
                 row["kind"] in {"Int", "Bool"}
                 and
@@ -6249,6 +6936,42 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                 "tag classifiers, typed view arms, normal wrappers, explicit-frame groups, and row-specific "
                 "error boundaries are source-classified; matching runtime receipts and malformed-program "
                 "verifier rejection evidence remain pending"
+            ),
+        },
+        "expression_dispatch_inventory": {
+            "status": "source_exhaustive_dispatch_path",
+            "rows": len(expression_dispatch_inventory["rows_by_tag"]),
+            "tags": [row["tag"] for row in expression_dispatch_inventory["schema_rows"]],
+            "selectors": {
+                name: {
+                    "path": selector["path"],
+                    "predicate": selector["predicate"],
+                    "source_ref": (
+                        f"{selector['source']['path']}:{selector['source']['start_line']}"
+                    ),
+                }
+                for name, selector in expression_dispatch_inventory["selectors"].items()
+            },
+            "classifiers": {
+                name: classifier["tags"]
+                for name, classifier in expression_dispatch_inventory["classifiers"].items()
+            },
+            "defensive_boundaries": [
+                {
+                    "function": boundary["function"],
+                    "kind": boundary["kind"],
+                    "outcome": boundary["outcome"],
+                    "source_ref": (
+                        f"{boundary['source']['path']}:{boundary['source']['start_line']}"
+                    ),
+                }
+                for boundary in expression_dispatch_inventory["boundaries"]
+            ],
+            "source_paths": expression_dispatch_inventory["source_paths"],
+            "runtime_behavior_proven": False,
+            "limitation": (
+                "schema selectors, direct and explicit view arms, FrameApply overrides, and defensive boundaries "
+                "are source-classified; runtime route receipts and expression semantics remain separate evidence"
             ),
         },
         "eager_atom_dispatch_inventory": {
