@@ -4065,6 +4065,48 @@
       ],
       "scope": "The stream pull precedes both map callbacks for each item, and stage callbacks retain written stage order across pulls."
     },
+    "ExprProcessCommandBuilder": {
+      "fields": [
+        "entries"
+      ],
+      "ids": [
+        "tests/xsh/stdlib/process_frames.xsh::test_run_source_order_is_shared_by_spawn_and_process_command_builder"
+      ],
+      "scope": "The builder's run entry prints the timeout, environment, target, then argument markers in source order."
+    },
+    "ExprRunCapture": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/stdlib/process_frames.xsh::test_run_capture_and_pipeline_keep_operand_order_on_frames",
+        "tests/xsh/stdlib/process_frames.xsh::test_run_option_conversion_stops_before_later_operands",
+        "tests/xsh/stdlib/process_frames.xsh::test_run_cpu_max_validation_stops_before_later_operands",
+        "tests/xsh/stdlib/process_frames.xsh::test_run_operands_evaluate_in_source_order_before_conversion_stops_later_operands",
+        "tests/xsh/stdlib/process_frames.xsh::test_run_target_conversion_fails_before_later_arguments_run",
+        "tests/xsh/stdlib/process_frames.xsh::test_run_tail_arguments_and_redirections_keep_written_order",
+        "tests/xsh/stdlib/process_frames.xsh::test_run_source_order_is_shared_by_spawn_and_process_command_builder"
+      ],
+      "scope": "The tests observe run option, environment, target, argument, and redirection expressions in written order, including conversion failures that suppress later operands; the shared run status case also exercises this capture path."
+    },
+    "ExprRunPipeline": {
+      "fields": [
+        "segments"
+      ],
+      "ids": [
+        "tests/xsh/stdlib/process_frames.xsh::test_run_capture_and_pipeline_keep_operand_order_on_frames"
+      ],
+      "scope": "The pipeline test observes the first segment's target and argument before the next segment's target."
+    },
+    "ExprSpawnRun": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/stdlib/process_frames.xsh::test_run_source_order_is_shared_by_spawn_and_process_command_builder"
+      ],
+      "scope": "The spawn test prints its timeout, environment, target, then argument markers in source order before waiting for the child."
+    },
     "ExprMethod": {
       "fields": [
         "receiver",
