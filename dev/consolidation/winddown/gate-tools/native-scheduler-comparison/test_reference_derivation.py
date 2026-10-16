@@ -10,7 +10,6 @@ compare_path = Path(__file__).with_name("compare.py")
 spec = spec_from_file_location("scheduler_compare", compare_path)
 compare = module_from_spec(spec)
 spec.loader.exec_module(compare)
-compare.ROOT = repo_root
 
 
 def run_git(root, *args):
@@ -62,6 +61,7 @@ def cloned_reference(candidate, reference):
 
 
 def test_derivation_patch_pin_and_ancestry():
+    assert compare.ROOT == repo_root
     head = run_git(repo_root, "rev-parse", "HEAD")
     path = repo_root / compare.REFERENCE_AGGREGATE_PATCH_RELATIVE
     patch_bytes = path.read_bytes()

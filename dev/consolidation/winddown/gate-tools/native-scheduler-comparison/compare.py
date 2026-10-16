@@ -36,7 +36,7 @@ from outcomes import compare_pair, manifest_sha256, read_manifest, validate_log
 
 PINNED_IMAGE = "xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
 TARGET = "x86_64-unknown-linux-musl"
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[5]
 INFRA = ROOT / ".work/consolidation/infra"
 SHARED_LOCK_PATH = INFRA / "native-suite.lock"
 PERFORMANCE_LOCK_PATH = INFRA / "final-performance.lock"
