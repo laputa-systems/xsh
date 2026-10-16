@@ -547,14 +547,22 @@ def validate_cgroup_snapshot(snapshot: Any) -> None:
     swap_events = snapshot["memory_swap_events"]
     for name in ("fail", "high", "max"):
         strict_int(swap_events.get(name), f"cgroup.memory_swap_events.{name}")
+    if any(value != 0 for value in swap_events.values()):
+        raise ReplayError("container resource sample recorded a swap event")
 
 
-def validate_resource_record(record: Any, expected_exit_code: int | None = None) -> None:
+def validate_resource_record(
+    record: Any,
+    expected_exit_code: int | None = None,
+    expected_command: list[str] | None = None,
+) -> None:
     if not isinstance(record, dict) or type(record.get("schema_version")) is not int or record["schema_version"] != 1:
         raise ReplayError("container resource record has an unsupported schema")
     command = record.get("command")
     if not isinstance(command, list) or not command or any(not isinstance(arg, str) for arg in command):
         raise ReplayError("container resource command is missing or invalid")
+    if expected_command is not None and command != expected_command:
+        raise ReplayError("container resource command does not match the batch command")
     if type(record.get("exit_code")) is not int or (expected_exit_code is not None and record["exit_code"] != expected_exit_code):
         raise ReplayError("container resource exit code does not match the batch result")
     if record.get("spawn_error") is not None and not isinstance(record.get("spawn_error"), str):
@@ -939,7 +947,7 @@ def run_batch(validated: dict[str, Any]) -> int:
                     "sha256": sha256_file(inner),
                     "record": resource_record,
                 }
-                validate_resource_record(resource_record, exit_code)
+                validate_resource_record(resource_record, exit_code, batch_command())
                 resource_capture_ok = True
             except (OSError, UnicodeError, json.JSONDecodeError, AttributeError, ReplayError) as error:
                 receipt["failure"] = f"container resource capture is invalid: {error}"

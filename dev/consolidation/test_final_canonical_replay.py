@@ -251,6 +251,10 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         runner.validate_resource_record(resource_record(exit_code=3), 3)
         with self.assertRaisesRegex(runner.ReplayError, "exit code does not match"):
             runner.validate_resource_record(resource_record(exit_code=3), 0)
+        record = resource_record()
+        record["command"] = ["cargo", "run"]
+        with self.assertRaisesRegex(runner.ReplayError, "command does not match the batch command"):
+            runner.validate_resource_record(record, 0, runner.batch_command())
 
     def test_resource_schema_rejects_missing_observed_limits_and_counters(self):
         record = resource_record()
@@ -284,6 +288,12 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         record["cgroup_limits_and_peaks"] = record["final"]["cgroup"]
         record["oom_events"] = 1
         with self.assertRaisesRegex(runner.ReplayError, "recorded an OOM event"):
+            runner.validate_resource_record(record)
+
+    def test_resource_schema_rejects_observed_swap_event(self):
+        record = resource_record()
+        record["final"]["cgroup"]["memory_swap_events"]["high"] = 1
+        with self.assertRaisesRegex(runner.ReplayError, "recorded a swap event"):
             runner.validate_resource_record(record)
 
     def test_cleanup_requires_successful_final_absence_check(self):
