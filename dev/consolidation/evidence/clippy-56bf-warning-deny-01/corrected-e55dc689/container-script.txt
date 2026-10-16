@@ -1,0 +1,7 @@
+set +e
+LD_PRELOAD=/usr/lib/libjemalloc.so.2 cargo clippy --locked --offline --target x86_64-unknown-linux-musl -p xsht --lib --tests --all-features --quiet -- -D warnings > "$TMPDIR/clippy-xsht.stdout.log" 2> "$TMPDIR/clippy-xsht.stderr.log"
+clippy_xsht=$?
+LD_PRELOAD=/usr/lib/libjemalloc.so.2 cargo clippy --locked --offline --target x86_64-unknown-linux-musl --workspace --all-targets --all-features --quiet -- -D warnings > "$TMPDIR/clippy-workspace.stdout.log" 2> "$TMPDIR/clippy-workspace.stderr.log"
+clippy_workspace=$?
+printf "clippy_xsht=%s\nclippy_workspace=%s\n" "$clippy_xsht" "$clippy_workspace" > "$TMPDIR/exit-status.txt"
+[ "$clippy_xsht" -eq 0 ] && [ "$clippy_workspace" -eq 0 ]

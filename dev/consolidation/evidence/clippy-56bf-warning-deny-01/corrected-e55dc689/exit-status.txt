@@ -1,0 +1,2 @@
+clippy_xsht=0
+clippy_workspace=0
