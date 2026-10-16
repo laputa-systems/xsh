@@ -162,20 +162,24 @@ mod privileged {
     #[test]
     fn test_cp_recursive_block_device_archive() { device("-a", false); }
 
-    // Mounts belong to a private child namespace. A failed assertion can never
-    // leave a mount in the runner's namespace or propagate one to the host.
-    fn mount_worker(name: &str, ignored: bool, fixture: impl FnOnce()) {
-        if std::env::var("XSH_CP_MOUNT_WORKER").as_deref() == Ok(name) {
+    fn mount_worker_name(module_path: &str, test_leaf: &str) -> String {
+        let (_, test_module) = module_path.split_once("::").expect("test module path must include its crate name");
+        format!("{test_module}::{test_leaf}")
+    }
+
+    fn mount_worker(module_path: &str, test_leaf: &str, ignored: bool, fixture: impl FnOnce()) {
+        let test_name = mount_worker_name(module_path, test_leaf);
+        if std::env::var("XSH_CP_MOUNT_WORKER").as_deref() == Ok(test_name.as_str()) {
             fixture();
             return;
         }
         let mut command = Command::new(std::env::current_exe().unwrap());
-        command.args(["--exact", name, "--nocapture"]);
+        command.args(["--exact", test_name.as_str(), "--nocapture"]);
         if ignored {
             command.arg("--ignored");
         }
         command
-            .env("XSH_CP_MOUNT_WORKER", name)
+            .env("XSH_CP_MOUNT_WORKER", &test_name)
             .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
         unsafe {
             command.pre_exec(|| {
@@ -193,7 +197,14 @@ mod privileged {
         let output = Running(child).finish();
         assert!(output.status.success(), "private mount worker failed:\n{}\n{}",
             String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"), "mount worker did not run {name}");
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"), "mount worker did not run {test_name}");
+    }
+
+    #[test]
+    fn test_mount_worker_name_matches_current_test() {
+        let expected_name = mount_worker_name(module_path!(), "test_mount_worker_name_matches_current_test");
+        let current_thread = std::thread::current();
+        assert_eq!(current_thread.name(), Some(expected_name.as_str()));
     }
 
     struct Mount(PathBuf);
@@ -231,7 +242,7 @@ mod privileged {
     // origin: uutils test_cp::test_cp_one_file_system
     #[test]
     fn test_cp_one_file_system() {
-        mount_worker("cp::privileged::test_cp_one_file_system", false, || {
+        mount_worker(module_path!(), "test_cp_one_file_system", false, || {
             let directory = tempfile::tempdir().unwrap();
             let source = directory.path().join("dir_with_mount");
             let target = directory.path().join("copy_to_folder_new");
@@ -269,7 +280,7 @@ mod privileged {
     #[ignore = "requires guest-kernel BTRFS in a disposable QEMU guest"]
     fn test_cp_reflink_always_override() {
         super::require_disposable_qemu_guest();
-        mount_worker("cp::privileged::test_cp_reflink_always_override", true, || {
+        mount_worker(module_path!(), "test_cp_reflink_always_override", true, || {
             let directory = tempfile::tempdir().unwrap();
             std::fs::create_dir_all(directory.path().join("disk_root/dir")).unwrap();
             std::fs::File::create(directory.path().join("disk.img")).unwrap().set_len(128 * 1024 * 1024).unwrap();
