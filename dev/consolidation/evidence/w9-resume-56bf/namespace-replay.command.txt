@@ -1,0 +1,4 @@
+Private historical namespace invocation for compare-r3-namespace.sh:
+TMPDIR=/home/josh/d/laputa-systems/xsh/.work/tmp unshare -Ur -m --propagation private /bin/bash /home/josh/d/laputa-systems/xsh/.work/wt/resume-w9/dev/consolidation/evidence/w9-resume-56bf/compare-r3-namespace.sh
+
+The saved wrapper targets the completed compare-r3 output. A new replay must change only its --output path to a fresh location under .work/consolidation/w9-final-56bf.

@@ -1,0 +1,14 @@
+schema	2
+role	original-to-combined-derived-reference-comparison
+original_capture_receipt	/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-final-56bf/adapter-capture/reference/capture.receipt
+original_capture_receipt_sha256	6f2a1bfac47a2d336580bb146542eb6606dac70df6ccf372cb8585865eb768ae
+derived_capture_receipt	/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-final-56bf/derived-reference-capture/derived-reference/capture.receipt
+derived_capture_receipt_sha256	567122518b36ffbfc7bce51280fc6457cb88c97f29472e8e2963cc2fdd4c6868
+derivation_receipt	/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-final-56bf/derived-reference-capture/derivation.receipt
+derivation_receipt_sha256	638a67e71a0860cac924929a6adfd21253bbb1466e6bd18f7e794a91bceb4838
+original_exact_capture_receipt	/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-final-56bf/exact-reference/capture.receipt
+original_exact_capture_receipt_sha256	ac2b510f126ac48009aec09a8ef04728b8aa221735450aa78a485b746f5dbb53
+delta_file	/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-final-56bf/compare-r3/comparison/original-to-derived-reference.tsv
+delta_file_sha256	d9cef5bcf795020fb52486ecfc05b22008ea1690d201c90bf3f07666ef1d5768
+outcome_count	6760
+first_difference	36	bench/stdlib-port/native_control.xsh	default	publication	8fd465aec927e88310a38bed756c42b7787e1d728b854fad5333b26af7f201d0	5ec34c2984500edeee18dbdaaee1336b24636367e2d7321ea8749bb4ddd8ae86

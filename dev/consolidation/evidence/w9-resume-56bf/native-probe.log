@@ -1,0 +1,21 @@
+namespace=mnt:[4026532636] uid_gid=0:0 groups=0 65534 65534 65534 65534 65534 65534
+controller=56bf3286c0034c183515c0dc4adbf041f398a776 tree=2d4cf52e64d4dbf06daa5e169c88d6eef8bccdd5
+work_fd=66307:62046395 work_path=66307:62046395
+worktrees_fd=66307:61238843 worktrees_path=66307:61238843
+/dev/nvme0n1p3[/home/josh/d/laputa-systems/xsh/.work/tmp/w9-controller-replay-56bf] ext4 private
+/dev/nvme0n1p3[/home/josh/d/laputa-systems/xsh/.work] ext4 private
+/dev/nvme0n1p3[/home/josh/d/laputa-systems/xsh/.git/worktrees] ext4 private
+docker_server=29.9.0
+
+running 1 test
+test sema::w9_repository_parity_receipt ... w9rawhash	0	default	diagnostics	d53d18c23212ea7b6300594bb89bce60218f6eff2b9d628b8cc42d3e79bbd5ab
+w9rawhash	0	default	publication	ac3f10ce98a1d1fd818ef5566103358fcac8aad3ae1d32afe3fe6ecef3d09c9b
+w9rawhash	0	reveal	diagnostics	d53d18c23212ea7b6300594bb89bce60218f6eff2b9d628b8cc42d3e79bbd5ab
+w9rawhash	0	reveal	publication	ac3f10ce98a1d1fd818ef5566103358fcac8aad3ae1d32afe3fe6ecef3d09c9b
+w9rawhash	0	execution	diagnostics	d53d18c23212ea7b6300594bb89bce60218f6eff2b9d628b8cc42d3e79bbd5ab
+w9rawhash	0	execution	publication	632285018d9e30843fa4c0c474f6e7f90e7bf4a42b45565a6740720d44e203b9
+w9rawhash	0	check-cli	diagnostics	d53d18c23212ea7b6300594bb89bce60218f6eff2b9d628b8cc42d3e79bbd5ab
+w9rawhash	0	check-cli	publication	632285018d9e30843fa4c0c474f6e7f90e7bf4a42b45565a6740720d44e203b9
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 228 filtered out; finished in 0.00s

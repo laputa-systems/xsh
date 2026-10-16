@@ -1,0 +1,5 @@
+namespace=mnt:[4026532708] uid_gid=0:0 host_mnt_before=mnt:[4026531832]
+controller_head=56bf3286c0034c183515c0dc4adbf041f398a776 tree=2d4cf52e64d4dbf06daa5e169c88d6eef8bccdd5 root_inode=66307:62026231
+tracked_status=clean
+work_inode=66307:62046395 worktrees_inode=66307:61238843
+host_mnt_after=mnt:[4026531832]
