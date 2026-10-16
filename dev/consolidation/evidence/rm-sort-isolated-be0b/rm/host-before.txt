@@ -1,0 +1,6 @@
+utc=2026-10-16T18:06:35Z
+cores=32
+ 18:06:35 up 13:35,  0 users,  load average: 4.93, 3.26, 3.79
+9416 flock -x /home/josh/d/laputa-systems/xsh/.work/consolidation/infra/cargo.lock env PATH=/home/josh/.rustup/toolchains/nightly-2026-09-15-x86_64-unknown-linux-musl/bin:/home/josh/.cargo/bin:/usr/bin:/bin RUSTC=/home/josh/.rustup/toolchains/nightly-2026-09-15-x86_64-unknown-linux-musl/bin/rustc RUSTC_WRAPPER=/home/josh/.cargo/bin/kache CARGO_NET_OFFLINE=true CARGO_TARGET_DIR=/home/josh/d/laputa-systems/xsh/.work/tmp/semantic-route-matrix/ast-extractor/fix-ed0-dataflow TMPDIR=/home/josh/d/laputa-systems/xsh/.work/tmp /home/josh/.rustup/toolchains/nightly-2026-09-15-x86_64-unknown-linux-musl/bin/cargo test --locked --manifest-path dev/consolidation/winddown/gate-tools/semantic-route-matrix/ast-extractor/Cargo.toml
+9427 /home/josh/.rustup/toolchains/nightly-2026-09-15-x86_64-unknown-linux-musl/bin/cargo test --locked --manifest-path dev/consolidation/winddown/gate-tools/semantic-route-matrix/ast-extractor/Cargo.toml
+docker_active=

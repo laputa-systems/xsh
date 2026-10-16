@@ -1,0 +1,1 @@
+Both exact selectors reached the pinned container. The capture helper then failed to spawn `/usr/bin/setpriv` with `ENOENT` and exit 127. XSHT did not start. The readiness commands returned 0 before and after each attempt. The raw capture receipts and exact commands are in this directory. Both containers were removed by `docker run --rm`.

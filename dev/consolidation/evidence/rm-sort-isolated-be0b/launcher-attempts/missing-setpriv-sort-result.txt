@@ -1,0 +1,5 @@
+docker_exit=127
+container_cleanup_exit=0
+readiness_before_exit=0
+readiness_after_exit=0
+qualified_selector_outcome=not-success

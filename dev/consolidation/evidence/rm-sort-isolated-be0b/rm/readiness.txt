@@ -1,0 +1,2 @@
+pre: PERF_GATE_ATTEMPTS=1 perf-gate-ready, exit 0, stdout empty, stderr empty
+post: PERF_GATE_ATTEMPTS=1 perf-gate-ready -1, exit 0, stdout empty, stderr empty

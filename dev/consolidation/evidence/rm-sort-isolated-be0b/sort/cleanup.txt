@@ -1,0 +1,6 @@
+docker_run_exit=0
+container_name=xsh-sort-exact-1792174035-10454
+container_id=3217f8c645f877a4e5aa0cfaea9c0ffcdfac1ca92544e3cdd45e9232ee34fddb
+inspect_exit=1
+ps_exit=0
+listed=

@@ -1,0 +1,4 @@
+selector=core/tests/test-uu-sort-1.xsh::test_uu_sort_buffer_sizes
+container_name=xsh-sort-exact-1792174035-10454
+container_command=/usr/bin/env -u LD_PRELOAD TMPDIR=/scratch/tmp HOME=/scratch/home XDG_CACHE_HOME=/scratch/home/.cache XSH_BIN=/artifact/xsh PATH=/artifact:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin /usr/bin/python3 /work/dev/consolidation/final_canonical_replay.py capture /scratch/container-resources.json -- /artifact/xsht test --exact core/tests/test-uu-sort-1.xsh::test_uu_sort_buffer_sizes
+outer_timeout=timeout -s TERM -k 30s 360s

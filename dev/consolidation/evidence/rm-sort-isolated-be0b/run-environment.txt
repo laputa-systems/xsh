@@ -1,0 +1,11 @@
+image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+cpus=12
+memory=24g
+memory_swap=24g (no swap)
+network=none
+privileged=true
+source_mount=read-only
+products_mount=read-only
+scratch_mount=read-write host-backed
+docker_user=1000:1000 (canonical runner mode)
+preload=unset

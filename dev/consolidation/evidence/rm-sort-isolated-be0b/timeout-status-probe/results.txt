@@ -1,0 +1,6 @@
+Pinned-image timeout probe results. All recorded output streams were empty.
+BusyBox timeout around a long-running XSH child: status 3.
+External timeout around /bin/sleep: status 143.
+core/timeout.xsh expiry around an XSH child: status 124.
+core/timeout.xsh expiry around /bin/sleep: status 124.
+SIGTERM sent to core/timeout.xsh: status 143.
