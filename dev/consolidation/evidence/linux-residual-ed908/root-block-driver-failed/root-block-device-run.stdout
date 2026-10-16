@@ -1,0 +1,8 @@
+scratch_statvfs_f_flag=4132 nodev=True
+
+running 2 tests
+test core_compat_extra::cp::privileged::test_cp_recursive_block_device_recursive ... ok
+test core_compat_extra::cp::privileged::test_cp_recursive_block_device_archive ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 0.05s
+
