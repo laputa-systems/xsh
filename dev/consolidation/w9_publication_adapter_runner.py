@@ -1270,7 +1270,10 @@ def _parse_source_adapter_build_receipt(
     if str(input_root) != record["input_root"] or str(input_manifest) != record["input_manifest"]:
         raise PublicationError(f"{receipt}: source-qualified input paths are not canonical")
     approved_helper = runner.regular_file(record["approved_helper_path"], "source-qualified approved helper")
-    if approved_helper != SOURCE_APPROVED_HELPER or runner.require_sha256(
+    expected_approved_helper = runner.real_directory(
+        source_record["candidate_root"], "candidate source"
+    ) / "dev/consolidation/winddown/gate-tools/w9-repository-parity.rs"
+    if approved_helper != expected_approved_helper or runner.require_sha256(
         approved_helper, APPROVED_HELPER_SHA256, "source-qualified approved helper"
     ) != record["approved_helper_sha256"]:
         raise PublicationError(f"{receipt}: source-qualified approved helper identity differs")
@@ -3227,7 +3230,7 @@ def compare_full_publications(
                 raise PublicationError("immutable original reference capture validation is incomplete")
             original_raw_hashes = _hash_raw_outcomes(
                 pathlib.Path(original_build["binary"]), original_raw, candidate_source_record,
-                count, mismatch_path.parent, "original-reference", 2, docker_environment, runner,
+                count, mismatch_path.parent, "reference", 2, docker_environment, runner,
             )
 
             def original_rows():
