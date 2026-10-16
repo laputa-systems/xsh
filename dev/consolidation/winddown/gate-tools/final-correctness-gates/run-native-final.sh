@@ -11,7 +11,6 @@ TASK_MODE=$2
 shift 2
 TASK_ROOT=/home/josh/d/laputa-systems/xsh
 TASK_INFRA=$TASK_ROOT/.work/consolidation/infra
-TASK_BASELINE=$TASK_INFRA/baseline-bin
 TASK_GATE_DIR=$TASK_ROOT/.work/final-review-evidence/final-correctness-gates
 TASK_NATIVE_LOCK=$TASK_INFRA/native-suite.lock
 TASK_NATIVE_CLEANUP_MARKER=$TASK_INFRA/native-suite.cleanup-unresolved
@@ -32,7 +31,6 @@ case "$TASK_TARGET_DIR" in
   "$TASK_GATE_DIR/"*/target/*) ;;
   *) echo "Cargo target must be isolated under this gate's ignored output directory" >&2; exit 2 ;;
 esac
-
 if [ -e "$TASK_NATIVE_CLEANUP_MARKER" ]; then
   echo "native container cleanup remains unresolved: $TASK_NATIVE_CLEANUP_MARKER" >&2
   cat "$TASK_NATIVE_CLEANUP_MARKER" >&2
@@ -64,7 +62,6 @@ TASK_DOCKER_BASE=(docker run --rm --init --cidfile "$TASK_CIDFILE" --platform li
   -v "$TASK_TREE:$TASK_TREE"
   -v "$TASK_ROOT/.git:$TASK_ROOT/.git:ro"
   -v /home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro
-  -v "$TASK_BASELINE:$TASK_BASELINE:ro"
   -v /home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro
   -v /usr/local/bin/mold:/usr/local/bin/mold:ro
   -v "$TASK_INFRA/mold-linker.sh:/usr/local/bin/xsh-mold-linker:ro"
@@ -74,8 +71,7 @@ TASK_DOCKER_BASE=(docker run --rm --init --cidfile "$TASK_CIDFILE" --platform li
   -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker
   -e CARGO_BUILD_JOBS=12
   -e XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa
-  -e XSH_BIN="$TASK_BASELINE/xsh"
-  -e "PATH=$TASK_BASELINE:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  -e PATH=/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin
   -e 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol')
 
 task_docker() {
@@ -184,7 +180,6 @@ case "$TASK_MODE" in
       -e HOME=/home/compat -e RUSTUP_HOME=/root/.rustup \
       -e CARGO_HOME="$TASK_CARGO_HOME" -e XDG_CACHE_HOME="$TASK_XDG_CACHE_HOME" \
       -e XSH_GATE_RUSTC_WRAPPER=/usr/local/bin/xsh-rustc-jemalloc \
-      -e "PATH=$TASK_BASELINE:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin" \
       sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c "$@"
     ;;
   *) echo 'unknown mode' >&2; exit 2 ;;

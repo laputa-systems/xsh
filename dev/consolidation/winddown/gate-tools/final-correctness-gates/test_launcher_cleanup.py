@@ -16,66 +16,86 @@ from unittest import mock
 sys.dont_write_bytecode = True
 
 LAUNCHER_PATH = pathlib.Path(__file__).with_name("launch.py")
+SOURCE_DIR = LAUNCHER_PATH.parent
+PLAN_SOURCE_PATH = LAUNCHER_PATH.with_name("plan_source.py")
+PLAN_SOURCE_SPEC = importlib.util.spec_from_file_location("final_correctness_plan_source", PLAN_SOURCE_PATH)
+assert PLAN_SOURCE_SPEC is not None and PLAN_SOURCE_SPEC.loader is not None
+PLAN_SOURCE = importlib.util.module_from_spec(PLAN_SOURCE_SPEC)
+PLAN_SOURCE_SPEC.loader.exec_module(PLAN_SOURCE)
+plan_data = PLAN_SOURCE.plan_data
 SPEC = importlib.util.spec_from_file_location("final_correctness_launch", LAUNCHER_PATH)
 assert SPEC is not None and SPEC.loader is not None
 LAUNCHER = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = LAUNCHER
 SPEC.loader.exec_module(LAUNCHER)
-SCRATCH_ROOT = LAUNCHER.ROOT / ".work/tmp"
+
+
+def source_root(path):
+    return next(
+        parent
+        for parent in pathlib.Path(path).resolve().parents
+        if (parent / "Cargo.toml").is_file() and (parent / "dev").is_dir()
+    )
+
+
+SOURCE_ROOT = source_root(LAUNCHER_PATH)
+SCRATCH_ROOT = SOURCE_ROOT / ".work/tmp"
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
-NATIVE_RUNNER = LAUNCHER.HERE / "run-native-final.sh"
+NATIVE_RUNNER = SOURCE_DIR / "run-native-final.sh"
 CANONICAL_NATIVE_LOCK = LAUNCHER.ROOT / ".work/consolidation/infra/native-suite.lock"
-MANIFEST_PATH = LAUNCHER.HERE / "manifest.json"
 
 
 class CoverageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.plan = json.loads(MANIFEST_PATH.read_text(), object_pairs_hook=LAUNCHER.unique_json_object)
+        cls.plan = plan_data()
 
     def test_batch_owns_the_broad_rust_native_and_docs_surfaces_once(self):
-        workflow = (LAUNCHER.ROOT / "dev/test_workflows.xsh").read_text()
-        gates = (LAUNCHER.ROOT / "dev/gates.xsh").read_text()
-        root_tests = re.search(
-            r'\["cargo", "test", @profile_args, "-p", "xsh", (.*?)\],\s*ctx\.root, environment\)',
-            workflow,
-            re.S,
-        )
-        self.assertIsNotNone(root_tests)
+        workflow = (SOURCE_ROOT / "dev/test_workflows.xsh").read_text()
+        gates = (SOURCE_ROOT / "dev/gates.xsh").read_text()
+        rust_plan = re.search(r'export pure rust_plan\(.*?\n}\n', workflow, re.S)
+        self.assertIsNotNone(rust_plan)
+        target_loop = re.search(r'for target in \[(.*?)\]\s*\{', rust_plan.group(0), re.S)
+        self.assertIsNotNone(target_loop)
         self.assertEqual(
-            " ".join(root_tests.group(1).split()),
-            '"--test", "integration", "--test", "ambient_fs_policy", "--test", "symbol_plateau", '
-            '"--test", "core_compat_boundaries", "--test", "core_compat_extra", "--", "--skip", "split::", '
-            '"--skip", "runtime::coverage::", "--skip", "runtime::examples::example_corpus_is_formatted", '
-            '"--skip", "runtime::examples::example_corpus_lints_without_warnings", @sibling_syntax_exclusions',
+            re.findall(r'"([^"]+)"', target_loop.group(1)),
+            ["integration", "ambient_fs_policy", "symbol_plateau", "core_compat_boundaries", "core_compat_extra"],
+        )
+        self.assertRegex(
+            rust_plan.group(0),
+            r'\["cargo", "test", @profile_args, "-p", "xsh", "--test", target, "--",\s*'
+            r'"--skip", "split::", "--skip", "runtime::coverage::"\]',
         )
         self.assertEqual(
             workflow.count('"--skip", "cp::privileged::test_cp_recursive_block_device_"'),
             1,
         )
+        privileged_loop = re.search(r'if privileged \{\s*for target in \[(.*?)\]\s*\{', rust_plan.group(0), re.S)
+        self.assertIsNotNone(privileged_loop)
+        self.assertEqual(re.findall(r'"([^"]+)"', privileged_loop.group(1)), ["core_compat_extra", "linux_priv"])
         self.assertRegex(
-            workflow,
-            r'"--test", "linux_priv", "--", "--nocapture", "--skip", "split::",\s*'
+            rust_plan.group(0),
+            r'"--test", target,\s*"--", "--nocapture", "--skip", "split::",\s*'
             r'"--skip", "cp::privileged::test_cp_recursive_block_device_"',
         )
-        integration = (LAUNCHER.ROOT / "tests/integration.rs").read_text()
+        integration = (SOURCE_ROOT / "tests/integration.rs").read_text()
         for module in (
             "cli",
             "core",
             "diagnostics",
+            "grammar",
             "libc_hygiene",
             "libxsh_api",
             "runtime",
             "sema",
             "sema_bundle_view",
             "stdlib_port",
-            "syntax",
         ):
             self.assertRegex(integration, rf"(?m)^mod {module};$")
         self.assertIn("@sibling_syntax_exclusions", workflow)
-        self.assertIn("@sibling_xsht_exclusions", workflow)
+        self.assertIn("@xsht_integration_exclusions", workflow)
         self.assertIn('["--skip", "syntax::formatter_is_idempotent_on_laputa_corpus"]', workflow)
-        self.assertIn('["--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus"]', workflow)
+        self.assertIn('"--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus"', workflow)
         batch = re.search(r"export proc batch\(.*?\n}\n", gates, re.S)
         full = re.search(r"export proc full\(.*?\n}\n", workflow, re.S)
         self.assertIsNotNone(batch)
@@ -86,6 +106,13 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(self.plan["rust_harness_runs"], [])
         self.assertEqual(self.plan["focused_native_files"], [])
         self.assertEqual(self.plan["native_extra"], [])
+        launcher = LAUNCHER_PATH.read_text()
+        runner = NATIVE_RUNNER.read_text()
+        self.assertNotIn("baseline-bin", launcher)
+        self.assertNotIn("baseline-bin", runner)
+        self.assertNotIn("XSH_GATE_BOOTSTRAP_DIR", launcher)
+        self.assertNotIn("XSH_GATE_BOOTSTRAP_DIR", runner)
+        self.assertIn('"xsh-verification",\n            "xsht-verification",\n            "xshi-verification",\n            "xsh-fuzz-verification",\n            "xsh-test-helper-verification",', launcher)
 
     def test_privileged_cp_cases_use_the_feature_enabled_target_once_as_root(self):
         builds = {item["id"]: item for item in self.plan["rust_harness_builds"]}
@@ -149,6 +176,213 @@ class CoverageTests(unittest.TestCase):
             {build["id"] for build in self.plan["rust_harness_builds"]},
             {"core-compat-boundaries", "core-compat-extra", "core-compat-extra-privileged"},
         )
+
+    def test_approved_plan_matches_current_product_and_lint_contract(self):
+        self.assertEqual(self.plan["plan_status"], "approved")
+        self.assertEqual(
+            self.plan["products"][0],
+            [
+                "cargo", "build", "--locked", "--offline", "--profile", "verification",
+                "--target", LAUNCHER.TARGET, "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht",
+                "-p", "xshi", "--bin", "xshi", "-p", "xsh-fuzz", "--bins", "--message-format=json",
+            ],
+        )
+        self.assertEqual(len(self.plan["products"]), 1)
+        self.assertEqual(
+            set(self.plan["product_variants"]["verification"]["binaries"]),
+            {"xsh", "xsht", "xshi", "xsh-fuzz", "xsh-test-helper"},
+        )
+        self.assertEqual(set(self.plan["product_variants"]), {"verification"})
+        self.assertEqual(
+            self.plan["warning_deny"],
+            [[
+                "cargo", "clippy", "--locked", "--offline", "--workspace", "--target", LAUNCHER.TARGET,
+                "--all-targets", "--all-features", "--quiet", "--", "-D", "warnings",
+            ]],
+        )
+
+    def test_cleanup_self_test_uses_the_checkout_root_for_scratch(self):
+        copied_test = LAUNCHER.ROOT / ".work/final-review-evidence/final-correctness-gates/test_launcher_cleanup.py"
+        self.assertEqual(source_root(copied_test), LAUNCHER.ROOT)
+        self.assertEqual(SCRATCH_ROOT, SOURCE_ROOT / ".work/tmp")
+
+
+class ArtifactQualificationTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(dir=SCRATCH_ROOT)
+        self.root = pathlib.Path(self.temporary.name)
+        self.gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        self.gate.expected_commit = "a" * 40
+        self.gate.expected_tree = "b" * 40
+        self.gate.target_dir = self.root / "target-products"
+        self.gate.harness_target_dir = self.root / "target-harness"
+        self.gate.runtime_target_dir = self.root / "target-runtime"
+        self.gate.linux_priv_target_dir = self.root / "target-linux-priv"
+        for target_dir in (
+            self.gate.target_dir,
+            self.gate.harness_target_dir,
+            self.gate.runtime_target_dir,
+            self.gate.linux_priv_target_dir,
+        ):
+            target_dir.mkdir()
+        self.gate.qualified_harness_xsh_variants = {}
+        self.gate.receipt = {"source_checks": [], "hashes": {}}
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def write_metadata(
+        self,
+        *,
+        target_variant="harness",
+        features=None,
+        fresh=False,
+        manifest_path=None,
+        executable=None,
+        build_success=True,
+    ):
+        target_dir = self.gate.target_dir_for(target_variant)
+        binary_path = target_dir / LAUNCHER.TARGET / "verification" / "xsh"
+        binary_path.parent.mkdir(parents=True, exist_ok=True)
+        binary_path.write_bytes(b"default xsh" if target_variant == "harness" else b"privileged xsh")
+        binary_path.chmod(0o755)
+        artifact = {
+            "reason": "compiler-artifact",
+            "package_id": "path+file:///work#xsh@0.0.1",
+            "manifest_path": str(LAUNCHER.ROOT / "Cargo.toml") if manifest_path is None else manifest_path,
+            "target": {
+                "name": "xsh",
+                "kind": ["bin"],
+                "crate_types": ["bin"],
+                "test": False,
+            },
+            "profile": {
+                "opt_level": "3",
+                "debuginfo": 0,
+                "debug_assertions": False,
+                "overflow_checks": False,
+                "test": False,
+            },
+            "features": ["default", "native-tests", "net", "tools"] if features is None else features,
+            "executable": str(binary_path) if executable is None else executable,
+            "fresh": fresh,
+        }
+        records = [artifact, {"reason": "build-finished", "success": build_success}]
+        step_id = "build-harness-" + target_variant + "-" + str(len(self.gate.receipt["source_checks"]))
+        self.gate.receipt["source_checks"].extend([
+            {
+                "where": f"before:{step_id}",
+                "head": self.gate.expected_commit,
+                "tree": self.gate.expected_tree,
+                "clean": True,
+                "status": "",
+            },
+            {
+                "where": f"after:{step_id}",
+                "head": self.gate.expected_commit,
+                "tree": self.gate.expected_tree,
+                "clean": True,
+                "status": "",
+            },
+        ])
+        log = self.root / f"{step_id}.jsonl"
+        log.write_text("\n".join(json.dumps(record) for record in records) + "\n")
+        step = {"id": step_id, "exit_code": 0}
+        return log, step, artifact
+
+    def qualify(self, *, target_variant="harness", required_features=None, **metadata):
+        log, step, artifact = self.write_metadata(target_variant=target_variant, **metadata)
+        result = self.gate.parse_harness_xsh_variant(
+            log,
+            step=step,
+            target_variant=target_variant,
+            profile="verification",
+            requested_features=[] if required_features is None else required_features,
+        )
+        return result, artifact
+
+    def test_rejects_harness_xsh_from_a_different_manifest(self):
+        log, step, _ = self.write_metadata(manifest_path=str(self.root / "other" / "Cargo.toml"))
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "root manifest"):
+            self.gate.parse_harness_xsh_variant(
+                log, step=step, target_variant="harness", profile="verification", requested_features=[]
+            )
+
+    def test_rejects_harness_xsh_outside_its_target_profile(self):
+        outside = self.root / "outside" / "xsh"
+        outside.parent.mkdir()
+        outside.write_bytes(b"outside xsh")
+        outside.chmod(0o755)
+        log, step, _ = self.write_metadata(executable=str(outside))
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "target-owned regular binary"):
+            self.gate.parse_harness_xsh_variant(
+                log, step=step, target_variant="harness", profile="verification", requested_features=[]
+            )
+
+    def test_rejects_harness_xsh_that_omits_the_selected_feature(self):
+        log, step, _ = self.write_metadata(target_variant="linux-priv")
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "omitted requested features"):
+            self.gate.parse_harness_xsh_variant(
+                log,
+                step=step,
+                target_variant="linux-priv",
+                profile="verification",
+                requested_features=["linux-priv-tests"],
+            )
+
+    def test_rejects_privileged_feature_on_the_default_harness_variant(self):
+        log, step, _ = self.write_metadata(features=["default", "linux-priv-tests"])
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "does not match the selected"):
+            self.gate.parse_harness_xsh_variant(
+                log, step=step, target_variant="harness", profile="verification", requested_features=[]
+            )
+
+    def test_rejects_fresh_harness_xsh_before_same_variant_was_qualified(self):
+        log, step, _ = self.write_metadata(fresh=True)
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "before it was qualified"):
+            self.gate.parse_harness_xsh_variant(
+                log, step=step, target_variant="harness", profile="verification", requested_features=[]
+            )
+
+    def test_accepts_fresh_reuse_of_the_same_qualified_variant_and_hash(self):
+        first, _ = self.qualify()
+        second, _ = self.qualify(fresh=True)
+        self.assertEqual(first["path"], second["path"])
+        self.assertEqual(first["sha256"], second["sha256"])
+        self.assertTrue(second["qualification"]["cargo_fresh"])
+
+    def test_linux_privileged_xsh_variant_can_differ_from_default_product(self):
+        default_product = self.gate.target_dir / LAUNCHER.TARGET / "verification" / "xsh"
+        default_product.parent.mkdir(parents=True)
+        default_product.write_bytes(b"default verification product")
+        default_product.chmod(0o755)
+        default_product_hash = LAUNCHER.sha256(default_product)
+        self.gate.receipt["hashes"]["products_after_initial_build"] = {
+            "xsh-verification": default_product_hash,
+        }
+        privileged, _ = self.qualify(
+            target_variant="linux-priv",
+            features=["default", "linux-priv-tests", "native-tests", "net", "tools"],
+            required_features=["linux-priv-tests"],
+        )
+        self.assertNotEqual(default_product_hash, privileged["sha256"])
+        self.assertIn("linux-priv-tests", privileged["qualification"]["features"])
+        self.assertEqual(privileged["qualification"]["target_variant"], "linux-priv")
+
+    def test_rejects_cargo_metadata_without_successful_build_completion(self):
+        log, step, _ = self.write_metadata(build_success=False)
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "successful harness build"):
+            self.gate.parse_harness_xsh_variant(
+                log, step=step, target_variant="harness", profile="verification", requested_features=[]
+            )
+
+    def test_rejects_harness_xsh_after_the_frozen_source_tree_changes(self):
+        log, step, _ = self.write_metadata()
+        self.gate.receipt["source_checks"][-1]["tree"] = "c" * 40
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "source checks"):
+            self.gate.parse_harness_xsh_variant(
+                log, step=step, target_variant="harness", profile="verification", requested_features=[]
+            )
 
 
 class CleanupTests(unittest.TestCase):

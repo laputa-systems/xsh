@@ -13,6 +13,7 @@ import pathlib
 import re
 import shlex
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -23,11 +24,13 @@ os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 
 ROOT = pathlib.Path("/home/josh/d/laputa-systems/xsh")
+ROOT_MANIFEST = ROOT / "Cargo.toml"
 HERE = ROOT / ".work/final-review-evidence/final-correctness-gates"
 PLAN_PATH = HERE / "manifest.json"
 RUNNER = HERE / "run-native-final.sh"
+PLAN_SOURCE_PATH = HERE / "plan_source.py"
+MANIFEST_GENERATOR_PATH = HERE / "generate_manifest.py"
 INFRA = ROOT / ".work/consolidation/infra"
-BASELINE_BINS = INFRA / "baseline-bin"
 TARGET = "x86_64-unknown-linux-musl"
 IMAGE = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
 CONTAINER_CPUS = 12
@@ -41,7 +44,7 @@ BASE_RUNNER = INFRA / "run-native.sh"
 NATIVE_LOCK = INFRA / "native-suite.lock"
 NATIVE_CLEANUP_MARKER = INFRA / "native-suite.cleanup-unresolved"
 BASE_RUNNER_SHA256 = "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15"
-APPROVED_MANIFEST_BODY_SHA256 = "ee07f7608031dd5d9562200306b57c452465a4ad66bd4fe9b3027c3738b36eb1"
+APPROVED_MANIFEST_BODY_SHA256 = "4ba5d3172800d1d8d45b63b146fee6ad026a1daa86b0b4d9a00072d504366c7e"
 RUNTIME_CARGO_FORWARDER = HERE / "cargo-forwarder.sh"
 RUNTIME_RUSTC_WRAPPER = HERE / "rustc-jemalloc.sh"
 TOOL_HASHES = {
@@ -50,13 +53,6 @@ TOOL_HASHES = {
     INFRA / "mold-linker.sh": "49f116f6bd364f682439e87200281a5acccf081d3b5841170a5a5bf34daf5271",
     pathlib.Path("/usr/lib/libjemalloc.so.2"): "2db538572b752a3ed5b6b8d9a76cc2966f0670ad481892cb423617c9e4345284",
 }
-BASELINE_HASHES = {
-    "xsh": "0f204cd7960bfb6867ad1809c914f72199fc9ced684a187c850300a32a31f157",
-    "xsht": "27ec388ec31a6fa085edf1a5a8d4c9ee4e6ad85c950c337b8d6412fbea7864a0",
-    "xsh-test-helper": "05a4fa42686b32cd27e7af77af846a132a4253c7748b89aac0be5d402693e536",
-}
-
-
 class GateFailure(RuntimeError):
     pass
 
@@ -131,6 +127,9 @@ class Launch:
         self.runtime_cargo_home.mkdir()
         self.runtime_xdg_cache.mkdir()
         self.interrupt_started = False
+        self.qualified_harness_xsh_variants: dict[
+            tuple[str, str, tuple[str, ...], str], dict[str, str]
+        ] = {}
         self.native_lock_file: Any = None
         self.logs = out / "logs"
         self.logs.mkdir(parents=True)
@@ -479,10 +478,7 @@ class Launch:
 
     def container_env(self) -> dict[str, str]:
         verification = self.target_dir / TARGET / "verification"
-        standard_path = (
-            f"{BASELINE_BINS}"
-            ":/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-        )
+        standard_path = "/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         return {
             "XSH_BIN": str(verification / "xsh"),
             "PATH": str(verification) + ":" + standard_path,
@@ -581,6 +577,179 @@ class Launch:
                 found[name] = path
         return found
 
+    def parse_harness_xsh_variant(
+        self,
+        log: pathlib.Path,
+        *,
+        step: dict[str, Any],
+        target_variant: str,
+        profile: str,
+        requested_features: list[str],
+    ) -> dict[str, Any]:
+        if type(step.get("exit_code")) is not int or step["exit_code"] != 0:
+            raise GateFailure("harness xsh qualification requires a successful Cargo build")
+
+        records: list[dict[str, Any]] = []
+        for raw_line in log.read_text(errors="replace").splitlines():
+            try:
+                item = json.loads(raw_line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict):
+                records.append(item)
+
+        completed = [item for item in records if item.get("reason") == "build-finished"]
+        if len(completed) != 1 or completed[0].get("success") is not True:
+            raise GateFailure(f"Cargo JSON does not confirm a successful harness build; inspect {log}")
+
+        artifacts = []
+        for item in records:
+            target = item.get("target")
+            if (
+                item.get("reason") == "compiler-artifact"
+                and isinstance(target, dict)
+                and target.get("name") == "xsh"
+                and (
+                    item.get("executable") is not None
+                    or (isinstance(target.get("kind"), list) and "bin" in target["kind"])
+                )
+            ):
+                artifacts.append(item)
+        if len(artifacts) != 1:
+            raise GateFailure(f"Cargo JSON reported {len(artifacts)} candidate xsh binaries; inspect {log}")
+
+        artifact = artifacts[0]
+        manifest = artifact.get("manifest_path")
+        try:
+            manifest_path = pathlib.Path(manifest).resolve(strict=False) if isinstance(manifest, str) else None
+            expected_manifest = ROOT_MANIFEST.resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise GateFailure(f"Cargo reported an invalid xsh manifest path: {manifest!r}") from error
+        if manifest_path != expected_manifest:
+            raise GateFailure(f"Cargo xsh binary does not belong to the root manifest: {manifest!r}")
+
+        target = artifact.get("target")
+        if (
+            not isinstance(target, dict)
+            or target.get("name") != "xsh"
+            or target.get("kind") != ["bin"]
+            or target.get("crate_types") != ["bin"]
+            or target.get("test") is not False
+        ):
+            raise GateFailure("Cargo xsh artifact is not the root non-test binary target")
+
+        cargo_profile = artifact.get("profile")
+        if not isinstance(cargo_profile, dict) or cargo_profile.get("test") is not False:
+            raise GateFailure("Cargo xsh artifact does not report a non-test profile")
+
+        if target_variant not in {"harness", "linux-priv"}:
+            raise GateFailure(f"unsupported harness xsh target variant {target_variant!r}")
+        if not isinstance(profile, str) or not profile or pathlib.Path(profile).name != profile:
+            raise GateFailure(f"invalid harness xsh profile {profile!r}")
+        try:
+            target_dir = self.target_dir_for(target_variant).resolve(strict=True)
+            profile_dir = (target_dir / TARGET / profile).resolve(strict=True)
+        except (KeyError, OSError, RuntimeError) as error:
+            raise GateFailure(f"harness xsh target/profile directory is invalid: {target_variant}/{profile}") from error
+        executable = artifact.get("executable")
+        try:
+            reported_path = pathlib.Path(executable) if isinstance(executable, str) else None
+            resolved_path = reported_path.resolve(strict=True) if reported_path is not None else None
+            file_mode = reported_path.lstat().st_mode if reported_path is not None else None
+        except (OSError, RuntimeError) as error:
+            raise GateFailure(f"Cargo xsh executable is missing or invalid: {executable!r}") from error
+        expected_path = profile_dir / "xsh"
+        if (
+            reported_path is None
+            or not reported_path.is_absolute()
+            or resolved_path != expected_path
+            or not resolved_path.is_relative_to(target_dir)
+            or file_mode is None
+            or not stat.S_ISREG(file_mode)
+            or not os.access(reported_path, os.X_OK)
+        ):
+            raise GateFailure(f"Cargo xsh executable is not a target-owned regular binary: {executable!r}")
+
+        features = artifact.get("features")
+        if (
+            not isinstance(features, list)
+            or any(not isinstance(feature, str) or not feature for feature in features)
+            or len(features) != len(set(features))
+        ):
+            raise GateFailure("Cargo xsh artifact has invalid feature metadata")
+        if not set(requested_features).issubset(features):
+            raise GateFailure(
+                f"Cargo xsh artifact omitted requested features {sorted(set(requested_features) - set(features))}"
+            )
+        requested_privileged = "linux-priv-tests" in requested_features
+        actual_privileged = "linux-priv-tests" in features
+        if (target_variant == "linux-priv") != requested_privileged or requested_privileged != actual_privileged:
+            raise GateFailure("Cargo xsh feature metadata does not match the selected Linux-privileged variant")
+
+        fresh = artifact.get("fresh")
+        if type(fresh) is not bool:
+            raise GateFailure("Cargo xsh artifact has no boolean freshness metadata")
+        digest = sha256(resolved_path)
+        variant_key = (
+            target_variant,
+            profile,
+            tuple(sorted(features)),
+            json.dumps(cargo_profile, sort_keys=True),
+        )
+        previous = self.qualified_harness_xsh_variants.get(variant_key)
+        if previous is not None and (
+            previous["path"] != str(resolved_path)
+            or previous["sha256"] != digest
+            or previous["commit"] != self.expected_commit
+            or previous["tree"] != self.expected_tree
+        ):
+            raise GateFailure("a previously qualified harness xsh variant changed source, path, or hash")
+        if fresh and previous is None:
+            raise GateFailure("Cargo reused a fresh harness xsh variant before it was qualified")
+
+        step_id = step.get("id")
+        source_checks = self.receipt.get("source_checks", [])
+        expected_checks = [f"before:{step_id}", f"after:{step_id}"]
+        matching_checks = [item for item in source_checks if item.get("where") in expected_checks]
+        if (
+            [item.get("where") for item in matching_checks] != expected_checks
+            or any(
+                item.get("head") != self.expected_commit
+                or item.get("tree") != self.expected_tree
+                or item.get("clean") is not True
+                or item.get("status") != ""
+                for item in matching_checks
+            )
+        ):
+            raise GateFailure("harness xsh artifact source checks do not match the frozen clean source")
+
+        source = {"commit": self.expected_commit, "tree": self.expected_tree, "clean": True}
+        self.qualified_harness_xsh_variants[variant_key] = {
+            "path": str(resolved_path),
+            "sha256": digest,
+            "commit": self.expected_commit,
+            "tree": self.expected_tree,
+        }
+        return {
+            "path": str(resolved_path),
+            "sha256": digest,
+            "qualification": {
+                "build_exit_code": step["exit_code"],
+                "build_finished_success": True,
+                "cargo_fresh": fresh,
+                "package_id": artifact.get("package_id"),
+                "manifest_path": artifact["manifest_path"],
+                "target": target,
+                "profile_name": profile,
+                "profile": cargo_profile,
+                "features": features,
+                "requested_features": sorted(set(requested_features)),
+                "target_variant": target_variant,
+                "target_dir": str(target_dir),
+                "source": source,
+            },
+        }
+
     def build_harnesses(self, plan: dict[str, Any]) -> None:
         for harness in plan["rust_harness_builds"]:
             profile = harness["profile"]
@@ -601,11 +770,28 @@ class Launch:
             log = pathlib.Path(step["log"])
             found = self.parse_test_artifacts(log, harness["targets"])
             product_artifacts = self.parse_binary_artifacts(log)
+            requested_features = []
+            if "--features" in harness["args"]:
+                requested_features = [
+                    feature.strip()
+                    for feature in harness["args"][harness["args"].index("--features") + 1].split(",")
+                    if feature.strip()
+                ]
+            xsh_variant = self.parse_harness_xsh_variant(
+                log,
+                step=step,
+                target_variant=target_variant,
+                profile=profile,
+                requested_features=requested_features,
+            )
+            if product_artifacts.get("xsh") != pathlib.Path(xsh_variant["path"]):
+                raise GateFailure(f"Cargo xsh artifact selection differs from its qualified metadata; inspect {log}")
             self.receipt["harnesses"][harness["id"]] = {
                 "target_variant": target_variant,
                 "target_dir": str(target_dir),
                 "features": [harness["args"][harness["args"].index("--features") + 1]]
                 if "--features" in harness["args"] else [],
+                "xsh_variant": xsh_variant,
                 "product_artifacts": {
                     name: {"path": str(path), "sha256": sha256(path)}
                     for name, path in sorted(product_artifacts.items())
@@ -823,6 +1009,8 @@ class Launch:
             raise GateFailure(
                 f"manifest body pin mismatch: {actual_manifest_body} != {APPROVED_MANIFEST_BODY_SHA256}"
             )
+        if plan.get("plan_status") != "approved":
+            raise GateFailure("the correctness plan status is not approved for execution")
         if os.getuid() != 1000 or os.getgid() != 1000:
             raise GateFailure("the approved host runner identity is UID/GID 1000")
         if plan["environment"]["target"] != TARGET or plan["environment"]["image"] != IMAGE:
@@ -869,6 +1057,13 @@ class Launch:
             raise GateFailure("the nested Cargo forwarder changed after review")
         if sha256(RUNTIME_RUSTC_WRAPPER) != plan["environment"]["runtime_rustc_wrapper_sha256"]:
             raise GateFailure("the nested Rust compiler wrapper changed after review")
+        proposal_inputs = {
+            PLAN_SOURCE_PATH: "manifest_source_sha256",
+            MANIFEST_GENERATOR_PATH: "manifest_generator_sha256",
+        }
+        for path, key in proposal_inputs.items():
+            if not path.is_file() or sha256(path) != plan["environment"].get(key):
+                raise GateFailure(f"reviewed gate input changed or is missing: {path}")
         for path, expected in TOOL_HASHES.items():
             if sha256(path) != expected:
                 raise GateFailure(f"pinned build tool changed: {path}")
@@ -893,10 +1088,6 @@ class Launch:
             "runtime_cargo_forwarder_sha256": sha256(RUNTIME_CARGO_FORWARDER),
             "runtime_rustc_wrapper_sha256": sha256(RUNTIME_RUSTC_WRAPPER),
         })
-        actual_baseline = {name: sha256(BASELINE_BINS / name) for name in BASELINE_HASHES}
-        if actual_baseline != BASELINE_HASHES:
-            raise GateFailure("frozen baseline binary hashes changed")
-        self.receipt["hashes"]["frozen_baseline"] = actual_baseline
         self.save()
 
     def require_native_lock(self) -> Any:
@@ -954,7 +1145,6 @@ class Launch:
             "-v", f"{ROOT}:{ROOT}",
             "-v", f"{ROOT}/.git:{ROOT}/.git:ro",
             "-v", "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
-            "-v", f"{BASELINE_BINS}:{BASELINE_BINS}:ro",
             "-v", f"{target_dir}:{target_dir}:ro",
             "-w", str(ROOT),
             "-e", "LC_ALL=C", "-e", "TZ=UTC", "-e", "TMPDIR=/tmp",
@@ -963,7 +1153,7 @@ class Launch:
             "-e", f"TARGET={TARGET}", "-e", "DIST_PROFILE=verification",
             "-e", f"XSH_BIN={self.target_dir / TARGET / 'verification' / 'xsh'}",
             "-e", "XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa",
-            "-e", f"PATH={self.target_dir / TARGET / 'verification'}:{BASELINE_BINS}:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+            "-e", f"PATH={self.target_dir / TARGET / 'verification'}:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         ])
         args.extend(["--user", user, IMAGE, *command])
         self.run(step_id, args, timeout_seconds=timeout, cidfile=cidfile)
@@ -1094,12 +1284,6 @@ class Launch:
             self.release_native_lock()
 
         self.verify_source("after-all-gates")
-        self.receipt["hashes"]["frozen_baseline_after"] = {
-            name: sha256(BASELINE_BINS / name) for name in BASELINE_HASHES
-        }
-        self.save()
-        if self.receipt["hashes"]["frozen_baseline_after"] != BASELINE_HASHES:
-            raise GateFailure("a frozen baseline binary changed during verification")
         self.receipt["hashes"]["source_after"] = self.verify_source("final")
         self.receipt["status"] = "commands-passed-needs-privilege-skip-and-close-review"
         self.receipt["finished_utc"] = utc_now()
@@ -1118,6 +1302,7 @@ def load_plan() -> dict[str, Any]:
 
 def print_plan(plan: dict[str, Any]) -> None:
     print(json.dumps({
+        "plan_status": plan["plan_status"],
         "source_binding": plan["source"],
         "target": plan["environment"]["target"],
         "image": plan["environment"]["image"],
