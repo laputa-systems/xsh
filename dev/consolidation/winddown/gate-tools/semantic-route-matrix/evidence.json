@@ -4481,7 +4481,7 @@
         "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once",
         "tests/xsh/with-resource.xsh::test_with_enters_left_to_right_and_releases_every_resource"
       ],
-      "scope": "The failing form prints its first two binding producers in order, skips the third binding and body, then enters else; the successful Result binding prints two body statements in order. The separate resource form checks acquisition and reverse release."
+      "scope": "The failing form prints its first two binding producers in order, skips the third binding and body, then enters else; the successful Result binding prints two body statements in order. The resource form checks that the dependent inner root is opened and each bound resource is later released or closed."
     },
     "StmtLetInt": {
       "fields": [
