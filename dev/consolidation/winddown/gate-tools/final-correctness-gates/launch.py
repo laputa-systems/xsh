@@ -28,7 +28,7 @@ CONTROLLER_ROOT = pathlib.Path("/home/josh/d/laputa-systems/xsh")
 WORKTREE_ROOT = CONTROLLER_ROOT / ".work/wt"
 TOOL_DIR = pathlib.Path(__file__).resolve().parent
 OUTPUT_ROOT = CONTROLLER_ROOT / ".work/final-review-evidence/final-correctness-gates"
-PLAN_PATH = OUTPUT_ROOT / "manifest-correctness-e048-20261016-source-root-r3.json"
+PLAN_PATH = OUTPUT_ROOT / "manifest-correctness-e048-20261016-pty-sibling-r4.json"
 RUNNER = TOOL_DIR / "run-native-final.sh"
 PLAN_SOURCE_PATH = TOOL_DIR / "plan_source.py"
 MANIFEST_GENERATOR_PATH = TOOL_DIR / "generate_manifest.py"
@@ -46,7 +46,7 @@ BASE_RUNNER = INFRA / "run-native.sh"
 NATIVE_LOCK = INFRA / "native-suite.lock"
 NATIVE_CLEANUP_MARKER = INFRA / "native-suite.cleanup-unresolved"
 BASE_RUNNER_SHA256 = "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15"
-APPROVED_MANIFEST_BODY_SHA256 = "5972b0059fe67b485179f2698533b0f3b47e887a5b83ddd1f24e0477d4e03630"
+APPROVED_MANIFEST_BODY_SHA256 = "9efbc726cf0d37620334575f5552258b8455eaa4d38194639f03b334024dc2ef"
 RUNTIME_CARGO_FORWARDER = TOOL_DIR / "cargo-forwarder.sh"
 RUNTIME_RUSTC_WRAPPER = TOOL_DIR / "rustc-jemalloc.sh"
 TOOL_HASHES = {
@@ -69,6 +69,21 @@ def sha256(path: pathlib.Path) -> str:
         for chunk in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def regular_executable_sha256(path: pathlib.Path, label: str) -> tuple[os.stat_result, str]:
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError as error:
+        raise GateFailure(f"{label} cannot be opened as a regular executable: {path}: {error}") from error
+    digest = hashlib.sha256()
+    with os.fdopen(descriptor, "rb") as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode) or not info.st_mode & 0o111:
+            raise GateFailure(f"{label} is not a regular executable: {path}")
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return info, digest.hexdigest()
 
 
 def utc_now() -> str:
@@ -939,6 +954,137 @@ class Launch:
             }
             self.save()
 
+    def stage_core_compat_extra_xsht(self) -> None:
+        product_variant = self.receipt.get("product_variants", {}).get("verification", {})
+        product_hashes = self.receipt.get("hashes", {})
+        initial_hash = product_hashes.get("binaries_after_initial_build", {}).get("xsht-verification")
+        built_hash = product_hashes.get("binaries_after_build", {}).get("xsht-verification")
+        source = self.target_dir / TARGET / "verification" / "xsht"
+        if (
+            product_variant.get("profile") != "verification"
+            or product_variant.get("target_variant") != "products"
+            or "xsht" not in product_variant.get("binaries", [])
+            or not initial_hash
+            or initial_hash != built_hash
+        ):
+            raise GateFailure("verification xsht product variant was not qualified before harness staging")
+        source_parent = source.parent
+        if source_parent.resolve(strict=True) != source_parent or source_parent.is_symlink():
+            raise GateFailure(f"verification xsht artifact directory is not canonical: {source_parent}")
+        _, source_hash = regular_executable_sha256(source, "verification xsht product")
+        if source_hash != built_hash:
+            raise GateFailure("verification xsht product changed after qualification")
+
+        harness = self.receipt.get("harnesses", {}).get("core-compat-extra", {})
+        harness_variant = harness.get("xsh_variant", {})
+        qualification = harness_variant.get("qualification", {})
+        harness_xsh = pathlib.Path(harness_variant.get("path", ""))
+        expected_harness_xsh = self.harness_target_dir / TARGET / "verification" / "xsh"
+        if (
+            harness.get("target_variant") != "harness"
+            or pathlib.Path(harness.get("target_dir", "")) != self.harness_target_dir
+            or harness_variant.get("path") != str(expected_harness_xsh)
+            or harness_xsh != expected_harness_xsh
+            or qualification.get("target_variant") != "harness"
+            or qualification.get("profile_name") != "verification"
+            or set(qualification.get("features", [])) != {"default", "native-tests", "net", "tools"}
+            or qualification.get("source") != {"commit": self.expected_commit, "tree": self.expected_tree}
+        ):
+            raise GateFailure("core compatibility PTY harness xsh variant does not match the qualified default harness")
+        harness_xsh_parent = harness_xsh.parent
+        if harness_xsh_parent.resolve(strict=True) != harness_xsh_parent or harness_xsh_parent.is_symlink():
+            raise GateFailure(f"core compatibility harness directory is not canonical: {harness_xsh_parent}")
+        _, harness_xsh_hash = regular_executable_sha256(harness_xsh, "core compatibility harness xsh")
+        if harness_xsh_hash != harness_variant.get("sha256"):
+            raise GateFailure("core compatibility harness xsh changed after qualification")
+
+        destination = harness_xsh.with_name("xsht")
+        existing_hash: str | None = None
+        try:
+            os.lstat(destination)
+        except FileNotFoundError:
+            pass
+        else:
+            try:
+                _, existing_hash = regular_executable_sha256(destination, "existing harness sibling")
+            except GateFailure as error:
+                raise GateFailure(f"existing harness sibling is not a qualified regular executable: {destination}") from error
+            if existing_hash != source_hash:
+                raise GateFailure(f"existing harness sibling differs from the qualified product: {destination}")
+
+        action = "already-qualified"
+        if existing_hash is None:
+            scratch = self.source_root / ".work/tmp"
+            if scratch.is_symlink() or not scratch.is_dir():
+                raise GateFailure("source .work/tmp must be a real directory before harness artifact staging")
+            cidfile = self.cid_dir / f"{self.step_number + 1:03d}-stage-core-compat-extra-xsht.cid"
+            script = "\n".join([
+                "set -eu",
+                "source=$1",
+                "destination=$2",
+                "expected=$3",
+                "hash_file() { result=$(sha256sum -- \"$1\") || return; printf '%s\\n' \"${result%% *}\"; }",
+                "[ ! -L \"$source\" ] && [ -f \"$source\" ] && [ -x \"$source\" ]",
+                "[ \"$(hash_file \"$source\")\" = \"$expected\" ]",
+                "if [ -L \"$destination\" ]; then exit 1; fi",
+                "if [ -e \"$destination\" ]; then",
+                "    [ -f \"$destination\" ] && [ -x \"$destination\" ]",
+                "    [ \"$(hash_file \"$destination\")\" = \"$expected\" ]",
+                "    exit 0",
+                "fi",
+                "temporary=$(mktemp \"${destination}.stage.XXXXXX\")",
+                "trap 'rm -f -- \"$temporary\"' EXIT HUP INT TERM",
+                "cp -p -- \"$source\" \"$temporary\"",
+                "[ -f \"$temporary\" ] && [ -x \"$temporary\" ]",
+                "[ \"$(hash_file \"$temporary\")\" = \"$expected\" ]",
+                "ln -- \"$temporary\" \"$destination\"",
+                "rm -- \"$temporary\"",
+                "trap - EXIT HUP INT TERM",
+            ])
+            argv = [
+                "docker", "run", "--rm", "--init", "--read-only", "--cidfile", str(cidfile),
+                "--platform", "linux/amd64", "--cpus=2", "--memory=1g", "--memory-swap=1g",
+                "--network=none", "-v", f"{self.target_dir}:{self.target_dir}:ro",
+                "-v", f"{self.harness_target_dir}:{self.harness_target_dir}:rw",
+                "-v", f"{scratch}:{scratch}:rw", "-e", f"TMPDIR={scratch}", "--user", "0:0", IMAGE,
+                "sh", "-euc", script, "xsh-gate-stage-xsht", str(source), str(destination), source_hash,
+            ]
+            self.run(
+                "stage-core-compat-extra-xsht",
+                argv,
+                timeout_seconds=120,
+                cidfile=cidfile,
+            )
+            action = "staged"
+
+        _, destination_hash = regular_executable_sha256(destination, "staged harness sibling")
+        if destination_hash != source_hash:
+            raise GateFailure("staged harness sibling differs from the qualified verification xsht product")
+        self.receipt.setdefault("harness_artifact_staging", {})["core-compat-extra-xsht"] = {
+            "action": action,
+            "source": {
+                "path": str(source),
+                "sha256": source_hash,
+                "qualified_product_variant": {
+                    "profile": "verification",
+                    "target_variant": "products",
+                    "commit": self.expected_commit,
+                    "tree": self.expected_tree,
+                },
+            },
+            "destination": {
+                "path": str(destination),
+                "sha256": destination_hash,
+                "harness": "core-compat-extra",
+                "harness_xsh_path": str(harness_xsh),
+                "harness_xsh_sha256": harness_xsh_hash,
+                "target_variant": "harness",
+                "profile": "verification",
+                "features": qualification["features"],
+            },
+        }
+        self.save()
+
     def prepare_runtime_cargo(self) -> None:
         for directory in (self.runtime_cargo_home, self.runtime_xdg_cache):
             directory.mkdir(parents=True, exist_ok=True)
@@ -1372,6 +1518,8 @@ class Launch:
             raise GateFailure("candidate product set changed after the Clippy matrix")
         self.receipt["hashes"]["binaries_after_build"] = binaries_built
         self.receipt["hashes"]["binaries_before_tests"] = binaries_built
+        self.save()
+        self.stage_core_compat_extra_xsht()
         self.receipt["hashes"]["harnesses_before_tests"] = {
             name: {target: value["sha256"] for target, value in entry["targets"].items()}
             for name, entry in self.receipt["harnesses"].items()

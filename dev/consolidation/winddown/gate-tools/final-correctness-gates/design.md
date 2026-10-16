@@ -25,6 +25,13 @@ is accepted only after that same variant and hash were qualified earlier in
 the run. The Linux-privileged feature build is a distinct variant and may have
 a different hash from the default verification product.
 
+The PTY case in `core_compat_extra` resolves `xsht` beside Cargo's `xsh` test
+binary. The launcher stages the separately qualified verification `xsht` into
+that harness directory before tests. A pinned prep container mounts the product
+target read-only and the harness target read-write; runtime contexts mount both
+targets read-only. Staging rejects a symlink or a different existing sibling
+and records the source and destination hashes with their qualified variants.
+
 `generate_manifest.py` deterministically renders the tracked plan and binds its
 source, launcher, runner, cleanup test, and generator with one-way hashes. The
 runtime manifest remains ignored state generated for the approved source tree.

@@ -578,6 +578,128 @@ class ArtifactQualificationTests(unittest.TestCase):
             )
 
 
+class HarnessSiblingArtifactStagingTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(dir=SCRATCH_ROOT)
+        self.root = pathlib.Path(self.temporary.name)
+        self.out = self.root / "run"
+        self.out.mkdir()
+        self.products = self.out / "target" / "products"
+        self.harness = self.out / "target" / "harness"
+        self.product_verification = self.products / LAUNCHER.TARGET / "verification"
+        self.harness_verification = self.harness / LAUNCHER.TARGET / "verification"
+        self.product_verification.mkdir(parents=True)
+        self.harness_verification.mkdir(parents=True)
+        self.xsht = self.product_verification / "xsht"
+        self.xsht.write_bytes(b"qualified verification xsht")
+        self.xsht.chmod(0o755)
+        self.harness_xsh = self.harness_verification / "xsh"
+        self.harness_xsh.write_bytes(b"qualified harness xsh")
+        self.harness_xsh.chmod(0o755)
+        self.gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        self.gate.source_root = SOURCE_ROOT
+        self.gate.expected_commit = "a" * 40
+        self.gate.expected_tree = "b" * 40
+        self.gate.target_dir = self.products
+        self.gate.harness_target_dir = self.harness
+        self.gate.out = self.out
+        self.gate.cid_dir = self.out / "container-ids"
+        self.gate.cid_dir.mkdir()
+        self.gate.step_number = 0
+        self.gate.receipt = {
+            "product_variants": {
+                "verification": {
+                    "profile": "verification",
+                    "target_variant": "products",
+                    "binaries": ["xsh", "xsht", "xshi", "xsh-fuzz", "xsh-test-helper"],
+                },
+            },
+            "hashes": {
+                "binaries_after_initial_build": {
+                    "xsht-verification": LAUNCHER.sha256(self.xsht),
+                },
+                "binaries_after_build": {
+                    "xsht-verification": LAUNCHER.sha256(self.xsht),
+                },
+            },
+            "harnesses": {
+                "core-compat-extra": {
+                    "target_variant": "harness",
+                    "target_dir": str(self.harness),
+                    "xsh_variant": {
+                        "path": str(self.harness_xsh),
+                        "sha256": LAUNCHER.sha256(self.harness_xsh),
+                        "qualification": {
+                            "profile_name": "verification",
+                            "target_variant": "harness",
+                            "features": ["default", "native-tests", "net", "tools"],
+                            "source": {"commit": "a" * 40, "tree": "b" * 40},
+                        },
+                    },
+                },
+            },
+        }
+        self.gate.run = mock.Mock(side_effect=self.stage_from_argv)
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def stage_from_argv(self, step_id, argv, **kwargs):
+        self.assertEqual(step_id, "stage-core-compat-extra-xsht")
+        source, destination, expected_hash = argv[-3:]
+        self.assertEqual(source, str(self.xsht))
+        self.assertEqual(destination, str(self.harness_xsh.with_name("xsht")))
+        self.assertEqual(expected_hash, LAUNCHER.sha256(self.xsht))
+        pathlib.Path(destination).write_bytes(pathlib.Path(source).read_bytes())
+        pathlib.Path(destination).chmod(0o755)
+        return {"exit_code": 0}
+
+    def test_stages_qualified_xsht_as_the_pty_harness_sibling(self):
+        pty_source = FROZEN_E048_SOURCE_ROOT / "tests/core_compat_extra/pty.rs"
+        self.assertRegex(
+            pty_source.read_text(),
+            r'Path::new\(test_bin!\("xsh"\)\)\.with_file_name\("xsht"\)',
+        )
+        harness_xsh_hash = LAUNCHER.sha256(self.harness_xsh)
+        self.gate.stage_core_compat_extra_xsht()
+
+        destination = self.harness_xsh.with_name("xsht")
+        self.assertTrue(destination.is_file())
+        self.assertEqual(destination.read_bytes(), self.xsht.read_bytes())
+        self.assertEqual(LAUNCHER.sha256(self.harness_xsh), harness_xsh_hash)
+        record = self.gate.receipt["harness_artifact_staging"]["core-compat-extra-xsht"]
+        self.assertEqual(record["source"]["path"], str(self.xsht))
+        self.assertEqual(record["source"]["sha256"], LAUNCHER.sha256(self.xsht))
+        self.assertEqual(record["destination"]["path"], str(destination))
+        self.assertEqual(record["destination"]["sha256"], LAUNCHER.sha256(destination))
+        self.assertEqual(record["destination"]["harness_xsh_sha256"], LAUNCHER.sha256(self.harness_xsh))
+        argv = self.gate.run.call_args.args[1]
+        volumes = [argv[index + 1] for index, value in enumerate(argv[:-1]) if value == "-v"]
+        self.assertIn(f"{self.products}:{self.products}:ro", volumes)
+        self.assertIn(f"{self.harness}:{self.harness}:rw", volumes)
+
+    def test_rejects_a_different_existing_sibling_without_overwriting_it(self):
+        destination = self.harness_xsh.with_name("xsht")
+        destination.write_bytes(b"unqualified sibling")
+        destination.chmod(0o755)
+
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "existing harness sibling"):
+            self.gate.stage_core_compat_extra_xsht()
+
+        self.assertEqual(destination.read_bytes(), b"unqualified sibling")
+        self.gate.run.assert_not_called()
+
+    def test_rejects_a_symlink_sibling(self):
+        destination = self.harness_xsh.with_name("xsht")
+        destination.symlink_to(self.xsht)
+
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "existing harness sibling"):
+            self.gate.stage_core_compat_extra_xsht()
+
+        self.assertTrue(destination.is_symlink())
+        self.gate.run.assert_not_called()
+
+
 class CleanupTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(dir=SCRATCH_ROOT)
