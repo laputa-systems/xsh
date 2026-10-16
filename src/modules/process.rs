@@ -1269,6 +1269,11 @@ fn linux_stat_text(path: &std::path::Path) -> std::io::Result<String> {
 }
 
 #[cfg(target_os = "linux")]
+fn linux_process_vanished(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::NotFound || error.raw_os_error() == Some(libc::ESRCH)
+}
+
+#[cfg(target_os = "linux")]
 fn linux_process_record(
     pid: i64,
     path: &std::path::Path,
@@ -1405,13 +1410,13 @@ pub(crate) fn sample_processes(root: &std::path::Path, boot_time_ms: i64, ticks_
         let Some(pid) = entry.file_name().to_str().and_then(|name| name.parse::<i64>().ok()) else { continue; };
         let text = match linux_stat_text(&entry.path().join("stat")) {
             Ok(text) => text,
-            Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied) => continue,
+            Err(error) if linux_process_vanished(&error) || error.kind() == std::io::ErrorKind::PermissionDenied => continue,
             Err(error) => return Err(RuntimeError::host("linux-sample", &error).with_span(span)),
         };
         let parsed = parse_linux_stat(&text).ok_or_else(|| RuntimeError::new("linux-sample", format!("malformed stat for pid {pid}")).with_span(span))?;
         let uid = match entry.metadata() {
             Ok(metadata) => metadata.uid(),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) if linux_process_vanished(&error) => continue,
             Err(error) => return Err(RuntimeError::host("linux-sample", &error).with_span(span)),
         };
         records.push(process_record_value(linux_process_from_stat(pid, &entry.path(), boot_time_ms, ticks_per_second, uid, parsed), now_ms));
@@ -2266,4 +2271,70 @@ fn port_processes_impl(
         "process.port and process.ports are implemented on Linux and macOS",
     )
     .with_span(span))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_sample_process_tests {
+    use super::{linux_process_vanished, linux_stat_text, sample_processes};
+    use crate::runtime::value::Value;
+    use crate::source::{SourceId, Span};
+    use std::fs::{self, File};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::symlink;
+    use std::process::{Child, Command};
+
+    struct ChildGuard(Child);
+
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    #[test]
+    fn sample_processes_skips_esrch_from_a_held_proc_stat_file() {
+        let root = tempfile::tempdir().expect("create proc fixture");
+        let child = Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn proc fixture child");
+        let mut child = ChildGuard(child);
+        let pid = child.0.id();
+        let stat = File::open(format!("/proc/{pid}/stat")).expect("open live child stat");
+        let process_root = root.path().join(pid.to_string());
+        fs::create_dir(&process_root).expect("create process fixture");
+        let stat_link = process_root.join("stat");
+        symlink(format!("/proc/self/fd/{}", stat.as_raw_fd()), &stat_link)
+            .expect("link process stat to held proc descriptor");
+        child.0.kill().expect("stop proc fixture child");
+        child.0.wait().expect("reap proc fixture child");
+
+        let error = linux_stat_text(&stat_link).expect_err("dead proc stat reports ESRCH");
+        assert_eq!(error.raw_os_error(), Some(libc::ESRCH));
+
+        let records = sample_processes(root.path(), 0, 100, Span::new(SourceId::new(0), 0, 0))
+            .expect("vanished process is skipped");
+        assert!(records.is_empty());
+    }
+
+    #[test]
+    fn linux_process_vanished_matches_only_not_found_and_esrch() {
+        assert!(linux_process_vanished(&std::io::Error::from(std::io::ErrorKind::NotFound)));
+        assert!(linux_process_vanished(&std::io::Error::from_raw_os_error(libc::ESRCH)));
+        assert!(!linux_process_vanished(&std::io::Error::from(std::io::ErrorKind::PermissionDenied)));
+        assert!(!linux_process_vanished(&std::io::Error::from_raw_os_error(libc::EIO)));
+    }
+
+    #[test]
+    fn sample_processes_propagates_unexpected_stat_io_errors() {
+        let root = tempfile::tempdir().expect("create proc fixture");
+        let process_root = root.path().join("123");
+        fs::create_dir_all(process_root.join("stat")).expect("create invalid stat file type");
+
+        let error = sample_processes(root.path(), 0, 100, Span::new(SourceId::new(0), 0, 0))
+            .expect_err("unexpected process stat I/O error stays an error");
+        assert_eq!(error.kind, "linux-sample");
+        assert!(matches!(error.payload.get("errno"), Some(Value::Int(errno)) if *errno == libc::EISDIR as i64));
+    }
 }
