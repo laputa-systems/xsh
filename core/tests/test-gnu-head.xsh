@@ -28,24 +28,14 @@ proc all_inputs(s: uu.Scene, args: List[Str], input: Bytes, expected: Bytes) [fs
   uu.stdout_only_bytes(piped, expected)
 }
 
-# Find startup's memory requirement separately from the eight-megabyte allowance
-# for processing data. A script runtime can need a larger startup budget than
-# the reference executable while still requiring bounded tail storage.
-proc memory_limit(s: uu.Scene) [fs, process, env, error] -> Result[Int, Error] {
+proc startup_limit_kib(s: uu.Scene) [fs, process, env, error] -> Result[Int, Error] {
   var working = 0
   for limit in [5000 * n for n in range(1, 11)].extend([50000 * n for n in range(2, 21)]) {
-    let r = wrapped(s, ["-c-1", "/dev/null"], f"ulimit -c 0; ulimit -v {limit} || exit; exec \"$@\"")?
+    let r = wrapped(s, ["-c-1"], f"ulimit -c 0; ulimit -v {limit} || exit; exec \"$@\" </dev/null")?
     if r.status == 0 { working = limit; break }
   }
   assert working != 0, "head startup did not fit a one-gigabyte virtual-memory limit"
-  var previous = working
-  for reduction in range(1, working / 1000) {
-    let candidate = working - reduction * 1000
-    let r = wrapped(s, ["-c-1", "/dev/null"], f"ulimit -c 0; ulimit -v {candidate} || exit; exec \"$@\"")?
-    return Ok(previous + 4) when r.status != 0
-    previous = candidate
-  }
-  Ok(previous + 4)
+  Ok(working)
 }
 
 # origin: gnu head/head-c.log
@@ -59,9 +49,10 @@ test test_gnu_head_head_c_log { |ctx|
   let positioned = wrapped(s, ["-c-4"], "exec 3<input; dd bs=1 skip=1 count=0 <&3 2>/dev/null || exit; exec \"$@\" <&3")?
   uu.succeeds(positioned)
   uu.stdout_only_bytes(positioned, b"bc\n")
-  let budget = memory_limit(s)? + 8000
+  let tail_storage_allowance_kib = 8000
+  let tail_storage_limit_kib = startup_limit_kib(s)? + tail_storage_allowance_kib
   for count in ["9223372036854775807", "18446744073709551616000"] {
-    let r = wrapped(s, [f"--bytes=-{count}"], f"ulimit -c 0; ulimit -v {budget} || exit; exec \"$@\" </dev/null")?
+    let r = wrapped(s, [f"--bytes=-{count}"], f"ulimit -c 0; ulimit -v {tail_storage_limit_kib} || exit; exec \"$@\" </dev/null")?
     uu.succeeds(r)
     uu.no_output(r)
   }
