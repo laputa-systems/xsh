@@ -62,6 +62,24 @@ runtime tag selects the result type or an Any/dynamic fallback.
 
 ## Verifier obligations
 
+The first-slice body domain is deliberately small. The checker may publish
+`SchemeBodyFacts` only for a body whose returned expression is one parameter
+read or a chain of required-label projections rooted at one parameter. That
+path reads its source parameter once and returns the selected value once. The
+checker does not generalize a body that constructs a list or record, combines
+or duplicates a binder value, calls another function, branches, or performs
+mutable/resource operations. Such bodies must use an explicit ground contract
+or fail checking in this slice; no capability-polymorphic copy rule is
+inferred.
+
+The lowerer accepts scheme body facts only when the source body has that same
+shape. It must report a lowering blocker for any other expression instead of
+lowering it through an untyped or dynamic path. Ground, non-generic bodies
+continue through the existing lowering path. `FullVerifier` independently
+restricts a generic function's body instructions to the corresponding
+parameter-read/projection chain and checks that its sole tail returns that
+chain's value under the scheme binder environment.
+
 Before execution, `FullVerifier` checks that each scheme binder is unique and
 in scope; each body fact belongs to its function; parameter reads and record
 projections match their scheme types; row labels are unique; required fields
@@ -76,10 +94,15 @@ in the executor.
 Add forged-program negatives for a wrong type argument, omitted or duplicate
 binder mapping, a row substitution that violates lacks, missing projected
 field, mismatched checked call result, body fact owned by another function,
-and an escaped solver ID. Add one accepted open-row projection and the
-`Bool` identity call with `false`. The prepared-program test must drop
-front-end state before verifying and execute through both indexed invocation
-routes.
+an escaped solver ID, and a generic body that constructs `[value, value]` or
+otherwise reads one binder twice. Add a checker negative for
+`pure dup(value) { [value, value] }`; it must not publish a generalized
+scheme, including when a call would instantiate `value` with an affine
+resource type. This source rule and the forged-program rejection make the
+resource safety independent of observed callers. Add one accepted open-row
+projection and the `Bool` identity call with `false`. The prepared-program
+test must drop front-end state before verifying and execute through both
+indexed invocation routes.
 
 ## Consumers and gates
 
@@ -108,3 +131,15 @@ The final inference change includes parser, checker, import, lowering, and
 verification behavior together. These runtime files are the planned added
 consumers; the existing ground signature and caller-selection paths remain
 owned by their current representations.
+
+## First-party API representation change
+
+`frontend::check` publicly reexports `CheckedFunctionDeclaration`. Its new
+crate-private scheme, body-fact, and export-visibility fields make external
+struct-literal construction unavailable. There are no in-repository external
+literals, but this is an actual first-party tooling representation change.
+Keep invariant fields private and migrate workspace consumers as part of the
+coherent pipeline; do not add a compatibility constructor for hypothetical
+callers. Include this change in the final migration summary. Future commits
+that change exposed type or language contracts use a Conventional Commit
+breaking marker; retain the existing source-pinned history unchanged.
