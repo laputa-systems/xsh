@@ -765,6 +765,19 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
                     self.controller_helper_source,
                 )
 
+    def test_derived_owner_helper_retains_ast_rows_before_sync(self):
+        source = self.controller_helper_source.read_bytes()
+        transformed = adapter_runner._derived_owner_helper_bytes(source).decode("utf-8")
+        owner_rows_loop = (
+            '    for (span, kind) in owner_rows {\n'
+            '        writeln!(output, "owner\\t{span:?}\\t{kind}")?;\n'
+            '    }\n'
+        )
+
+        self.assertEqual(transformed.count(owner_rows_loop), 1)
+        self.assertLess(transformed.index(owner_rows_loop), transformed.index("output.flush()?;"))
+        self.assertIn("output.get_ref().sync_all()", transformed)
+
     def test_derived_owner_helper_passes_build_validation_and_rejects_drift(self):
         output_directory = adapter_runner._new_derived_helper_directory(
             self.source_root, self.runner

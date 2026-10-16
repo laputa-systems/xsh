@@ -241,6 +241,9 @@ def _derived_owner_helper_bytes(owner_bytes: bytes) -> bytes:
         '        writeln!(output, "owner\\t{span:?}\\t{kind}")?;\n'
         '    }\n\n'
         '    output.flush()\n',
+        '    for (span, kind) in owner_rows {\n'
+        '        writeln!(output, "owner\\t{span:?}\\t{kind}")?;\n'
+        '    }\n\n'
         '    output.flush()?;\n'
         '    output.get_ref().sync_all()\n',
     )

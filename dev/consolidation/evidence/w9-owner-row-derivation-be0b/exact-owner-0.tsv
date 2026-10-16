@@ -1,0 +1,115 @@
+source	SourceId(0)	337
+module-config	2f686f6d652f6a6f73682f642f6c61707574612d73797374656d732f7873682f2e776f726b2f77742f77392d70726f6772616d2d653234302f787368742d636f6e6669672e696e69	2221	7377303b9700c6dc76308e137094af5acef72713fc12aca51f6d96772a270825
+module-root	2f686f6d652f6a6f73682f642f6c61707574612d73797374656d732f7873682f2e776f726b2f77742f77392d70726f6772616d2d65323430
+module-root	2f686f6d652f6a6f73682f642f6c61707574612d73797374656d732f7873682f2e776f726b2f77742f77392d70726f6772616d2d653234302f646576
+source-audit	SourceId(0)	file	2f686f6d652f6a6f73682f642f6c61707574612d73797374656d732f7873682f2e776f726b2f746d702f77392d636f727075732d7265636f766572792f696e7075742d636f727075732f62656e63682f636f6e736f6c69646174696f6e2f7873682f6469726563746f72792e787368	337	f2d37baf0324766fad4a2091f5d30be4364a96ab8d41d1e0e7218c3959ee1924
+stmt	StmtId(1)	Span { source_id: SourceId(0), start: 25, len: 27 }	stmt:LetExprNoTy
+stmt	StmtId(2)	Span { source_id: SourceId(0), start: 124, len: 5 }	stmt:Expr
+stmt	StmtId(3)	Span { source_id: SourceId(0), start: 136, len: 56 }	stmt:LetExprNoTy
+stmt	StmtId(4)	Span { source_id: SourceId(0), start: 196, len: 8 }	stmt:Continue
+stmt	StmtId(5)	Span { source_id: SourceId(0), start: 196, len: 30 }	stmt:IfNoElse
+stmt	StmtId(6)	Span { source_id: SourceId(0), start: 196, len: 30 }	stmt:Sugar
+stmt	StmtId(7)	Span { source_id: SourceId(0), start: 270, len: 6 }	stmt:Expr
+stmt	StmtId(8)	Span { source_id: SourceId(0), start: 286, len: 10 }	stmt:Expr
+stmt	StmtId(9)	Span { source_id: SourceId(0), start: 230, len: 69 }	stmt:LetExprNoTy
+stmt	StmtId(10)	Span { source_id: SourceId(0), start: 303, len: 28 }	stmt:Command
+stmt	StmtId(11)	Span { source_id: SourceId(0), start: 54, len: 280 }	stmt:For
+stmt	StmtId(12)	Span { source_id: SourceId(0), start: 0, len: 336 }	stmt:CliMain
+owner	Span { source_id: SourceId(0), start: 0, len: 336 }	stmt:CliMain
+owner	Span { source_id: SourceId(0), start: 25, len: 27 }	stmt:LetExprNoTy
+owner	Span { source_id: SourceId(0), start: 36, len: 15 }	expr:PathFmtString
+owner	Span { source_id: SourceId(0), start: 40, len: 4 }	expr:Ident
+owner	Span { source_id: SourceId(0), start: 54, len: 280 }	stmt:For
+owner	Span { source_id: SourceId(0), start: 67, len: 2 }	expr:Ident
+owner	Span { source_id: SourceId(0), start: 67, len: 7 }	expr:Field
+owner	Span { source_id: SourceId(0), start: 67, len: 45 }	expr:Call
+owner	Span { source_id: SourceId(0), start: 67, len: 62 }	expr:StructuredPipeline
+owner	Span { source_id: SourceId(0), start: 75, len: 4 }	expr:Ident
+owner	Span { source_id: SourceId(0), start: 92, len: 5 }	expr:BoolFalse
+owner	Span { source_id: SourceId(0), start: 107, len: 4 }	expr:BoolTrue
+owner	Span { source_id: SourceId(0), start: 124, len: 1 }	expr:Item
+owner	Span { source_id: SourceId(0), start: 124, len: 5 }	expr:Field
+owner	Span { source_id: SourceId(0), start: 124, len: 5 }	stmt:Expr
+owner	Span { source_id: SourceId(0), start: 136, len: 56 }	stmt:LetExprNoTy
+owner	Span { source_id: SourceId(0), start: 151, len: 5 }	expr:Ident
+owner	Span { source_id: SourceId(0), start: 151, len: 10 }	expr:Field
+owner	Span { source_id: SourceId(0), start: 151, len: 23 }	expr:Field
+owner	Span { source_id: SourceId(0), start: 151, len: 29 }	expr:Call
+owner	Span { source_id: SourceId(0), start: 151, len: 38 }	expr:NullSafeField
+owner	Span { source_id: SourceId(0), start: 151, len: 40 }	expr:Call
+owner	Span { source_id: SourceId(0), start: 175, len: 4 }	expr:Ident
+owner	Span { source_id: SourceId(0), start: 196, len: 8 }	stmt:Continue
+owner	Span { source_id: SourceId(0), start: 196, len: 30 }	stmt:IfNoElse
+owner	Span { source_id: SourceId(0), start: 196, len: 30 }	stmt:Sugar
+owner	Span { source_id: SourceId(0), start: 210, len: 8 }	expr:Ident
+owner	Span { source_id: SourceId(0), start: 210, len: 15 }	expr:BinaryEq
+owner	Span { source_id: SourceId(0), start: 222, len: 3 }	expr:Str
+owner	Span { source_id: SourceId(0), start: 230, len: 69 }	stmt:LetExprNoTy
+owner	Span { source_id: SourceId(0), start: 241, len: 57 }	expr:If
+owner	Span { source_id: SourceId(0), start: 244, len: 5 }	expr:Ident
+owner	Span { source_id: SourceId(0), start: 244, len: 10 }	expr:Field
+owner	Span { source_id: SourceId(0), start: 244, len: 23 }	expr:BinaryEq
+owner	Span { source_id: SourceId(0), start: 258, len: 9 }	expr:Str
+owner	Span { source_id: SourceId(0), start: 268, len: 10 }	expr:ValueBlock
+owner	Span { source_id: SourceId(0), start: 270, len: 6 }	expr:Str
+owner	Span { source_id: SourceId(0), start: 270, len: 6 }	stmt:Expr
+owner	Span { source_id: SourceId(0), start: 284, len: 14 }	expr:ValueBlock
+owner	Span { source_id: SourceId(0), start: 286, len: 5 }	expr:Ident
+owner	Span { source_id: SourceId(0), start: 286, len: 10 }	expr:Field
+owner	Span { source_id: SourceId(0), start: 286, len: 10 }	stmt:Expr
+owner	Span { source_id: SourceId(0), start: 303, len: 28 }	stmt:Command
+owner	Span { source_id: SourceId(0), start: 309, len: 21 }	expr:FmtString
+owner	Span { source_id: SourceId(0), start: 312, len: 8 }	expr:Ident
+owner	Span { source_id: SourceId(0), start: 324, len: 4 }	expr:Ident
+expr	ExprId(1)	Span { source_id: SourceId(0), start: 40, len: 4 }	Ident	"root"
+expr	ExprId(2)	Span { source_id: SourceId(0), start: 36, len: 15 }	PathFmtString	""
+expr	ExprId(3)	Span { source_id: SourceId(0), start: 67, len: 2 }	Ident	"fs"
+expr	ExprId(4)	Span { source_id: SourceId(0), start: 67, len: 7 }	Field	""
+expr	ExprId(5)	Span { source_id: SourceId(0), start: 75, len: 4 }	Ident	"tree"
+expr	ExprId(6)	Span { source_id: SourceId(0), start: 92, len: 5 }	BoolFalse	""
+expr	ExprId(7)	Span { source_id: SourceId(0), start: 107, len: 4 }	BoolTrue	""
+expr	ExprId(8)	Span { source_id: SourceId(0), start: 67, len: 45 }	Call	""
+expr	ExprId(9)	Span { source_id: SourceId(0), start: 124, len: 1 }	Item	""
+expr	ExprId(10)	Span { source_id: SourceId(0), start: 124, len: 5 }	Field	""
+expr	ExprId(11)	Span { source_id: SourceId(0), start: 67, len: 62 }	StructuredPipeline	""
+expr	ExprId(12)	Span { source_id: SourceId(0), start: 151, len: 5 }	Ident	"entry"
+expr	ExprId(13)	Span { source_id: SourceId(0), start: 151, len: 10 }	Field	""
+expr	ExprId(14)	Span { source_id: SourceId(0), start: 151, len: 23 }	Field	""
+expr	ExprId(15)	Span { source_id: SourceId(0), start: 175, len: 4 }	Ident	"tree"
+expr	ExprId(16)	Span { source_id: SourceId(0), start: 151, len: 29 }	Call	""
+expr	ExprId(17)	Span { source_id: SourceId(0), start: 151, len: 38 }	NullSafeField	""
+expr	ExprId(18)	Span { source_id: SourceId(0), start: 151, len: 40 }	Call	""
+expr	ExprId(19)	Span { source_id: SourceId(0), start: 210, len: 8 }	Ident	"relative"
+expr	ExprId(20)	Span { source_id: SourceId(0), start: 222, len: 3 }	Str	""
+expr	ExprId(21)	Span { source_id: SourceId(0), start: 210, len: 15 }	BinaryEq	""
+expr	ExprId(22)	Span { source_id: SourceId(0), start: 244, len: 5 }	Ident	"entry"
+expr	ExprId(23)	Span { source_id: SourceId(0), start: 244, len: 10 }	Field	""
+expr	ExprId(24)	Span { source_id: SourceId(0), start: 258, len: 9 }	Str	""
+expr	ExprId(25)	Span { source_id: SourceId(0), start: 244, len: 23 }	BinaryEq	""
+expr	ExprId(26)	Span { source_id: SourceId(0), start: 270, len: 6 }	Str	""
+expr	ExprId(27)	Span { source_id: SourceId(0), start: 268, len: 10 }	ValueBlock	""
+expr	ExprId(28)	Span { source_id: SourceId(0), start: 286, len: 5 }	Ident	"entry"
+expr	ExprId(29)	Span { source_id: SourceId(0), start: 286, len: 10 }	Field	""
+expr	ExprId(30)	Span { source_id: SourceId(0), start: 284, len: 14 }	ValueBlock	""
+expr	ExprId(31)	Span { source_id: SourceId(0), start: 241, len: 57 }	If	""
+expr	ExprId(32)	Span { source_id: SourceId(0), start: 312, len: 8 }	Ident	"relative"
+expr	ExprId(33)	Span { source_id: SourceId(0), start: 324, len: 4 }	Ident	"kind"
+expr	ExprId(34)	Span { source_id: SourceId(0), start: 309, len: 21 }	FmtString	""
+field-access	ExprId(4)	ExprId(3)	"walk"
+call	ExprId(8)	ExprId(4)
+field-access	ExprId(10)	ExprId(9)	"path"
+field-access	ExprId(13)	ExprId(12)	"path"
+field-access	ExprId(14)	ExprId(13)	"strip_prefix"
+call	ExprId(16)	ExprId(14)
+call	ExprId(18)	ExprId(17)
+field-access	ExprId(23)	ExprId(22)	"kind"
+field-access	ExprId(29)	ExprId(28)	"kind"
+exact-counts	34	0
+run-form-count	0
+structured-stage-count	1
+structured-stage-callback-count	0
+structured-stage	0	Span { source_id: SourceId(0), start: 116, len: 13 }	SortBy	true	true	0
+binding-initializer-count	3
+binding-initializer	StmtId(1)	"tree"	ExprId(2)
+binding-initializer	StmtId(3)	"relative"	ExprId(18)
+binding-initializer	StmtId(9)	"kind"	ExprId(31)

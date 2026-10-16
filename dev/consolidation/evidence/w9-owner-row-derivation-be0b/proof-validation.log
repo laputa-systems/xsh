@@ -1,0 +1,41 @@
+consumer_commit=6979f16880469d3751e37410092672bcfdeabcbe
+bootstrap_controller=/home/josh/d/laputa-systems/xsh commit=be0b79a48403d74b11186166ba739a81dcbed702 tree=cc80212504507d34c7d07413ce33f42ea68b6028
+source_receipt=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-be0b/.work/consolidation/source-cohort-w9-final-be0b-20261016T1711Z.receipt
+source_receipt_sha256=00b4b4d2c94d832212ae5e94428fec08363771c470373e5fc820bc73739ebf53
+reference_build_receipt=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-be0b/.work/consolidation/w9-publication-adapter-v1-4_yp93ft/w9-publication-adapter-reference-e240efad273f.receipt
+reference_capture_receipt=/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-final-be0b-20261016T1711Z/exact-reference/capture.receipt
+candidate_build_receipt=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-be0b/.work/consolidation/w9-publication-adapter-v1-4_yp93ft/w9-publication-adapter-candidate-be0b79a48403.receipt
+candidate_capture_receipt=/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-final-be0b-20261016T1711Z/exact-candidate/capture.receipt
+preflight ok: role=reference source=e240efad273fe35d66d91f4037b6a8193527da2e tree=a1ef04ac7b6f759c272e8f841acee3a3b3a6ff08 owners=1690 ranges=68 output=/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-proof-consumer-6979-20261016T1813Z-reference
+preflight ok: role=candidate source=be0b79a48403d74b11186166ba739a81dcbed702 tree=cc80212504507d34c7d07413ce33f42ea68b6028 owners=1690 ranges=68 output=/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-proof-consumer-6979-20261016T1813Z-candidate
+both proof dry-runs passed
+Traceback (most recent call last):
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-proof-closure/dev/consolidation/w9_publication_exact_owner_runner.py", line 3603, in _validate_owner_projections
+    legacy_projection = adapter.parse_owner_index(
+        legacy_text, allow_source_audit=source_qualified
+    )
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9_publication_adapter.py", line 148, in parse_owner_index
+    raise AdapterError(f"owner index statement has no matching AST owner: {statement_id}")
+w9_publication_adapter.AdapterError: owner index statement has no matching AST owner: StmtId(1)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/josh/d/laputa-systems/xsh/.work/tmp/w9-assignment-consumer-6979.py", line 125, in <module>
+    proofs[role] = consumer.validate_proof(
+                   ~~~~~~~~~~~~~~~~~~~~~~~^
+        CANDIDATE, SOURCE_RECEIPT, REFERENCE, role, BUILDS[role], CAPTURES[role],
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        OUTPUTS[role], bootstrap, dry_run=False,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-proof-closure/dev/consolidation/w9_publication_exact_owner_runner.py", line 3962, in validate_proof
+    validated = _validate_owner_projections(
+        pathlib.Path(capture["raw_root"]),
+    ...<9 lines>...
+        docker_environment=docker_environment,
+    )
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-proof-closure/dev/consolidation/w9_publication_exact_owner_runner.py", line 3617, in _validate_owner_projections
+    raise ExactOwnerError(f"owner {index}: invalid owner projection: {error}") from error
+_w9_exact_owner_consumer_6979.ExactOwnerError: owner 0: invalid owner projection: owner index statement has no matching AST owner: StmtId(1)

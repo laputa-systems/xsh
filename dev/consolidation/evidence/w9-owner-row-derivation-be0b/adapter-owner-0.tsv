@@ -1,0 +1,17 @@
+source	SourceId(0)	337
+module-config	2f686f6d652f6a6f73682f642f6c61707574612d73797374656d732f7873682f2e776f726b2f77742f77392d70726f6772616d2d653234302f787368742d636f6e6669672e696e69	2221	7377303b9700c6dc76308e137094af5acef72713fc12aca51f6d96772a270825
+module-root	2f686f6d652f6a6f73682f642f6c61707574612d73797374656d732f7873682f2e776f726b2f77742f77392d70726f6772616d2d65323430
+module-root	2f686f6d652f6a6f73682f642f6c61707574612d73797374656d732f7873682f2e776f726b2f77742f77392d70726f6772616d2d653234302f646576
+source-audit	SourceId(0)	file	2f686f6d652f6a6f73682f642f6c61707574612d73797374656d732f7873682f2e776f726b2f746d702f77392d636f727075732d7265636f766572792f696e7075742d636f727075732f62656e63682f636f6e736f6c69646174696f6e2f7873682f6469726563746f72792e787368	337	f2d37baf0324766fad4a2091f5d30be4364a96ab8d41d1e0e7218c3959ee1924
+stmt	StmtId(1)	Span { source_id: SourceId(0), start: 25, len: 27 }	stmt:LetExprNoTy
+stmt	StmtId(2)	Span { source_id: SourceId(0), start: 124, len: 5 }	stmt:Expr
+stmt	StmtId(3)	Span { source_id: SourceId(0), start: 136, len: 56 }	stmt:LetExprNoTy
+stmt	StmtId(4)	Span { source_id: SourceId(0), start: 196, len: 8 }	stmt:Continue
+stmt	StmtId(5)	Span { source_id: SourceId(0), start: 196, len: 30 }	stmt:IfNoElse
+stmt	StmtId(6)	Span { source_id: SourceId(0), start: 196, len: 30 }	stmt:Sugar
+stmt	StmtId(7)	Span { source_id: SourceId(0), start: 270, len: 6 }	stmt:Expr
+stmt	StmtId(8)	Span { source_id: SourceId(0), start: 286, len: 10 }	stmt:Expr
+stmt	StmtId(9)	Span { source_id: SourceId(0), start: 230, len: 69 }	stmt:LetExprNoTy
+stmt	StmtId(10)	Span { source_id: SourceId(0), start: 303, len: 28 }	stmt:Command
+stmt	StmtId(11)	Span { source_id: SourceId(0), start: 54, len: 280 }	stmt:For
+stmt	StmtId(12)	Span { source_id: SourceId(0), start: 0, len: 336 }	stmt:CliMain
