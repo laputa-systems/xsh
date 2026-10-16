@@ -247,6 +247,42 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         self.assertNotIn("cargo", runner.batch_command())
         self.assertIn("/work/dev/consolidation/final_canonical_replay.py", command)
 
+    def test_run_batch_creates_validated_target_mount_before_docker_launch(self):
+        target_mount = self.repo / "target"
+        self.assertFalse(target_mount.exists())
+        validated = self.validate()
+        self.assertEqual(validated["target_mount"], target_mount)
+        process = mock.MagicMock()
+        process.poll.return_value = 0
+        process.returncode = 0
+
+        def start_process(command, **kwargs):
+            self.assertTrue(target_mount.is_dir())
+            self.assertIn(f"{self.target_dir}:/work/target:rw", command)
+            self.assertEqual(kwargs["cwd"], self.repo)
+            return process
+
+        with (
+            mock.patch.object(runner, "source_check", return_value={"where": "before"}),
+            mock.patch.object(runner, "run_text", return_value=runner.IMAGE) as run_text,
+            mock.patch.object(
+                runner,
+                "git_snapshot",
+                return_value={"head": self.head, "tree": self.tree, "clean": True, "status": ""},
+            ),
+            mock.patch.object(runner, "stop_container", return_value={"resolved": True}),
+            mock.patch.object(runner.subprocess, "Popen", side_effect=start_process) as popen,
+            mock.patch("builtins.print"),
+        ):
+            result = runner.run_batch(validated)
+
+        self.assertEqual(result, 1)
+        run_text.assert_called_once_with(
+            ["docker", "image", "inspect", "--format", "{{.Id}}", runner.IMAGE], self.repo
+        )
+        popen.assert_called_once()
+        self.assertTrue((self.output / "canonical-replay.json").is_file())
+
     def test_resource_schema_accepts_measurement_even_when_batch_failed(self):
         runner.validate_resource_record(resource_record(exit_code=3), 3)
         with self.assertRaisesRegex(runner.ReplayError, "exit code does not match"):

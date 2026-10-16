@@ -307,6 +307,7 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
         "scratch_dir": scratch_dir,
         "metrics_dir": metrics_dir,
         "target_dir": target_dir,
+        "target_mount": target_mount,
         "bootstrap": bootstrap,
         "bootstrap_receipt": bootstrap_receipt,
         "common_git": common_git.resolve(strict=True),
@@ -801,6 +802,7 @@ def run_batch(validated: dict[str, Any]) -> int:
     output_root = validated["output_root"]
     args = validated["args"]
     lock_path = validated["lock_path"]
+    target_mount = validated["target_mount"]
     lock = lock_path.open("r+")
     try:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
