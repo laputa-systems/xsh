@@ -44,10 +44,11 @@ def source_root(path):
 
 
 SOURCE_ROOT = source_root(LAUNCHER_PATH)
+FROZEN_E048_SOURCE_ROOT = LAUNCHER.CONTROLLER_ROOT / ".work/wt/consolidation-final-e048"
 SCRATCH_ROOT = SOURCE_ROOT / ".work/tmp"
 SCRATCH_ROOT.mkdir(parents=True, exist_ok=True)
 NATIVE_RUNNER = SOURCE_DIR / "run-native-final.sh"
-CANONICAL_NATIVE_LOCK = LAUNCHER.ROOT / ".work/consolidation/infra/native-suite.lock"
+CANONICAL_NATIVE_LOCK = LAUNCHER.CONTROLLER_ROOT / ".work/consolidation/infra/native-suite.lock"
 
 
 class CoverageTests(unittest.TestCase):
@@ -144,6 +145,7 @@ class CoverageTests(unittest.TestCase):
             },
         )
         launcher = LAUNCHER_PATH.read_text()
+        self.assertIn('f"TMPDIR={scratch}"', launcher)
         self.assertIn('"--tmpfs", "/tmp:rw,nodev,exec,nosuid,mode=1777"', launcher)
 
     def test_only_uid_1000_traceroute_is_supplemental(self):
@@ -215,8 +217,7 @@ class CoverageTests(unittest.TestCase):
         )
 
     def test_cleanup_self_test_uses_the_checkout_root_for_scratch(self):
-        copied_test = LAUNCHER.ROOT / ".work/final-review-evidence/final-correctness-gates/test_launcher_cleanup.py"
-        self.assertEqual(source_root(copied_test), LAUNCHER.ROOT)
+        self.assertEqual(source_root(LAUNCHER.TOOL_DIR / "test_launcher_cleanup.py"), SOURCE_ROOT)
         self.assertEqual(SCRATCH_ROOT, SOURCE_ROOT / ".work/tmp")
 
 
@@ -229,12 +230,12 @@ class PreflightTests(unittest.TestCase):
         gate.save = mock.Mock()
         with mock.patch.multiple(
             LAUNCHER,
-            HERE=SOURCE_DIR,
+            TOOL_DIR=SOURCE_DIR,
             RUNNER=SOURCE_DIR / "run-native-final.sh",
             PLAN_SOURCE_PATH=PLAN_SOURCE_PATH,
             MANIFEST_GENERATOR_PATH=GENERATOR_PATH,
-            NATIVE_LOCK=LAUNCHER.ROOT / ".work/consolidation/infra/native-suite.lock",
-            NATIVE_CLEANUP_MARKER=LAUNCHER.ROOT / ".work/consolidation/infra/native-suite.cleanup-unresolved",
+            NATIVE_LOCK=LAUNCHER.CONTROLLER_ROOT / ".work/consolidation/infra/native-suite.lock",
+            NATIVE_CLEANUP_MARKER=LAUNCHER.CONTROLLER_ROOT / ".work/consolidation/infra/native-suite.cleanup-unresolved",
             RUNTIME_CARGO_FORWARDER=SOURCE_DIR / "cargo-forwarder.sh",
             RUNTIME_RUSTC_WRAPPER=SOURCE_DIR / "rustc-jemalloc.sh",
         ):
@@ -245,11 +246,163 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(gate.receipt["environment"]["container_cpus"], LAUNCHER.CONTAINER_CPUS)
 
 
+class SourceAdmissionTests(unittest.TestCase):
+    def test_resolves_the_requested_worktree_and_preserves_its_source(self):
+        before = LAUNCHER.git_snapshot(SOURCE_ROOT)
+        source_root, git_common_dir = LAUNCHER.resolve_source_root(SOURCE_ROOT)
+        after = LAUNCHER.git_snapshot(source_root)
+
+        self.assertEqual(source_root, SOURCE_ROOT)
+        self.assertEqual(git_common_dir, (LAUNCHER.CONTROLLER_ROOT / ".git").resolve())
+        self.assertEqual(after, before)
+
+    def test_accepts_the_controller_checkout_as_an_explicit_source_root(self):
+        source_root, git_common_dir = LAUNCHER.resolve_source_root(LAUNCHER.CONTROLLER_ROOT)
+
+        self.assertEqual(source_root, LAUNCHER.CONTROLLER_ROOT)
+        self.assertEqual(git_common_dir, (LAUNCHER.CONTROLLER_ROOT / ".git").resolve())
+
+    def test_accepts_the_frozen_e048_source_worktree(self):
+        before = LAUNCHER.git_snapshot(FROZEN_E048_SOURCE_ROOT)
+        source_root, git_common_dir = LAUNCHER.resolve_source_root(FROZEN_E048_SOURCE_ROOT)
+        after = LAUNCHER.git_snapshot(source_root)
+
+        self.assertEqual(source_root, FROZEN_E048_SOURCE_ROOT)
+        self.assertEqual(git_common_dir, (LAUNCHER.CONTROLLER_ROOT / ".git").resolve())
+        self.assertEqual(after, before)
+
+    def test_rejects_a_symlinked_source_root(self):
+        link = SCRATCH_ROOT / "source-root-link"
+        link.symlink_to(SOURCE_ROOT, target_is_directory=True)
+        try:
+            with self.assertRaisesRegex(LAUNCHER.GateFailure, "canonical path"):
+                LAUNCHER.resolve_source_root(link)
+        finally:
+            link.unlink()
+
+    def test_rejects_a_subdirectory_instead_of_the_checkout_root(self):
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "controller checkout"):
+            LAUNCHER.resolve_source_root(SOURCE_ROOT / "dev")
+
+    def test_rejects_a_source_checkout_with_a_different_shared_git_directory(self):
+        with tempfile.TemporaryDirectory(dir=LAUNCHER.WORKTREE_ROOT) as temporary:
+            unrelated_root = pathlib.Path(temporary)
+            (unrelated_root / "Cargo.toml").write_text("[workspace]\n")
+            (unrelated_root / "dev").mkdir()
+            subprocess.run(["git", "init", "--quiet", str(unrelated_root)], check=True)
+
+            with self.assertRaisesRegex(LAUNCHER.GateFailure, "share the controller's Git directory"):
+                LAUNCHER.resolve_source_root(unrelated_root)
+
+    def test_rejects_source_commit_and_tree_mismatches_before_build(self):
+        source = LAUNCHER.git_snapshot(FROZEN_E048_SOURCE_ROOT)
+        gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        gate.source_root = FROZEN_E048_SOURCE_ROOT
+        gate.expected_commit = "f" * 40
+        gate.expected_tree = source["tree"]
+        gate.receipt = {"source_checks": []}
+        gate.save = mock.Mock()
+
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "source changed or is dirty"):
+            gate.verify_source("before-build")
+
+        gate.expected_commit = source["head"]
+        gate.expected_tree = "f" * 40
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "source changed or is dirty"):
+            gate.verify_source("before-build")
+
+    def test_rejects_a_different_checkout_when_the_frozen_commit_is_expected(self):
+        frozen = LAUNCHER.git_snapshot(FROZEN_E048_SOURCE_ROOT)
+        gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        gate.source_root = LAUNCHER.CONTROLLER_ROOT
+        gate.expected_commit = frozen["head"]
+        gate.expected_tree = frozen["tree"]
+        gate.receipt = {"source_checks": []}
+        gate.save = mock.Mock()
+
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "source changed or is dirty"):
+            gate.verify_source("before-build")
+
+    def test_rejects_a_changed_tool_checkout(self):
+        gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        gate.tool_root = FROZEN_E048_SOURCE_ROOT
+        gate.tool_expected = {"commit": "f" * 40, "tree": "e" * 40}
+        gate.receipt = {"tool_checks": []}
+        gate.save = mock.Mock()
+
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "gate tools changed or are dirty"):
+            gate.verify_tool("before-build")
+
+    def test_execute_requires_the_source_root_argument(self):
+        arguments = [
+            str(LAUNCHER.TOOL_DIR / "launch.py"),
+            "--execute",
+            "--expected-commit", "a" * 40,
+            "--expected-tree", "b" * 40,
+            "--out", str(LAUNCHER.OUTPUT_ROOT / "missing-source-root-self-test"),
+        ]
+        with mock.patch.object(sys, "argv", arguments):
+            with mock.patch.object(LAUNCHER, "load_plan", return_value=plan_data()):
+                with mock.patch.object(
+                    LAUNCHER.argparse.ArgumentParser,
+                    "error",
+                    side_effect=ValueError("--source-root is required"),
+                ):
+                    with self.assertRaisesRegex(ValueError, "--source-root"):
+                        LAUNCHER.main()
+
+    def test_native_build_uses_the_requested_source_worktree(self):
+        gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        gate.source_root = FROZEN_E048_SOURCE_ROOT
+        gate.target_dir = SCRATCH_ROOT / "source-admission-target"
+        gate.native_lock_file = None
+        gate.cid_dir = SCRATCH_ROOT
+        gate.step_number = 0
+        gate.run = mock.Mock(return_value={})
+
+        gate.run_native("source-root", "build", ["cargo", "build"])
+
+        command = gate.run.call_args.args[1]
+        self.assertEqual(command[:2], [str(LAUNCHER.RUNNER), str(FROZEN_E048_SOURCE_ROOT)])
+
+    def test_supplemental_context_mounts_the_selected_source_and_scratch(self):
+        _, git_common_dir = LAUNCHER.resolve_source_root(FROZEN_E048_SOURCE_ROOT)
+        gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        gate.source_root = FROZEN_E048_SOURCE_ROOT
+        gate.git_common_dir = git_common_dir
+        gate.cid_dir = SCRATCH_ROOT
+        gate.step_number = 0
+        gate.target_dir = LAUNCHER.OUTPUT_ROOT / "source-admission-target"
+        gate.run = mock.Mock(return_value={})
+
+        gate.run_special_container(
+            "source-root-special",
+            ["/bin/true"],
+            target_dir=gate.target_dir,
+            privileged=False,
+            memory="1g",
+        )
+
+        command = gate.run.call_args.args[1]
+        volumes = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "-v"]
+        environment = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "-e"]
+        scratch = FROZEN_E048_SOURCE_ROOT / ".work/tmp"
+
+        self.assertIn(f"{FROZEN_E048_SOURCE_ROOT}:{FROZEN_E048_SOURCE_ROOT}:ro", volumes)
+        self.assertIn(f"{git_common_dir}:{git_common_dir}:ro", volumes)
+        self.assertIn(f"{scratch}:{scratch}:rw", volumes)
+        self.assertIn(f"TMPDIR={scratch}", environment)
+        self.assertIn("--tmpfs", command)
+        self.assertEqual(command[command.index("--tmpfs") + 1], "/tmp:rw,nodev,exec,nosuid,mode=1777")
+        self.assertEqual(command[command.index("-w") + 1], str(FROZEN_E048_SOURCE_ROOT))
+
+
 class ArtifactQualificationTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(dir=SCRATCH_ROOT)
         self.root = pathlib.Path(self.temporary.name)
         self.gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        self.gate.source_root = SOURCE_ROOT
         self.gate.expected_commit = "a" * 40
         self.gate.expected_tree = "b" * 40
         self.gate.target_dir = self.root / "target-products"
@@ -287,7 +440,7 @@ class ArtifactQualificationTests(unittest.TestCase):
         artifact = {
             "reason": "compiler-artifact",
             "package_id": "path+file:///work#xsh@0.0.1",
-            "manifest_path": str(LAUNCHER.ROOT / "Cargo.toml") if manifest_path is None else manifest_path,
+            "manifest_path": str(SOURCE_ROOT / "Cargo.toml") if manifest_path is None else manifest_path,
             "target": {
                 "name": "xsh",
                 "kind": ["bin"],
@@ -513,19 +666,20 @@ class CleanupTests(unittest.TestCase):
             fcntl.flock(holder.fileno(), fcntl.LOCK_UN)
 
     def test_final_runner_rejects_held_lock_before_docker(self):
-        target = LAUNCHER.HERE / "lock-rejection-self-test" / "target" / "verification"
+        target = LAUNCHER.OUTPUT_ROOT / "lock-rejection-self-test" / "target" / "verification"
         cidfile = SCRATCH_ROOT / "lock-rejection-self-test.cid"
         env = dict(os.environ)
         env.pop("XSH_GATE_NATIVE_LOCK_FD", None)
         env["XSH_GATE_CIDFILE"] = str(cidfile)
         env["XSH_GATE_TARGET_DIR"] = str(target)
+        env["XSH_GATE_TOOL_DIR"] = str(LAUNCHER.CONTROLLER_ROOT / "dev/consolidation/winddown/gate-tools/final-correctness-gates")
         with CANONICAL_NATIVE_LOCK.open("a+") as holder:
             try:
                 fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as error:
                 self.fail(f"canonical native-suite lock is already held: {error}")
             result = subprocess.run(
-                ["bash", str(NATIVE_RUNNER), str(LAUNCHER.ROOT), "build", "cargo", "build", "--bin", "xsh"],
+                ["bash", str(NATIVE_RUNNER), str(LAUNCHER.CONTROLLER_ROOT), "build", "cargo", "build", "--bin", "xsh"],
                 env=env,
                 capture_output=True,
                 text=True,
@@ -547,6 +701,7 @@ class CommandOutputTests(unittest.TestCase):
         self.logs = self.out / "logs"
         self.logs.mkdir()
         self.gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        self.gate.source_root = SOURCE_ROOT
         self.gate.out = self.out
         self.gate.logs = self.logs
         self.gate.receipt = {"steps": []}
@@ -603,7 +758,7 @@ class CommandOutputTests(unittest.TestCase):
 
 class RunnerInvocationTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(dir=LAUNCHER.HERE)
+        self.temporary = tempfile.TemporaryDirectory(dir=LAUNCHER.OUTPUT_ROOT)
         self.out = pathlib.Path(self.temporary.name)
         self.bin_dir = self.out / "bin"
         self.bin_dir.mkdir()
@@ -628,7 +783,13 @@ class RunnerInvocationTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def invoke(self, mode, command, *, tree=None, target_dir=None, extra_path=None, extra_env=None):
+    def invoke(self, mode, command, *, tree=None, tool_dir=None, target_dir=None, extra_path=None, extra_env=None):
+        selected_tree = LAUNCHER.CONTROLLER_ROOT if tree is None else pathlib.Path(tree)
+        selected_tool_dir = (
+            pathlib.Path(tool_dir)
+            if tool_dir is not None
+            else selected_tree / "dev/consolidation/winddown/gate-tools/final-correctness-gates"
+        )
         self.argv_path.unlink(missing_ok=True)
         env = dict(os.environ)
         env["PATH"] = str(self.bin_dir) + os.pathsep + env["PATH"]
@@ -639,11 +800,12 @@ class RunnerInvocationTests(unittest.TestCase):
         env["XSH_GATE_TARGET_DIR"] = str(self.target_dir if target_dir is None else target_dir)
         env["XSH_GATE_CARGO_HOME"] = str(self.cargo_home)
         env["XSH_GATE_XDG_CACHE_HOME"] = str(self.xdg_cache)
-        env["XSH_GATE_CARGO_FORWARDER"] = str(LAUNCHER.HERE / "cargo-forwarder.sh")
-        env["XSH_GATE_RUSTC_WRAPPER"] = str(LAUNCHER.HERE / "rustc-jemalloc.sh")
+        env["XSH_GATE_TOOL_DIR"] = str(selected_tool_dir)
+        env["XSH_GATE_CARGO_FORWARDER"] = str(selected_tool_dir / "cargo-forwarder.sh")
+        env["XSH_GATE_RUSTC_WRAPPER"] = str(selected_tool_dir / "rustc-jemalloc.sh")
         env.update(extra_env or {})
         result = subprocess.run(
-            ["bash", str(NATIVE_RUNNER), str(LAUNCHER.ROOT if tree is None else tree), mode, *command],
+            ["bash", str(NATIVE_RUNNER), str(selected_tree), mode, *command],
             env=env,
             capture_output=True,
             text=True,
@@ -661,11 +823,11 @@ class RunnerInvocationTests(unittest.TestCase):
             "prepare-cargo": [],
             "run-cargo": ["cargo", "metadata", "--no-deps"],
         }
-        tree = LAUNCHER.ROOT
+        tree = FROZEN_E048_SOURCE_ROOT
         scratch = tree / ".work/tmp"
         ordinary_read_only_mounts = {
             f"{tree}:{tree}:ro",
-            f"{tree / '.git'}:{tree / '.git'}:ro",
+            f"{LAUNCHER.CONTROLLER_ROOT / '.git'}:{LAUNCHER.CONTROLLER_ROOT / '.git'}:ro",
             "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
             "/home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro",
             "/usr/local/bin/mold:/usr/local/bin/mold:ro",
@@ -674,7 +836,7 @@ class RunnerInvocationTests(unittest.TestCase):
 
         for mode, command in cases.items():
             with self.subTest(mode=mode):
-                result, arguments = self.invoke(mode, command)
+                result, arguments = self.invoke(mode, command, tree=tree, tool_dir=SOURCE_DIR)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIsNotNone(arguments)
                 volumes = [
@@ -740,7 +902,7 @@ class RunnerInvocationTests(unittest.TestCase):
                     self.assertEqual(arguments[arguments.index("--user") + 1], f"{os.getuid()}:{os.getgid()}")
 
     def test_runner_rejects_target_symlink_and_disjoint_target_before_docker(self):
-        outside_target = LAUNCHER.ROOT / ".work/tmp/final-runner-outside/target"
+        outside_target = LAUNCHER.CONTROLLER_ROOT / ".work/tmp/final-runner-outside/target"
         result, arguments = self.invoke("run", ["/bin/true"], target_dir=outside_target)
         self.assertEqual(result.returncode, 2)
         self.assertIn("isolated under this gate's ignored output directory", result.stderr)
@@ -754,7 +916,7 @@ class RunnerInvocationTests(unittest.TestCase):
         self.assertIsNone(arguments)
 
     def test_runner_rejects_a_symlinked_worktree_before_docker(self):
-        tree_link = LAUNCHER.ROOT / ".work/wt/final-runner-tree-symlink"
+        tree_link = LAUNCHER.CONTROLLER_ROOT / ".work/wt/final-runner-tree-symlink"
         self.assertFalse(tree_link.exists())
         tree_link.symlink_to(SOURCE_ROOT, target_is_directory=True)
         try:
@@ -762,7 +924,7 @@ class RunnerInvocationTests(unittest.TestCase):
         finally:
             tree_link.unlink()
         self.assertEqual(result.returncode, 2)
-        self.assertIn("must not be symlinks", result.stderr)
+        self.assertIn("canonical repository root", result.stderr)
         self.assertIsNone(arguments)
 
     def test_runner_checks_worktree_exclusion_before_creating_target(self):
@@ -771,7 +933,11 @@ class RunnerInvocationTests(unittest.TestCase):
         fake_git = fake_path / "git"
         fake_git.write_text(
             "#!/bin/sh\n"
-            "if [ \"$3\" = rev-parse ]; then\n"
+            "if [ \"$3\" = rev-parse ] && [ \"$4\" = --show-toplevel ]; then\n"
+            "    /usr/bin/git -C \"$2\" rev-parse --show-toplevel\n"
+            "    exit 0\n"
+            "fi\n"
+            "if [ \"$3\" = rev-parse ] && [ \"$4\" = --path-format=absolute ]; then\n"
             "    printf '%s\\n' \"$XSH_FAKE_GIT_COMMON_DIR\"\n"
             "    exit 0\n"
             "fi\n"

@@ -10,6 +10,7 @@ TASK_TREE=$1
 TASK_MODE=$2
 shift 2
 TASK_ROOT=/home/josh/d/laputa-systems/xsh
+TASK_TOOL_DIR=${XSH_GATE_TOOL_DIR:?the reviewed gate tool directory is required}
 TASK_INFRA=$TASK_ROOT/.work/consolidation/infra
 TASK_GATE_DIR=$TASK_ROOT/.work/final-review-evidence/final-correctness-gates
 TASK_NATIVE_LOCK=$TASK_INFRA/native-suite.lock
@@ -27,6 +28,39 @@ case "$TASK_TREE" in
   "$TASK_ROOT"|"$TASK_ROOT"/.work/wt/*) ;;
   *) echo "worktree is not the final main checkout" >&2; exit 2 ;;
 esac
+TASK_SOURCE_ROOT=$(git -C "$TASK_TREE" rev-parse --show-toplevel 2>/dev/null) || {
+  echo 'selected source tree is not a Git worktree' >&2
+  exit 2
+}
+TASK_GIT_COMMON_DIR=$(git -C "$TASK_TREE" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
+  echo 'selected source tree has no common Git directory' >&2
+  exit 2
+}
+if [ "$TASK_SOURCE_ROOT" != "$TASK_TREE" ] || [ -L "$TASK_TREE" ]; then
+  echo 'selected source path is not a canonical repository root' >&2
+  exit 2
+fi
+TASK_TOOL_ROOT=$(git -C "$TASK_TOOL_DIR" rev-parse --show-toplevel 2>/dev/null) || {
+  echo 'gate tools are not in a Git worktree' >&2
+  exit 2
+}
+TASK_TOOL_GIT_COMMON_DIR=$(git -C "$TASK_TOOL_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
+  echo 'gate tools have no common Git directory' >&2
+  exit 2
+}
+TASK_CONTROLLER_GIT_COMMON_DIR=$(git -C "$TASK_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || {
+  echo 'controller root is not a Git worktree' >&2
+  exit 2
+}
+TASK_EXPECTED_TOOL_DIR=$TASK_TOOL_ROOT/dev/consolidation/winddown/gate-tools/final-correctness-gates
+if [ "$TASK_TOOL_DIR" != "$TASK_EXPECTED_TOOL_DIR" ] || [ ! -d "$TASK_TOOL_DIR" ] || [ -L "$TASK_TOOL_DIR" ]; then
+  echo 'gate tools must come from a tracked final-correctness-gates directory' >&2
+  exit 2
+fi
+if [ "$TASK_GIT_COMMON_DIR" != "$TASK_CONTROLLER_GIT_COMMON_DIR" ] || [ "$TASK_TOOL_GIT_COMMON_DIR" != "$TASK_CONTROLLER_GIT_COMMON_DIR" ]; then
+  echo 'selected source and gate tools must share the controller Git directory' >&2
+  exit 2
+fi
 case "$TASK_TARGET_DIR" in
   "$TASK_GATE_DIR/"*/target/*) ;;
   *) echo "Cargo target must be isolated under this gate's ignored output directory" >&2; exit 2 ;;
@@ -97,7 +131,6 @@ task_docker() {
 }
 
 task_disk_tmpdir_args() {
-  TASK_GIT_COMMON_DIR=$(git -C "$TASK_TREE" rev-parse --path-format=absolute --git-common-dir)
   TASK_GIT_EXCLUDE=$TASK_GIT_COMMON_DIR/info/exclude
   if [ ! -f "$TASK_GIT_EXCLUDE" ]; then
     echo 'repository .work exclusion file is missing' >&2
@@ -180,8 +213,8 @@ case "$TASK_MODE" in
     : "${XSH_GATE_RUSTC_WRAPPER:?compiler wrapper is required}"
     case "$TASK_CARGO_HOME" in "$TASK_GATE_DIR/"*) ;; *) echo 'Cargo home must stay in the ignored gate output' >&2; exit 2;; esac
     case "$TASK_XDG_CACHE_HOME" in "$TASK_GATE_DIR/"*) ;; *) echo 'Kache home must stay in the ignored gate output' >&2; exit 2;; esac
-    case "$XSH_GATE_CARGO_FORWARDER" in "$TASK_GATE_DIR/cargo-forwarder.sh") ;; *) echo 'nested Cargo forwarder is not the reviewed gate helper' >&2; exit 2;; esac
-    case "$XSH_GATE_RUSTC_WRAPPER" in "$TASK_GATE_DIR/rustc-jemalloc.sh") ;; *) echo 'Rustc wrapper is not the reviewed gate helper' >&2; exit 2;; esac
+    case "$XSH_GATE_CARGO_FORWARDER" in "$TASK_TOOL_DIR/cargo-forwarder.sh") ;; *) echo 'nested Cargo forwarder is not the reviewed gate helper' >&2; exit 2;; esac
+    case "$XSH_GATE_RUSTC_WRAPPER" in "$TASK_TOOL_DIR/rustc-jemalloc.sh") ;; *) echo 'Rustc wrapper is not the reviewed gate helper' >&2; exit 2;; esac
     task_disk_tmpdir_args
     mkdir -p "$TASK_TARGET_DIR"
     exec 9>"$TASK_INFRA/cargo.lock"

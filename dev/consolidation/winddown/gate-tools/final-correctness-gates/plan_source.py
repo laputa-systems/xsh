@@ -119,7 +119,7 @@ def plan_data() -> dict[str, Any]:
         ],
         "launcher_self_tests": [
             {
-                "path": ".work/final-review-evidence/final-correctness-gates/test_launcher_cleanup.py",
+                "path": "dev/consolidation/winddown/gate-tools/final-correctness-gates/test_launcher_cleanup.py",
             },
         ],
         "non_goals": [

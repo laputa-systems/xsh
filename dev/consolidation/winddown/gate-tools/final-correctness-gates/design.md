@@ -75,6 +75,31 @@ records. Existing receipts remain unchanged and are not backfilled. Each retry
 uses a new attempt directory, so a failed receipt stays distinct from a later
 attempt.
 
+## Source and tool admission
+
+Execution requires `--source-root` with an absolute canonical checkout path.
+The accepted root is the controller checkout or a direct worktree under its
+`.work/wt` directory. The launcher confirms that the selected path is the Git
+repository root and that its common Git directory matches the controller's.
+It checks the requested commit, tree, and clean status in that selected source
+checkout before inspecting the pinned image or starting a build. The runner
+uses that same root as its working directory and read-only source mount.
+Supplemental contexts keep the existing `/tmp` tmpfs and mount the selected
+source checkout's ignored `.work/tmp` separately for disk-backed `TMPDIR`.
+
+The controller root continues to own the Cargo and native-suite locks, pinned
+image and tool inputs, corpus mount, and ignored output directory. Launcher,
+plan, runner, and helper files come from the tracked gate-tools directory
+containing the invoked launcher. The launcher keeps that tool checkout
+independent from `--source-root`; both must share the controller Git
+directory. Their paths, expected tool commit and tree, and the selected source
+Git directory are bound in the receipt separately from the output path. Both
+source and tool snapshots are checked before and after external commands. The
+generated manifest stays in the controller's ignored final-review output
+directory, and attempts remain direct children of that directory. This keeps
+infrastructure controls and receipts stable while verifying a frozen linked
+worktree without consulting the controller checkout's source status.
+
 The `correctness-be0b-20261016` attempt failed preflight because its generated
 `container_cpus` value was the string `"12"`, while the launcher requires the
 integer `12`. The `correctness-be0b-20261016-r2` attempt failed the image check
@@ -94,6 +119,7 @@ without invoking compilation.
 
 The owner approved the replacement product and warning-deny matrices and the
 five-context plan. Prepare the ignored runtime manifest from the tracked
-generator and run the gate only against an exact clean source tree. This
-approval does not recover the original manifest or claim an acceptance result.
-No bootstrap-product receipt or runtime manifest was created by this change.
+generator and run the gate only against an exact clean source tree supplied
+through `--source-root`. This approval does not recover the original manifest
+or claim an acceptance result. No bootstrap-product receipt or runtime
+manifest was created by the initial gate-input repair.

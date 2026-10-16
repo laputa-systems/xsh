@@ -24,14 +24,15 @@ sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 
-ROOT = pathlib.Path("/home/josh/d/laputa-systems/xsh")
-ROOT_MANIFEST = ROOT / "Cargo.toml"
-HERE = ROOT / ".work/final-review-evidence/final-correctness-gates"
-PLAN_PATH = HERE / "manifest.json"
-RUNNER = HERE / "run-native-final.sh"
-PLAN_SOURCE_PATH = HERE / "plan_source.py"
-MANIFEST_GENERATOR_PATH = HERE / "generate_manifest.py"
-INFRA = ROOT / ".work/consolidation/infra"
+CONTROLLER_ROOT = pathlib.Path("/home/josh/d/laputa-systems/xsh")
+WORKTREE_ROOT = CONTROLLER_ROOT / ".work/wt"
+TOOL_DIR = pathlib.Path(__file__).resolve().parent
+OUTPUT_ROOT = CONTROLLER_ROOT / ".work/final-review-evidence/final-correctness-gates"
+PLAN_PATH = OUTPUT_ROOT / "manifest-source-root-v2.json"
+RUNNER = TOOL_DIR / "run-native-final.sh"
+PLAN_SOURCE_PATH = TOOL_DIR / "plan_source.py"
+MANIFEST_GENERATOR_PATH = TOOL_DIR / "generate_manifest.py"
+INFRA = CONTROLLER_ROOT / ".work/consolidation/infra"
 TARGET = "x86_64-unknown-linux-musl"
 IMAGE = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
 CONTAINER_CPUS = 12
@@ -45,9 +46,9 @@ BASE_RUNNER = INFRA / "run-native.sh"
 NATIVE_LOCK = INFRA / "native-suite.lock"
 NATIVE_CLEANUP_MARKER = INFRA / "native-suite.cleanup-unresolved"
 BASE_RUNNER_SHA256 = "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15"
-APPROVED_MANIFEST_BODY_SHA256 = "939f078f7f572c81b0cb188617991c32f0ce23d7acb1e8685170af8ec271e5ad"
-RUNTIME_CARGO_FORWARDER = HERE / "cargo-forwarder.sh"
-RUNTIME_RUSTC_WRAPPER = HERE / "rustc-jemalloc.sh"
+APPROVED_MANIFEST_BODY_SHA256 = "51564533c167c99664500ec343c162a128f5b695d8803577f29d814def87f497"
+RUNTIME_CARGO_FORWARDER = TOOL_DIR / "cargo-forwarder.sh"
+RUNTIME_RUSTC_WRAPPER = TOOL_DIR / "rustc-jemalloc.sh"
 TOOL_HASHES = {
     pathlib.Path("/home/josh/.cargo/bin/kache"): "b826e99983057974663d6863eafbee4e1b25ca9373071406b15dd02961b2c37d",
     pathlib.Path("/usr/local/bin/mold"): "78e4b6aec99fa067b81326f4b540893b92ae78e5b4176ab32be0565dcbd049d3",
@@ -74,11 +75,80 @@ def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
 
-def git_snapshot() -> dict[str, str]:
-    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, check=True, text=True, capture_output=True).stdout.strip()
-    tree = subprocess.run(["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT, check=True, text=True, capture_output=True).stdout.strip()
-    status = subprocess.run(["git", "status", "--porcelain=v1", "--untracked-files=all"], cwd=ROOT, check=True, text=True, capture_output=True).stdout
+def git_snapshot(source_root: pathlib.Path) -> dict[str, str]:
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=source_root, check=True, text=True, capture_output=True).stdout.strip()
+    tree = subprocess.run(["git", "rev-parse", "HEAD^{tree}"], cwd=source_root, check=True, text=True, capture_output=True).stdout.strip()
+    status = subprocess.run(["git", "status", "--porcelain=v1", "--untracked-files=all"], cwd=source_root, check=True, text=True, capture_output=True).stdout
     return {"head": head, "tree": tree, "status": status}
+
+
+def resolve_source_root(requested: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
+    requested = pathlib.Path(requested)
+    if not requested.is_absolute():
+        raise GateFailure("source root must be an absolute canonical path")
+    try:
+        resolved = requested.resolve(strict=True)
+    except (OSError, RuntimeError) as error:
+        raise GateFailure(f"source root does not resolve to a repository root: {requested}") from error
+    if requested != resolved or requested.is_symlink():
+        raise GateFailure("source root must use its absolute canonical path")
+    if requested != CONTROLLER_ROOT and (requested.parent != WORKTREE_ROOT or WORKTREE_ROOT.is_symlink()):
+        raise GateFailure(f"source root must be the controller checkout or a direct child of {WORKTREE_ROOT}")
+    if not (requested / "Cargo.toml").is_file() or not (requested / "dev").is_dir():
+        raise GateFailure(f"source root is not an XSH repository root: {requested}")
+    try:
+        repository_root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=requested,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        common_dir = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=requested,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        resolved_common_dir = pathlib.Path(common_dir).resolve(strict=True)
+        controller_common_dir = pathlib.Path(
+            subprocess.run(
+                ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                cwd=CONTROLLER_ROOT,
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip()
+        ).resolve(strict=True)
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+        raise GateFailure(f"source root is not a Git repository root: {requested}") from error
+    if pathlib.Path(repository_root) != requested:
+        raise GateFailure(f"source root is not the repository root: {requested}")
+    if resolved_common_dir != controller_common_dir:
+        raise GateFailure("source checkout does not share the controller's Git directory")
+    return requested, resolved_common_dir
+
+
+def resolve_tool_root() -> tuple[pathlib.Path, pathlib.Path, dict[str, str]]:
+    try:
+        root_path = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=TOOL_DIR,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        tool_root, git_common_dir = resolve_source_root(pathlib.Path(root_path))
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as error:
+        raise GateFailure(f"gate tools are not in an accepted repository worktree: {TOOL_DIR}") from error
+    expected_tool_dir = tool_root / "dev/consolidation/winddown/gate-tools/final-correctness-gates"
+    if TOOL_DIR != expected_tool_dir:
+        raise GateFailure("gate tools are not in the tracked final-correctness-gates directory")
+    snapshot = git_snapshot(tool_root)
+    if snapshot["status"]:
+        raise GateFailure("gate tool worktree is dirty")
+    return tool_root, git_common_dir, snapshot
 
 
 def json_write(path: pathlib.Path, value: Any) -> None:
@@ -107,7 +177,20 @@ def unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 
 class Launch:
-    def __init__(self, expected_commit: str, expected_tree: str, out: pathlib.Path):
+    def __init__(
+        self,
+        source_root: pathlib.Path,
+        git_common_dir: pathlib.Path,
+        tool_root: pathlib.Path,
+        tool_snapshot: dict[str, str],
+        expected_commit: str,
+        expected_tree: str,
+        out: pathlib.Path,
+    ):
+        self.source_root = source_root
+        self.git_common_dir = git_common_dir
+        self.tool_root = tool_root
+        self.tool_expected = {"commit": tool_snapshot["head"], "tree": tool_snapshot["tree"]}
         self.expected_commit = expected_commit
         self.expected_tree = expected_tree
         self.out = out
@@ -141,6 +224,15 @@ class Launch:
             "status": "running",
             "started_utc": utc_now(),
             "source_expected": {"commit": expected_commit, "tree": expected_tree},
+            "tool_expected": self.tool_expected,
+            "authorities": {
+                "controller_root": str(CONTROLLER_ROOT),
+                "source_root": str(source_root),
+                "source_git_common_dir": str(git_common_dir),
+                "tool_root": str(tool_root),
+                "tool_dir": str(TOOL_DIR),
+                "output_root": str(OUTPUT_ROOT),
+            },
             "environment": {"target": TARGET, "image": IMAGE},
             "cargo_target_dirs": {
                 "products": str(self.target_dir),
@@ -164,7 +256,7 @@ class Launch:
         json_write(self.out / "receipt.json", self.receipt)
 
     def verify_source(self, where: str) -> dict[str, str]:
-        current = git_snapshot()
+        current = git_snapshot(self.source_root)
         self.receipt.setdefault("source_checks", []).append({
             "where": where,
             "head": current["head"],
@@ -177,13 +269,31 @@ class Launch:
             raise GateFailure(f"source changed or is dirty at {where}")
         return current
 
+    def verify_tool(self, where: str) -> dict[str, str]:
+        current = git_snapshot(self.tool_root)
+        self.receipt.setdefault("tool_checks", []).append({
+            "where": where,
+            "head": current["head"],
+            "tree": current["tree"],
+            "clean": current["status"] == "",
+            "status": current["status"],
+        })
+        if (
+            current["head"] != self.tool_expected["commit"]
+            or current["tree"] != self.tool_expected["tree"]
+            or current["status"]
+        ):
+            self.save()
+            raise GateFailure(f"gate tools changed or are dirty at {where}")
+        return current
+
     def append_cleanup(self, log: pathlib.Path, argv: list[str]) -> dict[str, Any]:
         with log.open("ab") as output:
             output.write(("\ncleanup argv: " + json.dumps(argv) + "\n").encode())
             try:
                 result = subprocess.run(
                     argv,
-                    cwd=ROOT,
+                    cwd=CONTROLLER_ROOT,
                     capture_output=True,
                     text=True,
                     check=False,
@@ -328,7 +438,7 @@ class Launch:
             "id": step_id,
             "argv": argv,
             "env": env_values,
-            "cwd": str(ROOT),
+            "cwd": str(self.source_root),
             "log": str(log),
             "stdout_log": str(stdout_log),
             "stderr_log": str(stderr_log),
@@ -336,6 +446,7 @@ class Launch:
         }
         if check_source:
             self.verify_source(f"before:{step_id}")
+            self.verify_tool(f"before:{step_id}")
         monotonic_start = time.monotonic()
         interrupted: str | None = None
         process: subprocess.Popen[bytes] | None = None
@@ -347,7 +458,7 @@ class Launch:
             try:
                 process = subprocess.Popen(
                     argv,
-                    cwd=ROOT,
+                    cwd=self.source_root,
                     env=dict(os.environ, **env_values),
                     stdout=stdout,
                     stderr=stderr,
@@ -423,6 +534,7 @@ class Launch:
             cidfile.unlink()
         if check_source:
             self.verify_source(f"after:{step_id}")
+            self.verify_tool(f"after:{step_id}")
         if cleanup_result is not None and not cleanup_result["resolved"]:
             raise GateFailure(f"{step_id} cleanup could not be confirmed; cidfile and native-suite lock marker were retained")
         if interrupted is not None:
@@ -435,6 +547,7 @@ class Launch:
         cidfile = self.cid_dir / f"{self.step_number + 1:03d}-{step_id}.cid"
         native_fd = self.native_lock_file.fileno() if self.native_lock_file is not None else None
         environment = {
+            "XSH_GATE_TOOL_DIR": str(TOOL_DIR),
             "XSH_GATE_TARGET_DIR": str(self.target_dir),
             "XSH_GATE_CARGO_LOCK_TIMEOUT": str(CARGO_LOCK_TIMEOUT_SECONDS),
         }
@@ -444,7 +557,7 @@ class Launch:
             pass_fds = (native_fd,)
         return self.run(
             step_id,
-            [str(RUNNER), str(ROOT), mode, *args],
+            [str(RUNNER), str(self.source_root), mode, *args],
             env=environment,
             timeout_seconds=timeout,
             cidfile=cidfile,
@@ -471,6 +584,7 @@ class Launch:
     ) -> dict[str, Any]:
         cidfile = self.cid_dir / f"{self.step_number + 1:03d}-{step_id}.cid"
         environment = {
+            "XSH_GATE_TOOL_DIR": str(TOOL_DIR),
             "XSH_GATE_TARGET_DIR": str(target_dir),
             "XSH_GATE_CARGO_LOCK_TIMEOUT": str(CARGO_LOCK_TIMEOUT_SECONDS),
         }
@@ -482,7 +596,7 @@ class Launch:
             pass_fds = (native_fd,)
         return self.run(
             step_id,
-            [str(RUNNER), str(ROOT), mode, *args],
+            [str(RUNNER), str(self.source_root), mode, *args],
             env=environment,
             timeout_seconds=timeout,
             cidfile=cidfile,
@@ -642,7 +756,7 @@ class Launch:
         manifest = artifact.get("manifest_path")
         try:
             manifest_path = pathlib.Path(manifest).resolve(strict=False) if isinstance(manifest, str) else None
-            expected_manifest = ROOT_MANIFEST.resolve(strict=True)
+            expected_manifest = (self.source_root / "Cargo.toml").resolve(strict=True)
         except (OSError, RuntimeError) as error:
             raise GateFailure(f"Cargo reported an invalid xsh manifest path: {manifest!r}") from error
         if manifest_path != expected_manifest:
@@ -914,8 +1028,8 @@ class Launch:
             raise GateFailure("the runtime integration harness xsh is not byte-identical to the candidate product")
 
         self.receipt["runtime_nested_cargo"] = {
-            "source": str(ROOT / "tests/runtime/common.rs"),
-            "source_sha256": sha256(ROOT / "tests/runtime/common.rs"),
+            "source": str(self.source_root / "tests/runtime/common.rs"),
+            "source_sha256": sha256(self.source_root / "tests/runtime/common.rs"),
             "profile": "verification",
             "target": TARGET,
             "target_dir": str(self.runtime_target_dir),
@@ -923,14 +1037,14 @@ class Launch:
                 "xshi": {
                     "explicit_features": [],
                     "default_features": [],
-                    "manifest": str(ROOT / "crates/xshi/Cargo.toml"),
-                    "manifest_sha256": sha256(ROOT / "crates/xshi/Cargo.toml"),
+                    "manifest": str(self.source_root / "crates/xshi/Cargo.toml"),
+                    "manifest_sha256": sha256(self.source_root / "crates/xshi/Cargo.toml"),
                 },
                 "xsht": {
                     "explicit_features": [],
                     "default_features": ["native-tests"],
-                    "manifest": str(ROOT / "crates/xsht/Cargo.toml"),
-                    "manifest_sha256": sha256(ROOT / "crates/xsht/Cargo.toml"),
+                    "manifest": str(self.source_root / "crates/xsht/Cargo.toml"),
+                    "manifest_sha256": sha256(self.source_root / "crates/xsht/Cargo.toml"),
                 },
             },
             "uid": os.getuid(),
@@ -988,7 +1102,7 @@ class Launch:
         driver.write_text(
             "use docs as documentation\n\n"
             "proc main() [fs, process, env, error, io] -> Result[Unit] {\n"
-            f"  documentation.check(p{json.dumps(str(ROOT))}, documentation.DocTools(\n"
+            f"  documentation.check(p{json.dumps(str(self.source_root))}, documentation.DocTools(\n"
             f"    xsh: p{json.dumps(str(release / 'xsh'))},\n"
             f"    xsht: p{json.dumps(str(release / 'xsht'))}))\n"
             "}\n\n"
@@ -1049,10 +1163,10 @@ class Launch:
         ):
             raise GateFailure("the manifest's canonical exclusion lock or bounded cleanup policy differs from the launcher")
         self_test = plan.get("launcher_self_tests", [])
-        self_test_relative_path = ".work/final-review-evidence/final-correctness-gates/test_launcher_cleanup.py"
+        self_test_relative_path = "dev/consolidation/winddown/gate-tools/final-correctness-gates/test_launcher_cleanup.py"
         if len(self_test) != 1 or self_test[0].get("path") != self_test_relative_path:
             raise GateFailure("the manifest's no-Docker cleanup self-test inventory differs from the launcher")
-        self_test_path = HERE / "test_launcher_cleanup.py"
+        self_test_path = TOOL_DIR / "test_launcher_cleanup.py"
         if not self_test_path.is_file():
             raise GateFailure("the no-Docker cleanup self-test is missing")
         if sha256(self_test_path) != plan["environment"].get("cleanup_self_test_sha256"):
@@ -1072,7 +1186,7 @@ class Launch:
             raise GateFailure(f"native runner hash mismatch: {actual_base} != {expected_base}")
         if sha256(RUNNER) != plan["environment"]["final_runner_sha256"]:
             raise GateFailure("the prepared bounded runner changed after review")
-        if sha256(HERE / "launch.py") != plan["environment"]["launch_sha256"]:
+        if sha256(TOOL_DIR / "launch.py") != plan["environment"]["launch_sha256"]:
             raise GateFailure("the reviewed gate launcher changed after review")
         if sha256(RUNTIME_CARGO_FORWARDER) != plan["environment"]["runtime_cargo_forwarder_sha256"]:
             raise GateFailure("the nested Cargo forwarder changed after review")
@@ -1102,7 +1216,7 @@ class Launch:
             "native_lock_scope": "acquired before product, harness, Clippy and supplemental context runs",
             "no_docker_self_test_sha256": sha256(self_test_path),
             "final_runner_sha256": wrapper_hash,
-            "launch_sha256": sha256(HERE / "launch.py"),
+            "launch_sha256": sha256(TOOL_DIR / "launch.py"),
             "manifest_sha256": sha256(PLAN_PATH),
             "manifest_body_sha256": actual_manifest_body,
             "build_tools": {str(path): sha256(path) for path in TOOL_HASHES},
@@ -1158,17 +1272,41 @@ class Launch:
         timeout: int = 3600,
     ) -> None:
         cidfile = self.cid_dir / f"{self.step_number + 1:03d}-{step_id}.cid"
+        scratch = self.source_root / ".work/tmp"
+        work_dir = self.source_root / ".work"
+        if self.source_root.is_symlink() or work_dir.is_symlink() or scratch.is_symlink():
+            raise GateFailure("source .work and .work/tmp must not be symlinks")
+        exclude_path = self.git_common_dir / "info/exclude"
+        if not exclude_path.is_file():
+            raise GateFailure("the shared Git .work exclusion file is missing")
+        excluded = {
+            line.split("#", 1)[0].strip()
+            for line in exclude_path.read_text().splitlines()
+        }
+        if not excluded.intersection({".work", ".work/", "/.work", "/.work/"}):
+            raise GateFailure("source .work/tmp must be excluded by .git/info/exclude")
+        ignored = subprocess.run(
+            ["git", "check-ignore", "--quiet", "--no-index", ".work/tmp"],
+            cwd=self.source_root,
+            check=False,
+        )
+        if ignored.returncode != 0:
+            raise GateFailure("source .work/tmp is not ignored by Git")
+        scratch.mkdir(parents=True, exist_ok=True)
+        if not scratch.is_dir() or scratch.is_symlink():
+            raise GateFailure("source .work/tmp must be a real directory")
         args = ["docker", "run", "--rm", "--init", "--cidfile", str(cidfile), "--platform", "linux/amd64", f"--cpus={cpus}", f"--memory={memory}", f"--memory-swap={memory}", f"--network={network}"]
         if privileged:
             args.append("--privileged")
         args.extend([
             "--tmpfs", "/tmp:rw,nodev,exec,nosuid,mode=1777",
-            "-v", f"{ROOT}:{ROOT}",
-            "-v", f"{ROOT}/.git:{ROOT}/.git:ro",
+            "-v", f"{self.source_root}:{self.source_root}:ro",
+            "-v", f"{scratch}:{scratch}:rw",
+            "-v", f"{CONTROLLER_ROOT}/.git:{CONTROLLER_ROOT}/.git:ro",
             "-v", "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
             "-v", f"{target_dir}:{target_dir}:ro",
-            "-w", str(ROOT),
-            "-e", "LC_ALL=C", "-e", "TZ=UTC", "-e", "TMPDIR=/tmp",
+            "-w", str(self.source_root),
+            "-e", "LC_ALL=C", "-e", "TZ=UTC", "-e", f"TMPDIR={scratch}",
             "-e", f"CARGO_TARGET_DIR={target_dir}",
             "-e", "HOME=/home/compat", "-e", "RUSTUP_HOME=/root/.rustup",
             "-e", f"TARGET={TARGET}", "-e", "DIST_PROFILE=verification",
@@ -1188,6 +1326,8 @@ class Launch:
 
     def execute(self, plan: dict[str, Any]) -> None:
         self.require_native_lock()
+        snapshot = self.verify_source("before-build")
+        self.verify_tool("before-build")
         self.verify_toolchain_inputs(plan)
         image_check = self.run(
             "verify-pinned-image-id",
@@ -1196,7 +1336,6 @@ class Launch:
         )
         self.validate_pinned_image_output(image_check)
 
-        snapshot = self.verify_source("before-build")
         self.receipt["hashes"]["source_before"] = {"head": snapshot["head"], "tree": snapshot["tree"]}
         self.receipt["hashes"]["binaries_before_build"] = self.binary_hashes()
         self.receipt["product_variants"] = plan["product_variants"]
@@ -1304,6 +1443,7 @@ class Launch:
 
         self.verify_source("after-all-gates")
         self.receipt["hashes"]["source_after"] = self.verify_source("final")
+        self.receipt["hashes"]["tool_after"] = self.verify_tool("final")
         self.receipt["status"] = "commands-passed-needs-privilege-skip-and-close-review"
         self.receipt["finished_utc"] = utc_now()
         self.save()
@@ -1314,7 +1454,7 @@ def load_plan() -> dict[str, Any]:
     actual_body = manifest_body_sha256(plan)
     if actual_body != APPROVED_MANIFEST_BODY_SHA256:
         raise GateFailure(f"approved manifest body changed: {actual_body} != {APPROVED_MANIFEST_BODY_SHA256}")
-    if sha256(HERE / "launch.py") != plan["environment"]["launch_sha256"]:
+    if sha256(TOOL_DIR / "launch.py") != plan["environment"]["launch_sha256"]:
         raise GateFailure("launcher hash does not match its one-way manifest self-hash")
     return plan
 
@@ -1322,6 +1462,10 @@ def load_plan() -> dict[str, Any]:
 def print_plan(plan: dict[str, Any]) -> None:
     print(json.dumps({
         "plan_status": plan["plan_status"],
+        "controller_root": str(CONTROLLER_ROOT),
+        "tool_root": str(TOOL_DIR.parents[4]),
+        "tool_dir": str(TOOL_DIR),
+        "output_root": str(OUTPUT_ROOT),
         "source_binding": plan["source"],
         "target": plan["environment"]["target"],
         "image": plan["environment"]["image"],
@@ -1350,6 +1494,7 @@ def main() -> int:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--plan", action="store_true", help="print the prepared gate inventory without building or testing")
     mode.add_argument("--execute", action="store_true", help="run gates against the exact clean sealed source supplied below")
+    parser.add_argument("--source-root", type=pathlib.Path)
     parser.add_argument("--expected-commit")
     parser.add_argument("--expected-tree")
     parser.add_argument("--out", type=pathlib.Path)
@@ -1361,19 +1506,34 @@ def main() -> int:
     if args.plan:
         print_plan(plan)
         return 0
-    if not args.expected_commit or not args.expected_tree or args.out is None:
-        parser.error("--execute requires --expected-commit, --expected-tree, and --out")
-    if len(args.expected_commit) != 40 or len(args.expected_tree) != 40:
+    if args.source_root is None or not args.expected_commit or not args.expected_tree or args.out is None:
+        parser.error("--execute requires --source-root, --expected-commit, --expected-tree, and --out")
+    if not re.fullmatch(r"[0-9a-f]{40}", args.expected_commit) or not re.fullmatch(r"[0-9a-f]{40}", args.expected_tree):
         parser.error("source commit and tree must be full 40-character Git IDs")
+    try:
+        source_root, git_common_dir = resolve_source_root(args.source_root)
+        tool_root, tool_git_common_dir, tool_snapshot = resolve_tool_root()
+    except GateFailure as error:
+        parser.error(str(error))
+    if git_common_dir != tool_git_common_dir:
+        parser.error("source and gate tool checkouts must share the controller Git directory")
     out = args.out.resolve()
-    if out.parent != HERE.resolve():
+    if out.parent != OUTPUT_ROOT.resolve():
         parser.error("--out must be a direct child of .work/final-review-evidence/final-correctness-gates")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", out.name):
         parser.error("--out's final component must contain only letters, digits, dot, underscore, and dash")
     if out.exists():
         parser.error("--out already exists; receipts are never overwritten")
     out.mkdir(parents=True)
-    launch = Launch(args.expected_commit, args.expected_tree, out)
+    launch = Launch(
+        source_root,
+        git_common_dir,
+        tool_root,
+        tool_snapshot,
+        args.expected_commit,
+        args.expected_tree,
+        out,
+    )
     launch.save()
     previous_handlers: dict[int, Any] = {}
 
