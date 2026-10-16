@@ -182,10 +182,31 @@ export proc native(
   ctx: context.Context,
   profile: TestProfile,
   filters: List[Str],
-) [process, error, io] -> Result[Unit, Error] {
+) [process, env, error, io] -> Result[Unit, Error] {
   let xsht = product_path(ctx, profile, Xsht)
-  stages.execute(stages.command("test-xsh", ctx.target.triple, xsht.display(),
-    [xsht.display(), "test", @filters], ctx.root, {}))
+  if ctx.target.os == "linux" and unix.id()?.euid == 0 {
+    let host_uid = env.get("HOST_UID")?.trim().parse_int()?
+    let host_gid = env.get("HOST_GID")?.trim().parse_int()?
+    guard host_uid > 0 and host_gid >= 0 else {
+      return Err(stages.StageError.Failed(
+        stage: "test-xsh",
+        target: ctx.target.triple,
+        detail: "Linux native tests require a non-root host UID and GID",
+      ))
+    }
+
+    let scratch = fp"{ctx.root}/.work/tmp"
+    let home = fp"{scratch}/native-home-{host_uid}-{host_gid}"
+    let as_host = ["setpriv", f"--reuid={host_uid}", f"--regid={host_gid}", "--clear-groups"]
+    stages.execute(stages.command("test-xsh-scratch", ctx.target.triple, "setpriv",
+      [@as_host, "/bin/mkdir", "-p", scratch.display(), home.display()], ctx.root, {}))
+    stages.execute(stages.command("test-xsh", ctx.target.triple, "setpriv",
+      [@as_host, xsht.display(), "test", @filters], ctx.root,
+      {HOME: home.display(), TMPDIR: scratch.display()}))
+  } else {
+    stages.execute(stages.command("test-xsh", ctx.target.triple, xsht.display(),
+      [xsht.display(), "test", @filters], ctx.root, {}))
+  }
 }
 
 ## Runs process and debug-assertion gates, followed by one full native suite.

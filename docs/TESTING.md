@@ -354,6 +354,13 @@ final verification. The image includes Python 3 for repository metadata checks,
 util-linux `setpriv` and a `compat` account with UID/GID 1000 for unprivileged
 runs, and ACL, capability, and crypto headers for platform boundary tests.
 
+The privileged driver keeps Rust host-boundary tests as root. Before the native
+suite, it switches to the supplied `HOST_UID` and `HOST_GID` and clears supplementary
+groups. The UID must be positive and the GID nonnegative. The native runner uses
+a writable home under `.work/tmp` and sets `TMPDIR` there. An already unprivileged
+caller keeps its identity and environment. Root internal invocations require
+both identity variables and `setpriv`; failures propagate.
+
 The ordinary core applet host-boundary targets run with
 `cargo test --profile verification --target "$TARGET" --test core_compat_boundaries --test core_compat_extra -- --skip split::`.
 The `linux-priv-tests` feature enables credential, device, and private mount
