@@ -4,10 +4,11 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand,
     ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaPatternKind,
-    ArenaPipeStageKind, ArenaRecordFieldKind, ArenaStmtKind, ArenaSugar, ArenaTypeDefBody,
-    ArenaWordPart, ExprId, StmtId, SugarForm,
+    ArenaPipeStageKind, ArenaRecordFieldKind, ArenaRunTailOperand, ArenaStmtKind, ArenaSugar,
+    ArenaTypeDefBody, ArenaWordPart, ExprId, StmtId, SugarForm,
 };
 use xsh::frontend::syntax::cst::{SyntaxElement, SyntaxGroupKind, SyntaxKind, TriviaKind};
+use xsh::frontend::syntax::grammar::RunOption;
 use xsh::frontend::syntax::node::{
     AssignOp, BinaryOp, Effect, RedirectionKind, RunKind, StreamStageKind,
 };
@@ -373,7 +374,14 @@ fn run_command_fixture_preserves_argv_boundary() {
     };
     let form = arena.run_form(*run_id);
     let segments = arena.run_segments(form.segments);
-    let args = arena.command_args(segments[0].args);
+    let args = arena
+        .run_tail_operands(segments[0].tail)
+        .iter()
+        .filter_map(|operand| match operand {
+            ArenaRunTailOperand::Argument(id) => Some(arena.command_arg(*id)),
+            ArenaRunTailOperand::Redirection(_) => None,
+        })
+        .collect::<Vec<_>>();
     assert_eq!(args.len(), 1);
     assert!(matches!(args[0].kind, ArenaCommandArgKind::Word(_)));
 }
@@ -395,7 +403,7 @@ fn parser_accepts_grouped_multiline_run_invocation() {
     let form = arena.run_form(*run_id);
     let segments = arena.run_segments(form.segments);
     assert!(segments[0].grouped);
-    assert_eq!(arena.command_args(segments[0].args).len(), 3);
+    assert_eq!(arena.run_tail_operands(segments[0].tail).len(), 3);
     assert!(form.propagate);
 }
 
@@ -420,14 +428,20 @@ fn parser_accepts_byte_pipeline_and_redirections() {
     let segments = arena.run_segments(form.segments);
     assert_eq!(segments.len(), 2);
     assert_eq!(
-        arena.redirections(segments[0].redirections)[0].kind,
+        match arena.run_tail_operands(segments[0].tail)[0] {
+            ArenaRunTailOperand::Redirection(id) => arena.redirection(id).kind,
+            ArenaRunTailOperand::Argument(_) => panic!("expected redirection"),
+        },
         RedirectionKind::StdinRead
     );
     assert_eq!(
         arena
-            .redirections(segments[1].redirections)
+            .run_tail_operands(segments[1].tail)
             .iter()
-            .map(|redirection| redirection.kind)
+            .map(|operand| match operand {
+                ArenaRunTailOperand::Redirection(id) => arena.redirection(*id).kind,
+                ArenaRunTailOperand::Argument(_) => panic!("expected redirection"),
+            })
             .collect::<Vec<_>>(),
         vec![RedirectionKind::StdoutWrite, RedirectionKind::StderrAppend]
     );
@@ -1041,8 +1055,29 @@ fn parser_preserves_cpumax_and_timeout_run_segments() {
     let segments = arena.run_segments(arena.run_form(*run_id).segments);
     let segment = &segments[0];
     assert_eq!(segment.kind, RunKind::StreamBytes);
-    assert!(segment.cpu_max.is_some());
-    assert!(segment.timeout.is_some());
+    let options = arena.run_options(segment.options);
+    assert!(options.iter().any(|option| option.kind == RunOption::CpuMax));
+    assert!(options.iter().any(|option| option.kind == RunOption::Timeout));
+}
+
+#[test]
+fn formatter_preserves_run_operand_source_order() {
+    let source = "run --accept=accept() --timeout=timeout() --cpumax=cpumax() ENV=env() ${target()} first > ${redirect()} last\n";
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    let positions = [
+        "accept()",
+        "timeout()",
+        "cpumax()",
+        "ENV=env()",
+        "target()",
+        "first",
+        "redirect()",
+        "last",
+    ]
+    .map(|needle| formatted.formatted.find(needle).expect("run operand remains printed"));
+    assert!(positions.windows(2).all(|pair| pair[0] < pair[1]), "{}", formatted.formatted);
 }
 
 #[test]
@@ -1193,7 +1228,14 @@ fn quoted_command_interpolation_spans_use_source_offsets() {
         panic!("expected run command");
     };
     let segments = arena.run_segments(arena.run_form(*run_id).segments);
-    let args = arena.command_args(segments[0].args);
+    let args = arena
+        .run_tail_operands(segments[0].tail)
+        .iter()
+        .filter_map(|operand| match operand {
+            ArenaRunTailOperand::Argument(id) => Some(arena.command_arg(*id)),
+            ArenaRunTailOperand::Redirection(_) => None,
+        })
+        .collect::<Vec<_>>();
     let ArenaCommandArgKind::Word(parts) = args[0].kind else {
         panic!("expected word");
     };
@@ -1379,7 +1421,14 @@ fn embedded_and_quoted_dollar_command_interpolation_is_accepted() {
         panic!("expected run command");
     };
     let segments = arena.run_segments(arena.run_form(*run_id).segments);
-    let args = arena.command_args(segments[0].args);
+    let args = arena
+        .run_tail_operands(segments[0].tail)
+        .iter()
+        .filter_map(|operand| match operand {
+            ArenaRunTailOperand::Argument(id) => Some(arena.command_arg(*id)),
+            ArenaRunTailOperand::Redirection(_) => None,
+        })
+        .collect::<Vec<_>>();
     for arg in &args[0..2] {
         let ArenaCommandArgKind::Word(parts) = &arg.kind else {
             panic!("expected word");

@@ -8,8 +8,8 @@ use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaEnvAssignment,
     ArenaEnvAssignmentValue, ArenaExprKind, ArenaProgram, ArenaRange, ArenaRedirection,
-    ArenaRedirectionTarget, ArenaRunSegment, ArenaWordPart, BlockId, CommandStmtId, ExprId,
-    RunFormId,
+    ArenaRedirectionTarget, ArenaRunOption, ArenaRunSegment, ArenaRunTailOperand, ArenaWordPart,
+    BlockId, CommandStmtId, ExprId, RunFormId,
 };
 use crate::syntax::node::{CommandWordRefSegment, parse_command_word_reference};
 
@@ -738,17 +738,13 @@ impl Checker {
         }
         let is_pipeline = segments.len() > 1;
         if segments.iter().skip(1).any(|segment| {
-            arena
-                .arena
-                .redirections(segment.redirections)
-                .iter()
-                .any(|item| {
-                    matches!(
-                        item.kind,
-                        crate::syntax::node::RedirectionKind::StdinRead
-                            | crate::syntax::node::RedirectionKind::StdinDup
-                    )
-                })
+            arena.arena.run_tail_operands(segment.tail).iter().any(|operand| {
+                matches!(operand, ArenaRunTailOperand::Redirection(id) if matches!(
+                    arena.arena.redirection(*id).kind,
+                    crate::syntax::node::RedirectionKind::StdinRead
+                        | crate::syntax::node::RedirectionKind::StdinDup
+                ))
+            })
         }) {
             self.error(
                 run_span,
@@ -784,7 +780,11 @@ impl Checker {
             && segments
                 .iter()
                 .skip(1)
-                .any(|segment| segment.cpu_max.is_some())
+                .any(|segment| {
+                    arena.arena.run_options(segment.options).iter().any(|option| {
+                        option.kind == crate::syntax::grammar::RunOption::CpuMax
+                    })
+                })
         {
             self.error(
                 run_span,
@@ -847,41 +847,12 @@ impl Checker {
         source: &str,
         segment: &ArenaRunSegment,
     ) {
-        if let Some(timeout) = segment.timeout {
-            let ty = self.check_expr_arena(arena, source, timeout, Some(&Type::Duration));
-            let timeout_span = arena.arena.expr(timeout).span;
-            self.expect_type(&Type::Duration, &ty, timeout_span);
+        for option in arena.arena.run_options(segment.options) {
+            self.check_run_option_arena(arena, source, option);
         }
-        if let Some(cpu_max) = segment.cpu_max {
-            let ty = self.check_expr_arena(arena, source, cpu_max, Some(&Type::Int));
-            let cpu_max_span = arena.arena.expr(cpu_max).span;
-            self.expect_type(&Type::Int, &ty, cpu_max_span);
-            self.check_static_positive_int_arena(
-                arena,
-                cpu_max,
-                "`--cpumax` must be positive",
-                DiagnosticCode::CheckCpumax,
-            );
+        for assignment in arena.arena.env_assignments(segment.env) {
+            self.check_env_assignment_arena(arena, source, assignment);
         }
-        if let Some(accept) = segment.accept {
-            let expected = Type::List(Box::new(Type::Int));
-            let actual = self.check_expr_arena(arena, source, accept, Some(&expected));
-            let span = arena.arena.expr(accept).span;
-            self.expect_type(&expected, &actual, span);
-            self.require_effect(
-                Effect::Error,
-                span,
-                "explicit process completion validation",
-            );
-            self.record_statement_error(
-                &Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)),
-                span,
-            );
-            self.check_static_accepted_exit_codes(arena, accept);
-        }
-        // A spliced target is the whole command vector, and its first
-        // element is the program. An empty list literal can never name one;
-        // a computed list is checked when the command runs.
         if let ArenaCommandArgKind::SpliceExpr(list) = segment.target.kind
             && let ArenaExprKind::List(items) = arena.arena.expr(list).kind
             && items.is_empty()
@@ -893,7 +864,6 @@ impl Checker {
             );
         } else {
             self.check_external_arg_arena(arena, source, &segment.target);
-            // The target was just checked, so its type is a fact to read.
             let vector = match segment.target.kind {
                 ArenaCommandArgKind::SpliceExpr(list) => {
                     self.expr_types.get(&arena.arena.expr(list).span).cloned()
@@ -909,26 +879,26 @@ impl Checker {
                     .insert(arena.arena.span(segment.target.span), vector);
             }
         }
-        for assignment in arena.arena.env_assignments(segment.env) {
-            self.check_env_assignment_arena(arena, source, assignment);
-        }
-        for arg in arena.arena.command_args(segment.args) {
-            self.check_external_arg_arena(arena, source, arg);
-        }
-        let redirections = arena.arena.redirections(segment.redirections);
-        let stdin_sources = redirections
-            .iter()
-            .filter(|item| {
-                matches!(
-                    item.kind,
-                    crate::syntax::node::RedirectionKind::StdinRead
-                        | crate::syntax::node::RedirectionKind::StdinDup
-                )
-            })
-            .count();
+        let tail = arena.arena.run_tail_operands(segment.tail);
+        let stdin_sources = tail.iter().filter(|operand| {
+            matches!(operand, ArenaRunTailOperand::Redirection(id) if matches!(
+                arena.arena.redirection(*id).kind,
+                crate::syntax::node::RedirectionKind::StdinRead
+                    | crate::syntax::node::RedirectionKind::StdinDup
+            ))
+        }).count();
         let mut bytes_input = false;
-        for redirection in redirections {
-            bytes_input |= self.check_redirection_arena(arena, source, redirection);
+        for operand in tail {
+            match operand {
+                ArenaRunTailOperand::Argument(id) => {
+                    let arg = arena.arena.command_arg(*id);
+                    self.check_external_arg_arena(arena, source, arg);
+                }
+                ArenaRunTailOperand::Redirection(id) => {
+                    let redirection = arena.arena.redirection(*id);
+                    bytes_input |= self.check_redirection_arena(arena, source, redirection);
+                }
+            }
         }
         if bytes_input && stdin_sources > 1 {
             self.error(
@@ -936,6 +906,50 @@ impl Checker {
                 "Bytes input cannot compete with another stdin source",
                 DiagnosticCode::CheckStdinSource,
             );
+        }
+    }
+
+    fn check_run_option_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        option: &ArenaRunOption,
+    ) {
+        use crate::syntax::grammar::RunOption;
+        let expression = option.value;
+        match option.kind {
+            RunOption::Timeout => {
+                let ty = self.check_expr_arena(arena, source, expression, Some(&Type::Duration));
+                let span = arena.arena.expr(expression).span;
+                self.expect_type(&Type::Duration, &ty, span);
+            }
+            RunOption::CpuMax => {
+                let ty = self.check_expr_arena(arena, source, expression, Some(&Type::Int));
+                let span = arena.arena.expr(expression).span;
+                self.expect_type(&Type::Int, &ty, span);
+                self.check_static_positive_int_arena(
+                    arena,
+                    expression,
+                    "`--cpumax` must be positive",
+                    DiagnosticCode::CheckCpumax,
+                );
+            }
+            RunOption::Accept => {
+                let expected = Type::List(Box::new(Type::Int));
+                let actual = self.check_expr_arena(arena, source, expression, Some(&expected));
+                let span = arena.arena.expr(expression).span;
+                self.expect_type(&expected, &actual, span);
+                self.require_effect(
+                    Effect::Error,
+                    span,
+                    "explicit process completion validation",
+                );
+                self.record_statement_error(
+                    &Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)),
+                    span,
+                );
+                self.check_static_accepted_exit_codes(arena, expression);
+            }
         }
     }
 
@@ -1461,7 +1475,12 @@ mod binding_identity_tests {
                 panic!("expected run command");
             };
             let segment = &program.arena.run_segments(program.arena.run_form(run).segments)[0];
-            let arg = &program.arena.command_args(segment.args)[0];
+            let ArenaRunTailOperand::Argument(arg_id) =
+                &program.arena.run_tail_operands(segment.tail)[0]
+            else {
+                panic!("expected run argument");
+            };
+            let arg = program.arena.command_arg(*arg_id);
             let flag = Name::intern("flag");
             let span = program.arena.span(arg.span);
             checker.record_command_binding_site(flag, span);

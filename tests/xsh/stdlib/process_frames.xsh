@@ -12,12 +12,79 @@ run true ?
 print "done"
 """)?
   assert output.success, output.stderr
-  assert output.stdout == """capture-target
-capture-env
+  assert output.stdout == """capture-env
+capture-target
 pipeline-head
 pipeline-arg
 pipeline-tail
 done
+""", output.stdout
+}
+
+test test_run_option_conversion_stops_before_later_operands { |ctx|
+  let output = test.run_xsh(ctx, r"""proc mark(label: Str, value: Str) [io] -> Str {
+  print $label
+  return value
+}
+proc invalid_accept() [io] -> List[Int] {
+  print "accept"
+  return [300]
+}
+run.capture --text --accept=invalid_accept() ACCEPT_ORDER=${mark("accept-env", "ready")} ${mark("accept-target", "true")}
+""")?
+  assert !output.success, output.stderr
+  assert "accept-policy" in output.stderr, output.stderr
+  assert output.stdout == """accept
+""", output.stdout
+}
+
+test test_run_cpu_max_validation_stops_before_later_operands { |ctx|
+  let output = test.run_xsh(ctx, r"""proc mark(label: Str, value: Str) [io] -> Str {
+  print $label
+  return value
+}
+proc invalid_cpu_max() [io] -> Int {
+  print "cpu"
+  return 0
+}
+run.capture --text --cpumax=invalid_cpu_max() CPU_ORDER=${mark("cpu-env", "ready")} ${mark("cpu-target", "true")}
+""")?
+  assert !output.success, output.stderr
+  assert "cpu-max" in output.stderr, output.stderr
+  assert output.stdout == """cpu
+""", output.stdout
+}
+
+test test_run_operands_evaluate_in_source_order_before_conversion_stops_later_operands { |ctx|
+  let output = test.run_xsh(ctx, r"""proc accept_option() [io] -> List[Int] {
+  print "accept"
+  return [0]
+}
+proc timeout_option() [io] -> Duration {
+  print "timeout"
+  return 30s
+}
+proc cpu_option() [io] -> Int {
+  print "cpu"
+  return 100
+}
+proc env_value() [io] -> Str {
+  print "env"
+  return "ready"
+}
+proc later_argument() [io] -> Str {
+  print "argument"
+  return "late"
+}
+let empty: List[Str] = []
+run.capture --text --accept=accept_option() --timeout=timeout_option() --cpumax=cpu_option() XSH_PROCESS_FRAME=${env_value()} *${empty} ${later_argument()}
+""")?
+  assert !output.success, output.stderr
+  assert "empty-command" in output.stderr, output.stderr
+  assert output.stdout == """accept
+timeout
+cpu
+env
 """, output.stdout
 }
 
@@ -31,6 +98,57 @@ run.capture --text *${empty} ${mark()}
 """)?
   assert output.status == 2, output.stderr
   assert output.stdout == "", output.stdout
+}
+
+test test_run_tail_arguments_and_redirections_keep_written_order { |ctx|
+  let output = test.run_xsh(ctx, r"""proc mark(label: Str, value: Str) [io] -> Str {
+  print $label
+  return value
+}
+let captured = run.capture --text ${mark("tail-target", "sh")} -c "printf ignored" ${mark("tail-before-redirection", "before")} > ${mark("tail-redirection", "/dev/null")} ${mark("tail-after-redirection", "after")}
+assert captured.stdout == ""
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == """tail-target
+tail-before-redirection
+tail-redirection
+tail-after-redirection
+""", output.stdout
+}
+
+test test_run_source_order_is_shared_by_spawn_and_process_command_builder { |ctx|
+  let output = test.run_xsh(ctx, r"""proc mark(label: Str, value: Str) [io] -> Str {
+  print $label
+  return value
+}
+proc timeout(label: Str) [io] -> Duration {
+  print $label
+  return 1s
+}
+let plain = run.status --timeout=timeout("plain-timeout") PLAIN_ORDER=${mark("plain-env", "ready")} ${mark("plain-target", "true")} ${mark("plain-argument", "ignored")}
+assert plain.exited_with(0)
+let child = spawn run --timeout=timeout("spawn-timeout") SPAWN_ORDER=${mark("spawn-env", "ready")} ${mark("spawn-target", "true")} ${mark("spawn-argument", "ignored")} ?
+let statuses = wait [child]?
+assert statuses[0].exit_code()? == 0
+let command = process.command {
+  run --timeout=timeout("builder-timeout") BUILDER_ORDER=${mark("builder-env", "ready")} ${mark("builder-target", "true")} ${mark("builder-argument", "ignored")}
+}
+assert process.run(command)?.exited_with(0)
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == """plain-timeout
+plain-env
+plain-target
+plain-argument
+spawn-timeout
+spawn-env
+spawn-target
+spawn-argument
+builder-timeout
+builder-env
+builder-target
+builder-argument
+""", output.stdout
 }
 
 test test_process_frame_forms_keep_trace_events { |ctx|

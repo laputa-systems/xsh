@@ -1,4 +1,4 @@
-use xsh::frontend::syntax::arena::ArenaChild;
+use xsh::frontend::syntax::arena::{ArenaChild, ArenaRunTailOperand};
 
 use super::{
     rules,
@@ -8,8 +8,8 @@ use super::{
     ArenaMatchExprArm, ArenaModuleContractEntryKind, ArenaPatternKind, ArenaPipeStage,
     ArenaPipeStageKind, ArenaRange, ArenaRecordField, ArenaRecordFieldKind, ArenaRedirection,
     ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar,
-    ArenaSugarOperand, ArenaTypeDefBody, ArenaTypeExprKind, ArenaTypeExprTag, ArenaWordPart,
-    AssignOp, AssignTargetId, BinaryOp, Binding, BindingTargetId, BlockId, BuilderBlockId,
+    ArenaSugarOperand, ArenaTypeDefBody, ArenaTypeExprKind,
+    ArenaTypeExprTag, ArenaWordPart, AssignOp, AssignTargetId, BinaryOp, Binding, BindingTargetId, BlockId, BuilderBlockId,
     CallableEdgeOwner,
     CommandStmtId, Diagnostic, DiagnosticCode, ExprId, FixHint, FunctionDefId, FxHashMap, Label,
     Linter, Name, PathDisplaySite, PatternId, RunFormId, Severity, Span, StmtId, SugarForm,
@@ -693,24 +693,22 @@ impl LintExprVisitor<'_, '_> {
         let run_form = arena.run_form(run).clone();
         rules::run_checks(self.linter, run);
         for segment in arena.run_segments(run_form.segments).to_vec() {
-            if let Some(timeout) = segment.timeout {
-                self.visit_expr(timeout);
-            }
-            if let Some(cpu_max) = segment.cpu_max {
-                self.visit_expr(cpu_max);
-            }
-            if let Some(accept) = segment.accept {
-                self.visit_expr(accept);
+            for option in arena.run_options(segment.options).to_vec() {
+                self.visit_expr(option.value);
             }
             for assignment in arena.env_assignments(segment.env).to_vec() {
                 self.visit_env_assignment(&assignment);
             }
             self.visit_command_arg(&segment.target, false);
-            for arg in arena.command_args(segment.args).to_vec() {
-                self.visit_command_arg(&arg, false);
-            }
-            for redirection in arena.redirections(segment.redirections).to_vec() {
-                self.visit_redirection(&redirection);
+            for operand in arena.run_tail_operands(segment.tail).to_vec() {
+                match operand {
+                    ArenaRunTailOperand::Argument(id) => {
+                        self.visit_command_arg(arena.command_arg(id), false);
+                    }
+                    ArenaRunTailOperand::Redirection(id) => {
+                        self.visit_redirection(arena.redirection(id));
+                    }
+                }
             }
         }
         if let Some(flow_facts) = &mut self.linter.flow_facts {

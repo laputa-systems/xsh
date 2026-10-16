@@ -1340,12 +1340,7 @@ enum LoweredProcessCommandBuilderEntry {
         span: Span,
     },
     Run {
-        target: LoweredRunArg,
-        args: Vec<LoweredRunArg>,
-        env: Vec<LoweredRunEnv>,
-        timeout: Option<BuildExprId>,
-        cpu_max: Option<BuildExprId>,
-        accept: Option<BuildExprId>,
+        operands: LoweredRunOperands,
         span: Span,
     },
 }
@@ -1374,13 +1369,7 @@ struct LoweredProcessCommandArgv {
 #[derive(Clone, Debug)]
 struct LoweredRunCapture {
     kind: RunKind,
-    target: Box<LoweredRunArg>,
-    args: Vec<LoweredRunArg>,
-    env: Vec<LoweredRunEnv>,
-    redirections: Vec<LoweredRunRedirection>,
-    timeout: Option<BuildExprId>,
-    cpu_max: Option<BuildExprId>,
-    accept: Option<BuildExprId>,
+    operands: LoweredRunOperands,
     // For Plain/Status run *values* with `?`, propagation is handled inside
     // eval_lowered_run_capture (Break on RunError, pass Status through),
     // because a Plain run yields a bare Status on success — not a Result the
@@ -1393,13 +1382,7 @@ struct LoweredRunCapture {
 
 #[derive(Clone, Debug)]
 struct LoweredSpawnRun {
-    target: Box<LoweredRunArg>,
-    args: Vec<LoweredRunArg>,
-    env: Vec<LoweredRunEnv>,
-    redirections: Vec<LoweredRunRedirection>,
-    timeout: Option<BuildExprId>,
-    cpu_max: Option<BuildExprId>,
-    accept: Option<BuildExprId>,
+    operands: LoweredRunOperands,
     span: Span,
 }
 
@@ -1470,13 +1453,28 @@ enum LoweredRunArgKind {
 struct LoweredRunPipelineSegment {
     #[allow(dead_code)]
     kind: RunKind,
-    target: LoweredRunArg,
-    args: Vec<LoweredRunArg>,
+    operands: LoweredRunOperands,
+}
+
+#[derive(Clone, Debug)]
+struct LoweredRunOperands {
+    options: Vec<LoweredRunOption>,
     env: Vec<LoweredRunEnv>,
-    redirections: Vec<LoweredRunRedirection>,
-    timeout: Option<BuildExprId>,
-    cpu_max: Option<BuildExprId>,
-    accept: Option<BuildExprId>,
+    target: LoweredRunArg,
+    tail: Vec<LoweredRunTailOperand>,
+}
+
+#[derive(Clone, Debug)]
+enum LoweredRunOption {
+    Timeout(BuildExprId),
+    CpuMax(BuildExprId),
+    Accept(BuildExprId),
+}
+
+#[derive(Clone, Debug)]
+enum LoweredRunTailOperand {
+    Argument(LoweredRunArg),
+    Redirection(LoweredRunRedirection),
 }
 
 #[derive(Clone, Debug)]

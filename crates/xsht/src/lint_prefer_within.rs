@@ -3,6 +3,7 @@ use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
     ArenaCommand, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, AstArena, ExprId, RunFormId, StmtId,
 };
+use xsh::frontend::syntax::grammar::RunOption;
 
 /// A statement list whose `run` forms all carry the same `--timeout` repeats
 /// one limit on every command. `within LIMIT { ... }` states a limit once,
@@ -100,7 +101,12 @@ fn shared_timeout<'a>(
         return None;
     }
     for segment in segments {
-        let span: Span = arena.expr(segment.timeout?).span;
+        let timeout = arena
+            .run_options(segment.options)
+            .iter()
+            .find(|option| option.kind == RunOption::Timeout)?
+            .value;
+        let span: Span = arena.expr(timeout).span;
         let text = source.get(span.range())?.trim();
         if shared.is_some_and(|shared| shared != text) {
             return None;

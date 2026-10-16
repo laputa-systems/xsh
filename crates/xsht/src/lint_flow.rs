@@ -1,10 +1,12 @@
+use xsh::frontend::syntax::arena::ArenaRunTailOperand;
+
 use super::{
     ArenaAssignTargetKind, ArenaBuilderEntryKind, ArenaCallArg, ArenaCallArgKind, ArenaCommand,
     ArenaCommandArg, ArenaCommandArgKind, ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun,
     ArenaFmtPart, ArenaPipeStage, ArenaPipeStageKind, ArenaRange, ArenaRecordFieldKind,
     ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar,
-    ArenaWordPart, AssignTargetId, AstArena, BinaryOp, BlockId, BuilderBlockId, CommandStmtId,
-    ExprId, FxHashMap, RunFormId, StmtId,
+    ArenaWordPart, AssignTargetId, AstArena, BinaryOp, BlockId,
+    BuilderBlockId, CommandStmtId, ExprId, FxHashMap, RunFormId, StmtId,
 };
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -778,14 +780,8 @@ fn command_flow(arena: &AstArena, facts: &FlowFacts, command: CommandStmtId) -> 
 fn run_flow(arena: &AstArena, facts: &FlowFacts, run: RunFormId) -> FlowSummary {
     let mut flow = FlowSummary::fallthrough();
     for segment in arena.run_segments(arena.run_form(run).segments) {
-        if let Some(timeout) = segment.timeout {
-            flow = flow.then(facts.expression(timeout));
-        }
-        if let Some(cpu_max) = segment.cpu_max {
-            flow = flow.then(facts.expression(cpu_max));
-        }
-        if let Some(accept) = segment.accept {
-            flow = flow.then(facts.expression(accept));
+        for option in arena.run_options(segment.options) {
+            flow = flow.then(facts.expression(option.value));
         }
         for assignment in arena.env_assignments(segment.env) {
             let assignment_flow = match &assignment.value {
@@ -795,14 +791,18 @@ fn run_flow(arena: &AstArena, facts: &FlowFacts, run: RunFormId) -> FlowSummary 
             flow = flow.then(assignment_flow);
         }
         flow = flow.then(command_arg_flow(arena, facts, &segment.target));
-        for arg in arena.command_args(segment.args) {
-            flow = flow.then(command_arg_flow(arena, facts, arg));
-        }
-        for redirection in arena.redirections(segment.redirections) {
-            let target = match &redirection.target {
-                ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => arg,
-            };
-            flow = flow.then(command_arg_flow(arena, facts, target));
+        for operand in arena.run_tail_operands(segment.tail) {
+            match operand {
+                ArenaRunTailOperand::Argument(id) => {
+                    flow = flow.then(command_arg_flow(arena, facts, arena.command_arg(*id)));
+                }
+                ArenaRunTailOperand::Redirection(id) => {
+                    let target = match &arena.redirection(*id).target {
+                        ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => arg,
+                    };
+                    flow = flow.then(command_arg_flow(arena, facts, target));
+                }
+            }
         }
     }
     flow

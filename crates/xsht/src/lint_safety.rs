@@ -1,11 +1,13 @@
-use xsh::frontend::syntax::arena::{ArenaChild, ArenaEnvAssignmentValue, SugarView};
+use xsh::frontend::syntax::arena::{
+    ArenaChild, ArenaEnvAssignmentValue, ArenaRunTailOperand, SugarView,
+};
 
 use super::{
     ArenaBuilderEntryKind, ArenaCallArg, ArenaCallArgKind, ArenaCommandArg, ArenaCommandArgKind,
     ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaRange, ArenaRecordFieldKind,
-    ArenaSpawnTarget, ArenaStmtKind, ArenaWordPart, AstArena, BinaryOp, BlockId, BuilderBlockId,
-    Diagnostic, DiagnosticCode, ExprId, FixHint, FxHashMap, Label, Linter, Name, Severity, Type,
-    UnaryOp, is_module_call,
+    ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaWordPart, AstArena, BinaryOp,
+    BlockId, BuilderBlockId, Diagnostic, DiagnosticCode, ExprId, FixHint, FxHashMap, Label,
+    Linter, Name, Severity, Type, UnaryOp, is_module_call,
 };
 
 pub(super) fn list_splice_element_type_is_precise(ty: &Type) -> bool {
@@ -432,19 +434,19 @@ fn assign_target_references_name(
 fn run_form_has_splice_name(arena: &AstArena, run: super::RunFormId, name: Name) -> bool {
     arena.run_segments(arena.run_form(run).segments).iter().any(|segment| {
         command_arg_has_splice_name(&segment.target, name)
-            || arena
-                .command_args(segment.args)
-                .iter()
-                .any(|arg| command_arg_has_splice_name(arg, name))
             || arena.env_assignments(segment.env).iter().any(|assignment| {
                 matches!(&assignment.value, ArenaEnvAssignmentValue::CommandArg(arg) if command_arg_has_splice_name(arg, name))
             })
-            || arena.redirections(segment.redirections).iter().any(|redirection| {
-                let target = match &redirection.target {
-                    super::ArenaRedirectionTarget::Path(arg)
-                    | super::ArenaRedirectionTarget::Fd(arg) => arg,
-                };
-                command_arg_has_splice_name(target, name)
+            || arena.run_tail_operands(segment.tail).iter().any(|operand| match operand {
+                ArenaRunTailOperand::Argument(id) => {
+                    command_arg_has_splice_name(arena.command_arg(*id), name)
+                }
+                ArenaRunTailOperand::Redirection(id) => {
+                    let target = match &arena.redirection(*id).target {
+                        ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => arg,
+                    };
+                    command_arg_has_splice_name(target, name)
+                }
             })
     })
 }

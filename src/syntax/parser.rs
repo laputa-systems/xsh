@@ -1234,7 +1234,9 @@ impl TokenKindMatch {
 mod tests {
     use super::{Parser, SourceId};
     use crate::diagnostic::DiagnosticCode;
-    use crate::syntax::arena::{ArenaCommand, ArenaCommandArgKind, ArenaStmtKind};
+    use crate::syntax::arena::{
+        ArenaCommand, ArenaCommandArgKind, ArenaRunTailOperand, ArenaStmtKind,
+    };
 
     #[test]
     fn parses_run_compound_word_and_result_operator() {
@@ -1253,9 +1255,12 @@ mod tests {
         let form = arena.run_form(*run_id);
         assert!(form.propagate);
         let segments = arena.run_segments(form.segments);
-        let args = arena.command_args(segments[0].args);
-        assert_eq!(args.len(), 1);
-        let ArenaCommandArgKind::Word(parts) = &args[0].kind else {
+        let [ArenaRunTailOperand::Argument(arg_id)] = arena.run_tail_operands(segments[0].tail)
+        else {
+            panic!("expected one run argument");
+        };
+        let arg = arena.command_arg(*arg_id);
+        let ArenaCommandArgKind::Word(parts) = &arg.kind else {
             panic!("expected word");
         };
         assert_eq!(arena.word_parts(*parts).len(), 2);

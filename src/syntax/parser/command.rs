@@ -6,7 +6,8 @@ use super::{
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaEnvAssignmentValue, ArenaProgramBuilder, ArenaRange,
-    ArenaRedirectionTarget, ExprId, RunFormId,
+    ArenaRedirection, ArenaRedirectionTarget, ArenaRunOption, ArenaRunTailOperandInput, ExprId,
+    RunFormId,
 };
 use crate::syntax::grammar;
 use std::sync::Arc;
@@ -265,7 +266,7 @@ impl<'a> Parser<'a> {
                 kind = self.parse_run_kind_after_dot(&name.as_str())?;
             }
         }
-        let (timeout_id, cpu_max_id, accept_id) = self.parse_run_options_arena_only(arena);
+        let options = self.parse_run_options_arena_only(arena);
         let env_range = self.parse_env_assignments_arena_only(arena);
         let grouped = self.at(TokenKindMatch::LParen)
             && self
@@ -276,37 +277,32 @@ impl<'a> Parser<'a> {
             self.skip_newlines();
         }
         let target = self.parse_command_arg_arena_only(arena)?;
-        arena.begin_command_args();
-        arena.begin_redirections();
+        let mut tail = Vec::new();
         if grouped {
-            self.parse_grouped_run_tail_arena_only(arena);
+            self.parse_grouped_run_tail_arena_only(arena, &mut tail);
             self.expect(
                 TokenKindMatch::RParen,
                 "expected `)` after grouped run invocation",
             );
         } else {
             while !self.at_run_segment_end() {
-                if self.parse_redirection_arena_only(arena).is_some() {
+                if let Some(redirection) = self.parse_run_redirection_arena_only(arena) {
+                    tail.push(ArenaRunTailOperandInput::Redirection(redirection));
                 } else if let Some(arg) = self.parse_command_arg_arena_only(arena) {
-                    arena.push_command_arg_input(arg);
+                    tail.push(ArenaRunTailOperandInput::Argument(arg));
                 } else {
                     break;
                 }
             }
         }
-        let args_range = arena.finish_command_args();
-        let redirections_range = arena.finish_redirections();
         let span = self.span(start, self.previous_end());
         arena.push_run_segment_parts(
             kind,
-            timeout_id,
-            cpu_max_id,
-            accept_id,
+            options,
             env_range,
             grouped,
             target,
-            args_range,
-            redirections_range,
+            tail,
             span,
         );
         Some(span)
@@ -353,16 +349,21 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    fn parse_grouped_run_tail_arena_only(&mut self, arena: &mut ArenaProgramBuilder<'_>) {
+    fn parse_grouped_run_tail_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+        tail: &mut Vec<ArenaRunTailOperandInput>,
+    ) {
         loop {
             self.skip_newlines();
             self.skip_comments();
             if self.at(TokenKindMatch::RParen) || self.at(TokenKindMatch::Eof) {
                 break;
             }
-            if self.parse_redirection_arena_only(arena).is_some() {
+            if let Some(redirection) = self.parse_run_redirection_arena_only(arena) {
+                tail.push(ArenaRunTailOperandInput::Redirection(redirection));
             } else if let Some(arg) = self.parse_command_arg_arena_only(arena) {
-                arena.push_command_arg_input(arg);
+                tail.push(ArenaRunTailOperandInput::Argument(arg));
             } else {
                 break;
             }
@@ -372,10 +373,11 @@ impl<'a> Parser<'a> {
     fn parse_run_options_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
-    ) -> (Option<ExprId>, Option<ExprId>, Option<ExprId>) {
-        let mut timeout_id = None;
-        let mut cpu_max_id = None;
-        let mut accept_id = None;
+    ) -> Vec<ArenaRunOption> {
+        let mut options = Vec::new();
+        let mut timeout_seen = false;
+        let mut cpu_max_seen = false;
+        let mut accept_seen = false;
         loop {
             self.accept_line_continuations();
             let save = self.index;
@@ -399,22 +401,26 @@ impl<'a> Parser<'a> {
                 TokenKindMatch::Equals,
                 &format!("expected `=` after `--{}`", option.name()),
             );
-            let slot = match option {
-                grammar::RunOption::Timeout => &mut timeout_id,
-                grammar::RunOption::CpuMax => &mut cpu_max_id,
-                grammar::RunOption::Accept => &mut accept_id,
+            let seen = match option {
+                grammar::RunOption::Timeout => &mut timeout_seen,
+                grammar::RunOption::CpuMax => &mut cpu_max_seen,
+                grammar::RunOption::Accept => &mut accept_seen,
             };
-            if slot.is_some() {
+            if *seen {
                 self.diagnostic_previous(
                     &format!("duplicate `--{}` option", option.name()),
                     DiagnosticCode::ParseRunOption,
                 );
             }
+            *seen = true;
             if let Some(id) = self.parse_run_option_expr_arena_only(arena) {
-                *slot = Some(id);
+                options.push(ArenaRunOption {
+                    kind: option,
+                    value: id,
+                });
             }
         }
-        (timeout_id, cpu_max_id, accept_id)
+        options
     }
 
     fn parse_run_option_expr_arena_only(
@@ -565,10 +571,18 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    pub(super) fn parse_redirection_arena_only(
+    fn parse_run_redirection_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
-    ) -> Option<()> {
+    ) -> Option<ArenaRedirection> {
+        let (kind, target, span) = self.parse_redirection_parts_arena_only(arena)?;
+        Some(arena.lower_redirection(kind, target, span))
+    }
+
+    fn parse_redirection_parts_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<(RedirectionKind, ArenaRedirectionTarget, Span)> {
         let start = self.current_start();
         let kind = if self.consume_legacy_error_redirection(true) {
             RedirectionKind::StderrAppend
@@ -615,8 +629,7 @@ impl<'a> Parser<'a> {
             | RedirectionKind::StderrAppend => ArenaRedirectionTarget::Path(target_arg),
         };
         let span = self.span(start, self.previous_end());
-        arena.push_redirection_input(kind, arena_target, span);
-        Some(())
+        Some((kind, arena_target, span))
     }
 
     pub(super) fn consume_legacy_error_redirection(&mut self, append: bool) -> bool {

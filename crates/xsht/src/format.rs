@@ -12,9 +12,9 @@ use xsh::frontend::syntax::arena::{
     ArenaCommandArgKind, ArenaCompQualifier, ArenaEnvAssignment, ArenaEnvAssignmentValue,
     ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaModuleContractEntryKind, ArenaPatternKind,
     ArenaPipeStageKind, ArenaProgram, ArenaRange, ArenaRecordFieldKind, ArenaRedirectionTarget,
-    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaText, ArenaTypeExprTag,
-    ArenaWordPart, AstArena, BindingTargetId, BlockId, ExprId, FunctionDefId, PatternId, StmtId,
-    SugarForm, TypeExprId,
+    ArenaRunOption, ArenaRunTailOperand, ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage,
+    ArenaSugar, ArenaText, ArenaTypeExprTag, ArenaWordPart, AstArena, BindingTargetId, BlockId,
+    ExprId, FunctionDefId, PatternId, StmtId, SugarForm, TypeExprId,
 };
 use xsh::frontend::syntax::cst::SyntaxTree;
 use xsh::frontend::syntax::grammar;
@@ -2317,23 +2317,15 @@ impl<'a> Writer<'a> {
         output: &mut String,
     ) {
         let head = run_head_text(segment.kind);
-        let args: Vec<ArenaCommandArg> = self.arena.command_args(segment.args).to_vec();
-        let redirections = self.arena.redirections(segment.redirections).to_vec();
         if segment.grouped {
             if piped {
                 output.push_str(" | ");
             }
             output.push_str(head);
             output.push(' ');
-            for (name, value) in [
-                ("timeout", segment.timeout),
-                ("cpumax", segment.cpu_max),
-                ("accept", segment.accept),
-            ] {
-                if let Some(value) = value {
-                    self.write_command_part_text(&CommandPart::Option { name, value }, output);
-                    output.push(' ');
-                }
+            for option in self.arena.run_options(segment.options).to_vec() {
+                self.write_run_option(&option, output);
+                output.push(' ');
             }
             for assignment in self.arena.env_assignments(segment.env).to_vec() {
                 self.write_env_assignment(&assignment, output);
@@ -2342,15 +2334,19 @@ impl<'a> Writer<'a> {
             output.push_str("(\n");
             self.write_indent(indent + 1, output);
             self.write_command_arg(&segment.target, output);
-            for arg in &args {
+            for operand in self.arena.run_tail_operands(segment.tail).to_vec() {
                 output.push('\n');
                 self.write_indent(indent + 1, output);
-                self.write_command_arg(arg, output);
-            }
-            for redirection in &redirections {
-                output.push('\n');
-                self.write_indent(indent + 1, output);
-                self.write_redirection(redirection, output);
+                match operand {
+                    ArenaRunTailOperand::Argument(id) => {
+                        let arg = self.arena.command_arg(id).clone();
+                        self.write_command_arg(&arg, output);
+                    }
+                    ArenaRunTailOperand::Redirection(id) => {
+                        let redirection = self.arena.redirection(id).clone();
+                        self.write_redirection(&redirection, output);
+                    }
+                }
             }
             output.push('\n');
             self.write_indent(indent, output);
@@ -2358,14 +2354,8 @@ impl<'a> Writer<'a> {
             return;
         }
         let mut parts = Vec::new();
-        for (name, value) in [
-            ("timeout", segment.timeout),
-            ("cpumax", segment.cpu_max),
-            ("accept", segment.accept),
-        ] {
-            if let Some(value) = value {
-                parts.push(CommandPart::Option { name, value });
-            }
+        for option in self.arena.run_options(segment.options).to_vec() {
+            parts.push(run_option_part(option));
         }
         parts.extend(
             self.arena
@@ -2375,8 +2365,16 @@ impl<'a> Writer<'a> {
                 .map(CommandPart::Env),
         );
         parts.push(CommandPart::Arg(segment.target.clone()));
-        parts.extend(args.into_iter().map(CommandPart::Arg));
-        parts.extend(redirections.into_iter().map(CommandPart::Redirection));
+        for operand in self.arena.run_tail_operands(segment.tail).to_vec() {
+            match operand {
+                ArenaRunTailOperand::Argument(id) => {
+                    parts.push(CommandPart::Arg(self.arena.command_arg(id).clone()));
+                }
+                ArenaRunTailOperand::Redirection(id) => {
+                    parts.push(CommandPart::Redirection(self.arena.redirection(id).clone()));
+                }
+            }
+        }
         // The run form's name and its first part are one unit: a line break
         // never separates them.
         let first = parts.remove(0);
@@ -2401,6 +2399,10 @@ impl<'a> Writer<'a> {
             self.write_command_part_text(&first, output);
         }
         self.write_command_parts(&parts, false, indent + 1, tail, output);
+    }
+
+    fn write_run_option(&mut self, option: &ArenaRunOption, output: &mut String) {
+        self.write_command_part_text(&run_option_part(*option), output);
     }
 
     /// Writes the parts of a command after its first word. A part goes on
@@ -5478,6 +5480,13 @@ enum CommandPart {
     Env(ArenaEnvAssignment),
     Arg(ArenaCommandArg),
     Redirection(xsh::frontend::syntax::arena::ArenaRedirection),
+}
+
+fn run_option_part(option: ArenaRunOption) -> CommandPart {
+    CommandPart::Option {
+        name: option.kind.name(),
+        value: option.value,
+    }
 }
 
 /// Whether the source `before` a command part ends with a `\` line

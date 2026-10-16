@@ -9,6 +9,7 @@ use super::{
 };
 use super::walk::{BindingOrigin, CallableVisibility};
 use xsh::frontend::check::CheckBundleView;
+use xsh::frontend::syntax::grammar::RunOption;
 
 #[cfg(test)]
 use super::nested_pipeline_index_tests;
@@ -1370,7 +1371,11 @@ fn run_segment_checks(linter: &mut Linter<'_>, run: super::RunFormId) {
         if linter.rule_selection.enabled(DiagnosticCode::LintRunStatus)
             && let Some(target) = super::literal_command_word(linter.arena, linter.source, &segment.target)
             && segment.kind == super::RunKind::Plain
-            && segment.accept.is_none()
+            && !linter
+                .arena
+                .run_options(segment.options)
+                .iter()
+                .any(|option| option.kind == RunOption::Accept)
             && run_form.propagation_written
             && super::expects_nonzero_status(&target)
         {

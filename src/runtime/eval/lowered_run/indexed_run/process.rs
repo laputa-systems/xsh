@@ -1,12 +1,11 @@
 use super::{
-    ControlFlow, DurationValue, Evaluator, FileRedirectionMode, LoweredValue, PathValue,
+    ControlFlow, Evaluator, FileRedirectionMode, LoweredValue, PathValue,
     ProcessEnd, ProcessInvocation, ProcessStatus, RunArg, RunKind,
     ProcessRedirection, RedirectionKind, RedirectionStream, RunError, RuntimeError, Span, Value,
     RUN_ARG_SPLICE, execute_run_with_policy, lowered_process_run_error,
     lowered_value_from_runtime_any, run_pipeline_inherit_with_policy,
     runtime_error_from_value, splice_to_argv, value_to_argv_bytes,
 };
-use std::time::Duration;
 
 /// A spliced target supplies the executable and its leading argv words. An empty
 /// vector fails before anything starts because it names no program.
@@ -43,13 +42,6 @@ impl Evaluator {
         value: Value,
     ) -> Result<Vec<Vec<u8>>, RuntimeError> {
         Self::run_arg_items_mode(mode, span, value)
-    }
-
-    pub(super) fn run_arg_items(
-        arg: &RunArg,
-        value: Value,
-    ) -> Result<Vec<Vec<u8>>, RuntimeError> {
-        Self::run_arg_items_mode(arg.mode, arg.span, value)
     }
 
     /// Convert one evaluated run argument without changing its source descriptor.
@@ -183,27 +175,12 @@ impl Evaluator {
     }
 }
 
-pub(super) fn run_target_and_leading_argv_for_arg(
-    arg: &RunArg,
-    items: Vec<Vec<u8>>,
-) -> Result<(Vec<u8>, Vec<Vec<u8>>), RuntimeError> {
-    run_target_and_leading_argv(arg.mode, arg.span, items)
-}
-
-pub(super) fn run_timeout_value(value: LoweredValue, span: Span) -> Result<Duration, RuntimeError> {
-    match value {
-        LoweredValue::Duration(DurationValue { millis }) => Ok(Duration::from_millis(millis)),
-        other => Err(RuntimeError::new(
-            "type-error",
-            format!("run timeout expected Duration, found {}", other.type_name()),
-        )
-        .with_span(span)),
-    }
-}
-
 pub(super) fn run_cpu_max_value(value: LoweredValue, span: Span) -> Result<i64, RuntimeError> {
     match value {
-        LoweredValue::Int(value) => Ok(value),
+        LoweredValue::Int(value) if value > 0 => Ok(value),
+        LoweredValue::Int(_) => Err(
+            RuntimeError::new("cpu-max", "cpu_max must be positive").with_span(span),
+        ),
         other => Err(RuntimeError::new(
             "type-error",
             format!("run cpumax expected Int, found {}", other.type_name()),

@@ -3,8 +3,8 @@ use xsh::frontend::check::Type;
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCommand, ArenaCommandArg,
-    ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, ArenaWordPart, ExprId,
-    StmtId,
+    ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun, ArenaRunTailOperand, ArenaStmtKind,
+    ArenaWordPart, ExprId, StmtId,
 };
 use xsh::frontend::syntax::node::{AssignOp, CoreCommand, RunKind};
 
@@ -87,25 +87,26 @@ pub(super) fn lint_command_scope_scaffolds(linter: &mut super::Linter<'_>, state
         // layer. Streams and handles also have different lifetime obligations.
         if !run.propagate
             || segment.kind != RunKind::CaptureText
-            || segment.timeout.is_some()
-            || segment.cpu_max.is_some()
-            || segment.accept.is_some()
+            || !linter.arena.run_options(segment.options).is_empty()
             || !segment.env.is_empty()
-            || !segment.redirections.is_empty()
             || segment.grouped
         {
             continue;
         }
+        let tail = linter.arena.run_tail_operands(segment.tail);
+        if tail.iter().any(|operand| matches!(operand, ArenaRunTailOperand::Redirection(_))) {
+            continue;
+        }
         if !simple_argument(linter, &segment.target)
             || super::command_arg_references_name(linter.arena, &segment.target, name)
-            || !linter
-                .arena
-                .command_args(segment.args)
-                .iter()
-                .all(|argument| {
+            || !tail.iter().all(|operand| match operand {
+                ArenaRunTailOperand::Argument(id) => {
+                    let argument = linter.arena.command_arg(*id);
                     simple_argument(linter, argument)
                         && !super::command_arg_references_name(linter.arena, argument, name)
-                })
+                }
+                ArenaRunTailOperand::Redirection(_) => false,
+            })
         {
             continue;
         }

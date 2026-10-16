@@ -1,6 +1,7 @@
 use super::{
-    LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunRedirection,
-    LoweredRunPipelineSegment, LoweredProcessCommandArgv, LoweredRunCapture, LoweredSpawnRun,
+    LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunOption, LoweredRunOperands,
+    LoweredRunRedirection, LoweredRunPipelineSegment, LoweredRunTailOperand,
+    LoweredProcessCommandArgv, LoweredRunCapture, LoweredSpawnRun,
     LoweredTypeCheck, ScanBytes, ScanCheck, ScanCondition, LoweredCallArg, LoweredFmtPart,
     LoweredRecordEntry, LoweredAssignStep, LoweredCompTarget, LoweredCompQualifier,
     LoweredProcessCommandBuilderEntry, LoweredErrorExpr,
@@ -899,10 +900,25 @@ struct_schema!(LoweredRunEnv => RunEnvView {
 struct_schema!(LoweredRunRedirection => RunRedirectionView {
     kind: RedirectionKind, target: LoweredRunArg, span: Span,
 });
+struct_schema!(LoweredRunOperands => RunOperandsView {
+    options: Vec<LoweredRunOption>, env: Vec<LoweredRunEnv>, target: LoweredRunArg,
+    tail: Vec<LoweredRunTailOperand>,
+} validate |decoder, value| {
+    let _ = decoder;
+    let mut seen = [false; 3];
+    for option in &value.options {
+        let index = match option {
+            LoweredRunOption::Timeout(_) => 0,
+            LoweredRunOption::CpuMax(_) => 1,
+            LoweredRunOption::Accept(_) => 2,
+        };
+        if std::mem::replace(&mut seen[index], true) {
+            return Err(IrVerifyError::new("run option is duplicated"));
+        }
+    }
+}, field_cursor);
 struct_schema!(LoweredRunPipelineSegment => RunPipelineSegmentView {
-    kind: RunKind, target: LoweredRunArg, args: Vec<LoweredRunArg>, env: Vec<LoweredRunEnv>,
-    redirections: Vec<LoweredRunRedirection>, timeout: Option<BuildExprId>,
-    cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>,
+    kind: RunKind, operands: LoweredRunOperands,
 });
 struct_schema!(LoweredProcessCommandArgv => ProcessCommandArgvView {
     target: BuildExprId, argv: BuildExprId, cwd: Option<BuildExprId>, env: Option<BuildExprId>,
@@ -913,15 +929,11 @@ struct_schema!(LoweredProcessCommandArgv => ProcessCommandArgvView {
     same_group: Option<BuildExprId>, span: Span,
 }, field_cursor);
 struct_schema!(LoweredRunCapture => RunCaptureView {
-    kind: RunKind, target: Box<LoweredRunArg>, args: Vec<LoweredRunArg>, env: Vec<LoweredRunEnv>,
-    redirections: Vec<LoweredRunRedirection>, timeout: Option<BuildExprId>,
-    cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>, propagate: bool,
+    kind: RunKind, operands: LoweredRunOperands, propagate: bool,
     assert_success: bool, span: Span,
 }, field_cursor);
 struct_schema!(LoweredSpawnRun => SpawnRunView {
-    target: Box<LoweredRunArg>, args: Vec<LoweredRunArg>, env: Vec<LoweredRunEnv>,
-    redirections: Vec<LoweredRunRedirection>, timeout: Option<BuildExprId>,
-    cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>, span: Span,
+    operands: LoweredRunOperands, span: Span,
 }, field_cursor);
 struct_schema!(LoweredTypeCheck => TypeCheckView {
     ty: Type, name: Arc<str>, schema: Option<Arc<super::super::super::require::PreparedSchema>>,
@@ -946,6 +958,15 @@ enum_schema!(LoweredRunArgKind => RunArgKindView ["run argument tag is invalid"]
     Single(value: BuildExprId) = 0;
     SingleOrSplice(value: BuildExprId) = 1;
     Splice(value: BuildExprId) = 2;
+});
+enum_schema!(LoweredRunOption => RunOptionView ["run option tag is invalid"] {
+    Timeout(value: BuildExprId) = 0;
+    CpuMax(value: BuildExprId) = 1;
+    Accept(value: BuildExprId) = 2;
+});
+enum_schema!(LoweredRunTailOperand => RunTailOperandView ["run tail operand tag is invalid"] {
+    Argument(value: LoweredRunArg) = 0;
+    Redirection(value: LoweredRunRedirection) = 1;
 });
 enum_schema!(LoweredCallArg => CallArgView ["call argument tag is invalid"] {
     Default(slot: usize as u32) = 2 encode |slot, builder, output| {
@@ -1004,9 +1025,7 @@ enum_schema!(
     )]
     LoweredProcessCommandBuilderEntry => ProcessCommandBuilderEntryView ["process command builder entry tag is invalid"] {
         Field { name: Name, value: BuildExprId, span: Span } = 0;
-        Run { target: LoweredRunArg, args: Vec<LoweredRunArg>, env: Vec<LoweredRunEnv>,
-            timeout: Option<BuildExprId>, cpu_max: Option<BuildExprId>, accept: Option<BuildExprId>,
-            span: Span } = 1;
+        Run { operands: LoweredRunOperands, span: Span } = 1;
 });
 enum_schema!(LoweredErrorExpr => ErrorExprView ["error expression tag is invalid"] {
     Structured { family: String, family_identity: String, variant: String,

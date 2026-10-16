@@ -556,18 +556,16 @@ fn command_run(kind: &ArenaExprKind) -> Option<crate::syntax::arena::RunFormId> 
 }
 
 fn run_ends_with_typed_arg(arena: &AstArena, run: crate::syntax::arena::RunFormId) -> bool {
-    use crate::syntax::arena::{ArenaCommandArgKind, ArenaRedirectionTarget};
+    use crate::syntax::arena::{ArenaCommandArgKind, ArenaRedirectionTarget, ArenaRunTailOperand};
     let Some(segment) = arena.run_segments(arena.run_form(run).segments).last() else {
         return false;
     };
-    let last = match arena.redirections(segment.redirections).last() {
-        Some(redirection) => match &redirection.target {
+    let last = match arena.run_tail_operands(segment.tail).last() {
+        Some(ArenaRunTailOperand::Argument(id)) => arena.command_arg(*id),
+        Some(ArenaRunTailOperand::Redirection(id)) => match &arena.redirection(*id).target {
             ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => arg,
         },
-        None => arena
-            .command_args(segment.args)
-            .last()
-            .unwrap_or(&segment.target),
+        None => &segment.target,
     };
     matches!(last.kind, ArenaCommandArgKind::Typed(_))
 }
@@ -602,7 +600,9 @@ fn run_takes_null_safe_chain(
     run: crate::syntax::arena::RunFormId,
     follow: Follow,
 ) -> bool {
-    use crate::syntax::arena::{ArenaCommandArgKind, ArenaRedirectionTarget, ArenaWordPart};
+    use crate::syntax::arena::{
+        ArenaCommandArgKind, ArenaRedirectionTarget, ArenaRunTailOperand, ArenaWordPart,
+    };
     if !matches!(
         follow.token,
         FollowToken::QuestionDot | FollowToken::QuestionDotCall
@@ -612,14 +612,12 @@ fn run_takes_null_safe_chain(
     let Some(segment) = arena.run_segments(arena.run_form(run).segments).last() else {
         return false;
     };
-    let last = match arena.redirections(segment.redirections).last() {
-        Some(redirection) => match &redirection.target {
+    let last = match arena.run_tail_operands(segment.tail).last() {
+        Some(ArenaRunTailOperand::Argument(id)) => arena.command_arg(*id),
+        Some(ArenaRunTailOperand::Redirection(id)) => match &arena.redirection(*id).target {
             ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => arg,
         },
-        None => arena
-            .command_args(segment.args)
-            .last()
-            .unwrap_or(&segment.target),
+        None => &segment.target,
     };
     match last.kind {
         ArenaCommandArgKind::Typed(_) => true,

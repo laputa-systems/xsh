@@ -4,8 +4,9 @@ use super::{
     BuildScratch, BuildStmtId, BuildStmtRow, CommandWordRefSegment, CompactLowerConstructProbe,
     CoreCommand, ExprId, LoweredFmtPart, LoweredProcessCommandBuilderEntry, LoweredRunArg,
     LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
-    LoweredRunRedirection, LoweredSpawnRun, LoweredType, Name, Rc, RefCell, RunKind, RuntimeOp,
-    SlotScope, Span, StmtId, build_expr, lower_literal_constant,
+    LoweredRunOption, LoweredRunOperands, LoweredRunRedirection, LoweredRunTailOperand,
+    LoweredSpawnRun, LoweredType, Name, Rc, RefCell, RunKind, RuntimeOp, SlotScope, Span,
+    StmtId, build_expr, lower_literal_constant,
     parse_command_word_reference, print_flush_arg,
 };
 
@@ -507,68 +508,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if !matches!(segment.kind, RunKind::Plain | RunKind::Status) || segment.grouped {
                     return None;
                 }
-                let target = Box::new(self.lower_run_arg(
-                    &segment.target,
+                let operands = self.lower_run_operands(
+                    segment,
                     slots,
                     current_function,
                     item_slot,
-                )?);
-                let args = self.program.arena.command_args(segment.args).to_vec();
-                let mut lowered_args = Vec::with_capacity(args.len());
-                for arg in &args {
-                    lowered_args.push(self.lower_run_arg(
-                        arg,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?);
-                }
-                let env = self.program.arena.env_assignments(segment.env).to_vec();
-                let mut lowered_env = Vec::with_capacity(env.len());
-                for assignment in &env {
-                    lowered_env.push(self.lower_run_env(
-                        assignment,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?);
-                }
-                let redirections = self
-                    .program
-                    .arena
-                    .redirections(segment.redirections)
-                    .to_vec()
-                    .into_iter()
-                    .map(|redirection| {
-                        self.lower_run_redirection(&redirection, slots, current_function, item_slot)
-                    })
-                    .collect::<Option<Vec<_>>>()?;
-                let timeout = match segment.timeout {
-                    Some(expr) => {
-                        Some(self.lower_expr(expr, slots, current_function, item_slot)?)
-                    }
-                    None => None,
-                };
-                let cpu_max = match segment.cpu_max {
-                    Some(expr) => {
-                        Some(self.lower_expr(expr, slots, current_function, item_slot)?)
-                    }
-                    None => None,
-                };
-                let accept = match segment.accept {
-                    Some(expr) => {
-                        Some(self.lower_expr(expr, slots, current_function, item_slot)?)
-                    }
-                    None => None,
-                };
+                )?;
                 let run = LoweredSpawnRun {
-                    target,
-                    args: lowered_args,
-                    env: lowered_env,
-                    redirections,
-                    timeout,
-                    cpu_max,
-                    accept,
+                    operands,
                     span,
                 };
                 Some(push_build_row!(
@@ -657,64 +604,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if segments.len() == 1 {
             let segment = &segments[0];
             allowed_type(segment.kind)?;
-            let target = Box::new(self.lower_run_arg(
-                &segment.target,
+            let operands = self.lower_run_operands(
+                segment,
                 slots,
                 current_function,
                 item_slot,
-            )?);
-            let args = self.program.arena.command_args(segment.args).to_vec();
-            let mut lowered_args = Vec::with_capacity(args.len());
-            for arg in &args {
-                lowered_args.push(self.lower_run_arg(arg, slots, current_function, item_slot)?);
-            }
-            let env = self.program.arena.env_assignments(segment.env).to_vec();
-            let mut lowered_env = Vec::with_capacity(env.len());
-            for assignment in &env {
-                lowered_env.push(self.lower_run_env(
-                    assignment,
-                    slots,
-                    current_function,
-                    item_slot,
-                )?);
-            }
-            let redirections = self
-                .program
-                .arena
-                .redirections(segment.redirections)
-                .to_vec()
-                .into_iter()
-                .map(|redirection| {
-                    self.lower_run_redirection(&redirection, slots, current_function, item_slot)
-                })
-                .collect::<Option<Vec<_>>>()?;
-            let timeout = match segment.timeout {
-                Some(expr) => Some(self.lower_expr(expr, slots, current_function, item_slot)?),
-                None => None,
-            };
-            let cpu_max = match segment.cpu_max {
-                Some(expr) => Some(self.lower_expr(expr, slots, current_function, item_slot)?),
-                None => None,
-            };
-            let accept = match segment.accept {
-                Some(expr) => Some(self.lower_expr(expr, slots, current_function, item_slot)?),
-                None => None,
-            };
-            // Capture/stream kinds return a Result and are unwrapped by an
-            // external `Try`. Plain/Status return a bare Status on success, so
-            // `?` propagation is handled inside eval_lowered_run_capture via the
-            // `propagate` flag instead.
+            )?;
             let capture_kind = lowered_run_capture_type(segment.kind).is_some();
             let propagate_internally = run.propagate && !capture_kind;
             let capture = LoweredRunCapture {
                 kind: segment.kind,
-                target,
-                args: lowered_args,
-                env: lowered_env,
-                redirections,
-                timeout,
-                cpu_max,
-                accept,
+                operands,
                 propagate: propagate_internally,
                 assert_success,
                 span: self.program.arena.span(run.span),
@@ -736,65 +636,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let mut lowered_segments = Vec::with_capacity(segments.len());
             for segment in &segments {
                 allowed_type(segment.kind)?;
-                let target =
-                    self.lower_run_arg(&segment.target, slots, current_function, item_slot)?;
-                let args = self.program.arena.command_args(segment.args).to_vec();
-                let mut lowered_args = Vec::with_capacity(args.len());
-                for arg in &args {
-                    lowered_args.push(self.lower_run_arg(
-                        arg,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?);
-                }
-                let env = self.program.arena.env_assignments(segment.env).to_vec();
-                let mut lowered_env = Vec::with_capacity(env.len());
-                for assignment in &env {
-                    lowered_env.push(self.lower_run_env(
-                        assignment,
-                        slots,
-                        current_function,
-                        item_slot,
-                    )?);
-                }
-                let redirections = self
-                    .program
-                    .arena
-                    .redirections(segment.redirections)
-                    .to_vec()
-                    .into_iter()
-                    .map(|redirection| {
-                        self.lower_run_redirection(&redirection, slots, current_function, item_slot)
-                    })
-                    .collect::<Option<Vec<_>>>()?;
-                let timeout = match segment.timeout {
-                    Some(expr) => {
-                        Some(self.lower_expr(expr, slots, current_function, item_slot)?)
-                    }
-                    None => None,
-                };
-                let cpu_max = match segment.cpu_max {
-                    Some(expr) => {
-                        Some(self.lower_expr(expr, slots, current_function, item_slot)?)
-                    }
-                    None => None,
-                };
-                let accept = match segment.accept {
-                    Some(expr) => {
-                        Some(self.lower_expr(expr, slots, current_function, item_slot)?)
-                    }
-                    None => None,
-                };
+                let operands = self.lower_run_operands(
+                    segment,
+                    slots,
+                    current_function,
+                    item_slot,
+                )?;
                 lowered_segments.push(LoweredRunPipelineSegment {
                     kind: segment.kind,
-                    target,
-                    args: lowered_args,
-                    env: lowered_env,
-                    redirections,
-                    timeout,
-                    cpu_max,
-                    accept,
+                    operands,
                 });
             }
             // A capturing head yields a Result unwrapped by an external `Try`.
@@ -844,6 +694,62 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             kind: redirection.kind,
             target,
             span: self.program.arena.span(redirection.span),
+        })
+    }
+
+    fn lower_run_operands(
+        &mut self,
+        segment: &crate::syntax::arena::ArenaRunSegment,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<LoweredRunOperands> {
+        let mut options = Vec::with_capacity(3);
+        let source_options = self.program.arena.run_options(segment.options).to_vec();
+        for option in source_options {
+            let value = self.lower_expr(option.value, slots, current_function, item_slot)?;
+            options.push(match option.kind {
+                crate::syntax::grammar::RunOption::Timeout => LoweredRunOption::Timeout(value),
+                crate::syntax::grammar::RunOption::CpuMax => LoweredRunOption::CpuMax(value),
+                crate::syntax::grammar::RunOption::Accept => LoweredRunOption::Accept(value),
+            });
+        }
+        let source_env = self.program.arena.env_assignments(segment.env).to_vec();
+        let mut env = Vec::with_capacity(source_env.len());
+        for assignment in &source_env {
+            env.push(self.lower_run_env(assignment, slots, current_function, item_slot)?);
+        }
+        let source_target = segment.target.clone();
+        let target = self.lower_run_arg(&source_target, slots, current_function, item_slot)?;
+        let source_tail = self.program.arena.run_tail_operands(segment.tail).to_vec();
+        let mut tail = Vec::with_capacity(source_tail.len());
+        for operand in source_tail {
+            tail.push(match operand {
+                crate::syntax::arena::ArenaRunTailOperand::Argument(arg) => {
+                    let arg = self.program.arena.command_arg(arg).clone();
+                    LoweredRunTailOperand::Argument(self.lower_run_arg(
+                        &arg,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?)
+                }
+                crate::syntax::arena::ArenaRunTailOperand::Redirection(redirection) => {
+                    let redirection = self.program.arena.redirection(redirection).clone();
+                    LoweredRunTailOperand::Redirection(self.lower_run_redirection(
+                        &redirection,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?)
+                }
+            });
+        }
+        Some(LoweredRunOperands {
+            options,
+            env,
+            target,
+            tail,
         })
     }
 
@@ -1118,58 +1024,26 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         return None;
                     };
                     if !matches!(segment.kind, RunKind::Plain | RunKind::Status)
-                        || !self
+                        || self
                             .program
                             .arena
-                            .redirections(segment.redirections)
-                            .is_empty()
+                            .run_tail_operands(segment.tail)
+                            .iter()
+                            .any(|operand| matches!(
+                                operand,
+                                crate::syntax::arena::ArenaRunTailOperand::Redirection(_)
+                            ))
                     {
                         return None;
                     }
-                    let target =
-                        self.lower_run_arg(&segment.target, slots, current_function, item_slot)?;
-                    let args = self.program.arena.command_args(segment.args).to_vec();
-                    let mut lowered_args = Vec::with_capacity(args.len());
-                    for arg in &args {
-                        lowered_args.push(self.lower_run_arg(
-                            arg,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?);
-                    }
-                    let env = self.program.arena.env_assignments(segment.env).to_vec();
-                    let mut lowered_env = Vec::with_capacity(env.len());
-                    for assignment in &env {
-                        lowered_env.push(self.lower_run_env(
-                            assignment,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?);
-                    }
+                    let operands = self.lower_run_operands(
+                        segment,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?;
                     lowered.push(LoweredProcessCommandBuilderEntry::Run {
-                        target,
-                        args: lowered_args,
-                        env: lowered_env,
-                        timeout: match segment.timeout {
-                            Some(value) => {
-                                Some(self.lower_expr(value, slots, current_function, item_slot)?)
-                            }
-                            None => None,
-                        },
-                        cpu_max: match segment.cpu_max {
-                            Some(value) => {
-                                Some(self.lower_expr(value, slots, current_function, item_slot)?)
-                            }
-                            None => None,
-                        },
-                        accept: match segment.accept {
-                            Some(value) => {
-                                Some(self.lower_expr(value, slots, current_function, item_slot)?)
-                            }
-                            None => None,
-                        },
+                        operands,
                         span: self.program.arena.span(command_stmt.span),
                     });
                     run_seen = true;

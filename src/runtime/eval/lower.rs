@@ -443,8 +443,9 @@ use super::{
     LoweredFunctionBlocker, LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit,
     LoweredModuleExport, LoweredModuleExportKind, LoweredParamChecks, LoweredParamDefaults,
     LoweredParamKinds, LoweredParamNames, LoweredParamRest, LoweredPipelineStage,
-    LoweredReturnKind, LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunPipelineSegment,
-    LoweredRunRedirection, LoweredStrPredicate, LoweredTopLevelBinding, LoweredTopLevelSlot,
+    LoweredReturnKind, LoweredRunArg, LoweredRunArgKind, LoweredRunEnv, LoweredRunOption,
+    LoweredRunOperands, LoweredRunPipelineSegment, LoweredRunRedirection,
+    LoweredRunTailOperand, LoweredStrPredicate, LoweredTopLevelBinding, LoweredTopLevelSlot,
     LoweredTopLevelSlots, LoweredType, LoweredTypeCheck, LoweredValue, ProgramBuild, ReduceByOp,
     ScanBytes, ScanCheck, ScanCondition, StmtFlow, lowered_method_name,
 };

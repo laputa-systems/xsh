@@ -26,8 +26,9 @@ use crate::runtime::eval::{
     LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport,
     LoweredModuleExportKind, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates, LoweredReturnKind,
-    LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
-    LoweredRunRedirection, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
+    LoweredRunArg, LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunOption,
+    LoweredRunOperands, LoweredRunPipelineSegment, LoweredRunRedirection,
+    LoweredRunTailOperand, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
     LoweredTagValue, LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredType, LoweredTypeCheck,
     LoweredValue, PreparedConstantValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck,
     ScanCondition, CheckedPatternVariantKey, CheckedPatternVariantKind,
@@ -15097,9 +15098,9 @@ impl_vec_codec!(LoweredFmtPart, BLOCK_LIST);
 impl_vec_codec!(LoweredRecordEntry, BLOCK_LIST);
 impl_vec_codec!((Option<BuildExprId>, BuildExprId, Span), BLOCK_LIST);
 impl_vec_codec!(LoweredCallArg, BLOCK_LIST);
-impl_vec_codec!(LoweredRunArg, BLOCK_LIST);
 impl_vec_codec!(LoweredRunEnv, BLOCK_LIST);
-impl_vec_codec!(LoweredRunRedirection, BLOCK_LIST);
+impl_vec_codec!(LoweredRunOption, BLOCK_LIST);
+impl_vec_codec!(LoweredRunTailOperand, BLOCK_LIST);
 impl_vec_codec!(LoweredRunPipelineSegment, BLOCK_LIST);
 impl_vec_codec!(LoweredProcessCommandBuilderEntry, BLOCK_LIST);
 impl_vec_codec!(ScanCheck, BLOCK_LIST);
@@ -27179,8 +27180,8 @@ pure checked(number: Int) -> Result[Port] {
                 "accept-policy-rows.xsh",
                 r#"
 proc checked() [process, error] {
-  let text = run.text --accept=[0,1] sh -c "exit 1" ?
-  let child = spawn run --accept=[0,1] sh -c "exit 1" ?
+  let text = run.text --timeout=1s --accept=[0,1] sh -c "exit 1" ?
+  let child = spawn run --timeout=1s --accept=[0,1] sh -c "exit 1" ?
   let command = process.command_argv("sh", ["sh", "-c", "exit 1"], accept: [0,1])
   print $text $child.pid
   let status = process.run(command)?
@@ -27206,22 +27207,83 @@ proc checked() [process, error] {
                 let execution = function.execution().unwrap();
                 let context = DecodeContext::new(&execution);
                 let cursor = FullCursor::new(&program.store.extra[payload.clone()]);
-                let policy = match tag {
-                    FullTag::ExprRunCapture => LoweredRunCapture::field_cursor(context, cursor, "accept"),
-                    FullTag::ExprSpawnRun => LoweredSpawnRun::field_cursor(context, cursor, "accept"),
-                    FullTag::ExprProcessCommandArgv => LoweredProcessCommandArgv::field_cursor(context, cursor, "accept"),
+                let value_offset = match tag {
+                    FullTag::ExprRunCapture => {
+                        run_accept_option_value_offset(&program, &execution, cursor, false)
+                    }
+                    FullTag::ExprSpawnRun => {
+                        run_accept_option_value_offset(&program, &execution, cursor, true)
+                    }
+                    FullTag::ExprProcessCommandArgv => {
+                        let policy = LoweredProcessCommandArgv::field_cursor(
+                            context,
+                            cursor,
+                            "accept",
+                        )
+                        .unwrap();
+                        let presence = payload.start + policy.index;
+                        assert_eq!(program.store.extra[presence], 1, "policy is present");
+                        presence + 1
+                    }
                     _ => unreachable!(),
-                }.unwrap();
-                let presence = payload.start + policy.index;
-                assert_eq!(program.store.extra[presence], 1, "policy is present");
+                };
                 let mut invalid_value = program.clone();
-                invalid_value.store.extra[presence + 1] = u32::MAX;
+                invalid_value.store.extra[value_offset] = u32::MAX;
                 assert!(FullVerifier::verify(&invalid_value).is_err());
-                let mut invalid_presence = program.clone();
-                invalid_presence.store.extra[presence] = 2;
-                assert!(FullVerifier::verify(&invalid_presence).is_err());
+                if tag == FullTag::ExprProcessCommandArgv {
+                    let mut invalid_presence = program.clone();
+                    invalid_presence.store.extra[value_offset - 1] = 2;
+                    assert!(FullVerifier::verify(&invalid_presence).is_err());
+                } else if tag == FullTag::ExprRunCapture {
+                    let timeout_tag = run_option_tag_offset(
+                        &program,
+                        &execution,
+                        cursor,
+                        false,
+                        0,
+                    );
+                    let mut duplicate = program.clone();
+                    duplicate.store.extra[timeout_tag] = 2;
+                    assert!(FullVerifier::verify(&duplicate).is_err());
+                }
             }
         });
+    }
+
+    fn run_accept_option_value_offset(
+        program: &FullProgram,
+        execution: &FullExecution<'_>,
+        row: FullCursor<'_>,
+        spawn: bool,
+    ) -> usize {
+        let tag = run_option_tag_offset(program, execution, row, spawn, 2);
+        tag + 1
+    }
+
+    fn run_option_tag_offset(
+        program: &FullProgram,
+        execution: &FullExecution<'_>,
+        row: FullCursor<'_>,
+        spawn: bool,
+        option_tag: u32,
+    ) -> usize {
+        let context = DecodeContext::new(execution);
+        let operands = if spawn {
+            LoweredSpawnRun::field_cursor(context, row, "operands").unwrap()
+        } else {
+            LoweredRunCapture::field_cursor(context, row, "operands").unwrap()
+        };
+        let mut options = LoweredRunOperands::field_cursor(context, operands, "options").unwrap();
+        let block = IrBlockId::from_raw(options.raw().unwrap()).unwrap();
+        let bounds = program.store.blocks[block.index()]
+            .instructions
+            .bounds(program.store.extra.len())
+            .unwrap();
+        let count = program.store.extra[bounds.start] as usize;
+        (0..count)
+            .map(|index| bounds.start + 1 + index * 2)
+            .find(|&tag| program.store.extra[tag] == option_tag)
+            .expect("run row has a requested option")
     }
 
     #[test]

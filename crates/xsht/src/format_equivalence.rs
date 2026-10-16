@@ -13,8 +13,8 @@ use xsh::frontend::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaCompQualifier,
     ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
     ArenaModuleContractEntryKind, ArenaPatternKind, ArenaPipeStageKind, ArenaProgram, ArenaRange,
-    ArenaRecordFieldKind, ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind,
-    ArenaStreamStage, ArenaSugarOperand, ArenaText, ArenaTypeDefBody, ArenaWordPart,
+    ArenaRecordFieldKind, ArenaRedirectionTarget, ArenaRunTailOperand, ArenaSpawnTarget,
+    ArenaStmtKind, ArenaStreamStage, ArenaSugarOperand, ArenaText, ArenaTypeDefBody, ArenaWordPart,
     AssignTargetId, AstArena, BindingTargetId, BlockId, BuilderBlockId, ExprId, FunctionDefId,
     PatternId, RunFormId, StmtId, TypeExprId,
 };
@@ -1218,22 +1218,30 @@ impl CanonicalWriter<'_> {
         self.debug(&(run.propagate, run.captured));
         for segment in self.arena.run_segments(run.segments) {
             self.debug(&(segment.kind, segment.grouped));
-            self.opt_expr(segment.timeout);
-            self.opt_expr(segment.cpu_max);
-            self.opt_expr(segment.accept);
+            for option in self.arena.run_options(segment.options) {
+                self.debug(&option.kind);
+                self.expr(option.value);
+            }
             self.env_assignments(segment.env);
             self.command_arg(&segment.target);
-            self.command_args(segment.args);
-            for redirection in self.arena.redirections(segment.redirections) {
-                self.debug(&redirection.kind);
-                match &redirection.target {
-                    ArenaRedirectionTarget::Path(arg) => {
-                        self.put("path;");
-                        self.command_arg(arg);
+            for operand in self.arena.run_tail_operands(segment.tail) {
+                match operand {
+                    ArenaRunTailOperand::Argument(id) => {
+                        self.command_arg(self.arena.command_arg(*id));
                     }
-                    ArenaRedirectionTarget::Fd(arg) => {
-                        self.put("fd;");
-                        self.command_arg(arg);
+                    ArenaRunTailOperand::Redirection(id) => {
+                        let redirection = self.arena.redirection(*id);
+                        self.debug(&redirection.kind);
+                        match &redirection.target {
+                            ArenaRedirectionTarget::Path(arg) => {
+                                self.put("path;");
+                                self.command_arg(arg);
+                            }
+                            ArenaRedirectionTarget::Fd(arg) => {
+                                self.put("fd;");
+                                self.command_arg(arg);
+                            }
+                        }
                     }
                 }
             }

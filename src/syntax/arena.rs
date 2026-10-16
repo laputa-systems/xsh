@@ -143,6 +143,8 @@ id_type!(StringLiteralId);
 id_type!(BytesLiteralId);
 id_type!(RegexLiteralId);
 id_type!(TextLiteralId);
+id_type!(ArenaCommandArgId);
+id_type!(ArenaRedirectionId);
 
 impl TypeExprId {
     pub fn from_optional_raw(raw: u32) -> Option<Self> {
@@ -549,20 +551,34 @@ mod child_tests {
             ArenaWordPartData::new(expressions[5].index() as u32, 0),
         ]);
         let word = ArenaCommandArg { kind: ArenaCommandArgKind::Word(ArenaRange::new(0, 2)), span: span_id };
-        lowerer.arena.command_args.push(ArenaCommandArg { kind: ArenaCommandArgKind::SpliceExpr(expressions[6]), span: span_id });
+        lowerer.arena.run_options.extend([
+            ArenaRunOption { kind: crate::syntax::grammar::RunOption::Accept, value: expressions[2] },
+            ArenaRunOption { kind: crate::syntax::grammar::RunOption::Timeout, value: expressions[0] },
+            ArenaRunOption { kind: crate::syntax::grammar::RunOption::CpuMax, value: expressions[1] },
+        ]);
         lowerer.arena.env_assignments.push(ArenaEnvAssignment {
             name: owner.intern("ENV"), value: ArenaEnvAssignmentValue::Expr(expressions[3]), span: span_id,
         });
+        lowerer.arena.run_tail_operands.extend([
+            ArenaRunTailOperand::Argument(ArenaCommandArgId::from_index(0)),
+            ArenaRunTailOperand::Redirection(ArenaRedirectionId::from_index(0)),
+        ]);
+        lowerer.arena.command_args.push(ArenaCommandArg { kind: ArenaCommandArgKind::SpliceExpr(expressions[6]), span: span_id });
         lowerer.arena.redirections.push(ArenaRedirection {
             kind: RedirectionKind::StdoutWrite,
             target: ArenaRedirectionTarget::Path(ArenaCommandArg { kind: ArenaCommandArgKind::Typed(expressions[7]), span: span_id }), span: span_id,
         });
         lowerer.arena.run_segments.push(ArenaRunSegment {
-            kind: RunKind::Plain, timeout: Some(expressions[0]), cpu_max: Some(expressions[1]), accept: Some(expressions[2]),
-            env: ArenaRange::new(0, 1), grouped: false, target: word, args: ArenaRange::new(0, 1), redirections: ArenaRange::new(0, 1), span: span_id,
+            kind: RunKind::Plain,
+            options: ArenaRange::new(0, 3),
+            env: ArenaRange::new(0, 1),
+            grouped: false,
+            target: word,
+            tail: ArenaRange::new(0, 2),
+            span: span_id,
         });
         let run = lowerer.push_run_form_parts(ArenaRange::new(0, 1), false, span());
-        let expected = expressions.map(Expr);
+        let expected = [expressions[2], expressions[0], expressions[1], expressions[3], expressions[4], expressions[5], expressions[6], expressions[7]].map(Expr);
         assert_eq!(expr_children(&mut lowerer, ArenaExprKind::Run(run)), expected);
         assert_eq!(expr_children(&mut lowerer, ArenaExprKind::Spawn(ArenaSpawnForm { target: ArenaSpawnTarget::Run(run), span: span_id })), expected);
         let stmt = lowerer.push_stmt_kind(ArenaStmtKind::Return(Some(ArenaExprOrRun::Run(run))), span());
@@ -2275,27 +2291,23 @@ impl<'a> ArenaProgramBuilder<'a> {
     pub fn push_run_segment_parts(
         &mut self,
         kind: RunKind,
-        timeout: Option<ExprId>,
-        cpu_max: Option<ExprId>,
-        accept: Option<ExprId>,
+        options: Vec<ArenaRunOption>,
         env: ArenaRange,
         grouped: bool,
         target: ArenaCommandArg,
-        args: ArenaRange,
-        redirections: ArenaRange,
+        tail: Vec<ArenaRunTailOperandInput>,
         span: Span,
     ) {
+        let options = self.lowerer.lower_run_option_id_range(&options);
+        let tail = self.lowerer.lower_run_tail_operand_id_range(tail);
         let span = self.lowerer.span(span);
         self.run_segment_inputs.push(ArenaRunSegment {
             kind,
-            timeout,
-            cpu_max,
-            accept,
+            options,
             env,
             grouped,
             target,
-            args,
-            redirections,
+            tail,
             span,
         });
     }
@@ -2499,9 +2511,21 @@ impl<'a> ArenaProgramBuilder<'a> {
         target: ArenaRedirectionTarget,
         span: Span,
     ) {
-        let span = self.lowerer.span(span);
-        self.redirection_inputs
-            .push(ArenaRedirection { kind, target, span });
+        let redirection = self.lower_redirection(kind, target, span);
+        self.redirection_inputs.push(redirection);
+    }
+
+    pub fn lower_redirection(
+        &mut self,
+        kind: RedirectionKind,
+        target: ArenaRedirectionTarget,
+        span: Span,
+    ) -> ArenaRedirection {
+        ArenaRedirection {
+            kind,
+            target,
+            span: self.lowerer.span(span),
+        }
     }
 
     pub fn finish_redirections(&mut self) -> ArenaRange {
@@ -4661,6 +4685,8 @@ pub struct AstArena {
     pub command_args: Vec<ArenaCommandArg>,
     pub env_assignments: Vec<ArenaEnvAssignment>,
     pub run_segments: Vec<ArenaRunSegment>,
+    pub run_options: Vec<ArenaRunOption>,
+    pub run_tail_operands: Vec<ArenaRunTailOperand>,
     pub redirections: Vec<ArenaRedirection>,
     pub word_part_tags: Vec<ArenaWordPartTag>,
     pub word_part_data: Vec<ArenaWordPartData>,
@@ -5271,13 +5297,19 @@ impl AstArena {
 
     fn for_each_run_child(&self, run: RunFormId, visit: &mut impl FnMut(ArenaChild)) {
         for segment in self.run_segments(self.run_form(run).segments) {
-            for expr in segment.timeout.into_iter().chain(segment.cpu_max).chain(segment.accept) { visit(ArenaChild::Expr(expr)); }
+            for option in self.run_options(segment.options) {
+                visit(ArenaChild::Expr(option.value));
+            }
             self.for_each_env_child(segment.env, visit);
             self.for_each_command_arg_child(&segment.target, visit);
-            self.for_each_command_args_child(segment.args, visit);
-            for redirection in self.redirections(segment.redirections) {
-                match &redirection.target {
-                    ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => self.for_each_command_arg_child(arg, visit),
+            for operand in self.run_tail_operands(segment.tail) {
+                match operand {
+                    ArenaRunTailOperand::Argument(id) => {
+                        self.for_each_command_arg_child(self.command_arg(*id), visit)
+                    }
+                    ArenaRunTailOperand::Redirection(id) => match &self.redirection(*id).target {
+                        ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => self.for_each_command_arg_child(arg, visit),
+                    },
                 }
             }
         }
@@ -5446,6 +5478,8 @@ impl AstArena {
             + vec_capacity_bytes(&self.command_args)
             + vec_capacity_bytes(&self.env_assignments)
             + vec_capacity_bytes(&self.run_segments)
+            + vec_capacity_bytes(&self.run_options)
+            + vec_capacity_bytes(&self.run_tail_operands)
             + vec_capacity_bytes(&self.redirections)
             + self.word_part_storage_bytes()
     }
@@ -5560,6 +5594,8 @@ impl AstArena {
             table!(command_args),
             table!(env_assignments),
             table!(run_segments),
+            table!(run_options),
+            table!(run_tail_operands),
             table!(redirections),
             table!(word_part_tags),
             table!(word_part_data),
@@ -5620,6 +5656,8 @@ impl AstArena {
             + vec_capacity_bytes(&self.command_args)
             + vec_capacity_bytes(&self.env_assignments)
             + vec_capacity_bytes(&self.run_segments)
+            + vec_capacity_bytes(&self.run_options)
+            + vec_capacity_bytes(&self.run_tail_operands)
             + vec_capacity_bytes(&self.redirections)
             + self.word_part_storage_bytes()
     }
@@ -5654,6 +5692,8 @@ impl AstArena {
             + self.command_args.len()
             + self.env_assignments.len()
             + self.run_segments.len()
+            + self.run_options.len()
+            + self.run_tail_operands.len()
             + self.redirections.len()
             + self.word_part_tags.len()
     }
@@ -6682,8 +6722,24 @@ impl AstArena {
         range_slice(&self.run_segments, range)
     }
 
+    pub fn run_options(&self, range: ArenaRange) -> &[ArenaRunOption] {
+        range_slice(&self.run_options, range)
+    }
+
+    pub fn run_tail_operands(&self, range: ArenaRange) -> &[ArenaRunTailOperand] {
+        range_slice(&self.run_tail_operands, range)
+    }
+
+    pub fn command_arg(&self, id: ArenaCommandArgId) -> &ArenaCommandArg {
+        &self.command_args[id.index()]
+    }
+
     pub fn redirections(&self, range: ArenaRange) -> &[ArenaRedirection] {
         range_slice(&self.redirections, range)
+    }
+
+    pub fn redirection(&self, id: ArenaRedirectionId) -> &ArenaRedirection {
+        &self.redirections[id.index()]
     }
 
     pub fn word_parts(
@@ -8402,15 +8458,30 @@ pub struct ArenaRunForm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaRunSegment {
     pub kind: RunKind,
-    pub timeout: Option<ExprId>,
-    pub cpu_max: Option<ExprId>,
-    pub accept: Option<ExprId>,
+    pub options: ArenaRange,
     pub env: ArenaRange,
     pub grouped: bool,
     pub target: ArenaCommandArg,
-    pub args: ArenaRange,
-    pub redirections: ArenaRange,
+    pub tail: ArenaRange,
     pub span: SpanId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ArenaRunOption {
+    pub kind: crate::syntax::grammar::RunOption,
+    pub value: ExprId,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ArenaRunTailOperand {
+    Argument(ArenaCommandArgId),
+    Redirection(ArenaRedirectionId),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ArenaRunTailOperandInput {
+    Argument(ArenaCommandArg),
+    Redirection(ArenaRedirection),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -8833,6 +8904,34 @@ impl ArenaLowerer<'_> {
         let start = self.arena.run_segments.len();
         self.arena.run_segments.extend_from_slice(segments);
         Self::pushed_range(&mut self.arena.run_segments, start)
+    }
+
+    fn lower_run_option_id_range(&mut self, options: &[ArenaRunOption]) -> ArenaRange {
+        let start = self.arena.run_options.len();
+        self.arena.run_options.extend_from_slice(options);
+        Self::pushed_range(&mut self.arena.run_options, start)
+    }
+
+    fn lower_run_tail_operand_id_range(
+        &mut self,
+        operands: Vec<ArenaRunTailOperandInput>,
+    ) -> ArenaRange {
+        let start = self.arena.run_tail_operands.len();
+        for operand in operands {
+            self.arena.run_tail_operands.push(match operand {
+                ArenaRunTailOperandInput::Argument(arg) => {
+                    let id = ArenaCommandArgId::new(self.arena.command_args.len());
+                    self.arena.command_args.push(arg);
+                    ArenaRunTailOperand::Argument(id)
+                }
+                ArenaRunTailOperandInput::Redirection(redirection) => {
+                    let id = ArenaRedirectionId::new(self.arena.redirections.len());
+                    self.arena.redirections.push(redirection);
+                    ArenaRunTailOperand::Redirection(id)
+                }
+            });
+        }
+        Self::pushed_range(&mut self.arena.run_tail_operands, start)
     }
 
     fn encode_stmt_kind(&mut self, kind: ArenaStmtKind) -> (ArenaStmtTag, ArenaStmtData) {

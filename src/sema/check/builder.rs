@@ -189,7 +189,9 @@ impl Checker {
                                     arena.arena.run_segments(run.segments),
                                     [segment]
                                         if matches!(segment.kind, RunKind::Plain | RunKind::Status)
-                                            && arena.arena.redirections(segment.redirections).is_empty()
+                                            && !arena.arena.run_tail_operands(segment.tail).iter().any(
+                                                |operand| matches!(operand, crate::syntax::arena::ArenaRunTailOperand::Redirection(_)),
+                                            )
                                 );
                                 if command.propagate || run.propagate || !single_command {
                                     self.error(
