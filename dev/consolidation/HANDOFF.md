@@ -8,21 +8,31 @@ state, parked branches, retained worktrees and completed stop audit.
 ## Active resume
 
 The integration tree was clean at `e048b33f2`. The integrator cancelled the
-closeout guard before selecting work. Five independent lanes are assigned:
+closeout guard before selecting work. The resume assignments are:
 
 | Lane | Worktree below `.work/wt/` | Base and scope |
 |---|---|---|
 | Inference ownership | `typing-pipeline-integration` | `e2cf1fec2`; exact generic exports, retained values by binding identity, and required regressions |
 | Acceptance | `resume-acceptance` | `e048b33f2`; approved supplemental and canonical gates |
-| Loop speed | `resume-loop` | `e048b33f2`; selected work, repeated validation, and focused gate controls |
+| Loop speed | removed after read-only review | `e048b33f2`; completed the selector and repeated-validation audit |
 | W9 parity | `resume-w9` | `e048b33f2`; immutable capture admission and strict comparison |
 | Routes and resources | `resume-routes` | `e048b33f2`; current route matrix and remaining resource gates |
+| Semantic review | `resume-semantic` | `e048b33f2`; ten acceptance rows and current-source qualification |
+| Performance preparation | `resume-performance-prep` | `e048b33f2`; existing post-functional gate inputs and controls |
 
 Each resume worktree has its matching `campaign/resume-*-20261016` branch.
 Inference retains `campaign/typing-pipeline-integration`. All lanes use
 `gpt-6-luna` at `xhigh`, with no nested delegation. Acceptance owns the main
 build slot. Inference may run one focused debug build in a separate target
 directory. Only one full native suite may run at a time.
+
+The loop review required no selector changes. The retained inference command
+builds one library harness and executes exact tests directly. Its 286 selections
+include a repeated frontend-disposal selection. The next native runner can
+select the two complete inference files and two exact size-literal cases in
+four invocations, preserving the earlier 20 selections. W9 comparison repeats
+derived-record reads and capture-receipt parsing. Its owner is checking whether
+those operations can share validated data without weakening mutation checks.
 
 The accepted results remain those recorded below. Starting a gate or repairing
 its iteration loop does not accept the source or close a remaining requirement.
