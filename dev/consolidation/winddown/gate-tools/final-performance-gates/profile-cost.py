@@ -240,31 +240,49 @@ def repository_tmp_dir(run_id):
 
 def docker_base(tree, target_dir, cpus, native_image, repository_tmp, user=False, candidate_xsh=None):
     git_common = Path(subprocess.check_output(["git", "-C", str(tree), "rev-parse", "--path-format=absolute", "--git-common-dir"], text=True).strip())
-    baseline = INFRA / "baseline-bin"
+    if user:
+        if candidate_xsh is None:
+            raise ValueError("runtime profile container requires an explicit candidate XSH executable")
+        candidate_xsh = Path(candidate_xsh)
+        if not candidate_xsh.is_absolute():
+            raise ValueError("candidate XSH executable path must be absolute")
+        candidate_xsh_mode = candidate_xsh.lstat().st_mode
+        if (
+            not stat.S_ISREG(candidate_xsh_mode)
+            or not (candidate_xsh_mode & 0o111)
+            or not os.access(candidate_xsh, os.X_OK)
+        ):
+            raise ValueError(
+                f"candidate XSH executable is not a regular executable file: {candidate_xsh}"
+            )
+    elif candidate_xsh is not None:
+        raise ValueError("build profile container does not accept a candidate XSH executable")
     work = ROOT / ".work/consolidation"
     laputa = Path("/home/josh/d/laputa-systems/laputa")
     uid, gid = os.getuid(), os.getgid()
-    binary_path = candidate_xsh or (baseline / "xsh")
-    path_prefix = binary_path.parent if candidate_xsh else baseline
+    path_prefix = f"{candidate_xsh.parent}:" if candidate_xsh is not None else ""
     command = [
         "docker", "run", "--rm", "--init", "--platform", "linux/amd64",
         "--cpuset-cpus", cpus, "--cpus", str(CPU_LIMIT), "--memory", MEMORY_LIMIT,
         "--memory-swap", MEMORY_LIMIT, "--tmpfs", "/tmp:rw,exec,nosuid,mode=1777",
         "-v", f"{tree}:{tree}", "-v", f"{work}:{work}", "-v", f"{git_common}:{git_common}:ro",
-        "-v", f"{laputa}:{laputa}:ro", "-v", f"{baseline}:{baseline}:ro",
+        "-v", f"{laputa}:{laputa}:ro",
         "-v", f"{KACHE}:/usr/local/bin/kache:ro", "-v", f"{MOLD}:/usr/local/bin/mold:ro",
         "-v", f"{LINKER}:/usr/local/bin/xsh-mold-linker:ro",
         "-v", "xsh-consolidation-kache:/root/.cache/kache",
         "-w", str(tree), "-e", "LC_ALL=C", "-e", "TZ=UTC", "-e", f"TMPDIR={repository_tmp}",
         "-e", f"CARGO_TARGET_DIR={target_dir}", "-e", f"CARGO_BUILD_JOBS={CPU_LIMIT}",
-        "-e", f"XSH_LAPUTA_CORPUS={laputa}", "-e", f"XSH_BIN={binary_path}",
-        "-e", f"PATH={path_prefix}:{baseline}:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "-e", f"XSH_LAPUTA_CORPUS={laputa}",
+        "-e", f"PATH={path_prefix}/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         "-e", "CC=/usr/bin/clang-23", "-e", "RUSTC_WRAPPER=/usr/local/bin/kache",
         "-e", "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker",
         "-e", "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol",
     ]
     if user:
-        command += ["--user", f"{uid}:{gid}", "-e", "HOME=/home/compat", "-e", "RUSTUP_HOME=/root/.rustup"]
+        command += [
+            "--user", f"{uid}:{gid}", "-e", "HOME=/home/compat", "-e", "RUSTUP_HOME=/root/.rustup",
+            "-e", f"XSH_BIN={candidate_xsh}",
+        ]
     else:
         command += [
             "-v", "/usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro",

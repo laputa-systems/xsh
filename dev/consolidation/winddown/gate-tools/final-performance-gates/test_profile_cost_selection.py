@@ -43,12 +43,104 @@ def make_working_tree():
         yield tree, close_record, "a" * 40
 
 
+def docker_base_command(tree, *, user=False, candidate_xsh=None):
+    target_dir = tree / ".work/consolidation/target"
+    repository_tmp = tree / ".work/tmp/container"
+    with (
+        patch.object(profile, "ROOT", tree),
+        patch.object(profile, "INFRA", tree / "infra"),
+    ):
+        return profile.docker_base(
+            tree,
+            target_dir,
+            "0-11",
+            "sha256:test-image",
+            repository_tmp,
+            user=user,
+            candidate_xsh=candidate_xsh,
+        )
+
+
+def test_profile_build_context_has_no_baseline_xsh_dependency():
+    with make_working_tree() as (tree, _close_record, _commit):
+        command = docker_base_command(tree)
+
+        assert not any("baseline-bin" in argument for argument in command)
+        assert not any(argument.startswith("XSH_BIN=") for argument in command)
+        path = next(
+            argument.removeprefix("PATH=")
+            for argument in command
+            if argument.startswith("PATH=")
+        )
+        assert path == "/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+def test_profile_runtime_context_requires_explicit_candidate_xsh():
+    with make_working_tree() as (tree, _close_record, _commit):
+        try:
+            docker_base_command(tree, user=True)
+        except ValueError as error:
+            assert "candidate XSH executable" in str(error)
+        else:
+            raise AssertionError("runtime profile container accepted no candidate XSH executable")
+
+        target_dir = tree / ".work/consolidation/target"
+        target_dir.mkdir(parents=True)
+        missing = target_dir / "missing-xsh"
+        try:
+            docker_base_command(tree, user=True, candidate_xsh=missing)
+        except FileNotFoundError:
+            pass
+        else:
+            raise AssertionError("runtime profile container accepted a missing candidate executable")
+
+
+def test_profile_runtime_context_uses_only_the_candidate_xsh():
+    with make_working_tree() as (tree, _close_record, _commit):
+        candidate_xsh = tree / ".work/consolidation/target/release/xsh"
+        candidate_xsh.parent.mkdir(parents=True)
+        candidate_xsh.write_bytes(b"candidate xsh")
+        candidate_xsh.chmod(0o755)
+        command = docker_base_command(tree, user=True, candidate_xsh=candidate_xsh)
+
+        assert not any("baseline-bin" in argument for argument in command)
+        assert f"XSH_BIN={candidate_xsh}" in command
+        path = next(
+            argument.removeprefix("PATH=")
+            for argument in command
+            if argument.startswith("PATH=")
+        )
+        assert path == (
+            f"{candidate_xsh.parent}:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        )
+
+        non_executable = candidate_xsh.parent / "non-executable-xsh"
+        non_executable.write_bytes(b"not executable")
+        non_executable.chmod(0o644)
+        try:
+            docker_base_command(tree, user=True, candidate_xsh=non_executable)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("runtime profile container accepted a non-executable candidate")
+
+        symlink = candidate_xsh.parent / "symlink-xsh"
+        symlink.symlink_to(candidate_xsh)
+        try:
+            docker_base_command(tree, user=True, candidate_xsh=symlink)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("runtime profile container accepted a symlink candidate")
+
+
 def run_profile_cost(tree, output, close_record, commit):
     source_identity = {"commit": commit, "git_tree": "1" * 40, "status": "clean"}
     stages = []
 
     def docker_base(_tree, target_dir, _cpus, image, repository_tmp, user=False, candidate_xsh=None):
-        return [
+        path_prefix = f"{candidate_xsh.parent}:" if candidate_xsh is not None else ""
+        command = [
             "docker",
             "run",
             "-e",
@@ -56,9 +148,12 @@ def run_profile_cost(tree, output, close_record, commit):
             "-e",
             f"CARGO_TARGET_DIR={target_dir}",
             "-e",
-            f"XSH_BIN={candidate_xsh}" if candidate_xsh else "XSH_BIN=baseline",
+            f"PATH={path_prefix}/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
             image,
         ]
+        if candidate_xsh is not None:
+            command[-1:-1] = ["-e", f"XSH_BIN={candidate_xsh}"]
+        return command
 
     def run_stage(command, log, *, run_id, stage, verify_after):
         stages.append(stage)
@@ -121,8 +216,11 @@ def test_profile_cost_emits_only_the_selected_release_profile():
         selected = receipt["results"][0]
         assert selected["build"]["status"] == 0
         assert selected["native_suite"]["status"] == 0
+        assert not any(argument.startswith("XSH_BIN=") for argument in selected["build_command"])
+        assert not any("baseline-bin" in argument for argument in selected["build_command"])
         assert selected["native_suite_command"][-1] == "test"
         assert selected["native_suite_command"][-2].endswith("/opt3/target/x86_64-unknown-linux-musl/release/xsht")
+        assert any(argument.startswith("XSH_BIN=") for argument in selected["native_suite_command"])
         build_tmp = next(argument.removeprefix("TMPDIR=") for argument in selected["build"]["command"] if argument.startswith("TMPDIR="))
         test_tmp = next(argument.removeprefix("TMPDIR=") for argument in selected["native_suite"]["command"] if argument.startswith("TMPDIR="))
         assert build_tmp == test_tmp
@@ -173,5 +271,8 @@ def test_profile_cost_emits_only_the_selected_release_profile():
 
 
 if __name__ == "__main__":
+    test_profile_build_context_has_no_baseline_xsh_dependency()
+    test_profile_runtime_context_requires_explicit_candidate_xsh()
+    test_profile_runtime_context_uses_only_the_candidate_xsh()
     test_profile_cost_emits_only_the_selected_release_profile()
     print("selected release opt3 profile receipt passed")
