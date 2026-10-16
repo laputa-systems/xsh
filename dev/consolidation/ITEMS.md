@@ -6,7 +6,10 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
 **Status: active and incomplete, 2026-10-16.** Current reported main is
-`e31732415`; integrated checks are pending. On frozen source `915e9d8bd`, the
+`e31732415`. Focused checks pass there: check 1,526, exact archive 1, workflow
+3 plus one skip, non-root 1, curl 2, and route 2. Lint has two warnings and 113
+notes, with fixes assigned; the full native suite remains unrun. On frozen
+source `915e9d8bd`, the
 canonical native suite recorded 13,720 passed, 160 failed, and 92 skipped.
 Root-UID, `/dev/full` fixture-pollution, and SGID repairs cleared 159 of the
 160 failure-census cases. The remaining head memory regression passes all
@@ -18,12 +21,14 @@ No functional close or performance credit is claimed.
 The owner authorized wider, staggered inference implementation in isolated
 worktrees while consolidation acceptance runs, superseding the old
 wait-before-lowerer sequence. No inference implementation is on main. Checker
-`f734` passes a fresh build and 57 tests; pipeline `cbb`'s first combined
-compile failed with eight Rust errors and is routed for repairs. W9 `a8` passes
-69 tests and a single-input proof; chain `03` has 1,690 ownership proofs and
-68 validated ranges, with actual comparison pending. Native-witness and SPEC
-lanes and driver review are active. Lean remains paused. See [the current
-handoff](HANDOFF.md) for pins, per-lane status, and evidence.
+`f734` passes a fresh build and 57 tests. Pipeline `cbb` contains encoding,
+lowering, and runtime changes only; a combined compile with verifier changes at
+`340ae7a7a` failed with eight Rust errors and was routed for repairs. W9 `a8`
+passes 69 tests and a single-input proof; chain `03` has 1,690 ownership proofs
+and 68 validated ranges, with actual comparison pending. Canonical driver,
+queue, and final-prep checkpoints are isolated and under review. Native-witness
+and SPEC lanes and driver review are active. Lean remains paused. See [the
+current handoff](HANDOFF.md) for pins, per-lane status, and evidence.
 
 **Earlier checkpoints:** The implementation and focused
 repairs are integrated on `master`. The latest bounded corpus-worker and

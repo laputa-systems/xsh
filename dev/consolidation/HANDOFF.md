@@ -98,18 +98,22 @@ work is authorized by this resume.
   pass with the existing pinned products. These are suffix-stage results on
   `915e9d8bd`, not a complete canonical batch. The metrics report records
   previously approved integration growth. Products are unchanged. Main has
-  since advanced to `e31732415`, where integrated checks remain pending.
+  since advanced to `e31732415`; focused integrated checks pass there: `xsht
+  check` reports 1,526 passes, the exact archive check passes, workflow tests
+  pass 3 with one skip, and the non-root, curl, and route checks pass 1, 2, and
+  2 cases respectively. Lint reports two warnings and 113 notes, with fixes
+  assigned. The full native suite has not run on that source.
 - Current isolated successor checkpoints: checker `f734` passes a fresh build
   and 57 tests (body 3, focused 7, constraints 42, schemes 5); the earlier `1d`
   module-export, `FullNameOf`, and body-domain probes pass three tests. Draft
-  pipeline `cbb` changes encoding, lowering, and runtime sources; its first
-  combined compile failed with eight Rust errors and was routed for encoding,
-  lowerer, and verifier work. Review also assigned duplicate-authority and
-  ground-`Any` fixes. W9 parser repair `a8` passes 69 tests and the single-input
-  proof. Fresh chain `03` has 1,690 ownership proofs and 68 independently
-  validated ranges; its actual comparison is pending. The canonical driver
-  `c410`, serialized Linux queue `f2`, and final-prep `41ac`/`f446` are in the
-  integration history; final-prep review and integrated checks remain pending.
+  pipeline `cbb` changes encoding, lowering, and runtime sources. A combined
+  compile with verifier changes at `340ae7a7a` failed with eight Rust errors;
+  encoding, lowerer, and verifier work was routed. Review also assigned
+  duplicate-authority and ground-`Any` fixes. W9 parser repair `a8` passes 69
+  tests and the single-input proof. Fresh chain `03` has 1,690 ownership proofs
+  and 68 independently validated ranges; its actual comparison is pending.
+  Canonical driver `c410`, serialized Linux queue `f2`, and final-prep `41ac`/
+  `f446` are ready isolated checkpoints under review, not integrated on main.
   Native-witness and SPEC lanes and driver review are active. No inference code
   is accepted on main. Lean remains paused.
 - Isolated test-only `534db019e` removes invalid fixture diagnostics from
@@ -444,12 +448,16 @@ work is authorized by this resume.
 
 ### Current queue
 
-The integrator owns `master`, reported at `e31732415`. Lint/archive integration
-at `14d` and `1ac` and the canonical driver/queue/final-prep changes are present
-in that history; their integrated checks are pending. Binding-identity repairs
-and W9 receipt recovery have isolated worktrees under `.work/wt/`. Each lane
-requires review and focused verification before integration. Source changes
-require a new canonical freeze.
+The integrator owns `master`, reported at `e31732415`. Lint/archive changes from
+`14d` and `1ac` are integrated through `cddf` and `e317`. Focused integrated
+checks pass there: check 1,526, exact archive 1, workflow 3 plus one skip,
+non-root 1, curl 2, and route 2. Lint still reports two warnings and 113 notes;
+fixes are assigned. The full native suite remains unrun. Canonical driver
+`c410`, queue `f2`, and final-prep `41ac`/`f446` remain isolated ready
+checkpoints under review. Binding-identity repairs and W9 receipt recovery have
+isolated worktrees under `.work/wt/`. Each lane requires review and focused
+verification before integration. Source changes require a new canonical
+freeze.
 
 The checker audit's assignment and reader repairs and imported-standard-module
 fact correction are integrated. Requalify the repaired facts and readers on the
