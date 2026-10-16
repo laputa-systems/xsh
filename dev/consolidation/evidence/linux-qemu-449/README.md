@@ -22,7 +22,7 @@ The ordinary and dedicated harnesses each passed `test_mount_worker_name_matches
 | Ordinary | `cp::privileged::test_mount_worker_name_matches_current_test` | 1 passed |
 | Dedicated | `core_compat_extra::cp::privileged::test_mount_worker_name_matches_current_test` | 1 passed |
 
-The QEMU runs passed these seven assertions, each in a fresh guest. Each passing guest and its QEMU process exited 0, and the per-guest launcher status was 0. The three-guest controller's final status is described below.
+Three passing QEMU guest boots covered seven assertions: the three XSH date cases ran in one boot, the three GNU date reference cases ran in one boot, and the reflink case ran in one boot. Each passing guest and its QEMU process exited 0, and the per-guest launcher status was 0. The separate failed reflink boot and the three-guest controller's final status are described below.
 
 | Guest | Assertions | Result |
 |---|---|---|
