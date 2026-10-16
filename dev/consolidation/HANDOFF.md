@@ -99,7 +99,8 @@ work is authorized by this resume.
   native suite were not reached. No timing credit is claimed.
 - All 184 mapped expression route probes pass on clean `ed90857bd` with its
   actual verification products, covering 92 tags in normal and forced modes.
-  Each emits one witness artifact. Independent artifact review is pending;
+  Each emits one witness artifact. [Independent review and the existing
+  collector accept all 184 tuples](evidence/routes-ed908/README.md);
   this is not a full native suite or evidence for unsupported non-Expr routes.
 - Isolated scheme checkpoint `121d39242` passes all 41 constraints and nine
   exact probes, with root-library and XSHT all-target compilation passing.
@@ -249,7 +250,8 @@ work is authorized by this resume.
 - Route-matrix recovery is integrated through `088da08c5`. Mapping validation
   requires all 152 schema tags and reviewed child sources for all 92 expression
   tags. The child sources match the completed probe table at `95488faf2`.
-  The 184 supported mode expectations credit zero receipts. The remaining
+  This mapping checkpoint credited zero receipts; the current `ed908` replay
+  above credits all 184 supported tuples. The remaining
   60 tags retain unsupported artifact mappings. Main and eager helper
   selftests pass 61 and 46 cases on the merged source. The eager helper now
   selects Rust commands for Rust verifier oracles. Pipeline runtime behavior,
@@ -260,7 +262,8 @@ work is authorized by this resume.
   The two new tests and the existing wrong-category test each pass. Evidence
   metadata at `52fc6694a` records all three rejection oracles separately from
   the native child and removes the covered malformed-payload gap. Merged main
-  and eager helper selftests pass 62 and 47 cases. Route receipts remain zero.
+  and eager helper selftests pass 62 and 47 cases. Route receipts were zero at
+  this earlier checkpoint.
 - Disposable QEMU preparation passes its guard smoke. The guest uses the pinned
   image's userspace, matching Linux 7.2.9-2-stable kernel and modules, TCG/q35,
   two CPUs, 2 GiB, fixed RTC, and no network. Its temporary files stay on ext4.
