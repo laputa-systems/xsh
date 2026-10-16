@@ -633,7 +633,7 @@ class HarnessSiblingArtifactStagingTests(unittest.TestCase):
                             "profile_name": "verification",
                             "target_variant": "harness",
                             "features": ["default", "native-tests", "net", "tools"],
-                            "source": {"commit": "a" * 40, "tree": "b" * 40},
+                            "source": {"clean": True, "commit": "a" * 40, "tree": "b" * 40},
                         },
                     },
                 },

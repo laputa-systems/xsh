@@ -28,7 +28,7 @@ CONTROLLER_ROOT = pathlib.Path("/home/josh/d/laputa-systems/xsh")
 WORKTREE_ROOT = CONTROLLER_ROOT / ".work/wt"
 TOOL_DIR = pathlib.Path(__file__).resolve().parent
 OUTPUT_ROOT = CONTROLLER_ROOT / ".work/final-review-evidence/final-correctness-gates"
-PLAN_PATH = OUTPUT_ROOT / "manifest-correctness-e048-20261016-pty-sibling-r4b.json"
+PLAN_PATH = OUTPUT_ROOT / "manifest-correctness-e048-20261016-pty-sibling-r4c.json"
 RUNNER = TOOL_DIR / "run-native-final.sh"
 PLAN_SOURCE_PATH = TOOL_DIR / "plan_source.py"
 MANIFEST_GENERATOR_PATH = TOOL_DIR / "generate_manifest.py"
@@ -46,7 +46,7 @@ BASE_RUNNER = INFRA / "run-native.sh"
 NATIVE_LOCK = INFRA / "native-suite.lock"
 NATIVE_CLEANUP_MARKER = INFRA / "native-suite.cleanup-unresolved"
 BASE_RUNNER_SHA256 = "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15"
-APPROVED_MANIFEST_BODY_SHA256 = "84bb7d1a6632ce72efb3bd5806cf25584d4967c32ecaf9365b1da318efeb8ef0"
+APPROVED_MANIFEST_BODY_SHA256 = "4cd142dbebd77ef61b9254bf60ce12812b59a5aa213b719eb71a06f5e497ec09"
 RUNTIME_CARGO_FORWARDER = TOOL_DIR / "cargo-forwarder.sh"
 RUNTIME_RUSTC_WRAPPER = TOOL_DIR / "rustc-jemalloc.sh"
 TOOL_HASHES = {
@@ -978,6 +978,7 @@ class Launch:
         harness = self.receipt.get("harnesses", {}).get("core-compat-extra", {})
         harness_variant = harness.get("xsh_variant", {})
         qualification = harness_variant.get("qualification", {})
+        qualified_source = qualification.get("source", {})
         harness_xsh = pathlib.Path(harness_variant.get("path", ""))
         expected_harness_xsh = self.harness_target_dir / TARGET / "verification" / "xsh"
         if (
@@ -988,7 +989,9 @@ class Launch:
             or qualification.get("target_variant") != "harness"
             or qualification.get("profile_name") != "verification"
             or set(qualification.get("features", [])) != {"default", "native-tests", "net", "tools"}
-            or qualification.get("source") != {"commit": self.expected_commit, "tree": self.expected_tree}
+            or qualified_source.get("commit") != self.expected_commit
+            or qualified_source.get("tree") != self.expected_tree
+            or qualified_source.get("clean") is not True
         ):
             raise GateFailure("core compatibility PTY harness xsh variant does not match the qualified default harness")
         harness_xsh_parent = harness_xsh.parent
