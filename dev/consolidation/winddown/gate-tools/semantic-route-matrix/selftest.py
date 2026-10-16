@@ -2686,12 +2686,55 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             fallback["review_status"],
             "source_exhaustive_top_level_tag_dispatch",
         )
+        self.assertEqual(
+            fallback["scope"],
+            "eval_statement top-level FullTag match; arm-body semantics remain in runtime evidence",
+        )
         self.assertTrue(fallback["branches_exhaustive"])
         self.assertTrue(fallback["no_fallback"])
         self.assertEqual(fallback["branches"][0]["source_ref"], "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:5385")
         self.assertFalse(fallback["fallbacks"][0]["reachable_for_valid_statement_tag"])
         with self.assertRaisesRegex(generate.EvidenceError, "missing AST statement inventory"):
             generate.build_fallback_path_map(row, refs)
+
+    def test_statement_fallback_map_identifies_typed_view_dispatch(self) -> None:
+        row = {"kind": "Stmt", "tag": "StmtPrint", "fallback_path_map": []}
+        inventory = {
+            "owner": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+            "match_line": 5585,
+            "branches": [
+                {
+                    "tag": "StmtPrint",
+                    "pattern": "StmtView::Print",
+                    "line": 5586,
+                    "arm_index": 0,
+                }
+            ],
+            "fallbacks": [
+                {
+                    "pattern": "tag.kind() != InstructionKind::Stmt",
+                    "outcome": "frame_strategy_error",
+                    "line": 5580,
+                    "arm_index": 0,
+                }
+            ],
+        }
+        refs = {
+            "schema_row": ["schema.rs:12"],
+            "normal_dispatch": ["explicit_run.rs:5586", "explicit_run.rs:5580"],
+            "forced_dispatch": ["explicit_run.rs:5586", "explicit_run.rs:5580"],
+            "statement_match": ["explicit_run.rs:5585"],
+        }
+        fallback = generate.build_fallback_path_map(row, refs, inventory)
+        self.assertEqual(
+            fallback["scope"],
+            "eval_statement top-level StmtView match; arm-body semantics remain in runtime evidence",
+        )
+        self.assertEqual(
+            fallback["fallbacks"][0]["pattern"],
+            "tag.kind() != InstructionKind::Stmt",
+        )
+        self.assertFalse(fallback["fallbacks"][0]["reachable_for_valid_statement_tag"])
 
     def test_route_witness_artifact_rejects_wrong_tuple_and_stale_identity(self) -> None:
         root = generate.HERE.parents[4]

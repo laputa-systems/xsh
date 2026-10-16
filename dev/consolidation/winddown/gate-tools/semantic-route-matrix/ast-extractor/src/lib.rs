@@ -31,6 +31,12 @@ pub struct StatementInventory {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+struct StatementSchemaRow {
+    variant: String,
+    tag: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScalarSchemaRow {
     pub family: String,
     pub kind: String,
@@ -5181,10 +5187,12 @@ fn is_frame_strategy_error_return(body: &Expr) -> bool {
     let Expr::Block(block) = body else {
         return false;
     };
-    if block.block.stmts.len() != 1 {
-        return false;
-    }
-    let Stmt::Expr(Expr::Return(returned), _) = &block.block.stmts[0] else {
+    block.block.stmts.len() == 1
+        && is_frame_strategy_error_return_statement(&block.block.stmts[0])
+}
+
+fn is_frame_strategy_error_return_statement(statement: &Stmt) -> bool {
+    let Stmt::Expr(Expr::Return(returned), _) = statement else {
         return false;
     };
     let Some(Expr::Call(error_call)) = returned.expr.as_deref() else {
@@ -7926,11 +7934,26 @@ pub fn extract_statement_inventory(
         .map_err(|error| format!("parse instruction schema: {error}"))?;
     let dispatch = syn::parse_file(dispatch_source)
         .map_err(|error| format!("parse statement dispatch: {error}"))?;
-    let schema_tags = statement_schema_tags(&schema)?;
+    let schema_rows = statement_schema_rows(&schema)?;
+    let schema_tags = schema_rows
+        .iter()
+        .map(|row| row.tag.clone())
+        .collect::<Vec<_>>();
     let function = find_function(&dispatch, "eval_statement")?;
-    let match_expr = top_level_tag_match(function)?;
-    let (branches, fallbacks) = parse_dispatch_arms(match_expr)?;
-    validate_coverage(&schema_tags, &branches, &fallbacks)?;
+    let (match_index, match_expr, dispatch_kind) = top_level_statement_match(function)?;
+    let (branches, fallbacks) = match dispatch_kind {
+        StatementDispatchKind::FullTag => {
+            let (branches, fallbacks) = parse_dispatch_arms(match_expr)?;
+            validate_coverage(&schema_tags, &branches, &fallbacks)?;
+            (branches, fallbacks)
+        }
+        StatementDispatchKind::TypedView => {
+            let fallback = statement_kind_guard(function, match_index)?;
+            let branches = parse_statement_view_arms(match_expr, &schema_rows)?;
+            validate_branch_coverage(&schema_tags, &branches)?;
+            (branches, vec![fallback])
+        }
+    };
 
     Ok(StatementInventory {
         owner: dispatch_path.to_string(),
@@ -7941,7 +7964,13 @@ pub fn extract_statement_inventory(
     })
 }
 
-fn statement_schema_tags(file: &File) -> Result<Vec<String>, String> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StatementDispatchKind {
+    FullTag,
+    TypedView,
+}
+
+fn statement_schema_rows(file: &File) -> Result<Vec<StatementSchemaRow>, String> {
     let macros = file
         .items
         .iter()
@@ -7993,14 +8022,14 @@ fn statement_schema_tags(file: &File) -> Result<Vec<String>, String> {
         ));
     }
 
-    let mut tags = Vec::new();
+    let mut rows = Vec::new();
     let mut row = Vec::new();
     for token in stmt_groups[0].clone() {
         if punct_is(&token, ';') {
             if row.is_empty() {
                 return Err("empty row in BuildStmtRow context".into());
             }
-            tags.push(parse_schema_row_tag(&row)?);
+            rows.push(parse_schema_row(&row)?);
             row.clear();
         } else {
             row.push(token);
@@ -8009,23 +8038,30 @@ fn statement_schema_tags(file: &File) -> Result<Vec<String>, String> {
     if !row.is_empty() {
         return Err("unterminated row in BuildStmtRow context".into());
     }
-    if tags.is_empty() {
+    if rows.is_empty() {
         return Err("BuildStmtRow context has no instruction rows".into());
     }
 
-    let mut seen = BTreeSet::new();
-    for tag in &tags {
-        if !tag.starts_with("Stmt") {
-            return Err(format!("statement schema row has non-statement tag {tag}"));
+    let mut seen_tags = BTreeSet::new();
+    let mut seen_variants = BTreeSet::new();
+    for row in &rows {
+        if !row.tag.starts_with("Stmt") {
+            return Err(format!(
+                "statement schema row has non-statement tag {}",
+                row.tag
+            ));
         }
-        if !seen.insert(tag.clone()) {
-            return Err(format!("duplicate statement schema tag {tag}"));
+        if !seen_tags.insert(row.tag.clone()) {
+            return Err(format!("duplicate statement schema tag {}", row.tag));
+        }
+        if !seen_variants.insert(row.variant.clone()) {
+            return Err(format!("duplicate statement schema variant {}", row.variant));
         }
     }
-    Ok(tags)
+    Ok(rows)
 }
 
-fn parse_schema_row_tag(row: &[TokenTree]) -> Result<String, String> {
+fn parse_schema_row(row: &[TokenTree]) -> Result<StatementSchemaRow, String> {
     let mut index = 0;
     while index + 1 < row.len()
         && punct_is(&row[index], '#')
@@ -8033,9 +8069,8 @@ fn parse_schema_row_tag(row: &[TokenTree]) -> Result<String, String> {
     {
         index += 2;
     }
-    if !matches!(row.get(index), Some(TokenTree::Ident(_))) {
-        return Err("statement schema row has no variant identifier".into());
-    }
+    let variant = ident_value(row.get(index))
+        .ok_or_else(|| "statement schema row has no variant identifier".to_string())?;
     index += 1;
     if matches!(row.get(index), Some(TokenTree::Group(group)) if matches!(group.delimiter(), Delimiter::Brace | Delimiter::Parenthesis)) {
         index += 1;
@@ -8052,7 +8087,7 @@ fn parse_schema_row_tag(row: &[TokenTree]) -> Result<String, String> {
     {
         return Err(format!("statement schema row {tag} has an unrecognized route layout"));
     }
-    Ok(tag)
+    Ok(StatementSchemaRow { variant, tag })
 }
 
 fn find_function<'a>(file: &'a File, name: &str) -> Result<&'a Block, String> {
@@ -8091,29 +8126,305 @@ impl<'ast, 'name> Visit<'ast> for FunctionFinder<'ast, 'name> {
     }
 }
 
-fn top_level_tag_match(block: &Block) -> Result<&syn::ExprMatch, String> {
+fn top_level_statement_match(
+    block: &Block,
+) -> Result<(usize, &syn::ExprMatch, StatementDispatchKind), String> {
     let matches = block
         .stmts
         .iter()
         .enumerate()
         .filter_map(|(index, statement)| match statement {
-            Stmt::Expr(Expr::Match(expr), terminator) if path_is_ident(&expr.expr, "tag") => {
-                Some((index, expr, terminator.is_none()))
-            }
+            Stmt::Expr(Expr::Match(expr), terminator) => statement_dispatch_kind(&expr.expr)
+                .map(|kind| (index, expr, terminator.is_none(), kind)),
             _ => None,
         })
         .collect::<Vec<_>>();
     if matches.len() != 1 {
         return Err(format!(
-            "expected one top-level match tag in eval_statement, found {}",
+            "expected one top-level statement dispatch in eval_statement, found {}",
             matches.len()
         ));
     }
-    let (index, match_expr, is_tail) = matches[0];
+    let (index, match_expr, is_tail, kind) = matches[0];
     if !is_tail || index + 1 != block.stmts.len() {
-        return Err("eval_statement match tag must be the final tail expression".into());
+        return Err(match kind {
+            StatementDispatchKind::FullTag => {
+                "eval_statement match tag must be the final tail expression".into()
+            }
+            StatementDispatchKind::TypedView => {
+                "eval_statement typed-view match must be the final tail expression".into()
+            }
+        });
     }
-    Ok(match_expr)
+    Ok((index, match_expr, kind))
+}
+
+fn statement_dispatch_kind(expression: &Expr) -> Option<StatementDispatchKind> {
+    if path_is_ident(expression, "tag") {
+        Some(StatementDispatchKind::FullTag)
+    } else if is_statement_view_decode(expression) {
+        Some(StatementDispatchKind::TypedView)
+    } else {
+        None
+    }
+}
+
+fn is_statement_view_decode(expression: &Expr) -> bool {
+    let Expr::Try(try_expression) = expression else {
+        return false;
+    };
+    let Expr::MethodCall(map_error) = try_expression.expr.as_ref() else {
+        return false;
+    };
+    if map_error.method != "map_err"
+        || map_error.turbofish.is_some()
+        || map_error.args.len() != 1
+    {
+        return false;
+    }
+    let Expr::Call(decode) = map_error.receiver.as_ref() else {
+        return false;
+    };
+    if !expression_has_exact_path(&decode.func, &["StmtView", "decode"])
+        || decode.args.len() != 3
+        || !matches!(
+            decode.args.first(),
+            Some(Expr::Reference(reference))
+                if reference.mutability.is_none()
+                    && path_is_ident(reference.expr.as_ref(), "execution")
+        )
+        || !decode.args.iter().nth(1).is_some_and(|argument| path_is_ident(argument, "tag"))
+        || !decode.args.iter().nth(2).is_some_and(|argument| path_is_ident(argument, "payload"))
+    {
+        return false;
+    }
+    let Expr::Closure(handler) = &map_error.args[0] else {
+        return false;
+    };
+    if !matches!(
+        handler.inputs.first(),
+        Some(Pat::Ident(pattern))
+            if pattern.ident == "error"
+                && pattern.subpat.is_none()
+                && pattern.by_ref.is_none()
+                && pattern.mutability.is_none()
+    ) || handler.inputs.len() != 1
+    {
+        return false;
+    }
+    let Some(error) = exact_statement_call(handler.body.as_ref(), &["indexed_error"]) else {
+        return false;
+    };
+    error.args.len() == 2
+        && expression_has_exact_path(&error.args[0], &["error"])
+        && expression_has_exact_path(&error.args[1], &["span"])
+}
+
+fn statement_kind_guard(block: &Block, match_index: usize) -> Result<FallbackBranch, String> {
+    let guards = block
+        .stmts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, statement)| match statement {
+            Stmt::Expr(Expr::If(expression), _) if is_statement_kind_condition(&expression.cond) => {
+                Some((index, expression))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if guards.len() != 1 {
+        return Err(format!(
+            "expected one statement-kind frame_strategy_error guard, found {}",
+            guards.len()
+        ));
+    }
+    let (index, guard) = guards[0];
+    if index >= match_index {
+        return Err("statement-kind error guard must precede the typed-view match".into());
+    }
+    if guard.else_branch.is_some()
+        || guard.then_branch.stmts.len() != 1
+        || !is_statement_kind_guard_return(&guard.then_branch.stmts[0])
+    {
+        return Err("statement-kind guard must directly return frame_strategy_error".into());
+    }
+    Ok(FallbackBranch {
+        pattern: "tag.kind() != InstructionKind::Stmt".into(),
+        outcome: "frame_strategy_error".into(),
+        line: guard.if_token.span().start().line,
+        arm_index: 0,
+    })
+}
+
+fn is_statement_kind_condition(expression: &Expr) -> bool {
+    let Expr::Binary(binary) = expression else {
+        return false;
+    };
+    matches!(binary.op, syn::BinOp::Ne(_))
+        && matches!(binary.left.as_ref(), Expr::MethodCall(call)
+            if call.method == "kind"
+                && call.turbofish.is_none()
+                && call.args.is_empty()
+                && path_is_ident(&call.receiver, "tag"))
+        && expression_has_exact_path(&binary.right, &["InstructionKind", "Stmt"])
+}
+
+fn is_statement_kind_guard_return(statement: &Stmt) -> bool {
+    let Stmt::Expr(Expr::Return(returned), _) = statement else {
+        return false;
+    };
+    let Some(Expr::Call(error_call)) = returned.expr.as_deref() else {
+        return false;
+    };
+    if !expression_has_exact_path(&error_call.func, &["Err"]) || error_call.args.len() != 1 {
+        return false;
+    }
+    let Some(call) = exact_statement_call(&error_call.args[0], &["frame_strategy_error"]) else {
+        return false;
+    };
+    call.args.len() == 2
+        && expression_has_exact_path(&call.args[0], &["tag"])
+        && expression_has_exact_path(&call.args[1], &["span"])
+}
+
+fn exact_statement_call<'a>(expression: &'a Expr, expected_path: &[&str]) -> Option<&'a syn::ExprCall> {
+    match expression {
+        Expr::Call(call) if expression_has_exact_path(&call.func, expected_path) => Some(call),
+        _ => None,
+    }
+}
+
+fn expression_has_exact_path(expression: &Expr, expected: &[&str]) -> bool {
+    matches!(expression, Expr::Path(path) if path.qself.is_none() && path_has_exact_segments(&path.path, expected))
+}
+
+fn path_has_exact_segments(path: &syn::Path, expected: &[&str]) -> bool {
+    path.leading_colon.is_none()
+        && path.segments.len() == expected.len()
+        && path
+            .segments
+            .iter()
+            .zip(expected)
+            .all(|(actual, expected)| {
+                actual.ident == *expected
+                    && matches!(&actual.arguments, syn::PathArguments::None)
+            })
+}
+
+fn parse_statement_view_arms(
+    match_expr: &syn::ExprMatch,
+    schema_rows: &[StatementSchemaRow],
+) -> Result<Vec<TagBranch>, String> {
+    let mut branches = Vec::new();
+    for (arm_index, arm) in match_expr.arms.iter().enumerate() {
+        if arm.guard.is_some() {
+            return Err(format!(
+                "guarded typed-view eval_statement arm at line {} is unsupported",
+                arm.pat.span().start().line
+            ));
+        }
+        let mut variants = Vec::new();
+        collect_statement_view_patterns(&arm.pat, &mut variants)?;
+        if variants.is_empty() {
+            return Err(format!(
+                "unparsed typed-view eval_statement arm at line {}",
+                arm.pat.span().start().line
+            ));
+        }
+        let pattern_text = variants
+            .iter()
+            .map(|(variant, _)| format!("StmtView::{variant}"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        for (variant, line) in variants {
+            let schema_row = schema_rows
+                .iter()
+                .find(|row| row.variant == variant)
+                .ok_or_else(|| format!("unknown StmtView variant {variant}"))?;
+            branches.push(TagBranch {
+                tag: schema_row.tag.clone(),
+                pattern: pattern_text.clone(),
+                line,
+                arm_index,
+            });
+        }
+    }
+    Ok(branches)
+}
+
+fn collect_statement_view_patterns(
+    pattern: &Pat,
+    variants: &mut Vec<(String, usize)>,
+) -> Result<(), String> {
+    match pattern {
+        Pat::Path(path) => {
+            let variant = statement_view_variant(&path.path, pattern)?;
+            variants.push((variant, pattern.span().start().line));
+            Ok(())
+        }
+        Pat::Struct(struct_pattern) => {
+            if !struct_pattern
+                .fields
+                .iter()
+                .all(|field| is_irrefutable_view_field_pattern(&field.pat))
+            {
+                return Err(format!(
+                    "constrained StmtView field pattern at line {} is unsupported",
+                    pattern.span().start().line
+                ));
+            }
+            let variant = statement_view_variant(&struct_pattern.path, pattern)?;
+            variants.push((variant, pattern.span().start().line));
+            Ok(())
+        }
+        Pat::Or(patterns) => {
+            for pattern in &patterns.cases {
+                if matches!(pattern, Pat::Wild(_)) {
+                    return Err("wildcard inside a typed-view or-pattern is unsupported".into());
+                }
+                collect_statement_view_patterns(pattern, variants)?;
+            }
+            Ok(())
+        }
+        Pat::Paren(pattern) => collect_statement_view_patterns(&pattern.pat, variants),
+        Pat::Wild(_) => Err("wildcard typed-view eval_statement arm is unsupported".into()),
+        _ => Err(format!(
+            "unparsed typed-view eval_statement pattern at line {}",
+            pattern.span().start().line
+        )),
+    }
+}
+
+fn statement_view_variant(path: &syn::Path, pattern: &Pat) -> Result<String, String> {
+    if path.leading_colon.is_some()
+        || path.segments.len() != 2
+        || path
+            .segments
+            .iter()
+            .any(|segment| !matches!(&segment.arguments, syn::PathArguments::None))
+    {
+        return Err(format!(
+            "unparsed StmtView path pattern at line {}",
+            pattern.span().start().line
+        ));
+    }
+    let mut segments = path.segments.iter();
+    if segments.next().is_none_or(|segment| segment.ident != "StmtView") {
+        return Err(format!(
+            "eval_statement arm is not a StmtView pattern at line {}",
+            pattern.span().start().line
+        ));
+    }
+    Ok(segments
+        .next()
+        .expect("two path segments checked")
+        .ident
+        .to_string())
+}
+
+fn is_irrefutable_view_field_pattern(pattern: &Pat) -> bool {
+    matches!(pattern, Pat::Wild(_) | Pat::Rest(_))
+        || matches!(pattern, Pat::Ident(binding) if binding.subpat.is_none())
 }
 
 fn parse_dispatch_arms(
@@ -8220,6 +8531,19 @@ fn validate_coverage(
     branches: &[TagBranch],
     fallbacks: &[FallbackBranch],
 ) -> Result<(), String> {
+    validate_branch_coverage(schema_tags, branches)?;
+    if let Some(fallback) = fallbacks.first()
+        && branches.iter().any(|branch| branch.arm_index > fallback.arm_index)
+    {
+        return Err(format!(
+            "wildcard fallback at arm {} precedes an exact statement arm",
+            fallback.arm_index
+        ));
+    }
+    Ok(())
+}
+
+fn validate_branch_coverage(schema_tags: &[String], branches: &[TagBranch]) -> Result<(), String> {
     let expected = schema_tags.iter().cloned().collect::<BTreeSet<_>>();
     let mut counts = BTreeMap::<String, usize>::new();
     for branch in branches {
@@ -8242,14 +8566,6 @@ fn validate_coverage(
         .collect::<Vec<_>>();
     if !missing.is_empty() {
         return Err(format!("missing eval_statement tags: {missing:?}"));
-    }
-    if let Some(fallback) = fallbacks.first()
-        && branches.iter().any(|branch| branch.arm_index > fallback.arm_index)
-    {
-        return Err(format!(
-            "wildcard fallback at arm {} precedes an exact statement arm",
-            fallback.arm_index
-        ));
     }
     Ok(())
 }
@@ -8906,6 +9222,23 @@ impl Evaluator {
         match tag {
             FullTag::StmtFirst | FullTag::StmtSecond => work(),
             _ => Err(frame_strategy_error(tag, span)),
+        }
+    }
+}
+"#;
+
+    const TYPED_VIEW_DISPATCH: &str = r#"
+struct Evaluator;
+impl Evaluator {
+    fn eval_statement(&mut self) {
+        if tag.kind() != InstructionKind::Stmt {
+            return Err(frame_strategy_error(tag, span));
+        }
+        match StmtView::decode(&execution, tag, payload)
+            .map_err(|error| indexed_error(error, span))?
+        {
+            StmtView::First => work(),
+            StmtView::Second { value } => work(),
         }
     }
 }
@@ -10015,6 +10348,155 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
         assert_eq!(inventory.fallbacks.len(), 1);
         assert_eq!(inventory.fallbacks[0].outcome, "frame_strategy_error");
         assert!(inventory.branches.iter().all(|branch| branch.line > 0));
+    }
+
+    #[test]
+    fn typed_view_statement_dispatch_maps_variants_to_schema_tags() {
+        let inventory = inventory(SCHEMA, TYPED_VIEW_DISPATCH).unwrap();
+        assert_eq!(inventory.schema_tags, ["StmtFirst", "StmtSecond"]);
+        assert_eq!(
+            inventory.branches.iter().map(|branch| branch.tag.as_str()).collect::<Vec<_>>(),
+            ["StmtFirst", "StmtSecond"]
+        );
+        assert_eq!(inventory.branches[0].pattern, "StmtView::First");
+        assert_eq!(inventory.branches[1].pattern, "StmtView::Second");
+        assert_eq!(inventory.fallbacks.len(), 1);
+        assert_eq!(inventory.fallbacks[0].outcome, "frame_strategy_error");
+        assert!(inventory.fallbacks[0].line < inventory.branches[0].line);
+    }
+
+    #[test]
+    fn typed_view_statement_dispatch_requires_complete_unique_schema_coverage() {
+        let missing = TYPED_VIEW_DISPATCH.replace("            StmtView::Second { value } => work(),\n", "");
+        assert!(inventory(SCHEMA, &missing)
+            .unwrap_err()
+            .contains("missing eval_statement tags: [\"StmtSecond\"]"));
+
+        let duplicate = TYPED_VIEW_DISPATCH.replace(
+            "            StmtView::Second { value } => work(),",
+            "            StmtView::First => work(),\n            StmtView::Second { value } => work(),",
+        );
+        assert!(inventory(SCHEMA, &duplicate)
+            .unwrap_err()
+            .contains("duplicate eval_statement tags: [\"StmtFirst\"]"));
+
+        let unknown = TYPED_VIEW_DISPATCH.replace("StmtView::Second", "StmtView::Third");
+        assert!(inventory(SCHEMA, &unknown)
+            .unwrap_err()
+            .contains("unknown StmtView variant Third"));
+
+        let wildcard = TYPED_VIEW_DISPATCH.replace("StmtView::Second { value }", "_");
+        assert!(inventory(SCHEMA, &wildcard)
+            .unwrap_err()
+            .contains("wildcard typed-view eval_statement arm is unsupported"));
+
+        let constrained_field = TYPED_VIEW_DISPATCH.replace(
+            "StmtView::Second { value }",
+            "StmtView::Second { value: 0 }",
+        );
+        assert!(inventory(SCHEMA, &constrained_field)
+            .unwrap_err()
+            .contains("constrained StmtView field pattern"));
+    }
+
+    #[test]
+    fn typed_view_statement_dispatch_requires_exact_decode_and_error_guard() {
+        let missing_guard = TYPED_VIEW_DISPATCH.replace(
+            "        if tag.kind() != InstructionKind::Stmt {\n            return Err(frame_strategy_error(tag, span));\n        }\n",
+            "",
+        );
+        assert!(inventory(SCHEMA, &missing_guard)
+            .unwrap_err()
+            .contains("expected one statement-kind frame_strategy_error guard, found 0"));
+
+        let wrong_guard = TYPED_VIEW_DISPATCH.replace(
+            "tag.kind() != InstructionKind::Stmt",
+            "tag.kind() == InstructionKind::Stmt",
+        );
+        assert!(inventory(SCHEMA, &wrong_guard)
+            .unwrap_err()
+            .contains("expected one statement-kind frame_strategy_error guard, found 0"));
+
+        let wrong_guard_outcome = TYPED_VIEW_DISPATCH.replace(
+            "return Err(frame_strategy_error(tag, span));",
+            "return Ok(());",
+        );
+        assert!(inventory(SCHEMA, &wrong_guard_outcome)
+            .unwrap_err()
+            .contains("statement-kind guard must directly return frame_strategy_error"));
+
+        let wrong_decode = TYPED_VIEW_DISPATCH.replace("StmtView::decode", "OtherView::decode");
+        assert!(inventory(SCHEMA, &wrong_decode)
+            .unwrap_err()
+            .contains("expected one top-level statement dispatch in eval_statement, found 0"));
+
+        let absolute_decode = TYPED_VIEW_DISPATCH.replace(
+            "StmtView::decode",
+            "::StmtView::decode",
+        );
+        assert!(inventory(SCHEMA, &absolute_decode)
+            .unwrap_err()
+            .contains("expected one top-level statement dispatch in eval_statement, found 0"));
+
+        let generic_decode = TYPED_VIEW_DISPATCH.replace(
+            "StmtView::decode",
+            "StmtView::<()>::decode",
+        );
+        assert!(inventory(SCHEMA, &generic_decode)
+            .unwrap_err()
+            .contains("expected one top-level statement dispatch in eval_statement, found 0"));
+
+        let absolute_kind_guard = TYPED_VIEW_DISPATCH.replace(
+            "InstructionKind::Stmt",
+            "::InstructionKind::Stmt",
+        );
+        assert!(inventory(SCHEMA, &absolute_kind_guard)
+            .unwrap_err()
+            .contains("expected one statement-kind frame_strategy_error guard, found 0"));
+
+        let generic_kind_guard = TYPED_VIEW_DISPATCH.replace(
+            "tag.kind()",
+            "tag.kind::<()>()",
+        );
+        assert!(inventory(SCHEMA, &generic_kind_guard)
+            .unwrap_err()
+            .contains("expected one statement-kind frame_strategy_error guard, found 0"));
+
+        let wrong_error_map = TYPED_VIEW_DISPATCH.replace(
+            "indexed_error(error, span)",
+            "other_error(error, span)",
+        );
+        assert!(inventory(SCHEMA, &wrong_error_map)
+            .unwrap_err()
+            .contains("expected one top-level statement dispatch in eval_statement, found 0"));
+    }
+
+    #[test]
+    fn current_typed_view_statement_dispatch_covers_all_schema_rows() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = manifest
+            .ancestors()
+            .find(|path| path.join("src/runtime/eval/indexed/full/schema.rs").is_file())
+            .expect("AST extractor manifest is nested under the XSH repository");
+        let schema = std::fs::read_to_string(root.join("src/runtime/eval/indexed/full/schema.rs"))
+            .unwrap();
+        let dispatch = std::fs::read_to_string(
+            root.join("src/runtime/eval/lowered_run/indexed_run/explicit_run.rs"),
+        )
+        .unwrap();
+        let inventory = extract_statement_inventory(
+            &schema,
+            &dispatch,
+            "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+        )
+        .unwrap();
+        let schema_tags = inventory.schema_tags.iter().cloned().collect::<BTreeSet<_>>();
+        let branch_tags = inventory.branches.iter().map(|branch| branch.tag.clone()).collect::<BTreeSet<_>>();
+        assert_eq!(inventory.schema_tags.len(), 42);
+        assert_eq!(inventory.branches.len(), 42);
+        assert_eq!(branch_tags, schema_tags);
+        assert_eq!(inventory.fallbacks.len(), 1);
+        assert_eq!(inventory.fallbacks[0].outcome, "frame_strategy_error");
     }
 
     #[test]

@@ -3881,9 +3881,10 @@ def build_fallback_path_map(
         if branch is None:
             raise EvidenceError(f"statement AST inventory has no exact branch for {row['tag']}")
         owner = statement_inventory["owner"]
+        dispatch_view = "StmtView" if branch["pattern"].startswith("StmtView::") else "FullTag"
         return {
             "review_status": "source_exhaustive_top_level_tag_dispatch",
-            "scope": "eval_statement top-level FullTag match; arm-body semantics remain in runtime evidence",
+            "scope": f"eval_statement top-level {dispatch_view} match; arm-body semantics remain in runtime evidence",
             "branches": [
                 {
                     "tag": branch["tag"],
