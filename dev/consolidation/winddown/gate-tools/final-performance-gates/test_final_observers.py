@@ -11,6 +11,9 @@ from unittest.mock import MagicMock, patch
 
 sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
+WORKTREE_ROOT = HERE.parents[4]
+TEST_SCRATCH = WORKTREE_ROOT / ".work/tmp"
+TEST_SCRATCH.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(HERE))
 
 
@@ -47,7 +50,7 @@ def successful_resource_receipt(path: Path) -> None:
 
 
 def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0)) -> dict[str, object]:
-    with tempfile.TemporaryDirectory(dir=HERE) as temporary:
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
         root = Path(temporary)
         stage_dir = root / "stage"
         stage_dir.mkdir()
@@ -63,6 +66,7 @@ def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0)) ->
         with (
             (root / "performance.lock").open("w+") as ownership_stream,
             patch.object(observer, "perf_gate_check", side_effect=checks) as perf,
+            patch.object(observer.time, "perf_counter_ns", side_effect=[100, 250]) as clock,
             patch.object(observer.subprocess, "Popen", return_value=process) as popen,
             patch.object(observer, "cleanup_cidfile_container", return_value=cleanup),
         ):
@@ -82,12 +86,14 @@ def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0)) ->
             "perf": perf,
             "popen": popen,
             "process": process,
+            "clock": clock,
             "receipt_exists": (stage_dir / "receipt.json").is_file(),
+            "receipt": json.loads((stage_dir / "receipt.json").read_text(encoding="utf-8")),
         }
 
 
 def assert_helper_pin_detects_drift() -> None:
-    with tempfile.TemporaryDirectory(dir=HERE) as temporary:
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
         root = Path(temporary)
         required = (
             "final-observers.py",
@@ -97,9 +103,13 @@ def assert_helper_pin_detects_drift() -> None:
             "test_final_observers.py",
             "launch-plan.md",
         )
+        assert len(required) == 6
         pins = {}
         for relative in required:
-            shutil.copyfile(HERE / relative, root / relative)
+            if relative == "launch-plan.md":
+                (root / relative).write_text("synthetic reviewed launch plan\n", encoding="utf-8")
+            else:
+                shutil.copyfile(HERE / relative, root / relative)
             pins[relative] = observer.sha256(root / relative)
         manifest_path = root / "manifest.json"
         sidecar_path = root / "manifest.json.sha256"
@@ -110,9 +120,11 @@ def assert_helper_pin_detects_drift() -> None:
             patch.object(observer, "ARTIFACT_MANIFEST", manifest_path),
             patch.object(observer, "ARTIFACT_MANIFEST_DIGEST", sidecar_path),
         ):
-            assert "owned_containers.py" in observer.verify_artifact_pins()["file_hashes"]
+            pinned = observer.verify_artifact_pins()
+            assert len(pinned["file_hashes"]) == len(required)
+            assert "owned_containers.py" in pinned["file_hashes"]
             with (root / "owned_containers.py").open("ab") as helper:
-                helper.write(b"\n# synthetic drift\n")
+                helper.write(b"\nsynthetic drift\n")
             try:
                 observer.verify_artifact_pins()
             except observer.ObserverFailure as error:
@@ -121,11 +133,34 @@ def assert_helper_pin_detects_drift() -> None:
                 raise AssertionError("runtime cleanup helper drift must invalidate the observer pin")
 
 
-def assert_supplemental_handoff() -> None:
-    plan = observer.plan_data()
+def assert_supplemental_handoff() -> dict[str, object]:
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
+        root = Path(temporary)
+        manifest_dir = root / "final-correctness"
+        manifest_dir.mkdir()
+        contexts = [{"harness": "other", "filter": "single-case", "privileged": False} for _ in range(4)]
+        contexts.append({
+            "harness": "core-compat-extra-privileged",
+            "filter": "cp::privileged::test_cp_recursive_block_device_",
+            "privileged": True,
+        })
+        manifest = {
+            "linux_context_runs": contexts,
+            "rust_harness_runs": [],
+            "focused_native_files": [],
+            "native_extra": [],
+            "products": [{"name": "xsh"}],
+            "rust_harness_builds": [{"name": "core-compat-extra-privileged"}],
+            "warning_deny": [{"name": "clippy"}],
+        }
+        (manifest_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        launcher = manifest_dir / "launch.py"
+        with (
+            patch.object(observer, "FINAL_CORRECTNESS_DIR", manifest_dir),
+            patch.object(observer, "FINAL_CORRECTNESS_LAUNCHER", launcher),
+        ):
+            plan = observer.plan_data()
     handoff = plan["post_batch_supplemental_launcher"]
-    manifest_path = observer.FINAL_CORRECTNESS_DIR / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"), object_pairs_hook=observer.unique_json_object)
     assert handoff["after_stage"] == "canonical-gate-batch"
     assert handoff["linux_context_runs"] == len(manifest["linux_context_runs"]) == 5
     assert handoff["broad_test_run_counts"] == {
@@ -142,15 +177,16 @@ def assert_supplemental_handoff() -> None:
         "clippy_commands": len(manifest["warning_deny"]),
     }
     assert handoff["separate_prerequisites"]["clippy_commands"] > 0
-    assert handoff["command"][2] == str(observer.FINAL_CORRECTNESS_LAUNCHER)
+    assert handoff["command"][2] == str(launcher)
     assert "--execute" in handoff["command"]
     assert "--expected-commit" in handoff["command"]
     assert "--expected-tree" in handoff["command"]
     assert "--out" in handoff["command"]
+    return plan
 
 
 def assert_gate_target_reuse_contract() -> None:
-    with tempfile.TemporaryDirectory(dir=HERE) as temporary:
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
         root = Path(temporary)
         output = root / "fresh-output"
         output.mkdir()
@@ -247,7 +283,7 @@ def assert_gate_target_cli_forwarding() -> None:
 
 
 def exercise_repeated_signal_cleanup(*, process_exited: bool) -> tuple[dict[str, object], list[str]]:
-    with tempfile.TemporaryDirectory(dir=HERE) as temporary:
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
         root = Path(temporary)
         stage_dir = root / "stage"
         stage_dir.mkdir()
@@ -309,16 +345,13 @@ def exercise_repeated_signal_cleanup(*, process_exited: bool) -> tuple[dict[str,
 
 
 def main() -> None:
-    pins = observer.verify_artifact_pins()
-    assert len(pins["file_hashes"]) == 6
     assert observer.gate_batch_command() == ["cargo", "dev", "gate", "--batch"]
-    plan = observer.plan_data()
+    assert_helper_pin_detects_drift()
+    plan = assert_supplemental_handoff()
     assert plan["stages"][1]["full_native_suite_count"] == 1
     assert plan["canonical_batch_rust_exclusions"] == ["cp::privileged::test_cp_recursive_block_device_"]
     assert plan["supplemental_isolated_tests"]["stage"] == "core-compat-extra-privileged"
     assert plan["supplemental_isolated_tests"]["context"].find("nodev /tmp") >= 0
-    assert_helper_pin_detects_drift()
-    assert_supplemental_handoff()
     assert_gate_target_reuse_contract()
     assert_gate_target_cli_forwarding()
 
@@ -350,7 +383,7 @@ def main() -> None:
         container_resource_file="/work/resource.json",
     ) is None
 
-    with tempfile.TemporaryDirectory(dir=HERE) as temporary:
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
         root = Path(temporary)
         cgroup = root / "cgroup"
         proc = root / "proc"
@@ -428,6 +461,7 @@ def main() -> None:
 
     success = exercise_stage()
     assert success["stage"]["timing_accepted"] is True
+    assert success["stage"]["observation_accepted"] is True
     assert success["stage"]["wall_ns"] > 0
     assert success["perf"].call_args_list[0].args == ()
     assert success["perf"].call_count == 2
@@ -436,20 +470,30 @@ def main() -> None:
     assert success["receipt_exists"] is True
 
     rejected_before = exercise_stage(ready_codes=(1, 0))
+    assert rejected_before["stage"]["observation_accepted"] is True
     assert rejected_before["stage"]["timing_discarded"] is True
     assert rejected_before["stage"]["wall_ns"] is None
-    assert rejected_before["popen"].call_count == 0
+    assert "wall_ns_discarded" not in rejected_before["stage"]
+    assert rejected_before["stage"]["timing_discard_reason"] == "pre-stage readiness failed; stage ran for resource observations only"
+    assert rejected_before["stage"]["container_resources"] is not None
+    assert rejected_before["receipt"]["state"] == "complete"
+    assert rejected_before["popen"].call_count == 1
     assert rejected_before["perf"].call_count == 1
+    assert rejected_before["clock"].call_count == 0
 
     rejected_after = exercise_stage(ready_codes=(0, 1))
+    assert rejected_after["stage"]["observation_accepted"] is True
     assert rejected_after["stage"]["timing_discarded"] is True
     assert rejected_after["stage"]["wall_ns"] is None
     assert rejected_after["stage"]["wall_ns_discarded"] > 0
+    assert rejected_after["receipt"]["state"] == "complete"
 
     failed_command = exercise_stage(status=7)
     assert failed_command["stage"]["status"] == 7
+    assert failed_command["stage"]["observation_accepted"] is False
     assert failed_command["stage"]["timing_discarded"] is True
     assert failed_command["stage"]["wall_ns"] is None
+    assert failed_command["receipt"]["state"] == "failed"
 
     normal_cleanup_signal, normal_events = exercise_repeated_signal_cleanup(process_exited=False)
     assert normal_cleanup_signal["stage"]["container_cleanup"]["resolved"] is False

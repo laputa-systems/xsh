@@ -360,6 +360,7 @@ def signal_counts(pending: dict[str, Any]) -> dict[str, Any]:
 def mark_stage_interrupted(stage: dict[str, Any], signum: int) -> None:
     stage["interrupted"] = True
     stage.setdefault("signal", signal.Signals(signum).name)
+    stage["observation_accepted"] = False
     stage["timing_accepted"] = False
     stage["timing_discarded"] = True
     if stage.get("wall_ns") is not None:
@@ -383,7 +384,7 @@ def persist_stage_receipt(
         if cleanup is not None and not cleanup.get("resolved", True):
             retain_unresolved_lock(ownership_stream, run_id, cleanup, stage_name)
             retain_native_cleanup_marker(run_id, cleanup, stage_name)
-        state = "interrupted" if stage.get("interrupted") else "complete" if stage.get("timing_accepted") else "failed"
+        state = "interrupted" if stage.get("interrupted") else "complete" if stage.get("observation_accepted") else "failed"
         json_write(receipt_path, {"schema_version": 1, "state": state, "stage": stage})
 
     stage["deferred_signals"] = signal_counts(pending)
@@ -412,8 +413,8 @@ def finalize_normal_stage(
     *,
     process: subprocess.Popen[Any] | None,
     status: int | None,
-    elapsed: int,
-    after: dict[str, Any],
+    elapsed: int | None,
+    after: dict[str, Any] | None,
     run_id: str,
     stage_name: str,
     container_id_file: Path,
@@ -457,19 +458,31 @@ def finalize_normal_stage(
         validation_error = str(error)
     stage["post_stage_validation"] = validation
     stage["post_stage_validation_error"] = validation_error
-    accepted = (
-        stage["performance_gate"]["before"]["exit_code"] == 0
-        and after["exit_code"] == 0
-        and status == 0
+    observation_accepted = (
+        status == 0
         and cleanup.get("resolved") is True
         and resource_error is None
         and validation_error is None
     )
-    stage["timing_accepted"] = accepted
-    stage["timing_discarded"] = not accepted
-    stage["wall_ns"] = elapsed if accepted else None
-    if not accepted:
+    timing_accepted = (
+        observation_accepted
+        and stage["performance_gate"]["before"]["exit_code"] == 0
+        and after is not None
+        and after["exit_code"] == 0
+    )
+    stage["observation_accepted"] = observation_accepted
+    stage["timing_accepted"] = timing_accepted
+    stage["timing_discarded"] = not timing_accepted
+    stage["wall_ns"] = elapsed if timing_accepted else None
+    if elapsed is not None and not timing_accepted:
         stage["wall_ns_discarded"] = elapsed
+    if not timing_accepted:
+        if stage["performance_gate"]["before"]["exit_code"] != 0:
+            stage["timing_discard_reason"] = "pre-stage readiness failed; stage ran for resource observations only"
+        elif after is not None and after["exit_code"] != 0:
+            stage["timing_discard_reason"] = "post-stage readiness failed"
+        elif not observation_accepted:
+            stage["timing_discard_reason"] = "stage observations did not complete successfully"
     persist_stage_receipt(
         stage_dir, stage, ownership_stream=ownership_stream,
         run_id=run_id, stage_name=stage_name, pending=pending,
@@ -502,21 +515,12 @@ def run_stage(
         "performance_gate": {"before": before, "after": None},
         "status": None,
         "wall_ns": None,
+        "observation_accepted": False,
         "timing_accepted": False,
         "timing_discarded": True,
     }
-    if before["exit_code"] != 0:
-        stage["skip_reason"] = "perf-gate-ready failed before the command started"
-        stage["container_cleanup"] = {"resolved": True, "container_ids": [], "commands": []}
-        with deferred_signals() as pending:
-            persist_stage_receipt(
-                stage_dir, stage, ownership_stream=ownership_stream,
-                run_id=run_id, stage_name=stage_name, pending=pending,
-            )
-        return stage
-
     process = None
-    started = time.perf_counter_ns()
+    started = time.perf_counter_ns() if before["exit_code"] == 0 else None
     spawn_error = None
     try:
         with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
@@ -526,9 +530,9 @@ def run_stage(
             except OSError as error:
                 spawn_error = error
             if spawn_error is None:
-                elapsed = time.perf_counter_ns() - started
+                elapsed = time.perf_counter_ns() - started if started is not None else None
                 with deferred_signals() as pending:
-                    after = perf_gate_check(after=True)
+                    after = perf_gate_check(after=True) if started is not None else None
                     stdout.flush()
                     stderr.flush()
                     finalize_normal_stage(
@@ -553,7 +557,7 @@ def run_stage(
                     "process": {"resolved": True, "commands": []},
                     "containers": containers,
                 }
-            after = perf_gate_check(after=True)
+            after = perf_gate_check(after=True) if started is not None else None
             stage.update({
                 "interrupted": True,
                 "signal": signal.Signals(error.signum).name,
@@ -561,6 +565,7 @@ def run_stage(
                 "container_cleanup": cleanup,
                 "status": None,
                 "wall_ns": None,
+                "observation_accepted": False,
                 "timing_accepted": False,
                 "timing_discarded": True,
                 "container_resources": None,
@@ -580,11 +585,11 @@ def run_stage(
             )
         return stage
     if spawn_error is not None:
-        elapsed = time.perf_counter_ns() - started
+        elapsed = time.perf_counter_ns() - started if started is not None else None
         status = None
         stage["spawn_error"] = str(spawn_error)
         with deferred_signals() as pending:
-            after = perf_gate_check(after=True)
+            after = perf_gate_check(after=True) if started is not None else None
             finalize_normal_stage(
                 stage, stage_dir, process=process, status=status,
                 elapsed=elapsed, after=after, run_id=run_id,
@@ -849,7 +854,7 @@ def run(args: argparse.Namespace) -> int:
             "gate_batch_limits": "record the pinned Docker command's actual cgroup limits without changing its canonical settings",
             "rss_method": "container-local sum of resident pages sampled every 100 ms; retain kernel cgroup peak and events independently",
         },
-        "timing_policy": "one run per observer; reject timing if either readiness check or the command fails; report no speedup claim",
+        "timing_policy": "run timed observations only when pre-stage readiness passes and post-stage readiness passes immediately afterward; run memory and binary observations without timing when the host is busy",
         "canonical_batch_rust_exclusions": ["cp::privileged::test_cp_recursive_block_device_"],
         "supplemental_isolated_tests": {
             "owner": str(FINAL_CORRECTNESS_LAUNCHER),
@@ -894,9 +899,9 @@ def run(args: argparse.Namespace) -> int:
                 return 130
             if after_lint != profile_before:
                 raise ObserverFailure("sealed selected-release binaries changed during repository lint")
-            if not lint_stage["timing_accepted"]:
+            if not lint_stage["observation_accepted"]:
                 receipt["state"] = "failed"
-                receipt["error"] = "isolated repository lint did not produce an accepted stage"
+                receipt["error"] = "isolated repository lint did not produce valid observations"
                 receipt["finished_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 json_write(receipt_path, receipt)
                 return 1
@@ -924,7 +929,7 @@ def run(args: argparse.Namespace) -> int:
             batch_receipt_path = batch_dir / "receipt.json"
             json_write(batch_receipt_path, {
                 "schema_version": 1,
-                "state": "interrupted" if gate_stage.get("interrupted") else "complete" if gate_stage["timing_accepted"] else "failed",
+                "state": "interrupted" if gate_stage.get("interrupted") else "complete" if gate_stage["observation_accepted"] else "failed",
                 "source": source,
                 "command": gate_batch_command(),
                 "stage": gate_stage,
@@ -944,9 +949,9 @@ def run(args: argparse.Namespace) -> int:
                 receipt["finished_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 json_write(receipt_path, receipt)
                 return 130
-            if not gate_stage["timing_accepted"]:
+            if not gate_stage["observation_accepted"]:
                 receipt["state"] = "failed"
-                receipt["error"] = "canonical cargo dev gate --batch did not produce an accepted stage"
+                receipt["error"] = "canonical cargo dev gate --batch did not produce valid observations"
                 receipt["finished_utc"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
                 json_write(receipt_path, receipt)
                 return 1
