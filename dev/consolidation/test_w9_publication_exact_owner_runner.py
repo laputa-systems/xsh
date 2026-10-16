@@ -1780,7 +1780,10 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
             self.assignment_helper_path.read_bytes() + b"\n"
         )
         self._commit_controller()
-        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "validated composition"):
+        with self.assertRaisesRegex(
+            exact_runner.ExactOwnerError,
+            "assignment proof authority source differs",
+        ):
             self._validate()
 
     def test_rehashed_wrong_helper_prefix_cannot_validate_assignment_receipt(self):
@@ -1799,8 +1802,8 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
         self._commit_controller()
 
         with self.assertRaisesRegex(
-            self.runner.PublicationError,
-            "controller assignment facts Rust helper: cannot resolve",
+            exact_runner.ExactOwnerError,
+            "assignment proof authority source is unavailable",
         ):
             self._validate()
 
@@ -1835,22 +1838,61 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
 
         build_adapter.assert_not_called()
 
-    def test_changed_validator_or_controller_tree_cannot_reuse_capture(self):
+    def test_changed_assignment_validator_cannot_reuse_capture(self):
         self.validator_path.write_bytes(self.validator_path.read_bytes() + b"\n")
         self._commit_controller()
-        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "validator_sha256 differs"):
+        with self.assertRaisesRegex(
+            exact_runner.ExactOwnerError,
+            "assignment proof authority source differs",
+        ):
             self._validate()
 
     def test_changed_exact_owner_helper_cannot_reuse_capture(self):
         self.exact_helper_path.write_bytes(self.exact_helper_path.read_bytes() + b"\n")
         self._commit_controller()
-        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "validated composition"):
+        with self.assertRaisesRegex(
+            exact_runner.ExactOwnerError,
+            "assignment proof authority source differs",
+        ):
             self._validate()
 
-    def test_changed_controller_tree_cannot_reuse_capture(self):
-        (self.controller_root / "revision.txt").write_text("new controller bytes\n", encoding="utf-8")
+    def test_historical_capture_accepts_unrelated_controller_descendant(self):
+        recorded_commit = self.helper_identity["controller_commit"]
+        recorded_tree = self.helper_identity["controller_tree"]
+        reference_module = self.controller_consolidation / "w9_publication_reference_derivation.py"
+        reference_module.write_text("REFERENCE_SCHEMA = 3\n", encoding="utf-8")
         self._commit_controller()
-        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "controller_commit differs"):
+        _proofs, _module, record = self._validate()
+        self.assertEqual(record["controller_commit"], recorded_commit)
+        self.assertEqual(record["controller_tree"], recorded_tree)
+
+    def test_malformed_historical_controller_tree_is_rejected(self):
+        self.write_capture({"controller_tree": "a" * 40})
+        with self.assertRaisesRegex(
+            exact_runner.ExactOwnerError,
+            "controller tree differs from its recorded identity",
+        ):
+            self._validate()
+
+    def test_nonancestor_historical_controller_is_rejected(self):
+        tree = self.runner.git_output(self.controller_root, "write-tree")
+        divergent_commit = subprocess.run(
+            ["git", "-C", str(self.controller_root), "commit-tree", tree, "-m", "divergent"],
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout.strip()
+        subprocess.run(
+            ["git", "-C", str(self.controller_root), "update-ref", "HEAD", divergent_commit],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        with self.assertRaisesRegex(
+            exact_runner.ExactOwnerError,
+            "historical controller commit is not an ancestor",
+        ):
             self._validate()
 
 

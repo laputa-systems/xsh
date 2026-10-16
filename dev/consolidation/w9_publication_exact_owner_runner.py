@@ -22,6 +22,11 @@ EXACT_OWNER_HELPER = pathlib.Path(__file__).with_name("w9-publication-exact-owne
 EXACT_OWNER_HELPER_SHA256 = "33c77273d9f9096d3e6478622d0b29a3f0f1f79dee772cdea12b06f2ac8200d8"
 ASSIGNMENT_FACTS_HELPER = pathlib.Path(__file__).with_name("w9-publication-assignment-facts.rs")
 ASSIGNMENT_FACTS_SCHEMA = "1"
+ASSIGNMENT_PROOF_AUTHORITY_SOURCES = (
+    "dev/consolidation/w9-publication-assignment-facts.rs",
+    "dev/consolidation/w9-publication-exact-owners.rs",
+    "dev/consolidation/w9_assignment_facts.py",
+)
 ASSIGNMENT_FACTS_CAPTURE_FIELDS = (
     "schema",
     "role",
@@ -1391,6 +1396,54 @@ def _assignment_controller_identity(runner) -> tuple[pathlib.Path, str, str]:
     return controller_root, commit, tree
 
 
+def _assignment_historical_controller_identity(
+    runner, assignment_capture_record: Mapping[str, str]
+) -> tuple[pathlib.Path, str, str]:
+    controller_root, current_commit, _current_tree = _assignment_controller_identity(runner)
+    recorded_root = assignment_capture_record["controller_root"]
+    if recorded_root != str(controller_root):
+        raise ExactOwnerError("assignment controller root differs from its capture receipt")
+    recorded_commit = assignment_capture_record["controller_commit"]
+    recorded_tree = assignment_capture_record["controller_tree"]
+    if not re.fullmatch(r"[0-9a-f]{40}", recorded_commit):
+        raise ExactOwnerError("assignment capture has a malformed controller commit")
+    if not re.fullmatch(r"[0-9a-f]{40}", recorded_tree):
+        raise ExactOwnerError("assignment capture has a malformed controller tree")
+    try:
+        resolved_commit = runner.git_output(
+            controller_root, "rev-parse", "--verify", f"{recorded_commit}^{{commit}}"
+        )
+        resolved_tree = runner.git_output(
+            controller_root, "rev-parse", "--verify", f"{recorded_commit}^{{tree}}"
+        )
+    except runner.PublicationError as error:
+        raise ExactOwnerError("assignment capture controller commit is unavailable") from error
+    if resolved_commit != recorded_commit:
+        raise ExactOwnerError("assignment capture controller commit is not canonical")
+    if resolved_tree != recorded_tree:
+        raise ExactOwnerError("assignment controller tree differs from its recorded identity")
+    try:
+        runner.git_output(
+            controller_root, "merge-base", "--is-ancestor", recorded_commit, current_commit
+        )
+    except runner.PublicationError as error:
+        raise ExactOwnerError("historical controller commit is not an ancestor") from error
+    for source in ASSIGNMENT_PROOF_AUTHORITY_SOURCES:
+        try:
+            historical_bytes = subprocess.run(
+                ["git", "-C", str(controller_root), "show", f"{recorded_commit}:{source}"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ).stdout
+            current_bytes = runner.read_regular_bytes(controller_root / source)
+        except (OSError, subprocess.CalledProcessError, runner.PublicationError) as error:
+            raise ExactOwnerError(f"assignment proof authority source is unavailable: {source}") from error
+        if historical_bytes != current_bytes:
+            raise ExactOwnerError(f"assignment proof authority source differs: {source}")
+    return controller_root, recorded_commit, recorded_tree
+
+
 def _assignment_facts_helper_source(
     controller_root: pathlib.Path, runner
 ) -> tuple[pathlib.Path, bytes, str]:
@@ -1446,6 +1499,7 @@ def _assignment_base_context(
     exact_build_receipt: pathlib.Path,
     exact_capture_receipt: pathlib.Path,
     runner,
+    assignment_capture_record: Mapping[str, str] | None = None,
 ):
     base_build, _raw, _ranges, _capture, receipt_inputs = _source_adapter_capture(
         adapter_capture_receipt,
@@ -1490,7 +1544,12 @@ def _assignment_base_context(
         != runner.sha256_file(adapter_capture_receipt)
     ):
         raise ExactOwnerError("candidate exact-owner capture uses a different adapter capture")
-    controller_root, controller_commit, controller_tree = _assignment_controller_identity(runner)
+    controller_identity = (
+        _assignment_controller_identity(runner)
+        if assignment_capture_record is None
+        else _assignment_historical_controller_identity(runner, assignment_capture_record)
+    )
+    controller_root, controller_commit, controller_tree = controller_identity
     assignment_helper_path, assignment_helper_bytes, assignment_helper_sha256 = (
         _assignment_facts_helper_source(controller_root, runner)
     )
@@ -1532,6 +1591,7 @@ def _assignment_harness_context(
     exact_build_receipt: pathlib.Path,
     exact_capture_receipt: pathlib.Path,
     runner,
+    assignment_capture_record: Mapping[str, str] | None = None,
 ):
     (
         base_build,
@@ -1551,6 +1611,7 @@ def _assignment_harness_context(
             exact_build_receipt,
             exact_capture_receipt,
             runner,
+            assignment_capture_record,
         )
     )
     build = adapter_runner._parse_adapter_build_receipt(
@@ -1932,6 +1993,7 @@ def validate_assignment_facts_capture(
         exact_build_receipt,
         exact_capture_receipt,
         runner,
+        record,
     )
     if exact_capture != captured_exact:
         raise ExactOwnerError("candidate exact-owner proof and capture receipt differ")
