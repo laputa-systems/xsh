@@ -1,0 +1,3 @@
+status=complete
+completed_ranges=0
+detail=role=candidate owners=1690
