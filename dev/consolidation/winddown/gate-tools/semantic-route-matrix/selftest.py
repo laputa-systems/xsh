@@ -1444,17 +1444,31 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         inventory = {
             "source_path": generate.RUN_OPERAND_DECODE_PATH.as_posix(),
             "enums": [
-                {"name": name, "variants": list(variants)}
-                for name, variants in generate.RUN_OPERAND_ENUM_VARIANTS.items()
+                {"name": name, "variants": copy.deepcopy(variants)}
+                for name, variants in generate.RUN_OPERAND_ENUM_SCHEMA.items()
+            ],
+            "structs": [
+                {"name": name, "fields": copy.deepcopy(fields)}
+                for name, fields in generate.RUN_OPERAND_STRUCT_SCHEMA.items()
             ],
         }
         self.assertEqual(generate.validate_run_operand_variant_inventory(inventory), inventory)
         for enum_name in ("LoweredRunOption", "LoweredRunTailOperand"):
             changed = copy.deepcopy(inventory)
             row = next(item for item in changed["enums"] if item["name"] == enum_name)
-            row["variants"].append("Unmapped")
-            with self.assertRaisesRegex(generate.EvidenceError, "variants differ from the child-path contract"):
+            row["variants"].append({"name": "Unmapped", "fields": []})
+            with self.assertRaisesRegex(generate.EvidenceError, "enum payloads differ from the child-path contract"):
                 generate.validate_run_operand_variant_inventory(changed)
+        changed = copy.deepcopy(inventory)
+        option = next(item for item in changed["enums"] if item["name"] == "LoweredRunOption")
+        option["variants"][0]["fields"][0]["type"] = "DurationValue"
+        with self.assertRaisesRegex(generate.EvidenceError, "enum payloads differ from the child-path contract"):
+            generate.validate_run_operand_variant_inventory(changed)
+        changed = copy.deepcopy(inventory)
+        operands = next(item for item in changed["structs"] if item["name"] == "LoweredRunOperands")
+        operands["fields"].append({"name": "retry", "type": "BuildExprId"})
+        with self.assertRaisesRegex(generate.EvidenceError, "struct fields differ from the child-path contract"):
+            generate.validate_run_operand_variant_inventory(changed)
 
     def test_runtime_operand_order_is_not_applicable_only_for_exactly_empty_children(self) -> None:
         row = {

@@ -522,11 +522,76 @@ RUN_ARGUMENT_VARIANTS = ("Single", "SingleOrSplice", "Splice")
 RUN_OPTION_VARIANTS = ("Timeout", "CpuMax", "Accept")
 RUN_TAIL_VARIANTS = ("Argument", "Redirection")
 PROCESS_BUILDER_ENTRY_VARIANTS = ("Field", "Run")
+RUN_OPERAND_ENUM_SCHEMA = {
+    "LoweredRunArgKind": [
+        {"name": variant, "fields": [{"name": "value", "type": "BuildExprId"}]}
+        for variant in RUN_ARGUMENT_VARIANTS
+    ],
+    "LoweredRunOption": [
+        {"name": variant, "fields": [{"name": "value", "type": "BuildExprId"}]}
+        for variant in RUN_OPTION_VARIANTS
+    ],
+    "LoweredRunTailOperand": [
+        {"name": "Argument", "fields": [{"name": "value", "type": "LoweredRunArg"}]},
+        {"name": "Redirection", "fields": [{"name": "value", "type": "LoweredRunRedirection"}]},
+    ],
+    "LoweredProcessCommandBuilderEntry": [
+        {
+            "name": "Field",
+            "fields": [
+                {"name": "name", "type": "Name"},
+                {"name": "value", "type": "BuildExprId"},
+                {"name": "span", "type": "Span"},
+            ],
+        },
+        {
+            "name": "Run",
+            "fields": [
+                {"name": "operands", "type": "LoweredRunOperands"},
+                {"name": "span", "type": "Span"},
+            ],
+        },
+    ],
+}
 RUN_OPERAND_ENUM_VARIANTS = {
-    "LoweredRunArgKind": RUN_ARGUMENT_VARIANTS,
-    "LoweredRunOption": RUN_OPTION_VARIANTS,
-    "LoweredRunTailOperand": RUN_TAIL_VARIANTS,
-    "LoweredProcessCommandBuilderEntry": PROCESS_BUILDER_ENTRY_VARIANTS,
+    name: tuple(variant["name"] for variant in variants)
+    for name, variants in RUN_OPERAND_ENUM_SCHEMA.items()
+}
+RUN_OPERAND_STRUCT_SCHEMA = {
+    "LoweredRunArg": [
+        {"name": "kind", "type": "LoweredRunArgKind"},
+        {"name": "span", "type": "Span"},
+    ],
+    "LoweredRunEnv": [
+        {"name": "name", "type": "Name"},
+        {"name": "value", "type": "LoweredRunArg"},
+    ],
+    "LoweredRunRedirection": [
+        {"name": "kind", "type": "RedirectionKind"},
+        {"name": "target", "type": "LoweredRunArg"},
+        {"name": "span", "type": "Span"},
+    ],
+    "LoweredRunOperands": [
+        {"name": "options", "type": "Vec<LoweredRunOption>"},
+        {"name": "env", "type": "Vec<LoweredRunEnv>"},
+        {"name": "target", "type": "LoweredRunArg"},
+        {"name": "tail", "type": "Vec<LoweredRunTailOperand>"},
+    ],
+    "LoweredRunPipelineSegment": [
+        {"name": "kind", "type": "RunKind"},
+        {"name": "operands", "type": "LoweredRunOperands"},
+    ],
+    "LoweredRunCapture": [
+        {"name": "kind", "type": "RunKind"},
+        {"name": "operands", "type": "LoweredRunOperands"},
+        {"name": "propagate", "type": "bool"},
+        {"name": "assert_success", "type": "bool"},
+        {"name": "span", "type": "Span"},
+    ],
+    "LoweredSpawnRun": [
+        {"name": "operands", "type": "LoweredRunOperands"},
+        {"name": "span", "type": "Span"},
+    ],
 }
 RUN_ARGUMENT_CHILD_PATHS = [
     f".kind.{variant}.value" for variant in RUN_ARGUMENT_VARIANTS
@@ -1704,36 +1769,96 @@ def expression_dispatch_ast_inventory(
 
 
 def validate_run_operand_variant_inventory(inventory: Any) -> dict[str, Any]:
-    if not isinstance(inventory, dict) or set(inventory) != {"source_path", "enums"}:
+    if not isinstance(inventory, dict) or set(inventory) != {"source_path", "enums", "structs"}:
         raise EvidenceError("run operand variant inventory has an unknown shape")
     if inventory["source_path"] != RUN_OPERAND_DECODE_PATH.as_posix():
         raise EvidenceError("run operand variant inventory names the wrong source path")
     enums = inventory["enums"]
     if not isinstance(enums, list):
-        raise EvidenceError("run operand variant inventory is not a list")
-    actual: dict[str, list[str]] = {}
+        raise EvidenceError("run operand enum inventory is not a list")
+    actual_enums: dict[str, list[dict[str, Any]]] = {}
     for row in enums:
         if not isinstance(row, dict) or set(row) != {"name", "variants"}:
             raise EvidenceError("run operand enum row has an unknown shape")
         name = row["name"]
         variants = row["variants"]
-        if (
-            not isinstance(name, str)
-            or not isinstance(variants, list)
-            or any(not isinstance(variant, str) or not variant for variant in variants)
-            or len(variants) != len(set(variants))
-            or name in actual
-        ):
-            raise EvidenceError("run operand enum inventory has duplicate or invalid variants")
-        actual[name] = variants
-    expected = {
-        name: list(variants)
-        for name, variants in RUN_OPERAND_ENUM_VARIANTS.items()
+        if not isinstance(name, str) or not name or not isinstance(variants, list) or name in actual_enums:
+            raise EvidenceError("run operand enum inventory has duplicate or invalid rows")
+        parsed_variants: list[dict[str, Any]] = []
+        variant_names: set[str] = set()
+        for variant in variants:
+            if not isinstance(variant, dict) or set(variant) != {"name", "fields"}:
+                raise EvidenceError("run operand enum variant has an unknown shape")
+            variant_name = variant["name"]
+            fields = variant["fields"]
+            if (
+                not isinstance(variant_name, str)
+                or not variant_name
+                or variant_name in variant_names
+                or not isinstance(fields, list)
+            ):
+                raise EvidenceError("run operand enum variant is duplicate or malformed")
+            variant_names.add(variant_name)
+            parsed_fields = []
+            field_names: set[str] = set()
+            for field in fields:
+                if not isinstance(field, dict) or set(field) != {"name", "type"}:
+                    raise EvidenceError("run operand enum field has an unknown shape")
+                field_name = field["name"]
+                field_type = field["type"]
+                if (
+                    not isinstance(field_name, str)
+                    or not field_name
+                    or field_name in field_names
+                    or not isinstance(field_type, str)
+                    or not field_type
+                ):
+                    raise EvidenceError("run operand enum field is duplicate or malformed")
+                field_names.add(field_name)
+                parsed_fields.append({"name": field_name, "type": field_type})
+            parsed_variants.append({"name": variant_name, "fields": parsed_fields})
+        actual_enums[name] = parsed_variants
+    expected_enums = {
+        name: variants for name, variants in RUN_OPERAND_ENUM_SCHEMA.items()
     }
-    if actual != expected:
+    if actual_enums != expected_enums:
         raise EvidenceError(
-            f"run operand enum variants differ from the child-path contract: "
-            f"expected={expected}; actual={actual}"
+            "run operand enum payloads differ from the child-path contract: "
+            f"expected={expected_enums}; actual={actual_enums}"
+        )
+    structs = inventory["structs"]
+    if not isinstance(structs, list):
+        raise EvidenceError("run operand struct inventory is not a list")
+    actual_structs: dict[str, list[dict[str, str]]] = {}
+    for row in structs:
+        if not isinstance(row, dict) or set(row) != {"name", "fields"}:
+            raise EvidenceError("run operand struct row has an unknown shape")
+        name = row["name"]
+        fields = row["fields"]
+        if not isinstance(name, str) or not name or not isinstance(fields, list) or name in actual_structs:
+            raise EvidenceError("run operand struct inventory has duplicate or invalid rows")
+        parsed_fields = []
+        field_names: set[str] = set()
+        for field in fields:
+            if not isinstance(field, dict) or set(field) != {"name", "type"}:
+                raise EvidenceError("run operand struct field has an unknown shape")
+            field_name = field["name"]
+            field_type = field["type"]
+            if (
+                not isinstance(field_name, str)
+                or not field_name
+                or field_name in field_names
+                or not isinstance(field_type, str)
+                or not field_type
+            ):
+                raise EvidenceError("run operand struct field is duplicate or malformed")
+            field_names.add(field_name)
+            parsed_fields.append({"name": field_name, "type": field_type})
+        actual_structs[name] = parsed_fields
+    if actual_structs != RUN_OPERAND_STRUCT_SCHEMA:
+        raise EvidenceError(
+            "run operand struct fields differ from the child-path contract: "
+            f"expected={RUN_OPERAND_STRUCT_SCHEMA}; actual={actual_structs}"
         )
     return inventory
 
