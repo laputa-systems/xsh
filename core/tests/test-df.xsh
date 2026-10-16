@@ -141,26 +141,104 @@ pure df_percent(used: Int, available: Int) -> Str {
   f"{(used * 100 + total - 1) / total}%"
 }
 
-# Other processes can change the host filesystem between df and statvfs reads.
 test test_df_reports_filesystem_capacity_counters { |ctx|
   let root = test.temp_dir(ctx, name: "df-capacity")?
   fp"{root}/payload".write("capacity")
   let output = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -B1 --output=size,used,avail,pcent $root
   assert output.status.exited_with(0), output.stderr
-  let stats = fs.statvfs(root)?
-  let expected_size = stats.blocks * stats.fragment_size
-  let expected_used = (stats.blocks - stats.blocks_free) * stats.fragment_size
-  let expected_available = stats.blocks_available * stats.fragment_size
   let lines = output.stdout.lines().collect()
   assert lines.len() == 2
   let fields = lines[1].words()
-  assert fields[0] == f"{expected_size}"
+  assert fields.len() == 4
+  let size = fields[0] as Int
   let used = fields[1] as Int
   let available = fields[2] as Int
-  let used_delta = if used > expected_used { used - expected_used } else { expected_used - used }
-  let available_delta = if available > expected_available { available - expected_available } else { expected_available - available }
-  assert used_delta <= 16 * stats.fragment_size
-  assert available_delta <= 16 * stats.fragment_size
+  assert fields[0] == f"{size}"
+  assert fields[1] == f"{used}"
+  assert fields[2] == f"{available}"
+  assert size > 0
+  assert used >= 0 and used <= size
+  assert available >= 0 and available <= size
+  assert used + available <= size
+  assert fields[3] == df_percent(used, available)
+}
+
+test test_df_matches_filesystem_capacity_counters_on_private_tmpfs { |ctx|
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("private tmpfs capacity comparison requires Linux")
+    return
+  }
+
+  let unshare = if let Ok(executable) = process.which("unshare") {
+    executable
+  } else {
+    test.skip("unshare is unavailable")
+    return
+  }
+  let probe = run.status ${unshare} -rm true
+  if ! probe.exited_with(0) { test.skip("user namespaces are unavailable"); return }
+
+  let workspace = test.temp_dir(ctx, name: "df-capacity-tmpfs")?
+  let mountpoint = fp"{workspace}/filesystem"
+  mountpoint.mkdir()
+  let checker = fp"{workspace}/check.xsh"
+  checker.write(r"""let root = args[0] as Path
+let xsh_bin = args[1] as Path
+let df_script = args[2] as Path
+let workspace = args[3] as Path
+fp"{root}/payload".write("capacity")
+let output = run.capture --text LC_ALL=C ${xsh_bin} ${df_script} -- -B1 --output=size,used,avail,pcent $root
+assert output.status.exited_with(0), output.stderr
+let lines = output.stdout.trim().lines().collect()
+assert lines.len() == 2
+let fields = lines[1].words()
+assert fields.len() == 4
+print fields.join(" ")
+let intervening_file = fp"{workspace}/intervening"
+run dd if=/dev/zero of=$intervening_file bs=1024 count=256 > /dev/null
+let stats = fs.statvfs(root)?
+print f"{stats.blocks} {stats.blocks_free} {stats.blocks_available} {stats.fragment_size}"
+""")
+  let helper = fp"{workspace}/mount-tmpfs.sh"
+  helper.write(r"""#!/bin/sh
+mount_point=$1
+shift
+mounted=0
+cleanup() {
+  if [ "$mounted" -eq 1 ]; then
+    umount "$mount_point" || exit 98
+  fi
+}
+trap cleanup EXIT
+mount -t tmpfs -o size=64m tmpfs "$mount_point" || exit 99
+mounted=1
+"$@"
+command_status=$?
+umount "$mount_point" || exit 98
+mounted=0
+trap - EXIT
+exit "$command_status"
+""", mode: 0o755)
+  let measured = run.capture --text ${unshare} -rm ${helper} $mountpoint ${ctx.xsh_bin} $checker -- $mountpoint ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" $workspace
+  assert measured.status.exited_with(0), measured.stderr
+  let lines = measured.stdout.trim().lines().collect()
+  assert lines.len() == 2, measured.stdout
+  let fields = lines[0].words()
+  let counters = lines[1].words()
+  assert fields.len() == 4, measured.stdout
+  assert counters.len() == 4, measured.stdout
+  let blocks = counters[0] as Int
+  let blocks_free = counters[1] as Int
+  let blocks_available = counters[2] as Int
+  let fragment_size = counters[3] as Int
+  let expected_size = blocks * fragment_size
+  let expected_used = (blocks - blocks_free) * fragment_size
+  let expected_available = blocks_available * fragment_size
+  assert fields[0] == f"{expected_size}"
+  assert fields[1] == f"{expected_used}"
+  assert fields[2] == f"{expected_available}"
+  let used = fields[1] as Int
+  let available = fields[2] as Int
   assert fields[3] == df_percent(used, available)
 }
 
