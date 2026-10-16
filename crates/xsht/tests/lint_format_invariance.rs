@@ -118,7 +118,7 @@ fn lint_corpus_copy_and_discovery_skip_work_tree() {
     fs::write(blocked.join("scratch.xsh"), "print \"scratch\"\n")
         .expect("write scratch source");
     let _restore = RestoreDirectoryPermissions(blocked.clone());
-    fs::set_permissions(&blocked, fs::Permissions::from_mode(0))
+    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o0))
         .expect("make scratch child unreadable");
 
     copy_corpus(&source, &copy);

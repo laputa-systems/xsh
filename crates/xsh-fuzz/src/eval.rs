@@ -1220,29 +1220,6 @@ pub fn values_equal(left: &Val, right: &Val) -> bool {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{Val, values_equal};
-
-    #[test]
-    fn float_equality_matches_ieee_values_recursively() {
-        let positive_zero = Val::Float(0.0);
-        let negative_zero = Val::Float(-0.0);
-        let nan = Val::Float(f64::from_bits(0x7ff8_0000_0000_0001));
-
-        assert!(values_equal(&positive_zero, &negative_zero));
-        assert!(!values_equal(&nan, &nan));
-        assert!(values_equal(
-            &Val::List(vec![positive_zero.clone()]),
-            &Val::List(vec![negative_zero]),
-        ));
-        assert!(!values_equal(
-            &Val::List(vec![nan.clone()]),
-            &Val::List(vec![nan]),
-        ));
-    }
-}
-
 /// Values above this many units (elements, or 16-byte runs of text) make
 /// the program a rejected draw. Loops that repeatedly double a list or a
 /// string otherwise grow without bound, in this evaluator and in the run.
@@ -1474,4 +1451,27 @@ pub fn method(recv: &Val, name: &str, args: &[Val]) -> Res<Val> {
         (Val::Path(text), "display") => Val::Str(text.clone()),
         (recv, name) => panic!("no reference semantics for {name} on {recv:?}"),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Val, values_equal};
+
+    #[test]
+    fn float_equality_matches_ieee_values_recursively() {
+        let positive_zero = Val::Float(0.0);
+        let negative_zero = Val::Float(-0.0);
+        let nan = Val::Float(f64::from_bits(0x7ff8_0000_0000_0001));
+
+        assert!(values_equal(&positive_zero, &negative_zero));
+        assert!(!values_equal(&nan, &nan));
+        assert!(values_equal(
+            &Val::List(vec![positive_zero.clone()]),
+            &Val::List(vec![negative_zero]),
+        ));
+        assert!(!values_equal(
+            &Val::List(vec![nan.clone()]),
+            &Val::List(vec![nan]),
+        ));
+    }
 }
