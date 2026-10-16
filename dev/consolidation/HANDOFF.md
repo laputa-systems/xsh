@@ -79,15 +79,16 @@ W9 comparison repair `fa58a4e54` shares each validated derived record between
 correction-delta detection and parity. The integrator reran all 86 adapter-runner
 controls successfully. For the frozen corpus, the removed second pass read
 6,760 record groups containing 27,040 sidecar files. This is operation accounting,
-not a measured speedup. Full parity remains open. Its retained receipt pins the
-historical controller at the primary checkout path, so current main fails exact
-controller admission. A private user/mount namespace now replays the exact
-historical controller at that path while preserving the captures and admission
-code. Both 1,690-owner proofs and all three native raw-hash scans pass. The
-unchanged historical comparator is running into `compare-r3`; at its latest
-checkpoint, 225 inputs / 900 outcomes have zero mismatches. This remains
-incomplete and earns no parity credit. The optimized comparator is separately
-qualified by its 86 controls and is not used in this historical replay.
+not a measured speedup. The unchanged historical comparator completed all
+1,690 inputs and 6,760 outcomes with zero mismatches on source `56bf3286c`.
+A private user/mount namespace supplied its exact historical controller while
+preserving strict admissions. Both 1,690-owner proofs, assignment-facts proof,
+and all three raw-hash scans pass. [The completed evidence](evidence/w9-resume-56bf/README.md)
+retains the receipts and namespace command. The optimized comparator was not
+used in this historical replay. Current-source W9 acceptance remains open:
+the process repair changes parser and checker traversal. Its new cohort receipt
+requires fresh adapter, exact-owner, assignment, and derived-reference captures.
+The pinned corpus and program snapshot remain reusable.
 
 The strict matrix additionally needs 60 unique non-expression runtime selectors
 in both modes. They are disjoint from the 92 expression probes and 32
@@ -118,7 +119,27 @@ in both modes against the e048 products; final-source receipts remain required.
 proof identities `(tag, mode, route_id, test_id)` and aggregates branch coverage
 by route. Distinct tests may corroborate the same forced route; repeated exact
 claims and contradictory test/mode claims fail. All 69 collector controls pass
-at integration. The replay driver still needs to admit the 94 exact probes.
+at integration. Integrated `3eb12bb42` and `c995ac87e` admit all 94 exact probes,
+derive their IDs and source pin from validated configuration, and remove the
+historical mapping-file authority. All ten replay controls pass.
+
+Integrated `c8a02d67f`, `59fa1af8f`, and `fb1e7fe93` consume the expression
+dispatch AST inventory. All 92 expression rows have source classification,
+including seven defensive boundaries and one reachable in-place bypass.
+Normal dispatch records eligibility and its selector predicate separately.
+The integrator reran all 70 collector and ten replay controls successfully.
+The pinned Linux musl extractor harness also passes both focused expression
+tests, including forced-selector mutations. These are source and tool checks.
+The current matrix has no exact-source runtime credit while its source lock
+and receipts remain stale. Final runtime collection waits for the process fix.
+
+The expanded order map covers 115 candidate rows. Four process forms still
+await the source-order repair. Follow-up assertions observe the Bool initializer
+before overwrite and ordered body effects for capture, context scope, and with.
+Resource tests prove eventual release, without claiming release order.
+Three authorized test/config commits landed directly on main after a lane
+missed its worktree. The integrator stopped that lane's writes, reviewed the
+three-file scope, and reran the affected collector and replay controls.
 
 The order review exposed a contract conflict: run syntax writes options and
 environment operands before the target, but the evaluator runs target,
