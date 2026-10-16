@@ -76,8 +76,11 @@ proc later_argument() [io] -> Str {
   print "argument"
   return "late"
 }
-let empty: List[Str] = []
-run.capture --text --accept=accept_option() --timeout=timeout_option() --cpumax=cpu_option() XSH_PROCESS_FRAME=${env_value()} *${empty} ${later_argument()}
+proc empty_target() [io] -> List[Str] {
+  print "target"
+  return []
+}
+run.capture --text --accept=accept_option() --timeout=timeout_option() --cpumax=cpu_option() XSH_PROCESS_FRAME=${env_value()} @(empty_target()) ${later_argument()}
 """)?
   assert !output.success, output.stderr
   assert "empty-command" in output.stderr, output.stderr
@@ -85,6 +88,7 @@ run.capture --text --accept=accept_option() --timeout=timeout_option() --cpumax=
 timeout
 cpu
 env
+target
 """, output.stdout
 }
 
@@ -93,11 +97,15 @@ test test_run_target_conversion_fails_before_later_arguments_run { |ctx|
   print "later-argument"
   return "argument"
 }
-let empty: List[Str] = []
-run.capture --text *${empty} ${mark()}
+proc empty_target() [io] -> List[Str] {
+  print "target"
+  return []
+}
+run.capture --text @(empty_target()) ${mark()}
 """)?
-  assert output.status == 2, output.stderr
-  assert output.stdout == "", output.stdout
+  assert !output.success, output.stderr
+  assert "empty-command" in output.stderr, output.stderr
+  assert output.stdout == "target\n", output.stdout
 }
 
 test test_run_tail_arguments_and_redirections_keep_written_order { |ctx|
