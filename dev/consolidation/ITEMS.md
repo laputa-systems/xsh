@@ -21,10 +21,10 @@ ran. Follow-up fixes address all 13 causes, and their exact tests pass (3
 hostname, 8 lifecycle, 2 OS). The integrated `14ad` run passed 15/15 exact tests
 and `xsht check`. A corrected four-caller gate passed 45/45. Two earlier
 `docker.host_link_tools` errors came from missing mold and common Git mounts;
-the corrected run needed no source patch. Main is now `3bae6555c`. Route-runner
+the corrected run needed no source patch. The verified code checkpoint is `3bae6555c`. Route-runner
 fixes `36d58` and `70192` pass seven integrated runner tests and 63 route
 self-tests. The private `gates` debug-default lint warning is removed; its
-`Bool` contract is unchanged. Source check, lint, and exact plan are running.
+`Bool` contract is unchanged. Source check, lint, and exact plan pass.
 The canonical batch has not rerun and remains held for W9 source-closure tooling
 review. Route-pin refresh `f19` preserves 92 child-byte outputs and passes 62
 self-tests; its 184 actual outputs remain unrun. Gate map `7d087dd` scopes the
@@ -54,19 +54,20 @@ is active. Later review found all chain 01, 03, and 04 captures unqualified
 because 64 mutable main-import paths crossed 218 source entries; the seven
 mismatches are only the visible subset. The closure builder passes 8 tests as
 root and controller wiring is active on a separate e240 program snapshot. No
-new captures exist and W9 parity is not accepted. Schema-4 source checkpoint
-`191` passed 52 focused tests. Integrated checkpoint `9acd` passes 200 plus 52
+new captures exist and W9 parity is not accepted. Schema-4 controller `d1d5b833f` passed 191 adapter tests and 52 runner tests. Integrated checkpoint `9acd` passes 200 plus 52
 Python tests. Review found config-consumed roots were not compared with
 audit-config bytes; helper closure repair is active. No native build, capture,
 or parity result exists.
 
 Isolated inference pipeline `7ef89df4e` has scalar/list proof commits `6135`
-and `7ef8`, which are not compiled. The prior diagnostic passes 206/207 full
+and `7ef8`. Corrective proof `b65513f0c` is in isolated pipeline `2cf56686c`;
+its focused compile and tests are running. Contextual list cases remain under
+repair. The prior diagnostic passes 206/207 full
 tests and 44/46 lowerer tests outside the corpus. Capture-writer and
 runtime-identity repairs remain source-only with a known red witness. No
-inference is on main. The cohort scan's 9,194-site count and ten P2 repair units
-remain unaccepted while a config-deletion bypass is under repair. No annotations
-have been removed. Lean remains paused. Final acceptance and the
+inference is on main. The source-qualified cohort inventory has 9,194 sites
+across 48 files. The config-deletion bypass is fixed. Eligibility review remains
+open, with no frozen denominator or annotation removals. Lean remains paused. Final acceptance and the
 post-consolidation performance baseline remain incomplete. See
 [the current handoff](HANDOFF.md) for per-lane evidence.
 

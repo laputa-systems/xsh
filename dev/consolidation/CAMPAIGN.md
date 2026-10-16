@@ -8,11 +8,10 @@ Follow-up fixes address all 13 causes; all exact tests pass (3 hostname, 8
 lifecycle, 2 OS). The integrated `14ad` run passed 15/15 exact tests and
 `xsht check`. The corrected four-caller gate passed 45/45. Two earlier
 `docker.host_link_tools` errors came from missing mold and common Git mounts;
-the corrected run needed no source patch. Main is now `3bae6555c`.
+the corrected run needed no source patch. The verified code checkpoint is `3bae6555c`.
 Route-runner fixes `36d58` and `70192` pass seven integrated runner tests and 63
 route self-tests. The private `gates` debug-default lint warning is removed
-without changing its `Bool` contract. Source check, lint, and exact plan are
-running. The canonical batch has not rerun and remains held for W9 source-closure
+without changing its `Bool` contract. Source check, lint, and exact plan pass. The canonical batch has not rerun and remains held for W9 source-closure
 tooling review, not inference.
 
 Route-pin refresh `f19` preserves 92 child-byte outputs and passes 62 self-tests;

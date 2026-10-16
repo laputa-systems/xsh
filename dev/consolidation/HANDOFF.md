@@ -26,7 +26,7 @@ Git mounts; the corrected runner needed no source patch. Cache fix `f3afacb63`
 is on main as `af7c55374`. Main is now `3bae6555c`; route-runner fixes `36d58`
 and `70192` are integrated. Seven integrated runner tests and 63 route self-tests
 pass. The private `gates` debug-default lint warning is removed without changing
-its `Bool` contract. Source check, lint, and exact plan are running. The
+its `Bool` contract. Source check, lint, and exact plan pass. The
 canonical batch has not rerun and remains held for W9 source-closure tooling
 review. The preceding canonical run at
 `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542` ended with the failure detailed
@@ -138,12 +138,11 @@ work is authorized by this resume.
   XSH/XSHT products. Cache fix `f3afacb63` is on main as `af7c55374`; its root
   and non-root cases, check, and lint pass. These checks claim no performance
   credit.
-- Main is at `3bae6555c`. Route-runner fixes `36d58` and `70192` preserve
+- The verified code checkpoint is `3bae6555c`. Route-runner fixes `36d58` and `70192` preserve
   explicit product attestations and use the canonical `xsht` path in the
   collector. Seven integrated runner tests and 63 route self-tests pass. The
   lint warning for the private `gates` debug default is removed; its `Bool`
-  contract is unchanged. Source check, lint, and exact plan
-  are running. The canonical batch remains held for W9 source-closure tooling
+  contract is unchanged. Source check, lint, and exact plan pass. The canonical batch remains held for W9 source-closure tooling
   review, not inference.
 - The 13 native failures fall into three groups:
   - Hostname (3): `core/tests/test-bb-hostname.xsh::test_bb_hostname_hostname_i_works_89c47685`,
@@ -212,14 +211,15 @@ work is authorized by this resume.
   paths across 218 source entries make the seven mismatches only a subset.
   The closure builder passes 8 tests as root. Controller wiring is active on a
   separate e240 program snapshot; no new captures exist. W9 parity is not
-  accepted. Schema-4 source checkpoint `191` passed 52 focused tests. Integrated
+  accepted. Schema-4 controller `d1d5b833f` passed 191 adapter tests and 52 runner tests. Integrated
   checkpoint `9acd` passes 200 plus 52 Python tests. Review found that
   config-consumed roots were not compared with audit-config bytes. The helper
   closure repair is active; no native build, capture, or parity result exists.
 - Isolated inference pipeline `7ef89df4e` has scalar/list proof commits `6135`
   and `7ef8`, which are not compiled or accepted. Source review found an
   empty-splice over-rejection and a proof gap in Int/UInt binder substitution.
-  Corrective source work is active, and Cargo remains held. The prior `0ea`
+  Corrective proof `b65513f0c` is in isolated pipeline `2cf56686c`. Its focused
+  compile and tests are running. Contextual list cases remain under repair. The prior `0ea`
   diagnostic passes 206/207 full tests and 44/46 lowerer tests outside the
   corpus. Capture-writer and runtime-identity repairs remain source-only with a
   known red witness. No inference implementation is on main.
@@ -626,7 +626,7 @@ The canonical batch on `e89e35f29` ended at native tests with exit 3, as
 recorded above. All 13 failure causes have targeted fixes, and their exact tests
 pass. The corrected four-caller gate passes 45/45. Its two earlier
 `docker.host_link_tools` errors came from missing mold and common Git mounts;
-the corrected runner needed no source patch. Main is now `3bae6555c`. The
+the corrected runner needed no source patch. The verified code checkpoint is `3bae6555c`. The
 `df` capacity repair from `507` is integrated. Focused check and lint, fake
 runner 11/11, plan 1/1, `sh -n`, and workload test `2ab` 1/1 pass as detailed
 above. The earlier `8d` canonical failure is historical and remains documented.
@@ -635,7 +635,7 @@ Route-runner fixes `36d58` and `70192` preserve explicit product attestations
 and use the canonical `xsht` path in the collector. Seven integrated runner
 tests and 63 route self-tests pass. The private `gates` debug-default lint
 warning is removed without changing its `Bool` contract. Source check, lint,
-and exact plan are running. Canonical preflight sees unchanged Rust since `e89`
+and exact plan pass. Canonical preflight sees unchanged Rust since `e89`
 and sufficient host headroom. The canonical batch has not rerun and remains
 held for W9 source-closure tooling review, not inference.
 
