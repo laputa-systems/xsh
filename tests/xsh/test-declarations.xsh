@@ -191,7 +191,7 @@ pure frame_typed_byte(text: Str, index: Int) -> Int {
     status: 0,
   )?
 
-  test.expect(ctx, "var selected: Bool = false\nselected = true\nassert selected\n", status: 0)?
+  test.expect(ctx, "var selected: Bool = false\nassert !selected\nselected = true\nassert selected\n", status: 0)?
   test.expect(
     ctx,
     "type FrameTypedRow = {value: Int}\nvar row: FrameTypedRow = {value: 4}\nrow.value += 1\nassert row.value == 5\n",

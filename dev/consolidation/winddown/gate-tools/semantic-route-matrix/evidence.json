@@ -4098,9 +4098,9 @@
         "body"
       ],
       "ids": [
-        "tests/xsh/with-resource.xsh::test_with_enters_left_to_right_and_releases_every_resource"
+        "tests/xsh/operand-order-control-oracles.xsh::test_value_blocks_contexts_loop_retry_try_fail_and_abort_keep_payload_order"
       ],
-      "scope": "A managed-resource scope captures ordered release statements; the oracle checks acquisition order and reverse cleanup around the body sequence."
+      "scope": "The try expression prints two ordered body statements before its failing payload; the later statement is skipped when capture turns failure into Result."
     },
     "ExprValueBlock": {
       "fields": [
@@ -4129,7 +4129,7 @@
       "ids": [
         "tests/xsh/operand-order-control-oracles.xsh::test_value_blocks_contexts_loop_retry_try_fail_and_abort_keep_payload_order"
       ],
-      "scope": "The environment input marker precedes the scoped body, which observes the installed value."
+      "scope": "The environment input marker precedes two ordered scoped body statements, followed by the body tail that observes the installed value."
     },
     "ExprLoop": {
       "fields": [
@@ -4481,7 +4481,7 @@
         "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once",
         "tests/xsh/with-resource.xsh::test_with_enters_left_to_right_and_releases_every_resource"
       ],
-      "scope": "The failing form evaluates bindings left-to-right, skips the third binding/body, then enters else; the successful resource form asserts left-to-right acquisition and reverse release around the body."
+      "scope": "The failing form prints its first two binding producers in order, skips the third binding and body, then enters else; the successful Result binding prints two body statements in order. The separate resource form checks acquisition and reverse release."
     },
     "StmtLetInt": {
       "fields": [
@@ -4499,7 +4499,7 @@
       "ids": [
         "tests/xsh/test-declarations.xsh::frame_routed_typed_scalars_keep_short_circuit_and_error_flow"
       ],
-      "scope": "The initialized boolean is used after a typed assignment and its asserted truth proves the source value remains live."
+      "scope": "The initial false boolean is asserted before typed assignment, then the assigned true value is asserted."
     },
     "StmtAssign": {
       "fields": [

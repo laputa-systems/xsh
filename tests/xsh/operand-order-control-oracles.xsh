@@ -268,7 +268,8 @@ let block = {
 print f"value-block={block}"
 
 let scoped = env ({OPERAND_ORDER_SCOPE: text("scope:input", "inside")}) {
-  print "scope:body"
+  print "scope:body:first"
+  print "scope:body:second"
   e"OPERAND_ORDER_SCOPE"?
 }?
 print f"scope={scoped}"
@@ -301,6 +302,8 @@ print f"retry={retried}"
 
 proc capture() -> Result[Int, Error] {
   let captured: Result[Int, Error] = try {
+    print "try:capture:first"
+    print "try:capture:second"
     fail text("try:fail-message", "captured")
     number("try:unreachable", 0)
   }
@@ -318,7 +321,8 @@ match captured {
 value-block:tail
 value-block=5
 scope:input
-scope:body
+scope:body:first
+scope:body:second
 scope=inside
 context:label
 context:body
@@ -331,6 +335,8 @@ retry:delay:second
 retry:attempt:1
 retry:attempt:2
 retry=7
+try:capture:first
+try:capture:second
 try:fail-message
 try:captured:captured
 """
@@ -372,6 +378,11 @@ guarded()
 with first = parsed("with:first", true), second = parsed("with:second", false), third = parsed("with:skipped", true) {
   print f"with:wrong:{first},{second},{third}"
 } else { |failure| print f"with:else:{failure.message}" }
+
+with value = parsed("with:body-binding", true) {
+  print "with:body:first"
+  print "with:body:second"
+} else { |failure| print f"with:body-error:{failure.message}" }
 
 if flag("if:dynamic-condition", true) { print "if:dynamic-body" } else { print "if:wrong" }
 let enabled = true
@@ -471,6 +482,9 @@ guard:else:missing
 with:first
 with:second
 with:else:missing
+with:body-binding
+with:body:first
+with:body:second
 if:dynamic-condition
 if:dynamic-body
 if-bool:body
