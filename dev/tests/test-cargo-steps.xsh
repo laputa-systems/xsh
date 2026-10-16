@@ -163,6 +163,14 @@ for argv in [
   ["cargo", "test", "--target", "x86_64-unknown-linux-musl", "-p", "xsh", "-pxsh-fuzz", "--lib"],
   ["cargo", "test", "--target", "x86_64-unknown-linux-musl", "-p", "xsh", "--test", "integration", "--test=ambient_fs_policy"],
   ["cargo", "test", "--target", "x86_64-unknown-linux-musl", "--target=aarch64-unknown-linux-musl", "-p", "xsh", "--test", "integration"],
+  ["cargo", "test", "--target", "x86_64-unknown-linux-musl", "-p", "xsh*", "--lib"],
+  ["cargo", "test", "--target", "x86_64-unknown-linux-musl", "-p", "xsh?", "--lib"],
+  ["cargo", "test", "--target", "x86_64-unknown-linux-musl", "-p", "[x]sh", "--lib"],
+  ["cargo", "test", "--target", "x86_64-unknown-linux-musl", "-p", "xsh]", "--lib"],
+  ["cargo", "test", "--target", "x86_64-unknown-linux-musl", "-p", "xsh", "--test", "integration*"],
+  ["cargo", "test", "--target", "x86_64-unknown-linux-musl", "-p", "xsh", "--test", "integration?"],
+  ["cargo", "test", "--target", "x86_64-unknown-linux-musl", "-p", "xsh", "--test", "[i]ntegration"],
+  ["cargo", "test", "--target", "x86_64-unknown-linux-musl", "-p", "xsh", "--test", "integration]"],
 ] {{
   let spec = stages.command("test-rust", "x86_64-unknown-linux-musl", "cargo", argv, root, {{}})
   match cargo_steps.run_test(spec) {{

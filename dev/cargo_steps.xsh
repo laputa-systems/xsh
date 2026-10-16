@@ -105,6 +105,10 @@ export pure test_build_argv(argv: List[Str]) -> List[Str] {
   [@build, "--no-run"]
 }
 
+pure has_cargo_glob(value: Str) -> Bool {
+  "*" in value or "?" in value or "[" in value or "]" in value
+}
+
 pure test_has_single_harness_selection(argv: List[Str]) -> Bool {
   return false unless argv.len() >= 3 and argv[0] == "cargo" and argv[1] == "test"
 
@@ -120,13 +124,13 @@ pure test_has_single_harness_selection(argv: List[Str]) -> Bool {
     }
 
     if expects_test_name {
-      return false when word.starts_with("-") or word == ""
+      return false when word.starts_with("-") or word == "" or has_cargo_glob(word)
       expects_test_name = false
       continue
     }
 
     if expects_package_name {
-      return false when word.starts_with("-") or word == ""
+      return false when word.starts_with("-") or word == "" or has_cargo_glob(word)
       expects_package_name = false
       continue
     }
