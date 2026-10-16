@@ -1,10 +1,36 @@
 # Consolidation handoff
 
-Status: active and incomplete. Reviewed runner, mdev-test, W9 consumer, and W9
-producer repairs are integrated. The next acceptance attempts must seal the
-clean checkout after this status commit. Main has no inference implementation;
-Lean and Phase F remain paused. No functional close or performance credit is
-recorded.
+Status: winding down 2026-10-16 at the owner's request. The leading
+[stop handoff in CAMPAIGN.md](CAMPAIGN.md#stop-handoff-2026-10-16) owns resume,
+parked branches, retained worktrees and the final audit. No new item starts
+until explicit resume. Lean and Phase F stay paused; inference is isolated.
+
+## Latest stop checkpoint
+
+The XSHT repair batch is integrated from `2226c0ba` (source qualification
+`e55dc689`). Actual warning-denied package and workspace Clippy pass.
+45 CLI, 34 rule, one integration and three followup tests passed in the lane.
+The failed 56bf supplemental attempt and corrected Clippy commands/streams are
+retained separately in [existing evidence](evidence/clippy-56bf-warning-deny-01/README.md).
+This does not execute the five required contexts or close the canonical gate.
+
+The collector source from `dc64ac3f5` describes all eight current production
+inventory families. Lane checks pass 56 Rust and 65 Python tests; root reran
+65 Python tests after integration. The earlier be0b actual routes pass 184/184
+and source-order cases 64/64, but their exact source pins do not qualify a
+new final matrix. Run the current routes only after the next final freeze.
+
+Inference is parked at `e2cf1fec2`, with implementation `e20914bb9`: 286 selected
+Rust tests pass and the native capability group is 19/20. The source loader's
+exact module type excludes quantified pure exports, producing a 1-vs-3 export
+set mismatch when reading a module value. Shared static module initialization
+is deduplicated, but its value materialization still uses names and needs
+binding-identity ownership. [The parked handoff](winddown/typing-first-slice.md)
+records the approved narrow repair and regression requirements. There is no
+accepted first-slice matrix or general inference claim.
+
+The rest of this document retains earlier source-specific observations. It
+must not override the stop handoff or turn component results into acceptance.
 
 ## Production qualification
 

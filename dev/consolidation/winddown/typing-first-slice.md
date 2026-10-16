@@ -28,3 +28,15 @@ Value export rows must carry the existing lexical binding identity. The verifier
 ## Existing evidence
 
 At `5ec135383e6c8cd476cb6d1581bb5b9259b09e67`, the focused Rust group passed 286 tests. The native capability group passed 19 of 20 tests; the joint importer case exposed duplicate shared-module writers. Followup `0d75720f6` deduplicated shared initialization. At `e20914bb9`, the native capability group still passed 19 of 20 tests because the checked module type omitted generic exports. Neither result accepts the combined first slice.
+
+The explicit-Any root is currently an unused baseline, not evidence that a
+concrete read cannot be forged from Any. Add a valid concrete root/read, then
+mutate its annotation to Any while retaining concrete evidence and require the
+intended rejection. Keep the earlier scalar/nested Any field-forgery controls.
+Generic function value use remains staged and must report a clear diagnostic;
+qualified generic calls must retain their existing target authority. The
+remaining warning cleanup, broader ground-type witnesses, and named acceptance
+matrix still need same-pin qualification after the ownership repair.
+
+The [retained e209 observation](evidence/typing-e20914bb9/README.md) includes
+exact selectors, the failed native diagnostic and frontend-disposal stdout.

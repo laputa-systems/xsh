@@ -13,9 +13,9 @@ This does not prove the newly required module-value ownership control.
 
 Native results are 19/20, with all six named tests present in the selectors.
 The importer-independence case fails the exact module export set check;
-reading a value exposes the missing quantified pure exports. Separate import
-cases and ordinary identity/projection, diagnostic, annotated and dynamic
-controls pass. The complete native child streams and selected Rust summary
+reading a value exposes the missing quantified pure exports. The separate rank1 imported-call control and ordinary identity/projection,
+diagnostic, annotated and dynamic controls pass. The strengthened module-value
+importer witness fails separately as well as jointly. The complete native child streams and selected Rust summary
 remain byte-exact. This is not accepted first-slice qualification.
 
 The three shell files are the actual historical build/run commands. Recreate
