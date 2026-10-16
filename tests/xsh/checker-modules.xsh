@@ -924,5 +924,5 @@ machine_and_features()?
   let lines = output.stdout.lines().collect()
   assert lines.len() == 2, output.stdout
   assert lines[0] != ""
-  assert lines[1].parse_int()? >= 0
+  assert lines[1] as Int >= 0
 }

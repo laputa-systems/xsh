@@ -283,9 +283,9 @@ proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Path? = nu
   let out = uu.at(s, "wrapped-out")
   let err = uu.at(s, "wrapped-err")
   let plan = if let source = input {
-    process.command_argv(words[0], words, s.root, {}, source, out, err, timeout:)
+    process.command_argv(executable, words, s.root, {}, source, out, err, timeout:)
   } else {
-    process.command_argv(words[0], words, s.root, {}, b"", out, err, timeout:)
+    process.command_argv(executable, words, s.root, {}, b"", out, err, timeout:)
   }
   let status = process.run(plan)?
   Ok({util: "tail", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
