@@ -123,9 +123,9 @@ context. Nine of 23 boundary tests returned `EROFS` while creating
 `$CARGO_MANIFEST_DIR/target/core-compat-boundaries`; the selected source bind
 had accidentally become read-only. The failed receipt and complete logs remain
 in that attempt directory. The supplemental context bind is restored to the
-historical read-write mode, while the shared Git directory and runtime artifact
-target remain read-only. The retry has separate manifest and attempt paths so
-the failed input and receipt stay intact.
+historical read-write mode, while the shared Git directory, compiled product
+target, and harness target remain read-only. The retry has separate manifest
+and attempt paths so the failed input and receipt stay intact.
 
 ## Approval and execution
 

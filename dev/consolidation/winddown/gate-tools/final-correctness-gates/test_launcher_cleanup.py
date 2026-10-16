@@ -373,12 +373,13 @@ class SourceAdmissionTests(unittest.TestCase):
         gate.cid_dir = SCRATCH_ROOT
         gate.step_number = 0
         gate.target_dir = LAUNCHER.OUTPUT_ROOT / "source-admission-target"
+        gate.harness_target_dir = LAUNCHER.OUTPUT_ROOT / "source-admission-harness"
         gate.run = mock.Mock(return_value={})
 
         gate.run_special_container(
             "source-root-special",
             ["/bin/true"],
-            target_dir=gate.target_dir,
+            target_dir=gate.harness_target_dir,
             privileged=False,
             memory="1g",
         )
@@ -387,13 +388,11 @@ class SourceAdmissionTests(unittest.TestCase):
         volumes = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "-v"]
         environment = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "-e"]
         scratch = FROZEN_E048_SOURCE_ROOT / ".work/tmp"
-        harness_scratch = FROZEN_E048_SOURCE_ROOT / "target/core-compat-boundaries"
-
-        self.assertEqual(harness_scratch.relative_to(FROZEN_E048_SOURCE_ROOT), pathlib.Path("target/core-compat-boundaries"))
         self.assertIn(f"{FROZEN_E048_SOURCE_ROOT}:{FROZEN_E048_SOURCE_ROOT}:rw", volumes)
         self.assertIn(f"{git_common_dir}:{git_common_dir}:ro", volumes)
         self.assertIn(f"{scratch}:{scratch}:rw", volumes)
         self.assertIn(f"{gate.target_dir}:{gate.target_dir}:ro", volumes)
+        self.assertIn(f"{gate.harness_target_dir}:{gate.harness_target_dir}:ro", volumes)
         self.assertIn(f"TMPDIR={scratch}", environment)
         self.assertIn("--tmpfs", command)
         self.assertEqual(command[command.index("--tmpfs") + 1], "/tmp:rw,nodev,exec,nosuid,mode=1777")
