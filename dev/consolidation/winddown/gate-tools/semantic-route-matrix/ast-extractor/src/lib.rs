@@ -133,8 +133,9 @@ pub struct EagerAtomRoute {
     pub line: usize,
     pub helper_line: usize,
     pub statement_index: usize,
-    pub generic_line: usize,
-    pub generic_statement_index: usize,
+    pub fallback_kind: String,
+    pub fallback_line: usize,
+    pub fallback_statement_index: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -693,7 +694,7 @@ pub fn extract_typed_scalar_inventory(
     ]);
     validate_scalar_route_checks(&indexed)?;
     let view_arms = typed_scalar_view_arms(&values, &schema_rows)?;
-    let (forced_entry, frame_groups, fallbacks) = explicit_scalar_groups(&explicit)?;
+    let (forced_entry, frame_groups, fallbacks) = explicit_scalar_groups(&explicit, &schema_rows)?;
     let wrong_union_errors = typed_union_errors(&values)?;
 
     Ok(TypedScalarInventory {
@@ -850,7 +851,7 @@ pub fn extract_frame_constructor_inventory(
         return Err("frame constructor rows unexpectedly prepare host operands".into());
     }
 
-    let normal_route = frame_constructor_normal_route(&indexed)?;
+    let normal_route = frame_constructor_normal_route(&indexed, &explicit)?;
     let forced_route = frame_constructor_forced_route(&explicit)?;
     let child_arms = frame_constructor_view_arms(
         &indexed,
@@ -913,7 +914,9 @@ pub fn extract_collection_construction_inventory(
     let operands = syn::parse_file(operands_source)
         .map_err(|error| format!("parse indexed operand helpers: {error}"))?;
 
-    let schema_rows = collection_construction_schema_rows(&expression_schema_rows(&schema)?)?;
+    let expression_rows = expression_schema_rows(&schema)?;
+    let view_variants = expression_rows.iter().map(|row| row.variant.clone()).collect::<BTreeSet<_>>();
+    let schema_rows = collection_construction_schema_rows(&expression_rows)?;
     let frame_apply_classifier = parse_typed_classifier(
         &indexed,
         "indexed_frame_apply_tag",
@@ -927,8 +930,8 @@ pub fn extract_collection_construction_inventory(
     }) {
         return Err("collection constructors unexpectedly use the generic FrameApply helper".into());
     }
-    let normal_arms = collection_normal_arms(&indexed)?;
-    let normal_view_fallbacks = collection_normal_view_fallbacks(&indexed, &normal_arms)?;
+    let normal_arms = collection_normal_arms(&indexed, &view_variants)?;
+    let normal_view_fallbacks = collection_normal_view_fallbacks(&indexed, &normal_arms, &view_variants)?;
     let (forced_arms, explicit_error_group) = collection_forced_arms(&explicit)?;
     let helper_fallbacks = vec![
         collection_view_helper_fallback(&explicit, "indexed_list_literal_view", "List", "ListBuild")?,
@@ -936,7 +939,7 @@ pub fn extract_collection_construction_inventory(
         collection_view_helper_fallback(&explicit, "indexed_record_literal_view", "Record", "")?,
         collection_record_update_fallback(&operands)?,
     ];
-    let normal_fallback = collection_normal_fallback(&indexed)?;
+    let normal_fallback = collection_normal_fallback(&indexed, &view_variants)?;
     if normal_arms.iter().any(|arm| arm.arm_index >= normal_fallback.arm_index) {
         return Err("normal collection constructor arm occurs after the unsupported-tag fallback".into());
     }
@@ -977,10 +980,12 @@ pub fn extract_result_constructor_inventory(
     let explicit = syn::parse_file(explicit_source)
         .map_err(|error| format!("parse explicit frame dispatch: {error}"))?;
 
-    let schema_rows = result_constructor_schema_rows(&expression_schema_rows(&schema)?)?;
-    let normal_arms = result_constructor_normal_arms(&indexed)?;
-    let normal_view_fallbacks = result_constructor_normal_view_fallbacks(&indexed, &normal_arms)?;
-    let normal_fallback = collection_normal_fallback(&indexed)?;
+    let expression_rows = expression_schema_rows(&schema)?;
+    let view_variants = expression_rows.iter().map(|row| row.variant.clone()).collect::<BTreeSet<_>>();
+    let schema_rows = result_constructor_schema_rows(&expression_rows)?;
+    let normal_arms = result_constructor_normal_arms(&indexed, &view_variants)?;
+    let normal_view_fallbacks = result_constructor_normal_view_fallbacks(&indexed, &normal_arms, &view_variants)?;
+    let normal_fallback = collection_normal_fallback(&indexed, &view_variants)?;
     if normal_arms.iter().any(|arm| arm.arm_index >= normal_fallback.arm_index) {
         return Err("normal result constructor arm occurs after the unsupported-tag fallback".into());
     }
@@ -1033,13 +1038,15 @@ pub fn extract_call_frame_inventory(
     let explicit = syn::parse_file(explicit_source)
         .map_err(|error| format!("parse explicit frame dispatch: {error}"))?;
 
-    let schema_rows = call_frame_schema_rows(&expression_schema_rows(&schema)?)?;
-    let mut normal_route = call_frame_normal_route(&indexed)?;
+    let expression_rows = expression_schema_rows(&schema)?;
+    let view_variants = expression_rows.iter().map(|row| row.variant.clone()).collect::<BTreeSet<_>>();
+    let schema_rows = call_frame_schema_rows(&expression_rows)?;
+    let mut normal_route = call_frame_normal_route(&indexed, &view_variants)?;
     let (forced_arms, typed_view_fallbacks, explicit_error_group, view_kind_line, eval_expr_view_line) =
         call_frame_forced_arms(&indexed, &explicit)?;
     normal_route.view_kind_line = view_kind_line;
     normal_route.eval_expr_view_line = eval_expr_view_line;
-    let normal_fallback = collection_normal_fallback(&indexed)?;
+    let normal_fallback = collection_normal_fallback(&indexed, &view_variants)?;
 
     Ok(CallFrameInventory {
         schema_rows,
@@ -1077,8 +1084,10 @@ pub fn extract_field_index_inventory(
     let explicit = syn::parse_file(explicit_source)
         .map_err(|error| format!("parse explicit frame dispatch: {error}"))?;
 
-    let schema_rows = field_index_schema_rows(&expression_schema_rows(&schema)?)?;
-    let normal_route = field_index_normal_route(&indexed)?;
+    let expression_rows = expression_schema_rows(&schema)?;
+    let view_variants = expression_rows.iter().map(|row| row.variant.clone()).collect::<BTreeSet<_>>();
+    let schema_rows = field_index_schema_rows(&expression_rows)?;
+    let normal_route = field_index_normal_route(&indexed, &view_variants)?;
     let frame_apply_classifier = parse_typed_classifier(
         &indexed,
         "indexed_frame_apply_tag",
@@ -1090,9 +1099,9 @@ pub fn extract_field_index_inventory(
     }) {
         return Err("field and index rows are intercepted by the generic FrameApply helper".into());
     }
-    let normal_arms = field_index_normal_arms(&indexed)?;
-    let normal_view_fallbacks = field_index_normal_view_fallbacks(&indexed, &normal_arms)?;
-    let normal_fallback = field_index_normal_fallback(&indexed)?;
+    let normal_arms = field_index_normal_arms(&indexed, &view_variants)?;
+    let normal_view_fallbacks = field_index_normal_view_fallbacks(&indexed, &normal_arms, &view_variants)?;
+    let normal_fallback = field_index_normal_fallback(&indexed, &view_variants)?;
     if normal_arms.iter().any(|arm| arm.arm_index >= normal_fallback.arm_index) {
         return Err("normal field/index arm occurs after the unsupported-tag fallback".into());
     }
@@ -1125,19 +1134,11 @@ pub fn extract_field_index_inventory(
     })
 }
 
-fn field_index_normal_route(file: &File) -> Result<FieldIndexNormalRoute, String> {
-    let wrapper = find_function(file, "eval_indexed_expr")?;
-    let scheduled = local_binding_expression(wrapper, "frame_scheduled")?;
-    let mut explicit_tags = MacroTokenFinder { name: "matches", tokens: Vec::new() };
-    explicit_tags.visit_expr(scheduled);
-    let mentions_field_index = FIELD_INDEX_ROWS.iter().any(|(_, tag, _)| {
-        explicit_tags.tokens.iter().any(|tokens| tokens.split(|character: char| !character.is_alphanumeric() && character != '_')
-            .any(|identifier| identifier == *tag))
-    });
-    if mentions_field_index {
-        return Err("normal field/index wrapper explicitly schedules a cohort tag".into());
-    }
-    let route = call_frame_normal_route(file)
+fn field_index_normal_route(
+    file: &File,
+    view_variants: &BTreeSet<String>,
+) -> Result<FieldIndexNormalRoute, String> {
+    let route = call_frame_normal_route(file, view_variants)
         .map_err(|error| format!("normal field/index wrapper route changed: {error}"))?;
     Ok(FieldIndexNormalRoute {
         scheduled_predicate_line: route.scheduled_predicate_line,
@@ -1224,6 +1225,38 @@ fn top_level_local_binding_expression<'ast>(
     }
 }
 
+fn top_level_local_with_pattern_binding<'ast>(
+    block: &'ast Block,
+    name: &str,
+) -> Result<(usize, &'ast syn::Local), String> {
+    let matches = block.stmts.iter().enumerate().filter_map(|(index, statement)| {
+        let Stmt::Local(local) = statement else { return None; };
+        pattern_binds_ident(&local.pat, name).then_some((index, local))
+    }).collect::<Vec<_>>();
+    match matches.as_slice() {
+        [(index, local)] => Ok((*index, *local)),
+        _ => Err(format!("expected one top-level {name} pattern binding, found {}", matches.len())),
+    }
+}
+
+fn pattern_binds_ident(pattern: &Pat, name: &str) -> bool {
+    struct PatternNameFinder<'name> {
+        name: &'name str,
+        found: bool,
+    }
+    impl<'ast> Visit<'ast> for PatternNameFinder<'_> {
+        fn visit_pat_ident(&mut self, pattern: &'ast syn::PatIdent) {
+            if pattern.ident == self.name {
+                self.found = true;
+            }
+            visit::visit_pat_ident(self, pattern);
+        }
+    }
+    let mut finder = PatternNameFinder { name, found: false };
+    finder.visit_pat(pattern);
+    finder.found
+}
+
 fn statement_contains_return(statement: &Stmt) -> bool {
     struct ReturnFinder(bool);
     impl<'ast> Visit<'ast> for ReturnFinder {
@@ -1237,39 +1270,11 @@ fn statement_contains_return(statement: &Stmt) -> bool {
     finder.0
 }
 
-fn call_frame_normal_route(file: &File) -> Result<CallFrameRoute, String> {
+fn call_frame_normal_route(
+    file: &File,
+    view_variants: &BTreeSet<String>,
+) -> Result<CallFrameRoute, String> {
     let block = find_function(file, "eval_indexed_expr")?;
-    let scheduled = local_binding_expression(block, "frame_scheduled")?;
-    let predicate_calls = method_call_nodes_in_expr(scheduled, "is_scheduled_frame_control_expr");
-    let instruction_calls = method_call_nodes_in_expr(scheduled, "instruction_id");
-    let map_calls = method_call_nodes_in_expr(scheduled, "map");
-    if predicate_calls.len() != 1
-        || !path_is_ident(&predicate_calls[0].receiver, "tag")
-        || !predicate_calls[0].args.is_empty()
-        || instruction_calls.len() != 1
-        || !path_is_ident(&instruction_calls[0].receiver, "execution")
-        || instruction_calls[0].args.len() != 1
-        || !path_is_ident(&instruction_calls[0].args[0], "instruction")
-        || map_calls.len() != 1
-        || map_calls[0].args.len() != 1
-    {
-        return Err("normal call scheduling no longer uses the schema FrameControl predicate".into());
-    }
-    let Expr::Closure(schedule_closure) = &map_calls[0].args[0] else {
-        return Err("normal call scheduling predicate is not bound from the instruction tag".into());
-    };
-    let closure_tag = matches!(schedule_closure.inputs.first(), Some(Pat::Tuple(tuple))
-        if tuple.elems.len() == 2
-            && matches!(tuple.elems.first(), Some(Pat::Ident(binding)) if binding.ident == "tag")
-            && matches!(tuple.elems.iter().nth(1), Some(Pat::Wild(_))));
-    let closure_predicates = method_call_nodes_in_expr(&schedule_closure.body, "is_scheduled_frame_control_expr");
-    if !closure_tag
-        || closure_predicates.len() != 1
-        || !std::ptr::eq(closure_predicates[0], predicate_calls[0])
-    {
-        return Err("normal call scheduling predicate no longer uses the instruction tag".into());
-    }
-
     let (route_index, route) = top_level_local_binding_expression(block, "result")?;
     if block.stmts[..route_index].iter().any(statement_contains_return) {
         return Err("normal call route can be bypassed before the scheduling branch".into());
@@ -1277,9 +1282,8 @@ fn call_frame_normal_route(file: &File) -> Result<CallFrameRoute, String> {
     let Expr::If(route) = route else {
         return Err("normal call scheduling result is not a route branch".into());
     };
-    if !is_force_or_scheduled(&route.cond) {
-        return Err("normal call scheduling no longer selects frames for forced or scheduled expressions".into());
-    }
+    let in_place_predicate = is_force_or_unmarked(&route.cond)
+        .ok_or_else(|| "normal call scheduling no longer selects frames for forced or unmarked expressions".to_string())?;
     let then_call = block_tail_method_call(&route.then_branch)
         .ok_or_else(|| "normal scheduled call branch has no frame evaluator".to_string())?;
     let else_call = route.else_branch.as_ref()
@@ -1291,21 +1295,15 @@ fn call_frame_normal_route(file: &File) -> Result<CallFrameRoute, String> {
     validate_route_call(then_call, "eval_indexed_expr_with_frames")?;
     validate_route_call(else_call, "eval_indexed_expr_inner")?;
 
-    let inner = find_function(file, "eval_indexed_expr_inner")?;
-    let (_, dispatch) = top_level_tag_dispatch_match(inner)?;
-    let mut direct_tags = Vec::new();
-    for arm in &dispatch.arms {
-        if matches!(arm.pat, Pat::Wild(_)) {
-            continue;
-        }
-        collect_exact_tag_patterns(&arm.pat, &mut direct_tags)?;
-    }
-    if direct_tags.iter().any(|(tag, _)| CALL_FRAME_ROWS.iter().any(|(_, expected, _, _)| *expected == tag)) {
-        return Err("scheduled call rows have been intercepted by the direct indexed evaluator".into());
+    let dispatch = normal_expr_view_kind_dispatch(file, view_variants)?;
+    if CALL_FRAME_ROWS.iter().any(|(variant, _, _, _)| {
+        !dispatch.unsupported_variants.contains(*variant)
+    }) {
+        return Err("scheduled call views have been intercepted by the direct indexed evaluator".into());
     }
 
     Ok(CallFrameRoute {
-        scheduled_predicate_line: predicate_calls[0].method.span().start().line,
+        scheduled_predicate_line: in_place_predicate.method.span().start().line,
         frame_schedule_line: route.if_token.span().start().line,
         frame_helper_line: then_call.method.span().start().line,
         inner_helper_line: else_call.method.span().start().line,
@@ -1314,13 +1312,26 @@ fn call_frame_normal_route(file: &File) -> Result<CallFrameRoute, String> {
     })
 }
 
-fn is_force_or_scheduled(expression: &Expr) -> bool {
-    matches!(expression, Expr::Binary(binary)
-        if matches!(binary.op, syn::BinOp::Or(_))
-            && matches!(&*binary.left, Expr::Field(field)
-                if path_is_ident(&field.base, "self")
-                    && matches!(&field.member, syn::Member::Named(name) if name == "force_frames"))
-            && path_is_ident(&binary.right, "frame_scheduled"))
+fn is_force_or_unmarked(expression: &Expr) -> Option<&syn::ExprMethodCall> {
+    let Expr::Binary(binary) = expression else { return None; };
+    if !matches!(binary.op, syn::BinOp::Or(_))
+        || !matches!(&*binary.left, Expr::Field(field)
+            if path_is_ident(&field.base, "self")
+                && matches!(&field.member, syn::Member::Named(name) if name == "force_frames"))
+    {
+        return None;
+    }
+    let Expr::Unary(not) = binary.right.as_ref() else { return None; };
+    if !matches!(not.op, syn::UnOp::Not(_)) {
+        return None;
+    }
+    let Expr::MethodCall(in_place) = not.expr.as_ref() else { return None; };
+    (in_place.method == "is_in_place"
+        && in_place.turbofish.is_none()
+        && path_is_ident(&in_place.receiver, "execution")
+        && in_place.args.len() == 1
+        && path_is_ident(&in_place.args[0], "instruction"))
+    .then_some(in_place)
 }
 
 fn block_tail_method_call(block: &Block) -> Option<&syn::ExprMethodCall> {
@@ -1445,13 +1456,7 @@ fn is_force_guarded_in_place_initializer(expression: &Expr) -> bool {
 }
 
 fn is_in_place_short_circuit_condition(expression: &Expr) -> bool {
-    match expression {
-        Expr::Binary(binary) if matches!(binary.op, syn::BinOp::And(_)) => {
-            path_is_ident(&binary.left, "in_place")
-                || is_in_place_short_circuit_condition(&binary.left)
-        }
-        _ => false,
-    }
+    path_is_ident(expression, "in_place")
 }
 
 fn exact_call_view_kind(expression: &Expr) -> Option<&syn::ExprMethodCall> {
@@ -1513,7 +1518,7 @@ fn call_frame_forced_arms(
         ("DynamicCall", BTreeSet::from(["DynamicCall", "TypedCall"])),
     ]);
     let expected_variants = expected_groups.keys().copied().collect::<BTreeSet<_>>();
-    let mut found = BTreeMap::new();
+    let mut found = BTreeMap::<String, CallFrameArm>::new();
     let mut fallbacks = BTreeMap::new();
     let mut error_group = None;
     for (arm_index, arm) in finder.matches[0].arms.iter().enumerate() {
@@ -1695,16 +1700,18 @@ fn call_frame_forced_behavior(
                 || method_call_nodes_in_expr(body, "key").len() != 1
                 || method_call_nodes_in_expr(body, "function_kind").len() != 1
                 || method_call_nodes_in_expr(body, "push_static_arguments").len() != 1
+                || !static_call_schedule_matches(body, variant)
             {
-                return Err(format!("forced {variant} call handler no longer schedules static arguments"));
+                return Err(format!("forced {variant} call scheduling inputs changed"));
             }
         }
         "ExternalCall" => {
             if method_call_nodes_in_expr(body, "preflight").len() != 1
                 || method_call_nodes_in_expr(body, "external_kind").len() != 1
                 || method_call_nodes_in_expr(body, "push_static_arguments").len() != 1
+                || !static_call_schedule_matches(body, variant)
             {
-                return Err("forced ExternalCall handler no longer resolves and schedules its external function".into());
+                return Err("forced ExternalCall call scheduling inputs changed".into());
             }
         }
         "DynamicCall" => {
@@ -1728,6 +1735,329 @@ fn call_frame_forced_behavior(
         _ => unreachable!("closed call variants were handled above"),
     }
     Ok((behavior.into(), fallback_line, message.into()))
+}
+
+fn static_call_schedule_matches(body: &Expr, variant: &str) -> bool {
+    let Expr::Block(expression_block) = body else { return false; };
+    let block = &expression_block.block;
+    let calls = method_call_nodes_in_expr(body, "push_static_arguments");
+    let [push] = calls.as_slice() else { return false; };
+    if !path_is_ident(&push.receiver, "self")
+        || push.turbofish.is_some()
+        || push.args.len() != 9
+        || !path_is_ident(&push.args[0], "index")
+        || !path_is_ident(&push.args[1], "instruction")
+        || !path_is_ident(&push.args[2], "position")
+        || !path_is_ident(&push.args[4], "kind")
+        || !path_is_ident(&push.args[7], "value_span")
+        || !path_is_ident(&push.args[8], "next")
+        || has_assignment_or_local_shadow(&block.stmts, "index")
+        || has_assignment_or_local_shadow(&block.stmts, "instruction")
+        || has_assignment(&block.stmts, "args")
+    {
+        return false;
+    }
+
+    let decodes = call_nodes_in_expr(body, "decode");
+    let [decode] = decodes.as_slice() else { return false; };
+    if !path_ends_with_segments(
+        match &*decode.func {
+            Expr::Path(path) => &path.path,
+            _ => return false,
+        },
+        &["ExprView", "decode"],
+    ) || decode.args.len() != 3
+        || !path_is_ident(&decode.args[0], "execution")
+        || !path_is_ident(&decode.args[1], "tag")
+        || !path_is_ident(&decode.args[2], "payload")
+    {
+        return false;
+    }
+
+    let mut static_view_match = None;
+    let view_source_matches = if variant == "ExternalCall" {
+        let mut finder = ExprViewLetElseFinder { candidates: Vec::new() };
+        finder.visit_expr(body);
+        let [candidate] = finder.candidates.as_slice() else { return false; };
+        if !view_pattern_binds_fields(
+            candidate.pattern,
+            "ExternalCall",
+            &[("function", "qualified", false), ("args", "args", true), ("span", "value_span", false)],
+        ) {
+            return false;
+        }
+        let Some(local) = block.stmts.iter().find_map(|statement| match statement {
+            Stmt::Local(local) if std::ptr::eq(&local.pat, candidate.pattern) => Some(local),
+            _ => None,
+        }) else { return false; };
+        local.init.as_ref().is_some_and(|initializer| {
+            let calls = call_nodes_in_expr(&initializer.expr, "decode");
+            calls.len() == 1 && std::ptr::eq(calls[0], *decode)
+        })
+    } else {
+        let mut finder = ViewMatchFinder { matches: Vec::new() };
+        finder.visit_expr(body);
+        let [view_match] = finder.matches.as_slice() else { return false; };
+        if !path_is_ident(&view_match.expr, "view") {
+            return false;
+        }
+        static_view_match = Some(*view_match);
+        let Ok((view_index, view_initializer)) = top_level_local_binding_expression(block, "view") else {
+            return false;
+        };
+        view_index < block.stmts.len()
+            && call_nodes_in_expr(view_initializer, "decode")
+                .first()
+                .is_some_and(|candidate| std::ptr::eq(*candidate, *decode))
+            && !has_assignment(&block.stmts, "view")
+    };
+    if !view_source_matches {
+        return false;
+    }
+
+    let mut args_bindings = LocalNameBindingFinder { name: "args", count: 0 };
+    args_bindings.visit_block(block);
+    if args_bindings.count != 1 {
+        return false;
+    }
+    if !method_call_has_exact_arguments(body, "preflight", "args", &[])
+        || (variant == "ExternalCall"
+            && (!method_call_has_exact_arguments(body, "len", "args", &[])
+                || !method_call_has_exact_arguments(
+                    body,
+                    "external_kind",
+                    "self",
+                    &["index", "qualified", "span"],
+                )))
+        || (variant != "ExternalCall"
+            && (!method_call_has_exact_arguments(body, "key", "function", &["execution"])
+                || !method_call_has_exact_arguments(
+                    body,
+                    "function_kind",
+                    "self",
+                    &["index", "function", "span"],
+                )))
+    {
+        return false;
+    }
+    let local_names: &[&str] = if variant == "ExternalCall" {
+        &["qualified", "kind", "value_span"]
+    } else {
+        &["function", "kind", "value_span"]
+    };
+    for name in local_names {
+        let mut bindings = LocalNameBindingFinder { name: *name, count: 0 };
+        bindings.visit_block(block);
+        if bindings.count != 1 || has_assignment(&block.stmts, *name) {
+            return false;
+        }
+    }
+    let Ok((_, args_local)) = top_level_local_with_pattern_binding(block, "args") else {
+        return false;
+    };
+    if variant != "ExternalCall"
+        && !matches!(&args_local.pat, Pat::Tuple(tuple)
+            if tuple.elems.len() == 3
+                && matches!(tuple.elems.first(), Some(Pat::Ident(binding))
+                    if binding.ident == "function"
+                        && binding.by_ref.is_none()
+                        && binding.mutability.is_none()
+                        && binding.subpat.is_none())
+                && matches!(tuple.elems.iter().nth(1), Some(Pat::Ident(binding))
+                    if binding.ident == "args"
+                        && binding.by_ref.is_none()
+                        && binding.mutability.is_some()
+                        && binding.subpat.is_none())
+                && matches!(tuple.elems.iter().nth(2), Some(Pat::Ident(binding))
+                    if binding.ident == "value_span"
+                        && binding.by_ref.is_none()
+                        && binding.mutability.is_none()
+                        && binding.subpat.is_none()))
+    {
+        return false;
+    }
+    let Some(args_initializer) = args_local.init.as_ref().map(|initializer| &*initializer.expr) else {
+        return false;
+    };
+    let args_source_matches = if variant == "ExternalCall" {
+        let calls = call_nodes_in_expr(args_initializer, "decode");
+        calls.len() == 1 && std::ptr::eq(calls[0], *decode)
+    } else {
+        matches!(args_initializer, Expr::Match(args_match)
+            if static_view_match.is_some_and(|view_match| std::ptr::eq(args_match, view_match)))
+    };
+    if !args_source_matches || has_assignment(&block.stmts, "args") {
+        return false;
+    }
+    if variant != "ExternalCall"
+        && !static_call_view_outputs_are_fields(static_view_match.expect("static call view match was checked"))
+    {
+        return false;
+    }
+    let Ok((position_index, position_initializer)) = top_level_local_binding_expression(block, "position") else {
+        return false;
+    };
+    let Expr::MethodCall(position) = position_initializer else { return false; };
+    if position.method != "position"
+        || position.turbofish.is_some()
+        || !position.args.is_empty()
+        || !path_is_ident(&position.receiver, "args")
+        || has_assignment(&block.stmts, "position")
+    {
+        return false;
+    }
+    let Some(push_index) = block.stmts.iter().position(|statement| {
+        method_call_nodes_in_stmt(statement, "push_static_arguments")
+            .iter()
+            .any(|call| std::ptr::eq(*call, *push))
+    }) else { return false; };
+    if position_index >= push_index
+        || has_assignment_or_local_shadow(&block.stmts[position_index + 1..=push_index], "position")
+    {
+        return false;
+    }
+
+    if variant == "ExternalCall" {
+        matches!(&push.args[3], Expr::Call(call)
+                if path_ends_with_segments(match &*call.func {
+                    Expr::Path(path) => &path.path,
+                    _ => return false,
+                }, &["LoweredFunctionKey", "Qualified"])
+                    && call.args.len() == 1
+                    && path_is_ident(&call.args[0], "qualified"))
+            && expression_is_bool(&push.args[5], true)
+            && is_vec_call(&push.args[6], "with_capacity", Some("capacity"))
+    } else {
+        path_is_ident(&push.args[3], "function")
+            && expression_is_bool(&push.args[5], false)
+            && is_vec_call(&push.args[6], "new", None)
+    }
+}
+
+fn expression_is_bool(expression: &Expr, expected: bool) -> bool {
+    matches!(expression, Expr::Lit(literal)
+        if matches!(&literal.lit, syn::Lit::Bool(value) if value.value == expected))
+}
+
+fn method_call_has_exact_arguments(
+    body: &Expr,
+    method: &str,
+    receiver: &str,
+    arguments: &[&str],
+) -> bool {
+    let calls = method_call_nodes_in_expr(body, method);
+    let [call] = calls.as_slice() else { return false; };
+    call.turbofish.is_none()
+        && path_is_ident(&call.receiver, receiver)
+        && call.args.len() == arguments.len()
+        && call.args.iter().zip(arguments).all(|(actual, expected)| path_is_ident(actual, expected))
+}
+
+fn view_pattern_binds_fields(
+    pattern: &Pat,
+    variant: &str,
+    expected_fields: &[(&str, &str, bool)],
+) -> bool {
+    match pattern {
+        Pat::Or(patterns) => patterns
+            .cases
+            .iter()
+            .any(|pattern| view_pattern_binds_fields(pattern, variant, expected_fields)),
+        Pat::Paren(pattern) => view_pattern_binds_fields(&pattern.pat, variant, expected_fields),
+        Pat::Struct(pattern) => {
+            if !path_ends_with_segments(&pattern.path, &["ExprView", variant])
+                || pattern.rest.is_some()
+                || pattern.fields.len() != expected_fields.len()
+            {
+                return false;
+            }
+            expected_fields.iter().all(|(field_name, binding_name, mutable)| {
+                pattern.fields.iter().any(|field| {
+                    matches!(&field.member, syn::Member::Named(name) if name == field_name)
+                        && matches!(&*field.pat, Pat::Ident(binding)
+                            if binding.ident == *binding_name
+                                && binding.by_ref.is_none()
+                                && binding.mutability.is_some() == *mutable
+                                && binding.subpat.is_none())
+                })
+            })
+        }
+        _ => false,
+    }
+}
+
+fn static_call_view_outputs_are_fields(view_match: &syn::ExprMatch) -> bool {
+    for arm in &view_match.arms {
+        if matches!(arm.pat, Pat::Wild(_)) {
+            continue;
+        }
+        let mut variants = Vec::new();
+        if collect_named_view_variants(&arm.pat, "ExprView", &mut variants).is_err() {
+            return false;
+        }
+        let Expr::Tuple(tuple) = &*arm.body else { return false; };
+        if tuple.elems.len() != 3
+            || !path_is_ident(&tuple.elems[1], "args")
+            || !path_is_ident(&tuple.elems[2], "span")
+        {
+            return false;
+        }
+        for variant in variants {
+            let fields = match variant.as_str() {
+                "Call" | "DirectPureCall" => &[
+                    ("function", "function", false),
+                    ("args", "args", false),
+                    ("span", "span", false),
+                ][..],
+                "SelfCall" => &[("args", "args", false), ("span", "span", false)][..],
+                _ => return false,
+            };
+            if !view_pattern_binds_fields(&arm.pat, &variant, fields) {
+                return false;
+            }
+            if matches!(variant.as_str(), "Call" | "DirectPureCall") {
+                if !method_call_has_exact_arguments(&tuple.elems[0], "key", "function", &["execution"]) {
+                    return false;
+                }
+            } else {
+                let calls = method_call_nodes_in_expr(&tuple.elems[0], "function_identity");
+                let [call] = calls.as_slice() else { return false; };
+                if call.turbofish.is_some()
+                    || !call.args.is_empty()
+                    || !is_active_call_execution(&call.receiver, "index")
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+fn is_active_call_execution(expression: &Expr, index_name: &str) -> bool {
+    let Expr::Field(execution) = expression else { return false; };
+    if !matches!(&execution.member, syn::Member::Named(name) if name == "execution") {
+        return false;
+    }
+    let Expr::Index(call) = &*execution.base else { return false; };
+    if !path_is_ident(&call.index, index_name) {
+        return false;
+    }
+    let Expr::Field(calls) = &*call.expr else { return false; };
+    matches!(&calls.member, syn::Member::Named(name) if name == "calls")
+        && path_is_ident(&calls.base, "self")
+}
+
+fn is_vec_call(expression: &Expr, method: &str, argument: Option<&str>) -> bool {
+    matches!(expression, Expr::Call(call)
+        if path_ends_with_segments(match &*call.func {
+            Expr::Path(path) => &path.path,
+            _ => return false,
+        }, &["Vec", method])
+            && match argument {
+                Some(argument) => call.args.len() == 1 && path_is_ident(&call.args[0], argument),
+                None => call.args.is_empty(),
+            })
 }
 
 fn is_struct_variant_expr(expression: &Expr, enum_name: &str, variant: &str) -> bool {
@@ -1773,8 +2103,7 @@ fn dynamic_call_callee_flows_from_view(
         _ => return Ok(false),
     };
     if view_decode.args.len() != 3
-        || !matches!(&view_decode.args[0], Expr::Reference(reference)
-            if reference.mutability.is_none() && path_is_ident(&reference.expr, "execution"))
+        || !path_is_ident(&view_decode.args[0], "execution")
         || !path_is_ident(&view_decode.args[1], "tag")
         || !path_is_ident(&view_decode.args[2], "payload")
     {
@@ -2084,38 +2413,35 @@ fn result_constructor_schema_rows(
         .collect()
 }
 
-fn field_index_normal_arms(file: &File) -> Result<Vec<FieldIndexArm>, String> {
-    let block = find_function(file, "eval_indexed_expr_inner")?;
-    let (_, dispatch) = top_level_tag_dispatch_match(block)?;
+fn field_index_normal_arms(
+    file: &File,
+    view_variants: &BTreeSet<String>,
+) -> Result<Vec<FieldIndexArm>, String> {
+    let dispatch = normal_expr_view_kind_dispatch(file, view_variants)?;
     let expected = FIELD_INDEX_ROWS
         .iter()
-        .map(|(variant, tag, _)| (*tag, *variant))
+        .map(|(variant, tag, _)| (*variant, *tag))
         .collect::<BTreeMap<_, _>>();
-    let mut found = BTreeMap::new();
-    for (arm_index, arm) in dispatch.arms.iter().enumerate() {
-        if arm.guard.is_some() {
-            return Err(format!("guarded indexed expression arm at line {}", arm.pat.span().start().line));
+    let mut found = BTreeMap::<String, FieldIndexArm>::new();
+    for (variant, tag, _) in FIELD_INDEX_ROWS {
+        let arm_index = *dispatch.arm_indices.get(*variant)
+            .ok_or_else(|| format!("normal field/index view {variant} is absent"))?;
+        let arm = dispatch.match_expression.arms.get(arm_index)
+            .ok_or_else(|| format!("normal field/index view {variant} arm index is absent"))?;
+        let mut variants = Vec::new();
+        collect_exact_expr_view_kind_patterns(&arm.pat, &mut variants)?;
+        if variants != [*variant] {
+            return Err(format!("field/index view {variant} is grouped with another ExprViewKind"));
         }
-        if matches!(arm.pat, Pat::Wild(_)) {
-            continue;
-        }
-        let mut tags = Vec::new();
-        collect_exact_tag_patterns(&arm.pat, &mut tags)?;
-        for (tag, line) in tags.iter().filter(|(tag, _)| expected.contains_key(tag.as_str())) {
-            if tags.len() != 1 {
-                return Err(format!("field/index tag {tag} is grouped with another dispatch tag"));
-            }
-            let variant = expected[tag.as_str()];
-            let behavior = field_index_normal_behavior(variant, &arm.body)?;
-            if found.insert(tag.clone(), FieldIndexArm {
-                tag: tag.clone(),
-                variant: variant.into(),
-                behavior,
-                line: *line,
-                arm_index,
-            }).is_some() {
-                return Err(format!("duplicate normal field/index arm {tag}"));
-            }
+        let behavior = field_index_normal_behavior(variant, &arm.body)?;
+        if found.insert((*tag).into(), FieldIndexArm {
+            tag: (*tag).into(),
+            variant: (*variant).into(),
+            behavior,
+            line: arm.pat.span().start().line,
+            arm_index,
+        }).is_some() {
+            return Err(format!("duplicate normal field/index arm {tag}"));
         }
     }
     if found.len() != expected.len() {
@@ -2183,7 +2509,7 @@ fn field_index_normal_behavior(variant: &str, body: &Expr) -> Result<String, Str
     }
     let expected_behavior = match variant {
         "Field" => {
-            if !top_level_local_is_method(body, "name", "name", "as_ref")
+            if !normal_field_name_is_live(body, typed_view)
                 || !normal_field_access_dataflow(body)
             {
                 return Err("normal field arm changed its record fast path or field lookup".into());
@@ -2206,8 +2532,20 @@ fn field_index_normal_behavior(variant: &str, body: &Expr) -> Result<String, Str
         }
         _ => unreachable!("field/index variants were closed above"),
     };
-    let _ = typed_view;
     Ok(expected_behavior.into())
+}
+
+fn normal_field_name_is_live(body: &Expr, view: ExprViewLetElse<'_>) -> bool {
+    let Expr::Block(block) = body else { return false; };
+    let Some(view_index) = block.block.stmts.iter().position(|statement| match statement {
+        Stmt::Local(local) => {
+            std::ptr::eq(&local.pat, view.pattern)
+                && local.init.as_ref().and_then(|initializer| initializer.diverge.as_ref())
+                    .is_some_and(|(_, fallback)| std::ptr::eq(fallback.as_ref(), view.fallback))
+        }
+        _ => false,
+    }) else { return false; };
+    !has_assignment_or_local_shadow(&block.block.stmts[view_index + 1..], "name")
 }
 
 fn validate_normal_child_flow(child_match: &syn::ExprMatch, variant: &str) -> Result<(), String> {
@@ -2261,11 +2599,11 @@ fn has_assignment_or_local_shadow(statements: &[Stmt], name: &str) -> bool {
         found: bool,
     }
     impl<'ast> Visit<'ast> for MutationFinder<'_> {
-        fn visit_local(&mut self, local: &'ast syn::Local) {
-            if matches!(&local.pat, Pat::Ident(pattern) if pattern.ident == self.name) {
+        fn visit_pat_ident(&mut self, pattern: &'ast syn::PatIdent) {
+            if pattern.ident == self.name {
                 self.found = true;
             }
-            visit::visit_local(self, local);
+            visit::visit_pat_ident(self, pattern);
         }
 
         fn visit_expr_assign(&mut self, expression: &'ast syn::ExprAssign) {
@@ -2276,6 +2614,26 @@ fn has_assignment_or_local_shadow(statements: &[Stmt], name: &str) -> bool {
         }
     }
     let mut finder = MutationFinder { name, found: false };
+    for statement in statements {
+        finder.visit_stmt(statement);
+    }
+    finder.found
+}
+
+fn has_assignment(statements: &[Stmt], name: &str) -> bool {
+    struct AssignmentFinder<'name> {
+        name: &'name str,
+        found: bool,
+    }
+    impl<'ast> Visit<'ast> for AssignmentFinder<'_> {
+        fn visit_expr_assign(&mut self, expression: &'ast syn::ExprAssign) {
+            if path_is_ident(&expression.left, self.name) {
+                self.found = true;
+            }
+            visit::visit_expr_assign(self, expression);
+        }
+    }
+    let mut finder = AssignmentFinder { name, found: false };
     for statement in statements {
         finder.visit_stmt(statement);
     }
@@ -2491,7 +2849,7 @@ fn field_index_view_let_else<'ast>(
         || !matches!(&*decodes[0].func, Expr::Path(path)
             if path_ends_with_segments(&path.path, &["ExprView", "decode"]))
         || decodes[0].args.len() != 3
-        || !is_reference_to(&decodes[0].args[0], "execution")
+        || !path_is_ident(&decodes[0].args[0], "execution")
         || !path_is_ident(&decodes[0].args[1], "tag")
         || !path_is_ident(&decodes[0].args[2], "payload")
     {
@@ -2564,7 +2922,7 @@ fn normal_field_access_dataflow(body: &Expr) -> bool {
         && matches!(&*chain[0].func, Expr::Path(path)
             if path_ends_with_segments(&path.path, &["indexed_field_chain_ref"]))
         && chain[0].args.len() == 4
-        && is_reference_to(&chain[0].args[0], "execution")
+        && path_is_ident(&chain[0].args[0], "execution")
         && path_is_ident(&chain[0].args[1], "base")
         && path_is_ident(&chain[0].args[2], "slots")
         && path_is_ident(&chain[0].args[3], "span")
@@ -2602,15 +2960,15 @@ fn normal_index_from_end_dataflow(body: &Expr) -> bool {
 fn field_index_normal_view_fallbacks(
     file: &File,
     arms: &[FieldIndexArm],
+    view_variants: &BTreeSet<String>,
 ) -> Result<Vec<FieldIndexFallback>, String> {
-    let block = find_function(file, "eval_indexed_expr_inner")?;
-    let (_, dispatch) = top_level_tag_dispatch_match(block)?;
+    let dispatch = normal_expr_view_kind_dispatch(file, view_variants)?;
     FIELD_INDEX_ROWS
         .iter()
         .map(|(variant, _, _)| {
             let arm = arms.iter().find(|arm| arm.variant == *variant)
                 .ok_or_else(|| format!("normal field/index route has no {variant} arm"))?;
-            let source_arm = dispatch.arms.get(arm.arm_index)
+            let source_arm = dispatch.match_expression.arms.get(arm.arm_index)
                 .ok_or_else(|| format!("normal {variant} arm index is absent"))?;
             let candidate = field_index_view_let_else(&source_arm.body, variant, false)?;
             let message = field_index_unreachable_message(variant);
@@ -2640,7 +2998,7 @@ fn field_index_forced_arms(
     let expected = FIELD_INDEX_ROWS.iter()
         .map(|(variant, tag, _)| (*variant, *tag))
         .collect::<BTreeMap<_, _>>();
-    let mut found = BTreeMap::new();
+    let mut found = BTreeMap::<String, FieldIndexArm>::new();
     let mut fallbacks = BTreeMap::new();
     let mut error_group = None;
     for (arm_index, arm) in finder.matches[0].arms.iter().enumerate() {
@@ -2853,11 +3211,26 @@ fn field_index_forced_sources_live(
     }
     impl<'ast> Visit<'ast> for SourceBindings<'_> {
         fn visit_local(&mut self, local: &'ast syn::Local) {
-            if let Pat::Ident(binding) = &local.pat {
-                let name = binding.ident.to_string();
-                if self.protected.contains(&name.as_str()) {
-                    *self.counts.entry(name).or_default() += 1;
+            struct PatternBindings<'name> {
+                protected: &'name [&'name str],
+                counts: BTreeMap<String, usize>,
+            }
+            impl<'ast> Visit<'ast> for PatternBindings<'_> {
+                fn visit_pat_ident(&mut self, binding: &'ast syn::PatIdent) {
+                    let name = binding.ident.to_string();
+                    if self.protected.contains(&name.as_str()) {
+                        *self.counts.entry(name).or_default() += 1;
+                    }
+                    visit::visit_pat_ident(self, binding);
                 }
+            }
+            let mut bindings = PatternBindings {
+                protected: self.protected,
+                counts: BTreeMap::new(),
+            };
+            bindings.visit_pat(&local.pat);
+            for (name, count) in bindings.counts {
+                *self.counts.entry(name).or_default() += count;
             }
             visit::visit_local(self, local);
         }
@@ -3049,8 +3422,11 @@ fn struct_expr_has_exact_fields(
         })
 }
 
-fn field_index_normal_fallback(file: &File) -> Result<FieldIndexFallback, String> {
-    let fallback = collection_normal_fallback(file)?;
+fn field_index_normal_fallback(
+    file: &File,
+    view_variants: &BTreeSet<String>,
+) -> Result<FieldIndexFallback, String> {
+    let fallback = collection_normal_fallback(file, view_variants)?;
     Ok(FieldIndexFallback {
         helper: fallback.helper,
         outcome: fallback.outcome,
@@ -3060,38 +3436,35 @@ fn field_index_normal_fallback(file: &File) -> Result<FieldIndexFallback, String
     })
 }
 
-fn result_constructor_normal_arms(file: &File) -> Result<Vec<ResultConstructorArm>, String> {
-    let block = find_function(file, "eval_indexed_expr_inner")?;
-    let (_, dispatch) = top_level_tag_dispatch_match(block)?;
+fn result_constructor_normal_arms(
+    file: &File,
+    view_variants: &BTreeSet<String>,
+) -> Result<Vec<ResultConstructorArm>, String> {
+    let dispatch = normal_expr_view_kind_dispatch(file, view_variants)?;
     let expected = RESULT_CONSTRUCTOR_ROWS
         .iter()
-        .map(|(variant, tag, _)| (*tag, *variant))
+        .map(|(variant, tag, _)| (*variant, *tag))
         .collect::<BTreeMap<_, _>>();
-    let mut found = BTreeMap::new();
-    for (arm_index, arm) in dispatch.arms.iter().enumerate() {
-        if arm.guard.is_some() {
-            return Err(format!("guarded indexed expression arm at line {}", arm.pat.span().start().line));
+    let mut found = BTreeMap::<String, ResultConstructorArm>::new();
+    for (variant, tag, _) in RESULT_CONSTRUCTOR_ROWS {
+        let arm_index = *dispatch.arm_indices.get(*variant)
+            .ok_or_else(|| format!("normal result constructor {variant} view is absent"))?;
+        let arm = dispatch.match_expression.arms.get(arm_index)
+            .ok_or_else(|| format!("normal result constructor {variant} arm index is absent"))?;
+        let mut variants = Vec::new();
+        collect_exact_expr_view_kind_patterns(&arm.pat, &mut variants)?;
+        if variants != [*variant] {
+            return Err(format!("result constructor {variant} is grouped with another ExprViewKind"));
         }
-        let mut tags = Vec::new();
-        if matches!(arm.pat, Pat::Wild(_)) {
-            continue;
-        }
-        collect_exact_tag_patterns(&arm.pat, &mut tags)?;
-        for (tag, line) in tags.iter().filter(|(tag, _)| expected.contains_key(tag.as_str())) {
-            if tags.len() != 1 {
-                return Err(format!("result constructor {tag} is grouped with another dispatch tag"));
-            }
-            let variant = expected[tag.as_str()];
-            let behavior = result_constructor_normal_behavior(variant, &arm.body)?;
-            if found.insert(tag.clone(), ResultConstructorArm {
-                tag: tag.clone(),
-                variant: variant.into(),
-                behavior,
-                line: *line,
-                arm_index,
-            }).is_some() {
-                return Err(format!("duplicate normal result constructor arm {tag}"));
-            }
+        let behavior = result_constructor_normal_behavior(variant, &arm.body)?;
+        if found.insert((*tag).into(), ResultConstructorArm {
+            tag: (*tag).into(),
+            variant: (*variant).into(),
+            behavior,
+            line: arm.pat.span().start().line,
+            arm_index,
+        }).is_some() {
+            return Err(format!("duplicate normal result constructor arm {tag}"));
         }
     }
     if found.len() != expected.len() {
@@ -3188,15 +3561,15 @@ fn result_constructor_pattern_matches(pattern: &Pat, variant: &str) -> bool {
 fn result_constructor_normal_view_fallbacks(
     file: &File,
     normal_arms: &[ResultConstructorArm],
+    view_variants: &BTreeSet<String>,
 ) -> Result<Vec<ResultConstructorFallback>, String> {
-    let block = find_function(file, "eval_indexed_expr_inner")?;
-    let (_, dispatch) = top_level_tag_dispatch_match(block)?;
+    let dispatch = normal_expr_view_kind_dispatch(file, view_variants)?;
     RESULT_CONSTRUCTOR_ROWS
         .iter()
         .map(|(variant, _, _)| {
             let arm = normal_arms.iter().find(|arm| arm.variant == *variant)
                 .ok_or_else(|| format!("normal result route has no {variant} arm"))?;
-            let source_arm = dispatch.arms.get(arm.arm_index)
+            let source_arm = dispatch.match_expression.arms.get(arm.arm_index)
                 .ok_or_else(|| format!("normal {variant} arm index is absent"))?;
             let candidate = result_constructor_view_let_else(variant, &source_arm.body)?;
             let message = result_constructor_unreachable_message(variant);
@@ -3246,27 +3619,25 @@ fn validate_normal_ok_result(body: &Expr, child_matches: &[&syn::ExprMatch]) -> 
     let (value_index, value_initializer, value_match) = direct_block_child_match(&block.block, "value")
         .ok_or_else(|| "Ok normal arm has no direct value child binding".to_string())?;
     let (value, continue_arm) = continue_value_arm(child_matches[0])?;
-    let result = call_nodes_in_expr(body, "ResultOk");
-    let box_new = result.first().and_then(|call| call.args.first()).and_then(|value| exact_call(value, &["Box", "new"]));
+    let result = call_nodes_in_expr(body, "lowered_result_ok");
     let final_expression = block.block.stmts.last().and_then(|statement| match statement {
         Stmt::Expr(expression, None) => Some(expression),
         _ => None,
     });
     let final_continue = final_expression.and_then(|expression| exact_call(expression, &["ControlFlow", "Continue"]));
-    let final_result = final_continue.and_then(|call| call.args.first()).and_then(|value| exact_call(value, &["LoweredValue", "ResultOk"]));
+    let final_result = final_continue.and_then(|call| call.args.first()).and_then(|value| exact_call(value, &["lowered_result_ok"]));
     if value_index >= block.block.stmts.len()
         || !std::ptr::eq(value_match, child_matches[0])
         || !matches!(value_initializer, Expr::Match(expression) if std::ptr::eq(expression, value_match))
         || !eval_child_uses_raw_input(child_matches[0], "value")
         || !path_is_ident(&continue_arm.body, &value)
         || result.len() != 1
-        || box_new.is_none_or(|call| call.args.len() != 1 || !path_is_ident(&call.args[0], &value))
-        || final_result.is_none_or(|call| call.args.len() != 1
-            || exact_call(&call.args[0], &["Box", "new"]).is_none())
-        || final_result.and_then(|call| call.args.first()).and_then(|value| exact_call(value, &["Box", "new"]))
-            .is_none_or(|call| call.args.len() != 1 || !path_is_ident(&call.args[0], &value))
+        || result[0].args.len() != 1
+        || !path_is_ident(&result[0].args[0], &value)
+        || final_result.is_none_or(|call| call.args.len() != 1 || !path_is_ident(&call.args[0], &value))
+        || final_result.is_some_and(|call| !std::ptr::eq(call, result[0]))
     {
-        return Err("Ok child result does not flow to ResultOk construction".into());
+        return Err("Ok child result does not flow to lowered_result_ok construction".into());
     }
     Ok(())
 }
@@ -3433,8 +3804,7 @@ fn result_constructor_forced_behavior(variant: &str, body: &Expr) -> Result<Stri
     let decoded = decode.first().is_some_and(|call| {
         matches!(&*call.func, Expr::Path(path) if path_ends_with_segments(&path.path, &["ExprView", "decode"]))
             && call.args.len() == 3
-            && matches!(&call.args[0], Expr::Reference(reference)
-                if reference.mutability.is_none() && path_is_ident(&reference.expr, "execution"))
+            && path_is_ident(&call.args[0], "execution")
             && path_is_ident(&call.args[1], "tag")
             && path_is_ident(&call.args[2], "payload")
     });
@@ -3547,38 +3917,35 @@ fn collection_construction_schema_rows(
         .collect()
 }
 
-fn collection_normal_arms(file: &File) -> Result<Vec<CollectionDispatchArm>, String> {
-    let block = find_function(file, "eval_indexed_expr_inner")?;
-    let (_, dispatch) = top_level_tag_dispatch_match(block)?;
+fn collection_normal_arms(
+    file: &File,
+    view_variants: &BTreeSet<String>,
+) -> Result<Vec<CollectionDispatchArm>, String> {
+    let dispatch = normal_expr_view_kind_dispatch(file, view_variants)?;
     let expected = COLLECTION_CONSTRUCTION_ROWS
         .iter()
-        .map(|(variant, tag, _, _)| (*tag, *variant))
+        .map(|(variant, tag, _, _)| (*variant, *tag))
         .collect::<BTreeMap<_, _>>();
-    let mut found = BTreeMap::new();
-    for (arm_index, arm) in dispatch.arms.iter().enumerate() {
-        if arm.guard.is_some() {
-            return Err(format!("guarded indexed expression arm at line {}", arm.pat.span().start().line));
+    let mut found = BTreeMap::<String, CollectionDispatchArm>::new();
+    for (variant, tag, _, _) in COLLECTION_CONSTRUCTION_ROWS {
+        let arm_index = *dispatch.arm_indices.get(*variant)
+            .ok_or_else(|| format!("normal collection constructor {variant} view is absent"))?;
+        let arm = dispatch.match_expression.arms.get(arm_index)
+            .ok_or_else(|| format!("normal collection constructor {variant} arm index is absent"))?;
+        let mut variants = Vec::new();
+        collect_exact_expr_view_kind_patterns(&arm.pat, &mut variants)?;
+        if variants != [*variant] {
+            return Err(format!("collection constructor {variant} is grouped with another ExprViewKind"));
         }
-        if matches!(arm.pat, Pat::Wild(_)) {
-            continue;
-        }
-        let mut tags = Vec::new();
-        collect_exact_tag_patterns(&arm.pat, &mut tags)?;
-        for (tag, line) in tags.iter().filter(|(tag, _)| expected.contains_key(tag.as_str())) {
-            if tags.len() != 1 {
-                return Err(format!("collection constructor {tag} is grouped with another dispatch tag"));
-            }
-            let variant = expected[tag.as_str()];
-            let behavior = collection_normal_arm_behavior(variant, &arm.body)?;
-            if found.insert(tag.clone(), CollectionDispatchArm {
-                tag: tag.clone(),
-                variant: variant.into(),
-                behavior,
-                line: *line,
-                arm_index,
-            }).is_some() {
-                return Err(format!("duplicate normal collection constructor arm {tag}"));
-            }
+        let behavior = collection_normal_arm_behavior(variant, &arm.body)?;
+        if found.insert((*tag).into(), CollectionDispatchArm {
+            tag: (*tag).into(),
+            variant: (*variant).into(),
+            behavior,
+            line: arm.pat.span().start().line,
+            arm_index,
+        }).is_some() {
+            return Err(format!("duplicate normal collection constructor arm {tag}"));
         }
     }
     if found.len() != expected.len() {
@@ -3590,16 +3957,265 @@ fn collection_normal_arms(file: &File) -> Result<Vec<CollectionDispatchArm>, Str
         .collect())
 }
 
-fn top_level_tag_dispatch_match<'a>(block: &'a Block) -> Result<(usize, &'a syn::ExprMatch), String> {
-    let index = top_level_tag_match_index(block)?;
-    let Stmt::Local(local) = &block.stmts[index] else {
-        return Err("indexed evaluator tag match is not a local initializer".into());
+struct NormalExprViewKindDispatch<'ast> {
+    match_expression: &'ast syn::ExprMatch,
+    arm_indices: BTreeMap<String, usize>,
+    unsupported_variants: BTreeSet<String>,
+    unsupported_line: usize,
+    unsupported_arm_index: usize,
+}
+
+fn normal_expr_view_kind_dispatch<'ast>(
+    file: &'ast File,
+    expected_variants: &BTreeSet<String>,
+) -> Result<NormalExprViewKindDispatch<'ast>, String> {
+    let block = find_function(file, "eval_indexed_expr_inner")?;
+    let (unsupported_index, unsupported) = top_level_local_binding_expression(block, "unsupported")?;
+    let Expr::Closure(unsupported) = unsupported else {
+        return Err("indexed evaluator unsupported-error binding is not a closure".into());
     };
-    let expression = local.init.as_ref().ok_or_else(|| "indexed evaluator tag match has no initializer".to_string())?.expr.as_ref();
-    let Expr::Match(dispatch) = expression else {
-        return Err("indexed evaluator tag initializer is not a match".into());
+    if !unsupported.inputs.is_empty() || !is_indexed_unsupported_error(&unsupported.body) {
+        return Err("indexed evaluator unsupported-error closure changed".into());
+    }
+
+    let view_bindings = block.stmts.iter().enumerate().filter_map(|(index, statement)| {
+        let Stmt::Local(local) = statement else { return None; };
+        let Pat::TupleStruct(pattern) = &local.pat else { return None; };
+        if pattern.path.leading_colon.is_some()
+            || pattern.path.segments.len() != 1
+            || pattern.path.segments[0].ident != "Some"
+            || pattern.elems.len() != 1
+            || !matches!(pattern.elems.first(), Some(Pat::Ident(binding))
+                if binding.ident == "view_kind" && binding.subpat.is_none())
+        {
+            return None;
+        }
+        Some((index, local))
+    }).collect::<Vec<_>>();
+    let [(view_index, view_local)] = view_bindings.as_slice() else {
+        return Err(format!("expected one top-level ExprViewKind let-else, found {}", view_bindings.len()));
     };
-    Ok((index, dispatch))
+    let init = view_local.init.as_ref().ok_or_else(|| "ExprViewKind let-else has no initializer".to_string())?;
+    let Expr::MethodCall(view_kind) = init.expr.as_ref() else {
+        return Err("ExprViewKind let-else does not derive directly from the decoded tag".into());
+    };
+    if view_kind.method != "expr_view_kind"
+        || view_kind.turbofish.is_some()
+        || !path_is_ident(&view_kind.receiver, "tag")
+        || !view_kind.args.is_empty()
+        || init.diverge.as_ref().is_none_or(|(_, expression)| !is_unsupported_return(expression))
+    {
+        return Err("ExprViewKind let-else does not fail through the indexed unsupported error".into());
+    }
+    if unsupported_index >= *view_index {
+        return Err("indexed unsupported-error closure must precede ExprViewKind selection".into());
+    }
+
+    let (result_index, result) = top_level_local_binding_expression(block, "result")?;
+    if result_index != *view_index + 1 {
+        return Err("ExprViewKind selection must immediately precede its result match".into());
+    }
+    let Expr::Match(match_expression) = result else {
+        return Err("indexed expression result does not match its ExprViewKind".into());
+    };
+    if !path_is_ident(&match_expression.expr, "view_kind") {
+        return Err("indexed expression result matches a value other than ExprViewKind".into());
+    }
+    let mut finder = EnumMatchFinder { family: "ExprViewKind", matches: Vec::new() };
+    finder.visit_block(block);
+    if finder.matches.len() != 1 || !std::ptr::eq(finder.matches[0], match_expression) {
+        return Err(format!("eval_indexed_expr_inner must have one ExprViewKind match, found {}", finder.matches.len()));
+    }
+    validate_normal_expr_view_input_ownership(file, block, result_index)?;
+
+    let mut arm_indices = BTreeMap::new();
+    let mut unsupported_arm = None;
+    for (arm_index, arm) in match_expression.arms.iter().enumerate() {
+        if arm.guard.is_some() {
+            return Err(format!("guarded normal ExprViewKind arm at line {}", arm.pat.span().start().line));
+        }
+        let mut variants = Vec::new();
+        collect_exact_expr_view_kind_patterns(&arm.pat, &mut variants)?;
+        if variants.is_empty() {
+            return Err("normal ExprViewKind match has an empty variant arm".into());
+        }
+        for variant in &variants {
+            if !expected_variants.contains(variant) {
+                return Err(format!("unknown normal ExprViewKind variant {variant}"));
+            }
+            if arm_indices.insert(variant.clone(), arm_index).is_some() {
+                return Err(format!("duplicate normal ExprViewKind variant {variant}"));
+            }
+        }
+        if is_unsupported_return(&arm.body) {
+            if unsupported_arm.replace((arm_index, arm.pat.span().start().line, variants)).is_some() {
+                return Err("normal ExprViewKind unsupported group is split".into());
+            }
+        }
+    }
+    let found_variants = arm_indices.keys().cloned().collect::<BTreeSet<_>>();
+    if &found_variants != expected_variants {
+        return Err(format!("normal ExprViewKind coverage differs: expected {expected_variants:?}, found {found_variants:?}"));
+    }
+    let (unsupported_arm_index, unsupported_line, unsupported_variants) = unsupported_arm
+        .ok_or_else(|| "normal ExprViewKind match has no direct unsupported error group".to_string())?;
+    if unsupported_arm_index + 1 != match_expression.arms.len() {
+        return Err("normal ExprViewKind unsupported group is not the terminal arm".into());
+    }
+    Ok(NormalExprViewKindDispatch {
+        match_expression,
+        arm_indices,
+        unsupported_variants: unsupported_variants.into_iter().collect(),
+        unsupported_line,
+        unsupported_arm_index,
+    })
+}
+
+fn validate_normal_expr_view_input_ownership(
+    file: &File,
+    block: &Block,
+    result_index: usize,
+) -> Result<(), String> {
+    let signature = find_function_signature(file, "eval_indexed_expr_inner")?;
+    let Some(syn::FnArg::Receiver(receiver)) = signature.inputs.first() else {
+        return Err("normal indexed evaluator has no self receiver".into());
+    };
+    if receiver.reference.is_none() || receiver.mutability.is_none() {
+        return Err("normal indexed evaluator does not use a mutable self receiver".into());
+    }
+    let expected = ["execution", "instruction", "slots", "call_span"];
+    if signature.inputs.len() != expected.len() + 1
+        || !signature.inputs.iter().skip(1).zip(expected).all(|(input, expected)| {
+            matches!(input, syn::FnArg::Typed(argument)
+                if matches!(&*argument.pat, Pat::Ident(binding)
+                    if binding.ident == expected
+                        && binding.by_ref.is_none()
+                        && binding.mutability.is_none()
+                        && binding.subpat.is_none()))
+        })
+    {
+        return Err("normal indexed evaluator input bindings changed".into());
+    }
+
+    let tuple_bindings = block.stmts.iter().enumerate().filter_map(|(index, statement)| {
+        let Stmt::Local(local) = statement else { return None; };
+        let Pat::Tuple(tuple) = &local.pat else { return None; };
+        tuple.elems.iter().any(|pattern| matches!(pattern,
+            Pat::Ident(binding) if binding.ident == "tag" || binding.ident == "payload"))
+            .then_some((index, local))
+    }).collect::<Vec<_>>();
+    let [(origin_index, origin_local)] = tuple_bindings.as_slice() else {
+        return Err("normal indexed evaluator must bind one tag/payload tuple".into());
+    };
+    if !matches!(&origin_local.pat, Pat::Tuple(tuple)
+        if tuple.elems.len() == 2
+            && matches!(tuple.elems.first(), Some(Pat::Ident(binding)) if binding.ident == "tag" && binding.mutability.is_none())
+            && matches!(tuple.elems.iter().nth(1), Some(Pat::Ident(binding)) if binding.ident == "payload" && binding.mutability.is_none()))
+    {
+        return Err("normal indexed evaluator tag/payload tuple changed".into());
+    }
+    let initializer = origin_local.init.as_ref()
+        .ok_or_else(|| "normal indexed evaluator tag/payload tuple has no initializer".to_string())?;
+    let Expr::Try(try_expression) = initializer.expr.as_ref() else {
+        return Err("normal indexed evaluator tag/payload tuple does not propagate errors".into());
+    };
+    let Some(decode) = exact_call(&try_expression.expr, &["indexed_value"]) else {
+        return Err("normal indexed evaluator tag/payload tuple is not decoded by indexed_value".into());
+    };
+    let instruction_id = decode.args.first().and_then(|expression| match expression {
+        Expr::MethodCall(call) => Some(call),
+        _ => None,
+    });
+    if decode.args.len() != 2
+        || instruction_id.is_none_or(|call| call.method != "instruction_id"
+            || call.turbofish.is_some()
+            || !path_is_ident(&call.receiver, "execution")
+            || call.args.len() != 1
+            || !path_is_ident(&call.args[0], "instruction"))
+        || !path_is_ident(&decode.args[1], "call_span")
+        || *origin_index >= result_index
+    {
+        return Err("normal indexed evaluator tag/payload source changed".into());
+    }
+    for name in ["execution", "slots", "call_span"] {
+        if has_assignment_or_local_shadow(&block.stmts, name) {
+            return Err(format!("normal indexed evaluator input {name} is shadowed or written"));
+        }
+    }
+    if has_assignment_or_local_shadow(&block.stmts[..=*origin_index], "instruction")
+        || has_assignment_or_local_shadow(&block.stmts[*origin_index + 1..result_index], "instruction")
+        || has_assignment(&block.stmts[*origin_index + 1..=result_index], "instruction")
+    {
+        return Err("normal indexed evaluator input instruction is shadowed or written".into());
+    }
+    for name in ["tag", "payload"] {
+        if has_assignment_or_local_shadow(&block.stmts[*origin_index + 1..=result_index], name) {
+            return Err(format!("normal indexed evaluator binding {name} is shadowed or written"));
+        }
+    }
+    Ok(())
+}
+
+fn collect_exact_expr_view_kind_patterns(pattern: &Pat, output: &mut Vec<String>) -> Result<(), String> {
+    match pattern {
+        Pat::Or(patterns) => {
+            for pattern in &patterns.cases {
+                collect_exact_expr_view_kind_patterns(pattern, output)?;
+            }
+            Ok(())
+        }
+        Pat::Paren(pattern) => collect_exact_expr_view_kind_patterns(&pattern.pat, output),
+        Pat::Path(path) if path.qself.is_none() => push_view_path(&path.path, "ExprViewKind", output),
+        _ => Err("normal ExprViewKind match has a catch-all or structured variant pattern".into()),
+    }
+}
+
+fn is_unsupported_result(expression: &Expr) -> bool {
+    let Some(error) = exact_call(expression, &["Err"]) else { return false; };
+    if error.args.len() != 1 {
+        return false;
+    }
+    exact_call(&error.args[0], &["unsupported"]).is_some_and(|call| call.args.is_empty())
+}
+
+fn is_unsupported_return(expression: &Expr) -> bool {
+    match expression {
+        Expr::Return(returned) => returned.expr.as_deref().is_some_and(is_unsupported_result),
+        Expr::Block(block) => matches!(block.block.stmts.as_slice(),
+            [Stmt::Expr(Expr::Return(returned), Some(_))]
+                if returned.expr.as_deref().is_some_and(is_unsupported_result)),
+        _ => false,
+    }
+}
+
+fn is_indexed_unsupported_error(expression: &Expr) -> bool {
+    let expression = match expression {
+        Expr::Block(block) => match block.block.stmts.as_slice() {
+            [Stmt::Expr(expression, None)] => expression,
+            _ => return false,
+        },
+        expression => expression,
+    };
+    let Expr::MethodCall(with_span) = expression else { return false; };
+    if with_span.method != "with_span"
+        || with_span.turbofish.is_some()
+        || with_span.args.len() != 1
+        || !path_is_ident(&with_span.args[0], "call_span")
+    {
+        return false;
+    }
+    let Some(new) = exact_call(&with_span.receiver, &["RuntimeError", "new"]) else { return false; };
+    if new.args.len() != 2
+        || !matches!(&new.args[0], Expr::Lit(literal)
+            if matches!(&literal.lit, syn::Lit::Str(value) if value.value() == "indexed-ir"))
+    {
+        return false;
+    }
+    let Expr::Macro(format) = &new.args[1] else { return false; };
+    let tokens = format.mac.tokens.to_string();
+    format.mac.path.is_ident("format")
+        && tokens.contains("direct indexed evaluator does not support")
+        && tokens.contains("tag")
 }
 
 fn collection_normal_arm_behavior(variant: &str, body: &Expr) -> Result<String, String> {
@@ -3681,14 +4297,14 @@ fn validate_collection_normal_decode(variant: &str, body: &Expr) -> Result<(), S
 fn collection_normal_view_fallbacks(
     file: &File,
     normal_arms: &[CollectionDispatchArm],
+    view_variants: &BTreeSet<String>,
 ) -> Result<Vec<CollectionFallback>, String> {
     let mut fallbacks = Vec::new();
     for variant in ["Record", "MapLiteral", "List", "ListBuild"] {
         let arm = normal_arms.iter().find(|arm| arm.variant == variant)
             .ok_or_else(|| format!("normal collection route has no {variant} arm"))?;
-        let block = find_function(file, "eval_indexed_expr_inner")?;
-        let (_, dispatch) = top_level_tag_dispatch_match(block)?;
-        let source_arm = dispatch.arms.get(arm.arm_index)
+        let dispatch = normal_expr_view_kind_dispatch(file, view_variants)?;
+        let source_arm = dispatch.match_expression.arms.get(arm.arm_index)
             .ok_or_else(|| format!("normal {variant} arm index is absent"))?;
         let mut finder = ExprViewLetElseFinder { candidates: Vec::new() };
         finder.visit_expr(&source_arm.body);
@@ -4171,25 +4787,17 @@ fn collection_forced_arm_behavior(variant: &str, body: &Expr) -> Result<String, 
     }.into())
 }
 
-fn collection_normal_fallback(file: &File) -> Result<CollectionFallback, String> {
-    let block = find_function(file, "eval_indexed_expr_inner")?;
-    let (_, dispatch) = top_level_tag_dispatch_match(block)?;
-    let wildcards = dispatch.arms.iter().enumerate()
-        .filter(|(_, arm)| matches!(arm.pat, Pat::Wild(_)))
-        .collect::<Vec<_>>();
-    if wildcards.len() != 1 || wildcards[0].0 + 1 != dispatch.arms.len() {
-        return Err("indexed expression dispatch must end in one wildcard fallback".into());
-    }
-    let (arm_index, arm) = wildcards[0];
-    if arm.guard.is_some() || !is_unhandled_indexed_expr_fallback(&arm.body) {
-        return Err("indexed expression wildcard fallback changed from the explicit unsupported-tag error".into());
-    }
+fn collection_normal_fallback(
+    file: &File,
+    view_variants: &BTreeSet<String>,
+) -> Result<CollectionFallback, String> {
+    let dispatch = normal_expr_view_kind_dispatch(file, view_variants)?;
     Ok(CollectionFallback {
         helper: "eval_indexed_expr_inner".into(),
         outcome: "RuntimeError(indexed-ir: direct indexed evaluator does not support tag)".into(),
         scope: "FullTag values without a direct indexed expression arm".into(),
-        line: arm.pat.span().start().line,
-        arm_index,
+        line: dispatch.unsupported_line,
+        arm_index: dispatch.unsupported_arm_index,
     })
 }
 
@@ -4225,34 +4833,6 @@ fn collection_forced_route(file: &File) -> Result<CollectionForcedRoute, String>
         view_kind_statement_index,
         eval_expr_view_line: eval_expr_view.method.span().start().line,
     })
-}
-
-fn is_unhandled_indexed_expr_fallback(body: &Expr) -> bool {
-    let mut calls = CallNameFinder::default();
-    calls.visit_expr(body);
-    let names = calls.names.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>();
-    if names.iter().filter(|name| **name == "Err").count() != 1
-        || names.iter().filter(|name| **name == "new").count() != 1
-    {
-        return false;
-    }
-    let new_calls = call_nodes_in_expr(body, "new");
-    if new_calls.len() != 1 || new_calls[0].args.len() != 2
-        || !matches!(&new_calls[0].args[0], Expr::Lit(literal)
-            if matches!(&literal.lit, syn::Lit::Str(value) if value.value() == "indexed-ir"))
-    {
-        return false;
-    }
-    let mut methods = MethodCallNodeFinder { name: "with_span", calls: Vec::new() };
-    methods.visit_expr(body);
-    if methods.calls.len() != 1 || !path_is_ident(&methods.calls[0].args[0], "call_span") {
-        return false;
-    }
-    let mut macros = MacroTokenFinder { name: "format", tokens: Vec::new() };
-    macros.visit_expr(body);
-    macros.tokens.len() == 1
-        && macros.tokens[0].contains("direct indexed evaluator does not support")
-        && macros.tokens[0].contains("tag")
 }
 
 fn collection_view_helper_fallback(
@@ -4433,20 +5013,6 @@ impl<'ast> Visit<'ast> for StringLiteralFinder {
     }
 }
 
-struct MacroTokenFinder<'name> {
-    name: &'name str,
-    tokens: Vec<String>,
-}
-
-impl<'ast> Visit<'ast> for MacroTokenFinder<'_> {
-    fn visit_expr_macro(&mut self, expression: &'ast syn::ExprMacro) {
-        if expression.mac.path.segments.last().is_some_and(|segment| segment.ident == self.name) {
-            self.tokens.push(expression.mac.tokens.to_string());
-        }
-        visit::visit_expr_macro(self, expression);
-    }
-}
-
 #[derive(Clone, Copy)]
 struct ExprViewLetElse<'ast> {
     pattern: &'ast Pat,
@@ -4582,90 +5148,178 @@ fn frame_constructor_schema_rows(
         .collect()
 }
 
-fn frame_constructor_normal_route(file: &File) -> Result<FrameConstructorRoute, String> {
-    let block = find_function(file, "eval_indexed_expr_inner")?;
-    let (statement_index, branch) = find_frame_apply_branch(block, false)?;
-    if branch.then_branch.stmts.len() != 1 || branch.else_branch.is_some() {
-        return Err("normal FrameApply constructor route must directly return through frames".into());
-    }
-    let Stmt::Expr(Expr::Return(returned), _) = &branch.then_branch.stmts[0] else {
-        return Err("normal FrameApply constructor route does not return through frames".into());
-    };
-    let Some(Expr::MethodCall(call)) = returned.expr.as_deref() else {
-        return Err("normal FrameApply constructor route has no frame-evaluator call".into());
-    };
-    if call.method != "eval_indexed_expr_with_frames"
-        || !path_is_ident(&call.receiver, "self")
-        || call.args.len() != 4
-        || ![
-            "execution",
-            "instruction",
-            "slots",
-            "call_span",
-        ]
-        .iter()
-        .zip(&call.args)
-        .all(|(expected, actual)| path_is_ident(actual, expected))
-    {
-        return Err("normal FrameApply constructor route has an unexpected frame call".into());
-    }
-    let fallback_statement_index = top_level_tag_match_index(block)?;
-    if statement_index >= fallback_statement_index {
-        return Err("normal FrameApply constructor route occurs after tag dispatch".into());
-    }
-    Ok(FrameConstructorRoute {
-        mode: "normal".into(),
-        line: branch.if_token.span().start().line,
-        helper_line: call.method.span().start().line,
-        statement_index,
-        fallback_line: block.stmts[fallback_statement_index].span().start().line,
-        fallback_statement_index,
-    })
+fn frame_constructor_normal_route(
+    indexed: &File,
+    explicit: &File,
+) -> Result<FrameConstructorRoute, String> {
+    validate_normal_indexed_entry(indexed)?;
+    validate_indexed_frame_expr_entry(explicit)?;
+    frame_constructor_scheduled_route(explicit, "normal")
 }
 
 fn frame_constructor_forced_route(file: &File) -> Result<FrameConstructorRoute, String> {
+    frame_constructor_scheduled_route(file, "forced")
+}
+
+fn frame_constructor_scheduled_route(
+    file: &File,
+    mode: &str,
+) -> Result<FrameConstructorRoute, String> {
     let block = find_function(file, "eval_expr")?;
     let (statement_index, branch) = find_frame_apply_branch(block, true)?;
+    validate_frame_scheduler_guard(block, statement_index)?;
     if branch.else_branch.is_some() {
-        return Err("forced FrameApply constructor branch must not have an else arm".into());
+        return Err("scheduled FrameApply constructor branch must not have an else arm".into());
     }
     let statements = &branch.then_branch.stmts;
     if statements.len() != 5 || !is_view_decode_binding(&statements[0]) {
         return Err(
-            "forced FrameApply constructor branch must decode, select, span, push, then return".into(),
+            "scheduled FrameApply constructor branch must decode, select, span, push, then return".into(),
         );
     }
-    let (child_result, child_call) = forced_frame_child_binding(&statements[1])?;
+    let (child_result, child_call) = scheduled_frame_child_binding(&statements[1])?;
     let unique_child_call = find_single_call(&branch.then_branch, "indexed_frame_apply_child")?;
     if !std::ptr::eq(child_call, unique_child_call) {
-        return Err("forced FrameApply constructor child selection is not a direct binding".into());
+        return Err("scheduled FrameApply constructor child selection is not a direct binding".into());
     }
     validate_frame_apply_child_call(child_call)?;
     if !is_apply_span_binding(&statements[2], &child_result) {
-        return Err("forced FrameApply constructor span is not derived from the selected child".into());
+        return Err("scheduled FrameApply constructor span is not derived from the selected child".into());
     }
     let push_call = direct_try_method_call(&statements[3], "push_apply_operands")
-        .ok_or_else(|| "forced FrameApply constructor push is not unconditional".to_string())?;
+        .ok_or_else(|| "scheduled FrameApply constructor push is not unconditional".to_string())?;
     let unique_push_call = find_single_method_call(&branch.then_branch, "push_apply_operands")?;
     if !std::ptr::eq(push_call, unique_push_call) {
-        return Err("forced FrameApply constructor push is not a direct branch statement".into());
+        return Err("scheduled FrameApply constructor push is not a direct branch statement".into());
     }
     validate_push_apply_call(push_call, &child_result)?;
     if !is_success_return(&statements[4]) {
-        return Err("forced FrameApply constructor branch does not return after pushing".into());
+        return Err("scheduled FrameApply constructor branch does not return after pushing".into());
     }
     let fallback_statement_index = frame_view_kind_index(block)?;
     if statement_index >= fallback_statement_index {
-        return Err("forced FrameApply constructor route occurs after ExprViewKind fallback".into());
+        return Err("scheduled FrameApply constructor route occurs after ExprViewKind fallback".into());
     }
     Ok(FrameConstructorRoute {
-        mode: "forced".into(),
+        mode: mode.into(),
         line: branch.if_token.span().start().line,
         helper_line: child_call.func.span().start().line,
         statement_index,
         fallback_line: block.stmts[fallback_statement_index].span().start().line,
         fallback_statement_index,
     })
+}
+
+fn validate_indexed_frame_expr_entry(file: &File) -> Result<(), String> {
+    let block = find_function(file, "eval_indexed_expr_with_frames")?;
+    let (_, work) = top_level_local_binding_expression(block, "work")?;
+    let Expr::Struct(work) = work else {
+        return Err("normal frame evaluator does not construct expression work".into());
+    };
+    if work.path.leading_colon.is_some()
+        || work.path.segments.len() != 2
+        || work.path.segments[0].ident != "FrameWork"
+        || work.path.segments[1].ident != "Expr"
+        || work.fields.len() != 3
+        || !expr_struct_field(work, "instruction").is_some_and(|value| path_is_ident(value, "instruction"))
+        || !expr_struct_field(work, "span").is_some_and(|value| path_is_ident(value, "span"))
+        || !expr_struct_field(work, "next").is_some_and(is_block_value_continuation)
+    {
+        return Err("normal frame evaluator constructs unexpected expression work".into());
+    }
+    let call = find_single_method_call(block, "eval_indexed_work_with_frames")?;
+    if !path_is_ident(&call.receiver, "self")
+        || call.args.len() != 5
+        || !path_is_ident(&call.args[0], "execution")
+        || !path_is_ident(&call.args[1], "work")
+        || !matches!(&call.args[2], Expr::Lit(literal)
+            if matches!(&literal.lit, syn::Lit::Bool(value) if !value.value))
+        || !path_is_ident(&call.args[3], "slots")
+        || !path_is_ident(&call.args[4], "span")
+    {
+        return Err("normal frame evaluator does not schedule expression work on explicit frames".into());
+    }
+    Ok(())
+}
+
+fn is_block_value_continuation(expression: &Expr) -> bool {
+    let Expr::Struct(continuation) = expression else {
+        return false;
+    };
+    continuation.path.leading_colon.is_none()
+        && continuation.path.segments.len() == 2
+        && continuation.path.segments[0].ident == "FrameContinuation"
+        && continuation.path.segments[1].ident == "BlockValue"
+        && continuation.fields.len() == 1
+        && expr_struct_field(continuation, "transfers_resource").is_some_and(|value| {
+            matches!(value, Expr::Lit(literal)
+                if matches!(&literal.lit, syn::Lit::Bool(value) if !value.value))
+        })
+}
+
+fn expr_struct_field<'ast>(structure: &'ast syn::ExprStruct, name: &str) -> Option<&'ast Expr> {
+    let fields = structure.fields.iter().filter_map(|field| {
+        matches!(&field.member, syn::Member::Named(member) if member == name)
+            .then_some(&field.expr)
+    }).collect::<Vec<_>>();
+    match fields.as_slice() {
+        [field] => Some(field),
+        _ => None,
+    }
+}
+
+fn validate_frame_scheduler_guard(block: &Block, route_statement_index: usize) -> Result<(), String> {
+    let (in_place_index, in_place_expression) =
+        top_level_local_binding_expression(block, "in_place")?;
+    if !is_frame_scheduler_in_place_condition(in_place_expression) || in_place_index >= route_statement_index {
+        return Err("FrameApply route does not follow the force-aware in-place dispatch guard".into());
+    }
+    let guards = block.stmts.iter().enumerate().filter_map(|(index, statement)| {
+        let Stmt::Expr(Expr::If(expression), _) = statement else {
+            return None;
+        };
+        path_is_ident(&expression.cond, "in_place").then_some(index)
+    }).collect::<Vec<_>>();
+    if !matches!(guards.as_slice(), [index] if *index > in_place_index && *index < route_statement_index) {
+        return Err("FrameApply route does not follow the unique in-place dispatch guard".into());
+    }
+    Ok(())
+}
+
+fn is_frame_scheduler_in_place_condition(expression: &Expr) -> bool {
+    let Expr::Binary(binary) = expression else {
+        return false;
+    };
+    if !matches!(binary.op, syn::BinOp::And(_)) {
+        return false;
+    }
+    let Expr::Unary(force_check) = binary.left.as_ref() else {
+        return false;
+    };
+    if !matches!(force_check.op, syn::UnOp::Not(_))
+        || !is_nested_field_access(&force_check.expr, &["evaluator", "force_frames"])
+    {
+        return false;
+    }
+    matches!(binary.right.as_ref(), Expr::MethodCall(call)
+        if call.method == "is_in_place"
+            && call.args.len() == 1
+            && path_is_ident(&call.receiver, "execution")
+            && path_is_ident(&call.args[0], "instruction"))
+}
+
+fn is_nested_field_access(expression: &Expr, segments: &[&str]) -> bool {
+    let mut current = expression;
+    for segment in segments.iter().rev() {
+        let Expr::Field(field) = current else {
+            return false;
+        };
+        if !matches!(&field.member, syn::Member::Named(name) if name == segment) {
+            return false;
+        }
+        current = &field.base;
+    }
+    path_is_ident(current, "self")
 }
 
 fn find_frame_apply_branch(
@@ -4705,28 +5359,6 @@ fn is_classifier_condition(expression: &Expr, path: &[&str]) -> bool {
             && path_has_segments(&call.func, path))
 }
 
-fn top_level_tag_match_index(block: &Block) -> Result<usize, String> {
-    let matches = block
-        .stmts
-        .iter()
-        .enumerate()
-        .filter_map(|(index, statement)| {
-            let Stmt::Local(local) = statement else {
-                return None;
-            };
-            let expression = local.init.as_ref()?.expr.as_ref();
-            match expression {
-                Expr::Match(expression) if path_is_ident(&expression.expr, "tag") => Some(index),
-                _ => None,
-            }
-        })
-        .collect::<Vec<_>>();
-    if matches.len() != 1 {
-        return Err(format!("expected one top-level match tag, found {}", matches.len()));
-    }
-    Ok(matches[0])
-}
-
 fn frame_view_kind_index(block: &Block) -> Result<usize, String> {
     let matches = block
         .stmts
@@ -4758,6 +5390,24 @@ fn frame_view_kind_index(block: &Block) -> Result<usize, String> {
     Ok(matches[0])
 }
 
+fn indexed_view_kind_fallback_index(block: &Block) -> Result<usize, String> {
+    let (index, local) = top_level_local_with_pattern_binding(block, "view_kind")?;
+    let expression = local
+        .init
+        .as_ref()
+        .map(|initializer| initializer.expr.as_ref())
+        .ok_or_else(|| "indexed ExprViewKind fallback has no initializer".to_string())?;
+    let mut finder = MethodCallNodeFinder {
+        name: "expr_view_kind",
+        calls: Vec::new(),
+    };
+    finder.visit_expr(expression);
+    if finder.calls.len() != 1 || !path_is_ident(&finder.calls[0].receiver, "tag") {
+        return Err("indexed evaluator has no exact ExprViewKind fallback".into());
+    }
+    Ok(index)
+}
+
 fn validate_frame_apply_child_call(call: &syn::ExprCall) -> Result<(), String> {
     if !path_has_segments(&call.func, &["super", "indexed_frame_apply_child"])
         || call.args.len() != 6
@@ -4770,34 +5420,34 @@ fn validate_frame_apply_child_call(call: &syn::ExprCall) -> Result<(), String> {
         || !path_is_ident(&call.args[4], "None")
         || !path_is_ident(&call.args[5], "span")
     {
-        return Err("forced FrameApply constructor route calls child selection with unexpected arguments".into());
+        return Err("scheduled FrameApply constructor route calls child selection with unexpected arguments".into());
     }
     Ok(())
 }
 
-fn forced_frame_child_binding(statement: &Stmt) -> Result<(String, &syn::ExprCall), String> {
+fn scheduled_frame_child_binding(statement: &Stmt) -> Result<(String, &syn::ExprCall), String> {
     let Stmt::Local(local) = statement else {
-        return Err("forced FrameApply child selection is not a top-level binding".into());
+        return Err("scheduled FrameApply child selection is not a top-level binding".into());
     };
     let Pat::Ident(pattern) = &local.pat else {
-        return Err("forced FrameApply child selection has an unexpected binding pattern".into());
+        return Err("scheduled FrameApply child selection has an unexpected binding pattern".into());
     };
     if pattern.subpat.is_some() {
-        return Err("forced FrameApply child selection binding has a subpattern".into());
+        return Err("scheduled FrameApply child selection binding has a subpattern".into());
     }
     let expression = local
         .init
         .as_ref()
         .map(|initializer| initializer.expr.as_ref())
-        .ok_or_else(|| "forced FrameApply child selection has no initializer".to_string())?;
+        .ok_or_else(|| "scheduled FrameApply child selection has no initializer".to_string())?;
     let Expr::Try(expression) = expression else {
-        return Err("forced FrameApply child selection is not evaluated unconditionally".into());
+        return Err("scheduled FrameApply child selection is not evaluated unconditionally".into());
     };
     let Expr::Call(call) = expression.expr.as_ref() else {
-        return Err("forced FrameApply child selection is not a direct call".into());
+        return Err("scheduled FrameApply child selection is not a direct call".into());
     };
     if !path_has_segments(&call.func, &["super", "indexed_frame_apply_child"]) {
-        return Err("forced FrameApply child selection calls an unexpected helper".into());
+        return Err("scheduled FrameApply child selection calls an unexpected helper".into());
     }
     Ok((pattern.ident.to_string(), call))
 }
@@ -4892,7 +5542,7 @@ fn validate_push_apply_call(call: &syn::ExprMethodCall, child_result: &str) -> R
         || !path_is_ident(&call.args[4], "apply_span")
         || !path_is_ident(&call.args[5], "next")
     {
-        return Err("forced FrameApply constructor push does not consume the selected child result".into());
+        return Err("scheduled FrameApply constructor push does not consume the selected child result".into());
     }
     Ok(())
 }
@@ -5652,34 +6302,12 @@ fn eager_atom_macro_invocation_lines(tokens: &TokenStream) -> Vec<usize> {
 }
 
 fn normal_eager_atom_route(file: &File) -> Result<EagerAtomRoute, String> {
+    validate_normal_indexed_entry(file)?;
     let block = find_function(file, "eval_indexed_expr_inner")?;
-    let mut eager = None;
-    let mut generic = None;
-    for (index, statement) in block.stmts.iter().enumerate() {
-        let Stmt::Expr(Expr::If(expression), _) = statement else {
-            continue;
-        };
-        if is_eager_atom_condition(&expression.cond) {
-            if eager.replace((index, expression)).is_some() {
-                return Err("eval_indexed_expr_inner has duplicate eager atom branches".into());
-            }
-        }
-        if is_indexed_frame_apply_condition(&expression.cond)
-            && generic
-                .replace((index, expression.if_token.span.start().line))
-                .is_some()
-        {
-            return Err("eval_indexed_expr_inner has duplicate generic FrameApply branches".into());
-        }
-    }
-    let (statement_index, branch) = eager.ok_or_else(|| {
-        "eval_indexed_expr_inner has no eager atom route".to_string()
-    })?;
-    let (generic_statement_index, generic_line) = generic.ok_or_else(|| {
-        "eval_indexed_expr_inner has no generic FrameApply route".to_string()
-    })?;
-    if statement_index >= generic_statement_index {
-        return Err("normal eager atom route occurs after generic FrameApply".into());
+    let (statement_index, branch) = eager_atom_branch(block, "eval_indexed_expr_inner")?;
+    let fallback_statement_index = indexed_view_kind_fallback_index(block)?;
+    if statement_index >= fallback_statement_index {
+        return Err("normal eager atom route occurs after ExprViewKind fallback".into());
     }
     let helper_line = normal_eager_atom_return(branch)?;
     Ok(EagerAtomRoute {
@@ -5687,9 +6315,89 @@ fn normal_eager_atom_route(file: &File) -> Result<EagerAtomRoute, String> {
         line: branch.if_token.span.start().line,
         helper_line,
         statement_index,
-        generic_line,
-        generic_statement_index,
+        fallback_kind: "ExprViewKind".into(),
+        fallback_line: block.stmts[fallback_statement_index].span().start().line,
+        fallback_statement_index,
     })
+}
+
+fn validate_normal_indexed_entry(file: &File) -> Result<(), String> {
+    let block = find_function(file, "eval_indexed_expr")?;
+    let (_, result) = top_level_local_binding_expression(block, "result")?;
+    let Expr::If(dispatch) = result else {
+        return Err("normal indexed expression entry has no in-place dispatch".into());
+    };
+    if !is_normal_indexed_entry_condition(&dispatch.cond)
+        || !indexed_entry_block_call(&dispatch.then_branch, "eval_indexed_expr_with_frames")
+        || !dispatch.else_branch.as_ref().is_some_and(|(_, otherwise)| {
+            indexed_entry_expr_call(otherwise, "eval_indexed_expr_inner")
+        })
+    {
+        return Err("normal indexed expression entry does not select frames or in-place evaluation exactly".into());
+    }
+    Ok(())
+}
+
+fn is_normal_indexed_entry_condition(expression: &Expr) -> bool {
+    let Expr::Binary(binary) = expression else {
+        return false;
+    };
+    if !matches!(binary.op, syn::BinOp::Or(_))
+        || !is_nested_field_access(&binary.left, &["force_frames"])
+    {
+        return false;
+    }
+    matches!(binary.right.as_ref(), Expr::Unary(unary)
+        if matches!(unary.op, syn::UnOp::Not(_))
+            && matches!(unary.expr.as_ref(), Expr::MethodCall(call)
+                if call.method == "is_in_place"
+                    && call.args.len() == 1
+                    && path_is_ident(&call.receiver, "execution")
+                    && path_is_ident(&call.args[0], "instruction")))
+}
+
+fn indexed_entry_block_call(block: &Block, method: &str) -> bool {
+    matches!(block.stmts.as_slice(), [Stmt::Expr(expression, _)]
+        if indexed_entry_expr_call(expression, method))
+}
+
+fn indexed_entry_expr_call(expression: &Expr, method: &str) -> bool {
+    let call = match expression {
+        Expr::MethodCall(call) => Some(call),
+        Expr::Block(block) if block.block.stmts.len() == 1 => {
+            match &block.block.stmts[0] {
+                Stmt::Expr(Expr::MethodCall(call), _) => Some(call),
+                _ => None,
+            }
+        }
+        _ => None,
+    };
+    let Some(call) = call else {
+        return false;
+    };
+    call.method == method
+        && path_is_ident(&call.receiver, "self")
+        && call.args.len() == 4
+        && ["execution", "instruction", "slots", "call_span"]
+            .iter()
+            .zip(&call.args)
+            .all(|(expected, actual)| path_is_ident(actual, expected))
+}
+
+fn eager_atom_branch<'a>(
+    block: &'a Block,
+    owner: &str,
+) -> Result<(usize, &'a syn::ExprIf), String> {
+    let branches = block.stmts.iter().enumerate().filter_map(|(index, statement)| {
+        let Stmt::Expr(Expr::If(expression), _) = statement else {
+            return None;
+        };
+        is_eager_atom_condition(&expression.cond).then_some((index, expression))
+    }).collect::<Vec<_>>();
+    match branches.as_slice() {
+        [(index, branch)] => Ok((*index, *branch)),
+        _ => Err(format!("{owner} must have one eager atom branch, found {}", branches.len())),
+    }
 }
 
 fn normal_eager_atom_return(expression: &syn::ExprIf) -> Result<usize, String> {
@@ -5746,6 +6454,7 @@ fn forced_eager_atom_route(file: &File) -> Result<EagerAtomRoute, String> {
     let (statement_index, branch) = eager.ok_or_else(|| "eval_expr has no eager atom route".to_string())?;
     let (generic_statement_index, generic_line) =
         generic.ok_or_else(|| "eval_expr has no generic FrameApply route".to_string())?;
+    validate_frame_scheduler_guard(block, statement_index)?;
     if statement_index >= generic_statement_index {
         return Err("forced eager atom route occurs after generic FrameApply".into());
     }
@@ -5755,8 +6464,9 @@ fn forced_eager_atom_route(file: &File) -> Result<EagerAtomRoute, String> {
         line: branch.if_token.span.start().line,
         helper_line,
         statement_index,
-        generic_line,
-        generic_statement_index,
+        fallback_kind: "FrameApply".into(),
+        fallback_line: generic_line,
+        fallback_statement_index: generic_statement_index,
     })
 }
 
@@ -6518,6 +7228,34 @@ fn eager_slot_freeze_contract(file: &File) -> Result<EagerAtomFreezeContract, St
     })
 }
 
+fn find_function_signature<'a>(file: &'a File, name: &str) -> Result<&'a syn::Signature, String> {
+    struct FunctionSignatureFinder<'ast, 'name> {
+        name: &'name str,
+        signatures: Vec<&'ast syn::Signature>,
+    }
+    impl<'ast> Visit<'ast> for FunctionSignatureFinder<'ast, '_> {
+        fn visit_item_fn(&mut self, function: &'ast ItemFn) {
+            if function.sig.ident == self.name {
+                self.signatures.push(&function.sig);
+            }
+            visit::visit_item_fn(self, function);
+        }
+
+        fn visit_impl_item_fn(&mut self, function: &'ast syn::ImplItemFn) {
+            if function.sig.ident == self.name {
+                self.signatures.push(&function.sig);
+            }
+            visit::visit_impl_item_fn(self, function);
+        }
+    }
+    let mut finder = FunctionSignatureFinder { name, signatures: Vec::new() };
+    finder.visit_file(file);
+    if finder.signatures.len() != 1 {
+        return Err(format!("expected one function {name}, found {}", finder.signatures.len()));
+    }
+    Ok(finder.signatures[0])
+}
+
 fn find_function_item<'a>(file: &'a File, name: &str) -> Result<&'a ItemFn, String> {
     let functions = file
         .items
@@ -6547,42 +7285,6 @@ fn is_shared_list_constructor(expression: &Expr) -> bool {
     }
     exact_call(&shared.args[0], &["Arc", "new"])
         .is_some_and(|arc| arc.args.len() == 1 && path_is_ident(&arc.args[0], "items"))
-}
-
-#[derive(Default)]
-struct EagerBoundaryFinder {
-    decode_lines: Vec<usize>,
-    path_new_lines: Vec<usize>,
-    freeze_slot_lines: Vec<usize>,
-}
-
-impl<'ast> Visit<'ast> for EagerBoundaryFinder {
-    fn visit_expr_call(&mut self, expression: &'ast syn::ExprCall) {
-        if path_has_segments(&expression.func, &["ExprView", "decode"]) {
-            self.decode_lines.push(expression.func.span().start().line);
-        }
-        if path_has_segments(&expression.func, &["PathValue", "new"]) {
-            self.path_new_lines.push(expression.func.span().start().line);
-        }
-        if path_is_ident(&expression.func, "lowered_freeze_large_slot_list") {
-            self.freeze_slot_lines.push(expression.func.span().start().line);
-        }
-        visit::visit_expr_call(self, expression);
-    }
-}
-
-#[derive(Default)]
-struct SlotIndexFinder {
-    count: usize,
-}
-
-impl<'ast> Visit<'ast> for SlotIndexFinder {
-    fn visit_expr_index(&mut self, expression: &'ast syn::ExprIndex) {
-        if path_is_ident(&expression.expr, "slots") && path_is_ident(&expression.index, "slot") {
-            self.count += 1;
-        }
-        visit::visit_expr_index(self, expression);
-    }
 }
 
 fn is_exact_unreachable(expression: &Expr, expected_message: &str) -> bool {
@@ -6932,7 +7634,9 @@ fn validate_scalar_route_checks(file: &File) -> Result<(), String> {
 }
 
 fn scalar_route_checks(file: &File) -> Result<Vec<ScalarRouteCheck>, String> {
+    let function_signature = find_function_signature(file, "eval_indexed_expr_inner")?;
     let block = find_function(file, "eval_indexed_expr_inner")?;
+    let tag_decode_index = indexed_tag_decode_statement_index(block)?;
     let mut checks = Vec::new();
     let mut generic_route_index = None;
     for (statement_index, statement) in block.stmts.iter().enumerate() {
@@ -6954,6 +7658,13 @@ fn scalar_route_checks(file: &File) -> Result<Vec<ScalarRouteCheck>, String> {
             result_variant,
         });
     }
+    let classifier_calls = find_call_nodes(block, "is_typed_int_tag").len()
+        + find_call_nodes(block, "is_typed_bool_tag").len();
+    if classifier_calls != 2 {
+        return Err(format!(
+            "eval_indexed_expr_inner must have exactly two typed scalar classifier calls, found {classifier_calls}"
+        ));
+    }
     if checks.len() != 2 {
         return Err(format!(
             "eval_indexed_expr_inner must have exactly two top-level typed scalar checks, found {}",
@@ -6966,31 +7677,160 @@ fn scalar_route_checks(file: &File) -> Result<Vec<ScalarRouteCheck>, String> {
     if checks[0].statement_index >= checks[1].statement_index {
         return Err("typed scalar checks are out of order".into());
     }
+    if checks[1].statement_index != checks[0].statement_index + 1 {
+        return Err("typed scalar checks must be adjacent".into());
+    }
     let generic_route_index = generic_route_index
         .ok_or_else(|| "eval_indexed_expr_inner has no eager or frame-apply route".to_string())?;
     if checks.iter().any(|check| check.statement_index >= generic_route_index) {
         return Err("typed scalar checks occur after a generic evaluator route".into());
     }
-    if checks[0].statement_index != 1 || checks[1].statement_index != 2 {
-        return Err("typed scalar checks must immediately follow the indexed tag decode".into());
+    if checks[0].statement_index <= tag_decode_index {
+        return Err("typed scalar checks must follow the indexed tag decode".into());
     }
+    let input_names = ["execution", "instruction", "slots", "call_span"];
+    validate_scalar_input_bindings(function_signature, &input_names)?;
+    validate_scalar_binding_lifetimes(block, tag_decode_index, checks[1].statement_index)?;
     Ok(checks)
+}
+
+fn validate_scalar_input_bindings(
+    signature: &syn::Signature,
+    expected: &[&str],
+) -> Result<(), String> {
+    let mut found = BTreeMap::<String, usize>::new();
+    for argument in &signature.inputs {
+        let syn::FnArg::Typed(argument) = argument else { continue; };
+        let Pat::Ident(binding) = argument.pat.as_ref() else { continue; };
+        if binding.by_ref.is_some() || binding.mutability.is_some() || binding.subpat.is_some() {
+            continue;
+        }
+        *found.entry(binding.ident.to_string()).or_default() += 1;
+    }
+    for name in expected {
+        if found.get(*name) != Some(&1) {
+            return Err(format!("eval_indexed_expr_inner must receive {name} as one original parameter"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_scalar_binding_lifetimes(
+    block: &Block,
+    tag_decode_index: usize,
+    final_check_index: usize,
+) -> Result<(), String> {
+    let evaluator_inputs = BTreeSet::from([
+        "execution", "instruction", "slots", "call_span",
+    ]);
+    for statement in &block.stmts[..=final_check_index] {
+        if let Stmt::Local(local) = statement {
+            let names = pattern_binding_names(&local.pat);
+            if let Some(name) = names.iter().find(|name| evaluator_inputs.contains(name.as_str())) {
+                return Err(format!("typed scalar route shadows original evaluator input {name}"));
+            }
+        }
+    }
+
+    let decoded_values = BTreeSet::from(["tag", "payload"]);
+    for statement in &block.stmts[tag_decode_index + 1..=final_check_index] {
+        if let Stmt::Local(local) = statement {
+            let names = pattern_binding_names(&local.pat);
+            if let Some(name) = names.iter().find(|name| decoded_values.contains(name.as_str())) {
+                return Err(format!("typed scalar route shadows decoded indexed value {name}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn pattern_binding_names(pattern: &Pat) -> BTreeSet<String> {
+    struct BindingNames(BTreeSet<String>);
+    impl<'ast> Visit<'ast> for BindingNames {
+        fn visit_pat_ident(&mut self, pattern: &'ast syn::PatIdent) {
+            self.0.insert(pattern.ident.to_string());
+            visit::visit_pat_ident(self, pattern);
+        }
+    }
+    let mut names = BindingNames(BTreeSet::new());
+    names.visit_pat(pattern);
+    names.0
+}
+
+fn indexed_tag_decode_statement_index(block: &Block) -> Result<usize, String> {
+    let statements = block
+        .stmts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, statement)| {
+            is_indexed_tag_decode_statement(statement).then_some(index)
+        })
+        .collect::<Vec<_>>();
+    let decode_calls = find_call_nodes(block, "indexed_value").len();
+    if statements.len() != 1 || decode_calls != 1 {
+        return Err(format!(
+            "eval_indexed_expr_inner must have exactly one exact top-level indexed tag decode, found {} statements and {decode_calls} calls",
+            statements.len()
+        ));
+    }
+    Ok(statements[0])
+}
+
+fn is_indexed_tag_decode_statement(statement: &Stmt) -> bool {
+    let Stmt::Local(local) = statement else {
+        return false;
+    };
+    let Pat::Tuple(pattern) = &local.pat else {
+        return false;
+    };
+    if pattern.elems.len() != 2
+        || !matches!(&pattern.elems[0], Pat::Ident(binding)
+            if binding.ident == "tag"
+                && binding.by_ref.is_none()
+                && binding.mutability.is_none()
+                && binding.subpat.is_none())
+        || !matches!(&pattern.elems[1], Pat::Ident(binding)
+            if binding.ident == "payload"
+                && binding.by_ref.is_none()
+                && binding.mutability.is_none()
+                && binding.subpat.is_none())
+        || local.init.as_ref().is_none_or(|init| init.diverge.is_some())
+    {
+        return false;
+    }
+    let Some(init) = &local.init else {
+        return false;
+    };
+    let Expr::Try(try_expression) = init.expr.as_ref() else {
+        return false;
+    };
+    let Expr::Call(decode) = try_expression.expr.as_ref() else {
+        return false;
+    };
+    if !expression_has_exact_path(&decode.func, &["indexed_value"]) || decode.args.len() != 2 {
+        return false;
+    }
+    let Some(Expr::MethodCall(instruction_id)) = decode.args.first() else {
+        return false;
+    };
+    instruction_id.method == "instruction_id"
+        && instruction_id.turbofish.is_none()
+        && instruction_id.args.len() == 1
+        && path_is_ident(&instruction_id.receiver, "execution")
+        && path_is_ident(&instruction_id.args[0], "instruction")
+        && path_is_ident(&decode.args[1], "call_span")
 }
 
 fn scalar_classifier_condition(condition: &Expr) -> Result<Option<String>, String> {
     let Expr::Call(call) = condition else {
         return Ok(None);
     };
-    let Expr::Path(path) = call.func.as_ref() else {
+    let family = if expression_has_exact_path(&call.func, &["is_typed_int_tag"]) {
+        "Int"
+    } else if expression_has_exact_path(&call.func, &["is_typed_bool_tag"]) {
+        "Bool"
+    } else {
         return Ok(None);
-    };
-    if path.qself.is_some() || path.path.segments.len() != 1 {
-        return Ok(None);
-    }
-    let family = match path.path.segments[0].ident.to_string().as_str() {
-        "is_typed_int_tag" => "Int",
-        "is_typed_bool_tag" => "Bool",
-        _ => return Ok(None),
     };
     if call.args.len() != 1 || !path_is_ident(&call.args[0], "tag") {
         return Err(format!("typed {family} route check has an unrecognized argument"));
@@ -7012,14 +7852,22 @@ fn scalar_route_return(expression: &syn::ExprIf, family: &str) -> Result<(String
     let Expr::MethodCall(mapped) = returned else {
         return Err(format!("typed {family} route check has no typed result mapping"));
     };
-    if mapped.method != "map" || mapped.args.len() != 1 {
+    if mapped.method != "map" || mapped.turbofish.is_some() || mapped.args.len() != 1 {
         return Err(format!("typed {family} route check uses an unexpected mapping"));
     }
     let Expr::MethodCall(evaluator_call) = mapped.receiver.as_ref() else {
         return Err(format!("typed {family} route check does not call its scalar evaluator"));
     };
     let expected_wrapper = format!("eval_indexed_typed_{}", family.to_lowercase());
-    if evaluator_call.method != expected_wrapper || !path_is_ident(&evaluator_call.receiver, "self") {
+    if evaluator_call.method != expected_wrapper
+        || evaluator_call.turbofish.is_some()
+        || !path_is_ident(&evaluator_call.receiver, "self")
+        || evaluator_call.args.len() != 4
+        || !path_is_ident(&evaluator_call.args[0], "execution")
+        || !path_is_ident(&evaluator_call.args[1], "instruction")
+        || !path_is_ident(&evaluator_call.args[2], "slots")
+        || !path_is_ident(&evaluator_call.args[3], "call_span")
+    {
         return Err(format!("typed {family} route check calls the wrong scalar evaluator"));
     }
     let Expr::Closure(closure) = mapped.args.first().expect("one mapping argument checked") else {
@@ -7034,13 +7882,14 @@ fn scalar_route_return(expression: &syn::ExprIf, family: &str) -> Result<(String
         return Err(format!("typed {family} route does not map the continue value"));
     };
     if mapped_flow.method != "map_continue"
+        || mapped_flow.turbofish.is_some()
         || !path_is_ident(&mapped_flow.receiver, "flow")
         || mapped_flow.args.len() != 1
     {
         return Err(format!("typed {family} route has an unexpected flow mapping"));
     }
     let expected_result = if family == "Int" { "Int" } else { "Bool" };
-    if !path_has_segments(
+    if !expression_has_exact_path(
         mapped_flow.args.first().expect("one flow mapping checked"),
         &["LoweredValue", expected_result],
     ) {
@@ -7243,120 +8092,623 @@ fn validate_view_coverage(
 
 fn explicit_scalar_groups(
     file: &File,
+    schema_rows: &[ScalarSchemaRow],
 ) -> Result<(ScalarRouteCheck, Vec<ScalarFrameGroup>, Vec<ScalarFallback>), String> {
     let forced_entry = validate_explicit_scalar_entry(file)?;
     let block = find_function(file, "eval_typed_scalar_expr")?;
-    let mut finder = TagMatchFinder { matches: Vec::new() };
-    finder.visit_block(block);
-    if finder.matches.len() != 1 {
-        return Err(format!(
-            "eval_typed_scalar_expr must contain one match tag, found {}",
-            finder.matches.len()
-        ));
+    let signature = find_function_signature(file, "eval_typed_scalar_expr")?;
+    validate_typed_scalar_inputs(signature, block)?;
+
+    let (operation_index, operation_initializer) = top_level_local_binding_expression(block, "operation")?;
+    let mut operation_bindings = LocalNameBindingFinder { name: "operation", count: 0 };
+    operation_bindings.visit_block(block);
+    if operation_bindings.count != 1 {
+        return Err("typed scalar operation has multiple local bindings".into());
     }
-    let tag_match = finder.matches[0];
-    let mut int_group = None;
-    let mut bool_group = None;
-    let mut delegated = None;
-    let mut generic_fallback = None;
-    let mut fallbacks = Vec::new();
+    let Expr::Match(kind_match) = operation_initializer else {
+        return Err("typed scalar operation is not selected by an InstructionKind match".into());
+    };
+    if !matches!(&*kind_match.expr, Expr::MethodCall(call)
+        if call.method == "kind"
+            && call.turbofish.is_none()
+            && call.args.is_empty()
+            && path_is_ident(&call.receiver, "tag"))
+    {
+        return Err("typed scalar InstructionKind match does not use the original tag.kind()".into());
+    }
 
-    for (arm_index, arm) in tag_match.arms.iter().enumerate() {
-        if let Some(guard) = &arm.guard {
-            if arm_index != 2 || !is_typed_scalar_guard(&arm.pat, &guard.1) || !path_is_ident(&arm.body, "None") {
-                return Err(format!(
-                    "unrecognized typed scalar delegation arm at line {}",
-                    arm.pat.span().start().line
-                ));
-            }
-            validate_typed_scalar_none_delegation(block)?;
-            delegated = Some(ScalarFrameGroup {
-                tags: BOOL_TAGS
-                    .iter()
-                    .chain(INT_TAGS)
-                    .filter(|tag| !matches!(**tag, "IntBinary" | "IntStrByteAtSlot" | "BoolNot" | "BoolAnd" | "BoolOr" | "BoolIntCompare"))
-                    .map(|tag| (*tag).into())
-                    .collect(),
-                behavior: "verified_in_place_typed_delegation".into(),
-                line: arm.pat.span().start().line,
-                arm_index,
-            });
+    let mut int_arm = None;
+    let mut bool_arm = None;
+    let mut unsupported_arm = None;
+    for (index, arm) in kind_match.arms.iter().enumerate() {
+        if arm.guard.is_some() {
+            return Err("typed scalar InstructionKind match has a guarded arm".into());
+        }
+        let mut variants = Vec::new();
+        collect_named_view_variants(&arm.pat, "InstructionKind", &mut variants)?;
+        match variants.as_slice() {
+            [variant] if variant == "Int" && int_arm.replace((index, arm)).is_none() => {}
+            [variant] if variant == "Bool" && bool_arm.replace((index, arm)).is_none() => {}
+            [first, second]
+                if first == "Expr"
+                    && second == "Stmt"
+                    && unsupported_arm.replace((index, arm)).is_none()
+                    && is_return_frame_strategy_error_block(&arm.body) => {}
+            _ => return Err(format!("unrecognized typed scalar InstructionKind arm: {variants:?}")),
+        }
+    }
+    if kind_match.arms.len() != 3 {
+        return Err("typed scalar InstructionKind match does not cover Int, Bool, Expr, and Stmt exactly".into());
+    }
+    let (int_kind_index, int_kind_arm) = int_arm
+        .ok_or_else(|| "typed scalar InstructionKind match has no Int arm".to_string())?;
+    let (bool_kind_index, bool_kind_arm) = bool_arm
+        .ok_or_else(|| "typed scalar InstructionKind match has no Bool arm".to_string())?;
+    let (unsupported_kind_index, unsupported_kind_arm) = unsupported_arm
+        .ok_or_else(|| "typed scalar InstructionKind match has no unsupported-kind arm".to_string())?;
+    if [int_kind_index, bool_kind_index, unsupported_kind_index] != [0, 1, 2] {
+        return Err("typed scalar InstructionKind arms are out of order".into());
+    }
+
+    let (int_view_match, int_decode_line) =
+        typed_scalar_kind_view_match(int_kind_arm, "Int", schema_rows)?;
+    let (bool_view_match, bool_decode_line) =
+        typed_scalar_kind_view_match(bool_kind_arm, "Bool", schema_rows)?;
+    let int_operations = validate_typed_scalar_view_operations(int_view_match, "Int")?;
+    let bool_operations = validate_typed_scalar_view_operations(bool_view_match, "Bool")?;
+
+    let mut operation_matches = OperationMatchFinder { matches: Vec::new() };
+    operation_matches.visit_block(block);
+    let [operation_match] = operation_matches.matches.as_slice() else {
+        return Err(format!("eval_typed_scalar_expr must match operation once, found {}", operation_matches.matches.len()));
+    };
+    let operation_statement_index = block.stmts.iter().position(|statement| {
+        matches!(statement, Stmt::Expr(Expr::Match(candidate), _) if std::ptr::eq(candidate, *operation_match))
+    }).ok_or_else(|| "typed scalar operation match is not a top-level statement".to_string())?;
+    if operation_statement_index != operation_index + 1
+        || has_assignment_or_local_shadow(&block.stmts[operation_index + 1..], "operation")
+        || !validate_typed_scalar_operation_schedule(operation_match)
+    {
+        return Err("typed scalar operation schedule does not preserve the decoded operation".into());
+    }
+    validate_typed_scalar_none_delegation(block)?;
+
+    let mut frame_groups = Vec::new();
+    append_typed_scalar_frame_groups(
+        &mut frame_groups,
+        schema_rows,
+        "Int",
+        int_view_match,
+        &int_operations,
+    )?;
+    append_typed_scalar_frame_groups(
+        &mut frame_groups,
+        schema_rows,
+        "Bool",
+        bool_view_match,
+        &bool_operations,
+    )?;
+    let delegated_tags = frame_groups
+        .iter()
+        .filter(|group| group.behavior == "verified_in_place_typed_delegation")
+        .flat_map(|group| group.tags.iter().cloned())
+        .collect::<Vec<_>>();
+    if delegated_tags.is_empty() {
+        return Err("typed scalar view dispatch has no in-place delegation leaves".into());
+    }
+
+    let generic_fallback_line = unsupported_kind_arm.body.span().start().line;
+    let fallbacks = vec![
+        ScalarFallback {
+            applies_to: schema_rows.iter().filter(|row| row.family == "Int").map(|row| row.tag.clone()).collect(),
+            scope: "malformed IntView payload".into(),
+            outcome: "indexed_error: IntView decode failed".into(),
+            source: "explicit_dispatch".into(),
+            line: int_decode_line,
+            arm_index: int_kind_index,
+        },
+        ScalarFallback {
+            applies_to: schema_rows.iter().filter(|row| row.family == "Bool").map(|row| row.tag.clone()).collect(),
+            scope: "malformed BoolView payload".into(),
+            outcome: "indexed_error: BoolView decode failed".into(),
+            source: "explicit_dispatch".into(),
+            line: bool_decode_line,
+            arm_index: bool_kind_index,
+        },
+        ScalarFallback {
+            applies_to: Vec::new(),
+            scope: "tag outside the typed scalar cohort".into(),
+            outcome: "frame_strategy_error: unmatched tag".into(),
+            source: "explicit_dispatch".into(),
+            line: generic_fallback_line,
+            arm_index: unsupported_kind_index,
+        },
+        ScalarFallback {
+            applies_to: delegated_tags,
+            scope: "delegated typed leaf without verifier in-place proof".into(),
+            outcome: "frame_strategy_error: verifier in-place proof absent".into(),
+            source: "explicit_dispatch".into(),
+            line: scalar_none_fallback(block)?,
+            arm_index: operation_match.arms.len() - 1,
+        },
+    ];
+    if fallbacks.iter().any(|fallback| fallback.applies_to.iter().any(|tag| !schema_rows.iter().any(|row| row.tag == *tag))) {
+        return Err("typed scalar fallback references a tag outside the schema cohort".into());
+    }
+    Ok((forced_entry, frame_groups, fallbacks))
+}
+
+fn validate_typed_scalar_inputs(signature: &syn::Signature, block: &Block) -> Result<(), String> {
+    let expected = ["index", "instruction", "tag", "execution", "payload", "span", "next"];
+    if signature.inputs.len() != expected.len() + 1
+        || !matches!(signature.inputs.first(), Some(syn::FnArg::Receiver(receiver))
+            if receiver.reference.is_some() && receiver.mutability.is_some())
+        || !signature.inputs.iter().skip(1).zip(expected).all(|(input, name)| {
+            matches!(input, syn::FnArg::Typed(argument)
+                if matches!(&*argument.pat, Pat::Ident(binding)
+                    if binding.ident == name
+                        && binding.by_ref.is_none()
+                        && binding.mutability.is_none()
+                        && binding.subpat.is_none()))
+        })
+    {
+        return Err("typed scalar evaluator input bindings changed".into());
+    }
+    if ["instruction", "tag", "execution", "payload", "span"].iter()
+        .any(|name| has_assignment_or_local_shadow(&block.stmts, name))
+    {
+        return Err("typed scalar decoder input is shadowed or written".into());
+    }
+    Ok(())
+}
+
+fn typed_scalar_kind_view_match<'ast>(
+    kind_arm: &'ast syn::Arm,
+    family: &str,
+    schema_rows: &[ScalarSchemaRow],
+) -> Result<(&'ast syn::ExprMatch, usize), String> {
+    let Expr::Match(view_match) = kind_arm.body.as_ref() else {
+        return Err(format!("InstructionKind::{family} does not match its decoded view"));
+    };
+    let view_name = format!("{family}View");
+    let Expr::Try(try_expression) = &*view_match.expr else {
+        return Err(format!("{family}View match does not propagate decode errors"));
+    };
+    let Expr::MethodCall(map_err) = &*try_expression.expr else {
+        return Err(format!("{family}View decode error is not mapped"));
+    };
+    let Some(decode) = exact_call(&map_err.receiver, &[&view_name, "decode"]) else {
+        return Err(format!("{family}View dispatch does not call {family}View::decode"));
+    };
+    if map_err.method != "map_err"
+        || map_err.turbofish.is_some()
+        || map_err.args.len() != 1
+        || decode.args.len() != 3
+        || !path_is_ident(&decode.args[0], "execution")
+        || !path_is_ident(&decode.args[1], "tag")
+        || !path_is_ident(&decode.args[2], "payload")
+    {
+        return Err(format!("{family}View decode inputs differ from the original evaluator inputs"));
+    }
+    let Expr::Closure(conversion) = &map_err.args[0] else {
+        return Err(format!("{family}View decode error conversion is not a closure"));
+    };
+    if conversion.inputs.len() != 1
+        || !matches!(conversion.inputs.first(), Some(Pat::Ident(binding)) if binding.ident == "error")
+        || !is_indexed_error_call(&conversion.body, "error", false)
+    {
+        return Err(format!("{family}View decode errors do not flow through indexed_error(error, span)"));
+    }
+    let mut actual_groups = Vec::new();
+    let mut actual_variants = BTreeSet::new();
+    for arm in &view_match.arms {
+        if arm.guard.is_some() {
+            return Err(format!("guarded {family}View frame arm"));
+        }
+        let mut variants = Vec::new();
+        collect_named_view_variants(&arm.pat, &view_name, &mut variants)?;
+        if variants.is_empty() || variants.iter().any(|variant| !actual_variants.insert(variant.clone())) {
+            return Err(format!("duplicate or empty {family}View frame arm"));
+        }
+        actual_groups.push(variants);
+    }
+    let expected_variants = schema_rows
+        .iter()
+        .filter(|row| row.family == family)
+        .map(|row| row.variant.as_str())
+        .collect::<BTreeSet<_>>();
+    let actual = actual_variants.iter().map(String::as_str).collect::<BTreeSet<_>>();
+    if actual != expected_variants {
+        return Err(format!("{family}View frame arms differ from the scalar schema: {actual:?}"));
+    }
+    let expected_groups: &[&[&str]] = match family {
+        "Int" => &[
+            &["Int", "Slot", "StrByteLenSlot", "StrCountLinesSlot"],
+            &["Binary"],
+            &["StrByteAtSlot"],
+        ],
+        "Bool" => &[
+            &[
+                "Bool", "Slot", "StrPredicateSlot", "ContainsSlot", "StrContainsSlot",
+                "TrimEmptySlot", "TrimStrPredicateSlot", "LiteralCompareSlot",
+            ],
+            &["Not"],
+            &["And", "Or"],
+            &["IntCompare"],
+        ],
+        _ => return Err(format!("unknown typed scalar family {family}")),
+    };
+    if actual_groups.len() != expected_groups.len()
+        || actual_groups.iter().zip(expected_groups).any(|(actual, expected)| {
+            actual.iter().map(String::as_str).collect::<Vec<_>>() != *expected
+        })
+    {
+        return Err(format!("{family}View frame arm groups differ from the typed scalar schema"));
+    }
+    validate_typed_scalar_view_arm_outputs(view_match, family)?;
+    Ok((view_match, decode.func.span().start().line))
+}
+
+fn validate_typed_scalar_view_arm_outputs(
+    view_match: &syn::ExprMatch,
+    family: &str,
+) -> Result<(), String> {
+    for arm in &view_match.arms {
+        let mut variants = Vec::new();
+        collect_named_view_variants(&arm.pat, &format!("{family}View"), &mut variants)?;
+        let variant_names = variants.iter().map(String::as_str).collect::<Vec<_>>();
+        let expected_operation = match (family, variant_names.as_slice()) {
+            ("Int", ["Binary"]) => Some("Binary"),
+            ("Int", ["StrByteAtSlot"]) => Some("IntByteAt"),
+            ("Bool", ["Not"]) => Some("BoolNot"),
+            ("Bool", ["And", "Or"]) => Some("BoolBinary"),
+            ("Bool", ["IntCompare"]) => Some("Binary"),
+            ("Int", ["Int", "Slot", "StrByteLenSlot", "StrCountLinesSlot"])
+            | ("Bool", ["Bool", "Slot", "StrPredicateSlot", "ContainsSlot", "StrContainsSlot", "TrimEmptySlot", "TrimStrPredicateSlot", "LiteralCompareSlot"]) => None,
+            _ => return Err(format!("unrecognized {family}View operation group {variants:?}")),
+        };
+        match expected_operation {
+            None if path_is_ident(&arm.body, "None") => {}
+            Some("Binary") if typed_scalar_binary_operation(&arm.pat, &arm.body, family) => {}
+            Some("IntByteAt") if typed_scalar_byte_at_operation(&arm.pat, &arm.body) => {}
+            Some("BoolNot") if typed_scalar_bool_not_operation(&arm.pat, &arm.body) => {}
+            Some("BoolBinary") if typed_scalar_bool_binary_operation(&arm.pat, &arm.body) => {}
+            _ => return Err(format!("{family}View arm {variants:?} produces the wrong frame operation")),
+        }
+    }
+    Ok(())
+}
+
+fn validate_typed_scalar_view_operations(
+    view_match: &syn::ExprMatch,
+    family: &str,
+) -> Result<BTreeSet<String>, String> {
+    let mut operations = BTreeSet::new();
+    for arm in &view_match.arms {
+        if path_is_ident(&arm.body, "None") {
             continue;
         }
-        if matches!(arm.pat, Pat::Wild(_)) {
-            if arm_index != 3 || !is_return_frame_strategy_error(&arm.body) {
-                return Err("typed scalar outer wildcard must directly return frame_strategy_error".into());
+        let mut variants = Vec::new();
+        collect_named_view_variants(&arm.pat, &format!("{family}View"), &mut variants)?;
+        for variant in variants {
+            if !operations.insert(variant.clone()) {
+                return Err(format!("duplicate {family}View frame operation {variant}"));
             }
-            generic_fallback = Some(ScalarFallback {
-                applies_to: Vec::new(),
-                scope: "tag outside the typed scalar cohort".into(),
-                outcome: "frame_strategy_error: unmatched tag".into(),
-                source: "explicit_dispatch".into(),
-                line: arm.pat.span().start().line,
-                arm_index,
-            });
-            continue;
         }
+    }
+    Ok(operations)
+}
 
-        let mut tags = Vec::new();
-        collect_exact_tag_patterns(&arm.pat, &mut tags)?;
-        let tag_names = tags.iter().map(|(tag, _)| tag.clone()).collect::<Vec<_>>();
-        if tag_names == ["IntBinary", "IntStrByteAtSlot"] && arm_index == 0 {
-            let fallback = validate_typed_frame_view_match(&arm.body, "IntView", &["Binary", "StrByteAtSlot"])?;
-            fallbacks.push(ScalarFallback {
-                applies_to: tag_names.clone(),
-                scope: "typed tag with mismatched decoded view".into(),
-                outcome: "frame_strategy_error: decoded IntView does not match tag".into(),
-                source: "explicit_dispatch".into(),
-                line: fallback.0,
-                arm_index: fallback.1,
-            });
-            int_group = Some(ScalarFrameGroup {
-                tags: tag_names,
-                behavior: "frame_operation".into(),
-                line: arm.pat.span().start().line,
-                arm_index,
-            });
-        } else if tag_names == ["BoolNot", "BoolAnd", "BoolOr", "BoolIntCompare"] && arm_index == 1 {
-            let fallback = validate_typed_frame_view_match(
-                &arm.body,
-                "BoolView",
-                &["Not", "And", "Or", "IntCompare"],
-            )?;
-            fallbacks.push(ScalarFallback {
-                applies_to: tag_names.clone(),
-                scope: "typed tag with mismatched decoded view".into(),
-                outcome: "frame_strategy_error: decoded BoolView does not match tag".into(),
-                source: "explicit_dispatch".into(),
-                line: fallback.0,
-                arm_index: fallback.1,
-            });
-            bool_group = Some(ScalarFrameGroup {
-                tags: tag_names,
-                behavior: "frame_operation".into(),
-                line: arm.pat.span().start().line,
-                arm_index,
-            });
+fn typed_scalar_binary_operation(pattern: &Pat, expression: &Expr, family: &str) -> bool {
+    let variant = if family == "Int" { "Binary" } else { "IntCompare" };
+    typed_scalar_struct_pattern_binds_fields(pattern, family, variant, &[("op", "op"), ("left", "left"), ("right", "right")])
+        && single_block_expression(expression).is_some_and(|expression| {
+            typed_scalar_frame_operation_call(expression, "Binary", &["op", "left.raw()", "right.raw()"])
+        })
+}
+
+fn single_block_expression(expression: &Expr) -> Option<&Expr> {
+    match expression {
+        Expr::Block(block) if block.block.stmts.len() == 1 => match &block.block.stmts[0] {
+            Stmt::Expr(expression, None) => Some(expression),
+            _ => None,
+        },
+        expression => Some(expression),
+    }
+}
+
+fn typed_scalar_byte_at_operation(pattern: &Pat, expression: &Expr) -> bool {
+    typed_scalar_struct_pattern_binds_fields(pattern, "Int", "StrByteAtSlot", &[
+        ("slot", "slot"),
+        ("index", "index"),
+        ("default", "default"),
+        ("span", "value_span"),
+    ]) && typed_scalar_frame_operation_call(
+        expression,
+        "IntByteAt",
+        &["slot", "index.raw()", "default.map(|id| id.raw())", "value_span"],
+    )
+}
+
+fn typed_scalar_bool_not_operation(pattern: &Pat, expression: &Expr) -> bool {
+    typed_scalar_tuple_pattern_binds_fields(pattern, "Bool", "Not", &["value"])
+        && typed_scalar_frame_operation_call(expression, "BoolNot", &["value.raw()"])
+}
+
+fn typed_scalar_bool_binary_operation(pattern: &Pat, expression: &Expr) -> bool {
+    typed_scalar_tuple_pattern_binds_fields(pattern, "Bool", "And", &["left", "right"])
+        && typed_scalar_tuple_pattern_binds_fields(pattern, "Bool", "Or", &["left", "right"])
+        && typed_scalar_bool_binary_frame_operation(expression)
+}
+
+fn typed_scalar_struct_pattern_binds_fields(
+    pattern: &Pat,
+    family: &str,
+    variant: &str,
+    expected: &[(&str, &str)],
+) -> bool {
+    let Pat::Struct(pattern) = pattern else { return false; };
+    pattern.path.segments.len() == 2
+        && pattern.path.segments[0].ident.to_string() == format!("{family}View")
+        && pattern.path.segments[1].ident == variant
+        && pattern.rest.is_none()
+        && pattern.fields.len() == expected.len()
+        && expected.iter().all(|(field_name, binding_name)| {
+            pattern.fields.iter().any(|field| {
+                matches!(&field.member, syn::Member::Named(name) if name == *field_name)
+                    && matches!(&*field.pat, Pat::Ident(binding)
+                        if binding.ident == *binding_name
+                            && binding.by_ref.is_none()
+                            && binding.mutability.is_none()
+                            && binding.subpat.is_none())
+            })
+        })
+}
+
+fn typed_scalar_tuple_pattern_binds_fields(
+    pattern: &Pat,
+    family: &str,
+    variant: &str,
+    expected: &[&str],
+) -> bool {
+    match pattern {
+        Pat::Or(patterns) => patterns.cases.iter().any(|pattern| {
+            typed_scalar_tuple_pattern_binds_fields(pattern, family, variant, expected)
+        }),
+        Pat::TupleStruct(pattern) => {
+            pattern.path.segments.len() == 2
+                && pattern.path.segments[0].ident.to_string() == format!("{family}View")
+                && pattern.path.segments[1].ident == variant
+                && pattern.elems.len() == expected.len()
+                && pattern.elems.iter().zip(expected).all(|(actual, expected)| {
+                    matches!(actual, Pat::Ident(binding)
+                        if binding.ident == *expected
+                            && binding.by_ref.is_none()
+                            && binding.mutability.is_none()
+                            && binding.subpat.is_none())
+                })
+        }
+        _ => false,
+    }
+}
+
+fn typed_scalar_frame_operation_call(
+    expression: &Expr,
+    variant: &str,
+    expected_arguments: &[&str],
+) -> bool {
+    let Expr::Call(some) = expression else { return false; };
+    if !path_has_segments(&some.func, &["Some"]) || some.args.len() != 1 {
+        return false;
+    }
+    let Expr::Call(operation) = &some.args[0] else { return false; };
+    path_has_segments(&operation.func, &["FrameOperation", variant])
+        && operation.args.len() == expected_arguments.len()
+        && operation.args.iter().zip(expected_arguments).all(|(actual, expected)| {
+            match *expected {
+                "left.raw()" => typed_scalar_raw_call(actual, "left"),
+                "right.raw()" => typed_scalar_raw_call(actual, "right"),
+                "index.raw()" => typed_scalar_raw_call(actual, "index"),
+                "value.raw()" => typed_scalar_raw_call(actual, "value"),
+                "default.map(|id| id.raw())" => typed_scalar_default_call(actual),
+                name => path_is_ident(actual, name),
+            }
+        })
+}
+
+fn typed_scalar_raw_call(expression: &Expr, receiver: &str) -> bool {
+    matches!(expression, Expr::MethodCall(call)
+        if call.method == "raw"
+            && call.turbofish.is_none()
+            && call.args.is_empty()
+            && path_is_ident(&call.receiver, receiver))
+}
+
+fn typed_scalar_default_call(expression: &Expr) -> bool {
+    matches!(expression, Expr::MethodCall(call)
+        if call.method == "map"
+            && call.turbofish.is_none()
+            && path_is_ident(&call.receiver, "default")
+            && call.args.len() == 1
+            && matches!(&call.args[0], Expr::Closure(closure)
+                if closure.inputs.len() == 1
+                    && matches!(closure.inputs.first(), Some(Pat::Ident(binding)) if binding.ident == "id")
+                    && typed_scalar_raw_call(&closure.body, "id")))
+}
+
+fn typed_scalar_bool_binary_frame_operation(expression: &Expr) -> bool {
+    let Expr::Block(block) = expression else { return false; };
+    if block.block.stmts.len() != 2 {
+        return false;
+    }
+    let Stmt::Local(operation) = &block.block.stmts[0] else { return false; };
+    let Some(initializer) = operation.init.as_ref().map(|initializer| initializer.expr.as_ref()) else {
+        return false;
+    };
+    if !matches!(&operation.pat, Pat::Ident(binding) if binding.ident == "op")
+        || !matches!(initializer, Expr::If(expression)
+            if matches!(&*expression.cond, Expr::Binary(binary)
+                if matches!(binary.op, syn::BinOp::Eq(_))
+                    && path_is_ident(&binary.left, "tag")
+                    && path_has_segments(&binary.right, &["FullTag", "BoolAnd"]))
+                && expression.then_branch.stmts.len() == 1
+                && matches!(&expression.then_branch.stmts[0], Stmt::Expr(value, _) if path_has_segments(value, &["BinaryOp", "And"]))
+                && expression.else_branch.as_ref().is_some_and(|(_, branch)| matches!(&**branch, Expr::Block(block)
+                    if block.block.stmts.len() == 1
+                        && matches!(&block.block.stmts[0], Stmt::Expr(value, _) if path_has_segments(value, &["BinaryOp", "Or"])))))
+    {
+        return false;
+    }
+    matches!(&block.block.stmts[1], Stmt::Expr(value, None)
+        if typed_scalar_frame_operation_call(value, "Binary", &["op", "left.raw()", "right.raw()"]))
+}
+
+fn validate_typed_scalar_operation_schedule(operation_match: &syn::ExprMatch) -> bool {
+    let expected = ["Binary", "IntByteAt", "BoolNot", "None"];
+    if operation_match.arms.len() != expected.len()
+        || operation_match.arms.iter().any(|arm| arm.guard.is_some())
+    {
+        return false;
+    }
+    for (arm, expected) in operation_match.arms.iter().zip(expected) {
+        let matches_pattern = if expected == "None" {
+            is_simple_path_pattern(&arm.pat, "None")
         } else {
-            return Err(format!("unrecognized typed scalar frame arm: {tag_names:?}"));
+            typed_scalar_operation_pattern(&arm.pat, expected)
+        };
+        if !matches_pattern {
+            return false;
+        }
+        if expected != "None" && !typed_scalar_schedule_operation_arm(&arm.pat, &arm.body, expected) {
+            return false;
         }
     }
+    operation_match.arms.iter().take(3).all(|arm| {
+        method_call_nodes_in_expr(&arm.body, "push_expr").len() == 1
+    }) && method_call_nodes_in_expr(&operation_match.arms[3].body, "push_expr").is_empty()
+}
 
-    let int_group = int_group.ok_or_else(|| "missing Int frame-operation group".to_string())?;
-    let bool_group = bool_group.ok_or_else(|| "missing Bool frame-operation group".to_string())?;
-    let delegated = delegated.ok_or_else(|| "missing typed scalar delegation guard".to_string())?;
-    let generic_fallback = generic_fallback.ok_or_else(|| "missing typed scalar wildcard fallback".to_string())?;
-    fallbacks.push(generic_fallback);
-    let in_place_line = scalar_none_fallback(block)?;
-    fallbacks.push(ScalarFallback {
-        applies_to: delegated.tags.clone(),
-        scope: "delegated typed leaf without verifier in-place proof".into(),
-        outcome: "frame_strategy_error: verifier in-place proof absent".into(),
-        source: "explicit_dispatch".into(),
-        line: in_place_line,
-        arm_index: 2,
-    });
-    Ok((forced_entry, vec![int_group, bool_group, delegated], fallbacks))
+fn typed_scalar_operation_pattern(pattern: &Pat, variant: &str) -> bool {
+    let Pat::TupleStruct(some) = pattern else { return false; };
+    if !path_has_segments(&Expr::Path(syn::ExprPath { attrs: Vec::new(), qself: None, path: some.path.clone() }), &["Some"])
+        || some.elems.len() != 1
+    {
+        return false;
+    }
+    let Pat::TupleStruct(operation) = &some.elems[0] else { return false; };
+    let expected_bindings: &[&str] = match variant {
+        "Binary" => &["op", "left", "right"],
+        "IntByteAt" => &["slot", "index_expr", "default", "value_span"],
+        "BoolNot" => &["value"],
+        _ => return false,
+    };
+    path_has_segments(&Expr::Path(syn::ExprPath { attrs: Vec::new(), qself: None, path: operation.path.clone() }), &["FrameOperation", variant])
+        && operation.elems.len() == expected_bindings.len()
+        && operation.elems.iter().zip(expected_bindings).all(|(pattern, expected)| {
+            matches!(pattern, Pat::Ident(binding)
+                if binding.ident == *expected
+                    && binding.by_ref.is_none()
+                    && binding.mutability.is_none()
+                    && binding.subpat.is_none())
+        })
+}
+
+fn typed_scalar_schedule_operation_arm(pattern: &Pat, body: &Expr, variant: &str) -> bool {
+    let Pat::TupleStruct(some) = pattern else { return false; };
+    let Some(Pat::TupleStruct(operation)) = some.elems.first() else { return false; };
+    let names = operation.elems.iter().map(|pattern| match pattern {
+        Pat::Ident(binding) => binding.ident.to_string(),
+        _ => String::new(),
+    }).collect::<Vec<_>>();
+    let Expr::Block(block) = body else { return false; };
+    let [Stmt::Expr(Expr::MethodCall(push), _)] = block.block.stmts.as_slice() else { return false; };
+    if push.method != "push_expr"
+        || push.turbofish.is_some()
+        || !path_is_ident(&push.receiver, "self")
+        || push.args.len() != 4
+        || !path_is_ident(&push.args[0], "index")
+        || !path_is_ident(&push.args[2], "span")
+    {
+        return false;
+    }
+    let Expr::Struct(continuation) = &push.args[3] else { return false; };
+    let continuation_name = match variant {
+        "Binary" => "BinaryLeft",
+        "IntByteAt" => "TypedIntByteAtIndex",
+        "BoolNot" => "TypedBoolNot",
+        _ => return false,
+    };
+    if !path_has_segments(&Expr::Path(syn::ExprPath { attrs: Vec::new(), qself: None, path: continuation.path.clone() }), &["FrameContinuation", continuation_name]) {
+        return false;
+    }
+    let continuation_fields = continuation.fields.iter().filter_map(|field| match &field.member {
+        syn::Member::Named(name) => Some((name.to_string(), &field.expr)),
+        _ => None,
+    }).collect::<BTreeMap<_, _>>();
+    if continuation_fields.len() != continuation.fields.len() {
+        return false;
+    }
+    let (expected_child, expected_fields): (&str, &[(&str, &str)]) = match variant {
+        "Binary" => (
+            names.get(1).map(String::as_str).unwrap_or(""),
+            &[("op", "op"), ("right", "right"), ("span", "span")],
+        ),
+        "IntByteAt" => (
+            names.get(1).map(String::as_str).unwrap_or(""),
+            &[("slot", "slot"), ("default", "default"), ("span", "value_span")],
+        ),
+        "BoolNot" => (
+            names.get(0).map(String::as_str).unwrap_or(""),
+            &[("span", "span")],
+        ),
+        _ => return false,
+    };
+    let fields_match = continuation_fields.len() == expected_fields.len() + 1
+        && expected_fields.iter().all(|(field, value)| continuation_fields.get(*field).is_some_and(|actual| path_is_ident(actual, value)))
+        && continuation_fields.get("next").is_some_and(|actual| {
+            exact_call(actual, &["Box", "new"]).is_some_and(|call| call.args.len() == 1 && path_is_ident(&call.args[0], "next"))
+        });
+    fields_match
+        && path_is_ident(&push.args[1], expected_child)
+        && match variant {
+            "Binary" => names.len() == 3,
+            "IntByteAt" => names.len() == 4 && continuation_fields.get("slot").is_some_and(|value| path_is_ident(value, "slot")),
+            "BoolNot" => names.len() == 1,
+            _ => false,
+        }
+}
+
+fn append_typed_scalar_frame_groups(
+    output: &mut Vec<ScalarFrameGroup>,
+    schema_rows: &[ScalarSchemaRow],
+    family: &str,
+    view_match: &syn::ExprMatch,
+    operation_variants: &BTreeSet<String>,
+) -> Result<(), String> {
+    let view_name = format!("{family}View");
+    for (arm_index, arm) in view_match.arms.iter().enumerate() {
+        let mut variants = Vec::new();
+        collect_named_view_variants(&arm.pat, &view_name, &mut variants)?;
+        let tags = schema_rows.iter()
+            .filter(|row| row.family == family && variants.contains(&row.variant))
+            .map(|row| row.tag.clone())
+            .collect::<Vec<_>>();
+        if tags.len() != variants.len() {
+            return Err(format!("{family}View arm has no exact schema tag mapping: {variants:?}"));
+        }
+        let is_operation = !path_is_ident(&arm.body, "None");
+        let all_are_operations = variants.iter().all(|variant| operation_variants.contains(variant));
+        if is_operation != all_are_operations {
+            return Err(format!("{family}View arm mixes frame operations and in-place leaves: {variants:?}"));
+        }
+        output.push(ScalarFrameGroup {
+            tags,
+            behavior: if is_operation { "frame_operation" } else { "verified_in_place_typed_delegation" }.into(),
+            line: arm.pat.span().start().line,
+            arm_index,
+        });
+    }
+    Ok(())
 }
 
 fn validate_explicit_scalar_entry(file: &File) -> Result<ScalarRouteCheck, String> {
@@ -7464,76 +8816,15 @@ fn if_returns_typed_scalar_helper(expression: &syn::ExprIf) -> bool {
     }
 }
 
-fn validate_typed_frame_view_match(
-    expression: &Expr,
-    expected_family: &str,
-    expected_variants: &[&str],
-) -> Result<(usize, usize), String> {
-    let mut finder = EnumMatchFinder {
-        family: expected_family,
-        matches: Vec::new(),
-    };
-    finder.visit_expr(expression);
-    if finder.matches.len() != 1 {
-        return Err(format!(
-            "typed {expected_family} frame arm must contain one decoded view match, found {}",
-            finder.matches.len()
-        ));
+fn pattern_uses_enum(pattern: &Pat, enum_name: &str) -> bool {
+    match pattern {
+        Pat::Path(path) => path.path.segments.iter().any(|segment| segment.ident == enum_name),
+        Pat::TupleStruct(pattern) => pattern.path.segments.iter().any(|segment| segment.ident == enum_name),
+        Pat::Struct(pattern) => pattern.path.segments.iter().any(|segment| segment.ident == enum_name),
+        Pat::Or(patterns) => patterns.cases.iter().any(|pattern| pattern_uses_enum(pattern, enum_name)),
+        Pat::Paren(pattern) => pattern_uses_enum(&pattern.pat, enum_name),
+        _ => false,
     }
-    let view_match = finder.matches[0];
-    let mut actual = BTreeSet::new();
-    let mut actual_groups = Vec::new();
-    let mut fallback = None;
-    for (index, arm) in view_match.arms.iter().enumerate() {
-        if arm.guard.is_some() {
-            return Err(format!("guarded {expected_family} frame-view arm"));
-        }
-        if matches!(arm.pat, Pat::Wild(_)) {
-            if !is_return_frame_strategy_error(&arm.body) || fallback.replace((arm.pat.span().start().line, index)).is_some() {
-                return Err(format!("{expected_family} frame-view wildcard is not a direct error"));
-            }
-            continue;
-        }
-        let mut variants = Vec::new();
-        collect_named_view_variants(&arm.pat, expected_family, &mut variants)?;
-        let group = variants.iter().cloned().collect::<BTreeSet<_>>();
-        if group.len() != variants.len() {
-            return Err(format!("duplicate variant in {expected_family} grouped arm"));
-        }
-        actual_groups.push(group);
-        for variant in variants {
-            if !actual.insert(variant.clone()) {
-                return Err(format!("duplicate {expected_family} frame-view arm {variant}"));
-            }
-        }
-    }
-    let expected = expected_variants
-        .iter()
-        .map(|variant| (*variant).to_string())
-        .collect::<BTreeSet<_>>();
-    if actual != expected {
-        return Err(format!(
-            "{expected_family} frame-operation view arms differ: expected {expected:?}, found {actual:?}"
-        ));
-    }
-    let expected_groups = match expected_family {
-        "IntView" => vec![
-            BTreeSet::from(["Binary".to_string()]),
-            BTreeSet::from(["StrByteAtSlot".to_string()]),
-        ],
-        "BoolView" => vec![
-            BTreeSet::from(["Not".to_string()]),
-            BTreeSet::from(["And".to_string(), "Or".to_string()]),
-            BTreeSet::from(["IntCompare".to_string()]),
-        ],
-        _ => unreachable!("only typed scalar view families are requested"),
-    };
-    if actual_groups != expected_groups {
-        return Err(format!(
-            "{expected_family} frame-operation group shapes differ: {actual_groups:?}"
-        ));
-    }
-    fallback.ok_or_else(|| format!("{expected_family} frame-operation match has no wildcard error"))
 }
 
 struct EnumMatchFinder<'ast> {
@@ -7547,17 +8838,6 @@ impl<'ast> Visit<'ast> for EnumMatchFinder<'ast> {
             self.matches.push(expression);
         }
         visit::visit_expr_match(self, expression);
-    }
-}
-
-fn pattern_uses_enum(pattern: &Pat, enum_name: &str) -> bool {
-    match pattern {
-        Pat::Path(path) => path.path.segments.iter().any(|segment| segment.ident == enum_name),
-        Pat::TupleStruct(pattern) => pattern.path.segments.iter().any(|segment| segment.ident == enum_name),
-        Pat::Struct(pattern) => pattern.path.segments.iter().any(|segment| segment.ident == enum_name),
-        Pat::Or(patterns) => patterns.cases.iter().any(|pattern| pattern_uses_enum(pattern, enum_name)),
-        Pat::Paren(pattern) => pattern_uses_enum(&pattern.pat, enum_name),
-        _ => false,
     }
 }
 
@@ -7604,6 +8884,15 @@ fn validate_typed_scalar_none_delegation(block: &Block) -> Result<(), String> {
         Expr::Block(block) => &block.block,
         _ => return Err("typed scalar None delegation is not a block".into()),
     };
+    let call_initializer = local_binding_expression(body, "call")?;
+    let mut call_bindings = LocalNameBindingFinder { name: "call", count: 0 };
+    call_bindings.visit_block(body);
+    if call_bindings.count != 1
+        || has_assignment(&body.stmts, "call")
+        || !typed_scalar_call_binding(call_initializer)
+    {
+        return Err("typed scalar delegation does not retain the current call frame".into());
+    }
     let mut calls = InPlaceCallFinder { calls: Vec::new() };
     calls.visit_block(body);
     if calls.calls.len() != 1 || !is_in_place_method_call(calls.calls[0]) {
@@ -7619,15 +8908,51 @@ fn validate_typed_scalar_none_delegation(block: &Block) -> Result<(), String> {
         return Err("missing-in-place branch must directly return frame_strategy_error".into());
     }
     let int_route = find_classifier_if(body, "is_typed_int_tag")?;
-    if int_route.else_branch.is_none()
+    let bool_branch = int_route.else_branch.as_ref().map(|(_, branch)| branch.as_ref());
+    let bool_block = bool_branch.and_then(|branch| match branch {
+        Expr::Block(block) => Some(&block.block),
+        _ => None,
+    });
+    if bool_branch.is_none()
         || count_method_calls_in_block(&int_route.then_branch, "eval_indexed_typed_int") != 1
         || count_method_calls_in_block(&int_route.then_branch, "eval_indexed_typed_bool") != 0
-        || count_method_calls(int_route.else_branch.as_ref().expect("else checked").1.as_ref(), "eval_indexed_typed_bool") != 1
-        || count_method_calls(int_route.else_branch.as_ref().expect("else checked").1.as_ref(), "eval_indexed_typed_int") != 0
+        || count_method_calls(bool_branch.expect("else checked"), "eval_indexed_typed_bool") != 1
+        || count_method_calls(bool_branch.expect("else checked"), "eval_indexed_typed_int") != 0
+        || !typed_scalar_result_dispatch(&int_route.then_branch, "eval_indexed_typed_int")
+        || !bool_block.is_some_and(|block| typed_scalar_result_dispatch(block, "eval_indexed_typed_bool"))
     {
-        return Err("typed scalar in-place delegation calls the wrong typed evaluator".into());
+        return Err("typed scalar delegation calls the wrong evaluator or uses different typed evaluator inputs".into());
     }
     Ok(())
+}
+
+fn typed_scalar_call_binding(expression: &Expr) -> bool {
+    matches!(expression, Expr::Reference(reference)
+        if reference.mutability.is_some()
+            && matches!(&*reference.expr, Expr::Index(index)
+                if path_is_ident(&index.index, "index")
+                    && is_field_access(&index.expr, "self", "calls")))
+}
+
+fn typed_scalar_result_dispatch(block: &Block, expected_method: &str) -> bool {
+    let [Stmt::Expr(dispatch, None)] = block.stmts.as_slice() else { return false; };
+    let Expr::Match(dispatch) = dispatch else { return false; };
+    let Expr::Try(propagation) = &*dispatch.expr else { return false; };
+    let Expr::MethodCall(call) = &*propagation.expr else { return false; };
+    call.method == expected_method
+        && call.turbofish.is_none()
+        && is_field_access(&call.receiver, "self", "evaluator")
+        && call.args.len() == 4
+        && is_reference_field(&call.args[0], false, "call", "execution")
+        && path_is_ident(&call.args[1], "instruction")
+        && is_reference_field(&call.args[2], true, "call", "slots")
+        && path_is_ident(&call.args[3], "span")
+}
+
+fn is_reference_field(expression: &Expr, mutable: bool, base: &str, field: &str) -> bool {
+    matches!(expression, Expr::Reference(reference)
+        if reference.mutability.is_some() == mutable
+            && is_field_access(&reference.expr, base, field))
 }
 
 fn scalar_none_fallback(block: &Block) -> Result<usize, String> {
@@ -7708,11 +9033,6 @@ fn typed_union_errors(file: &File) -> Result<Vec<ScalarWrongUnion>, String> {
         });
     }
     Ok(errors)
-}
-
-fn is_typed_scalar_guard(pattern: &Pat, expression: &Expr) -> bool {
-    matches!(pattern, Pat::Ident(pattern) if pattern.ident == "tag" && pattern.subpat.is_none())
-        && matches!(expression, Expr::Binary(binary) if matches!(binary.op, syn::BinOp::Or(_)) && is_super_classifier_call(&binary.left, "is_typed_int_tag") && is_super_classifier_call(&binary.right, "is_typed_bool_tag"))
 }
 
 fn is_return_frame_strategy_error(expression: &Expr) -> bool {
@@ -7816,19 +9136,6 @@ fn path_ends_with_segments(path: &syn::Path, expected: &[&str]) -> bool {
     path.segments.len() >= expected.len()
         && path.segments.iter().rev().take(expected.len()).map(|segment| segment.ident.to_string()).collect::<Vec<_>>()
             == expected.iter().rev().map(|segment| (*segment).to_string()).collect::<Vec<_>>()
-}
-
-struct TagMatchFinder<'ast> {
-    matches: Vec<&'ast syn::ExprMatch>,
-}
-
-impl<'ast> Visit<'ast> for TagMatchFinder<'ast> {
-    fn visit_expr_match(&mut self, expression: &'ast syn::ExprMatch) {
-        if path_is_ident(&expression.expr, "tag") {
-            self.matches.push(expression);
-        }
-        visit::visit_expr_match(self, expression);
-    }
 }
 
 struct OperationMatchFinder<'ast> {
@@ -8668,13 +9975,14 @@ impl EagerAtomInventory {
             .join(",");
         let route = |route: &EagerAtomRoute| {
             format!(
-                "{{\"mode\":{},\"line\":{},\"helper_line\":{},\"statement_index\":{},\"generic_line\":{},\"generic_statement_index\":{}}}",
+                "{{\"mode\":{},\"line\":{},\"helper_line\":{},\"statement_index\":{},\"fallback_kind\":{},\"fallback_line\":{},\"fallback_statement_index\":{}}}",
                 json_string(&route.mode),
                 route.line,
                 route.helper_line,
                 route.statement_index,
-                route.generic_line,
-                route.generic_statement_index,
+                json_string(&route.fallback_kind),
+                route.fallback_line,
+                route.fallback_statement_index,
             )
         };
         let helper_arms = self
@@ -9290,6 +10598,10 @@ impl Evaluator {
         ("LiteralCompareSlot", "BoolLiteralCompareSlot"),
     ];
 
+    fn read(path: &str) -> String {
+        std::fs::read_to_string(super::repository_root().join(path)).unwrap()
+    }
+
     fn typed_fixture() -> (String, String, String, String) {
         let rows = INT_ROWS
             .iter()
@@ -9326,10 +10638,13 @@ fn is_typed_int_tag(tag: FullTag) -> bool {{ matches!(tag, {int_tags}) }}
 fn is_typed_bool_tag(tag: FullTag) -> bool {{ matches!(tag, {bool_tags}) }}
 struct Evaluator;
 impl Evaluator {{
- fn eval_indexed_expr_inner(&mut self) {{
-  let (tag, payload) = indexed_value();
-  if is_typed_int_tag(tag) {{ return self.eval_indexed_typed_int(a,b,c,d).map(|flow| flow.map_continue(LoweredValue::Int)); }}
-  if is_typed_bool_tag(tag) {{ return self.eval_indexed_typed_bool(a,b,c,d).map(|flow| flow.map_continue(LoweredValue::Bool)); }}
+ fn eval_indexed_expr_inner(&mut self, execution: &Execution, instruction: u32, slots: &mut [V], call_span: Span) {{
+  if !execution.is_in_place(instruction) {{ return Err(frame_strategy_error(tag, call_span)); }}
+  let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
+  let in_place = execution.is_in_place(instruction);
+  if let Some(route) = recursive_route(tag, in_place) {{ sink.record(tag, route); }}
+  if is_typed_int_tag(tag) {{ return self.eval_indexed_typed_int(execution, instruction, slots, call_span).map(|flow| flow.map_continue(LoweredValue::Int)); }}
+  if is_typed_bool_tag(tag) {{ return self.eval_indexed_typed_bool(execution, instruction, slots, call_span).map(|flow| flow.map_continue(LoweredValue::Bool)); }}
   if tag.is_eager_atom() {{ }}
   if indexed_frame_apply_tag(tag) {{ }}
  }}
@@ -9362,40 +10677,70 @@ fn eval_indexed_typed_scalar() {{
 }}
 "#
         );
-        let explicit = r#"
-fn eval_expr(&mut self) {
- if tag.is_eager_atom() {}
- if strategy == FrameStrategy::FrameApply && (super::is_typed_int_tag(tag) || super::is_typed_bool_tag(tag)) { return self.eval_typed_scalar_expr(a,b,c,d,e,f,g,h); }
- if super::indexed_frame_apply_tag(tag) {}
-}
-fn eval_typed_scalar_expr(&mut self) {
- match tag {
-  FullTag::IntBinary | FullTag::IntStrByteAtSlot => match IntView::decode() {
-   IntView::Binary { .. } => Some(()),
-   IntView::StrByteAtSlot { .. } => Some(()),
-   _ => return Err(frame_strategy_error(tag, span)),
-  },
-  FullTag::BoolNot | FullTag::BoolAnd | FullTag::BoolOr | FullTag::BoolIntCompare => match BoolView::decode() {
-   BoolView::Not(_) => Some(()),
-   BoolView::And(..) | BoolView::Or(..) => Some(()),
-   BoolView::IntCompare { .. } => Some(()),
-   _ => return Err(frame_strategy_error(tag, span)),
-  },
-  tag if super::is_typed_int_tag(tag) || super::is_typed_bool_tag(tag) => None,
-  _ => return Err(frame_strategy_error(tag, span)),
- }
- match operation {
-  Some(_) => {},
-  None => {
-   let call = &mut self.calls[index];
-   if !call.execution.is_in_place(instruction) { return Err(frame_strategy_error(tag, span)); }
-   if super::is_typed_int_tag(tag) { self.evaluator.eval_indexed_typed_int(); }
-   else { self.evaluator.eval_indexed_typed_bool(); }
-  }
- }
-}
-"#;
-        (schema, indexed, values, explicit.into())
+        let explicit = read("src/runtime/eval/lowered_run/indexed_run/explicit_run.rs");
+        (schema, indexed, values, explicit)
+    }
+
+    fn typed_live_fixture() -> (String, String, String, String) {
+        (
+            read("src/runtime/eval/indexed/full/schema.rs"),
+            read("src/runtime/eval/lowered_run/indexed_run.rs"),
+            read("src/runtime/eval/lowered_run/indexed_run/values.rs"),
+            read("src/runtime/eval/lowered_run/indexed_run/explicit_run.rs"),
+        )
+    }
+
+    #[test]
+    fn current_source_inventory_families_are_accepted() {
+        let schema = read("src/runtime/eval/indexed/full/schema.rs");
+        let indexed = read("src/runtime/eval/lowered_run/indexed_run.rs");
+        let explicit = read("src/runtime/eval/lowered_run/indexed_run/explicit_run.rs");
+        let values = read("src/runtime/eval/lowered_run/indexed_run/values.rs");
+        let operands = read("src/runtime/eval/lowered_run/indexed_run/operands.rs");
+        let slot_codec = read("src/runtime/eval/indexed/full.rs");
+        let freeze_helper = read("src/runtime/eval/lowered_run.rs");
+
+        let statements = extract_statement_inventory(&schema, &explicit, "explicit_run.rs").unwrap();
+        assert_eq!(statements.branches.len(), statements.schema_tags.len());
+        assert_eq!(statements.fallbacks.len(), 1);
+
+        let scalars = extract_typed_scalar_inventory(
+            &schema, &indexed, &values, &explicit,
+            "schema.rs", "indexed_run.rs", "values.rs", "explicit_run.rs",
+        ).unwrap();
+        assert_eq!(scalars.schema_rows.len(), 18);
+
+        let eager = extract_eager_atom_inventory(
+            &schema, &indexed, &explicit, &slot_codec, &freeze_helper,
+            "schema.rs", "indexed_run.rs", "explicit_run.rs", "full.rs", "lowered_run.rs",
+        ).unwrap();
+        assert_eq!(eager.schema_rows.len(), 12);
+
+        let constructors = extract_frame_constructor_inventory(
+            &schema, &indexed, &explicit, "schema.rs", "indexed_run.rs", "explicit_run.rs",
+        ).unwrap();
+        assert_eq!(constructors.schema_rows.len(), 3);
+
+        let collections = extract_collection_construction_inventory(
+            &schema, &indexed, &explicit, &operands,
+            "schema.rs", "indexed_run.rs", "explicit_run.rs", "operands.rs",
+        ).unwrap();
+        assert_eq!(collections.schema_rows.len(), 5);
+
+        let results = extract_result_constructor_inventory(
+            &schema, &indexed, &explicit, "schema.rs", "indexed_run.rs", "explicit_run.rs",
+        ).unwrap();
+        assert_eq!(results.schema_rows.len(), 2);
+
+        let calls = extract_call_frame_inventory(
+            &schema, &indexed, &explicit, "schema.rs", "indexed_run.rs", "explicit_run.rs",
+        ).unwrap();
+        assert_eq!(calls.schema_rows.len(), 4);
+
+        let fields = extract_field_index_inventory(
+            &schema, &indexed, &explicit, "schema.rs", "indexed_run.rs", "explicit_run.rs",
+        ).unwrap();
+        assert_eq!(fields.schema_rows.len(), 3);
     }
 
     fn typed_inventory(
@@ -9487,7 +10832,16 @@ fn eval_indexed_expr_inner() {{
     if tag.is_eager_atom() {{
         return Ok(ControlFlow::Continue(indexed_eager_atom_value(execution, tag, payload, slots, call_span)?));
     }}
-    if indexed_frame_apply_tag(tag) {{}}
+    let Some(view_kind) = tag.expr_view_kind() else {{ return Err(frame_strategy_error(tag, call_span)); }};
+    self.eval_expr_view(view_kind)
+}}
+fn eval_indexed_expr() {{
+    let result = if self.force_frames || !execution.is_in_place(instruction) {{
+        self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)
+    }} else {{
+        self.eval_indexed_expr_inner(execution, instruction, slots, call_span)
+    }};
+    result
 }}
 "#
         );
@@ -9499,6 +10853,8 @@ fn eval_indexed_expr_inner() {{
         let explicit = format!(
             r#"
 fn eval_expr(&mut self) {{
+    let in_place = !self.evaluator.force_frames && execution.is_in_place(instruction);
+    if in_place {{ return Ok(()); }}
     if tag.is_eager_atom() {{
         let call = &mut self.calls[index];
         let value = super::indexed_eager_atom_value(&call.execution, tag, payload, &mut call.slots, span)?;
@@ -9601,10 +10957,15 @@ instruction_schema! {
 fn indexed_frame_apply_tag(tag: FullTag) -> bool {{ matches!(tag, {frame_apply}) }}
 fn indexed_frame_apply_prepares_operands(tag: FullTag) -> bool {{ matches!(tag, {prepared}) }}
 fn eval_indexed_expr_inner() {{
-    if indexed_frame_apply_tag(tag) {{
-        return self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span);
-    }}
-    let result = match tag {{ _ => Ok(()) }};
+    let Some(view_kind) = tag.expr_view_kind() else {{ return Err(frame_strategy_error(tag, call_span)); }};
+    self.eval_expr_view(view_kind)
+}}
+fn eval_indexed_expr() {{
+    let result = if self.force_frames || !execution.is_in_place(instruction) {{
+        self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)
+    }} else {{
+        self.eval_indexed_expr_inner(execution, instruction, slots, call_span)
+    }};
     result
 }}
 fn indexed_frame_apply_child(tag: FullTag, view: &mut ExprView, position: usize, tag_position: Option<usize>, error_position: Option<usize>, span: Span) -> Result<Option<Child>, E> {{
@@ -9628,7 +10989,16 @@ fn indexed_frame_apply_value(execution: Execution, tag: FullTag, payload: Payloa
 "#
         );
         let explicit = r#"
+fn eval_indexed_expr_with_frames(&mut self, execution: &E, instruction: u32, slots: &mut [V], span: Span) {
+    let work = FrameWork::Expr { instruction, span, next: FrameContinuation::BlockValue { transfers_resource: false } };
+    Ok(match self.eval_indexed_work_with_frames(execution, work, false, slots, span)? {
+        StmtFlow::Value(value) => ControlFlow::Continue(value),
+        flow => self.preserve_lexical_expression_flow(flow),
+    })
+}
 fn eval_expr(&mut self) {
+    let in_place = !self.evaluator.force_frames && execution.is_in_place(instruction);
+    if in_place { return Ok(()); }
     if super::indexed_frame_apply_tag(tag) {
         let mut view = ExprView::decode(&execution, tag, payload)?;
         let first = super::indexed_frame_apply_child(tag, &mut view, 0, None, None, span)?;
@@ -9727,12 +11097,12 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
         assert!(frame_constructor_inventory(&(sources.0.clone(), duplicate_classifier, sources.2.clone()))
             .unwrap_err().contains("duplicate"));
 
-        let wrong_normal = sources.1.replace(
-            "self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)",
-            "self.eval_indexed_expr(execution, instruction, slots, call_span)",
+        let wrong_normal = sources.2.replace(
+            "let in_place = !self.evaluator.force_frames && execution.is_in_place(instruction);",
+            "let in_place = execution.is_in_place(instruction);",
         );
-        assert!(frame_constructor_inventory(&(sources.0.clone(), wrong_normal, sources.2.clone()))
-            .unwrap_err().contains("unexpected frame call"));
+        assert!(frame_constructor_inventory(&(sources.0.clone(), sources.1.clone(), wrong_normal))
+            .unwrap_err().contains("force-aware in-place dispatch guard"));
 
         let missing_explicit = sources.2.replace("super::indexed_frame_apply_tag(tag)", "false");
         assert!(frame_constructor_inventory(&(sources.0.clone(), sources.1.clone(), missing_explicit))
@@ -9969,21 +11339,21 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
     }
 
     #[test]
-    fn eager_atom_routes_must_call_before_generic_frame_apply() {
+    fn eager_atom_routes_precede_their_dispatch_fallbacks() {
         let sources = eager_fixture();
         let normal_removed = sources.1.replace(
             "    if tag.is_eager_atom() {\n        return Ok(ControlFlow::Continue(indexed_eager_atom_value(execution, tag, payload, slots, call_span)?));\n    }\n",
             "",
         );
         assert!(eager_inventory(&(sources.0.clone(), normal_removed, sources.2.clone()))
-            .unwrap_err().contains("no eager atom route"));
+            .unwrap_err().contains("must have one eager atom branch"));
 
         let normal_reordered = sources.1.replace(
-            "    if tag.is_eager_atom() {\n        return Ok(ControlFlow::Continue(indexed_eager_atom_value(execution, tag, payload, slots, call_span)?));\n    }\n    if indexed_frame_apply_tag(tag) {}",
-            "    if indexed_frame_apply_tag(tag) {}\n    if tag.is_eager_atom() {\n        return Ok(ControlFlow::Continue(indexed_eager_atom_value(execution, tag, payload, slots, call_span)?));\n    }",
+            "    if tag.is_eager_atom() {\n        return Ok(ControlFlow::Continue(indexed_eager_atom_value(execution, tag, payload, slots, call_span)?));\n    }\n    let Some(view_kind) = tag.expr_view_kind() else { return Err(frame_strategy_error(tag, call_span)); };",
+            "    let Some(view_kind) = tag.expr_view_kind() else { return Err(frame_strategy_error(tag, call_span)); };\n    if tag.is_eager_atom() {\n        return Ok(ControlFlow::Continue(indexed_eager_atom_value(execution, tag, payload, slots, call_span)?));\n    }",
         );
         assert!(eager_inventory(&(sources.0.clone(), normal_reordered, sources.2.clone()))
-            .unwrap_err().contains("after generic FrameApply"));
+            .unwrap_err().contains("after ExprViewKind fallback"));
 
         let forced_removed = sources.2.replace(
             "    if tag.is_eager_atom() {\n        let call = &mut self.calls[index];\n        let value = super::indexed_eager_atom_value(&call.execution, tag, payload, &mut call.slots, span)?;\n        self.push_value(index, FrameValue::Value(value), next);\n        return Ok(());\n    }\n",
@@ -9998,6 +11368,20 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
         );
         assert!(eager_inventory(&(sources.0.clone(), sources.1.clone(), forced_reordered))
             .unwrap_err().contains("after generic FrameApply"));
+
+        let wrong_normal_entry = sources.1.replace(
+            "self.eval_indexed_expr_inner(execution, instruction, slots, call_span)",
+            "self.eval_indexed_expr_with_frames(execution, instruction, slots, call_span)",
+        );
+        assert!(eager_inventory(&(sources.0.clone(), wrong_normal_entry, sources.2.clone()))
+            .unwrap_err().contains("select frames or in-place evaluation exactly"));
+
+        let wrong_forced_entry = sources.2.replace(
+            "let in_place = !self.evaluator.force_frames && execution.is_in_place(instruction);",
+            "let in_place = execution.is_in_place(instruction);",
+        );
+        assert!(eager_inventory(&(sources.0.clone(), sources.1.clone(), wrong_forced_entry))
+            .unwrap_err().contains("force-aware in-place dispatch guard"));
 
         let wrong_normal_helper = sources.1.replace(
             "indexed_eager_atom_value(execution, tag, payload, slots, call_span)",
@@ -10154,10 +11538,69 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
         assert_eq!(inventory.normal_checks[0].wrapper, "eval_indexed_typed_int");
         assert_eq!(inventory.normal_checks[1].wrapper, "eval_indexed_typed_bool");
         assert_eq!(inventory.view_arms.len(), 18);
-        assert_eq!(inventory.frame_groups.len(), 3);
+        assert_eq!(inventory.frame_groups.len(), 7);
         assert_eq!(inventory.fallbacks.len(), 4);
         assert_eq!(inventory.wrong_union_errors.len(), 2);
         assert!(inventory.to_json().contains("\"wrong_union_errors\""));
+    }
+
+    #[test]
+    fn current_typed_scalar_inventory_covers_actual_schema_and_both_routes() {
+        let sources = typed_live_fixture();
+        let inventory = typed_inventory(&sources).unwrap();
+        assert_eq!(inventory.schema_rows.len(), 18);
+        assert_eq!(inventory.view_arms.len(), 18);
+        assert_eq!(inventory.frame_groups.len(), 7);
+        let operation_tags = inventory.frame_groups.iter()
+            .filter(|group| group.behavior == "frame_operation")
+            .flat_map(|group| group.tags.iter().map(String::as_str))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(operation_tags, BTreeSet::from([
+            "IntBinary", "IntStrByteAtSlot", "BoolNot", "BoolAnd", "BoolOr", "BoolIntCompare",
+        ]));
+        let delegated_tags = inventory.frame_groups.iter()
+            .filter(|group| group.behavior == "verified_in_place_typed_delegation")
+            .flat_map(|group| group.tags.iter().map(String::as_str))
+            .collect::<BTreeSet<_>>();
+        assert_eq!(delegated_tags.len(), 12);
+        let fallback_by_outcome = inventory.fallbacks.iter()
+            .map(|fallback| (fallback.outcome.as_str(), fallback))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(fallback_by_outcome.keys().copied().collect::<BTreeSet<_>>(), BTreeSet::from([
+            "indexed_error: IntView decode failed",
+            "indexed_error: BoolView decode failed",
+            "frame_strategy_error: unmatched tag",
+            "frame_strategy_error: verifier in-place proof absent",
+        ]));
+        for (outcome, family, arm_index) in [
+            ("indexed_error: IntView decode failed", "Int", 0),
+            ("indexed_error: BoolView decode failed", "Bool", 1),
+        ] {
+            let fallback = fallback_by_outcome[outcome];
+            assert_eq!(fallback.source, "explicit_dispatch");
+            assert_eq!(fallback.scope, format!("malformed {family}View payload"));
+            assert_eq!(fallback.arm_index, arm_index);
+            assert_eq!(
+                fallback.applies_to.iter().map(String::as_str).collect::<Vec<_>>(),
+                inventory.schema_rows.iter()
+                    .filter(|row| row.family == family)
+                    .map(|row| row.tag.as_str())
+                    .collect::<Vec<_>>(),
+            );
+        }
+        let unmatched = fallback_by_outcome["frame_strategy_error: unmatched tag"];
+        assert_eq!(unmatched.source, "explicit_dispatch");
+        assert_eq!(unmatched.scope, "tag outside the typed scalar cohort");
+        assert!(unmatched.applies_to.is_empty());
+        assert_eq!(unmatched.arm_index, 2);
+        let delegation = fallback_by_outcome["frame_strategy_error: verifier in-place proof absent"];
+        assert_eq!(delegation.source, "explicit_dispatch");
+        assert_eq!(delegation.scope, "delegated typed leaf without verifier in-place proof");
+        assert_eq!(delegation.arm_index, 3);
+        assert_eq!(
+            delegation.applies_to.iter().map(String::as_str).collect::<BTreeSet<_>>(),
+            delegated_tags,
+        );
     }
 
     #[test]
@@ -10228,8 +11671,8 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
     #[test]
     fn typed_scalar_normal_route_order_and_wrapper_mapping_are_checked() {
         let sources = typed_fixture();
-        let int_check = "if is_typed_int_tag(tag) { return self.eval_indexed_typed_int(a,b,c,d).map(|flow| flow.map_continue(LoweredValue::Int)); }";
-        let bool_check = "if is_typed_bool_tag(tag) { return self.eval_indexed_typed_bool(a,b,c,d).map(|flow| flow.map_continue(LoweredValue::Bool)); }";
+        let int_check = "if is_typed_int_tag(tag) { return self.eval_indexed_typed_int(execution, instruction, slots, call_span).map(|flow| flow.map_continue(LoweredValue::Int)); }";
+        let bool_check = "if is_typed_bool_tag(tag) { return self.eval_indexed_typed_bool(execution, instruction, slots, call_span).map(|flow| flow.map_continue(LoweredValue::Bool)); }";
         let reversed = sources.1.replace(
             &format!("{int_check}\n  {bool_check}"),
             &format!("{bool_check}\n  {int_check}"),
@@ -10258,6 +11701,161 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
     }
 
     #[test]
+    fn typed_scalar_route_checks_require_one_exact_top_level_decode() {
+        let sources = typed_fixture();
+        let decoder = "let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;";
+        let parse_checks = |source: &str| {
+            scalar_route_checks(&syn::parse_file(source).unwrap())
+        };
+
+        assert!(parse_checks(&sources.1).is_ok());
+
+        let missing = sources.1.replace(decoder, "");
+        assert!(parse_checks(&missing)
+            .unwrap_err()
+            .contains("exact top-level indexed tag decode"));
+
+        let duplicate = sources.1.replace(decoder, &format!("{decoder}\n  {decoder}"));
+        assert!(parse_checks(&duplicate)
+            .unwrap_err()
+            .contains("exact top-level indexed tag decode"));
+
+        let nested = sources.1.replace(decoder, &format!("if enabled {{ {decoder} }}"));
+        assert!(parse_checks(&nested)
+            .unwrap_err()
+            .contains("exact top-level indexed tag decode"));
+
+        let wrong_receiver = sources.1.replace(
+            "execution.instruction_id(instruction)",
+            "other.instruction_id(instruction)",
+        );
+        assert!(parse_checks(&wrong_receiver)
+            .unwrap_err()
+            .contains("exact top-level indexed tag decode"));
+
+        let wrong_arguments = sources.1.replace(
+            "indexed_value(execution.instruction_id(instruction), call_span)",
+            "indexed_value(execution.instruction_id(payload), call_span)",
+        );
+        assert!(parse_checks(&wrong_arguments)
+            .unwrap_err()
+            .contains("exact top-level indexed tag decode"));
+
+        let missing_try = sources.1.replace(
+            "indexed_value(execution.instruction_id(instruction), call_span)?",
+            "indexed_value(execution.instruction_id(instruction), call_span)",
+        );
+        assert!(parse_checks(&missing_try)
+            .unwrap_err()
+            .contains("exact top-level indexed tag decode"));
+
+        let int_check = "if is_typed_int_tag(tag) { return self.eval_indexed_typed_int(execution, instruction, slots, call_span).map(|flow| flow.map_continue(LoweredValue::Int)); }";
+        let bool_check = "if is_typed_bool_tag(tag) { return self.eval_indexed_typed_bool(execution, instruction, slots, call_span).map(|flow| flow.map_continue(LoweredValue::Bool)); }";
+        let scalar_before_decode = sources.1.replace(&format!("{int_check}\n  {bool_check}"), "");
+        let scalar_before_decode = scalar_before_decode.replace(
+            &format!("{decoder}\n  let in_place = execution.is_in_place(instruction);"),
+            &format!(
+                "{int_check}\n  {bool_check}\n  {decoder}\n  let in_place = execution.is_in_place(instruction);"
+            ),
+        );
+        let error = parse_checks(&scalar_before_decode).unwrap_err();
+        assert!(
+            error.contains("typed scalar checks must follow the indexed tag decode"),
+            "{error}"
+        );
+
+        let guarded_classifier = sources.1.replace(
+            "if is_typed_int_tag(tag) {",
+            "if is_typed_int_tag(tag) && in_place {",
+        );
+        assert!(parse_checks(&guarded_classifier).is_err());
+
+        let nested_classifier = sources.1.replace(
+            "if is_typed_int_tag(tag) { return self.eval_indexed_typed_int(execution, instruction, slots, call_span).map(|flow| flow.map_continue(LoweredValue::Int)); }",
+            "if enabled { if is_typed_int_tag(tag) { return self.eval_indexed_typed_int(execution, instruction, slots, call_span).map(|flow| flow.map_continue(LoweredValue::Int)); } }",
+        );
+        assert!(parse_checks(&nested_classifier).is_err());
+
+        let duplicate_classifier = sources.1.replace(
+            "if is_typed_bool_tag(tag) { return self.eval_indexed_typed_bool(execution, instruction, slots, call_span).map(|flow| flow.map_continue(LoweredValue::Bool)); }",
+            "if is_typed_bool_tag(tag) { return self.eval_indexed_typed_bool(execution, instruction, slots, call_span).map(|flow| flow.map_continue(LoweredValue::Bool)); }\n  if is_typed_bool_tag(tag) { return self.eval_indexed_typed_bool(execution, instruction, slots, call_span).map(|flow| flow.map_continue(LoweredValue::Bool)); }",
+        );
+        assert!(parse_checks(&duplicate_classifier).is_err());
+
+        let wrong_classifier_argument = sources.1.replace(
+            "is_typed_int_tag(tag)",
+            "is_typed_int_tag(payload)",
+        );
+        assert!(parse_checks(&wrong_classifier_argument)
+            .unwrap_err()
+            .contains("unrecognized argument"));
+
+        let separated_checks = sources.1.replace(
+            "if is_typed_bool_tag(tag) {",
+            "let unrelated = true;\n  if is_typed_bool_tag(tag) {",
+        );
+        assert!(parse_checks(&separated_checks)
+            .unwrap_err()
+            .contains("typed scalar checks must be adjacent"));
+
+        let wrong_evaluator_arguments = sources.1.replace(
+            "eval_indexed_typed_int(execution, instruction, slots, call_span)",
+            "eval_indexed_typed_int(execution, payload, slots, call_span)",
+        );
+        assert!(parse_checks(&wrong_evaluator_arguments)
+            .unwrap_err()
+            .contains("calls the wrong scalar evaluator"));
+
+        for name in ["execution", "instruction", "slots", "call_span"] {
+            let shadowed_input = sources.1.replace(
+                decoder,
+                &format!("let {name} = {name};\n  {decoder}"),
+            );
+            let error = parse_checks(&shadowed_input).unwrap_err();
+            assert!(error.contains("shadows original evaluator input"), "{name}: {error}");
+        }
+
+        for name in ["tag", "payload"] {
+            let shadowed_decoded_value = sources.1.replace(
+                decoder,
+                &format!("{decoder}\n  let {name} = {name};"),
+            );
+            let error = parse_checks(&shadowed_decoded_value).unwrap_err();
+            assert!(error.contains("shadows decoded indexed value"), "{name}: {error}");
+        }
+
+        let nested_shadow = sources.1.replace(
+            decoder,
+            &format!("{decoder}\n  if enabled {{ let tag = other_tag; }}"),
+        );
+        assert!(parse_checks(&nested_shadow).is_ok());
+    }
+
+    #[test]
+    fn current_typed_scalar_route_checks_follow_the_decoded_tag_in_order() {
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root = manifest
+            .ancestors()
+            .find(|path| path.join("src/runtime/eval/lowered_run/indexed_run.rs").is_file())
+            .expect("AST extractor manifest is nested under the XSH repository");
+        let source = std::fs::read_to_string(
+            root.join("src/runtime/eval/lowered_run/indexed_run.rs"),
+        )
+        .unwrap();
+        let file = syn::parse_file(&source).unwrap();
+        let block = find_function(&file, "eval_indexed_expr_inner").unwrap();
+        let decode_index = indexed_tag_decode_statement_index(block).unwrap();
+        let checks = scalar_route_checks(&file).unwrap();
+
+        assert_eq!(
+            checks.iter().map(|check| check.family.as_str()).collect::<Vec<_>>(),
+            ["Int", "Bool"]
+        );
+        assert!(decode_index < checks[0].statement_index);
+        assert_eq!(checks[1].statement_index, checks[0].statement_index + 1);
+    }
+
+    #[test]
     fn typed_scalar_view_arm_drift_is_rejected() {
         let sources = typed_fixture();
         let removed = sources.2.replace("IntView::StrByteAtSlot(..) => {},", "");
@@ -10282,68 +11880,93 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
     #[test]
     fn typed_scalar_frame_groups_delegation_and_fallbacks_fail_closed() {
         let sources = typed_fixture();
-        let missing_group = sources.3.replace(
-            "FullTag::IntBinary | FullTag::IntStrByteAtSlot",
-            "FullTag::IntBinary",
-        );
-        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), missing_group))
-            .unwrap_err()
-            .contains("unrecognized typed scalar frame arm"));
+        let wrong_kind_input = sources.3.replace("match tag.kind()", "match execution.kind()");
+        assert!(wrong_kind_input.contains("match execution.kind()"));
+        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), wrong_kind_input))
+            .unwrap_err().contains("original tag.kind()"));
 
-        let split_bool_view_group = sources.3.replace(
-            "BoolView::And(..) | BoolView::Or(..) => Some(()),",
-            "BoolView::And(..) => Some(()), BoolView::Or(..) => Some(()),",
+        let wrong_int_decode_tag = sources.3.replace(
+            "IntView::decode(execution, tag, payload)",
+            "IntView::decode(execution, other_tag, payload)",
         );
-        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), split_bool_view_group))
-            .unwrap_err()
-            .contains("BoolView frame-operation group shapes differ"));
+        assert!(wrong_int_decode_tag.contains("IntView::decode(execution, other_tag, payload)"));
+        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), wrong_int_decode_tag))
+            .unwrap_err().contains("original evaluator inputs"));
 
-        let changed_inner_wildcard = sources.3.replace(
-            "_ => return Err(frame_strategy_error(tag, span)),",
-            "_ => Ok(()),",
+        let wrong_bool_decode_payload = sources.3.replace(
+            "BoolView::decode(execution, tag, payload)",
+            "BoolView::decode(execution, tag, other_payload)",
         );
-        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), changed_inner_wildcard))
-            .unwrap_err()
-            .contains("wildcard is not a direct error"));
+        assert!(wrong_bool_decode_payload.contains("BoolView::decode(execution, tag, other_payload)"));
+        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), wrong_bool_decode_payload))
+            .unwrap_err().contains("original evaluator inputs"));
 
-        let discarded_error = sources.3.replace(
-            "_ => return Err(frame_strategy_error(tag, span)),",
-            "_ => { let _discarded = Err(frame_strategy_error(tag, span)); Ok(()) },",
+        let wrong_int_converter = sources.3.replace(
+            "Some(FrameOperation::IntByteAt(",
+            "Some(FrameOperation::BoolNot(",
         );
-        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), discarded_error))
-            .unwrap_err()
-            .contains("wildcard is not a direct error"));
+        assert!(wrong_int_converter.contains("Some(FrameOperation::BoolNot("));
+        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), wrong_int_converter))
+            .unwrap_err().contains("produces the wrong frame operation"));
 
+        let wrong_bool_tag_mapping = sources.3.replace(
+            "tag == FullTag::BoolAnd",
+            "tag == FullTag::BoolOr",
+        );
+        assert!(wrong_bool_tag_mapping.contains("tag == FullTag::BoolOr"));
+        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), wrong_bool_tag_mapping))
+            .unwrap_err().contains("produces the wrong frame operation"));
+
+        let omitted_kind_fallback = sources.3.replace(
+            "InstructionKind::Expr | InstructionKind::Stmt => {",
+            "InstructionKind::Expr => {",
+        );
+        assert!(omitted_kind_fallback.contains("InstructionKind::Expr => {"));
+        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), omitted_kind_fallback))
+            .unwrap_err().contains("unrecognized typed scalar InstructionKind arm"));
+
+        let unsupported_kind_arm = "            InstructionKind::Expr | InstructionKind::Stmt => {\n                return Err(frame_strategy_error(tag, span));\n            }\n";
+        let missing_kind_fallback = sources.3.replace(unsupported_kind_arm, "");
+        assert_ne!(missing_kind_fallback, sources.3);
+        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), missing_kind_fallback))
+            .unwrap_err().contains("does not cover Int, Bool, Expr, and Stmt exactly"));
+
+        let dropped_decode_error = sources.3.replace(
+            ".map_err(|error| indexed_error(error, span))?\n            {",
+            "?\n            {",
+        );
+        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), dropped_decode_error))
+            .unwrap_err().contains("decode error is not mapped"));
+
+        let in_place_rejection = "if !call.execution.is_in_place(instruction) {\n                        return Err(frame_strategy_error(tag, span));\n                    }";
         let missing_proof = sources.3.replace(
-            "if !call.execution.is_in_place(instruction) { return Err(frame_strategy_error(tag, span)); }",
-            "if !call.execution.is_in_place(instruction) { Ok(()) }",
+            in_place_rejection,
+            "if !call.execution.is_in_place(instruction) {\n                        Ok(())\n                    }",
         );
+        assert_ne!(missing_proof, sources.3);
         assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), missing_proof))
             .unwrap_err()
             .contains("missing-in-place branch must directly return"));
 
-        let missing_guard_family = sources.3.replace(
-            "tag if super::is_typed_int_tag(tag) || super::is_typed_bool_tag(tag) => None",
-            "tag if super::is_typed_int_tag(tag) => None",
+        let wrong_delegation_instruction = sources.3.replace(
+            "eval_indexed_typed_int(\n                            &call.execution,\n                            instruction,",
+            "eval_indexed_typed_int(\n                            &call.execution,\n                            other_instruction,",
         );
-        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), missing_guard_family)).is_err());
+        assert_ne!(wrong_delegation_instruction, sources.3);
+        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), wrong_delegation_instruction))
+            .unwrap_err().contains("different typed evaluator inputs"));
 
-        let missing_wildcard = sources.3.replace(
-            "  _ => return Err(frame_strategy_error(tag, span)),\n }\n match operation",
-            " }\n match operation",
-        );
-        assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), missing_wildcard))
-            .unwrap_err()
-            .contains("missing typed scalar wildcard fallback"));
     }
 
     #[test]
     fn typed_scalar_explicit_dispatch_order_and_wrong_union_errors_are_checked() {
         let sources = typed_fixture();
-        let reordered = sources.3.replace(
-            "if strategy == FrameStrategy::FrameApply && (super::is_typed_int_tag(tag) || super::is_typed_bool_tag(tag)) { return self.eval_typed_scalar_expr(a,b,c,d,e,f,g,h); }\n if super::indexed_frame_apply_tag(tag) {}",
-            "if super::indexed_frame_apply_tag(tag) {}\n if strategy == FrameStrategy::FrameApply && (super::is_typed_int_tag(tag) || super::is_typed_bool_tag(tag)) { return self.eval_typed_scalar_expr(a,b,c,d,e,f,g,h); }",
+        let typed_route = "        if strategy == FrameStrategy::FrameApply\n            && (super::is_typed_int_tag(tag) || super::is_typed_bool_tag(tag))\n        {\n            return self.eval_typed_scalar_expr(\n                index,\n                instruction,\n                tag,\n                &execution,\n                payload,\n                span,\n                next,\n            );\n        }\n";
+        let reordered = sources.3.replace(typed_route, "").replace(
+            "        let view_kind = tag",
+            &format!("{typed_route}        let view_kind = tag"),
         );
+        assert_ne!(reordered, sources.3);
         assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), sources.2.clone(), reordered))
             .unwrap_err()
             .contains("out of order"));
@@ -10355,6 +11978,38 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
         assert!(typed_inventory(&(sources.0.clone(), sources.1.clone(), wrong_union, sources.3.clone()))
             .unwrap_err()
             .contains("wrong-union branch changed"));
+    }
+
+    #[test]
+    fn typed_scalar_operation_bindings_keep_payload_positions() {
+        let sources = typed_fixture();
+        assert!(typed_inventory(&sources).is_ok());
+
+        for (pattern, replacement) in [
+            (
+                "Some(FrameOperation::Binary(op, left, right)) => {",
+                "Some(FrameOperation::Binary(op, right, left)) => {",
+            ),
+            (
+                "Some(FrameOperation::IntByteAt(slot, index_expr, default, value_span)) => {",
+                "Some(FrameOperation::IntByteAt(index_expr, slot, default, value_span)) => {",
+            ),
+            (
+                "Some(FrameOperation::BoolNot(value)) => {",
+                "Some(FrameOperation::BoolNot(other_value)) => {",
+            ),
+        ] {
+            let explicit = sources.3.replace(pattern, replacement);
+            assert_ne!(explicit, sources.3);
+            let error = typed_inventory(&(
+                sources.0.clone(),
+                sources.1.clone(),
+                sources.2.clone(),
+                explicit,
+            ))
+            .unwrap_err();
+            assert!(error.contains("operation schedule does not preserve the decoded operation"), "{error}");
+        }
     }
 
     #[test]
@@ -10658,15 +12313,20 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
 }
 
 #[cfg(test)]
+fn repository_root() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .find(|path| path.join("src/runtime/eval/indexed/full/schema.rs").is_file())
+        .map(std::path::Path::to_path_buf)
+        .expect("AST extractor manifest must be nested under the XSH repository")
+}
+
+#[cfg(test)]
 mod collection_construction_tests {
     use super::extract_collection_construction_inventory;
-    use std::path::Path;
 
     fn source_fixture() -> (String, String, String, String) {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .ancestors()
-            .nth(4)
-            .expect("scratch extractor lives four directories below the repo root");
+        let root = super::repository_root();
         let read = |path: &str| std::fs::read_to_string(root.join(path)).unwrap();
         (
             read("src/runtime/eval/indexed/full/schema.rs"),
@@ -10722,6 +12382,39 @@ mod collection_construction_tests {
     #[test]
     fn collection_constructor_dispatch_and_dataflow_drifts_fail_closed() {
         let sources = source_fixture();
+
+        let list_decode = "ExprViewKind::List => {\n                let view = ExprView::decode(execution, tag, payload)";
+        for name in ["execution", "slots", "call_span", "tag", "payload"] {
+            let shadowed_input = sources.1.replacen(
+                list_decode,
+                &format!(
+                    "ExprViewKind::List => {{\n                let {name} = other_{name};\n                let view = ExprView::decode(execution, tag, payload)"
+                ),
+                1,
+            );
+            let error = inventory(&(
+                sources.0.clone(),
+                shadowed_input,
+                sources.2.clone(),
+                sources.3.clone(),
+            )).unwrap_err();
+            let expected = if matches!(name, "tag" | "payload") {
+                format!("binding {name} is shadowed or written")
+            } else {
+                format!("input {name} is shadowed or written")
+            };
+            assert!(error.contains(&expected), "{error}");
+        }
+        let destructured_payload = sources.1.replace(
+            "ExprViewKind::List => {\n                let view = ExprView::decode(execution, tag, payload)",
+            "ExprViewKind::List => {\n                let (payload, other) = (other_payload, other);\n                let view = ExprView::decode(execution, tag, payload)",
+        );
+        assert!(inventory(&(
+            sources.0.clone(),
+            destructured_payload,
+            sources.2.clone(),
+            sources.3.clone(),
+        )).unwrap_err().contains("binding payload is shadowed or written"));
 
         let removed = sources.0.replace("ListBuild(values:", "UnusedListBuild(values:");
         assert!(inventory(&(removed, sources.1.clone(), sources.2.clone(), sources.3.clone()))
@@ -10800,8 +12493,8 @@ mod collection_construction_tests {
             .unwrap_err().contains("typed-view fallback changed"));
 
         let changed_normal_view = sources.1.replace(
-            "ExprView::Record(mut entries)",
-            "ExprView::MapLiteral(mut entries)",
+            "ExprView::Record(entries)",
+            "ExprView::MapLiteral(entries)",
         );
         assert!(inventory(&(sources.0.clone(), changed_normal_view, sources.2.clone(), sources.3.clone()))
             .unwrap_err().contains("normal Record typed-view fallback changed"));
@@ -10818,20 +12511,28 @@ mod collection_construction_tests {
             "unsupported indexed tag",
         );
         assert!(inventory(&(sources.0.clone(), changed_normal_fallback, sources.2.clone(), sources.3.clone()))
-            .unwrap_err().contains("unsupported-tag error"));
+            .unwrap_err().contains("unsupported-error closure changed"));
+
+        let fallback_start = sources.1.find("            ExprViewKind::Null |\n").unwrap();
+        let fallback_end = fallback_start
+            + sources.1[fallback_start..].find(" => return Err(unsupported()),").unwrap()
+            + " => return Err(unsupported()),".len();
+        let fallback = sources.1[fallback_start..fallback_end].to_string();
+        let mut moved_fallback = sources.1.clone();
+        moved_fallback.replace_range(fallback_start..fallback_end, "");
+        let try_arm = moved_fallback.find("            ExprViewKind::Try => {").unwrap();
+        moved_fallback.insert_str(try_arm, &fallback);
+        assert!(inventory(&(sources.0.clone(), moved_fallback, sources.2.clone(), sources.3.clone()))
+            .unwrap_err().contains("unsupported group is not the terminal arm"));
     }
 }
 
 #[cfg(test)]
 mod result_constructor_tests {
     use super::extract_result_constructor_inventory;
-    use std::path::Path;
 
     fn source_fixture() -> (String, String, String) {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .ancestors()
-            .nth(4)
-            .expect("scratch extractor lives four directories below the repo root");
+        let root = super::repository_root();
         let read = |path: &str| std::fs::read_to_string(root.join(path)).unwrap();
         (
             read("src/runtime/eval/indexed/full/schema.rs"),
@@ -10881,8 +12582,8 @@ mod result_constructor_tests {
         assert!(inventory(&(duplicated, sources.1.clone(), sources.2.clone())).is_err());
 
         let wrong_ok_value = sources.1.replace(
-            "LoweredValue::ResultOk(Box::new(value))",
-            "LoweredValue::ResultOk(Box::new(other))",
+            "lowered_result_ok(value)",
+            "lowered_result_ok(other)",
         );
         assert!(inventory(&(sources.0.clone(), wrong_ok_value, sources.2.clone()))
             .unwrap_err().contains("Ok child result does not flow"));
@@ -10932,13 +12633,9 @@ mod result_constructor_tests {
 #[cfg(test)]
 mod call_frame_tests {
     use super::extract_call_frame_inventory;
-    use std::path::Path;
 
     fn source_fixture() -> (String, String, String) {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .ancestors()
-            .nth(4)
-            .expect("scratch extractor lives four directories below the repo root");
+        let root = super::repository_root();
         let read = |path: &str| std::fs::read_to_string(root.join(path)).unwrap();
         (
             read("src/runtime/eval/indexed/full/schema.rs"),
@@ -10998,32 +12695,58 @@ mod call_frame_tests {
             .unwrap_err().contains("schema row ExprCall"));
 
         let bypassed_schedule = sources.1.replace(
-            "tag.is_scheduled_frame_control_expr()",
-            "false",
+            "if self.force_frames || !execution.is_in_place(instruction) {",
+            "if self.force_frames || !execution.is_in_place(other) {",
         );
         assert!(inventory(&(sources.0.clone(), bypassed_schedule, sources.2.clone()))
-            .unwrap_err().contains("schema FrameControl predicate"));
+            .unwrap_err().contains("forced or unmarked expressions"));
 
-        let detached_tag = sources.1.replace(
-            ".map(|(tag, _)| {",
-            ".map(|(other, _)| {",
+        let wrong_in_place_polarity = sources.1.replace(
+            "if self.force_frames || !execution.is_in_place(instruction) {",
+            "if self.force_frames || execution.is_in_place(instruction) {",
         );
-        assert!(inventory(&(sources.0.clone(), detached_tag, sources.2.clone()))
-            .unwrap_err().contains("predicate no longer uses the instruction tag"));
+        assert!(inventory(&(sources.0.clone(), wrong_in_place_polarity, sources.2.clone()))
+            .unwrap_err().contains("forced or unmarked expressions"));
 
         let forced_route_bypass = sources.1.replace(
-            "if self.force_frames || frame_scheduled {\n            self.eval_indexed_expr_with_frames",
-            "if self.force_frames || frame_scheduled {\n            if self.force_frames { return Err(RuntimeError::new(\"test\", \"bypass\")); }\n            self.eval_indexed_expr_with_frames",
+            "if self.force_frames || !execution.is_in_place(instruction) {\n            self.eval_indexed_expr_with_frames",
+            "if self.force_frames || !execution.is_in_place(instruction) {\n            if self.force_frames { return Err(RuntimeError::new(\"test\", \"bypass\")); }\n            self.eval_indexed_expr_with_frames",
         );
         assert!(inventory(&(sources.0.clone(), forced_route_bypass, sources.2.clone()))
             .unwrap_err().contains("normal scheduled call branch has no frame evaluator"));
 
         let early_forced_return = sources.1.replace(
-            "        let result = if self.force_frames || frame_scheduled {",
-            "        if self.force_frames { return Err(RuntimeError::new(\"test\", \"bypass\")); }\n        let result = if self.force_frames || frame_scheduled {",
+            "        let result = if self.force_frames || !execution.is_in_place(instruction) {",
+            "        if self.force_frames { return Err(RuntimeError::new(\"test\", \"bypass\")); }\n        let result = if self.force_frames || !execution.is_in_place(instruction) {",
         );
         assert!(inventory(&(sources.0.clone(), early_forced_return, sources.2.clone()))
             .unwrap_err().contains("route can be bypassed before the scheduling branch"));
+    }
+
+    #[test]
+    fn normal_view_dispatch_rejects_instruction_shadow_after_decode() {
+        let sources = source_fixture();
+        inventory(&sources).unwrap();
+        let shadowed_instruction = sources.1.replace(
+            "let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;\n        let in_place",
+            "let (tag, payload) = indexed_value(execution.instruction_id(instruction), call_span)?;\n        let instruction = instruction.wrapping_add(1);\n        let in_place",
+        );
+        assert!(shadowed_instruction.contains("let instruction = instruction.wrapping_add(1);"));
+        assert!(inventory(&(sources.0, shadowed_instruction, sources.2))
+            .unwrap_err().contains("normal indexed evaluator input instruction is shadowed or written"));
+    }
+
+    #[test]
+    fn normal_view_dispatch_rejects_nested_instruction_shadow_before_result() {
+        let sources = source_fixture();
+        inventory(&sources).unwrap();
+        let nested_shadow = sources.1.replace(
+            "if is_typed_int_tag(tag) {\n            return self\n                .eval_indexed_typed_int",
+            "if is_typed_int_tag(tag) {\n            let instruction = instruction.wrapping_add(1);\n            return self\n                .eval_indexed_typed_int",
+        );
+        assert!(nested_shadow.contains("if is_typed_int_tag(tag) {\n            let instruction = instruction.wrapping_add(1);"));
+        assert!(inventory(&(sources.0, nested_shadow, sources.2))
+            .unwrap_err().contains("normal indexed evaluator input instruction is shadowed or written"));
     }
 
     #[test]
@@ -11115,17 +12838,82 @@ mod call_frame_tests {
         assert!(inventory(&(sources.0.clone(), sources.1.clone(), forced_liveness_bypass))
             .unwrap_err().contains("unreviewed early return before ExprViewKind dispatch"));
     }
+
+    #[test]
+    fn static_call_scheduling_keeps_decoded_instruction_and_arguments() {
+        let sources = source_fixture();
+        inventory(&sources).unwrap();
+
+        let wrong_static_instruction = sources.2.replace(
+            "self.push_static_arguments(\n                    index,\n                    instruction,\n                    position,\n                    function,",
+            "self.push_static_arguments(\n                    index,\n                    other_instruction,\n                    position,\n                    function,",
+        );
+        assert!(wrong_static_instruction.contains("                    other_instruction,\n                    position,\n                    function,"));
+        assert!(inventory(&(sources.0.clone(), sources.1.clone(), wrong_static_instruction))
+            .unwrap_err().contains("forced Call call scheduling inputs changed"));
+
+        let wrong_external_instruction = sources.2.replace(
+            "self.push_static_arguments(\n                    index,\n                    instruction,\n                    position,\n                    LoweredFunctionKey::Qualified(qualified),",
+            "self.push_static_arguments(\n                    index,\n                    other_instruction,\n                    position,\n                    LoweredFunctionKey::Qualified(qualified),",
+        );
+        assert!(wrong_external_instruction.contains("                    other_instruction,\n                    position,\n                    LoweredFunctionKey::Qualified(qualified),"));
+        assert!(inventory(&(sources.0.clone(), sources.1.clone(), wrong_external_instruction))
+            .unwrap_err().contains("forced ExternalCall call scheduling inputs changed"));
+
+        let wrong_static_position = sources.2.replace(
+            "self.push_static_arguments(\n                    index,\n                    instruction,\n                    position,\n                    function,",
+            "self.push_static_arguments(\n                    index,\n                    instruction,\n                    other_position,\n                    function,",
+        );
+        assert!(inventory(&(sources.0.clone(), sources.1.clone(), wrong_static_position))
+            .unwrap_err().contains("forced Call call scheduling inputs changed"));
+
+        let wrong_static_function = sources.2.replace(
+            "let kind = self.function_kind(index, function, span)?;",
+            "let kind = self.function_kind(index, other_function, span)?;",
+        );
+        assert!(wrong_static_function.contains("function_kind(index, other_function, span)"));
+        assert!(inventory(&(sources.0.clone(), sources.1.clone(), wrong_static_function))
+            .unwrap_err().contains("forced Call call scheduling inputs changed"));
+
+        let shadowed_static_instruction = sources.2.replace(
+            "let kind = self.function_kind(index, function, span)?;\n                self.push_static_arguments(",
+            "let kind = self.function_kind(index, function, span)?;\n                let instruction = other_instruction;\n                self.push_static_arguments(",
+        );
+        assert!(shadowed_static_instruction.contains("let instruction = other_instruction;"));
+        assert!(inventory(&(sources.0.clone(), sources.1.clone(), shadowed_static_instruction))
+            .unwrap_err().contains("forced Call call scheduling inputs changed"));
+
+        let wrong_static_arguments = sources.2.replace(
+            ".map_err(|error| indexed_error(error, span))?,\n                        args,\n                        span,",
+            ".map_err(|error| indexed_error(error, span))?,\n                        other_args,\n                        span,",
+        );
+        assert!(wrong_static_arguments.contains("                        other_args,\n                        span,"));
+        assert!(inventory(&(sources.0.clone(), sources.1.clone(), wrong_static_arguments))
+            .unwrap_err().contains("forced Call call scheduling inputs changed"));
+
+        let redirected_function = sources.2
+            .replace(
+                "let (function, mut args, value_span) = match view {",
+                "let (_, mut args, value_span) = match view {",
+            )
+            .replace(
+                "                    _ => unreachable!(\"static call tag has a typed call view\"),\n                };\n                args.preflight()",
+                "                    _ => unreachable!(\"static call tag has a typed call view\"),\n                };\n                let function = self.calls[index]\n                    .execution\n                    .function_identity()\n                    .map_err(|error| indexed_error(error, span))?\n                    .0;\n                args.preflight()",
+            );
+        assert!(redirected_function.contains("let (_, mut args, value_span) = match view {"));
+        assert!(redirected_function.contains("let function = self.calls[index]\n                    .execution"));
+        assert!(inventory(&(sources.0, sources.1, redirected_function))
+            .unwrap_err().contains("forced Call call scheduling inputs changed"));
+    }
 }
 
 #[cfg(test)]
 mod field_index_tests {
     use super::*;
     use std::fs;
-    use std::path::Path;
 
     fn read(path: &str) -> String {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../");
-        fs::read_to_string(root.join(path)).unwrap()
+        fs::read_to_string(super::repository_root().join(path)).unwrap()
     }
 
     fn source_fixture() -> (String, String, String) {
@@ -11209,12 +12997,19 @@ mod field_index_tests {
         let sources = source_fixture();
 
         let scheduled_index = sources.1.replace(
-            "| FullTag::ExprLastStatus",
-            "| FullTag::ExprIndex\n                            | FullTag::ExprLastStatus",
+            "if self.force_frames || !execution.is_in_place(instruction) {",
+            "if self.force_frames || execution.is_in_place(instruction) {",
         );
-        assert!(scheduled_index.contains("FullTag::ExprIndex\n                            | FullTag::ExprLastStatus"));
+        assert!(scheduled_index.contains("if self.force_frames || execution.is_in_place(instruction) {"));
         assert!(inventory(&(sources.0.clone(), scheduled_index, sources.2.clone()))
-            .unwrap_err().contains("normal field/index wrapper"));
+            .unwrap_err().contains("normal field/index wrapper route changed"));
+
+        let shadowed_name = sources.1.replace(
+            "let base = match self.eval_indexed_expr(execution, base, slots, span)? {",
+            "let name = other_name;\n                let base = match self.eval_indexed_expr(execution, base, slots, span)? {",
+        );
+        assert!(inventory(&(sources.0.clone(), shadowed_name, sources.2.clone()))
+            .unwrap_err().contains("normal field arm changed its record fast path"));
 
         let rebound_child = sources.1.replace(
             "ControlFlow::Continue(lowered_index_value(base, index, span)?)",
@@ -11231,18 +13026,26 @@ mod field_index_tests {
             .unwrap_err().contains("normal Index arm can return before its lookup"));
 
         let field_fast_path_bypass = sources.1.replace(
-            "let name = name.as_ref();",
-            "return Ok(ControlFlow::Continue(LoweredValue::Nil));\n                let name = name.as_ref();",
+            "lowered_record_field_value(base, name)",
+            "lowered_record_field_value(base, other_name)",
         );
-        assert!(inventory(&(sources.0.clone(), field_fast_path_bypass, sources.2.clone()))
-            .unwrap_err().contains("normal Field fast path does not return its looked-up record value"));
+        let field_error = inventory(&(sources.0.clone(), field_fast_path_bypass, sources.2.clone())).unwrap_err();
+        assert!(field_error.contains("normal Field fast path does not return its looked-up record value"), "{field_error}");
 
         let forced_shadow = sources.2.replace(
             "                self.push_expr(\n                    index,\n                    base.raw(),\n                    value_span,\n                    FrameContinuation::IndexFromEnd",
             "                let base = distance.get();\n                self.push_expr(\n                    index,\n                    base.raw(),\n                    value_span,\n                    FrameContinuation::IndexFromEnd",
         );
-        assert!(inventory(&(sources.0.clone(), sources.1.clone(), forced_shadow))
-            .unwrap_err().contains("forced IndexFromEnd source binding is shadowed or written"));
+        let forced_shadow_error = inventory(&(sources.0.clone(), sources.1.clone(), forced_shadow)).unwrap_err();
+        assert!(forced_shadow_error.contains("forced IndexFromEnd source binding is shadowed or written"), "{forced_shadow_error}");
+
+        let destructured_forced_shadow = sources.2.replace(
+            "                let base = base.raw();\n                let name = name.to_string();",
+            "                let base = base.raw();\n                let (base, _) = (instruction, ());\n                let name = name.to_string();",
+        );
+        assert!(destructured_forced_shadow.contains("let (base, _) = (instruction, ());"));
+        assert!(inventory(&(sources.0.clone(), sources.1.clone(), destructured_forced_shadow))
+            .unwrap_err().contains("forced Field source binding is shadowed or written"));
 
         let forced_bypass = sources.2.replace(
             "                self.push_expr(\n                    index,\n                    base.raw(),\n                    value_span,\n                    FrameContinuation::IndexFromEnd",
@@ -11259,8 +13062,8 @@ mod field_index_tests {
             .unwrap_err().contains("forced Field handler can return before scheduling"));
 
         let forced_field_return_before_fast_push = sources.2.replace(
-            "self.push_value(index, FrameValue::Value(value), next);\n                        return Ok(());",
-            "return Ok(());\n                        self.push_value(index, FrameValue::Value(value), next);\n                        return Ok(());",
+            "&& let Some(value) = super::lowered_record_field_value(base, &name)\n                {\n                    self.push_value(index, FrameValue::Value(value), next);",
+            "&& let Some(value) = super::lowered_record_field_value(base, &name)\n                {\n                    return Ok(());\n                    self.push_value(index, FrameValue::Value(value), next);",
         );
         assert!(inventory(&(sources.0.clone(), sources.1.clone(), forced_field_return_before_fast_push))
             .unwrap_err().contains("forced Field fast path must push before returning"));
@@ -11312,36 +13115,36 @@ mod field_index_tests {
             assert!(error.contains(expected), "{error}");
         };
         let outer_start = sources.2.replacen(
-            "if !self.evaluator.force_frames {\n                    if let Some(base) = Evaluator::indexed_field_chain_ref(",
-            "if !self.evaluator.force_frames {\n                    return Ok(());\n                    if let Some(base) = Evaluator::indexed_field_chain_ref(",
+            "let name = name.to_string();\n                if !self.evaluator.force_frames",
+            "let name = name.to_string();\n                return Ok(());\n                if !self.evaluator.force_frames",
             1,
         );
-        reject_forced(outer_start, "forced Field fast path must push before returning");
+        reject_forced(outer_start, "forced Field handler can return before scheduling");
 
         let outer_end = sources.2.replacen(
-            "                        return Ok(());\n                    }\n                }\n                self.push_expr(\n                    index,\n                    base,\n                    value_span,\n                    FrameContinuation::Field",
-            "                        return Ok(());\n                    }\n                    return Ok(());\n                }\n                self.push_expr(\n                    index,\n                    base,\n                    value_span,\n                    FrameContinuation::Field",
+            "                    return Ok(());\n                }\n                self.push_expr(\n                    index,\n                    base,\n                    value_span,\n                    FrameContinuation::Field",
+            "                    return Ok(());\n                }\n                return Ok(());\n                self.push_expr(\n                    index,\n                    base,\n                    value_span,\n                    FrameContinuation::Field",
             1,
         );
-        reject_forced(outer_end, "forced Field fast path must push before returning");
+        reject_forced(outer_end, "forced Field handler can return before scheduling");
 
         let before_outer = sources.2.replacen(
-            "let name = name.to_string();\n                if !self.evaluator.force_frames {",
-            "let name = name.to_string();\n                return Ok(());\n                if !self.evaluator.force_frames {",
+            "let name = name.to_string();",
+            "return Ok(());\n                let name = name.to_string();",
             1,
         );
         reject_forced(before_outer, "forced Field handler can return before scheduling");
 
         let between_push_and_return = sources.2.replacen(
-            "self.push_value(index, FrameValue::Value(value), next);\n                        return Ok(());",
-            "self.push_value(index, FrameValue::Value(value), next);\n                        return Ok(());\n                        return Ok(());",
+            "&& let Some(value) = super::lowered_record_field_value(base, &name)\n                {\n                    self.push_value(index, FrameValue::Value(value), next);\n                    return Ok(());",
+            "&& let Some(value) = super::lowered_record_field_value(base, &name)\n                {\n                    return Ok(());\n                    self.push_value(index, FrameValue::Value(value), next);\n                    return Ok(());",
             1,
         );
         reject_forced(between_push_and_return, "forced Field fast path must push before returning");
 
         let after_inner_return = sources.2.replacen(
-            "self.push_value(index, FrameValue::Value(value), next);\n                        return Ok(());\n                    }",
-            "self.push_value(index, FrameValue::Value(value), next);\n                        return Ok(());\n                        return Ok(());\n                    }",
+            "&& let Some(value) = super::lowered_record_field_value(base, &name)\n                {\n                    self.push_value(index, FrameValue::Value(value), next);\n                    return Ok(());\n                }",
+            "&& let Some(value) = super::lowered_record_field_value(base, &name)\n                {\n                    self.push_value(index, FrameValue::Value(value), next);\n                    return Ok(());\n                    return Ok(());\n                }",
             1,
         );
         reject_forced(after_inner_return, "forced Field fast path must push before returning");

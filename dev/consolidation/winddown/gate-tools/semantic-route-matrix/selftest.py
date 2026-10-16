@@ -133,10 +133,10 @@ def typed_scalar_fixture() -> tuple[list[dict], dict]:
             {"tags": delegated_tags, "behavior": "verified_in_place_typed_delegation", "line": 202},
         ],
         "fallbacks": [
-            {"applies_to": ["IntBinary", "IntStrByteAtSlot"], "scope": "typed tag with mismatched decoded view", "outcome": "frame_strategy_error: decoded IntView does not match tag", "source": "explicit_dispatch", "line": 203, "arm_index": 0},
-            {"applies_to": ["BoolNot", "BoolAnd", "BoolOr", "BoolIntCompare"], "scope": "typed tag with mismatched decoded view", "outcome": "frame_strategy_error: decoded BoolView does not match tag", "source": "explicit_dispatch", "line": 204, "arm_index": 1},
-            {"applies_to": [], "scope": "tag outside the typed scalar cohort", "outcome": "frame_strategy_error: unmatched tag", "source": "explicit_dispatch", "line": 205, "arm_index": 3},
-            {"applies_to": delegated_tags, "scope": "delegated typed leaf without verifier in-place proof", "outcome": "frame_strategy_error: verifier in-place proof absent", "source": "explicit_dispatch", "line": 206, "arm_index": 2},
+            {"applies_to": ["IntInt", "IntSlot", "IntBinary", "IntStrByteLenSlot", "IntStrCountLinesSlot", "IntStrByteAtSlot"], "scope": "malformed IntView payload", "outcome": "indexed_error: IntView decode failed", "source": "explicit_dispatch", "line": 203, "arm_index": 0},
+            {"applies_to": ["BoolBool", "BoolSlot", "BoolNot", "BoolAnd", "BoolOr", "BoolIntCompare", "BoolStrPredicateSlot", "BoolContainsSlot", "BoolStrContainsSlot", "BoolTrimEmptySlot", "BoolTrimStrPredicateSlot", "BoolLiteralCompareSlot"], "scope": "malformed BoolView payload", "outcome": "indexed_error: BoolView decode failed", "source": "explicit_dispatch", "line": 204, "arm_index": 1},
+            {"applies_to": [], "scope": "tag outside the typed scalar cohort", "outcome": "frame_strategy_error: unmatched tag", "source": "explicit_dispatch", "line": 205, "arm_index": 2},
+            {"applies_to": delegated_tags, "scope": "delegated typed leaf without verifier in-place proof", "outcome": "frame_strategy_error: verifier in-place proof absent", "source": "explicit_dispatch", "line": 206, "arm_index": 3},
         ],
         "wrong_union_errors": [
             {"family": "Int", "outcome": "typed integer evaluator produced Bool", "line": 300},
@@ -245,11 +245,13 @@ def eager_atom_fixture() -> tuple[list[dict], dict]:
         },
         "normal_route": {
             "mode": "normal", "line": 1460, "helper_line": 1461,
-            "statement_index": 4, "generic_line": 1470, "generic_statement_index": 5,
+            "statement_index": 4, "fallback_kind": "ExprViewKind",
+            "fallback_line": 1470, "fallback_statement_index": 5,
         },
         "forced_route": {
             "mode": "forced", "line": 6369, "helper_line": 6371,
-            "statement_index": 5, "generic_line": 6394, "generic_statement_index": 7,
+            "statement_index": 5, "fallback_kind": "FrameApply",
+            "fallback_line": 6394, "fallback_statement_index": 7,
         },
         "helper_arms": [
             {
@@ -410,8 +412,8 @@ def frame_constructor_fixture() -> tuple[list[dict], dict]:
             ],
         },
         "normal_route": {
-            "mode": "normal", "line": 100, "helper_line": 101,
-            "statement_index": 2, "fallback_line": 110, "fallback_statement_index": 3,
+            "mode": "normal", "line": 200, "helper_line": 201,
+            "statement_index": 4, "fallback_line": 210, "fallback_statement_index": 5,
         },
         "forced_route": {
             "mode": "forced", "line": 200, "helper_line": 201,
@@ -470,6 +472,29 @@ def frame_constructor_fixture() -> tuple[list[dict], dict]:
 
 
 def collection_construction_fixture() -> tuple[list[dict], dict]:
+    explicit_source = (
+        generate.HERE.parents[4]
+        / "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs"
+    ).read_text().splitlines()
+
+    def helper_error_line(message: str) -> int:
+        matches = [
+            index + 1
+            for index, line in enumerate(explicit_source)
+            if message in line
+        ]
+        if len(matches) != 1:
+            raise AssertionError(f"expected one source line for {message!r}, found {matches}")
+        return matches[0]
+
+    helper_error_lines = {
+        helper: helper_error_line(message)
+        for helper, message in [
+            ("indexed_list_literal_view", "list literal view is invalid"),
+            ("indexed_map_literal_view", "map literal view is invalid"),
+            ("indexed_record_literal_view", "record literal view is invalid"),
+        ]
+    }
     field_types = {
         "ExprRecord": [("entries", "Vec<LoweredRecordEntry>")],
         "ExprMapLiteral": [("entries", "Vec<(Option<BuildExprId>, BuildExprId, Span)>")],
@@ -581,9 +606,9 @@ def collection_construction_fixture() -> tuple[list[dict], dict]:
                 "arm_index": index,
             }
             for index, (helper, outcome, line) in enumerate([
-                ("indexed_list_literal_view", "Err(indexed-ir: list literal view is invalid)", 1326),
-                ("indexed_map_literal_view", "Err(indexed-ir: map literal view is invalid)", 1349),
-                ("indexed_record_literal_view", "Err(indexed-ir: record literal view is invalid)", 1372),
+                ("indexed_list_literal_view", "Err(indexed-ir: list literal view is invalid)", helper_error_lines["indexed_list_literal_view"]),
+                ("indexed_map_literal_view", "Err(indexed-ir: map literal view is invalid)", helper_error_lines["indexed_map_literal_view"]),
+                ("indexed_record_literal_view", "Err(indexed-ir: record literal view is invalid)", helper_error_lines["indexed_record_literal_view"]),
                 ("decode_record_updates", "unreachable!: record-update tag has a matching borrowed expression view", 44),
             ])
         ],
@@ -1861,7 +1886,16 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         )
         self.assertEqual(fallback["branches"][0]["normal_wrapper"], "eval_indexed_typed_int")
         self.assertEqual(fallback["branches"][0]["forced_behavior"], "frame_operation")
-        self.assertTrue(any("decoded IntView" in item["outcome"] for item in fallback["fallbacks"]))
+        self.assertIn(
+            {
+                "scope": "malformed IntView payload",
+                "outcome": "indexed_error: IntView decode failed",
+                "source_ref": "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:203",
+                "arm_index": 0,
+                "applies_to_row": True,
+            },
+            fallback["fallbacks"],
+        )
         self.assertEqual(fallback["defensive_wrong_union"][0]["outcome"], "typed integer evaluator produced Bool")
         self.assertIn("checked_int_binary", fallback["branches"][0]["result_provenance"])
         self.assertEqual(
@@ -2015,6 +2049,26 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         with self.assertRaisesRegex(generate.EvidenceError, "fallbacks differ"):
             generate.validate_typed_scalar_inventory(rows, missing_fallback)
 
+        wrong_decoder_tags = copy.deepcopy(inventory)
+        wrong_decoder_tags["fallbacks"][0]["applies_to"].remove("IntInt")
+        with self.assertRaisesRegex(generate.EvidenceError, "fallback differs from its exact source branch"):
+            generate.validate_typed_scalar_inventory(rows, wrong_decoder_tags)
+
+        wrong_decoder_source = copy.deepcopy(inventory)
+        wrong_decoder_source["fallbacks"][0]["source"] = "normal_dispatch"
+        with self.assertRaisesRegex(generate.EvidenceError, "fallback differs from its exact source branch"):
+            generate.validate_typed_scalar_inventory(rows, wrong_decoder_source)
+
+        wrong_kind_arm = copy.deepcopy(inventory)
+        wrong_kind_arm["fallbacks"][2]["arm_index"] = 3
+        with self.assertRaisesRegex(generate.EvidenceError, "fallback differs from its exact source branch"):
+            generate.validate_typed_scalar_inventory(rows, wrong_kind_arm)
+
+        wrong_decoder_outcome = copy.deepcopy(inventory)
+        wrong_decoder_outcome["fallbacks"][0]["outcome"] = "frame_strategy_error: decoded IntView does not match tag"
+        with self.assertRaisesRegex(generate.EvidenceError, "fallbacks differ"):
+            generate.validate_typed_scalar_inventory(rows, wrong_decoder_outcome)
+
         wrong_union = copy.deepcopy(inventory)
         wrong_union["wrong_union_errors"].pop()
         with self.assertRaisesRegex(generate.EvidenceError, "wrong-union errors"):
@@ -2105,9 +2159,14 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             generate.validate_eager_atom_inventory(rows, missing_route)
 
         reordered = copy.deepcopy(inventory)
-        reordered["forced_route"]["generic_statement_index"] = 3
-        with self.assertRaisesRegex(generate.EvidenceError, "after generic"):
+        reordered["forced_route"]["fallback_statement_index"] = 3
+        with self.assertRaisesRegex(generate.EvidenceError, "after its dispatch fallback"):
             generate.validate_eager_atom_inventory(rows, reordered)
+
+        wrong_fallback = copy.deepcopy(inventory)
+        wrong_fallback["normal_route"]["fallback_kind"] = "FrameApply"
+        with self.assertRaisesRegex(generate.EvidenceError, "unexpected dispatch fallback"):
+            generate.validate_eager_atom_inventory(rows, wrong_fallback)
 
     def test_eager_atom_inventory_rejects_view_fallback_and_boundary_drift(self) -> None:
         rows, inventory = eager_atom_fixture()
@@ -2179,15 +2238,20 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         rows, inventory = eager_atom_fixture()
         with self.assertRaisesRegex(generate.EvidenceError, "missing AST EagerAtom inventory"):
             generate.build_fallback_path_map(rows[0], {})
-        self.assertEqual(len(generate.validate_eager_atom_inventory(rows, inventory)["schema_rows"]), 12)
+        checked = generate.validate_eager_atom_inventory(rows, inventory)
+        self.assertEqual(len(checked["schema_rows"]), 12)
+        path_map = generate.build_fallback_path_map(rows[0], {}, eager_atom_inventory=checked)
+        branch = path_map["branches"][0]
+        self.assertEqual(branch["normal_evaluator_fallback_ref"], "src/runtime/eval/lowered_run/indexed_run.rs:1470")
+        self.assertNotIn("normal_generic_frame_apply_ref", branch)
 
     def test_frame_constructor_inventory_maps_only_dispatch_and_preserves_value_errors(self) -> None:
         rows, inventory = frame_constructor_fixture()
         checked = generate.validate_frame_constructor_inventory(rows, inventory)
         refs = {
             "schema_row": ["src/runtime/eval/indexed/full/schema.rs:790"],
-            "normal_dispatch": ["src/runtime/eval/lowered_run/indexed_run.rs:1470"],
-            "forced_dispatch": ["src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:6394"],
+            "normal_dispatch": ["src/runtime/eval/lowered_run/indexed_run.rs:40"],
+            "forced_dispatch": ["src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:200"],
         }
         path_from = next(row for row in rows if row["tag"] == "ExprPathFrom")
         path_map = generate.build_fallback_path_map(
@@ -2206,6 +2270,10 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         self.assertGreater(len(path_map["runtime_error_paths"]["source_refs"]), 2)
         self.assertEqual(path_map["branches"][0]["child_behavior"], "one_child")
         self.assertEqual(path_map["branches"][0]["value_behavior"], "indexed_path_from_value")
+        self.assertEqual(
+            path_map["branches"][0]["normal_route_ref"],
+            "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:200",
+        )
         self.assertEqual(len(path_map["fallbacks"]), 3)
         self.assertTrue(any("frame_strategy_error" in item["outcome"] for item in path_map["fallbacks"]))
         self.assertFalse(next(
@@ -2269,6 +2337,11 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         late_route["forced_route"]["statement_index"] = 5
         with self.assertRaisesRegex(generate.EvidenceError, "occurs after its fallback"):
             generate.validate_frame_constructor_inventory(rows, late_route)
+
+        different_dispatch = copy.deepcopy(inventory)
+        different_dispatch["normal_route"]["line"] -= 1
+        with self.assertRaisesRegex(generate.EvidenceError, "do not share the explicit scheduled route"):
+            generate.validate_frame_constructor_inventory(rows, different_dispatch)
 
         missing_arm = copy.deepcopy(inventory)
         missing_arm["child_arms"].pop()
@@ -2357,14 +2430,6 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             if normal_view is not None:
                 self.assertTrue(normal_view["applies_to_row"])
                 self.assertIn("indexed_run.rs", normal_view["source_ref"])
-            row_helper_fallbacks = [
-                item for item in constructor_map["fallbacks"]
-                if item["source_ref"].endswith("explicit_run.rs:1326")
-                or item["source_ref"].endswith("explicit_run.rs:1349")
-                or item["source_ref"].endswith("explicit_run.rs:1372")
-            ]
-            self.assertEqual(len(row_helper_fallbacks), 3)
-            self.assertTrue(all("explicit_run.rs" in item["source_ref"] for item in row_helper_fallbacks))
             helper_outcomes = {
                 "Err(indexed-ir: list literal view is invalid)": {"ExprList", "ExprListBuild"},
                 "Err(indexed-ir: map literal view is invalid)": {"ExprMapLiteral"},
@@ -2376,6 +2441,12 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 "Err(indexed-ir: map literal view is invalid)": "map literal view is invalid",
                 "Err(indexed-ir: record literal view is invalid)": "record literal view is invalid",
             }
+            row_helper_fallbacks = [
+                item for item in constructor_map["fallbacks"]
+                if item["outcome"] in helper_messages
+            ]
+            self.assertEqual(len(row_helper_fallbacks), 3)
+            self.assertTrue(all("explicit_run.rs" in item["source_ref"] for item in row_helper_fallbacks))
             for item in constructor_map["fallbacks"]:
                 if item["outcome"] in helper_outcomes:
                     self.assertEqual(item["applies_to_row"], constructor_row["tag"] in helper_outcomes[item["outcome"]])

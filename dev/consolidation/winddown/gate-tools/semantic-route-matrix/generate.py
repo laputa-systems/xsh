@@ -1874,6 +1874,12 @@ def validate_frame_constructor_inventory(
             raise EvidenceError(f"FrameApply constructor {mode} route occurs after its fallback")
         if route["line"] >= route["fallback_line"]:
             raise EvidenceError(f"FrameApply constructor {mode} route line occurs after its fallback")
+    shared_route_fields = ("line", "helper_line", "statement_index", "fallback_line", "fallback_statement_index")
+    if any(
+        inventory["normal_route"].get(field) != inventory["forced_route"].get(field)
+        for field in shared_route_fields
+    ):
+        raise EvidenceError("FrameApply normal and forced modes do not share the explicit scheduled route")
 
     expected_child = {
         "FunctionRef": "no_child",
@@ -2462,7 +2468,7 @@ def validate_call_frame_inventory(
     if any(not isinstance(route.get(field), int) or route[field] < 1 for field in route_fields):
         raise EvidenceError("call frame normal and forced routes are incomplete")
     if not (
-        route["scheduled_predicate_line"] < route["frame_schedule_line"] < route["frame_helper_line"]
+        route["scheduled_predicate_line"] <= route["frame_schedule_line"] < route["frame_helper_line"]
         and route["frame_schedule_line"] < route["inner_helper_line"]
         and route["view_kind_line"] < route["eval_expr_view_line"]
     ):
@@ -2650,7 +2656,7 @@ def validate_field_index_inventory(
     if any(not isinstance(normal_route.get(field), int) or normal_route[field] < 1 for field in normal_route_fields):
         raise EvidenceError("field/index normal wrapper route is incomplete")
     if not (
-        normal_route["scheduled_predicate_line"] < normal_route["frame_schedule_line"]
+        normal_route["scheduled_predicate_line"] <= normal_route["frame_schedule_line"]
         and normal_route["frame_schedule_line"] <= normal_route["frame_helper_line"]
         and normal_route["frame_helper_line"] < normal_route["inner_helper_line"]
     ):
@@ -3083,6 +3089,14 @@ def validate_eager_atom_inventory(
     expected_rows = [row for row in rows if row["eager_atom"]]
     if len(expected_rows) != 12:
         raise EvidenceError(f"EagerAtom matrix cohort must contain 12 rows, found {len(expected_rows)}")
+    if any(
+        row["kind"] != "Expr"
+        or row["effects"] != "0"
+        or row["in_place"] != "Operands"
+        or row["frame_strategy"] != "FrameApply"
+        for row in expected_rows
+    ):
+        raise EvidenceError("EagerAtom metadata differs from the in-place FrameApply contract")
     source_paths = inventory.get("source_paths", {})
     if set(source_paths) != {
         "schema", "normal_dispatch", "forced_dispatch", "slot_codec", "freeze_helper"
@@ -3143,15 +3157,16 @@ def validate_eager_atom_inventory(
     route_by_mode = {route["mode"]: route for route in routes}
     for mode in expected_routes:
         route = route_by_mode[mode]
-        for name in (
-            "line", "helper_line", "statement_index", "generic_line", "generic_statement_index"
-        ):
+        for name in ("line", "helper_line", "statement_index", "fallback_line", "fallback_statement_index"):
             if not isinstance(route.get(name), int) or route[name] < 0:
                 raise EvidenceError(f"EagerAtom {mode} route has an invalid {name}")
+        expected_fallback = "ExprViewKind" if mode == "normal" else "FrameApply"
+        if route.get("fallback_kind") != expected_fallback:
+            raise EvidenceError(f"EagerAtom {mode} route has an unexpected dispatch fallback")
         if route["line"] >= route["helper_line"]:
             raise EvidenceError(f"EagerAtom {mode} route does not precede its helper call")
-        if route["statement_index"] >= route["generic_statement_index"] or route["line"] >= route["generic_line"]:
-            raise EvidenceError(f"EagerAtom {mode} route occurs after generic FrameApply")
+        if route["statement_index"] >= route["fallback_statement_index"] or route["line"] >= route["fallback_line"]:
+            raise EvidenceError(f"EagerAtom {mode} route occurs after its dispatch fallback")
 
     expected_variants = {row["variant"] for row in expected_rows}
     helper_arms = inventory.get("helper_arms", [])
@@ -3392,17 +3407,53 @@ def validate_typed_scalar_inventory(
     if set(group_coverage) != {row["tag"] for row in expected_rows}:
         raise EvidenceError("typed scalar frame groups do not cover exactly the schema cohort")
 
-    required_fallbacks = {
-        "frame_strategy_error: decoded IntView does not match tag",
-        "frame_strategy_error: decoded BoolView does not match tag",
-        "frame_strategy_error: unmatched tag",
-        "frame_strategy_error: verifier in-place proof absent",
+    operation_tags = {
+        "IntBinary", "IntStrByteAtSlot", "BoolNot", "BoolAnd", "BoolOr", "BoolIntCompare",
+    }
+    expected_fallbacks = {
+        "indexed_error: IntView decode failed": (
+            "malformed IntView payload",
+            {row["tag"] for row in expected_rows if row["kind"] == "Int"},
+            0,
+        ),
+        "indexed_error: BoolView decode failed": (
+            "malformed BoolView payload",
+            {row["tag"] for row in expected_rows if row["kind"] == "Bool"},
+            1,
+        ),
+        "frame_strategy_error: unmatched tag": (
+            "tag outside the typed scalar cohort",
+            set(),
+            2,
+        ),
+        "frame_strategy_error: verifier in-place proof absent": (
+            "delegated typed leaf without verifier in-place proof",
+            {row["tag"] for row in expected_rows} - operation_tags,
+            3,
+        ),
     }
     fallbacks = inventory.get("fallbacks", [])
-    if len(fallbacks) != len(required_fallbacks) or {fallback.get("outcome") for fallback in fallbacks} != required_fallbacks:
+    fallback_by_outcome = {fallback.get("outcome"): fallback for fallback in fallbacks}
+    if len(fallbacks) != len(expected_fallbacks) or set(fallback_by_outcome) != set(expected_fallbacks):
         raise EvidenceError("typed scalar explicit-frame fallbacks differ from the audited branches")
-    if any(not isinstance(fallback.get("line"), int) or fallback["line"] < 1 for fallback in fallbacks):
-        raise EvidenceError("typed scalar fallback has an invalid source line")
+    for outcome, (scope, applies_to, arm_index) in expected_fallbacks.items():
+        fallback = fallback_by_outcome[outcome]
+        actual_applies_to = fallback.get("applies_to")
+        if (
+            fallback.get("scope") != scope
+            or fallback.get("source") != "explicit_dispatch"
+            or not isinstance(actual_applies_to, list)
+            or any(not isinstance(tag, str) for tag in actual_applies_to)
+            or len(actual_applies_to) != len(set(actual_applies_to))
+            or set(actual_applies_to) != applies_to
+            or not isinstance(fallback.get("arm_index"), int)
+            or isinstance(fallback.get("arm_index"), bool)
+            or fallback["arm_index"] != arm_index
+            or not isinstance(fallback.get("line"), int)
+            or isinstance(fallback.get("line"), bool)
+            or fallback["line"] < 1
+        ):
+            raise EvidenceError(f"typed scalar fallback differs from its exact source branch: {outcome}")
 
     expected_union_errors = {
         ("Int", "typed integer evaluator produced Bool"),
@@ -4168,10 +4219,10 @@ def eager_atom_fallback_path_map(
     paths = inventory["source_paths"]
     normal_ref = f"{paths['normal_dispatch']}:{inventory['normal_route']['line']}"
     normal_helper_ref = f"{paths['normal_dispatch']}:{inventory['normal_route']['helper_line']}"
-    normal_generic_ref = f"{paths['normal_dispatch']}:{inventory['normal_route']['generic_line']}"
+    normal_fallback_ref = f"{paths['normal_dispatch']}:{inventory['normal_route']['fallback_line']}"
     forced_ref = f"{paths['forced_dispatch']}:{inventory['forced_route']['line']}"
     forced_helper_ref = f"{paths['forced_dispatch']}:{inventory['forced_route']['helper_line']}"
-    forced_generic_ref = f"{paths['forced_dispatch']}:{inventory['forced_route']['generic_line']}"
+    forced_generic_ref = f"{paths['forced_dispatch']}:{inventory['forced_route']['fallback_line']}"
     helper_view_ref = f"{paths['normal_dispatch']}:{helper_arm['line']}"
     helper_fallback_ref = f"{paths['normal_dispatch']}:{inventory['helper_fallback']['line']}"
     explicit_error_ref = f"{paths['forced_dispatch']}:{inventory['explicit_error_group']['line']}"
@@ -4250,7 +4301,7 @@ def eager_atom_fallback_path_map(
             "normal_behavior": "recursive_eager_atom_value",
             "normal_route_ref": normal_ref,
             "normal_helper_ref": normal_helper_ref,
-            "normal_generic_frame_apply_ref": normal_generic_ref,
+            "normal_evaluator_fallback_ref": normal_fallback_ref,
             "classification_refs": classification_refs,
             "helper_view_ref": helper_view_ref,
             "value_provenance": value_provenance,
@@ -4267,7 +4318,7 @@ def eager_atom_fallback_path_map(
         "runtime_error_paths": runtime_error_paths,
         "source_refs": {
             **source_refs,
-            "eager_atom_normal_dispatch": [normal_ref, normal_helper_ref, normal_generic_ref],
+            "eager_atom_normal_dispatch": [normal_ref, normal_helper_ref, normal_fallback_ref],
             "eager_atom_forced_dispatch": [forced_ref, forced_helper_ref, forced_generic_ref],
             "eager_atom_classification": classification_refs,
             "eager_atom_helper_view": [helper_view_ref],
@@ -4315,8 +4366,8 @@ def frame_constructor_fallback_path_map(
     if child_arm is None or value_arm is None:
         raise EvidenceError(f"FrameApply constructor inventory has incomplete helper arms for {tag}")
 
-    normal_ref = f"{paths['normal_dispatch']}:{normal_route['line']}"
-    normal_helper_ref = f"{paths['normal_dispatch']}:{normal_route['helper_line']}"
+    normal_ref = f"{paths['forced_dispatch']}:{normal_route['line']}"
+    normal_helper_ref = f"{paths['forced_dispatch']}:{normal_route['helper_line']}"
     classifier_ref = f"{paths['normal_dispatch']}:{frame_classifier['line']}"
     forced_ref = f"{paths['forced_dispatch']}:{forced_route['line']}"
     forced_helper_ref = f"{paths['forced_dispatch']}:{forced_route['helper_line']}"
@@ -4354,7 +4405,7 @@ def frame_constructor_fallback_path_map(
     return {
         "review_status": "source_exhaustive_dispatch_path",
         "scope": (
-            "exact schema membership, normal generic FrameApply selection, forced child/value helper "
+            "exact schema membership, normal scheduled and forced generic FrameApply selection, child/value helper "
             "selection, and the defensive ExprViewKind error group; value construction errors remain unreviewed"
         ),
         "branches": [{
