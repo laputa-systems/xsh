@@ -47,7 +47,7 @@ pure valid_git_id(value: Str) -> Bool {
 }
 
 pure valid_run_id(value: Str) -> Bool {
-  return false when value.byte_len() == 0 or value.byte_len() > 48
+  return false when value.is_empty() or value.byte_len() > 48
   return false when value.starts_with("-")
   for character in value {
     return false when character not in "abcdefghijklmnopqrstuvwxyz0123456789-"
@@ -56,7 +56,7 @@ pure valid_run_id(value: Str) -> Bool {
 }
 
 proc git_output(root: Path, arguments: List[Str]) [process, error] -> Result[Str, Error] {
-  let argv = ["git", "-C", root.display(), @arguments]
+  let argv: NonEmpty[Str] = ["git", "-C", root.display(), @arguments]
   let output = run.capture --text --timeout=30s @argv
   let code = output.status.shell_code()?
   if code != 0 {
@@ -65,23 +65,23 @@ proc git_output(root: Path, arguments: List[Str]) [process, error] -> Result[Str
   output.stdout.trim()
 }
 
-proc execute(stage: Str, argv: List[Str], root: Path, scratch: Path) [process, error] -> Result[Unit, Error] {
+proc execute(stage: Str, argv: List[Str], root: Path, scratch: Path) [process, error] {
   print f"[{stage}] {argv.join(" ")}"
   let status = process.run(process.command_argv(
     argv[0],
     argv,
     cwd: root,
-    env: {TMPDIR: scratch.display()},
+    env: {TMPDIR: scratch},
   ))?
   if !status.exited_with(0) {
     fail f"{stage} failed with status {status.shell_code()?}"
   }
 }
 
-proc validate_inputs(options: Options) [fs, process, error, io] -> Result[Unit, Error] {
-  if !valid_git_id(options.source_commit) { fail "source commit must be a full lowercase Git ID" }
-  if !valid_git_id(options.source_tree) { fail "source tree must be a full lowercase Git tree ID" }
-  if !valid_run_id(options.run_id) { fail "run ID must use 1 to 48 lowercase letters, digits, or hyphens" }
+proc validate_inputs(options: Options) [fs, process, error, io] {
+  guard valid_git_id(options.source_commit) else { fail "source commit must be a full lowercase Git ID" }
+  guard valid_git_id(options.source_tree) else { fail "source tree must be a full lowercase Git tree ID" }
+  guard valid_run_id(options.run_id) else { fail "run ID must use 1 to 48 lowercase letters, digits, or hyphens" }
 
   let root = options.source_root.resolve()?
   if root != options.source_root { fail "source root must be a canonical path" }
@@ -98,12 +98,12 @@ proc validate_inputs(options: Options) [fs, process, error, io] -> Result[Unit, 
     fail "source root must be clean before final replay"
   }
 
-  if !options.functional_close.exists()? { fail "functional-close record does not exist" }
-  if !options.functional_close.is_file()? { fail "functional-close path is not a regular file" }
+  if !options.functional_close.exists() { fail "functional-close record does not exist" }
+  if !options.functional_close.is_file() { fail "functional-close path is not a regular file" }
   let close_path = options.functional_close.resolve()?
   if close_path != options.functional_close { fail "functional-close path must not contain symlinks" }
   if !close_path.starts_with(root) { fail "functional-close record must remain under the source root" }
-  if !close_path.is_file()? { fail "functional-close record does not exist" }
+  if !close_path.is_file() { fail "functional-close record does not exist" }
   let close = json.read(close_path)?.require(FunctionalClose)?
   if !close.functional_complete or close.commit != options.source_commit {
     fail "functional-close record does not mark this exact source commit complete"
@@ -111,7 +111,7 @@ proc validate_inputs(options: Options) [fs, process, error, io] -> Result[Unit, 
 
   let reference_root = options.reference_source_root.resolve()?
   if reference_root != options.reference_source_root { fail "reference root must be a canonical path" }
-  if !reference_root.is_dir()? { fail "reference source root does not exist" }
+  if !reference_root.is_dir() { fail "reference source root does not exist" }
   if reference_root == root { fail "reference source root must be an isolated worktree" }
   if !reference_root.starts_with(fp"{root}/.work/wt") {
     fail "reference source root must be under the repository worktree directory"
@@ -127,21 +127,21 @@ proc validate_inputs(options: Options) [fs, process, error, io] -> Result[Unit, 
   }
 
   let work = fp"{root}/.work"
-  if work.exists()? {
-    if work.resolve()? != work { fail "work directory must not contain symlinks" }
-    if !work.is_dir()? { fail "work path must be a directory" }
+  if work.exists() {
+    guard work.resolve()? == work else { fail "work directory must not contain symlinks" }
+    if !work.is_dir() { fail "work path must be a directory" }
   } else {
     work.mkdir()
   }
   let scratch = fp"{root}/.work/tmp"
-  if scratch.exists()? {
-    if scratch.resolve()? != scratch { fail "scratch directory must not contain symlinks" }
-    if !scratch.is_dir()? { fail "scratch path must be a directory" }
+  if scratch.exists() {
+    guard scratch.resolve()? == scratch else { fail "scratch directory must not contain symlinks" }
+    if !scratch.is_dir() { fail "scratch path must be a directory" }
   } else {
     scratch.mkdir()
   }
   let bridge = fp"{root}/{BRIDGE_RELATIVE}"
-  if !bridge.is_file()? { fail f"scheduler receipt bridge is missing: {bridge}" }
+  if !bridge.is_file() { fail f"scheduler receipt bridge is missing: {bridge}" }
   let bridge_source = bridge.read_text()?
   if "def configure(args)" not in bridge_source or "--tree-id" not in bridge_source {
     fail "scheduler receipt bridge is not the dynamic-input version"
@@ -154,7 +154,7 @@ proc validate_inputs(options: Options) [fs, process, error, io] -> Result[Unit, 
     "--functional-close", close_path.display(),
     "--reference-source-root", reference_root.display(),
     "--run-id", options.run_id,
-  ], root, scratch)?
+  ], root, scratch)
 
   let profile_output = fp"{root}/.work/consolidation/final-performance-gates/profile-cost-{options.source_commit}"
   let forced_output = fp"{root}/.work/consolidation/final-performance-gates/forced-frames-{options.source_commit}"
@@ -162,22 +162,19 @@ proc validate_inputs(options: Options) [fs, process, error, io] -> Result[Unit, 
   let reference_build = fp"{root}/.work/final-review-evidence/final-correctness-gates/native-scheduler-reference-{options.source_commit}-{options.run_id}"
   let comparison_output = fp"{root}/.work/consolidation/native-scheduler-comparison/{options.run_id}"
   for output in [profile_output, forced_output] {
-    if output.exists()? { fail f"profile or forced-frame output already exists for this source; inspect it: {output}" }
+    if output.exists() { fail f"profile or forced-frame output already exists for this source; inspect it: {output}" }
   }
   for output in [scheduler_builds, reference_build, comparison_output] {
-    if output.exists()? { fail f"scheduler output already exists; choose a fresh run ID or inspect: {output}" }
+    if output.exists() { fail f"scheduler output already exists; choose a fresh run ID or inspect: {output}" }
   }
 }
 
-proc run_replay(options: Options) [fs, process, error, io] -> Result[Unit, Error] {
-  validate_inputs(options)?
+proc run_replay(options: Options) [fs, process, error, io] {
+  validate_inputs(options)
 
-  let root = options.source_root
-  let commit = options.source_commit
-  let tree_id = options.source_tree
-  let close = options.functional_close.display()
-  let reference = options.reference_source_root.display()
-  let run_id = options.run_id
+  let {source_root: root, source_commit: commit, source_tree: tree_id, functional_close, reference_source_root, run_id, ..} = options
+  let close = functional_close.display()
+  let reference = reference_source_root.display()
   let scratch = fp"{root}/.work/tmp"
   let profile_script = fp"{root}/dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py"
   let forced_script = fp"{root}/dev/consolidation/winddown/gate-tools/final-performance-gates/forced-frames.py"
@@ -199,7 +196,7 @@ proc run_replay(options: Options) [fs, process, error, io] -> Result[Unit, Error
     "--commit", commit,
     "--functional-close", close,
     "--output", profile_output.display(),
-  ], root, scratch)?
+  ], root, scratch)
 
   let profile = json.read(profile_receipt_path)?.require(ProfileReceipt)?
   if profile.state != "complete" or profile.results.len() != 1 {
@@ -216,7 +213,7 @@ proc run_replay(options: Options) [fs, process, error, io] -> Result[Unit, Error
     "--functional-close", close,
     "--profile-receipt", profile_receipt_path.display(),
     "--output", forced_output.display(),
-  ], root, scratch)?
+  ], root, scratch)
 
   let forced = json.read(fp"{forced_output}/receipt.json")?.require(ForcedReceipt)?
   if forced.state != "complete" { fail "forced-frame native suite receipt is incomplete" }
@@ -232,11 +229,11 @@ proc run_replay(options: Options) [fs, process, error, io] -> Result[Unit, Error
   ]
   execute("adapt candidate scheduler receipt", [
     "python3", bridge.display(), "candidate", @bridge_arguments,
-  ], root, scratch)?
+  ], root, scratch)
 
   execute("build reference scheduler binary", [
     "python3", bridge.display(), "reference-build", @bridge_arguments,
-  ], root, scratch)?
+  ], root, scratch)
 
   execute("three paired scheduler rounds", [
     "python3", comparator.display(),
@@ -252,7 +249,7 @@ proc run_replay(options: Options) [fs, process, error, io] -> Result[Unit, Error
     "--output-dir", comparison_output.display(),
     "--lock-path", fp"{root}/.work/consolidation/infra/native-suite.lock".display(),
     "--run-id", run_id,
-  ], root, scratch)?
+  ], root, scratch)
 
   let comparison = json.read(fp"{comparison_output}/receipt.json")?.require(SchedulerReceipt)?
   if comparison.state != "complete" or !comparison.complete or comparison.suite_round_count != 3 {
@@ -267,7 +264,7 @@ proc run_replay(options: Options) [fs, process, error, io] -> Result[Unit, Error
     fail "scheduler comparison did not accept all three paired rounds"
   }
   for round in pair_validation.rounds {
-    if !round.accepted { fail f"scheduler pair round {round.round} was not accepted" }
+    guard round.accepted else { fail f"scheduler pair round {round.round} was not accepted" }
   }
   if comparison.stages.len() != 10 {
     fail "scheduler comparison did not complete two list, two help, and six full-suite stages"
