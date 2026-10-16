@@ -2667,11 +2667,15 @@ def _launch_exact_owner_job(
         raise ExactOwnerError(f"exact-owner Docker container already exists: {container}")
     source_qualified = source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
     if source_qualified:
-        assignment_environment = (
-            [f"W9_ASSIGNMENT_HELPER_SHA256={assignment_helper_sha256}"]
-            if assignment_helper_sha256 is not None
-            else []
-        )
+        runtime_environment = adapter_runner._source_qualified_runtime_environment(source_record)
+        assignment_environment = []
+        if assignment_helper_sha256 is not None:
+            assignment_environment.extend(
+                f"{name}={value}" for name, value in runtime_environment.items()
+            )
+            assignment_environment.append(
+                f"W9_ASSIGNMENT_HELPER_SHA256={assignment_helper_sha256}"
+            )
         command = [
             "timeout", "900s", source_record["builder_path"], source_record["candidate_root"], "run",
             f"W9_INPUT_ROOT={source_record['input_root']}",
@@ -2689,8 +2693,7 @@ def _launch_exact_owner_job(
         ]
         environment = {
             **docker_environment,
-            "W9_SOURCE_COMMIT": source_record["candidate_commit"],
-            "W9_SOURCE_TREE": source_record["candidate_tree"],
+            **runtime_environment,
         }
         job_root = pathlib.Path(source_record["candidate_root"])
     else:

@@ -853,6 +853,13 @@ def _raw_hash_pair_matches(
     ) == receipt_hashes
 
 
+def _source_qualified_runtime_environment(source_record: dict[str, str]) -> dict[str, str]:
+    return {
+        "W9_SOURCE_COMMIT": source_record["candidate_commit"],
+        "W9_SOURCE_TREE": source_record["candidate_tree"],
+    }
+
+
 def _hash_raw_outcomes(
     binary: pathlib.Path,
     raw_root: pathlib.Path,

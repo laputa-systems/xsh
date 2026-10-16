@@ -2298,6 +2298,84 @@ class SourceQualifiedExactOwnerReceiptTests(unittest.TestCase):
 
 
 class ExactOwnerCaptureSchedulingTests(unittest.TestCase):
+    def test_assignment_worker_launch_keeps_candidate_and_helper_bindings_separate(self):
+        repository_root = pathlib.Path(__file__).resolve().parents[2]
+        scratch_root = repository_root / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch_root) as temporary:
+            root = pathlib.Path(temporary)
+            candidate_root = root / "candidate"
+            candidate_root.mkdir()
+            input_root = root / "inputs"
+            input_root.mkdir()
+            output = root / "capture"
+            (output / "jobs/A").mkdir(parents=True)
+            captured = {}
+
+            def record_launch(job, active, command, working_directory, environment):
+                captured.update(
+                    job=job,
+                    active=active,
+                    command=command,
+                    working_directory=working_directory,
+                    environment=environment,
+                )
+
+            candidate_commit = "a" * 40
+            candidate_tree = "b" * 40
+            controller_commit = "c" * 40
+            controller_tree = "d" * 40
+            helper_sha256 = "e" * 64
+            source_record = {
+                "schema": "3",
+                "candidate_root": str(candidate_root),
+                "candidate_commit": candidate_commit,
+                "candidate_tree": candidate_tree,
+                "builder_path": "/qualified/w9-source-build.sh",
+                "input_root": str(input_root),
+            }
+            runner = SimpleNamespace(
+                SOURCE_COHORT_SCHEMA="3",
+                CORPUS_BLAKE3="123456789abcdef0",
+                existing_container=lambda *_args: False,
+                start_and_register_job=record_launch,
+            )
+
+            job = exact_runner._launch_exact_owner_job(
+                runner,
+                source_record,
+                "candidate",
+                output,
+                {
+                    "binary": "/candidate/integration-test",
+                    "binary_sha256": "f" * 64,
+                    "source_commit": candidate_commit,
+                    "source_tree": candidate_tree,
+                },
+                output / "facts",
+                output / "receipts",
+                0,
+                1,
+                "A",
+                [],
+                {"PATH": "/usr/bin:/bin"},
+                helper_sha256,
+            )
+            job["output"].close()
+
+            self.assertNotEqual(candidate_commit, controller_commit)
+            self.assertNotEqual(candidate_tree, controller_tree)
+            self.assertEqual(captured["environment"]["W9_SOURCE_COMMIT"], candidate_commit)
+            self.assertEqual(captured["environment"]["W9_SOURCE_TREE"], candidate_tree)
+            self.assertNotIn("W9_ASSIGNMENT_HELPER_SHA256", captured["environment"])
+            command = captured["command"]
+            environment_arguments = command[command.index("env") + 1:command.index("taskset")]
+            self.assertIn(f"W9_SOURCE_COMMIT={candidate_commit}", environment_arguments)
+            self.assertIn(f"W9_SOURCE_TREE={candidate_tree}", environment_arguments)
+            self.assertIn(f"W9_ASSIGNMENT_HELPER_SHA256={helper_sha256}", environment_arguments)
+            self.assertNotIn(f"W9_SOURCE_COMMIT={controller_commit}", environment_arguments)
+            self.assertNotIn(f"W9_SOURCE_TREE={controller_tree}", environment_arguments)
+
     def run_capture(self, failing_worker=None):
         class OutputHandle:
             closed = False
