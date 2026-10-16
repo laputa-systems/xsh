@@ -1945,9 +1945,40 @@ enum ResolvedAssignStep {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::eval::route_witness::{RouteWitnessRoute, frame_route};
     use crate::sema::check::Checker;
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn frame_apply_dispatch_tags_have_matching_schema_routes() {
+        use crate::runtime::eval::indexed::full::schema::{INSTRUCTION_TAGS, InstructionKind};
+
+        for tag in INSTRUCTION_TAGS.iter().copied().filter(|tag| {
+            tag.kind() == InstructionKind::Expr && !tag.is_eager_atom()
+        }) {
+            if indexed_frame_apply_tag(tag) {
+                assert_eq!(
+                    tag.frame_strategy(),
+                    FrameStrategy::FrameApply,
+                    "{}",
+                    tag.name(),
+                );
+                assert_eq!(
+                    frame_route(tag, false),
+                    Some(RouteWitnessRoute::ExplicitFrameApply),
+                    "{}",
+                    tag.name(),
+                );
+                assert_eq!(
+                    frame_route(tag, true),
+                    Some(RouteWitnessRoute::GenericOperandApply),
+                    "{}",
+                    tag.name(),
+                );
+            }
+        }
+    }
 
     #[test]
     fn parametric_records_keep_concrete_schemas_across_calls() {

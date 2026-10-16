@@ -1161,9 +1161,7 @@ instruction_schema! {
             args: Vec<Option<BuildExprId>>,
             span: Span,
         } => ExprModuleCall = 99 [EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
-        // Boxed because this cold command-construction payload otherwise makes
-        // every `BuildExprId` 16 bytes larger, including expression-heavy scripts.
-        ProcessCommandArgv(value: Box<LoweredProcessCommandArgv>) => ExprProcessCommandArgv = 100 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameControl];
+        ProcessCommandArgv(value: Box<LoweredProcessCommandArgv>) => ExprProcessCommandArgv = 100 [EFFECT_PROCESS | EFFECT_CANCELLATION | EFFECT_PROPAGATE | EFFECT_HOST | EFFECT_TRACE; Scheduled; FrameApply];
         ProcessCommandBuilder {
             entries: Vec<LoweredProcessCommandBuilderEntry>,
             span: Span,
