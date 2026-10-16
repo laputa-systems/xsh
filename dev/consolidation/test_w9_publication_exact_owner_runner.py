@@ -1223,6 +1223,8 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
         self.binary.write_bytes(b"qualified harness bytes\n")
         self.base_helper_path = self.candidate_work / "base-helper.rs"
         self.base_helper_path.write_bytes(b"base adapter helper\n")
+        self.owner_helper_path = self.candidate_work / "base-owner-helper.rs"
+        self.owner_helper_path.write_bytes(b"base owner helper\n")
         self.composed_helper_path = self.candidate_work / "composed-helper.rs"
         self.owner_helper_sha256 = "b" * 64
         self.owner_helper_source_sha256 = "c" * 64
@@ -1265,6 +1267,7 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
         self.outside_capture_root.mkdir()
         self.base_build = {
             "helper_path": str(self.base_helper_path),
+            "owner_helper_path": str(self.owner_helper_path),
             "owner_helper_sha256": self.owner_helper_sha256,
             "owner_helper_source_sha256": self.owner_helper_source_sha256,
             "source_commit": self.source_commit,
@@ -1528,6 +1531,93 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
                 self.runner,
             )
 
+    def _run_assignment_build(
+        self,
+        *,
+        dry_run=False,
+        exact_helper_bytes=None,
+        corrupt_helper=False,
+        build_adapter=None,
+    ):
+        original_source_identity = self.runner.source_identity
+        original_write_new_file = adapter_runner._write_new_file
+
+        def source_identity(path):
+            if pathlib.Path(path) == self.candidate_root:
+                return self.source_commit, self.source_tree
+            return original_source_identity(path)
+
+        def write_new_file(path, contents, runner):
+            original_write_new_file(path, contents, runner)
+            if corrupt_helper and pathlib.Path(path).name == "w9-publication-adapter.rs":
+                pathlib.Path(path).write_bytes(b"forged base prefix\n" + contents)
+
+        arguments = SimpleNamespace(
+            candidate_root=self.candidate_root,
+            candidate_source_receipt=self.source_receipt,
+            adapter_capture_receipt=self.adapter_capture_receipt,
+            exact_build_receipt=self.exact_build_receipt,
+            exact_capture_receipt=self.exact_capture_receipt,
+            dry_run=dry_run,
+        )
+        exact_bytes = (
+            self.exact_helper_path.read_bytes()
+            if exact_helper_bytes is None
+            else exact_helper_bytes
+        )
+        base_context = (
+            self.base_build,
+            self.assignment_helper_path.read_bytes(),
+            exact_bytes,
+            self.helper_identity,
+            None,
+            self.exact_capture,
+        )
+        with (
+            mock.patch.object(
+                adapter_runner,
+                "_load_candidate_publication_runner",
+                return_value=self.runner,
+            ),
+            mock.patch.object(
+                self.runner,
+                "parse_candidate_receipt",
+                return_value=self.source_record,
+            ),
+            mock.patch.object(self.runner, "source_identity", side_effect=source_identity),
+            mock.patch.object(
+                self.runner,
+                "validate_source_cohort_inputs",
+                return_value=(self.expected_inputs, {}),
+            ),
+            mock.patch.object(
+                exact_runner,
+                "_assignment_base_context",
+                return_value=base_context,
+            ),
+            mock.patch.object(
+                adapter_runner,
+                "_new_derived_helper_directory",
+                return_value=self.candidate_work / "assignment-derived",
+            ),
+            mock.patch.object(
+                adapter_runner,
+                "_mkdir_new_directory",
+                side_effect=lambda path, _runner: pathlib.Path(path).mkdir(mode=0o700),
+            ),
+            mock.patch.object(
+                adapter_runner,
+                "_write_new_file",
+                side_effect=write_new_file,
+            ),
+            mock.patch.object(
+                adapter_runner,
+                "build_adapter_harness",
+                side_effect=build_adapter,
+            ),
+        ):
+            return exact_runner.build_assignment_facts_harness(arguments, self.runner)
+
     def test_complete_receipt_validates_source_and_all_proof_sidecars(self):
         proofs, module, record = self._validate()
 
@@ -1655,7 +1745,7 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
 
     def test_changed_composed_helper_binary_and_controller_bytes_invalidate_capture(self):
         self.composed_helper_path.write_bytes(self.composed_helper_path.read_bytes() + b"changed")
-        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "validated composition"):
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "expected digest"):
             self._validate()
         self.composed_helper_path.write_bytes(
             exact_runner._compose_assignment_facts_helper(
@@ -1675,6 +1765,58 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
         self._commit_controller()
         with self.assertRaisesRegex(exact_runner.ExactOwnerError, "validated composition"):
             self._validate()
+
+    def test_rehashed_wrong_helper_prefix_cannot_validate_assignment_receipt(self):
+        base = self.base_helper_path.read_bytes()
+        composed = self.composed_helper_path.read_bytes()
+        forged = b"forged base prefix\n" + composed[len(base):]
+        self.composed_helper_path.write_bytes(forged)
+        self.assignment_build["helper_sha256"] = hashlib.sha256(forged).hexdigest()
+        self.write_capture()
+
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "validated composition"):
+            self._validate()
+
+    def test_missing_assignment_helper_is_rejected_by_capture_validation(self):
+        self.assignment_helper_path.unlink()
+        self._commit_controller()
+
+        with self.assertRaisesRegex(
+            self.runner.PublicationError,
+            "controller assignment facts Rust helper: cannot resolve",
+        ):
+            self._validate()
+
+    def test_assignment_build_rejects_written_helper_mutation_before_build(self):
+        build_adapter = mock.Mock(return_value=(self.binary, self.assignment_build_receipt))
+
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "expected digest"):
+            self._run_assignment_build(
+                corrupt_helper=True,
+                build_adapter=build_adapter,
+            )
+
+        build_adapter.assert_not_called()
+
+    def test_assignment_build_dry_run_rejects_wrong_exact_projection(self):
+        exact_bytes = self.exact_helper_path.read_bytes().replace(
+            b"    use rustix::fs::{Dir, OFlags};\n",
+            b"    use rustix::fs::Dir;\n",
+            1,
+        )
+        build_adapter = mock.Mock(return_value=(self.binary, self.assignment_build_receipt))
+
+        with self.assertRaisesRegex(
+            exact_runner.ExactOwnerError,
+            "source-qualified exact-owner helper projection drift",
+        ):
+            self._run_assignment_build(
+                dry_run=True,
+                exact_helper_bytes=exact_bytes,
+                build_adapter=build_adapter,
+            )
+
+        build_adapter.assert_not_called()
 
     def test_changed_validator_or_controller_tree_cannot_reuse_capture(self):
         self.validator_path.write_bytes(self.validator_path.read_bytes() + b"\n")

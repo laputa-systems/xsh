@@ -1564,16 +1564,15 @@ def _assignment_harness_context(
     if not runner.under(helper_path, candidate_root / ".work"):
         raise ExactOwnerError("assignment facts helper is outside candidate .work/")
     helper_bytes = runner.read_regular_bytes(helper_path)
-    expected_helper = _compose_assignment_facts_helper(
-        runner.read_regular_bytes(base_helper_path),
+    base_helper_bytes = runner.read_regular_bytes(base_helper_path)
+    _validate_assignment_helper_artifact(
+        helper_bytes,
+        build["helper_sha256"],
+        base_helper_bytes,
         assignment_helper_bytes,
         exact_helper_bytes,
+        "assignment facts composed helper",
     )
-    if (
-        hashlib.sha256(helper_bytes).hexdigest() != build["helper_sha256"]
-        or helper_bytes != expected_helper
-    ):
-        raise ExactOwnerError("assignment harness helper differs from the validated composition")
     return build, helper_identity, assignment_module, exact_capture
 
 
@@ -1686,6 +1685,25 @@ def _compose_assignment_facts_helper(
     suffix = _assignment_facts_helper_suffix(assignment_helper_bytes, exact_helper_bytes)
     separator = b"" if base_helper_bytes.endswith(b"\n") else b"\n"
     return base_helper_bytes + separator + suffix
+
+
+def _validate_assignment_helper_artifact(
+    helper_bytes: bytes,
+    expected_sha256: str,
+    base_helper_bytes: bytes,
+    assignment_helper_bytes: bytes,
+    exact_helper_bytes: bytes,
+    artifact_name: str,
+) -> None:
+    if hashlib.sha256(helper_bytes).hexdigest() != expected_sha256:
+        raise ExactOwnerError(f"{artifact_name} hash differs from its expected digest")
+    expected_helper = _compose_assignment_facts_helper(
+        base_helper_bytes,
+        assignment_helper_bytes,
+        exact_helper_bytes,
+    )
+    if helper_bytes != expected_helper:
+        raise ExactOwnerError(f"{artifact_name} differs from the validated composition")
 
 
 def _validate_exact_helper_artifact(
@@ -2038,10 +2056,20 @@ def build_assignment_facts_harness(args: argparse.Namespace, bootstrap_runner) -
     base_helper_path = runner.regular_file(base_build["helper_path"], "candidate base adapter helper")
     owner_helper_path = runner.regular_file(base_build["owner_helper_path"], "candidate owner helper")
     owner_helper_bytes = runner.read_regular_bytes(owner_helper_path)
+    base_helper_bytes = runner.read_regular_bytes(base_helper_path)
     composed_helper = _compose_assignment_facts_helper(
-        runner.read_regular_bytes(base_helper_path),
+        base_helper_bytes,
         assignment_helper_bytes,
         exact_helper_bytes,
+    )
+    helper_sha256 = hashlib.sha256(composed_helper).hexdigest()
+    _validate_assignment_helper_artifact(
+        composed_helper,
+        helper_sha256,
+        base_helper_bytes,
+        assignment_helper_bytes,
+        exact_helper_bytes,
+        "assignment facts composed helper preflight",
     )
     if args.dry_run:
         print(
@@ -2059,7 +2087,14 @@ def build_assignment_facts_harness(args: argparse.Namespace, bootstrap_runner) -
     owner_helper = derived_directory / "w9-publication-owner-helper.rs"
     adapter_runner._write_new_file(owner_helper, owner_helper_bytes, runner)
     adapter_runner._write_new_file(helper, composed_helper, runner)
-    helper_sha256 = hashlib.sha256(composed_helper).hexdigest()
+    _validate_assignment_helper_artifact(
+        runner.read_regular_bytes(helper),
+        helper_sha256,
+        base_helper_bytes,
+        assignment_helper_bytes,
+        exact_helper_bytes,
+        "assignment facts composed helper before build",
+    )
     binary, build_receipt = adapter_runner.build_adapter_harness(
         candidate_root,
         candidate_root,
@@ -2078,12 +2113,17 @@ def build_assignment_facts_harness(args: argparse.Namespace, bootstrap_runner) -
         runner,
         candidate_root / "dev/consolidation/w9-publication-owner-helper.rs",
     )
-    _validate_exact_helper_artifact(
-        runner.read_regular_bytes(helper),
+    generic_helper = runner.regular_file(
+        generic_build["helper_path"], "assignment facts composed helper"
+    )
+    if generic_helper != helper:
+        raise ExactOwnerError("assignment facts build receipt names a different helper artifact")
+    _validate_assignment_helper_artifact(
+        runner.read_regular_bytes(generic_helper),
         generic_build["helper_sha256"],
-        source_record,
+        base_helper_bytes,
+        assignment_helper_bytes,
         exact_helper_bytes,
-        runner,
         "assignment facts composed helper",
     )
     _check_exact_harness_listing(
