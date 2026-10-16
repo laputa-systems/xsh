@@ -1078,10 +1078,10 @@ owner's request. The campaign is not complete.
 ### 2026-10-15 — final-batch repair and acceptance status
 
 - The frozen d02 suite attempt failed correctness before the focused repairs;
-  its counts, log, and invalid timing are in
-  [`HANDOFF.md`](HANDOFF.md#final-batch-status-2026-10-15). The focused GNU rm
-  repair passes 14 exact parity cases and the isolated 400,000-entry case; full
-  stress acceptance and the nine serial native suites remain open.
+  its detailed counts and raw log are not retained in the current handoff, and
+  its timing is invalid. The focused GNU rm repair passes 14 exact parity cases
+  and the isolated 400,000-entry case; full stress acceptance and the nine
+  serial native suites remain open.
 - Fresh W9 parity passed on 7e93: 1,690 inputs, 6,760 outcomes, zero
   mismatches, and both exact-owner proofs complete. The three-worker controller
   passed. Preserve the historical f105 pass and 47a c1 failure separately.
