@@ -1,0 +1,99 @@
+argv: ["docker", "run", "--rm", "--init", "--cidfile", "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-e048-20261016-source-root/container-ids/007-linux-special-01-core-compat-boundaries.cid", "--platform", "linux/amd64", "--cpus=12", "--memory=4g", "--memory-swap=4g", "--network=none", "--tmpfs", "/tmp:rw,nodev,exec,nosuid,mode=1777", "-v", "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-e048:/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-e048:ro", "-v", "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-e048/.work/tmp:/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-e048/.work/tmp:rw", "-v", "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro", "-v", "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro", "-v", "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-e048-20261016-source-root/target/harness:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-e048-20261016-source-root/target/harness:ro", "-w", "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-e048", "-e", "LC_ALL=C", "-e", "TZ=UTC", "-e", "TMPDIR=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-e048/.work/tmp", "-e", "CARGO_TARGET_DIR=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-e048-20261016-source-root/target/harness", "-e", "HOME=/home/compat", "-e", "RUSTUP_HOME=/root/.rustup", "-e", "TARGET=x86_64-unknown-linux-musl", "-e", "DIST_PROFILE=verification", "-e", "XSH_BIN=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-e048-20261016-source-root/target/products/x86_64-unknown-linux-musl/verification/xsh", "-e", "XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa", "-e", "PATH=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-e048-20261016-source-root/target/products/x86_64-unknown-linux-musl/verification:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin", "--user", "0:0", "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c", "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-e048-20261016-source-root/target/harness/x86_64-unknown-linux-musl/verification/build/xsh/1863d5379a47a972/out/core_compat_boundaries-1863d5379a47a972", "--nocapture", "--test-threads=1", "--skip", "split::"]
+env: {"XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-e048-20261016-source-root/container-ids/007-linux-special-01-core-compat-boundaries.cid"}
+
+stdout:
+
+running 23 tests
+test test_binary::tests::optimized_product_paths_are_accepted ... ok
+test test_binary::tests::other_profiles_are_rejected ... ok
+test test_broken_pipe ... ok
+test test_broken_pipe_no_error ... ok
+test test_cat_broken_pipe_nonzero_and_message ... ok
+test test_cat_rw_self_conflict_fails ... ok
+test test_cat_rw_self_succeeds ... ok
+test test_child_when_pipe_in ... ok
+test test_closes_file_descriptors ... ok
+test test_comm_anonymous_pipes ... FAILED
+test test_deleted_dir ... FAILED
+test test_dev_full ... ok
+test test_dev_full_show_all ... ok
+test test_dev_random ... ok
+test test_dev_zero_closed_pipe ... FAILED
+test test_large_tab_stop_without_tabs_does_not_allocate ... FAILED
+test test_stdin_is_socket ... ok
+test test_uchild_when_no_capture_reading_from_infinite_source ... ok
+test test_uu_mkfifo_create_fifo_with_mode_and_umask ... FAILED
+test test_uu_mkfifo_create_fifo_with_umask ... FAILED
+test test_uu_mkfifo_diagnostics_plain_message_when_stderr_is_a_pipe ... FAILED
+test test_validate_stdin_offset_bytes ... FAILED
+test test_validate_stdin_offset_lines ... FAILED
+
+failures:
+
+failures:
+    test_comm_anonymous_pipes
+    test_deleted_dir
+    test_dev_zero_closed_pipe
+    test_large_tab_stop_without_tabs_does_not_allocate
+    test_uu_mkfifo_create_fifo_with_mode_and_umask
+    test_uu_mkfifo_create_fifo_with_umask
+    test_uu_mkfifo_diagnostics_plain_message_when_stderr_is_a_pipe
+    test_validate_stdin_offset_bytes
+    test_validate_stdin_offset_lines
+
+test result: FAILED. 14 passed; 9 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.70s
+
+
+stderr:
+
+thread 'test_binary::tests::other_profiles_are_rejected' (9) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/debug/xsh has an unsupported profile; run `cargo test --profile verification`
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'test_binary::tests::other_profiles_are_rejected' (9) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/dist/xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_binary::tests::other_profiles_are_rejected' (9) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/custom/xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_binary::tests::other_profiles_are_rejected' (9) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_comm_anonymous_pipes' (47) panicked at tests/core_compat_boundaries.rs:306:36:
+called `Result::unwrap()` on an `Err` value: Os { code: 30, kind: ReadOnlyFilesystem, message: "Read-only file system" }
+
+thread 'test_deleted_dir' (48) panicked at tests/core_compat_boundaries.rs:306:36:
+called `Result::unwrap()` on an `Err` value: Os { code: 30, kind: ReadOnlyFilesystem, message: "Read-only file system" }
+
+thread 'test_dev_zero_closed_pipe' (64) panicked at tests/core_compat_boundaries.rs:306:36:
+called `Result::unwrap()` on an `Err` value: Os { code: 30, kind: ReadOnlyFilesystem, message: "Read-only file system" }
+
+thread 'test_large_tab_stop_without_tabs_does_not_allocate' (65) panicked at tests/core_compat_boundaries.rs:306:36:
+called `Result::unwrap()` on an `Err` value: Os { code: 30, kind: ReadOnlyFilesystem, message: "Read-only file system" }
+
+thread 'test_uu_mkfifo_create_fifo_with_mode_and_umask' (76) panicked at tests/core_compat_boundaries.rs:306:36:
+called `Result::unwrap()` on an `Err` value: Os { code: 30, kind: ReadOnlyFilesystem, message: "Read-only file system" }
+
+thread 'test_uu_mkfifo_create_fifo_with_umask' (77) panicked at tests/core_compat_boundaries.rs:306:36:
+called `Result::unwrap()` on an `Err` value: Os { code: 30, kind: ReadOnlyFilesystem, message: "Read-only file system" }
+
+thread 'test_uu_mkfifo_diagnostics_plain_message_when_stderr_is_a_pipe' (78) panicked at tests/core_compat_boundaries.rs:306:36:
+called `Result::unwrap()` on an `Err` value: Os { code: 30, kind: ReadOnlyFilesystem, message: "Read-only file system" }
+
+thread 'test_validate_stdin_offset_bytes' (79) panicked at tests/core_compat_boundaries.rs:306:36:
+called `Result::unwrap()` on an `Err` value: Os { code: 30, kind: ReadOnlyFilesystem, message: "Read-only file system" }
+
+thread 'test_validate_stdin_offset_lines' (80) panicked at tests/core_compat_boundaries.rs:306:36:
+called `Result::unwrap()` on an `Err` value: Os { code: 30, kind: ReadOnlyFilesystem, message: "Read-only file system" }
+
+
+cleanup argv: ["docker", "stop", "--time", "5", "06d79c0df872f36e122415ef63268a33a41286f8246ca486f0095c1fe4a68e49"]
+Flag --time has been deprecated, use --timeout instead
+Error response from daemon: No such container: 06d79c0df872f36e122415ef63268a33a41286f8246ca486f0095c1fe4a68e49
+cleanup exit: 1
+
+cleanup argv: ["docker", "rm", "--force", "06d79c0df872f36e122415ef63268a33a41286f8246ca486f0095c1fe4a68e49"]
+cleanup exit: 0
+
+cleanup argv: ["docker", "ps", "--all", "--no-trunc", "--filter", "id=06d79c0df872f36e122415ef63268a33a41286f8246ca486f0095c1fe4a68e49", "--format", "{{.ID}}"]
+cleanup exit: 0
