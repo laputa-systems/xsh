@@ -17,7 +17,7 @@ closeout guard before selecting work. The resume assignments are:
 | Loop speed | removed after read-only review | `e048b33f2`; completed the selector and repeated-validation audit |
 | W9 parity | `resume-w9` | `e048b33f2`; immutable capture admission and strict comparison |
 | Routes and resources | `resume-routes` | `e048b33f2`; current route matrix and remaining resource gates |
-| Semantic review | `resume-semantic` | `e048b33f2`; ten acceptance rows and current-source qualification |
+| Semantic review | removed after integration | `e048b33f2`; ten acceptance rows and current-source qualification |
 | Performance preparation | removed after integration | `e048b33f2`; reviewed existing post-functional gate inputs and controls |
 
 Each resume worktree has its matching `campaign/resume-*-20261016` branch.
@@ -47,6 +47,35 @@ serial full native suites, including canonical, release, forced frames, and six
 paired scheduler runs. The reference overlay, comparator inputs, locks and
 resource controls were inspected. No functional-close record exists yet, and
 no final performance run started.
+
+The semantic review is integrated as `85699e799`. Its ten rows distinguish
+current source inspection from historical executions and unrun gates. The
+integrator independently confirmed unchanged checker, loader, project and
+shared lint-walker paths, plus the W9 candidate's compiler-input equivalence.
+The clean review worktree and merged branch were removed.
+
+Launcher repair `c066957ea` separates the controller, gate tools and selected
+source. Execution now requires `--source-root`. Source and tool commit, tree,
+cleanliness and hashes remain checked independently. The integrator reran all
+38 controls successfully. The supplemental attempt
+`correctness-e048-20261016-source-root` is active using frozen tools in
+`resume-acceptance` and source in detached `consolidation-final-e048` at
+`e048b33f2`. It preserves the five contexts and their existing resource limits.
+No supplemental result is accepted yet.
+
+W9 comparison repair `fa58a4e54` shares each validated derived record between
+correction-delta detection and parity. The integrator reran all 86 adapter-runner
+controls successfully. For the frozen corpus, the removed second pass read
+6,760 record groups containing 27,040 sidecar files. This is operation accounting,
+not a measured speedup. Full parity remains open. Its retained receipt pins the
+historical controller at the primary checkout path, so current main fails exact
+controller admission. The W9 owner is checking a private historical replay
+namespace with unchanged receipts and admission code before another attempt.
+
+The strict matrix additionally needs 60 unique non-expression runtime selectors
+in both modes. They are disjoint from the 92 expression probes and 32
+source-order selectors. The route owner prepared 184 exact behavior executions
+alongside the 184 route probes. Non-expression results earn no route artifacts.
 
 The accepted results remain those recorded below. Starting a gate or repairing
 its iteration loop does not accept the source or close a remaining requirement.
