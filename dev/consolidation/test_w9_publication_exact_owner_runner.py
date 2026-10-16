@@ -1118,7 +1118,10 @@ class AssignmentFactsCaptureTests(unittest.TestCase):
             self.repository / "dev/consolidation/w9-publication-run.py"
         )
         self.expected_inputs = {
-            0: SimpleNamespace(relative_path="src/a.xsh", blake3="a" * 64)
+            0: self.runner.ManifestSource("src/a.xsh", "b" * 64, 0o444)
+        }
+        self.receipt_inputs = {
+            0: self.runner.ReceiptSource("src/a.xsh", "a" * 64)
         }
         self.range_receipt = (
             "corpus=1\n"
@@ -1130,12 +1133,13 @@ class AssignmentFactsCaptureTests(unittest.TestCase):
             "complete=1\n"
         )
 
-    def test_range_receipt_binds_each_assignment_to_source_manifest(self):
+    def test_range_receipt_uses_manifest_path_and_receipt_blake3(self):
         observed = exact_runner.parse_assignment_facts_range_receipt(
             self.range_receipt,
             0,
             1,
             self.expected_inputs,
+            self.receipt_inputs,
             "c" * 64,
         )
 
@@ -1146,6 +1150,16 @@ class AssignmentFactsCaptureTests(unittest.TestCase):
                 0,
                 1,
                 self.expected_inputs,
+                self.receipt_inputs,
+                "c" * 64,
+            )
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "input identity"):
+            exact_runner.parse_assignment_facts_range_receipt(
+                self.range_receipt.replace("a" * 64, "b" * 64),
+                0,
+                1,
+                self.expected_inputs,
+                self.receipt_inputs,
                 "c" * 64,
             )
 
@@ -1574,6 +1588,7 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
             self.helper_identity,
             None,
             self.exact_capture,
+            self.expected_inputs,
         )
         with (
             mock.patch.object(

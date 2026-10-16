@@ -931,10 +931,13 @@ def parse_assignment_facts_range_receipt(
     start: int,
     end: int,
     expected_inputs: Mapping[int, object],
+    receipt_inputs: Mapping[int, object],
     corpus_digest: str,
     path: pathlib.Path | None = None,
 ) -> dict[int, str]:
     label = str(path or "assignment facts range receipt")
+    if set(receipt_inputs) != set(expected_inputs):
+        raise ExactOwnerError(f"{label}: assignment source receipt coverage differs")
     lines = contents.splitlines()
     if len(lines) != len(ASSIGNMENT_RANGE_FIELDS) + end - start + 1:
         raise ExactOwnerError(f"{label}: assignment range row count differs")
@@ -960,8 +963,13 @@ def parse_assignment_facts_range_receipt(
             raise ExactOwnerError(f"{label}: malformed assignment row for input {index}")
         if fields[1] != str(index):
             raise ExactOwnerError(f"{label}: assignment inputs are out of order")
-        source = expected_inputs[index]
-        if fields[2] != source.relative_path or fields[3] != source.blake3:
+        manifest_source = expected_inputs[index]
+        receipt_source = receipt_inputs[index]
+        if (
+            fields[2] != manifest_source.relative_path
+            or fields[2] != receipt_source.relative_path
+            or fields[3] != receipt_source.blake3
+        ):
             raise ExactOwnerError(f"{label}: assignment input identity differs at {index}")
         if not re.fullmatch(r"[0-9a-f]{64}", fields[3]):
             raise ExactOwnerError(f"{label}: malformed assignment input digest at {index}")
@@ -1439,7 +1447,7 @@ def _assignment_base_context(
     exact_capture_receipt: pathlib.Path,
     runner,
 ):
-    base_build, _raw, _ranges, _capture, _inputs = _source_adapter_capture(
+    base_build, _raw, _ranges, _capture, receipt_inputs = _source_adapter_capture(
         adapter_capture_receipt,
         "candidate",
         dict(source_record),
@@ -1510,6 +1518,7 @@ def _assignment_base_context(
         helper_identity,
         assignment_module,
         exact_capture,
+        receipt_inputs,
     )
 
 
@@ -1531,6 +1540,7 @@ def _assignment_harness_context(
         helper_identity,
         assignment_module,
         exact_capture,
+        receipt_inputs,
     ) = (
         _assignment_base_context(
             candidate_root,
@@ -1573,7 +1583,7 @@ def _assignment_harness_context(
         exact_helper_bytes,
         "assignment facts composed helper",
     )
-    return build, helper_identity, assignment_module, exact_capture
+    return build, helper_identity, assignment_module, exact_capture, receipt_inputs
 
 
 def _replace_exact_helper_once(contents: str, before: str, after: str, label: str) -> str:
@@ -1912,7 +1922,7 @@ def validate_assignment_facts_capture(
     build_receipt = runner.regular_file(record["build_receipt"], "assignment harness build receipt")
     if runner.sha256_file(build_receipt) != record["build_receipt_sha256"]:
         raise ExactOwnerError(f"{receipt}: assignment harness build receipt hash differs")
-    build, helper_identity, module, captured_exact = _assignment_harness_context(
+    build, helper_identity, module, captured_exact, receipt_inputs = _assignment_harness_context(
         candidate_root,
         source_receipt,
         source_record,
@@ -2006,6 +2016,7 @@ def validate_assignment_facts_capture(
             start,
             end,
             expected_inputs,
+            receipt_inputs,
             source_record["corpus_blake3"],
             path,
         )
@@ -2052,6 +2063,7 @@ def build_assignment_facts_harness(args: argparse.Namespace, bootstrap_runner) -
         helper_identity,
         _assignment_module,
         _exact_capture,
+        _receipt_inputs,
     ) = _assignment_base_context(
         candidate_root,
         source_receipt,
@@ -2818,6 +2830,7 @@ def _capture_exact_owner_role(
                         start,
                         end,
                         expected_inputs,
+                        assignment_context["receipt_inputs"],
                         source_record["corpus_blake3"],
                         receipt,
                     )
@@ -3073,7 +3086,7 @@ def capture_assignment_facts(args: argparse.Namespace, bootstrap_runner) -> int:
     exact_build_receipt = runner.regular_file(args.exact_build_receipt, "candidate exact-owner build receipt")
     exact_capture_receipt = runner.regular_file(args.exact_capture_receipt, "candidate exact-owner capture receipt")
     build_receipt = runner.regular_file(args.build_receipt, "assignment facts harness build receipt")
-    build, helper_identity, module, _exact_capture = _assignment_harness_context(
+    build, helper_identity, module, _exact_capture, receipt_inputs = _assignment_harness_context(
         candidate_root,
         source_receipt,
         source_record,
@@ -3097,6 +3110,7 @@ def capture_assignment_facts(args: argparse.Namespace, bootstrap_runner) -> int:
     assignment_context = {
         "helper_identity": helper_identity,
         "assignment_module": module,
+        "receipt_inputs": receipt_inputs,
         "source_receipt": source_receipt,
         "exact_build_receipt": exact_build_receipt,
         "exact_capture_receipt": exact_capture_receipt,
