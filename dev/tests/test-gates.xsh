@@ -22,6 +22,69 @@ test test_changed_paths_select_and_deduplicate_their_verification_owners {
   }
 }
 
+test test_cargo_callers_select_their_exact_native_tests_and_products {
+  let ctx = fixtures.linux_context(/repo)?
+  let cases = [
+    {
+      path: "dev/cargo_steps.xsh",
+      files: ["dev/tests/test-cargo-steps.xsh", "dev/tests/test-lifecycle.xsh"],
+    },
+    {
+      path: "dev/cargo_test_runner.sh",
+      files: ["dev/tests/test-cargo-steps.xsh"],
+    },
+    {
+      path: "dev/test_workflows.xsh",
+      files: [
+        "dev/tests/test-cargo-steps.xsh",
+        "dev/tests/test-lifecycle.xsh",
+        "dev/tests/test-gates.xsh",
+        "dev/tests/test-native-workflows.xsh",
+      ],
+    },
+  ]
+
+  for case in cases {
+    let selection = gates.select([case.path])?
+    assert selection.areas.is_empty()
+    assert selection.native_files == case.files
+
+    let plan = gates.lane_plan(ctx, tests.Verification, selection)?
+    var expected_stages = ["test-products"]
+    for file in case.files {
+      expected_stages += [f"native-{file}"]
+    }
+    assert [spec.stage for spec in plan] == expected_stages
+    let product_build = plan[0]
+    assert product_build.argv[1..] == [
+      "build", "--locked", "--profile", "verification", "--target", ctx.target.triple,
+      "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht",
+    ]
+    let native = [spec for spec in plan |> where .stage.starts_with("native-")]
+    assert [spec.argv[2] for spec in native] == case.files
+  }
+
+  let combined = gates.select([
+    "dev/test_workflows.xsh",
+    "dev/cargo_steps.xsh",
+    "dev/cargo_test_runner.sh",
+  ])?
+  assert combined.areas.is_empty()
+  assert combined.native_files == [
+    "dev/tests/test-cargo-steps.xsh",
+    "dev/tests/test-lifecycle.xsh",
+    "dev/tests/test-gates.xsh",
+    "dev/tests/test-native-workflows.xsh",
+  ]
+
+  let broad = gates.select(["dev/release.xsh"])?
+  assert broad.areas == [gates.Automation]
+  assert broad.native_files.is_empty()
+  let broad_plan = gates.lane_plan(ctx, tests.Verification, broad)?
+  assert [spec.stage for spec in broad_plan] == ["test-products", "native-dev/tests"]
+  assert "xshi" in broad_plan[0].argv
+}
+
 test test_route_witness_leaf_selects_its_direct_unit_cli_and_native_cases {
   let ctx = fixtures.linux_context(/repo)?
   let selection = gates.select(["src/runtime/eval/route_witness.rs"])?

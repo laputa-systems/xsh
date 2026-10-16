@@ -15,6 +15,25 @@ export error GateError = UnmappedPath(path: Str)
 ## Selected gate families and exact changed native test modules.
 export type Selection = {areas: List[Area], native_files: List[Str]}
 
+const cargo_caller_native_files = [
+  "dev/tests/test-cargo-steps.xsh",
+  "dev/tests/test-lifecycle.xsh",
+  "dev/tests/test-gates.xsh",
+  "dev/tests/test-native-workflows.xsh",
+]
+
+pure cargo_caller_tests(changed_path: Str) -> List[Str] {
+  match changed_path {
+    "dev/cargo_steps.xsh" => [
+      "dev/tests/test-cargo-steps.xsh",
+      "dev/tests/test-lifecycle.xsh",
+    ]
+    "dev/cargo_test_runner.sh" => ["dev/tests/test-cargo-steps.xsh"]
+    "dev/test_workflows.xsh" => cargo_caller_native_files
+    else => []
+  }
+}
+
 ## Determines the verification owner from repository-relative source paths.
 export pure areas_for(changed_path: Str) -> Result[List[Area], Error] {
   return [Syntax] when changed_path.starts_with("tests/fixtures/syntax/") or changed_path.starts_with("tests/fixtures/fmt/")
@@ -53,6 +72,13 @@ export pure select(paths: List[Str]) -> Result[Selection, Error] {
   for changed_path in paths {
     if changed_path == "dev/consolidation/current_source_policy.xsh" {
       native_files += ["dev/tests/test-consolidation-ratchets-current.xsh"] when "dev/tests/test-consolidation-ratchets-current.xsh" not in native_files
+      continue
+    }
+    let caller_tests = cargo_caller_tests(changed_path)
+    if ! caller_tests.is_empty() {
+      for file in caller_tests {
+        native_files += [file] when file not in native_files
+      }
       continue
     }
     if ! changed_path.starts_with("tests/fixtures/") and changed_path.ends_with(".xsh") and (changed_path.starts_with("tests/") or changed_path.starts_with("dev/tests/") or changed_path.starts_with("core/tests/") or changed_path.starts_with("showcase/tests/")) {
@@ -106,7 +132,14 @@ pure requires_process_products(area: Area) -> Bool {
 }
 
 pure required_products(selection: Selection) -> List[tests.Product] {
-  return tests.all_products() when ! selection.native_files.is_empty()
+  guard selection.native_files.is_empty() else {
+    var cargo_caller_only = selection.areas.is_empty()
+    for file in selection.native_files {
+      cargo_caller_only = false when file not in cargo_caller_native_files
+    }
+    return [tests.Xsh, tests.Xsht] when cargo_caller_only
+    return tests.all_products()
+  }
   for area in selection.areas {
     return tests.all_products() when requires_process_products(area)
   }
