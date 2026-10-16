@@ -38,7 +38,7 @@ proc make_devices() [process, net, error] -> Result[Unit] {
   let _ = linux.ioctl(fd, c.SIOCSIFFLAGS, bytes.concat([name, bytes.pack_le(c.IFF_UP, 2)?]), 18)?
 }
 
-proc main(...argv: List[Str]) [fs, process, error] {
+proc main(...argv: List[Str]) [fs, process, net, error] {
   if let Err(failure) = make_devices() {
     fp"{argv[2]}/unavailable".write(failure.message)?
     return
