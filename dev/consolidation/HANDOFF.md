@@ -67,10 +67,12 @@ runtime artifacts read-only. The next two pass all 23 boundary checks, then fail
 the PTY check because its Cargo harness resolves `xsht` beside its own `xsh`.
 Mounting the product target (`6f31d46b4`) alone does not supply that sibling.
 `80739cf35` stages the qualified product beside the harness before runtime.
-All 41 launcher controls pass at integration, but focused execution found
-receipt-shape mismatches in that new helper. The acceptance owner is repairing
-those before the exact PTY replay. Earlier receipts stay unchanged. No full
-supplemental or canonical result is accepted yet.
+Focused execution found receipt-shape mismatches in that helper; `cea9013a6`
+and `8652e411c` repair them against the actual qualified receipt. The integrator
+reran all 41 controls successfully. The exact PTY replay now passes (one test,
+62 filtered) using the e048 artifacts with matching staged `xsht` hashes.
+Earlier receipts stay unchanged. No full supplemental or canonical result is
+accepted yet.
 
 W9 comparison repair `fa58a4e54` shares each validated derived record between
 correction-delta detection and parity. The integrator reran all 86 adapter-runner
@@ -99,9 +101,14 @@ in-place branches remain. Non-expression results earn no route artifacts.
 Source review found a production metadata conflict: `ExprProcessCommandArgv`
 declares `FrameControl` but executes through `indexed_frame_apply_tag` and
 `push_apply_operands`. Its e048 artifact consequently reports the wrong deeper
-route. The route-strategy lane owns the narrow repair and regression invariant.
-The current source freeze and receipts remain historical; final builds and
-routes must qualify the repaired source. Full acceptance waits for that freeze.
+route. Integrated `b920d3e92` changes that schema field to `FrameApply` and adds
+an invariant over the actual non-eager apply-dispatch set, checking normal and
+forced witness routes. The test fails on the old source and passes on the fix;
+the integrator reran the pinned debug harness (one pass, 750 filtered).
+Production accounting is one changed schema row, two deleted comment lines,
+and 31 added test lines. The e048 freeze and receipts remain historical; final
+builds and routes must qualify the repaired source. Full acceptance waits for
+that freeze and the missing native order/branch assertions.
 
 The accepted results remain those recorded below. Starting a gate or repairing
 its iteration loop does not accept the source or close a remaining requirement.
