@@ -468,7 +468,6 @@ fn parse_lint_rule_excludes_ini(
 ) -> Result<Vec<LintRuleExclude>, String> {
     let mut excludes = Vec::new();
     for (section, value) in fields {
-        let section: &str = section.as_ref();
         if !section.starts_with("lint.") {
             continue;
         }

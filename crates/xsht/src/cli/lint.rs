@@ -285,7 +285,7 @@ enum LintWorkspaceRootWork {
 
 enum LintWorkspaceRootCheckWork {
     Complete(Vec<LintResult>),
-    Ready(LintWorkspaceRootReady),
+    Ready(Box<LintWorkspaceRootReady>),
 }
 
 struct LintWorkspaceRootReady {
@@ -372,11 +372,12 @@ impl CallableEdgeFactStore {
             return false;
         }
         let mut state = self.state.lock().expect("callable fact store poisoned");
-        if state.contains_key(&source_id) {
-            false
-        } else {
-            state.insert(source_id, None);
-            true
+        match state.entry(source_id) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(None);
+                true
+            }
+            std::collections::hash_map::Entry::Occupied(_) => false,
         }
     }
 
@@ -712,8 +713,6 @@ fn check_lint_workspace_root_batch(
         for _ in 0..workers.min(batch_end - batch_start) {
             let next_root = &next_root;
             let tx = tx.clone();
-            let workspace = workspace;
-            let type_program = type_program;
             thread::Builder::new()
                 .name("xsht-lint-check".to_string())
                 .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
@@ -802,8 +801,6 @@ fn lint_checked_workspace_root_batch(
         for _ in 0..workers.min(ready_count) {
             let job_rx = job_rx.clone();
             let result_tx = result_tx.clone();
-            let workspace = workspace;
-            let callable_edge_facts = callable_edge_facts;
             thread::Builder::new()
                 .name("xsht-lint".to_string())
                 .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
@@ -981,17 +978,17 @@ fn check_lint_workspace_root(
         }]);
     }
 
-    LintWorkspaceRootCheckWork::Ready(LintWorkspaceRootReady {
+    LintWorkspaceRootCheckWork::Ready(Box::new(LintWorkspaceRootReady {
         reachable,
         relevant_diagnostics,
         checked,
-    })
+    }))
 }
 
 fn lint_checked_workspace_root(
     workspace: &LintWorkspace,
     root: &str,
-    ready: LintWorkspaceRootReady,
+    ready: Box<LintWorkspaceRootReady>,
     imported_module_ownership: ImportedModuleOwnership<'_>,
     callable_edge_facts: &CallableEdgeFactStore,
     timings: &StageTimings,
@@ -1000,7 +997,7 @@ fn lint_checked_workspace_root(
         reachable,
         checked,
         ..
-    } = ready;
+    } = *ready;
     let Some(root_module) = workspace.modules.get(root) else {
         return LintWorkspaceRootWork::Complete(Vec::new());
     };
@@ -1023,18 +1020,16 @@ fn lint_checked_workspace_root(
             continue;
         };
         let collect_callable_edges = callable_edge_facts.claim(module.source_id);
-        if key != root {
-            if !imported_module_ownership.includes(&key) {
-                if collect_callable_edges {
-                    let view = workspace.module_view(&key);
-                    let facts = collect_workspace_module_callable_edges(
-                        &view,
-                        &module.text,
-                    );
-                    callable_edge_facts.publish(module.source_id, facts);
-                }
-                continue;
+        if key != root && !imported_module_ownership.includes(&key) {
+            if collect_callable_edges {
+                let view = workspace.module_view(&key);
+                let facts = collect_workspace_module_callable_edges(
+                    &view,
+                    &module.text,
+                );
+                callable_edge_facts.publish(module.source_id, facts);
             }
+            continue;
         }
         let view = if key == root {
             workspace.root_view(&key)
@@ -1133,12 +1128,12 @@ fn collect_workspace_module_callable_edges<'a>(
     view: &CheckBundleView<'a>,
     source: &'a str,
 ) -> CallableEdgeFacts {
-    let mut options = LintOptions::default();
-    options.only = Some(vec![DiagnosticCode::LintUnusedCallable]);
-    #[cfg(test)]
-    {
-        options.function_effect_facts_checked = true;
-    }
+    let options = LintOptions {
+        only: Some(vec![DiagnosticCode::LintUnusedCallable]),
+        #[cfg(test)]
+        function_effect_facts_checked: true,
+        ..LintOptions::default()
+    };
     Linter::lint_module_view_with_callable_edges(
         view,
         source,
@@ -1808,10 +1803,10 @@ fn lint_config_for_file(
         prefer_env_string: tool_config.config.lint.prefer_env_string,
         prefer_item_shorthand: tool_config.config.lint.prefer_item_shorthand,
         prefer_tempdir_scope: tool_config.config.lint.prefer_tempdir_scope,
+        #[cfg(test)]
+        message_payload_constructors: None,
         prefer_text_pattern: tool_config.config.lint.prefer_text_pattern,
         prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns,
-        // A project that asks `xsht check --annotate` to write returns does
-        // not also want them removed.
         annotation_policy_writes_returns: configured_return_annotations,
         prefer_set: tool_config.config.lint.prefer_set,
         prefer_rel_path: tool_config.config.lint.prefer_rel_path,
@@ -1823,6 +1818,46 @@ fn lint_config_for_file(
         runless_except: tool_config.config.lint.runless_except,
         interactive_command_replacement: None,
         checked_output: None,
+        #[cfg(test)]
+        function_return_types: Default::default(),
+        #[cfg(test)]
+        expr_types: Default::default(),
+        #[cfg(test)]
+        proven_nonnull_fallback_receivers: Default::default(),
+        #[cfg(test)]
+        requirement_targets: Default::default(),
+        #[cfg(test)]
+        requirement_expected_targets: Default::default(),
+        #[cfg(test)]
+        statement_positions: Default::default(),
+        #[cfg(test)]
+        callable_effects: Default::default(),
+        #[cfg(test)]
+        function_effect_facts: Default::default(),
+        #[cfg(test)]
+        function_effect_facts_checked: false,
+        #[cfg(test)]
+        assertion_effect_spans: Default::default(),
+        #[cfg(test)]
+        statement_expression_spans: Default::default(),
+        #[cfg(test)]
+        propagating_statements: Default::default(),
+        #[cfg(test)]
+        discardable_bindings: Default::default(),
+        #[cfg(test)]
+        redundant_condition_propagations: Default::default(),
+        #[cfg(test)]
+        unvalidated_command_vectors: Default::default(),
+        #[cfg(test)]
+        membership_migration_spans: Default::default(),
+        #[cfg(test)]
+        standard_call_spans: Default::default(),
+        #[cfg(test)]
+        statically_resolved_call_spans: Default::default(),
+        #[cfg(test)]
+        definitely_exiting_block_spans: Default::default(),
+        #[cfg(test)]
+        redundant_variant_qualifiers: Default::default(),
         dead_code: !is_path_excluded(
             &tool_config.config_dir,
             Path::new(file),
@@ -1838,7 +1873,6 @@ fn lint_config_for_file(
             })
             .map(|rule| rule.rule)
             .collect(),
-        ..LintOptions::default()
     };
     Ok(ResolvedLintConfig {
         lint_options,
@@ -2962,8 +2996,10 @@ mod tests {
             checked.propagating_statements.insert(span);
         }
         let checked = std::sync::Arc::new(checked);
-        let mut options = LintOptions::default();
-        options.checked_output = Some(std::sync::Arc::clone(&checked));
+        let options = LintOptions {
+            checked_output: Some(std::sync::Arc::clone(&checked)),
+            ..LintOptions::default()
+        };
         let shared = options.checked_output.as_ref().unwrap();
         assert!(std::sync::Arc::ptr_eq(shared, &checked));
         assert_eq!(shared.expr_types.len(), 101);
@@ -3282,8 +3318,10 @@ print ${name}
                 .expr_types
                 .keys()
                 .any(|span| span.source_id != module.source_id));
-            let mut shared = LintOptions::default();
-            shared.checked_output = Some(std::sync::Arc::clone(&checked));
+            let shared = LintOptions {
+                checked_output: Some(std::sync::Arc::clone(&checked)),
+                ..LintOptions::default()
+            };
             let view = if key == root {
                 workspace.root_view(&root)
             } else {
