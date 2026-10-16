@@ -4,30 +4,15 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `5e66b6b896a47d0c692739135d51200b007a2a67`. The accepted designs and historical
 ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
-**Current status: active and incomplete.** Reviewed runner/W9/mdev repairs and
-failed evidence are integrated; the next clean production input set must be
-sealed before acceptance runs. No inference implementation is on main. Lean and
-Phase F remain paused.
-
-- Canonical: the 7b full run failed (13,902/3/78). Be0b products, focused PCI,
-  and isolated rm/sort selectors pass; none substitutes for a fresh full run.
-- W9: be0b captures failed strict owner projection because helper derivation
-  dropped AST-owner rows. The repaired producer and consumers pass 274 Python
-  tests; a new sealed input-0 smoke, full captures, assignment proof, and
-  comparison remain required. Old captures and minimal failure evidence stay.
-- Supplemental gates: r4 failed mdev Clippy. The focused repair and 26 runner
-  controls pass; a new complete approved gate attempt is pending.
-- Routes: be0b 184/184 route and 64/64 source-order executions pass. The isolated
-  collector must repair its typed-scalar contract before matrix credit.
-- Inference: e2ecbb906 builds and its prepared disposal test passes on both
-  routes, but expanded groups expose driver-writer ownership regressions and
-  one lowering-fixture failure. The complete named first slice is not accepted;
-  actual warnings denial and the same-pin final matrix remain open.
-
-Isolated inference acceptance proceeds while consolidation continues. Its main
-merge remains gated on consolidation closure. Optional Arc storage, broader
-composition, corpus removal, paired performance baselines, and Lean are not
-first-slice acceptance substitutes. No speed claim or functional close is made.
+**Current status: winding down, 2026-10-16.** Start no new item or lane.
+The leading [campaign stop handoff](CAMPAIGN.md#stop-handoff-2026-10-16) owns
+resume and current outcomes. Lean and Phase F remain paused; inference remains
+isolated and unaccepted. The approved replacement gate plan stays authorized.
+Reviewed Clippy and collector repairs land during this stop. Their focused
+passes do not close canonical, route-matrix, or resource acceptance. Parked
+inference still needs exact generic module exports and initialized-value
+ownership by binding identity. Broader inference, corpus removal, performance
+baselines, and formal work have not been accepted.
 
 **Earlier checkpoints:** the progress and verification entries below are
 historical and source-specific. They are not the current work queue. The
