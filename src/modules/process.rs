@@ -2267,3 +2267,48 @@ fn port_processes_impl(
     )
     .with_span(span))
 }
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_sample_process_tests {
+    use super::{linux_stat_text, sample_processes};
+    use crate::source::{SourceId, Span};
+    use std::fs::{self, File};
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::symlink;
+    use std::process::{Child, Command};
+
+    struct ChildGuard(Child);
+
+    impl Drop for ChildGuard {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    #[test]
+    fn sample_processes_skips_esrch_from_a_held_proc_stat_file() {
+        let root = tempfile::tempdir().expect("create proc fixture");
+        let child = Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("spawn proc fixture child");
+        let mut child = ChildGuard(child);
+        let pid = child.0.id();
+        let stat = File::open(format!("/proc/{pid}/stat")).expect("open live child stat");
+        let process_root = root.path().join(pid.to_string());
+        fs::create_dir(&process_root).expect("create process fixture");
+        let stat_link = process_root.join("stat");
+        symlink(format!("/proc/self/fd/{}", stat.as_raw_fd()), &stat_link)
+            .expect("link process stat to held proc descriptor");
+        child.0.kill().expect("stop proc fixture child");
+        child.0.wait().expect("reap proc fixture child");
+
+        let error = linux_stat_text(&stat_link).expect_err("dead proc stat reports ESRCH");
+        assert_eq!(error.raw_os_error(), Some(libc::ESRCH));
+
+        let records = sample_processes(root.path(), 0, 100, Span::new(SourceId::new(0), 0, 0))
+            .expect("vanished process is skipped");
+        assert!(records.is_empty());
+    }
+}
