@@ -615,7 +615,7 @@ class HarnessSiblingArtifactStagingTests(unittest.TestCase):
                 },
             },
             "hashes": {
-                "binaries_after_initial_build": {
+                "products_after_initial_build": {
                     "xsht-verification": LAUNCHER.sha256(self.xsht),
                 },
                 "binaries_after_build": {

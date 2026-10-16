@@ -28,7 +28,7 @@ CONTROLLER_ROOT = pathlib.Path("/home/josh/d/laputa-systems/xsh")
 WORKTREE_ROOT = CONTROLLER_ROOT / ".work/wt"
 TOOL_DIR = pathlib.Path(__file__).resolve().parent
 OUTPUT_ROOT = CONTROLLER_ROOT / ".work/final-review-evidence/final-correctness-gates"
-PLAN_PATH = OUTPUT_ROOT / "manifest-correctness-e048-20261016-pty-sibling-r4.json"
+PLAN_PATH = OUTPUT_ROOT / "manifest-correctness-e048-20261016-pty-sibling-r4b.json"
 RUNNER = TOOL_DIR / "run-native-final.sh"
 PLAN_SOURCE_PATH = TOOL_DIR / "plan_source.py"
 MANIFEST_GENERATOR_PATH = TOOL_DIR / "generate_manifest.py"
@@ -46,7 +46,7 @@ BASE_RUNNER = INFRA / "run-native.sh"
 NATIVE_LOCK = INFRA / "native-suite.lock"
 NATIVE_CLEANUP_MARKER = INFRA / "native-suite.cleanup-unresolved"
 BASE_RUNNER_SHA256 = "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15"
-APPROVED_MANIFEST_BODY_SHA256 = "9efbc726cf0d37620334575f5552258b8455eaa4d38194639f03b334024dc2ef"
+APPROVED_MANIFEST_BODY_SHA256 = "84bb7d1a6632ce72efb3bd5806cf25584d4967c32ecaf9365b1da318efeb8ef0"
 RUNTIME_CARGO_FORWARDER = TOOL_DIR / "cargo-forwarder.sh"
 RUNTIME_RUSTC_WRAPPER = TOOL_DIR / "rustc-jemalloc.sh"
 TOOL_HASHES = {
@@ -957,7 +957,7 @@ class Launch:
     def stage_core_compat_extra_xsht(self) -> None:
         product_variant = self.receipt.get("product_variants", {}).get("verification", {})
         product_hashes = self.receipt.get("hashes", {})
-        initial_hash = product_hashes.get("binaries_after_initial_build", {}).get("xsht-verification")
+        initial_hash = product_hashes.get("products_after_initial_build", {}).get("xsht-verification")
         built_hash = product_hashes.get("binaries_after_build", {}).get("xsht-verification")
         source = self.target_dir / TARGET / "verification" / "xsht"
         if (
