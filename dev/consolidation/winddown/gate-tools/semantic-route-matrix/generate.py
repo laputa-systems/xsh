@@ -62,9 +62,6 @@ ROUTE_WITNESS_BEHAVIOR_ONLY_IDS = {
     "tests/xsh/expression-route-oracles.xsh::test_expr_if_non_in_place_selection": (
         "Exercises non-in-place If selection behavior without claiming a single route tuple."
     ),
-    "tests/xsh/expression-route-oracles.xsh::test_expr_match_pure_selection": (
-        "Exercises pure Match selection behavior without claiming a single route tuple."
-    ),
     "tests/xsh/typed-scalar-route-oracles.xsh::test_prepared_constant_value_remains_42": (
         "Checks prepared-constant value preservation without claiming a single route tuple."
     ),
@@ -4527,11 +4524,15 @@ def route_witness_source_tag(test_id: str, rows_by_tag: dict[str, dict[str, Any]
         if not test_name.startswith(name_prefix):
             raise EvidenceError(f"route-witness test name has the wrong row prefix: {test_id}")
         suffix = test_name[len(name_prefix):]
-        candidates = [
-            tag for tag in rows_by_tag
-            if tag.startswith(tag_prefix)
-            and re.sub(r"(?<!^)(?=[A-Z])", "_", tag).lower().removeprefix(tag_prefix.lower() + "_") == suffix
-        ]
+        candidates: list[tuple[str, int]] = []
+        for tag in rows_by_tag:
+            if not tag.startswith(tag_prefix):
+                continue
+            normalized = re.sub(r"(?<!^)(?=[A-Z])", "_", tag).lower().removeprefix(tag_prefix.lower() + "_")
+            if suffix == normalized or suffix.startswith(normalized + "_"):
+                candidates.append((tag, len(normalized)))
+        specificity = max((length for _, length in candidates), default=0)
+        candidates = [tag for tag, length in candidates if length == specificity]
         if len(candidates) != 1:
             raise EvidenceError(
                 f"route-witness test does not identify one exact schema tag: {test_id}; tags={candidates}"
@@ -4609,12 +4610,47 @@ def route_witness_route_allowed(row: dict[str, Any], mode: str, route_id: str) -
     )
 
 
+def route_witness_route_id_for_path(
+    row: dict[str, Any],
+    mode: str,
+    path: dict[str, Any],
+    expectation: dict[str, Any],
+) -> str | None:
+    probes = expectation.get("probes", [])
+    route_ids = {
+        probe["route_id"]
+        for probe in probes
+        if isinstance(probe, dict) and isinstance(probe.get("route_id"), str)
+    }
+    if mode == "forced":
+        return next(iter(route_ids)) if len(route_ids) == 1 else None
+
+    selected_when = path.get("selected_when")
+    if selected_when == "execution.is_in_place(instruction)":
+        route_id = "in_place_evaluator_path"
+        return route_id if route_id in route_ids else None
+    if selected_when == "execution.is_in_place(instruction) is false":
+        frame_route = (
+            "explicit_frame_control_path"
+            if row.get("frame_strategy") == "FrameControl"
+            else "explicit_frame_apply_path"
+            if row.get("frame_strategy") == "FrameApply"
+            else None
+        )
+        return frame_route if frame_route in route_ids else None
+
+    source_route = path.get("route")
+    if isinstance(source_route, str) and source_route in route_ids:
+        return source_route
+    return next(iter(route_ids)) if len(route_ids) == 1 else None
+
+
 def validate_route_witness_mappings(
     root: pathlib.Path,
     config: dict[str, Any],
     rows: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    """Require exact, unique test→tag mappings and fail closed on unsupported tuples."""
+    """Require exact test-to-tag mappings and fail closed on unsupported tuples."""
     source_commit = config.get("route_witness_source_commit")
     if not isinstance(source_commit, str) or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None:
         raise EvidenceError("route-witness source commit must be a full lowercase commit ID")
@@ -4624,8 +4660,8 @@ def validate_route_witness_mappings(
         raise EvidenceError("route-witness mappings are malformed")
 
     by_id: dict[str, dict[str, Any]] = {}
-    claims: set[tuple[str, str, str | None]] = set()
-    tag_modes: set[tuple[str, str]] = set()
+    claims: set[tuple[str, str, str, str]] = set()
+    probe_modes: dict[tuple[str, str], str | None] = {}
     rows_by_tag = {row["tag"]: row for row in rows}
     for mapping in mappings:
         required = {"tag", "test_id", "source_file", "mapping_kind", "mode_expectations"}
@@ -4673,11 +4709,19 @@ def validate_route_witness_mappings(
                     raise EvidenceError(f"unsupported route-witness capability claim: {test_id} {mode}")
             elif route_id is not None or status != "unsupported_by_artifact_format":
                 raise EvidenceError(f"route-witness expectation without a reviewed child source: {test_id} {mode}")
-            claim = (tag, mode, route_id)
-            if claim in claims or (tag, mode) in tag_modes:
-                raise EvidenceError(f"duplicate route-witness tuple claim: {tag} {mode} {route_id}")
+            claim = (tag, mode, route_id, test_id)
+            probe_mode = (test_id, mode)
+            if claim in claims:
+                raise EvidenceError(
+                    f"duplicate exact route-witness identity: {tag} {mode} {route_id} {test_id}"
+                )
+            if probe_mode in probe_modes:
+                raise EvidenceError(
+                    f"duplicate route-witness test/mode claim: {test_id} {mode} "
+                    f"routes={probe_modes[probe_mode]},{route_id}"
+                )
             claims.add(claim)
-            tag_modes.add((tag, mode))
+            probe_modes[probe_mode] = route_id
         by_id[test_id] = mapping
 
     missing = sorted(set(expected) - set(by_id))
@@ -5126,9 +5170,9 @@ def route_witness_receipts(
     expected_head: str,
     expected_tree: str,
     expected_xsht_sha256: str,
-) -> dict[tuple[str, str], dict[str, str]]:
+) -> dict[tuple[str, str, str, str], dict[str, str]]:
     """Return only source-identical route tuples backed by receipt-linked artifacts."""
-    reusable: dict[tuple[str, str], dict[str, str]] = {}
+    reusable: dict[tuple[str, str, str, str], dict[str, str]] = {}
     if not expected_xsht_sha256:
         return reusable
     receipt_root = root / ".work/final-review-evidence/final-correctness-gates"
@@ -5163,16 +5207,16 @@ def collect_route_witness_receipts(
     expected_tree: str,
     expected_xsht_sha256: str,
     imported: list[tuple[pathlib.Path, dict[str, Any]]],
-) -> dict[tuple[str, str], dict[str, str]]:
+) -> dict[tuple[str, str, str, str], dict[str, str]]:
     """Validate an already discovered receipt corpus for route-witness tuple reuse."""
-    reusable: dict[tuple[str, str], dict[str, str]] = {}
+    reusable: dict[tuple[str, str, str, str], dict[str, str]] = {}
     if not expected_xsht_sha256:
         return reusable
     if not receipt_corpus_steps_are_unique([receipt for _, receipt in imported]):
         return reusable
 
     rows_by_tag = {row["tag"]: row for row in rows}
-    claimed_tuples: set[tuple[str, str, str]] = set()
+    claimed_tuples: set[tuple[str, str, str, str]] = set()
     claimed_artifacts: set[str] = set()
     for test_id, mapping in mappings_by_id.items():
         row = rows_by_tag[mapping["tag"]]
@@ -5198,18 +5242,22 @@ def collect_route_witness_receipts(
                     )
                     if witness is None:
                         continue
-                    tuple_claim = (mapping["tag"], mode, witness["route_id"])
+                    tuple_claim = (
+                        mapping["tag"],
+                        mode,
+                        witness["route_id"],
+                        mapping["test_id"],
+                    )
                     artifact_claim = witness["artifact"]
-                    result_key = (mapping["tag"], mode)
                     if (
                         tuple_claim in claimed_tuples
                         or artifact_claim in claimed_artifacts
-                        or result_key in reusable
+                        or tuple_claim in reusable
                     ):
                         return {}
                     claimed_tuples.add(tuple_claim)
                     claimed_artifacts.add(artifact_claim)
-                    reusable[result_key] = witness
+                    reusable[tuple_claim] = witness
     return reusable
 
 
@@ -5230,41 +5278,12 @@ def retain_unwitnessed_route_gaps(
         if row is None or mode_evidence is None:
             retained.append(gap)
             continue
-        status = mode_evidence.get("status")
-        if status == "behavior_only_receipt":
+        if mode_evidence.get("status") == "behavior_only_receipt":
             continue
-        if status != "route_witness_credited":
+        route_id = gap.get("expected_runtime_route_id")
+        route_evidence = mode_evidence.get("routes", {}).get(route_id)
+        if not isinstance(route_evidence, dict) or route_evidence.get("status") != "credited":
             retained.append(gap)
-            continue
-
-        routes = row.get("execution_paths", {}).get(mode)
-        if not isinstance(routes, list) or not routes:
-            raise EvidenceError(f"source route inventory is missing for {tag}/{mode}")
-        if len(routes) == 1:
-            if routes[0].get("name") != gap.get("route"):
-                raise EvidenceError(f"route gap differs from source inventory for {tag}/{mode}")
-            continue
-
-        expectation = row.get("route_witness_expectations", {}).get(mode, {})
-        selected = [
-            route for route in routes
-            if route.get("selected_when") == "execution.is_in_place(instruction) is false"
-        ]
-        in_place = [
-            route for route in routes
-            if route.get("selected_when") == "execution.is_in_place(instruction)"
-        ]
-        if (
-            len(routes) != 2
-            or len(selected) != 1
-            or len(in_place) != 1
-            or expectation.get("route_id") != "explicit_frame_control_path"
-        ):
-            raise EvidenceError(f"unsupported multi-route witness mapping for {tag}/{mode}")
-        if gap.get("route") == in_place[0].get("name"):
-            retained.append(gap)
-        elif gap.get("route") != selected[0].get("name"):
-            raise EvidenceError(f"route gap differs from source inventory for {tag}/{mode}")
     return retained
 
 
@@ -5286,7 +5305,7 @@ def exact_behavior_receipts_for_mode(
 
 def build_route_path_evidence(
     rows: list[dict[str, Any]],
-    route_witnesses: dict[tuple[str, str], dict[str, str]],
+    route_witnesses: dict[tuple[str, str, str, str], dict[str, str]],
 ) -> dict[str, dict[str, dict[str, Any]]]:
     evidence_by_tag: dict[str, dict[str, dict[str, Any]]] = {}
     for row in rows:
@@ -5294,18 +5313,37 @@ def build_route_path_evidence(
         row_evidence: dict[str, dict[str, Any]] = {}
         for mode in ROUTE_WITNESS_EXPECTATION_MODES:
             expectation = row["route_witness_expectations"][mode]
-            witness = route_witnesses.get((tag, mode))
-            if (
-                witness is not None
-                and expectation.get("status") == "credited"
-                and witness.get("route_id") == expectation.get("route_id")
-            ):
+            probes = expectation.get("probes", [])
+            routes: dict[str, list[dict[str, str]]] = {}
+            witnesses: list[dict[str, str]] = []
+            for probe in probes:
+                route_id = probe.get("route_id")
+                test_id = probe.get("test_id")
+                if not isinstance(route_id, str) or not isinstance(test_id, str):
+                    continue
+                witness = route_witnesses.get((tag, mode, route_id, test_id))
+                if witness is None:
+                    continue
+                routes.setdefault(route_id, []).append(witness)
+                witnesses.append(witness)
+            route_ids = {
+                probe["route_id"]
+                for probe in probes
+                if isinstance(probe.get("route_id"), str)
+            }
+            route_evidence = {
+                route_id: {"status": "credited", "witnesses": route_witnesses}
+                for route_id, route_witnesses in routes.items()
+            }
+            behavior_receipts = exact_behavior_receipts_for_mode(row, mode)
+            if route_ids and route_ids.issubset(routes):
                 row_evidence[mode] = {
                     "status": "route_witness_credited",
-                    **witness,
+                    "routes": route_evidence,
+                    "witnesses": witnesses,
+                    "expected_route_ids": sorted(route_ids),
                 }
                 continue
-            behavior_receipts = exact_behavior_receipts_for_mode(row, mode)
             if (
                 expectation.get("status") == "unsupported_by_artifact_format"
                 and behavior_receipts
@@ -5318,7 +5356,8 @@ def build_route_path_evidence(
             row_evidence[mode] = {
                 "status": "pending",
                 "artifact_status": expectation.get("status"),
-                "expected_route_id": expectation.get("route_id"),
+                "routes": route_evidence,
+                "expected_route_ids": sorted(route_ids),
                 "behavior_receipts": behavior_receipts,
             }
         evidence_by_tag[tag] = row_evidence
@@ -5783,23 +5822,38 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
         })
 
     all_tags_set = set(all_tags)
-    route_witness_by_tag = {
-        mapping["tag"]: mapping for mapping in route_witness_mappings_by_id.values()
-    }
+    route_witness_by_tag: dict[str, list[dict[str, Any]]] = {}
+    for mapping in route_witness_mappings_by_id.values():
+        route_witness_by_tag.setdefault(mapping["tag"], []).append(mapping)
     for row in routed:
         tag = row["tag"]
-        route_mapping = route_witness_by_tag.get(tag)
-        row["route_witness_expectations"] = {
-            mode: (
+        route_mappings = route_witness_by_tag.get(tag, [])
+        row["route_witness_expectations"] = {}
+        for mode in ROUTE_WITNESS_EXPECTATION_MODES:
+            probes = [
                 {
-                    "test_id": route_mapping["test_id"],
-                    **route_mapping["mode_expectations"][mode],
+                    "test_id": mapping["test_id"],
+                    **mapping["mode_expectations"][mode],
                 }
-                if route_mapping is not None
-                else {"test_id": None, "route_id": None, "status": "unmapped"}
+                for mapping in route_mappings
+            ]
+            route_ids = sorted({
+                probe["route_id"]
+                for probe in probes
+                if isinstance(probe.get("route_id"), str)
+            })
+            status = (
+                "pending_receipt_artifact"
+                if route_ids
+                else "unsupported_by_artifact_format"
+                if probes
+                else "unmapped"
             )
-            for mode in ROUTE_WITNESS_EXPECTATION_MODES
-        }
+            row["route_witness_expectations"][mode] = {
+                "probes": probes,
+                "route_ids": route_ids,
+                "status": status,
+            }
         order_candidate = order_candidates.get(tag)
         if order_candidate is not None:
             commit = order_candidate.get("source_commit")
@@ -5874,7 +5928,9 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                         "path": mode,
                         "route": route["name"],
                         "source_route": route.get("route"),
-                        "expected_runtime_route_id": row["route_witness_expectations"][mode].get("route_id"),
+                        "expected_runtime_route_id": route_witness_route_id_for_path(
+                            row, mode, route, row["route_witness_expectations"][mode]
+                        ),
                         "reason": (
                             "mapped route test has no source-matched final-correctness receipt"
                             if route.get("test_ids")
@@ -5889,7 +5945,9 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                         "path": mode,
                         "route": route["name"],
                         "source_route": route.get("route"),
-                        "expected_runtime_route_id": row["route_witness_expectations"][mode].get("route_id"),
+                        "expected_runtime_route_id": route_witness_route_id_for_path(
+                            row, mode, route, row["route_witness_expectations"][mode]
+                        ),
                         "reason": "candidate test IDs lack an explicit source witness for this tag and route",
                     })
         if row["kind"] != "Stmt" and not row["fallback_path_map"].get("branches_exhaustive"):
@@ -5961,15 +6019,34 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
         row["reused_final_correctness_receipts"] = reusable[row["tag"]]
         for mode in ROUTE_WITNESS_EXPECTATION_MODES:
             expectation = row["route_witness_expectations"][mode]
-            proof = route_witness_reusable.get((row["tag"], mode))
-            expectation["status"] = (
-                "credited"
-                if proof is not None
-                else expectation["status"]
-                if expectation["route_id"] is None
-                else "pending_receipt_artifact"
-            )
-            expectation["receipt_artifact"] = proof
+            for probe in expectation["probes"]:
+                route_id = probe["route_id"]
+                if route_id is None:
+                    continue
+                identity = (row["tag"], mode, route_id, probe["test_id"])
+                proof = route_witness_reusable.get(identity)
+                probe["status"] = "credited" if proof is not None else "pending_receipt_artifact"
+                probe["receipt_artifact"] = proof
+                if proof is None:
+                    route_gaps.append({
+                        "tag": row["tag"],
+                        "path": "route_witness_probe_receipt",
+                        "mode": mode,
+                        "route_id": route_id,
+                        "test_id": probe["test_id"],
+                        "reason": "exact source-matched route probe receipt is pending",
+                    })
+            expectation["covered_route_ids"] = sorted({
+                probe["route_id"]
+                for probe in expectation["probes"]
+                if probe.get("status") == "credited"
+            })
+            if expectation["route_ids"]:
+                expectation["status"] = (
+                    "credited"
+                    if all(probe.get("status") == "credited" for probe in expectation["probes"])
+                    else "pending_receipt_artifact"
+                )
     imported_receipts = imported_final_correctness_receipts(root)
     source_order_reusable = collect_source_order_receipts(
         root,
@@ -6000,13 +6077,12 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
         if evidence.get("artifact_status") == "unsupported_by_artifact_format":
             gap["route_artifact_status"] = "unsupported_by_artifact_format"
             gap["reason"] = "route artifact format does not cover this row; exact behavior receipt is pending"
-        elif evidence.get("status") == "route_witness_credited":
+        elif evidence.get("routes", {}).get(gap.get("expected_runtime_route_id"), {}).get("status") == "credited":
             gap["route_artifact_status"] = "supported_by_artifact_format"
-            gap["witnessed_runtime_route_id"] = evidence.get("route_id")
+            gap["witnessed_runtime_route_id"] = gap.get("expected_runtime_route_id")
             gap["reason"] = "credited emitter route does not cover this distinct source branch"
         else:
             gap["route_artifact_status"] = "supported_by_artifact_format"
-            gap["expected_runtime_route_id"] = evidence.get("expected_route_id")
             gap["reason"] = "source-matched route-witness artifact receipt is pending"
         row = rows_by_tag.get(gap.get("tag"))
         if row is not None:
@@ -6043,10 +6119,15 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
             "review_focus_rows": len(focus_tags),
             "runtime_rows": sum(row["proof_kind"] == "runtime" for row in routed),
             "route_witness_paths_credited": sum(
-                evidence["status"] == "route_witness_credited"
+                route.get("status") == "credited"
                 for row in routed
                 for evidence in row["execution_paths"]["evidence"].values()
+                for route in evidence.get("routes", {}).values()
             ),
+            "route_witness_exact_proofs_credited": len(route_witness_reusable),
+            "route_witness_unique_route_tuples_credited": len({
+                identity[:3] for identity in route_witness_reusable
+            }),
             "behavior_only_paths_credited": sum(
                 evidence["status"] == "behavior_only_receipt"
                 for row in routed
@@ -6307,10 +6388,30 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
             ),
             "candidate_credited_tuples": sum(
                 mapping["mapping_kind"] != "artifact_capability"
-                and (mapping["tag"], mode) in route_witness_reusable
+                and (
+                    mapping["tag"],
+                    mode,
+                    mapping["mode_expectations"][mode]["route_id"],
+                    mapping["test_id"],
+                ) in route_witness_reusable
                 for mapping in route_witness_mappings_by_id.values()
                 for mode in ROUTE_WITNESS_EXPECTATION_MODES
             ),
+            "supported_exact_proofs": sum(
+                mapping["mode_expectations"][mode]["route_id"] is not None
+                for mapping in route_witness_mappings_by_id.values()
+                for mode in ROUTE_WITNESS_EXPECTATION_MODES
+            ),
+            "unique_supported_route_tuples": len({
+                (
+                    mapping["tag"],
+                    mode,
+                    mapping["mode_expectations"][mode]["route_id"],
+                )
+                for mapping in route_witness_mappings_by_id.values()
+                for mode in ROUTE_WITNESS_EXPECTATION_MODES
+                if mapping["mode_expectations"][mode]["route_id"] is not None
+            }),
             "artifact_capability_mappings": sum(
                 mapping["mapping_kind"] == "artifact_capability"
                 for mapping in route_witness_mappings_by_id.values()
@@ -6321,6 +6422,9 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
             ),
             "validated_tuples": len(route_witness_reusable),
             "credited_tuples": len(route_witness_reusable),
+            "unique_route_tuples_credited": len({
+                identity[:3] for identity in route_witness_reusable
+            }),
             "supported_route_ids": sorted({
                 expectation["route_id"]
                 for mapping in route_witness_mappings_by_id.values()
@@ -6332,6 +6436,7 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                     "tag": mapping["tag"],
                     "mode": mode,
                     "route_id": mapping["mode_expectations"][mode]["route_id"],
+                    "test_id": mapping["test_id"],
                 }
                 for mapping in route_witness_mappings_by_id.values()
                 for mode in ROUTE_WITNESS_EXPECTATION_MODES
@@ -6339,9 +6444,9 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
             ],
             "source_commit": config["route_witness_source_commit"],
             "policy": (
-                "Only a supported exact tag/mode route tuple is credited, and only when a source-identical "
-                "successful test step references a digest-verified artifact inside that receipt run; source "
-                "mappings and passing tests alone do not prove route identity."
+                "Each supported tag/mode/route/test identity is credited only when its source-identical "
+                "successful test step references a digest-verified single-record artifact inside that receipt run. "
+                "Distinct test IDs may corroborate one route tuple; duplicate identities are rejected."
             ),
         },
     }

@@ -1077,12 +1077,14 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         run_dir: pathlib.Path,
         mode: str,
         *,
+        test_id: str = "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map",
         extra_env: dict[str, str] | None = None,
     ) -> tuple[dict, dict, pathlib.Path, dict, bytes]:
         config = json.loads(generate.CONFIG.read_text())
         rows = generate.parse_schema((root / generate.SCHEMA_PATH).read_text())
         mappings = generate.validate_route_witness_mappings(root, config, rows)
-        mapping = mappings["tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map"]
+        mapping = mappings[test_id]
+        row = next(row for row in rows if row["tag"] == mapping["tag"])
         source_bytes = generate.route_witness_source_bytes(
             root, mapping, config["route_witness_source_commit"]
         )
@@ -1094,8 +1096,8 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             "test_id": mapping["test_id"],
             "source_hash": source_hash,
             "records": [{
-                "tag_name": "ExprEmptyMap",
-                "tag_ordinal": 49,
+                "tag_name": mapping["tag"],
+                "tag_ordinal": row["ordinal"],
                 "route": expectation["route_id"],
                 "mode": mode,
             }],
@@ -1105,7 +1107,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         (run_dir / "route-witness.json").write_bytes(artifact_bytes)
         log_path = run_dir / "step.log"
         log_path.write_text("native test passed\n")
-        step_id = f"empty-map-{mode}-{run_dir.name}"
+        step_id = f"{mapping['tag']}-{mode}-{run_dir.name}"
         step = {
             "id": step_id,
             "exit_code": 0,
@@ -1386,11 +1388,39 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         ]
         unsupported = [mapping for mapping in mappings.values() if "child_source" not in mapping]
         self.assertEqual(len(rows), 152)
-        self.assertEqual(len(mappings), 152)
+        self.assertEqual(len(mappings), 154)
         self.assertEqual({mapping["tag"] for mapping in mappings.values()}, {row["tag"] for row in rows})
-        self.assertEqual(len(expression_children), 92)
+        self.assertEqual(len(expression_children), 94)
         self.assertEqual(len(unsupported), 60)
         self.assertEqual(len(capabilities), 1)
+        if_mappings = [mapping for mapping in mappings.values() if mapping["tag"] == "ExprIf"]
+        self.assertEqual(
+            {mapping["test_id"] for mapping in if_mappings},
+            {
+                "tests/xsh/expression-route-oracles.xsh::test_expr_if",
+                "tests/xsh/expression-route-oracles.xsh::test_expr_if_pure_selection",
+            },
+        )
+        self.assertEqual(
+            {mapping["mode_expectations"]["normal"]["route_id"] for mapping in if_mappings},
+            {"explicit_frame_control_path", "in_place_evaluator_path"},
+        )
+        self.assertEqual(
+            {mapping["mode_expectations"]["forced"]["route_id"] for mapping in if_mappings},
+            {"explicit_frame_control_path"},
+        )
+        match_pure = mappings[
+            "tests/xsh/expression-route-oracles.xsh::test_expr_match_pure_selection"
+        ]
+        self.assertEqual(match_pure["tag"], "ExprMatch")
+        self.assertEqual(
+            match_pure["mode_expectations"]["normal"]["route_id"],
+            "in_place_evaluator_path",
+        )
+        self.assertNotIn(
+            "tests/xsh/expression-route-oracles.xsh::test_expr_match_pure_selection",
+            generate.ROUTE_WITNESS_BEHAVIOR_ONLY_IDS,
+        )
         for mapping in candidates:
             for expectation in mapping["mode_expectations"].values():
                 if "child_source" in mapping:
@@ -1405,7 +1435,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
                 for mapping in mappings.values()
                 for expectation in mapping["mode_expectations"].values()
             ),
-            184,
+            188,
         )
 
         empty_map = capabilities[0]
@@ -1433,6 +1463,17 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         duplicate["route_witness_mappings"].append(copy.deepcopy(duplicate["route_witness_mappings"][0]))
         with self.assertRaisesRegex(generate.EvidenceError, "duplicate route-witness test ID mapping"):
             generate.validate_route_witness_mappings(root, duplicate, rows)
+
+        contradictory = copy.deepcopy(config)
+        frame_if = next(
+            mapping for mapping in contradictory["route_witness_mappings"]
+            if mapping["test_id"] == "tests/xsh/expression-route-oracles.xsh::test_expr_if"
+        )
+        conflicting_if = copy.deepcopy(frame_if)
+        conflicting_if["mode_expectations"]["normal"]["route_id"] = "in_place_evaluator_path"
+        contradictory["route_witness_mappings"].append(conflicting_if)
+        with self.assertRaisesRegex(generate.EvidenceError, "duplicate route-witness test ID mapping"):
+            generate.validate_route_witness_mappings(root, contradictory, rows)
 
         wrong_tag = copy.deepcopy(config)
         wrong_tag["route_witness_mappings"][0]["tag"] = "StmtAssign"
@@ -3115,7 +3156,13 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 root, config, mappings, rows, "head", "tree", "xsht-hash",
                 [(normal_path, normal_receipt)],
             )
-            self.assertEqual(set(collected), {("ExprEmptyMap", "normal")})
+            normal_identity = (
+                "ExprEmptyMap",
+                "normal",
+                "explicit_frame_apply_path",
+                "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map",
+            )
+            self.assertEqual(set(collected), {normal_identity})
 
             forced_config, _, forced_path, forced_receipt, _ = self.route_witness_receipt_fixture(
                 root, base / "forced", "forced"
@@ -3124,8 +3171,14 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 root, forced_config, mappings, rows, "head", "tree", "xsht-hash",
                 [(forced_path, forced_receipt)],
             )
-            self.assertEqual(set(forced), {("ExprEmptyMap", "forced")})
-            self.assertEqual(forced[("ExprEmptyMap", "forced")]["route_id"], "generic_operand_apply_path")
+            forced_identity = (
+                "ExprEmptyMap",
+                "forced",
+                "generic_operand_apply_path",
+                "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map",
+            )
+            self.assertEqual(set(forced), {forced_identity})
+            self.assertEqual(forced[forced_identity]["route_id"], "generic_operand_apply_path")
 
             _, _, duplicate_path, duplicate_receipt, _ = self.route_witness_receipt_fixture(
                 root, base / "normal-duplicate", "normal", extra_env={"WITNESS_DUPLICATE": "1"}
@@ -3136,13 +3189,119 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             )
             self.assertEqual(duplicate_claim, {})
 
+            frame_id = "tests/xsh/expression-route-oracles.xsh::test_expr_if"
+            pure_id = "tests/xsh/expression-route-oracles.xsh::test_expr_if_pure_selection"
+            if_receipts = {}
+            for test_id in (frame_id, pure_id):
+                for mode in ("normal", "forced"):
+                    fixture = self.route_witness_receipt_fixture(
+                        root,
+                        base / f"{test_id.rsplit('::', 1)[1]}-{mode}",
+                        mode,
+                        test_id=test_id,
+                    )
+                    if_receipts[(test_id, mode)] = fixture
+
+            frame_normal = if_receipts[(frame_id, "normal")]
+            pure_normal = if_receipts[(pure_id, "normal")]
+            normal_if = generate.collect_route_witness_receipts(
+                root,
+                config,
+                mappings,
+                rows,
+                "head",
+                "tree",
+                "xsht-hash",
+                [
+                    (frame_normal[2], frame_normal[3]),
+                    (pure_normal[2], pure_normal[3]),
+                ],
+            )
+            self.assertEqual(
+                set(normal_if),
+                {
+                    ("ExprIf", "normal", "explicit_frame_control_path", frame_id),
+                    ("ExprIf", "normal", "in_place_evaluator_path", pure_id),
+                },
+            )
+            frame_forced = if_receipts[(frame_id, "forced")]
+            pure_forced = if_receipts[(pure_id, "forced")]
+            forced_if = generate.collect_route_witness_receipts(
+                root,
+                config,
+                mappings,
+                rows,
+                "head",
+                "tree",
+                "xsht-hash",
+                [
+                    (frame_forced[2], frame_forced[3]),
+                    (pure_forced[2], pure_forced[3]),
+                ],
+            )
+            self.assertEqual(
+                set(forced_if),
+                {
+                    ("ExprIf", "forced", "explicit_frame_control_path", frame_id),
+                    ("ExprIf", "forced", "explicit_frame_control_path", pure_id),
+                },
+            )
+            path_evidence = generate.build_route_path_evidence(
+                [{
+                    "tag": "ExprIf",
+                    "route_witness_expectations": {
+                        "normal": {
+                            "probes": [
+                                {
+                                    "test_id": frame_id,
+                                    "route_id": "explicit_frame_control_path",
+                                },
+                                {
+                                    "test_id": pure_id,
+                                    "route_id": "in_place_evaluator_path",
+                                },
+                            ],
+                            "status": "credited",
+                        },
+                        "forced": {
+                            "probes": [
+                                {
+                                    "test_id": frame_id,
+                                    "route_id": "explicit_frame_control_path",
+                                },
+                                {
+                                    "test_id": pure_id,
+                                    "route_id": "explicit_frame_control_path",
+                                },
+                            ],
+                            "status": "credited",
+                        },
+                    },
+                    "oracles": {"runtime": []},
+                    "reused_final_correctness_receipts": [],
+                }],
+                {**normal_if, **forced_if},
+            )["ExprIf"]
+            self.assertEqual(path_evidence["normal"]["status"], "route_witness_credited")
+            self.assertEqual(
+                set(path_evidence["normal"]["routes"]),
+                {"explicit_frame_control_path", "in_place_evaluator_path"},
+            )
+            self.assertEqual(len(path_evidence["normal"]["witnesses"]), 2)
+            self.assertEqual(path_evidence["forced"]["status"], "route_witness_credited")
+            self.assertEqual(
+                set(path_evidence["forced"]["routes"]),
+                {"explicit_frame_control_path"},
+            )
+            self.assertEqual(len(path_evidence["forced"]["witnesses"]), 2)
+
     def test_route_witness_uses_current_emitter_mapping_and_preserves_uncovered_branch(self) -> None:
         gaps = [
-            {"tag": "ExprEmptyMap", "path": "normal", "route": "normal"},
-            {"tag": "ExprEmptyMap", "path": "forced", "route": "forced"},
-            {"tag": "ExprIf", "path": "normal", "route": "verifier_approved_in_place_recursive_selection"},
-            {"tag": "ExprIf", "path": "normal", "route": "non_in_place_explicit_frame_selection"},
-            {"tag": "ExprInt", "path": "normal", "route": "normal"},
+            {"tag": "ExprEmptyMap", "path": "normal", "route": "normal", "expected_runtime_route_id": "explicit_frame_apply_path"},
+            {"tag": "ExprEmptyMap", "path": "forced", "route": "forced", "expected_runtime_route_id": "generic_operand_apply_path"},
+            {"tag": "ExprIf", "path": "normal", "route": "verifier_approved_in_place_recursive_selection", "expected_runtime_route_id": "in_place_evaluator_path"},
+            {"tag": "ExprIf", "path": "normal", "route": "non_in_place_explicit_frame_selection", "expected_runtime_route_id": "explicit_frame_control_path"},
+            {"tag": "ExprInt", "path": "normal", "route": "normal", "expected_runtime_route_id": "in_place_evaluator_path"},
             {"tag": "ExprEmptyMap", "path": "fallback_branch_inventory"},
         ]
         rows = {
@@ -3166,7 +3325,9 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                     ],
                 },
                 "route_witness_expectations": {
-                    "normal": {"route_id": "explicit_frame_control_path"},
+                    "normal": {
+                        "route_ids": ["in_place_evaluator_path", "explicit_frame_control_path"],
+                    },
                 },
             },
             "ExprInt": {
@@ -3175,11 +3336,20 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         }
         evidence = {
             "ExprEmptyMap": {
-                "normal": {"status": "route_witness_credited", "route_id": "explicit_frame_apply_path"},
-                "forced": {"status": "route_witness_credited", "route_id": "generic_operand_apply_path"},
+                "normal": {
+                    "status": "route_witness_credited",
+                    "routes": {"explicit_frame_apply_path": {"status": "credited"}},
+                },
+                "forced": {
+                    "status": "route_witness_credited",
+                    "routes": {"generic_operand_apply_path": {"status": "credited"}},
+                },
             },
             "ExprIf": {
-                "normal": {"status": "route_witness_credited", "route_id": "explicit_frame_control_path"},
+                "normal": {
+                    "status": "pending",
+                    "routes": {"explicit_frame_control_path": {"status": "credited"}},
+                },
             },
             "ExprInt": {
                 "normal": {"status": "behavior_only_receipt", "receipts": [{"mode": "normal"}]},
@@ -3188,6 +3358,42 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         self.assertEqual(
             generate.retain_unwitnessed_route_gaps(gaps, evidence, rows),
             [gaps[2], gaps[5]],
+        )
+
+    def test_route_witness_path_mapping_uses_selector_and_schema_strategy(self) -> None:
+        row = {"frame_strategy": "FrameControl"}
+        expectation = {
+            "probes": [
+                {"route_id": "explicit_frame_control_path"},
+                {"route_id": "in_place_evaluator_path"},
+            ],
+        }
+        self.assertEqual(
+            generate.route_witness_route_id_for_path(
+                row,
+                "normal",
+                {"selected_when": "execution.is_in_place(instruction)"},
+                expectation,
+            ),
+            "in_place_evaluator_path",
+        )
+        self.assertEqual(
+            generate.route_witness_route_id_for_path(
+                row,
+                "normal",
+                {"selected_when": "execution.is_in_place(instruction) is false"},
+                expectation,
+            ),
+            "explicit_frame_control_path",
+        )
+        self.assertEqual(
+            generate.route_witness_route_id_for_path(
+                {"frame_strategy": "FrameApply"},
+                "forced",
+                {},
+                {"probes": [{"route_id": "generic_operand_apply_path"}]},
+            ),
+            "generic_operand_apply_path",
         )
 
     def test_receipt_reuse_requires_exact_source_id_command_and_mode(self) -> None:

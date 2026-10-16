@@ -1343,11 +1343,11 @@
       "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_process_command_argv",
       "mode_expectations": {
         "normal": {
-          "route_id": "explicit_frame_control_path",
+          "route_id": "explicit_frame_apply_path",
           "status": "supported_by_artifact_format"
         },
         "forced": {
-          "route_id": "explicit_frame_control_path",
+          "route_id": "generic_operand_apply_path",
           "status": "supported_by_artifact_format"
         }
       },
@@ -2545,9 +2545,43 @@
           "status": "unsupported_by_artifact_format"
         }
       }
+    },
+    {
+      "tag": "ExprIf",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_if_pure_selection",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "assert (if true { 1 } else { 0 }) == 1\n"
+    },
+    {
+      "tag": "ExprMatch",
+      "source_file": "tests/xsh/expression-route-oracles.xsh",
+      "mapping_kind": "statement_expression",
+      "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_match_pure_selection",
+      "mode_expectations": {
+        "normal": {
+          "route_id": "in_place_evaluator_path",
+          "status": "supported_by_artifact_format"
+        },
+        "forced": {
+          "route_id": "explicit_frame_control_path",
+          "status": "supported_by_artifact_format"
+        }
+      },
+      "child_source": "\nassert (match 2 { 2 => 22, _ => 0 }) == 22\n"
     }
   ],
-  "route_witness_source_commit": "7d087dd3a549a7f18c7518380270f23a8ee97966",
+  "route_witness_source_commit": "3545a543f576bf21e0d95ae75c276436b0a0b7b9",
   "runtime_oracles": {
     "BoolAnd": {
       "ids": [
