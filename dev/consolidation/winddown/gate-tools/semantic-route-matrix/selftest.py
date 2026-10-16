@@ -213,9 +213,12 @@ def expression_dispatch_fixture(rows: list[dict]) -> dict:
                 == generate.EXPRESSION_DISPATCH_NORMAL_BYPASS_IDENTITY
                 else "boundary predicate"
             ),
-            "source": source(paths["normal_dispatch"], 1),
+            "source": source(paths["normal_dispatch"], index),
         }
-        for function, kind, outcome in generate.EXPRESSION_DISPATCH_BOUNDARY_IDENTITIES
+        for index, (function, kind, outcome) in enumerate(
+            sorted(generate.EXPRESSION_DISPATCH_BOUNDARY_IDENTITIES),
+            start=1,
+        )
     ]
     return {
         "source_paths": paths,
@@ -2064,9 +2067,13 @@ fn eval_indexed_expr() {
             expression_dispatch_fixture(rows),
         )
         row = by_tag["ExprBinary"]
+        source_refs = generate.expression_dispatch_source_refs(row, inventory)
+        self.assertEqual(len(source_refs["valid_branches"]), 1)
+        self.assertEqual(len(source_refs["defensive_boundaries"]), 7)
+        self.assertTrue(set(source_refs["valid_branches"]).isdisjoint(source_refs["defensive_boundaries"]))
         fallback = generate.build_fallback_path_map(
             row,
-            generate.expression_dispatch_source_refs(row, inventory),
+            source_refs,
             expression_dispatch_inventory=inventory,
         )
         self.assertEqual(fallback["review_status"], "source_exhaustive_dispatch_path")
@@ -2096,9 +2103,17 @@ fn eval_indexed_expr() {
         )
         self.assertTrue(bypass["reachable_for_schema_row"])
         self.assertEqual(len(fallback["defensive_boundaries"]), 7)
+        self.assertEqual(
+            sorted(boundary["source_ref"] for boundary in fallback["defensive_boundaries"]),
+            source_refs["defensive_boundaries"],
+        )
         self.assertNotIn(
             "normal_in_place_bypass",
             {boundary["kind"] for boundary in fallback["defensive_boundaries"]},
+        )
+        self.assertEqual(
+            [bypass["source_ref"]],
+            source_refs["valid_branches"],
         )
         self.assertTrue(all(
             boundary["reachable_for_valid_schema_row"] is False

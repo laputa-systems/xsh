@@ -4105,8 +4105,17 @@ def expression_dispatch_source_refs(
             reference(selectors["forced_in_place_bypass"]["source"]),
         ],
         "forced_dispatch": sorted(set(forced_dispatch)),
+        "valid_branches": sorted({
+            reference(boundary["source"])
+            for boundary in inventory["boundaries"]
+            if (boundary["function"], boundary["kind"], boundary["outcome"])
+            == EXPRESSION_DISPATCH_NORMAL_BYPASS_IDENTITY
+        }),
         "defensive_boundaries": sorted({
-            reference(boundary["source"]) for boundary in inventory["boundaries"]
+            reference(boundary["source"])
+            for boundary in inventory["boundaries"]
+            if (boundary["function"], boundary["kind"], boundary["outcome"])
+            in EXPRESSION_DISPATCH_DEFENSIVE_BOUNDARY_IDENTITIES
         }),
     }
 
