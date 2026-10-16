@@ -16,7 +16,10 @@ closeout guard before selecting work. The resume assignments are:
 | Acceptance | `resume-acceptance` | `e048b33f2`; approved supplemental and canonical gates |
 | Loop speed | removed after read-only review | `e048b33f2`; completed the selector and repeated-validation audit |
 | W9 parity | `resume-w9` | `e048b33f2`; immutable capture admission and strict comparison |
-| Routes and resources | `resume-routes` | `e048b33f2`; current route matrix and remaining resource gates |
+| Routes and resources | `resume-routes`, `resume-route-tools` | frozen `e048b33f2` source; separate collector edits and current route matrix |
+| Fallback review | `resume-fallback-review` | remaining expression dispatch inventory in the AST extractor |
+| Operand order | `resume-order-review` | existing assertion map and focused missing order oracles |
+| Route strategy | `resume-route-strategy` | truthful process-command apply witness and dispatch invariant |
 | Semantic review | removed after integration | `e048b33f2`; ten acceptance rows and current-source qualification |
 | Performance preparation | removed after integration | `e048b33f2`; reviewed existing post-functional gate inputs and controls |
 
@@ -57,11 +60,17 @@ The clean review worktree and merged branch were removed.
 Launcher repair `c066957ea` separates the controller, gate tools and selected
 source. Execution now requires `--source-root`. Source and tool commit, tree,
 cleanliness and hashes remain checked independently. The integrator reran all
-38 controls successfully. The supplemental attempt
-`correctness-e048-20261016-source-root` is active using frozen tools in
-`resume-acceptance` and source in detached `consolidation-final-e048` at
-`e048b33f2`. It preserves the five contexts and their existing resource limits.
-No supplemental result is accepted yet.
+38 controls successfully. The three e048 supplemental attempts build products
+and pass workspace Clippy. The first exposed a read-only special-context source
+mount; `d8d6c57df` restores the historical writable source context with Git and
+runtime artifacts read-only. The next two pass all 23 boundary checks, then fail
+the PTY check because its Cargo harness resolves `xsht` beside its own `xsh`.
+Mounting the product target (`6f31d46b4`) alone does not supply that sibling.
+`80739cf35` stages the qualified product beside the harness before runtime.
+All 41 launcher controls pass at integration, but focused execution found
+receipt-shape mismatches in that new helper. The acceptance owner is repairing
+those before the exact PTY replay. Earlier receipts stay unchanged. No full
+supplemental or canonical result is accepted yet.
 
 W9 comparison repair `fa58a4e54` shares each validated derived record between
 correction-delta detection and parity. The integrator reran all 86 adapter-runner
@@ -69,13 +78,30 @@ controls successfully. For the frozen corpus, the removed second pass read
 6,760 record groups containing 27,040 sidecar files. This is operation accounting,
 not a measured speedup. Full parity remains open. Its retained receipt pins the
 historical controller at the primary checkout path, so current main fails exact
-controller admission. The W9 owner is checking a private historical replay
-namespace with unchanged receipts and admission code before another attempt.
+controller admission. A private user/mount namespace now replays the exact
+historical controller at that path while preserving the captures and admission
+code. Both 1,690-owner proofs and all three native raw-hash scans pass. The
+unchanged historical comparator is running into `compare-r3`; at its latest
+checkpoint, 225 inputs / 900 outcomes have zero mismatches. This remains
+incomplete and earns no parity credit. The optimized comparator is separately
+qualified by its 86 controls and is not used in this historical replay.
 
 The strict matrix additionally needs 60 unique non-expression runtime selectors
 in both modes. They are disjoint from the 92 expression probes and 32
-source-order selectors. The route owner prepared 184 exact behavior executions
-alongside the 184 route probes. Non-expression results earn no route artifacts.
+source-order selectors. All 184 exact behavior executions and 184 route probes
+pass on frozen e048. Integrated collector `020df10c9` consumes the strict
+source-order receipts and source-validated emitter route IDs. The integrator
+reran all 68 controls. The actual matrix credits 184 route tuples, 120
+behavior-only paths and 64 source-order steps across 32 rows. It remains red:
+63 fallback inventories, 87 operand-order gaps, and two distinct If/Match
+in-place branches remain. Non-expression results earn no route artifacts.
+
+Source review found a production metadata conflict: `ExprProcessCommandArgv`
+declares `FrameControl` but executes through `indexed_frame_apply_tag` and
+`push_apply_operands`. Its e048 artifact consequently reports the wrong deeper
+route. The route-strategy lane owns the narrow repair and regression invariant.
+The current source freeze and receipts remain historical; final builds and
+routes must qualify the repaired source. Full acceptance waits for that freeze.
 
 The accepted results remain those recorded below. Starting a gate or repairing
 its iteration loop does not accept the source or close a remaining requirement.
