@@ -8,21 +8,26 @@ functional close or performance credit. Lean and Phase F remain paused.
 
 ## Current resume
 
-The current documentation checkpoint is `21344a566`. The canonical batch on
-`e89e35f29` ended with exit 3 and 13 native failures. Follow-up fixes address
-all 13 causes, and their exact tests pass: three hostname, eight lifecycle, and
-two OS cases. The corrected four-caller gate passes 45/45. Current focused
-check, lint, and exact plan pass. Canonical acceptance has not rerun and remains
-held for W9 source-closure tooling review. It has no functional close or
-performance credit.
+The main checkpoint is `9fa01db64`. It integrates W9 closure tooling `f2` and
+the main-context fixture fix `9fa`. The W9 builder passes six tests, and its
+combined 266-test run passes. Synthetic fixture outputs in that run do not
+establish genuine corpus parity. Controller `237ab426` has a sealed schema-4
+source receipt. Its base and composed d20 compiler builds pass with
+`success=true` and `fresh=false`. Seven exact Rust tests for source, owner, and
+assignment pass against unchanged source snapshots. The program remains pinned
+to immutable `e240`. A final main compiler run still needs a dedicated
+worktree, new seals, builds, and captures. No fresh corpus capture or parity
+result is qualified, and no final freeze exists.
 
-Route-runner fixes `36d58` and `70192` pass seven integrated runner tests and
-63 route self-tests. Route-pin refresh `f19` preserves 92 child-byte outputs
-and passes 62 self-tests; its 184 actual outputs remain unrun. Gate map
-`7d087dd` scopes native workflow checks to three callers, four native files,
-and XSH/XSHT products. The cache regression fix `f3afacb63` is integrated as
-`af7c55374`; its root and non-root cases pass. These results grant no
-performance credit.
+The canonical run on `e89e35f29` ended with 13 native failures. Focused repairs
+cover all 13 causes, and the corrected four-caller gate passes 45/45. A fresh
+canonical run has not started. Observer readiness currently prevents
+memory-only runs on a busy host. A repair is active. The observer writes under
+`.work`. Disposable launch pins are missing, and the gap is in setup. Route
+target `79` passes 64 self-tests; its 184 actual outputs remain unrun.
+
+No inference implementation is on main. Consolidation has no functional close
+or performance credit. Lean and Phase F remain paused.
 
 Acceptance launch, structural/semantic review, loop selection, typing witness
 readiness, and historical AWK evidence were inventoried independently. No Lean
@@ -615,37 +620,57 @@ work is authorized by this resume.
 ### Current queue
 
 The accepted `df` repair is integrated. Focused check and lint pass on four
-files; fake runner lane `5f21` passes 11 tests, its plan passes 1/1, `sh -n`
-passes, and real workload test `2ab` passes 1/1. The stable copied-artifact
-suffix rerun of `a22` passes check 1,526, lint with zero findings and 113 notes,
+files. Fake runner lane `5f21` passes 11 tests, its plan passes 1/1, `sh -n`
+passes, and workload test `2ab` passes 1/1. The stable copied-artifact suffix
+rerun of `a22` passes check 1,526, lint with zero findings and 113 notes,
 metrics, and docs/tour tests (3 pass). These results do not close canonical
 acceptance.
 
-W9 integration `fa4` passes 206 combined Python tests and 53 publication
-tests. Its 1,690 preflight entries use the root `xsht-config.ini` 1,687 times
-and `docs/snippets/tour/project/xsht-config.ini` three times. Caller fix `54a`
-passes 75 Python runner tests. Its schema-4 source receipt has a genuine seal.
-The raw and transformed owner-helper prebuild authority mismatch remains under
-repair. No Cargo build, native run, capture, or parity result is qualified.
+W9 closure tooling `f2` and the main-context fixture fix `9fa` are integrated
+on main `9fa01db64`. The builder passes six tests. The combined 266-test run
+passes, but its synthetic fixture outputs provide no genuine corpus or parity
+evidence. Controller `237ab426` has a sealed schema-4 source receipt. Base and
+composed d20 compiler builds pass with `success=true` and `fresh=false`. Seven
+exact Rust source, owner, and assignment tests pass against unchanged source
+snapshots. The program is pinned to immutable `e240`. The final main compiler
+needs a dedicated worktree with new seals, builds, and captures. No fresh
+captures, parity result, or final freeze is qualified.
 
-Inference pipeline commit `1795679a5` builds against its revision-specific
-target with `fresh=false`. Five of eleven exact selectors pass. Six fail. UInt
-preservation passes, while fixture and proof issues remain active. No inference
-implementation is on main. Capture commit `720cfe40` failed its isolated genuine
-compile with 12 Rust errors. Fix commit `9664a95de` remains uncompiled. Review
-continues on identity erasure, writer bijection, assignment identity, and
-harvest collision. Deep-cloned capture memory is not accepted.
+The canonical run on `e89e35f29` ended with 13 native failures. Focused repairs
+cover all 13 causes, and the corrected four-caller gate passes 45/45. A fresh
+canonical run has not started. Observer readiness currently prevents
+memory-only runs on a busy host. A repair is active. The observer writes under
+`.work`. Disposable launch pins are missing, and the gap is in setup. Route
+target `79` passes 64 self-tests; its 184 actual outputs remain unrun.
+
+Inference pipeline `520` has a last compiled result at `f4`: eight of eleven
+exact selectors pass. Two fixture fixes are integrated in the isolated
+pipeline but remain uncompiled. `CheckedValue` commit `e283` and annotation
+proof repairs are under review. The graph index has no production handoff.
+No inference implementation is on main.
+
+Earlier isolated compile `720cfe40` failed with 12 Rust errors. At that
+checkpoint, follow-up `9664a95de` remained uncompiled. Capture revision `77`
+compiled. Its tests first stopped on fixture docs, then review found a
+writer-definition and read-slot contradiction.
+Repair `6dbbe819b` removes the same-step contradiction and derives immutable-let
+evidence. Its `fresh=false` build compiles, but the first new positive selector
+fails the builtin argument invariant. The remaining eleven selectors are
+unrun. Review also found that typed callable `Let` validation does not prove
+the initializer signature. A source fix is active. No allocation numbers exist.
+Memory baseline products from `ac6` include 32 experimental warnings. The
+witness was rejected by the driver writer before allocation. There is no memory
+result or accepted `Arc` implementation.
 
 Each source revision and tree needs a separate Cargo target. Kache and the
 registry may be shared. A `fresh=true` run on the shared `720` target selected
 stale harness `ec8f` and is rejected. This cache failure does not invalidate
 earlier inspected builds that used `fresh=false`. The cohort config-deletion
-bypass is fixed; its 9,194 sites are a raw count, with no accepted eligibility
-denominator and no annotation removals.
+bypass is fixed. Its 9,194 sites are a raw count, with no accepted eligibility
+denominator or annotation removals.
 
-The canonical batch remains held for W9 source-closure tooling review. Lean and
-Phase F remain paused. The campaign has no functional close or performance
-credit.
+The campaign has no functional close or performance credit. Lean and Phase F
+remain paused.
 
 ### Remaining acceptance obligations
 

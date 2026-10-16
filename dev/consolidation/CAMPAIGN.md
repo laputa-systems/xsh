@@ -1,32 +1,25 @@
 # XSH Consolidation Campaign
 
-Status: resumed on 2026-10-15 for consolidation acceptance and the typing
-successor. The campaign remains active and incomplete at checkpoint
-`21344a566`. The canonical batch has not rerun after the `e89e35f29` native
-failures. Focused repairs pass, and the corrected four-caller gate passes
-45/45. Canonical acceptance remains held for W9 source-closure tooling review.
+Status: active and incomplete at main checkpoint `9fa01db64`. W9 closure
+tooling `f2` and the main-context fixture fix `9fa` are integrated. The builder
+passes six tests and the combined 266-test run passes, but synthetic fixture
+outputs establish no genuine corpus parity. Controller `237ab426` has a sealed
+schema-4 receipt. Its base and composed d20 compiler builds pass. Seven exact
+Rust tests for source, owner, and assignment pass against unchanged snapshots.
+No fresh corpus capture or parity result is qualified, and no final freeze
+exists.
 
-W9 integration `fa4` passes 206 combined Python tests and 53 publication
-tests. Its 1,690 preflight entries use the root `xsht-config.ini` 1,687 times
-and `docs/snippets/tour/project/xsht-config.ini` three times. Caller fix `54a`
-passes 75 Python runner tests. Its schema-4 source receipt has a genuine seal.
-The raw and transformed owner-helper prebuild authority mismatch remains under
-repair, so no Cargo build, native run, capture, or parity result is qualified.
+The canonical batch on `e89e35f29` has not rerun. Focused repairs cover all 13
+native failures and the corrected four-caller gate passes 45/45. Observer
+readiness currently prevents memory-only runs on a busy host. A repair is
+active. The observer writes under `.work`. Disposable launch pins are missing,
+and the gap is in setup.
+Route target `79` passes 64 self-tests; its 184 actual outputs remain unrun.
 
-Inference pipeline `1795679a5` builds against its revision-specific target
-with `fresh=false`. Five of eleven exact selectors pass and six fail. UInt
-preservation passes. Fixture and proof issues remain active. Capture commit
-`720cfe40` failed its isolated genuine compile with 12 Rust errors. Fix commit
-`9664a95de` remains uncompiled. Review continues on identity erasure, writer
-bijection, assignment identity, and harvest collision. Deep-cloned capture
-memory is not accepted. See the [handoff](HANDOFF.md) for Cargo target reuse
-rules and the rejected stale-harness run.
-
-The cohort config-deletion bypass is fixed. The inventory has 9,194 raw sites;
-no eligibility denominator is accepted and no annotations have been removed.
-Inference stays off main. Lean and Phase F remain paused. No functional close
-or performance credit is established. See the [current handoff](HANDOFF.md)
-for the acceptance queue and retained evidence.
+Inference and capture work remain in isolated pipelines. There is no inference
+implementation on main. Consolidation has no functional close or performance
+credit. Lean and Phase F remain paused. See the [current handoff](HANDOFF.md)
+for the lane results and remaining gates.
 
 ## Owner steering, 2026-10-15
 
