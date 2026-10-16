@@ -1261,6 +1261,9 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
             "candidate_root": str(self.candidate_root),
             "candidate_commit": self.source_commit,
             "candidate_tree": self.source_tree,
+            "controller_root": str(self.runner.CONTROLLER_ROOT),
+            "controller_commit": self.runner.source_identity(self.runner.CONTROLLER_ROOT)[0],
+            "controller_tree": self.runner.source_identity(self.runner.CONTROLLER_ROOT)[1],
             "input_root": str(self.input_root),
             "input_manifest": str(self.input_manifest),
             "input_manifest_sha256": self.runner.sha256_file(self.input_manifest),
@@ -1354,11 +1357,16 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
             "helper_sha256": hashlib.sha256(composed_bytes).hexdigest(),
         }
         self.helper_identity = self._helper_identity()
-        self.capture_root = self.candidate_work / "assignment-capture"
+        self.capture_root = (
+            self.runner.CONTROLLER_ROOT
+            / ".work/captures"
+            / f"assignment-{self.root.name}"
+        )
         self.sidecar_root = self.capture_root / "facts"
         self.receipt_directory = self.capture_root / "receipts"
         self.sidecar_root.mkdir(parents=True)
         self.receipt_directory.mkdir()
+        self.addCleanup(lambda: shutil.rmtree(self.capture_root, ignore_errors=True))
         self.range_receipts = self._write_range_receipts()
         self.sidecar_hashes = self._write_sidecars()
         self.assignment_capture_receipt = self.capture_root / "assignment-capture.receipt"
@@ -1959,6 +1967,9 @@ class SourceQualifiedExactOwnerReceiptTests(unittest.TestCase):
         self.source_record = {
             "schema": self.runner.SOURCE_COHORT_SCHEMA,
             "candidate_root": str(self.candidate_root),
+            "controller_root": str(self.runner.CONTROLLER_ROOT),
+            "controller_commit": self.runner.source_identity(self.runner.CONTROLLER_ROOT)[0],
+            "controller_tree": self.runner.source_identity(self.runner.CONTROLLER_ROOT)[1],
             "input_root": str(self.input_root),
             "input_manifest": str(self.input_manifest),
             "input_manifest_sha256": self.runner.sha256_file(self.input_manifest),
@@ -2004,11 +2015,16 @@ class SourceQualifiedExactOwnerReceiptTests(unittest.TestCase):
             "input_manifest_sha256": self.source_record["input_manifest_sha256"],
             "corpus_blake3": self.runner.CORPUS_BLAKE3,
         }
-        self.capture_root = self.root / "exact-owner-capture"
+        self.capture_root = (
+            self.runner.CONTROLLER_ROOT
+            / ".work/captures"
+            / f"exact-owner-receipt-{self.root.name}"
+        )
         self.raw_root = self.capture_root / "owners"
         self.receipt_directory = self.capture_root / "receipts"
         self.raw_root.mkdir(parents=True)
         self.receipt_directory.mkdir()
+        self.addCleanup(lambda: shutil.rmtree(self.capture_root, ignore_errors=True))
         self.range_receipt = self.receipt_directory / "range-0-1.tsv"
         self.range_receipt.write_text(
             "corpus=1\n"

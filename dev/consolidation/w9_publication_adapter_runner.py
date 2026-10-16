@@ -944,8 +944,9 @@ def _hash_raw_outcomes(
     docker_environment: dict[str, str],
     runner,
 ) -> dict[tuple[int, str, str], str]:
-    if not runner.under(raw_root, pathlib.Path(source_record["candidate_root"]) / ".work"):
-        raise PublicationError(f"raw adapter output is outside candidate .work/: {raw_root}")
+    work_root = runner.publication_work_root(pathlib.Path(source_record["candidate_root"]), source_record)
+    if not runner.under(raw_root, work_root):
+        raise PublicationError(f"raw adapter output is outside publication work root: {raw_root}")
     job_dir = capture_output / "hashjobs" / role
     _mkdir_new_directory(job_dir, runner)
     container = f"w9adapter-{os.getpid()}-hash-{role}"
@@ -1053,10 +1054,12 @@ def prepare_raw_output_directory(
     path: pathlib.Path,
     candidate_root: pathlib.Path,
     runner,
+    source_record: dict[str, str] | None = None,
 ) -> pathlib.Path:
     output = pathlib.Path(os.path.abspath(path))
-    if not runner.under(output, candidate_root / ".work"):
-        raise PublicationError(f"raw sidecar directory must be under candidate source .work/: {output}")
+    work_root = runner.publication_work_root(candidate_root, source_record)
+    if not runner.under(output, work_root):
+        raise PublicationError(f"raw sidecar directory must be under publication work root: {output}")
     _mkdir_new_directory(output, runner)
     _write_new_file(output / "schema", RAW_SCHEMA.encode("utf-8"), runner)
     return output
@@ -1692,8 +1695,12 @@ def _parse_source_capture_receipt(
         or record["receipt_directory"] != str(receipt_directory)
         or raw_root != capture_root / "raw"
         or receipt_directory != capture_root / "receipts"
+        or not runner.under(
+            capture_root,
+            runner.publication_work_root(pathlib.Path(source_record["candidate_root"]), source_record),
+        )
     ):
-        raise PublicationError(f"{receipt}: capture output paths differ")
+        raise PublicationError(f"{receipt}: capture output paths differ from the source-qualified output root")
     if (
         record["input_manifest_sha256"] != source_record["input_manifest_sha256"]
         or record["corpus_blake3"] != source_record["corpus_blake3"]
@@ -1968,7 +1975,9 @@ def _run_capture_role(
 ) -> tuple[pathlib.Path, pathlib.Path, dict[tuple[int, int], pathlib.Path]]:
     role_root = output / role
     role_root.mkdir()
-    raw_root = prepare_raw_output_directory(role_root / "raw", pathlib.Path(source_record["candidate_root"]), runner)
+    raw_root = prepare_raw_output_directory(
+        role_root / "raw", pathlib.Path(source_record["candidate_root"]), runner, source_record
+    )
     receipt_directory = role_root / "receipts"
     receipt_directory.mkdir()
     (role_root / "jobs").mkdir()
@@ -2091,7 +2100,7 @@ def execute_adapter_publication(args: argparse.Namespace, runner) -> int:
             runner,
         )
     ranges, _pending_ranges = _capture_plan(len(expected_inputs), runner)
-    output = runner.require_output_path(args.output, candidate_root)
+    output = runner.require_output_path(args.output, candidate_root, source_record)
     if args.dry_run:
         print(
             f"adapter preflight ok: reference={reference_build['source_commit']}:{reference_build['source_tree']} "
@@ -2580,7 +2589,7 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
         build["helper_sha256"], build["owner_helper_sha256"]
     ):
         raise PublicationError("original reference adapter helpers differ from the correction harness")
-    output = runner.require_output_path(args.output, candidate_root)
+    output = runner.require_output_path(args.output, candidate_root, source_record)
     if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
         wrapper = runner.regular_file(source_record["wrapper"], "pinned native test wrapper", executable=True)
         wrapper_root = runner.real_directory(source_record["wrapper_root"], "pinned wrapper root")
@@ -3617,7 +3626,7 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
         _capture_field(candidate_capture_path, "receipt_directory", runner),
         "candidate adapter range receipts",
     )
-    output = runner.require_output_path(args.output, candidate_root)
+    output = runner.require_output_path(args.output, candidate_root, source_record)
     _mkdir_new_directory(output, runner)
     runner.write_status(output, "incomplete", [])
     reference_exact_output = output / "exact-reference"
@@ -3696,7 +3705,7 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
                 raise PublicationError(f"candidate assignment facts proof failed: {error}") from error
 
         comparison_output = runner.require_output_path(
-            str(comparison_output), candidate_root
+            str(comparison_output), candidate_root, source_record
         )
         completed: list[tuple[int, int]] = []
         docker_environment = runner.local_docker_environment()
@@ -3706,6 +3715,7 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
                 comparison_output / "mismatches.tsv",
                 candidate_root,
                 "adapter mismatch report",
+                source_record,
             )
             compare_result = compare_full_publications(
                 runner,

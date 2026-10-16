@@ -1376,6 +1376,10 @@ def _parse_exact_capture_receipt(
             or raw_root != capture_root / "owners"
             or receipt_directory != capture_root / "receipts"
             or pathlib.Path(adapter_capture["raw_root"]) != adapter_raw_root
+            or not runner.under(
+                capture_root,
+                runner.publication_work_root(pathlib.Path(source_record["candidate_root"]), source_record),
+            )
         ):
             raise ExactOwnerError(f"{receipt}: exact-owner output paths differ")
         range_rows, ledger_sha256 = parse_exact_owner_ledger(
@@ -2207,7 +2211,7 @@ def validate_assignment_facts_capture(
         receipt.parent != capture_root
         or sidecar_root != capture_root / "facts"
         or receipt_directory != capture_root / "receipts"
-        or not runner.under(capture_root, candidate_root / ".work")
+        or not runner.under(capture_root, runner.publication_work_root(candidate_root, source_record))
     ):
         raise ExactOwnerError(f"{receipt}: assignment facts output paths differ")
     range_count = len(expected_ranges)
@@ -2811,13 +2815,17 @@ def _run_exact_owner_hashes(
     docker_environment: dict[str, str],
     runner,
 ) -> dict[int, str]:
-    if not runner.under(raw_root, pathlib.Path(source_record["candidate_root"]) / ".work"):
-        raise ExactOwnerError(f"exact-owner sidecars are outside candidate .work/: {raw_root}")
+    source_qualified = source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
+    if source_qualified:
+        work_root = runner.publication_work_root(pathlib.Path(source_record["candidate_root"]), source_record)
+    else:
+        work_root = pathlib.Path(source_record["candidate_root"]) / ".work"
+    if not runner.under(raw_root, work_root):
+        raise ExactOwnerError(f"exact-owner sidecars are outside publication work root: {raw_root}")
     job_dir = _exact_owner_hash_job_directory(capture_output, role, pass_number, runner)
     container = f"w9exact-{os.getpid()}-{role}-hash-{pass_number}"
     if runner.existing_container(container, docker_environment):
         raise ExactOwnerError(f"exact-owner hash Docker container already exists: {container}")
-    source_qualified = source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
     if source_qualified:
         command = [
             "timeout", "900s", source_record["builder_path"], source_record["candidate_root"], "run",
@@ -3374,7 +3382,7 @@ def capture_exact_owner_role(args: argparse.Namespace, bootstrap_runner) -> int:
         ):
             raise ExactOwnerError(f"{role} original capture and exact-owner build source identities differ")
         receipt_reference = reference
-    output = runner.require_output_path(args.output, candidate_root)
+    output = runner.require_output_path(args.output, candidate_root, source_record)
     if args.dry_run:
         print(
             f"preflight ok: role={role} source={build['source_commit']} tree={build['source_tree']} "
@@ -3443,7 +3451,7 @@ def capture_assignment_facts(args: argparse.Namespace, bootstrap_runner) -> int:
         runner,
     )
     exact_helper_sha256 = helper_identity["exact_helper_sha256"]
-    output = runner.require_output_path(args.output, candidate_root)
+    output = runner.require_output_path(args.output, candidate_root, source_record)
     if args.dry_run:
         print(
             f"preflight ok: source={source_record['candidate_commit']}:{source_record['candidate_tree']} "
@@ -3866,7 +3874,7 @@ def validate_proof(
         exact_helper_sha256,
         runner,
     )
-    output = runner.require_output_path(output, candidate_root)
+    output = runner.require_output_path(output, candidate_root, source_record)
     if dry_run:
         print(
             f"preflight ok: role={role} source={build['source_commit']} tree={build['source_tree']} "

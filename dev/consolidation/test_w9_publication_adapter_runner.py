@@ -293,6 +293,8 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
+        (self.controller_root / ".work").mkdir()
+        (self.controller_root / ".git/info/exclude").write_text("/.work/\n", encoding="utf-8")
         subprocess.run(
             ["git", "-C", str(self.controller_root), "config", "user.name", "W9 test"],
             check=True,
@@ -433,7 +435,8 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         return self.original_source_identity(root)
 
     def capture_fixture(self):
-        capture_root = self.root / "candidate-capture"
+        capture_root = self.controller_root / ".work/captures/candidate-capture"
+        capture_root.parent.mkdir(parents=True, exist_ok=True)
         raw_root = capture_root / "raw"
         receipt_directory = capture_root / "receipts"
         raw_root.mkdir(parents=True)
@@ -1064,6 +1067,102 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         self.assertEqual(captured["environment"]["W9_SOURCE_COMMIT"], self.source_commit)
         self.assertEqual(captured["environment"]["W9_SOURCE_TREE"], self.source_tree)
 
+    def test_source_qualified_worker_plan_uses_controller_output_with_sibling_roots(self):
+        controller_root = self.runner.CONTROLLER_ROOT
+        worktrees = controller_root / ".work/wt"
+        worktrees.mkdir(parents=True, exist_ok=True)
+        candidate_root = worktrees / f"w9-output-plan-{os.getpid()}"
+        if candidate_root.exists():
+            self.fail(f"test candidate worktree already exists: {candidate_root}")
+        subprocess.run(
+            ["git", "-C", str(controller_root), "worktree", "add", "--quiet", "--detach", str(candidate_root), "HEAD"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.addCleanup(
+            lambda: subprocess.run(
+                ["git", "-C", str(controller_root), "worktree", "remove", "--force", str(candidate_root)],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        )
+        program_root = self.runner.PROGRAM_SNAPSHOT_ROOT.resolve(strict=True)
+        input_root = (controller_root / ".work/tmp/w9-corpus-recovery/input-corpus").resolve(strict=True)
+        output_parent = controller_root / ".work/consolidation"
+        output_parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="w9-output-plan-", dir=output_parent) as output_name:
+            output = pathlib.Path(output_name)
+            role_root = output / "candidate"
+            receipt_directory = role_root / "receipts"
+            raw_root = role_root / "raw"
+            (role_root / "jobs/A").mkdir(parents=True)
+            receipt_directory.mkdir()
+            raw_root.mkdir()
+            candidate_commit, candidate_tree = self.runner.source_identity(candidate_root)
+            controller_commit, controller_tree = self.runner.source_identity(controller_root)
+            source_record = {
+                "schema": self.runner.SOURCE_COHORT_SCHEMA,
+                "candidate_root": str(candidate_root),
+                "candidate_commit": candidate_commit,
+                "candidate_tree": candidate_tree,
+                "controller_root": str(controller_root),
+                "controller_commit": controller_commit,
+                "controller_tree": controller_tree,
+                "builder_path": str(controller_root / "dev/consolidation/w9-source-build.sh"),
+                "input_root": str(input_root),
+                "program_root": str(program_root),
+            }
+            captured = {}
+
+            def record_launch(job, active, command, cwd, environment):
+                captured.update(job=job, active=active, command=command, cwd=cwd, environment=environment)
+                active.append(job)
+
+            with (
+                patch.object(self.runner, "existing_container", return_value=False),
+                patch.object(self.runner, "start_and_register_job", side_effect=record_launch),
+            ):
+                job = adapter_runner._launch_capture_job(
+                    self.runner,
+                    source_record,
+                    output,
+                    "candidate",
+                    {
+                        "binary": str(candidate_root / ".work/test-binary"),
+                        "binary_sha256": "a" * 64,
+                        "helper_sha256": "b" * 64,
+                        "source_commit": candidate_commit,
+                        "source_tree": candidate_tree,
+                    },
+                    candidate_root / ".work/test-binary",
+                    raw_root,
+                    receipt_directory,
+                    0,
+                    1,
+                    "A",
+                    [],
+                    {"PATH": "/usr/bin:/bin"},
+                )
+            job["output"].close()
+            self.assertEqual(candidate_root.parent, program_root.parent)
+            self.assertEqual(pathlib.Path(captured["environment"]["W9_PROGRAM_ROOT"]), program_root)
+            command = list(captured["command"])
+            command[command.index("run")] = "plan-run"
+            result = subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env={**os.environ, **captured["environment"]},
+            )
+            plan_arguments = result.stdout.split("\0")
+            self.assertIn(f"{output}:{output}:rw", plan_arguments)
+            self.assertIn(f"{program_root}:{program_root}:ro", plan_arguments)
+            self.assertIn(f"{input_root}:{input_root}:ro", plan_arguments)
+
     def test_source_qualified_correction_flow_uses_fresh_original_capture_and_proof(self):
         correction = adapter_runner.reference_correction
         original_source_root, derived_source_root, patch_path, correction_source = (
@@ -1093,7 +1192,8 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         )
 
         def capture_fixture(name, role, source_root, commit, tree, build_receipt):
-            capture_root = self.root / name
+            capture_root = self.controller_root / ".work/captures" / name
+            capture_root.parent.mkdir(parents=True, exist_ok=True)
             raw_root = capture_root / "raw"
             receipt_directory = capture_root / "receipts"
             raw_root.mkdir(parents=True)
@@ -1224,6 +1324,8 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         first_delta = ("0", expected_inputs[0].relative_path, "default", "diagnostics", "a" * 64, "b" * 64)
 
         def source_identity(path):
+            if pathlib.Path(path) == self.controller_root:
+                return self.controller_commit, self.controller_tree
             if pathlib.Path(path) == derived_source_root:
                 return correction.SOURCE_COMMIT, correction.SOURCE_TREE
             return self.source_commit, self.source_tree
@@ -1252,8 +1354,9 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             original_capture_receipt=original_capture_receipt,
             derived_reference_source_root=derived_source_root,
             derived_reference_correction_receipt=correction_receipt,
-            output=candidate_work / "source-qualified-comparison",
+            output=self.controller_root / ".work/consolidation/source-qualified-comparison",
         )
+        args.output.parent.mkdir(parents=True, exist_ok=True)
         with (
             patch.object(self.runner, "parse_candidate_receipt", return_value=source_record),
             patch.object(self.runner, "source_identity", side_effect=source_identity),
@@ -1299,7 +1402,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             proof_calls,
             [("reference", original_capture_receipt), ("candidate", candidate_capture_receipt)],
         )
-        comparison_receipt = candidate_work / "source-qualified-comparison/comparison/derived-reference-comparison.receipt"
+        comparison_receipt = args.output / "comparison/derived-reference-comparison.receipt"
         fields = dict(
             line.split("\t", 1)
             for line in comparison_receipt.read_text(encoding="utf-8").splitlines()
@@ -1388,6 +1491,9 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             "candidate_root": str(builder_source_root),
             "candidate_commit": builder_source_root_commit,
             "candidate_tree": builder_source_root_tree,
+            "controller_root": str(self.controller_root),
+            "controller_commit": self.controller_commit,
+            "controller_tree": self.controller_tree,
             "input_root": str(self.input_root),
             "input_manifest": str(self.input_manifest),
             "input_manifest_sha256": "a" * 64,
@@ -1401,6 +1507,8 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         build_paths = {}
         capture_paths = {}
         digest_pair = ("d" * 64, "e" * 64)
+        test_output_root = self.controller_root / ".work/captures/aggregate-compare"
+        test_output_root.mkdir(parents=True)
 
         def write_ranges(receipt_directory):
             for start, end in self.runner.expected_ranges(len(expected_inputs)):
@@ -1431,8 +1539,8 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             ("original-reference", original_source_root, correction.BASE_COMMIT, correction.BASE_TREE),
             ("candidate", builder_source_root, builder_source_root_commit, builder_source_root_tree),
         ):
-            capture_root = self.root / f"aggregate-{role}"
-            raw_root = builder_source_root / ".work" / f"raw-{role}"
+            capture_root = test_output_root / f"aggregate-{role}"
+            raw_root = capture_root / "raw"
             receipt_directory = capture_root / "receipts"
             capture_root.mkdir()
             raw_root.mkdir(parents=True)
@@ -1509,7 +1617,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             )
             active.append(job)
 
-        mismatch_root = self.root / "aggregate-comparison"
+        mismatch_root = test_output_root / "aggregate-comparison"
         mismatch_root.mkdir()
         mismatch_path = mismatch_root / "mismatches.tsv"
         per_input_results = []
@@ -2045,8 +2153,8 @@ class DerivedCaptureClaimTests(unittest.TestCase):
                     (foreign_output, lambda value: value.mkdir()),
                     (foreign_link, lambda value: value.symlink_to(foreign_target)),
                 ):
-                    def create_after_preflight(value, candidate):
-                        checked = require_output_path(value, candidate)
+                    def create_after_preflight(value, candidate, source_record=None):
+                        checked = require_output_path(value, candidate, source_record)
                         create_output(checked)
                         return checked
 
@@ -2107,7 +2215,7 @@ class AdapterCaptureSchedulingTests(unittest.TestCase):
                 "input_root": str(root / "inputs"),
             }
 
-            def prepare_raw(path, _candidate_root, _runner):
+            def prepare_raw(path, _candidate_root, _runner, _source_record=None):
                 path = pathlib.Path(path)
                 path.mkdir()
                 return path

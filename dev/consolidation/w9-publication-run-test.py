@@ -977,8 +977,58 @@ class PublicationRunnerTests(unittest.TestCase):
 
     def test_output_path_rejects_location_outside_candidate_work(self):
         outside = self.root / "outside"
-        with self.assertRaisesRegex(runner.PublicationError, r"under candidate source \.work"):
+        with self.assertRaisesRegex(runner.PublicationError, r"under publication work root"):
             runner.require_output_path(str(outside), self.root)
+
+    def test_source_qualified_output_uses_controller_work_and_preserves_schema3(self):
+        controller_file = self.root / "controller-source"
+        controller_file.write_text("source\n", encoding="utf-8")
+        exclude = self.root / ".git/info/exclude"
+        exclude.write_text(exclude.read_text(encoding="utf-8") + "/.work/\n/candidate/\n/inputs/\n/program/\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", "controller-source"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "commit", "--quiet", "-m", "test(fixtures): pin controller"],
+            check=True,
+        )
+        controller_commit, controller_tree = runner.source_identity(self.root)
+        candidate_root = self.root / "candidate"
+        controller_work = self.root / ".work"
+        controller_work.mkdir()
+        input_root = controller_work / "inputs"
+        program_root = self.root / "program"
+        for root in (candidate_root, input_root, program_root):
+            root.mkdir()
+        candidate_work = candidate_root / ".work"
+        candidate_work.mkdir()
+        output_parent = controller_work / "consolidation"
+        output_parent.mkdir(parents=True)
+        source_record = {
+            "schema": "4",
+            "candidate_root": str(candidate_root),
+            "controller_root": str(self.root),
+            "controller_commit": controller_commit,
+            "controller_tree": controller_tree,
+            "input_root": str(input_root),
+            "program_root": str(program_root),
+        }
+        output = output_parent / "source-qualified-run"
+
+        self.assertEqual(
+            runner.require_output_path(str(output), candidate_root, source_record),
+            output,
+        )
+        with self.assertRaisesRegex(runner.PublicationError, "under publication work root"):
+            runner.require_output_path(str(candidate_work / "legacy-run"), candidate_root, source_record)
+        with self.assertRaisesRegex(runner.PublicationError, "overlaps a source-qualified protected root"):
+            runner.require_output_path(str(input_root / "nested-run"), candidate_root, source_record)
+
+        schema3_record = {**source_record, "schema": "3"}
+        self.assertEqual(
+            runner.require_output_path(str(candidate_work / "schema3-run"), candidate_root, schema3_record),
+            candidate_work / "schema3-run",
+        )
+        with self.assertRaisesRegex(runner.PublicationError, "under publication work root"):
+            runner.require_output_path(str(output), candidate_root, schema3_record)
 
     def test_docker_configuration_must_name_local_context_and_socket(self):
         environment = {"PATH": "/usr/bin:/bin"}

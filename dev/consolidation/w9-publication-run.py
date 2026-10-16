@@ -1316,15 +1316,65 @@ def validate_build_receipt_binding(
     return receipt, sha256_file(receipt)
 
 
-def new_work_file_path(value: str | pathlib.Path, candidate_root: pathlib.Path, kind: str) -> pathlib.Path:
+def publication_work_root(
+    candidate_root: pathlib.Path,
+    source_record: dict[str, str] | None = None,
+) -> pathlib.Path:
+    candidate_root = real_directory(candidate_root, "candidate source")
+    if source_record is None or source_record.get("schema") != SOURCE_COHORT_SCHEMA:
+        return candidate_root / ".work"
+    if source_record.get("candidate_root") != str(candidate_root):
+        raise PublicationError("source-qualified output candidate root differs from its receipt")
+    controller_root = real_directory(
+        source_record.get("controller_root", ""), "source-qualified capture controller"
+    )
+    if source_record.get("controller_root") != str(controller_root):
+        raise PublicationError("source-qualified output controller path differs from its receipt")
+    if source_identity(controller_root) != (
+        source_record.get("controller_commit"), source_record.get("controller_tree")
+    ):
+        raise PublicationError("source-qualified output controller identity differs from its receipt")
+    return real_directory(controller_root / ".work", "source-qualified controller .work")
+
+
+def _paths_overlap(left: pathlib.Path, right: pathlib.Path) -> bool:
+    return under(left, right) or under(right, left)
+
+
+def _validate_publication_output_path(
+    path: pathlib.Path,
+    candidate_root: pathlib.Path,
+    source_record: dict[str, str] | None,
+    kind: str,
+) -> None:
+    work_root = publication_work_root(candidate_root, source_record)
+    if not under(path, work_root):
+        raise PublicationError(f"{kind} must be under publication work root: {path}")
+    if source_record is not None and source_record.get("schema") == SOURCE_COHORT_SCHEMA:
+        protected_roots = (
+            pathlib.Path(source_record["candidate_root"]),
+            pathlib.Path(source_record["input_root"]),
+            pathlib.Path(source_record["program_root"]),
+        )
+        if any(_paths_overlap(path, protected_root) for protected_root in protected_roots):
+            raise PublicationError(f"{kind} overlaps a source-qualified protected root: {path}")
+
+
+def new_work_file_path(
+    value: str | pathlib.Path,
+    candidate_root: pathlib.Path,
+    kind: str,
+    source_record: dict[str, str] | None = None,
+) -> pathlib.Path:
     raw = pathlib.Path(value).expanduser()
     if not raw.is_absolute():
         raw = pathlib.Path.cwd() / raw
     absolute = pathlib.Path(os.path.abspath(raw))
     parent = real_directory(absolute.parent, f"{kind} parent")
     path = parent / absolute.name
-    if not under(path, candidate_root / ".work") or path.name in {"", ".", ".."}:
-        raise PublicationError(f"{kind} must name a new file under candidate source .work/: {path}")
+    _validate_publication_output_path(path, candidate_root, source_record, kind)
+    if path.name in {"", ".", ".."}:
+        raise PublicationError(f"{kind} must name a new file: {path}")
     if os.path.lexists(path):
         raise PublicationError(f"{kind} already exists: {path}")
     return path
@@ -2146,16 +2196,18 @@ def claim_run_resources(
             print(f"termination arrived during publication lock cleanup: {cleanup_interrupt}", file=sys.stderr)
 
 
-def require_output_path(value: str, candidate_root: pathlib.Path) -> pathlib.Path:
+def require_output_path(
+    value: str,
+    candidate_root: pathlib.Path,
+    source_record: dict[str, str] | None = None,
+) -> pathlib.Path:
     raw = pathlib.Path(value).expanduser()
     if not raw.is_absolute():
         raw = pathlib.Path.cwd() / raw
     output = pathlib.Path(os.path.abspath(raw))
     parent = real_directory(output.parent, "output parent")
     output = parent / output.name
-    work_root = candidate_root / ".work"
-    if not under(output, work_root):
-        raise PublicationError(f"output must be under candidate source .work/: {output}")
+    _validate_publication_output_path(output, candidate_root, source_record, "output")
     if ":" in str(output):
         raise PublicationError(f"output path contains the PATH separator and cannot safely host the Docker shim: {output}")
     if output.name in {"", ".", ".."}:
