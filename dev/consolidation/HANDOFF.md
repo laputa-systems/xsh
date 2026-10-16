@@ -18,7 +18,7 @@ closeout guard before selecting work. The resume assignments are:
 | W9 parity | `resume-w9` | `e048b33f2`; immutable capture admission and strict comparison |
 | Routes and resources | `resume-routes` | `e048b33f2`; current route matrix and remaining resource gates |
 | Semantic review | `resume-semantic` | `e048b33f2`; ten acceptance rows and current-source qualification |
-| Performance preparation | `resume-performance-prep` | `e048b33f2`; existing post-functional gate inputs and controls |
+| Performance preparation | removed after integration | `e048b33f2`; reviewed existing post-functional gate inputs and controls |
 
 Each resume worktree has its matching `campaign/resume-*-20261016` branch.
 Inference retains `campaign/typing-pipeline-integration`. All lanes use
@@ -33,6 +33,20 @@ select the two complete inference files and two exact size-literal cases in
 four invocations, preserving the earlier 20 selections. W9 comparison repeats
 derived-record reads and capture-receipt parsing. Its owner is checking whether
 those operations can share validated data without weakening mutation checks.
+
+Accepted resume batch: `1c3fbeee1` repairs the scheduler derivation test fixture.
+Synthetic Git repositories produce different full-index blob IDs from the
+production overlay. The test now uses its synthetic diff digest, retains the
+separate production digest and ancestry controls, and rejects independent drift
+in each patched file. Production source is unchanged. The test touches 57 lines.
+The integrator reran `test_reference_derivation.py` successfully after the
+fast-forward merge. The clean lane worktree and merged branch were removed.
+
+Performance preparation confirms that the existing final sequence requires nine
+serial full native suites, including canonical, release, forced frames, and six
+paired scheduler runs. The reference overlay, comparator inputs, locks and
+resource controls were inspected. No functional-close record exists yet, and
+no final performance run started.
 
 The accepted results remain those recorded below. Starting a gate or repairing
 its iteration loop does not accept the source or close a remaining requirement.
