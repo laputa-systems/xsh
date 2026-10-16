@@ -18,7 +18,13 @@ pub struct FallbackBranch {
     pub pattern: String,
     pub outcome: String,
     pub line: usize,
-    pub arm_index: usize,
+    pub location: FallbackLocation,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FallbackLocation {
+    MatchArm { arm_index: usize },
+    GuardStatement { statement_index: usize },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -8252,7 +8258,9 @@ fn statement_kind_guard(block: &Block, match_index: usize) -> Result<FallbackBra
         pattern: "tag.kind() != InstructionKind::Stmt".into(),
         outcome: "frame_strategy_error".into(),
         line: guard.if_token.span().start().line,
-        arm_index: 0,
+        location: FallbackLocation::GuardStatement {
+            statement_index: index,
+        },
     })
 }
 
@@ -8446,7 +8454,7 @@ fn parse_dispatch_arms(
                         pattern: "_".into(),
                         outcome: "frame_strategy_error".into(),
                         line: arm.pat.span().start().line,
-                        arm_index,
+                        location: FallbackLocation::MatchArm { arm_index },
                     });
                 } else {
                     return Err(format!(
@@ -8532,13 +8540,15 @@ fn validate_coverage(
     fallbacks: &[FallbackBranch],
 ) -> Result<(), String> {
     validate_branch_coverage(schema_tags, branches)?;
-    if let Some(fallback) = fallbacks.first()
-        && branches.iter().any(|branch| branch.arm_index > fallback.arm_index)
-    {
-        return Err(format!(
-            "wildcard fallback at arm {} precedes an exact statement arm",
-            fallback.arm_index
-        ));
+    if let Some(fallback) = fallbacks.first() {
+        let FallbackLocation::MatchArm { arm_index } = fallback.location else {
+            return Err("FullTag statement fallback is not a match arm".into());
+        };
+        if branches.iter().any(|branch| branch.arm_index > arm_index) {
+            return Err(format!(
+                "wildcard fallback at arm {arm_index} precedes an exact statement arm"
+            ));
+        }
     }
     Ok(())
 }
@@ -9180,12 +9190,20 @@ impl StatementInventory {
             .fallbacks
             .iter()
             .map(|fallback| {
+                let location = match fallback.location {
+                    FallbackLocation::MatchArm { arm_index } => {
+                        format!("\"arm_index\":{arm_index}")
+                    }
+                    FallbackLocation::GuardStatement { statement_index } => {
+                        format!("\"statement_index\":{statement_index}")
+                    }
+                };
                 format!(
-                    "{{\"pattern\":{},\"outcome\":{},\"line\":{},\"arm_index\":{}}}",
+                    "{{\"pattern\":{},\"outcome\":{},\"line\":{},{}}}",
                     json_string(&fallback.pattern),
                     json_string(&fallback.outcome),
                     fallback.line,
-                    fallback.arm_index
+                    location
                 )
             })
             .collect::<Vec<_>>()
@@ -10347,6 +10365,10 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
         assert!(inventory.branches.iter().all(|branch| branch.arm_index == 0));
         assert_eq!(inventory.fallbacks.len(), 1);
         assert_eq!(inventory.fallbacks[0].outcome, "frame_strategy_error");
+        assert_eq!(
+            inventory.fallbacks[0].location,
+            FallbackLocation::MatchArm { arm_index: 1 }
+        );
         assert!(inventory.branches.iter().all(|branch| branch.line > 0));
     }
 
@@ -10362,7 +10384,19 @@ fn eval_expr_view(&mut self, view_kind: ExprViewKind) -> Result<(), E> {
         assert_eq!(inventory.branches[1].pattern, "StmtView::Second");
         assert_eq!(inventory.fallbacks.len(), 1);
         assert_eq!(inventory.fallbacks[0].outcome, "frame_strategy_error");
+        assert_eq!(
+            inventory.fallbacks[0].location,
+            FallbackLocation::GuardStatement { statement_index: 0 }
+        );
         assert!(inventory.fallbacks[0].line < inventory.branches[0].line);
+        assert_eq!(inventory.branches[0].arm_index, 0);
+        let serialized = inventory.to_json();
+        let serialized_fallbacks = serialized
+            .split("\"fallbacks\":[")
+            .nth(1)
+            .expect("statement inventory serializes fallbacks");
+        assert!(serialized_fallbacks.contains("\"statement_index\":0"));
+        assert!(!serialized_fallbacks.contains("\"arm_index\""));
     }
 
     #[test]

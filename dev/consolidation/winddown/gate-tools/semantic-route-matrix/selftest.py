@@ -2694,6 +2694,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         self.assertTrue(fallback["no_fallback"])
         self.assertEqual(fallback["branches"][0]["source_ref"], "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs:5385")
         self.assertFalse(fallback["fallbacks"][0]["reachable_for_valid_statement_tag"])
+        self.assertEqual(fallback["fallbacks"][0]["arm_index"], 42)
         with self.assertRaisesRegex(generate.EvidenceError, "missing AST statement inventory"):
             generate.build_fallback_path_map(row, refs)
 
@@ -2715,7 +2716,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                     "pattern": "tag.kind() != InstructionKind::Stmt",
                     "outcome": "frame_strategy_error",
                     "line": 5580,
-                    "arm_index": 0,
+                    "statement_index": 0,
                 }
             ],
         }
@@ -2734,6 +2735,8 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             fallback["fallbacks"][0]["pattern"],
             "tag.kind() != InstructionKind::Stmt",
         )
+        self.assertEqual(fallback["fallbacks"][0]["statement_index"], 0)
+        self.assertNotIn("arm_index", fallback["fallbacks"][0])
         self.assertFalse(fallback["fallbacks"][0]["reachable_for_valid_statement_tag"])
 
     def test_route_witness_artifact_rejects_wrong_tuple_and_stale_identity(self) -> None:

@@ -3901,7 +3901,11 @@ def build_fallback_path_map(
                     "pattern": fallback["pattern"],
                     "outcome": fallback["outcome"],
                     "source_ref": f"{owner}:{fallback['line']}",
-                    "arm_index": fallback["arm_index"],
+                    **(
+                        {"arm_index": fallback["arm_index"]}
+                        if "arm_index" in fallback
+                        else {"statement_index": fallback["statement_index"]}
+                    ),
                     "reachable_for_valid_statement_tag": False,
                 }
                 for fallback in statement_inventory["fallbacks"]
