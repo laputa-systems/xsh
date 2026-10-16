@@ -1,0 +1,4 @@
+7e66422d21b480da24308aac719df7ff1fbf806f6e285e26739a544a46f1fd0a  /home/josh/d/laputa-systems/xsh/.work/target-final-canonical-previous-run-final-be0b-products/x86_64-unknown-linux-musl/verification/xsh
+e9671817dce3efb6d5bcfc74ed343be9b7ac3f8403888d6b03f5ef91315d7951  /home/josh/d/laputa-systems/xsh/.work/target-final-canonical-previous-run-final-be0b-products/x86_64-unknown-linux-musl/verification/xsht
+1a4b3857c6bd0b989cf0f159a6745ddf6a846b6d6467a282f96e8737d1196a7b  /home/josh/d/laputa-systems/xsh/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh
+8e9c3f5aa24e5933daf74294ec54772623ab819594244a02646a05c8fbd4429f  /home/josh/d/laputa-systems/xsh/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht

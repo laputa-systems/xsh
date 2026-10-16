@@ -1,0 +1,5 @@
+running 1 tests
+dev/tests/test-system-report-check.xsh::test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampering ... ok 712ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+native_xsht_exit=0
+renamer_completed=0

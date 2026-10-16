@@ -1,0 +1,6 @@
+## master...origin/master [ahead 11]
+be0b79a48403d74b11186166ba739a81dcbed702
+cc80212504507d34c7d07413ce33f42ea68b6028
+d1408244a204563f57b357ef3515f805db152f88eab7d7a15939b714f5d72834  /home/josh/d/laputa-systems/xsh/dev/tests/test-system-report-check.xsh
+f39d42e3caea6186d74fc1e03b9cf3132b0676379fec55316b61e03678979b88  /home/josh/d/laputa-systems/xsh/dev/system_report_check.xsh
+e814f2a611be6de688a93612fa0f51c161993cd21263c3541325ae66661e991d  /home/josh/d/laputa-systems/xsh/dev/system_report_smbios_check.xsh
