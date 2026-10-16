@@ -4,6 +4,8 @@ The unchanged historical comparison completed with 1,690 inputs and 6,760 outcom
 
 This result is scoped to candidate controller commit `56bf3286c0034c183515c0dc4adbf041f398a776`, tree `2d4cf52e64d4dbf06daa5e169c88d6eef8bccdd5`. It makes no source-parity claim for `e048b33f2`, current `master`, or later source. A separate source-scope review is required before applying this result to another source revision.
 
+`comparison-status.txt` has `completed_ranges=0` because `w9_publication_adapter_runner.py` keeps the completion-range list empty for the monolithic `compare_full_publications` path and `w9-publication-run.py::write_status` writes that list length; this field tracks completed capture ranges, while the status detail and stdout report the final 1,690 inputs and 6,760 outcomes.
+
 ## Compared inputs and admission
 
 The candidate capture is pinned to the 56bf source and candidate adapter binary SHA-256 `ba16ae1ce43670241bb607e76663bb22f238ae2e85a97069f71df6c4c87061af`. Its admitted `tests/sema.rs` parity overlay SHA-256 is `fdeb1cac956cebe5495724f90cd718798803fd6c8c48835724c8a954994f5a88`. The source-cohort receipt SHA-256 is `493646a5cfe17d3f93c9b2201893df1f7c70d216947c9f5b1e472747ee9baada`.
