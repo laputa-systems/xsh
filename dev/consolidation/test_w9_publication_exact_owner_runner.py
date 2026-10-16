@@ -4,6 +4,8 @@ import os
 import hashlib
 import json
 import tempfile
+import shutil
+import subprocess
 import unittest
 from unittest import mock
 from types import SimpleNamespace
@@ -12,6 +14,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import w9_publication_adapter_runner as adapter_runner
 import w9_publication_exact_owner_runner as exact_runner
+import w9_assignment_facts as assignment_facts
 
 
 SOURCE = "SourceId(0)"
@@ -1144,6 +1147,520 @@ class AssignmentFactsCaptureTests(unittest.TestCase):
                     None,
                     self.runner,
                 )
+
+
+class AssignmentFactsCaptureValidationTests(unittest.TestCase):
+    def setUp(self):
+        self.repository = pathlib.Path(__file__).resolve().parents[2]
+        self.runner = adapter_runner._load_publication_runner(
+            self.repository / "dev/consolidation/w9-publication-run.py"
+        )
+        scratch_root = self.repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(
+            prefix="w9-assignment-facts-validation-", dir=scratch_root
+        )
+        self.addCleanup(self.temporary.cleanup)
+        self.root = pathlib.Path(self.temporary.name)
+        self.candidate_root = self.root / "candidate"
+        self.candidate_work = self.candidate_root / ".work"
+        self.candidate_work.mkdir(parents=True)
+        self.input_root = self.root / "inputs"
+        self.input_root.mkdir()
+        self.input_manifest = self.root / "inputs.tsv"
+        self.source_commit = "1" * 40
+        self.source_tree = "2" * 40
+        self.corpus_digest = "a" * 64
+        self.expected_inputs = {
+            index: SimpleNamespace(
+                relative_path=f"bench/consolidation/xsh/input-{index:04}.xsh",
+                blake3=f"{index:064x}",
+            )
+            for index in range(1690)
+        }
+        manifest_rows = "".join(
+            f"{index}\t{item.relative_path}\t{item.blake3}\t444\n"
+            for index, item in self.expected_inputs.items()
+        )
+        self.input_manifest.write_text(manifest_rows, encoding="utf-8")
+        self.source_receipt = self.candidate_work / "source.receipt"
+        self.source_receipt.write_text("source cohort fixture\n", encoding="utf-8")
+        self.source_record = {
+            "schema": self.runner.SOURCE_COHORT_SCHEMA,
+            "candidate_root": str(self.candidate_root),
+            "candidate_commit": self.source_commit,
+            "candidate_tree": self.source_tree,
+            "input_root": str(self.input_root),
+            "input_manifest": str(self.input_manifest),
+            "input_manifest_sha256": self.runner.sha256_file(self.input_manifest),
+            "corpus_blake3": self.corpus_digest,
+        }
+        self.adapter_capture_receipt = self.candidate_work / "adapter-capture.receipt"
+        self.adapter_capture_receipt.write_text("adapter capture fixture\n", encoding="utf-8")
+        self.exact_build_receipt = self.candidate_work / "exact-build.receipt"
+        self.exact_build_receipt.write_text("exact build fixture\n", encoding="utf-8")
+        self.exact_capture_receipt = self.candidate_work / "exact-capture.receipt"
+        self.exact_capture_receipt.write_text("exact capture fixture\n", encoding="utf-8")
+        self.assignment_build_receipt = self.candidate_work / "assignment-build.receipt"
+        self.assignment_build_receipt.write_text("assignment build fixture\n", encoding="utf-8")
+        self.binary = self.candidate_work / "assignment-harness"
+        self.binary.write_bytes(b"qualified harness bytes\n")
+        self.base_helper_path = self.candidate_work / "base-helper.rs"
+        self.base_helper_path.write_bytes(b"base adapter helper\n")
+        self.composed_helper_path = self.candidate_work / "composed-helper.rs"
+        self.owner_helper_sha256 = "b" * 64
+        self.owner_helper_source_sha256 = "c" * 64
+        self.controller_root = self.root / "controller"
+        self.controller_consolidation = self.controller_root / "dev/consolidation"
+        self.controller_consolidation.mkdir(parents=True)
+        self.assignment_helper_path = (
+            self.controller_consolidation / "w9-publication-assignment-facts.rs"
+        )
+        self.validator_path = self.controller_consolidation / "w9_assignment_facts.py"
+        self.exact_helper_path = (
+            self.controller_consolidation / "w9-publication-exact-owners.rs"
+        )
+        shutil.copyfile(exact_runner.ASSIGNMENT_FACTS_HELPER, self.assignment_helper_path)
+        shutil.copyfile(
+            self.repository / "dev/consolidation/w9_assignment_facts.py",
+            self.validator_path,
+        )
+        shutil.copyfile(exact_runner.EXACT_OWNER_HELPER, self.exact_helper_path)
+        subprocess.run(
+            ["git", "init", "--quiet", str(self.controller_root)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.controller_root), "config", "user.name", "W9 test"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.controller_root), "config", "user.email", "w9-test@example.invalid"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self._commit_controller()
+        self.outside_capture_root = self.root / "outside-capture"
+        self.outside_capture_root.mkdir()
+        self.base_build = {
+            "helper_path": str(self.base_helper_path),
+            "owner_helper_sha256": self.owner_helper_sha256,
+            "owner_helper_source_sha256": self.owner_helper_source_sha256,
+            "source_commit": self.source_commit,
+            "source_tree": self.source_tree,
+        }
+        self.exact_build = self._source_build_record()
+        self.adapter_capture = {
+            "source_commit": self.source_commit,
+            "source_tree": self.source_tree,
+        }
+        self.exact_capture = {
+            "adapter_capture_receipt": str(self.adapter_capture_receipt),
+            "adapter_capture_receipt_sha256": self.runner.sha256_file(
+                self.adapter_capture_receipt
+            ),
+        }
+        assignment_bytes = self.assignment_helper_path.read_bytes()
+        exact_bytes = self.exact_helper_path.read_bytes()
+        composed_bytes = exact_runner._compose_assignment_facts_helper(
+            self.base_helper_path.read_bytes(), assignment_bytes, exact_bytes
+        )
+        self.composed_helper_path.write_bytes(composed_bytes)
+        self.assignment_build = {
+            **self._source_build_record(),
+            "role": "candidate",
+            "binary": str(self.binary),
+            "binary_sha256": self.runner.sha256_file(self.binary),
+            "helper_path": str(self.composed_helper_path),
+            "helper_sha256": hashlib.sha256(composed_bytes).hexdigest(),
+        }
+        self.helper_identity = self._helper_identity()
+        self.capture_root = self.candidate_work / "assignment-capture"
+        self.sidecar_root = self.capture_root / "facts"
+        self.receipt_directory = self.capture_root / "receipts"
+        self.sidecar_root.mkdir(parents=True)
+        self.receipt_directory.mkdir()
+        self.range_receipts = self._write_range_receipts()
+        self.sidecar_hashes = self._write_sidecars()
+        self.assignment_capture_receipt = self.capture_root / "assignment-capture.receipt"
+        self.write_capture()
+
+    def _commit_controller(self):
+        subprocess.run(
+            ["git", "-C", str(self.controller_root), "add", "-A"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.controller_root), "commit", "--quiet", "-m", "fixture"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+    def _source_build_record(self):
+        return {
+            "schema": "2",
+            "role": "candidate",
+            "source_root": str(self.candidate_root),
+            "source_commit": self.source_commit,
+            "source_tree": self.source_tree,
+            "source_receipt": str(self.source_receipt),
+            "source_receipt_sha256": self.runner.sha256_file(self.source_receipt),
+            "helper_path": str(self.base_helper_path),
+            "helper_sha256": hashlib.sha256(self.base_helper_path.read_bytes()).hexdigest(),
+            "owner_helper_sha256": self.owner_helper_sha256,
+            "owner_helper_source_sha256": self.owner_helper_source_sha256,
+            "binary": str(self.binary),
+            "binary_sha256": self.runner.sha256_file(self.binary),
+        }
+
+    def _helper_identity(self):
+        commit, tree = self.runner.source_identity(self.controller_root)
+        return {
+            "assignment_helper_path": str(self.assignment_helper_path),
+            "assignment_helper_sha256": self.runner.sha256_file(self.assignment_helper_path),
+            "validator_path": str(self.validator_path),
+            "validator_sha256": self.runner.sha256_file(self.validator_path),
+            "controller_root": str(self.controller_root),
+            "controller_commit": commit,
+            "controller_tree": tree,
+            "exact_helper_path": str(self.exact_helper_path),
+            "exact_helper_sha256": self.runner.sha256_file(self.exact_helper_path),
+        }
+
+    def _write_range_receipts(self):
+        receipts = {}
+        count = len(self.expected_inputs)
+        shard_count = (count + 99) // 100
+        for start, end in self.runner.expected_ranges(count):
+            lines = [
+                f"corpus={count}",
+                f"shard={start // 100}/{shard_count}",
+                f"range={start}..{end}",
+                "shard_size=100",
+                f"input_digest={self.corpus_digest}",
+            ]
+            lines.extend(
+                f"assignment\t{index}\t{self.expected_inputs[index].relative_path}\t"
+                f"{self.expected_inputs[index].blake3}"
+                for index in range(start, end)
+            )
+            lines.append(f"complete={end - start}")
+            path = exact_runner._exact_range_receipt_path(
+                self.receipt_directory, start, end
+            )
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            receipts[(start, end)] = path
+        return receipts
+
+    def _proof_contents(self, index, item):
+        source_path = f"/captured/{item.relative_path}"
+        identity = f"root\0{source_path}"
+        binding = assignment_facts.ProofBinding(
+            self.source_commit,
+            self.source_tree,
+            self.helper_identity["assignment_helper_sha256"],
+            self.corpus_digest,
+            index,
+            item.relative_path,
+        )
+        return (
+            "w9-assignment-facts\t1\n"
+            f"binding\t{binding.source_commit}\t{binding.source_tree}\t"
+            f"{binding.helper_sha256}\t{binding.corpus_digest}\t{index}\t"
+            f"{item.relative_path.encode().hex()}\n"
+            f"source\t0\t{source_path.encode().hex()}\t0\n"
+            "counts\t1\t1\t0\n"
+            f"owner\t0\t0\t0\t{identity.encode().hex()}\t\n"
+        )
+
+    def _write_sidecars(self):
+        hashes = {}
+        for index, item in self.expected_inputs.items():
+            path = self.sidecar_root / f"facts-{index}.tsv"
+            path.write_text(self._proof_contents(index, item), encoding="utf-8")
+            hashes[index] = self.runner.sha256_file(path)
+        return hashes
+
+    def write_capture(self, overrides=None, sidecar_hash_overrides=None):
+        sidecar_hashes = dict(self.sidecar_hashes)
+        if sidecar_hash_overrides is not None:
+            sidecar_hashes.update(sidecar_hash_overrides)
+        record = exact_runner._assignment_capture_record(
+            self.assignment_build_receipt,
+            self.assignment_build,
+            self.helper_identity,
+            self.source_receipt,
+            self.adapter_capture_receipt,
+            self.exact_build_receipt,
+            self.exact_capture_receipt,
+            self.source_record,
+            self.capture_root,
+            self.sidecar_root,
+            self.receipt_directory,
+            self.range_receipts,
+            sidecar_hashes,
+            self.expected_inputs,
+            self.runner,
+        )
+        if overrides:
+            record.update(overrides)
+        ledger = "".join(
+            f"range\t{start}\t{end}\t{self.runner.sha256_file(path)}\n"
+            for (start, end), path in sorted(self.range_receipts.items())
+        ) + "".join(
+            f"proof\t{index}\t{sidecar_hashes[index]}\n"
+            for index in range(len(self.expected_inputs))
+        )
+        contents = "".join(
+            f"{field}\t{record[field]}\n"
+            for field in exact_runner.ASSIGNMENT_FACTS_CAPTURE_FIELDS
+        )
+        self.assignment_capture_receipt.write_text(contents + ledger, encoding="utf-8")
+        return record
+
+    def _validate(self, exact_proof=None):
+        original_source_identity = self.runner.source_identity
+
+        def source_identity(path):
+            if pathlib.Path(path) == self.candidate_root:
+                return self.source_commit, self.source_tree
+            return original_source_identity(path)
+
+        def validate_source_inputs(record):
+            if self.runner.sha256_file(pathlib.Path(record["input_manifest"])) != record["input_manifest_sha256"]:
+                raise self.runner.PublicationError("source manifest hash differs")
+            if record["corpus_blake3"] != self.corpus_digest:
+                raise self.runner.PublicationError("source corpus digest differs")
+            return self.expected_inputs, {}
+
+        def parse_build(path, _role, _runner, _owner_helper_source=None):
+            path = pathlib.Path(path)
+            if path == self.exact_build_receipt:
+                return self.exact_build
+            if path == self.assignment_build_receipt:
+                build = dict(self.assignment_build)
+                build["binary_sha256"] = self.runner.sha256_file(self.binary)
+                return build
+            raise AssertionError(path)
+
+        with (
+            mock.patch.object(adapter_runner, "ROOT", self.controller_root),
+            mock.patch.object(
+                exact_runner, "ASSIGNMENT_FACTS_HELPER", self.assignment_helper_path
+            ),
+            mock.patch.object(exact_runner, "EXACT_OWNER_HELPER", self.exact_helper_path),
+            mock.patch.object(
+                exact_runner,
+                "EXACT_OWNER_HELPER_SHA256",
+                self.runner.sha256_file(self.exact_helper_path),
+            ),
+            mock.patch.object(
+                adapter_runner,
+                "_load_candidate_publication_runner",
+                return_value=self.runner,
+            ),
+            mock.patch.object(self.runner, "source_identity", side_effect=source_identity),
+            mock.patch.object(
+                self.runner,
+                "parse_candidate_receipt",
+                return_value=self.source_record,
+            ),
+            mock.patch.object(
+                self.runner,
+                "validate_source_cohort_inputs",
+                side_effect=validate_source_inputs,
+            ),
+            mock.patch.object(
+                exact_runner,
+                "_source_adapter_capture",
+                return_value=(
+                    self.base_build,
+                    self.capture_root,
+                    self.receipt_directory,
+                    self.adapter_capture,
+                    self.expected_inputs,
+                ),
+            ),
+            mock.patch.object(
+                adapter_runner,
+                "_parse_adapter_build_receipt",
+                side_effect=parse_build,
+            ),
+            mock.patch.object(
+                exact_runner,
+                "_parse_exact_capture_receipt",
+                return_value=(self.exact_capture, {}, {}),
+            ),
+            mock.patch.object(sys, "dont_write_bytecode", True),
+        ):
+            return exact_runner.validate_assignment_facts_capture(
+                self.candidate_root,
+                self.source_receipt,
+                self.adapter_capture_receipt,
+                self.exact_build_receipt,
+                self.exact_capture_receipt,
+                self.assignment_capture_receipt,
+                {"capture": self.exact_capture if exact_proof is None else exact_proof},
+                self.runner,
+            )
+
+    def test_complete_receipt_validates_source_and_all_proof_sidecars(self):
+        proofs, module, record = self._validate()
+
+        self.assertEqual(set(proofs), set(self.expected_inputs))
+        self.assertEqual(module.SCHEMA_HEADER, "w9-assignment-facts\t1")
+        self.assertEqual(record["input_count"], "1690")
+
+    def test_stale_identity_cohort_and_receipt_associations_are_rejected(self):
+        wrong = {
+            "schema": "2",
+            "source_receipt_sha256": "0" * 64,
+            "source_commit": "3" * 40,
+            "source_tree": "4" * 40,
+            "assignment_helper_path": str(self.root / "old-helper.rs"),
+            "assignment_helper_sha256": "5" * 64,
+            "validator_path": str(self.root / "old-validator.py"),
+            "validator_sha256": "6" * 64,
+            "controller_root": str(self.root / "old-controller"),
+            "controller_commit": "7" * 40,
+            "controller_tree": "8" * 40,
+            "exact_helper_path": str(self.root / "old-exact-helper.rs"),
+            "exact_helper_sha256": "9" * 64,
+            "adapter_capture_receipt": str(self.root / "other-adapter.receipt"),
+            "adapter_capture_receipt_sha256": "a" * 64,
+            "exact_build_receipt": str(self.root / "other-exact-build.receipt"),
+            "exact_build_receipt_sha256": "b" * 64,
+            "exact_capture_receipt": str(self.root / "other-exact-capture.receipt"),
+            "exact_capture_receipt_sha256": "c" * 64,
+            "input_root": str(self.root / "old-inputs"),
+            "input_manifest": str(self.root / "old-manifest.tsv"),
+            "input_manifest_sha256": "d" * 64,
+            "corpus_blake3": "e" * 64,
+            "binary_sha256": "f" * 64,
+            "helper_sha256": "0" * 64,
+            "range_count": "1",
+            "input_count": "1",
+            "capture_root": str(self.outside_capture_root),
+        }
+        for field, value in wrong.items():
+            with self.subTest(field=field):
+                self.write_capture({field: value})
+                with self.assertRaises(exact_runner.ExactOwnerError):
+                    self._validate()
+        self.write_capture()
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "proof and capture receipt differ"):
+            self._validate({"adapter_capture_receipt": str(self.root / "wrong.receipt")})
+
+    def test_mutated_files_receipts_ranges_and_sidecars_are_rejected(self):
+        self.input_manifest.write_text("changed manifest\n", encoding="utf-8")
+        with self.assertRaisesRegex(self.runner.PublicationError, "manifest hash differs"):
+            self._validate()
+        self.input_manifest.write_text(
+            "".join(
+                f"{index}\t{item.relative_path}\t{item.blake3}\t444\n"
+                for index, item in self.expected_inputs.items()
+            ),
+            encoding="utf-8",
+        )
+        original_corpus_digest = self.source_record["corpus_blake3"]
+        self.source_record["corpus_blake3"] = "e" * 64
+        with self.assertRaisesRegex(self.runner.PublicationError, "source corpus digest differs"):
+            self._validate()
+        self.source_record["corpus_blake3"] = original_corpus_digest
+        self.assignment_build_receipt.write_text("changed assignment build\n", encoding="utf-8")
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "build receipt hash differs"):
+            self._validate()
+        self.assignment_build_receipt.write_text("assignment build fixture\n", encoding="utf-8")
+        self.write_capture({"ledger_sha256": "0" * 64})
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "ledger hash differs"):
+            self._validate()
+        self.write_capture()
+        first_range = self.range_receipts[min(self.range_receipts)]
+        first_range.write_text(first_range.read_text(encoding="utf-8") + "changed\n", encoding="utf-8")
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "range receipt hash differs"):
+            self._validate()
+        self.write_range_receipt(min(self.range_receipts))
+        self.write_capture(sidecar_hash_overrides={0: "0" * 64})
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "sidecar hash differs"):
+            self._validate()
+        self.write_capture()
+        first_sidecar = self.sidecar_root / "facts-0.tsv"
+        first_sidecar.unlink()
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "sidecar set differs"):
+            self._validate()
+        first_sidecar.write_text(self._proof_contents(0, self.expected_inputs[0]), encoding="utf-8")
+        extra_sidecar = self.sidecar_root / "facts-extra.tsv"
+        extra_sidecar.write_text("extra\n", encoding="utf-8")
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "sidecar set differs"):
+            self._validate()
+        extra_sidecar.unlink()
+
+    def write_range_receipt(self, interval):
+        start, end = interval
+        count = len(self.expected_inputs)
+        lines = [
+            f"corpus={count}",
+            f"shard={start // 100}/{(count + 99) // 100}",
+            f"range={start}..{end}",
+            "shard_size=100",
+            f"input_digest={self.corpus_digest}",
+        ]
+        lines.extend(
+            f"assignment\t{index}\t{self.expected_inputs[index].relative_path}\t"
+            f"{self.expected_inputs[index].blake3}"
+            for index in range(start, end)
+        )
+        lines.append(f"complete={end - start}")
+        self.range_receipts[interval].write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def test_changed_composed_helper_binary_and_controller_bytes_invalidate_capture(self):
+        self.composed_helper_path.write_bytes(self.composed_helper_path.read_bytes() + b"changed")
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "validated composition"):
+            self._validate()
+        self.composed_helper_path.write_bytes(
+            exact_runner._compose_assignment_facts_helper(
+                self.base_helper_path.read_bytes(),
+                self.assignment_helper_path.read_bytes(),
+                self.exact_helper_path.read_bytes(),
+            )
+        )
+        self.binary.write_bytes(b"changed harness bytes\n")
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "binary_sha256 differs"):
+            self._validate()
+        self.binary.write_bytes(b"qualified harness bytes\n")
+        self._validate()
+        self.assignment_helper_path.write_bytes(
+            self.assignment_helper_path.read_bytes() + b"\n"
+        )
+        self._commit_controller()
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "validated composition"):
+            self._validate()
+
+    def test_changed_validator_or_controller_tree_cannot_reuse_capture(self):
+        self.validator_path.write_bytes(self.validator_path.read_bytes() + b"\n")
+        self._commit_controller()
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "validator_sha256 differs"):
+            self._validate()
+
+    def test_changed_exact_owner_helper_cannot_reuse_capture(self):
+        self.exact_helper_path.write_bytes(self.exact_helper_path.read_bytes() + b"\n")
+        self._commit_controller()
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "validated composition"):
+            self._validate()
+
+    def test_changed_controller_tree_cannot_reuse_capture(self):
+        (self.controller_root / "revision.txt").write_text("new controller bytes\n", encoding="utf-8")
+        self._commit_controller()
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "controller_commit differs"):
+            self._validate()
 
 
 class SourceQualifiedExactOwnerReceiptTests(unittest.TestCase):
