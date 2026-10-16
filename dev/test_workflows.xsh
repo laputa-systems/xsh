@@ -222,7 +222,7 @@ export proc native(
       [@as_host, "/bin/chmod", "700", home.display(), temp.display()], ctx.root, {}))
     stages.execute(stages.command("test-xsh", ctx.target.triple, "setpriv",
       [@as_host, xsht.display(), "test", @filters], ctx.root,
-      {HOME: home.display(), TMPDIR: temp.display()}))
+      {HOME: home.display(), TMPDIR: temp.display(), XDG_CACHE_HOME: fp"{home}/.cache".display()}))
   } else {
     stages.execute(stages.command("test-xsh", ctx.target.triple, xsht.display(),
       [xsht.display(), "test", @filters], ctx.root, {}))
