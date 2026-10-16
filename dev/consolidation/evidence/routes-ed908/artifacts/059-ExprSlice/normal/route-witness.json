@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_slice","source_hash":"0ac817b37db3ae67d1590b00f0fa501de8478790015e06d6addbefe03368b0ba","records":[{"tag_name":"ExprSlice","tag_ordinal":59,"route":"explicit_frame_apply_path","mode":"normal"}]}

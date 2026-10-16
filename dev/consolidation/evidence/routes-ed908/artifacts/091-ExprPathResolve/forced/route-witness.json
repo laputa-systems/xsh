@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_path_resolve","source_hash":"849143a11ead5c2c60792790d8ff2134a1eb5d608111ffec335f0f3d71efffe6","records":[{"tag_name":"ExprPathResolve","tag_ordinal":91,"route":"generic_operand_apply_path","mode":"forced"}]}

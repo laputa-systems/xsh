@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_path_remove","source_hash":"a14a354c37e55a1ea274f4bfc7c9a35bbda3e5d2d22b7d0e564d5baff839923d","records":[{"tag_name":"ExprPathRemove","tag_ordinal":94,"route":"explicit_frame_apply_path","mode":"normal"}]}
