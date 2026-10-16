@@ -56,7 +56,7 @@ use crate::runtime::eval::indexed::full::{
     FrameStrategy, FullDriverTag, FullExecution, FullFunctionView,
     FullPayload, FullProgram, FullStageTag, FullTag,
 };
-use crate::runtime::eval::indexed::full::schema::ExprView;
+use crate::runtime::eval::indexed::full::schema::{ExprView, ExprViewKind};
 use crate::runtime::eval::lower::{lowered_error_value_has_facet, lowered_record_field};
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::runtime::eval::{
@@ -1467,8 +1467,18 @@ impl Evaluator {
                 call_span,
             )?));
         }
-        let result = match tag {
-            FullTag::ExprComparisonChain => {
+        let unsupported = || {
+            RuntimeError::new(
+                "indexed-ir",
+                format!("direct indexed evaluator does not support {tag:?}"),
+            )
+            .with_span(call_span)
+        };
+        let Some(view_kind) = tag.expr_view_kind() else {
+            return Err(unsupported());
+        };
+        let result = match view_kind {
+            ExprViewKind::ComparisonChain => {
                 let (first, mut pairs) =
                     decode_comparison_chain(execution, tag, payload, call_span)?;
                 let mut left = match self.eval_indexed_expr(execution, first, slots, call_span)? {
@@ -1490,7 +1500,7 @@ impl Evaluator {
                 }
                 ControlFlow::Continue(LoweredValue::Bool(true))
             }
-            FullTag::ExprResultFallback => {
+            ExprViewKind::ResultFallback => {
                 let ExprView::ResultFallback { left, right } =
                     ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, call_span))?
@@ -1511,7 +1521,7 @@ impl Evaluator {
                     ControlFlow::Break(value) => Ok(ControlFlow::Break(value)),
                 };
             }
-            FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
+            ExprViewKind::FmtString | ExprViewKind::PathFmtString => {
                 let (parts, mut fmt) =
                     decode_fmt(execution, tag, payload, call_span)?;
                 for part in parts {
@@ -1529,7 +1539,7 @@ impl Evaluator {
                 }
                 ControlFlow::Continue(fmt.finish()?)
             }
-            FullTag::ExprMapLiteral => {
+            ExprViewKind::MapLiteral => {
                 let mut map = BTreeMap::new();
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?;
@@ -1556,7 +1566,7 @@ impl Evaluator {
                 }
                 ControlFlow::Continue(LoweredValue::Map(Arc::new(map)))
             }
-            FullTag::ExprRecordUpdate => {
+            ExprViewKind::RecordUpdate => {
                 let (base, mut updates, span) =
                     decode_record_updates(execution, tag, payload, call_span)?;
                 let base = match self.eval_indexed_expr(execution, base, slots, span)? {
@@ -1578,7 +1588,7 @@ impl Evaluator {
                 }
                 ControlFlow::Continue(lowered_record_update_batch(base, replacements, span)?)
             }
-            FullTag::ExprRecord => {
+            ExprViewKind::Record => {
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?;
                 let ExprView::Record(entries) = view else {
@@ -1606,7 +1616,7 @@ impl Evaluator {
                 }
                 ControlFlow::Continue(finish_record_entries(record))
             }
-            FullTag::ExprList => {
+            ExprViewKind::List => {
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?;
                 let ExprView::List(items) = view else {
@@ -1625,7 +1635,7 @@ impl Evaluator {
                 }
                 ControlFlow::Continue(LoweredValue::List(result))
             }
-            FullTag::ExprListBuild => {
+            ExprViewKind::ListBuild => {
                 let view = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?;
                 let ExprView::ListBuild(items) = view else {
@@ -1644,7 +1654,7 @@ impl Evaluator {
                 }
                 ControlFlow::Continue(LoweredValue::List(result))
             }
-            FullTag::ExprField => {
+            ExprViewKind::Field => {
                 let ExprView::Field { base, name, span } =
                     ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, call_span))?
@@ -1663,7 +1673,7 @@ impl Evaluator {
                 };
                 ControlFlow::Continue(self.indexed_field_value(base, name, span)?)
             }
-            FullTag::ExprIndex => {
+            ExprViewKind::Index => {
                 let ExprView::Index { base, index, span } =
                     ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, call_span))?
@@ -1682,7 +1692,7 @@ impl Evaluator {
                 };
                 ControlFlow::Continue(lowered_index_value(base, index, span)?)
             }
-            FullTag::ExprIndexFromEnd => {
+            ExprViewKind::IndexFromEnd => {
                 let ExprView::IndexFromEnd {
                     base,
                     distance,
@@ -1699,7 +1709,7 @@ impl Evaluator {
                 };
                 ControlFlow::Continue(lowered_index_from_end_value(base, distance.get(), span)?)
             }
-            FullTag::ExprCheckedValue => {
+            ExprViewKind::CheckedValue => {
                 let ExprView::CheckedValue { value, check, span } =
                     ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, call_span))?
@@ -1716,7 +1726,7 @@ impl Evaluator {
                     ControlFlow::Break(value) => ControlFlow::Break(value),
                 }
             }
-            FullTag::ExprRequire => {
+            ExprViewKind::Require => {
                 let ExprView::Require { value, check, span } =
                     ExprView::decode(execution, tag, payload)
                         .map_err(|error| indexed_error(error, call_span))?
@@ -1733,7 +1743,7 @@ impl Evaluator {
                     self, value, &check, span,
                 ))
             }
-            FullTag::ExprOk => {
+            ExprViewKind::Ok => {
                 let ExprView::Ok(value) = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?
                 else {
@@ -1750,7 +1760,7 @@ impl Evaluator {
                 };
                 ControlFlow::Continue(lowered_result_ok(value))
             }
-            FullTag::ExprProcCallResult => {
+            ExprViewKind::ProcCallResult => {
                 let ExprView::ProcCallResult(value) = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?
                 else {
@@ -1767,7 +1777,7 @@ impl Evaluator {
                 };
                 ControlFlow::Continue(proc_call_result(value))
             }
-            FullTag::ExprErr => {
+            ExprViewKind::Err => {
                 let ExprView::Err { value, cause } = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?
                 else {
@@ -1793,7 +1803,7 @@ impl Evaluator {
                 };
                 ControlFlow::Continue(lowered_err_with_cause(value, cause, call_span)?)
             }
-            FullTag::ExprTry => {
+            ExprViewKind::Try => {
                 let ExprView::Try { value, span } = ExprView::decode(execution, tag, payload)
                     .map_err(|error| indexed_error(error, call_span))?
                 else {
@@ -1816,13 +1826,80 @@ impl Evaluator {
                     },
                 };
             }
-            _ => {
-                return Err(RuntimeError::new(
-                    "indexed-ir",
-                    format!("direct indexed evaluator does not support {tag:?}"),
-                )
-                .with_span(call_span));
-            }
+            ExprViewKind::Null |
+            ExprViewKind::Unit |
+            ExprViewKind::Int |
+            ExprViewKind::Float |
+            ExprViewKind::Duration |
+            ExprViewKind::Bool |
+            ExprViewKind::Str |
+            ExprViewKind::Bytes |
+            ExprViewKind::PreparedRegex |
+            ExprViewKind::PreparedConstant |
+            ExprViewKind::Path |
+            ExprViewKind::FunctionRef |
+            ExprViewKind::PathFrom |
+            ExprViewKind::Param |
+            ExprViewKind::Binary |
+            ExprViewKind::IfExpr |
+            ExprViewKind::PatternIf |
+            ExprViewKind::MatchExpr |
+            ExprViewKind::StrMatchExpr |
+            ExprViewKind::TagMatchExpr |
+            ExprViewKind::Glob |
+            ExprViewKind::LastStatus |
+            ExprViewKind::EmptyMap |
+            ExprViewKind::Range |
+            ExprViewKind::Tag |
+            ExprViewKind::ListComp |
+            ExprViewKind::MapComp |
+            ExprViewKind::ListPipeline |
+            ExprViewKind::Slice |
+            ExprViewKind::Method |
+            ExprViewKind::StrByteLen |
+            ExprViewKind::StrByteAt |
+            ExprViewKind::StrPredicate |
+            ExprViewKind::RunCapture |
+            ExprViewKind::RunPipeline |
+            ExprViewKind::SpawnRun |
+            ExprViewKind::SpawnCommand |
+            ExprViewKind::Wait |
+            ExprViewKind::Capture |
+            ExprViewKind::ValueBlock |
+            ExprViewKind::ErrorContext |
+            ExprViewKind::ContextScope |
+            ExprViewKind::Loop |
+            ExprViewKind::Retry |
+            ExprViewKind::FsFiles |
+            ExprViewKind::FsWalk |
+            ExprViewKind::FsList |
+            ExprViewKind::FsTempDir |
+            ExprViewKind::FsMkdir |
+            ExprViewKind::FsRemove |
+            ExprViewKind::PathReadText |
+            ExprViewKind::PathReadBytes |
+            ExprViewKind::PathExists |
+            ExprViewKind::PathExecutable |
+            ExprViewKind::PathDu |
+            ExprViewKind::PathMetadata |
+            ExprViewKind::PathReadlink |
+            ExprViewKind::PathResolve |
+            ExprViewKind::PathWrite |
+            ExprViewKind::PathMkdir |
+            ExprViewKind::PathRemove |
+            ExprViewKind::ArchiveTarCreate |
+            ExprViewKind::ModuleCall |
+            ExprViewKind::ProcessCommandArgv |
+            ExprViewKind::ProcessCommandBuilder |
+            ExprViewKind::Abort |
+            ExprViewKind::Fail |
+            ExprViewKind::Error |
+            ExprViewKind::Call |
+            ExprViewKind::DirectPureCall |
+            ExprViewKind::ExternalCall |
+            ExprViewKind::DynamicCall |
+            ExprViewKind::SelfCall |
+            ExprViewKind::TypedCall => return Err(unsupported()),
         };
         Ok(result)
     }

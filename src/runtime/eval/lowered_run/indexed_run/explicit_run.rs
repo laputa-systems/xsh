@@ -37,19 +37,21 @@ use crate::runtime::eval::indexed::full::ProgramOwner;
 use super::{LoweredMapCursor, LoweredScalarCursor};
 use crate::map_key::MapKey;
 use crate::runtime::eval::indexed::IrBlockId;
-use crate::runtime::eval::indexed::full::schema::{BoolView, ExprView, ExprViewKind, IntView};
+use crate::runtime::eval::indexed::full::schema::{
+    BoolView, ExprView, ExprViewKind, InstructionKind, IntView,
+};
 use crate::runtime::eval::indexed::full::schema::StmtView;
 use crate::runtime::eval::indexed::full::decode::{
     AssignStepView, CallArgView, CompQualifierView, CompTargetView, FmtPartView, ListPosition,
     ListView,
     ProcessCommandBuilderEntryView, RecordEntryView, RunArgKindView, RunArgView, RunEnvView,
-    ScanConditionView,
+    ScanBytesView, ScanConditionView,
 };
 use crate::runtime::eval::{
     BuildBoolId, BuildExprId, BuildPatternId, BuildStmtId, LoweredCallArg, LoweredAssignStep,
     LoweredCompQualifier, LoweredCompTarget, LoweredFmtPart, LoweredProcessCommandBuilderEntry,
     LoweredRecordEntry, LoweredRunArg, LoweredRunEnv, LoweredRunPipelineSegment,
-    LoweredRunRedirection,
+    LoweredRunRedirection, ScanCheck,
     visit_retained_lowered_value, visit_retained_lowered_values,
 };
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
@@ -5403,21 +5405,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_scan_lines(
         &mut self,
         index: usize,
-        tag: FullTag,
-        payload: FullPayload<'_>,
+        text_slot: usize,
+        line_slot: usize,
+        mut checks: ListView<'_, ScanCheck>,
+        span: Span,
     ) -> Result<(), RuntimeError> {
-        let call_span = self.calls[index].call_span;
         let call = &mut self.calls[index];
-        let StmtView::ScanLines {
-            text_slot,
-            line_slot,
-            mut checks,
-            span,
-        } = StmtView::decode(&call.execution, tag, payload)
-            .map_err(|error| indexed_error(error, call_span))?
-        else {
-            unreachable!("statement tag and borrowed row agree")
-        };
         let check_start = checks.position();
         for check in checks.by_ref() {
             check.map_err(|error| indexed_error(error, span))?;
@@ -5503,16 +5496,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn step_scan_bytes(
         &mut self,
         index: usize,
-        tag: FullTag,
-        payload: FullPayload<'_>,
+        config: ScanBytesView<'_>,
     ) -> Result<(), RuntimeError> {
-        let call_span = self.calls[index].call_span;
         let call = &mut self.calls[index];
-        let StmtView::ScanBytes { config } = StmtView::decode(&call.execution, tag, payload)
-            .map_err(|error| indexed_error(error, call_span))?
-        else {
-            unreachable!("statement tag and borrowed row agree")
-        };
         let Some((line, start, end)) = lowered_bytes_parts(&call.slots[config.line_slot]) else {
             return Err(RuntimeError::new("type-error", "ScanBytes expected Bytes")
                 .with_span(config.span));
@@ -5593,7 +5579,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn eval_statement(&mut self, index: usize, instruction: u32) -> Result<(), RuntimeError> {
-        // A statement starts only once any earlier `Err` was handled.
         self.evaluator.pending_traceback = None;
         let execution = self.calls[index].execution.thread_local();
         let transfers_resource = execution.transfers_resource(instruction);
@@ -5602,19 +5587,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             execution.instruction_id(instruction),
             span,
         )?;
-        match tag {
-            FullTag::StmtPrint => {
-                let StmtView::Print {
-                    args,
-                    stderr,
-                    flush,
-                    propagate_result,
-                    span,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("statement tag and borrowed row agree")
-                };
+        if tag.kind() != InstructionKind::Stmt {
+            return Err(frame_strategy_error(tag, span));
+        }
+        match StmtView::decode(&execution, tag, payload)
+            .map_err(|error| indexed_error(error, span))?
+        {
+            StmtView::Print {
+                args,
+                stderr,
+                flush,
+                propagate_result,
+                span,
+            } => {
                 let position = args.position();
                 let argv = if self.evaluator.trace_enabled {
                     Vec::with_capacity(args.len())
@@ -5635,13 +5620,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 )
             }
-            FullTag::StmtCd => {
-                let StmtView::Cd { target, body, span } =
-                    StmtView::decode(&execution, tag, payload)
-                        .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("statement tag and borrowed row agree")
-                };
+            StmtView::Cd { target, body, span } => {
                 self.push_expr(
                     index,
                     target.raw(),
@@ -5655,13 +5634,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            FullTag::StmtEnv => {
-                let StmtView::Env { env, body } =
-                    StmtView::decode(&execution, tag, payload)
-                        .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("statement tag and borrowed row agree")
-                };
+            StmtView::Env { env, body } => {
                 let position = env.position();
                 for assignment in env {
                     let RunEnvView { name, .. } =
@@ -5679,15 +5652,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 )
             }
-            FullTag::StmtRun => {
-                let StmtView::Run {
-                    value,
-                    propagate_result,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("run statement tag has a run view")
-                };
+            StmtView::Run {
+                value,
+                propagate_result,
+            } => {
                 self.push_expr(
                     index,
                     value.raw(),
@@ -5699,16 +5667,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            FullTag::StmtAssert => {
-                let StmtView::Assert {
-                    value,
-                    message,
-                    span: assertion_span,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("assert statement tag has an assertion view")
-                };
+            StmtView::Assert {
+                value,
+                message,
+                span: assertion_span,
+            } => {
                 let condition = value.raw();
                 let message = message.map(|value| value.raw());
                 self.calls[index].work.push(FrameWork::Assertion(FrameAssertionState {
@@ -5722,18 +5685,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }));
                 Ok(())
             }
-            FullTag::StmtDefaultParameter => {
-                let StmtView::DefaultParameter {
-                    slot,
-                    value,
-                    kind,
-                    check,
-                    span: value_span,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("default-parameter tag has a typed view")
-                };
+            StmtView::DefaultParameter {
+                slot,
+                value,
+                kind,
+                check,
+                span: value_span,
+            } => {
                 let kind = kind
                     .materialize_lowered()
                     .map_err(|error| indexed_error(error, value_span))?;
@@ -5755,29 +5713,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 Ok(())
             }
-            FullTag::StmtLet => {
-                let StmtView::Let { slot, value } = StmtView::decode(
-                    &execution,
-                    tag,
-                    payload,
-                )
-                .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("let statement tag has a let view")
-                };
+            StmtView::Let { slot, value } => {
                 self.push_expr(index, value.raw(), span, FrameContinuation::Store(slot));
                 Ok(())
             }
-            FullTag::StmtLetRecord => {
-                let StmtView::LetRecord {
-                    source,
-                    target,
-                    span: value_span,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("record binding tag has a typed view")
-                };
+            StmtView::LetRecord {
+                source,
+                target,
+                span: value_span,
+            } => {
                 let target = target
                     .materialize()
                     .map_err(|error| indexed_error(error, value_span))?;
@@ -5793,19 +5737,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            FullTag::StmtWith => {
-                let StmtView::With {
-                    mut bindings,
-                    body,
-                    else_param_slot,
-                    else_body,
-                    captures,
-                    span,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("with statement tag has a with view")
-                };
+            StmtView::With {
+                mut bindings,
+                body,
+                else_param_slot,
+                else_body,
+                captures,
+                span: value_span,
+            } => {
+                let span = value_span;
                 bindings
                     .preflight()
                     .map_err(|error| indexed_error(error, span))?;
@@ -5850,19 +5790,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.push_statement_block(index, body, span)
                 }
             }
-            FullTag::StmtGuard => {
-                let StmtView::Guard {
-                    target,
-                    value,
-                    else_param_slot,
-                    else_body,
-                    span,
-                    optional,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("guard statement tag has a guard view")
-                };
+            StmtView::Guard {
+                target,
+                value,
+                else_param_slot,
+                else_body,
+                span,
+                optional,
+            } => {
                 let target = target
                     .materialize()
                     .map_err(|error| indexed_error(error, span))?;
@@ -5881,44 +5816,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
 
-            FullTag::StmtLetInt => {
-                let StmtView::LetInt { slot, value } = StmtView::decode(
-                    &execution,
-                    tag,
-                    payload,
-                )
-                .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("integer let statement tag has an integer let view")
-                };
+            StmtView::LetInt { slot, value } => {
                 self.push_expr(index, value.raw(), span, FrameContinuation::Store(slot));
                 Ok(())
             }
-            FullTag::StmtLetBool => {
-                let StmtView::LetBool { slot, value } = StmtView::decode(
-                    &execution,
-                    tag,
-                    payload,
-                )
-                .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("boolean let statement tag has a boolean let view")
-                };
+            StmtView::LetBool { slot, value } => {
                 self.push_expr(index, value.raw(), span, FrameContinuation::Store(slot));
                 Ok(())
             }
-            FullTag::StmtAssign => {
-                let StmtView::Assign {
-                    slot,
-                    op,
-                    value,
-                    check,
-                    span: value_span,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("assignment statement tag has an assignment view")
-                };
+            StmtView::Assign {
+                slot,
+                op,
+                value,
+                check,
+                span: value_span,
+            } => {
                 let check = check
                     .map(|check| {
                         Ok(LoweredTypeCheck {
@@ -5951,52 +5863,70 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            FullTag::StmtAssignField | FullTag::StmtAssignFieldInt => {
-                let execution = &execution;
-                let view = StmtView::decode(execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?;
-                let (slot, field, op, value, value_span) = match view {
-                    StmtView::AssignField {
-                        slot,
-                        field,
-                        op,
-                        value,
-                        span,
-                    } => (slot, field, op, value.raw(), span),
-                    StmtView::AssignFieldInt {
-                        slot,
-                        field,
-                        op,
-                        value,
-                        span,
-                    } => (slot, field, op, value.raw(), span),
-                    _ => unreachable!("field assignment tag has a field assignment view"),
-                };
-                let (value, singleton) = indexed_assignment_operand(execution, value, op, value_span)?;
-                self.advance_assign_path(index, AssignPathState {
-                    slot,
-                    path: AssignPathCursor::DirectField(Name::intern(field)),
-                    selectors: Vec::new(),
+            StmtView::AssignField {
+                slot,
+                field,
+                op,
+                value,
+                span: value_span,
+            } => {
+                let (value, singleton) = indexed_assignment_operand(
+                    &execution,
+                    value.raw(),
                     op,
-                    value,
-                    singleton,
-                    check: None,
-                    span: value_span,
-                    transfers_resource,
-                })?;
+                    value_span,
+                )?;
+                self.advance_assign_path(
+                    index,
+                    AssignPathState {
+                        slot,
+                        path: AssignPathCursor::DirectField(Name::intern(field)),
+                        selectors: Vec::new(),
+                        op,
+                        value,
+                        singleton,
+                        check: None,
+                        span: value_span,
+                        transfers_resource,
+                    },
+                )?;
                 Ok(())
             }
-            FullTag::StmtAssignInt => {
-                let StmtView::AssignInt {
-                    slot,
+            StmtView::AssignFieldInt {
+                slot,
+                field,
+                op,
+                value,
+                span: value_span,
+            } => {
+                let (value, singleton) = indexed_assignment_operand(
+                    &execution,
+                    value.raw(),
                     op,
-                    value,
-                    span: value_span,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("integer assignment tag has an integer assignment view")
-                };
+                    value_span,
+                )?;
+                self.advance_assign_path(
+                    index,
+                    AssignPathState {
+                        slot,
+                        path: AssignPathCursor::DirectField(Name::intern(field)),
+                        selectors: Vec::new(),
+                        op,
+                        value,
+                        singleton,
+                        check: None,
+                        span: value_span,
+                        transfers_resource,
+                    },
+                )?;
+                Ok(())
+            }
+            StmtView::AssignInt {
+                slot,
+                op,
+                value,
+                span: value_span,
+            } => {
                 self.push_expr(
                     index,
                     value.raw(),
@@ -6012,16 +5942,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            FullTag::StmtAssignBool => {
-                let StmtView::AssignBool { slot, value } = StmtView::decode(
-                    &execution,
-                    tag,
-                    payload,
-                )
-                .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("boolean assignment tag has a boolean assignment view")
-                };
+            StmtView::AssignBool { slot, value } => {
                 self.push_expr(
                     index,
                     value.raw(),
@@ -6037,20 +5958,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            FullTag::StmtAssignPath => {
-                let view = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?;
-                let (slot, mut path, op, value, check, value_span) = match view {
-                    StmtView::AssignPath {
-                        slot,
-                        path,
-                        op,
-                        value,
-                        check,
-                        span,
-                    } => (slot, path, op, value.raw(), check, span),
-                    _ => unreachable!("assignment path tag has an assignment path view"),
-                };
+            StmtView::AssignPath {
+                slot,
+                mut path,
+                op,
+                value,
+                check,
+                span: value_span,
+            } => {
+                let value = value.raw();
                 path.preflight()
                     .map_err(|error| indexed_error(error, value_span))?;
                 let position = path.position();
@@ -6090,16 +6006,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 )?;
                 Ok(())
             }
-            FullTag::StmtExpr => {
-                let StmtView::Expr { value, span: value_span } = StmtView::decode(
-                    &execution,
-                    tag,
-                    payload,
-                )
-                .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("expression statement tag has an expression statement view")
-                };
+            StmtView::Expr { value, span: value_span } => {
                 self.push_expr(
                     index,
                     value.raw(),
@@ -6108,74 +6015,44 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            FullTag::StmtIf | FullTag::StmtIfBool => {
-                let view = StmtView::decode(&execution, tag, payload)
+            StmtView::If {
+                mut branches,
+                else_body,
+            } => {
+                branches
+                    .preflight()
                     .map_err(|error| indexed_error(error, span))?;
-                let (position, else_body) = match view {
-                    StmtView::If {
-                        mut branches,
-                        else_body,
-                    } => {
-                        branches
-                            .preflight()
-                            .map_err(|error| indexed_error(error, span))?;
-                        (
-                            StatementIfPosition::Expr(branches.position()),
-                            else_body.map(|body| body.block_id()),
-                        )
-                    }
-                    StmtView::IfBool {
-                        mut branches,
-                        else_body,
-                    } => {
-                        branches
-                            .preflight()
-                            .map_err(|error| indexed_error(error, span))?;
-                        (
-                            StatementIfPosition::Bool(branches.position()),
-                            else_body.map(|body| body.block_id()),
-                        )
-                    }
-                    _ => unreachable!("if statement tags have an if view"),
-                };
-                let (branch, position) = statement_if_branch(
+                self.step_statement_if(
                     &execution,
+                    index,
                     instruction,
-                    position,
+                    StatementIfPosition::Expr(branches.position()),
+                    else_body.map(|body| body.block_id()),
                     span,
-                )?;
-                if let Some((condition, body)) = branch {
-                    self.push_expr(
-                        index,
-                        condition,
-                        span,
-                        FrameContinuation::StatementIf {
-                            instruction,
-                            position,
-                            body,
-                            else_body,
-                            span,
-                        },
-                    );
-                } else {
-                    if let Some(body) = else_body {
-                        self.push_statement_block(index, body, span)?;
-                    }
-                }
-                Ok(())
+                )
             }
-            // Pattern conditionals run on the frame, like `if`, so a `yield`
-            // in a branch suspends the producer that lexically contains it.
-            FullTag::StmtPatternIf => {
-                let StmtView::PatternIf {
-                    mut branches,
-                    else_body,
+            StmtView::IfBool {
+                mut branches,
+                else_body,
+            } => {
+                branches
+                    .preflight()
+                    .map_err(|error| indexed_error(error, span))?;
+                self.step_statement_if(
+                    &execution,
+                    index,
+                    instruction,
+                    StatementIfPosition::Bool(branches.position()),
+                    else_body.map(|body| body.block_id()),
                     span,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("pattern-if statement tag has a pattern-if view")
-                };
+                )
+            }
+            StmtView::PatternIf {
+                mut branches,
+                else_body,
+                span: pattern_span,
+            } => {
+                let span = pattern_span;
                 branches
                     .preflight()
                     .map_err(|error| indexed_error(error, span))?;
@@ -6187,17 +6064,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     span,
                 )
             }
-            FullTag::StmtPatternWhile => {
-                let StmtView::PatternWhile {
-                    condition,
-                    body,
-                    captures,
-                    span,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("pattern-while statement tag has a pattern-while view")
-                };
+            StmtView::PatternWhile {
+                condition,
+                body,
+                captures,
+                span: pattern_span,
+            } => {
+                let span = pattern_span;
                 let captures = captures
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(|error| indexed_error(error, span))?;
@@ -6209,75 +6082,52 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 });
                 Ok(())
             }
-            FullTag::StmtScanLines => self.step_scan_lines(index, tag, payload),
-            FullTag::StmtScanBytes => self.step_scan_bytes(index, tag, payload),
-            FullTag::StmtFor | FullTag::StmtForRecord => {
-                let view = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?;
-                let (target, iter, body, value_span) = match view {
-                    StmtView::For {
-                        slot,
-                        iter,
-                        body,
-                        span,
-                    } => (LoweredCompTarget::Slot(slot), iter.raw(), body.block_id(), span),
-                    StmtView::ForRecord {
-                        target,
-                        iter,
-                        body,
-                        span,
-                    } => (
-                        target
-                            .materialize()
-                            .map_err(|error| indexed_error(error, span))?,
-                        iter.raw(),
-                        body.block_id(),
-                        span,
-                    ),
-                    _ => unreachable!("for statement tags have a for view"),
-                };
-                self.declare_target(index, &target);
-                // Only a single loop variable pulls a serial pipeline row by row.
-                if let LoweredCompTarget::Slot(slot) = target
-                    && let Some((input, pipeline_span, stages)) =
-                        indexed_for_pipeline_input(&execution, iter, value_span)?
-                {
-                    self.push_expr(
-                        index,
-                        input,
-                        pipeline_span,
-                        FrameContinuation::ForPipelineInput {
-                            slot,
-                            body,
-                            span: pipeline_span,
-                            stages,
-                        },
-                    );
-                    return Ok(());
-                }
-                self.push_expr(
+            StmtView::ScanLines {
+                text_slot,
+                line_slot,
+                checks,
+                span: scan_span,
+            } => self.step_scan_lines(index, text_slot, line_slot, checks, scan_span),
+            StmtView::ScanBytes { config } => self.step_scan_bytes(index, config),
+            StmtView::For {
+                slot,
+                iter,
+                body,
+                span: value_span,
+            } => self.step_for_statement(
+                &execution,
+                index,
+                instruction,
+                LoweredCompTarget::Slot(slot),
+                iter.raw(),
+                body.block_id(),
+                value_span,
+            ),
+            StmtView::ForRecord {
+                target,
+                iter,
+                body,
+                span: value_span,
+            } => {
+                let target = target
+                    .materialize()
+                    .map_err(|error| indexed_error(error, value_span))?;
+                self.step_for_statement(
+                    &execution,
                     index,
-                    iter,
+                    instruction,
+                    target,
+                    iter.raw(),
+                    body.block_id(),
                     value_span,
-                    FrameContinuation::ForItems {
-                        target,
-                        body,
-                        span: value_span,
-                    },
-                );
-                Ok(())
+                )
             }
-            FullTag::StmtForStrLines => {
-                let StmtView::ForStrLines {
-                    slot,
-                    text,
-                    body,
-                    span: value_span,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("for-lines statement tag has a for-lines view")
-                };
+            StmtView::ForStrLines {
+                slot,
+                text,
+                body,
+                span: value_span,
+            } => {
                 self.push_expr(
                     index,
                     text.raw(),
@@ -6290,39 +6140,27 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            FullTag::StmtWhile | FullTag::StmtWhileBool => {
-                let (condition, body) = match StmtView::decode(
-                    &execution,
-                    tag,
-                    payload,
-                )
-                .map_err(|error| indexed_error(error, span))?
-                {
-                    StmtView::While { condition, body } => {
-                        (condition.raw(), body.block_id())
-                    }
-                    StmtView::WhileBool { condition, body } => {
-                        (condition.raw(), body.block_id())
-                    }
-                    _ => unreachable!("while statement tags have a while view"),
-                };
+            StmtView::While { condition, body } => {
                 self.calls[index].work.push(FrameWork::While {
-                    condition,
-                    body,
+                    condition: condition.raw(),
+                    body: body.block_id(),
                     span,
                 });
                 Ok(())
             }
-            FullTag::StmtMatch => {
-                let StmtView::Match {
-                    value,
-                    mut arms,
-                    span: value_span,
-                } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("match statement tag has a match view")
-                };
+            StmtView::WhileBool { condition, body } => {
+                self.calls[index].work.push(FrameWork::While {
+                    condition: condition.raw(),
+                    body: body.block_id(),
+                    span,
+                });
+                Ok(())
+            }
+            StmtView::Match {
+                value,
+                mut arms,
+                span: value_span,
+            } => {
                 arms.preflight()
                     .map_err(|error| indexed_error(error, value_span))?;
                 self.push_expr(
@@ -6337,17 +6175,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            FullTag::StmtStrMatch | FullTag::StmtTagMatch => {
-                let view = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?;
-                let (value, match_span) = match view {
-                    StmtView::StrMatch { value, span, .. }
-                    | StmtView::TagMatch { value, span, .. } => (value.raw(), span),
-                    _ => unreachable!("string/tag statement match tag has a matching borrowed view"),
-                };
+            StmtView::StrMatch {
+                value,
+                span: match_span,
+                ..
+            } => {
                 self.push_expr(
                     index,
-                    value,
+                    value.raw(),
                     match_span,
                     FrameContinuation::StatementStrTagMatch {
                         instruction,
@@ -6356,12 +6191,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            FullTag::StmtLoop => {
-                let StmtView::Loop { body } = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("loop statement tag has a typed view")
-                };
+            StmtView::TagMatch {
+                value,
+                span: match_span,
+                ..
+            } => {
+                self.push_expr(
+                    index,
+                    value.raw(),
+                    match_span,
+                    FrameContinuation::StatementStrTagMatch {
+                        instruction,
+                        span: match_span,
+                    },
+                );
+                Ok(())
+            }
+            StmtView::Loop { body } => {
                 self.calls[index].work.push(FrameWork::Loop {
                     body: body.block_id(),
                     span,
@@ -6369,28 +6215,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 });
                 Ok(())
             }
-            FullTag::StmtBreak => {
-                let StmtView::Break = StmtView::decode(
-                    &execution,
-                    tag,
-                    payload,
-                )
-                .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("break statement tag has a break view")
-                };
-                self.break_loop(index, None, false)
-            }
-            FullTag::StmtBreakValue => {
-                let StmtView::BreakValue { value } = StmtView::decode(
-                    &execution,
-                    tag,
-                    payload,
-                )
-                .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("break-value statement tag has a break-value view")
-                };
+            StmtView::Break => self.break_loop(index, None, false),
+            StmtView::BreakValue { value } => {
                 self.push_expr(
                     index,
                     value.raw(),
@@ -6399,71 +6225,29 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            FullTag::StmtContinue => {
-                let StmtView::Continue = StmtView::decode(
-                    &execution,
-                    tag,
-                    payload,
-                )
-                .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("continue statement tag has a continue view")
-                };
-                self.continue_loop(index)
+            StmtView::Continue => self.continue_loop(index),
+            StmtView::Yield { value } => {
+                self.step_yield_statement(index, value.raw(), span, false, transfers_resource)
             }
-            FullTag::StmtYield | FullTag::StmtYieldDelegate => {
-                let view = StmtView::decode(&execution, tag, payload)
-                    .map_err(|error| indexed_error(error, span))?;
-                let (value, yield_span, delegate) = match view {
-                    StmtView::Yield { value } => (value.raw(), span, false),
-                    StmtView::YieldDelegate { value, span } => (value.raw(), span, true),
-                    _ => unreachable!("yield statement tag has a yield view"),
-                };
-                if !self.calls[index].producer {
-                    return Err(
-                        RuntimeError::new("control-flow", "yield outside stream producer")
-                            .with_span(yield_span),
-                    );
-                }
-                let continuation = if delegate {
-                    FrameContinuation::YieldDelegate {
-                        span: yield_span,
-                        transfers_resource,
-                    }
-                } else {
-                    FrameContinuation::Yield {
-                        span: yield_span,
-                        transfers_resource,
-                    }
-                };
-                self.push_expr(index, value, yield_span, continuation);
-                Ok(())
-            }
-            FullTag::StmtDefer => {
-                let StmtView::Defer { value, on_error } = StmtView::decode(
-                    &execution,
-                    tag,
-                    payload,
+            StmtView::YieldDelegate {
+                value,
+                span: yield_span,
+            } => {
+                self.step_yield_statement(
+                    index,
+                    value.raw(),
+                    yield_span,
+                    true,
+                    transfers_resource,
                 )
-                .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("defer tag has a defer view")
-                };
+            }
+            StmtView::Defer { value, on_error } => {
                 self.calls[index]
                     .defers
                     .push(RegisteredDefer::new(value.raw(), on_error));
                 Ok(())
             }
-            FullTag::StmtValue => {
-                let StmtView::Value { value } = StmtView::decode(
-                    &execution,
-                    tag,
-                    payload,
-                )
-                .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("value statement tag has a value view")
-                };
+            StmtView::Value { value } => {
                 self.push_expr(
                     index,
                     value.raw(),
@@ -6472,16 +6256,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            FullTag::StmtReturn => {
-                let StmtView::Return { value } = StmtView::decode(
-                    &execution,
-                    tag,
-                    payload,
-                )
-                .map_err(|error| indexed_error(error, span))?
-                else {
-                    unreachable!("return statement tag has a return view")
-                };
+            StmtView::Return { value } => {
                 self.push_expr(
                     index,
                     value.raw(),
@@ -6490,8 +6265,106 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
-            _ => Err(frame_strategy_error(tag, span)),
         }
+    }
+
+    fn step_statement_if(
+        &mut self,
+        execution: &FullExecution<'_>,
+        index: usize,
+        instruction: u32,
+        position: StatementIfPosition,
+        else_body: Option<IrBlockId>,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let (branch, position) =
+            statement_if_branch(execution, instruction, position, span)?;
+        if let Some((condition, body)) = branch {
+            self.push_expr(
+                index,
+                condition,
+                span,
+                FrameContinuation::StatementIf {
+                    instruction,
+                    position,
+                    body,
+                    else_body,
+                    span,
+                },
+            );
+        } else if let Some(body) = else_body {
+            self.push_statement_block(index, body, span)?;
+        }
+        Ok(())
+    }
+
+    fn step_yield_statement(
+        &mut self,
+        index: usize,
+        value: u32,
+        span: Span,
+        delegate: bool,
+        transfers_resource: bool,
+    ) -> Result<(), RuntimeError> {
+        if !self.calls[index].producer {
+            return Err(
+                RuntimeError::new("control-flow", "yield outside stream producer").with_span(span),
+            );
+        }
+        let continuation = if delegate {
+            FrameContinuation::YieldDelegate {
+                span,
+                transfers_resource,
+            }
+        } else {
+            FrameContinuation::Yield {
+                span,
+                transfers_resource,
+            }
+        };
+        self.push_expr(index, value, span, continuation);
+        Ok(())
+    }
+
+    fn step_for_statement(
+        &mut self,
+        execution: &FullExecution<'_>,
+        index: usize,
+        instruction: u32,
+        target: LoweredCompTarget,
+        iter: u32,
+        body: IrBlockId,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        self.declare_target(index, &target);
+        if let LoweredCompTarget::Slot(slot) = target
+            && let Some((input, pipeline_span, stages)) =
+                indexed_for_pipeline_input(execution, iter, span)?
+        {
+            self.push_expr(
+                index,
+                input,
+                pipeline_span,
+                FrameContinuation::ForPipelineInput {
+                    slot,
+                    body,
+                    span: pipeline_span,
+                    stages,
+                },
+            );
+            return Ok(());
+        }
+        self.push_expr(
+            index,
+            iter,
+            span,
+            FrameContinuation::ForItems {
+                target,
+                body,
+                span,
+            },
+        );
+        Ok(())
     }
 
     fn push_apply_operands(
@@ -7754,45 +7627,55 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             BoolNot(u32),
         }
 
-        let operation = {
-            match tag {
-                FullTag::IntBinary | FullTag::IntStrByteAtSlot => match IntView::decode(
-                    execution, tag, payload,
-                )
-                    .map_err(|error| indexed_error(error, span))?
-                {
-                    IntView::Binary { op, left, right } => {
-                        Some(FrameOperation::Binary(op, left.raw(), right.raw()))
-                    }
-                    IntView::StrByteAtSlot { slot, index, default, span: value_span } => Some(
-                        FrameOperation::IntByteAt(
-                            slot, index.raw(), default.map(|id| id.raw()), value_span,
-                        ),
-                    ),
-                    _ => return Err(frame_strategy_error(tag, span)),
-                },
-                FullTag::BoolNot
-                    | FullTag::BoolAnd
-                    | FullTag::BoolOr
-                    | FullTag::BoolIntCompare => match BoolView::decode(execution, tag, payload)
-                        .map_err(|error| indexed_error(error, span))?
-                    {
-                        BoolView::Not(value) => Some(FrameOperation::BoolNot(value.raw())),
-                        BoolView::And(left, right) | BoolView::Or(left, right) => {
-                            let op = if tag == FullTag::BoolAnd {
-                                BinaryOp::And
-                            } else {
-                                BinaryOp::Or
-                            };
-                            Some(FrameOperation::Binary(op, left.raw(), right.raw()))
-                        }
-                        BoolView::IntCompare { op, left, right } => {
-                            Some(FrameOperation::Binary(op, left.raw(), right.raw()))
-                        }
-                        _ => return Err(frame_strategy_error(tag, span)),
-                    },
-                tag if super::is_typed_int_tag(tag) || super::is_typed_bool_tag(tag) => None,
-                _ => return Err(frame_strategy_error(tag, span)),
+        let operation = match tag.kind() {
+            InstructionKind::Int => match IntView::decode(execution, tag, payload)
+                .map_err(|error| indexed_error(error, span))?
+            {
+                IntView::Int(_)
+                | IntView::Slot(_)
+                | IntView::StrByteLenSlot { .. }
+                | IntView::StrCountLinesSlot { .. } => None,
+                IntView::Binary { op, left, right } => {
+                    Some(FrameOperation::Binary(op, left.raw(), right.raw()))
+                }
+                IntView::StrByteAtSlot {
+                    slot,
+                    index,
+                    default,
+                    span: value_span,
+                } => Some(FrameOperation::IntByteAt(
+                    slot,
+                    index.raw(),
+                    default.map(|id| id.raw()),
+                    value_span,
+                )),
+            },
+            InstructionKind::Bool => match BoolView::decode(execution, tag, payload)
+                .map_err(|error| indexed_error(error, span))?
+            {
+                BoolView::Bool(_)
+                | BoolView::Slot(_)
+                | BoolView::StrPredicateSlot { .. }
+                | BoolView::ContainsSlot { .. }
+                | BoolView::StrContainsSlot { .. }
+                | BoolView::TrimEmptySlot { .. }
+                | BoolView::TrimStrPredicateSlot { .. }
+                | BoolView::LiteralCompareSlot { .. } => None,
+                BoolView::Not(value) => Some(FrameOperation::BoolNot(value.raw())),
+                BoolView::And(left, right) | BoolView::Or(left, right) => {
+                    let op = if tag == FullTag::BoolAnd {
+                        BinaryOp::And
+                    } else {
+                        BinaryOp::Or
+                    };
+                    Some(FrameOperation::Binary(op, left.raw(), right.raw()))
+                }
+                BoolView::IntCompare { op, left, right } => {
+                    Some(FrameOperation::Binary(op, left.raw(), right.raw()))
+                }
+            },
+            InstructionKind::Expr | InstructionKind::Stmt => {
+                return Err(frame_strategy_error(tag, span));
             }
         };
 
@@ -7835,7 +7718,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
             }
             None => {
-                // Inlined scalar leaves must carry the verifier's bounded-subtree proof.
                 let value = {
                     let call = &mut self.calls[index];
                     if !call.execution.is_in_place(instruction) {
