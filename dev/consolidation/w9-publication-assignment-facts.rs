@@ -59,6 +59,45 @@ pub fn w9_assignment_facts_tsv(
             .or_else(|| program.module_doc_for(statements).map(|span| span.source_id))
     }
 
+    fn module_source_id(
+        sources: &xsh::frontend::source::SourceMap,
+        module: &xsh::frontend::syntax::arena::ArenaUserModule,
+    ) -> Result<SourceId, String> {
+        let physical_key = match module.key.split_once('\0') {
+            Some((physical_key, context_id))
+                if !physical_key.is_empty()
+                    && !context_id.is_empty()
+                    && context_id.bytes().all(|byte| byte.is_ascii_digit()) =>
+            {
+                physical_key
+            }
+            Some(_) => {
+                return Err(format!(
+                    "assignment module key has an invalid context suffix for `{}`",
+                    module.name.as_str().as_str()
+                ));
+            }
+            None => module.key.as_str(),
+        };
+        let mut matching_sources = sources.files().iter().filter(|source| {
+            xsh::frontend::load::module_key(std::path::Path::new(source.name())) == physical_key
+        });
+        let source_id = matching_sources
+            .next()
+            .map(|source| source.id())
+            .ok_or_else(|| {
+                format!(
+                    "assignment module has no source matching its physical key `{physical_key}`"
+                )
+            })?;
+        if matching_sources.next().is_some() {
+            return Err(format!(
+                "assignment module physical key `{physical_key}` matches multiple sources"
+            ));
+        }
+        Ok(source_id)
+    }
+
     fn legacy_assignment_target_root_name(
         program: &xsh::frontend::syntax::arena::ArenaProgram,
         mut target: AssignTargetId,
@@ -202,8 +241,9 @@ pub fn w9_assignment_facts_tsv(
         });
 
         for module in view.modules() {
-            let Some(source_id) = range_source_id(program, module.statements) else {
-                continue;
+            let source_id = match range_source_id(program, module.statements) {
+                Some(source_id) => source_id,
+                None => module_source_id(sources, module)?,
             };
             let source_path = source_name(sources, source_id)?;
             let module_name = module.name.as_str().as_str().to_owned();
@@ -514,6 +554,47 @@ mod tests {
         assert_eq!(
             owner_names(&proof, module_id, module_statements),
             expected_names(&["nested"])
+        );
+    }
+
+    #[test]
+    fn source_backed_empty_imported_module_keeps_an_explicit_empty_owner() {
+        let root_source = "use child\nroot = 1\n";
+        let mut sources = SourceMap::new();
+        let root_id = sources.add_file("assignment-root.xsh", root_source);
+        let module_id = sources.add_file("assignment-child.xsh", "");
+        let module_key = xsh::frontend::load::module_key(std::path::Path::new(
+            sources.get(module_id).unwrap().name(),
+        ));
+        let mut builder = ArenaProgramBuilder::with_token_capacity(64);
+        let root = Parser::parse_source_into_arena_builder(root_id, root_source, &mut builder);
+        assert!(root.diagnostics.is_empty(), "{:?}", root.diagnostics);
+        let use_statement = builder
+            .ast_arena()
+            .stmt_ids(root.statements)
+            .next()
+            .expect("root import statement");
+        let ArenaStmtKind::Use(use_id) = builder.ast_arena().stmt(use_statement).kind else {
+            panic!("first root statement is the child import");
+        };
+        builder.set_use_resolved(use_id, std::sync::Arc::from(module_key.as_str()));
+        let module_name = builder.name("child");
+        let module = Parser::parse_source_into_arena_builder(module_id, "", &mut builder);
+        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+        let root_statements = root.statements;
+        let module_statements = module.statements;
+        builder.push_arena_module(module_key, module_name, module_statements);
+        let program = builder.finish_with_statements(root_statements);
+
+        let proof = w9_assignment_facts_tsv(&program, &sources, root_id, &binding()).unwrap();
+        assert_eq!(owner_rows(&proof).len(), 2);
+        assert_eq!(
+            owner_names(&proof, root_id, root_statements),
+            expected_names(&["root"])
+        );
+        assert_eq!(
+            owner_names(&proof, module_id, module_statements),
+            BTreeSet::new()
         );
     }
 }
