@@ -441,14 +441,14 @@ fn same_checked_facts(
         .iter()
         .filter(|(id, _)| id.body.source_id == source_id && id.body != edits.body)
         .filter_map(|(id, fact)| {
-            Some(((id.namespace.clone(), edits.map(id.body)?), fact.effective.clone()))
+            Some(((id.namespace, edits.map(id.body)?), fact.effective.clone()))
         })
         .collect::<BTreeMap<_, _>>();
     let after_effects = after
         .function_effect_facts
         .iter()
         .filter(|(id, _)| id.body.source_id == source_id)
-        .map(|(id, fact)| ((id.namespace.clone(), id.body), fact.effective.clone()))
+        .map(|(id, fact)| ((id.namespace, id.body), fact.effective.clone()))
         .collect::<BTreeMap<_, _>>();
     before.expr_types.iter().filter(|(span, _)| span.source_id == source_id).all(|(span, ty)| edits.map(*span).is_none_or(|mapped|
         after.expr_types.get(&mapped).is_some_and(|other| shape(before_program, ty) == shape(after_program, other))))

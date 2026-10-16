@@ -153,9 +153,9 @@ lint_rules! {
     LintPreferListComp: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::Sequence(SequenceSite::Root, list_comprehension_sequence), RuleHook::Sequence(SequenceSite::Block, list_comprehension_sequence)]);
     LintPreferMapComp: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::Sequence(SequenceSite::Root, list_comprehension_sequence), RuleHook::Sequence(SequenceSite::Block, list_comprehension_sequence)]);
     LintPreferStreamProducer: (RuleSetting::Always, [], FixPolicy::NoFix, [RuleHook::Statement(StatementSite::StreamProducerCandidates, |linter, statement, _| linter.stream_producers.observe_stmt(linter.arena, statement)), RuleHook::ExpressionAnalysis(ExpressionAnalysisSite::StreamProducers, |linter, expr| linter.stream_producers.observe_expr(linter.arena, expr)), RuleHook::Root(RootStage::StreamProducerFinalizer, run_stream_producer_finalizer_hook), RuleHook::Sequence(SequenceSite::Root, |linter, statements, _| linter.lint_stream_producer_suggestions(statements))]);
-    LintPreferTempdir: (RuleSetting::Always, [ExpressionTypes, FunctionReturns, StatementPositions], FixPolicy::ProducerProof, [RuleHook::Sequence(SequenceSite::Root, |linter, statements, block| super::prefer_tempdir::lint_scratch_directories(linter, statements, block)), RuleHook::Sequence(SequenceSite::Block, |linter, statements, block| super::prefer_tempdir::lint_scratch_directories(linter, statements, block))]);
-    LintPreferAtomicallyReplace: (RuleSetting::Always, [ExpressionTypes, DefinitelyExitingBlocks, PropagatingStatements], FixPolicy::ProducerProof, [RuleHook::Sequence(SequenceSite::Root, |linter, statements, block| super::prefer_atomically::lint_published_files(linter, statements, block)), RuleHook::Sequence(SequenceSite::Block, |linter, statements, block| super::prefer_atomically::lint_published_files(linter, statements, block))]);
-    LintPreferForIndex: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::Sequence(SequenceSite::Block, |linter, statements, block| super::lint_prefer_for_index::lint_counter_loops(linter, statements, block))]);
+    LintPreferTempdir: (RuleSetting::Always, [ExpressionTypes, FunctionReturns, StatementPositions], FixPolicy::ProducerProof, [RuleHook::Sequence(SequenceSite::Root, super::prefer_tempdir::lint_scratch_directories), RuleHook::Sequence(SequenceSite::Block, super::prefer_tempdir::lint_scratch_directories)]);
+    LintPreferAtomicallyReplace: (RuleSetting::Always, [ExpressionTypes, DefinitelyExitingBlocks, PropagatingStatements], FixPolicy::ProducerProof, [RuleHook::Sequence(SequenceSite::Root, super::prefer_atomically::lint_published_files), RuleHook::Sequence(SequenceSite::Block, super::prefer_atomically::lint_published_files)]);
+    LintPreferForIndex: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::Sequence(SequenceSite::Block, super::lint_prefer_for_index::lint_counter_loops)]);
     LintPreferTextPattern: (RuleSetting::OptIn(RuleOption::TextPattern), [ExpressionTypes], FixPolicy::NoFix, [RuleHook::Sequence(SequenceSite::Block, |linter, statements, _| super::lint_prefer_text_pattern::lint_positional_text(linter, statements))]);
     LintPreferWithin: (RuleSetting::Always, [], FixPolicy::NoFix, [RuleHook::Sequence(SequenceSite::Root, |linter, statements, _| super::prefer_within::lint_repeated_timeouts(linter, statements)), RuleHook::Sequence(SequenceSite::Block, |linter, statements, _| super::prefer_within::lint_repeated_timeouts(linter, statements))]);
     LintPreferCollect: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::Sequence(SequenceSite::Root, |linter, statements, _| super::prefer_collect::lint_built_lists(linter, statements)), RuleHook::Sequence(SequenceSite::Block, |linter, statements, _| super::prefer_collect::lint_built_lists(linter, statements))]);
@@ -212,7 +212,7 @@ lint_rules! {
     LintPreferMethod: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::CallStyle, lint_call_style_expression)]);
     LintPreferNamedArgumentPun: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::CallArgument(|linter, arg| linter.lint_named_argument_pun(arg))]);
     LintPreferNamedArgumentSpread: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::CallStyle, lint_call_style_expression)]);
-    LintPreferOptionalBinding: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::StatementSequence(StatementSequenceSite::OptionalBinding, |linter, statements| super::lint_optional_binding::lint_null_test_then_binding(linter, statements))]);
+    LintPreferOptionalBinding: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::StatementSequence(StatementSequenceSite::OptionalBinding, super::lint_optional_binding::lint_null_test_then_binding)]);
     LintPreferPositionalConstructor: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::Expression(|linter, expr| linter.lint_positional_constructor(expr))]);
     LintPreferPropagation: (RuleSetting::Always, [ExpressionTypes, FunctionEffects, StatementPositions, PropagatingStatements, RedundantConditionPropagations], FixPolicy::ProducerProof, [RuleHook::Statement(StatementSite::Propagation, |linter, statement, _| linter.lint_propagation(statement))]);
     LintPreferReadLines: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
@@ -265,17 +265,17 @@ lint_rules! {
     LintRedundantUseAlias: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::Root(RootStage::RedundantUseAlias, run_redundant_use_alias_hook)]);
     LintListAnyUnion: (RuleSetting::Always, [ExpressionTypes], FixPolicy::NoFix, [RuleHook::Statement(StatementSite::ListAnyBindings, lint_statement_list_any_bindings), RuleHook::Root(RootStage::ListAnyUnion, run_list_any_finalizer)]);
     LintPreferEnvPathList: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
-    LintPreferWriteMode: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::StatementSequence(StatementSequenceSite::WriteMode, |linter, statements| super::lint_write_mode::lint_write_then_chmod(linter, statements))]);
+    LintPreferWriteMode: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::StatementSequence(StatementSequenceSite::WriteMode, super::lint_write_mode::lint_write_then_chmod)]);
     LintPreferPathKind: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
     LintPreferTypedCallable: (RuleSetting::Always, [CallableSignatures, FunctionReturns, FunctionEffects], FixPolicy::NoFix, [RuleHook::Statement(StatementSite::TypedCallableParameters, lint_statement_typed_callable_parameters), RuleHook::Root(RootStage::TypedCallable, run_typed_callable_finalizer)]);
-    LintPreferTestExpect: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::StatementSequence(StatementSequenceSite::TestExpect, |linter, statements| super::lint_prefer_test_expect::lint_script_runs(linter, statements))]);
+    LintPreferTestExpect: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::StatementSequence(StatementSequenceSite::TestExpect, super::lint_prefer_test_expect::lint_script_runs)]);
     LintPreferIsEmpty: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
     LintPreferNegativeIndex: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
     LintPreferNonEmptyArgv: (RuleSetting::Always, [UnvalidatedCommandVectors], FixPolicy::NoFix, [RuleHook::RunCheck(RunCheckSite::SegmentChecks, run_segment_checks)]);
     LintPreferAsConversion: (RuleSetting::Always, [ExpressionTypes], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
     LintPreferRelPath: (RuleSetting::OptIn(RuleOption::RelPath), [ExpressionTypes], FixPolicy::NoFix, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
     LintPreferArgumentLabel: (RuleSetting::Always, [], FixPolicy::ProducerProof, [RuleHook::ExpressionGroup(ExpressionGroupSite::PathMigrations, lint_path_migrations_expression)]);
-    LintEmptySentinel: (RuleSetting::Always, [ExpressionTypes], FixPolicy::NoFix, [RuleHook::ExpressionAnalysis(ExpressionAnalysisSite::EmptyFallbacks, |linter, expr| { let findings = linter.empty_fallbacks.visit_expr(linter.arena, linter.source, expr); linter.diagnostics.extend(findings); }), RuleHook::StatementSequence(StatementSequenceSite::EmptySentinel, |linter, statements| super::lint_empty_sentinel::lint_empty_fallback_then_test(linter, statements))]);
+    LintEmptySentinel: (RuleSetting::Always, [ExpressionTypes], FixPolicy::NoFix, [RuleHook::ExpressionAnalysis(ExpressionAnalysisSite::EmptyFallbacks, |linter, expr| { let findings = linter.empty_fallbacks.visit_expr(linter.arena, linter.source, expr); linter.diagnostics.extend(findings); }), RuleHook::StatementSequence(StatementSequenceSite::EmptySentinel, super::lint_empty_sentinel::lint_empty_fallback_then_test)]);
     LintPreferSet: (RuleSetting::AlwaysWithOptInAdvice, [], FixPolicy::ProducerProof, [RuleHook::Statement(StatementSite::SetLikeBindings, |linter, statement, _| linter.set_like_bindings.visit_stmt(linter.arena, linter.source, statement)), RuleHook::ExpressionAnalysis(ExpressionAnalysisSite::SetLikeBindings, |linter, expr| linter.set_like_bindings.visit_expr(linter.arena, linter.source, expr)), RuleHook::Root(RootStage::SetLike, run_set_like_finalizer)]);
     LintRedundantDiscard: (RuleSetting::Always, [DiscardableBindings], FixPolicy::ProducerProof, [RuleHook::Statement(StatementSite::RedundantDiscard, |linter, statement, _| super::lint_redundant_discard::lint_redundant_discard(linter, statement))]);
 }
@@ -1430,271 +1430,6 @@ pub(super) fn root_hooks<'source>(
                 callback(linter, view, statements);
             }
         }
-    }
-}
-#[cfg(test)]
-mod tests {
-    use super::{CheckedFact, LINT_RULES, LintOptions, Linter, RuleSelection, lint_codes, rule};
-    use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticFamily};
-
-    fn shadowing_diagnostics(source: &str) -> Vec<Diagnostic> {
-        use xsh::frontend::check::Checker;
-        use xsh::frontend::source::SourceId;
-        use xsh::frontend::syntax::parser::Parser;
-
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(parsed.diagnostics.is_empty(), "{:?}\n{source}", parsed.diagnostics);
-        let checked = Checker::check_arena(&parsed.arena, source);
-        assert!(checked.diagnostics.is_empty(), "{:?}\n{source}", checked.diagnostics);
-        Linter::lint(
-            &parsed.arena,
-            source,
-            LintOptions {
-                only: Some(vec![DiagnosticCode::LintShadowing]),
-                ..LintOptions::default()
-            },
-        )
-        .diagnostics
-    }
-
-    fn exported_callable(kind: &str, name: &str, parameter: &str) -> String {
-        match kind {
-            "pure" => format!("export pure {name}({parameter}: Int) -> Int {{ {parameter} }}\n"),
-            "proc" => format!("export proc {name}({parameter}: Int) [] {{}}\n"),
-            "stream" => format!(
-                "export stream {name}({parameter}: Int) [] -> Stream[Int] {{ yield {parameter} }}\n"
-            ),
-            _ => unreachable!(),
-        }
-    }
-
-    fn named_call(kind: &str, name: &str, parameter: &str) -> String {
-        match kind {
-            "pure" => format!("pure invoke() -> Int {{ {name}({parameter}: 1) }}\n"),
-            "proc" => format!("proc invoke() [] {{ {name}({parameter}: 1) }}\n"),
-            "stream" => format!("proc invoke() [] {{ let _ = {name}({parameter}: 1) }}\n"),
-            _ => unreachable!(),
-        }
-    }
-
-    #[test]
-    fn table_contains_every_lint_code_once() {
-        let codes: Vec<_> = LINT_RULES.iter().map(|rule| rule.code).collect();
-        assert_eq!(codes.len(), 147);
-        for (index, code) in codes.iter().enumerate() {
-            assert_eq!(code.family(), DiagnosticFamily::Lint);
-            assert!(codes[..index].iter().all(|previous| previous != code), "duplicate rule: {}", code.name());
-        }
-        let expected: Vec<_> = DiagnosticCode::ALL.iter().copied().filter(|code| code.family() == DiagnosticFamily::Lint).collect();
-        assert_eq!(lint_codes().collect::<Vec<_>>(), expected);
-    }
-    #[test]
-    fn selected_facts_follow_only_and_exclusion() {
-        let selection = |only, excluded_rules| {
-            RuleSelection::new(&LintOptions {
-                only,
-                excluded_rules,
-                ..LintOptions::default()
-            })
-        };
-        let no_facts = selection(Some(vec![DiagnosticCode::LintRunless]), Vec::new());
-        let unused_local = selection(Some(vec![DiagnosticCode::LintUnusedLocal]), Vec::new());
-        let checked = selection(Some(vec![DiagnosticCode::LintPreferListSplicing]), Vec::new());
-        let default_parameter = selection(Some(vec![DiagnosticCode::LintDefaultParamType]), Vec::new());
-        let parser_alias = selection(Some(vec![DiagnosticCode::LintBlockHeader]), Vec::new());
-        let excluded = selection(
-            Some(vec![DiagnosticCode::LintPreferListSplicing]),
-            vec![DiagnosticCode::LintPreferListSplicing],
-        );
-        assert!(!no_facts.requires_check_output());
-        assert_eq!(
-            rule(DiagnosticCode::LintUnusedLocal).unwrap().facts,
-            &[CheckedFact::LocalBindingTypes],
-        );
-        assert!(unused_local.requires_check_output());
-        assert!(!selection(Some(vec![DiagnosticCode::LintRunStatus]), Vec::new()).requires_check_output());
-        assert!(selection(Some(vec![DiagnosticCode::LintPreferMapLiteral]), Vec::new()).requires_check_output());
-        assert!(!selection(Some(vec![DiagnosticCode::LintPreferEmptyMapLiteral]), Vec::new()).requires_check_output());
-        assert!(default_parameter.requires_check_output());
-        assert!(parser_alias.enabled(DiagnosticCode::LintBlockHeader));
-        assert!(!parser_alias.requires_check_output());
-        assert!(checked.requires_check_output());
-        assert!(!excluded.requires_check_output());
-        assert!(checked.enabled(DiagnosticCode::LintPreferListSplicing));
-        for code in [
-            DiagnosticCode::LintCompatibilityVocabulary,
-            DiagnosticCode::LintPositionalErrorArguments,
-            DiagnosticCode::LintPublicResultError,
-            DiagnosticCode::LintRemovedRecordRequire,
-            DiagnosticCode::LintPreferCallableAlias,
-            DiagnosticCode::LintPreferSignatureCli,
-            DiagnosticCode::LintNeedlessAnnotation,
-            DiagnosticCode::LintMissingEffects,
-            DiagnosticCode::LintPreferInferredPrivateEffects,
-            DiagnosticCode::LintPreferInferredPureReturn,
-            DiagnosticCode::LintPreferInferredProcReturn,
-            DiagnosticCode::LintRedundantClose,
-            DiagnosticCode::LintPreferTempdir,
-            DiagnosticCode::LintPreferAtomicallyReplace,
-            DiagnosticCode::LintPreferForIndex,
-            DiagnosticCode::LintPreferTempdirScope,
-            DiagnosticCode::LintPreferWriteMode,
-            DiagnosticCode::LintPreferTryCapture,
-            DiagnosticCode::LintDefaultParamType,
-            DiagnosticCode::LintEmptySentinel,
-            DiagnosticCode::LintLookupAbsence,
-            DiagnosticCode::LintPatternConditional,
-            DiagnosticCode::LintRedundantOptionalFallback,
-            DiagnosticCode::LintRedundantPathParse,
-            DiagnosticCode::LintRedundantRequire,
-            DiagnosticCode::LintPathConstructor,
-            DiagnosticCode::LintPreferImplicitMessage,
-            DiagnosticCode::LintPreferIn,
-            DiagnosticCode::LintPreferPropagation,
-            DiagnosticCode::LintPreferRecordDestructuring,
-            DiagnosticCode::LintPreferRunArgv,
-            DiagnosticCode::LintRedundantDefault,
-            DiagnosticCode::LintRedundantDisplayParse,
-            DiagnosticCode::LintRedundantPathDisplay,
-            DiagnosticCode::LintRedundantPathInterpolation,
-            DiagnosticCode::LintRedundantPropagation,
-            DiagnosticCode::LintRedundantStringInterpolation,
-            DiagnosticCode::LintStageCallable,
-            DiagnosticCode::LintPreferTypedCallable,
-            DiagnosticCode::LintRedundantOkTail,
-            DiagnosticCode::LintRedundantTailReturnBinding,
-            DiagnosticCode::LintRedundantTailReturn,
-            DiagnosticCode::LintRedundantCommandFmt,
-        ] {
-            let checked_rule = selection(Some(vec![code]), Vec::new());
-            assert!(checked_rule.enabled(code), "{}", code.name());
-            assert!(checked_rule.requires_check_output(), "{}", code.name());
-        }
-        assert!(!excluded.enabled(DiagnosticCode::LintPreferListSplicing));
-
-        let annotation_policy = RuleSelection::new(&LintOptions {
-            only: Some(vec![DiagnosticCode::LintPreferInferredProcReturn]),
-            annotation_policy_writes_returns: true,
-            ..LintOptions::default()
-        });
-        assert!(!annotation_policy.enabled(DiagnosticCode::LintPreferInferredProcReturn));
-        assert!(!annotation_policy.requires_check_output());
-    }
-
-    #[test]
-    fn selecting_an_opt_in_rule_runs_its_table_hook() {
-        use xsh::diagnostic::DiagnosticCode;
-        use xsh::frontend::check::Checker;
-        use xsh::frontend::source::SourceId;
-        use xsh::frontend::syntax::parser::Parser;
-
-        let source = "pure probe(line: Str) -> Str {\n  let parts = line.split(\"=\")\n  let key = parts[0]\n  let value = parts[1]\n  if line.starts_with(\"#define \") {\n    return line.byte_slice(8, line.byte_len() - 8)\n  }\n  key + value\n}\n";
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let checked = Checker::check_arena(&parsed.arena, source);
-        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let diagnostics = Linter::lint(
-            &parsed.arena,
-            source,
-            LintOptions {
-                checked_output: Some(std::sync::Arc::new(checked)),
-                only: Some(vec![DiagnosticCode::LintPreferTextPattern]),
-                ..LintOptions::default()
-            },
-        )
-        .diagnostics;
-        assert_eq!(
-            diagnostics
-                .iter()
-                .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferTextPattern))
-                .count(),
-            2,
-            "{diagnostics:?}"
-        );
-    }
-
-    #[test]
-    fn source_only_lint_has_no_unprovided_checked_facts() {
-        use xsh::diagnostic::DiagnosticCode;
-        use xsh::frontend::check::Checker;
-        use xsh::frontend::source::SourceId;
-        use xsh::frontend::syntax::parser::Parser;
-
-        let source = "proc launch(argv: List[Str]) [process, error] -> Result[Status, ProcessError] {\n  let status = process.run(process.command_argv(argv[0], argv))?\n  Ok(status)\n}\n";
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        let selected = || {
-            LintOptions {
-                only: Some(vec![DiagnosticCode::LintPreferRunArgv]),
-                ..LintOptions::default()
-            }
-        };
-        let source_only = Linter::lint(&parsed.arena, source, selected());
-        assert!(source_only.diagnostics.is_empty());
-
-        let checked = Checker::check_arena(&parsed.arena, source);
-        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-        let with_facts = Linter::lint(
-            &parsed.arena,
-            source,
-            LintOptions {
-                checked_output: Some(std::sync::Arc::new(checked)),
-                only: Some(vec![DiagnosticCode::LintPreferRunArgv]),
-                ..LintOptions::default()
-            },
-        );
-        assert_eq!(
-            with_facts
-                .diagnostics
-                .iter()
-                .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferRunArgv))
-                .count(),
-            1,
-            "{:?}",
-            with_facts.diagnostics
-        );
-    }
-
-    #[test]
-    fn exported_callable_labels_may_match_module_callable_names() {
-        for kind in ["proc", "pure", "stream"] {
-            for sibling_first in [true, false] {
-                let sibling = "pure peer() -> Int { 1 }\n";
-                let exported = exported_callable(kind, "target", "peer");
-                let mut source = if sibling_first {
-                    format!("{sibling}{exported}")
-                } else {
-                    format!("{exported}{sibling}")
-                };
-                source.push_str(&named_call(kind, "target", "peer"));
-                assert!(
-                    shadowing_diagnostics(&source).is_empty(),
-                    "{kind}, sibling_first={sibling_first}: {source}"
-                );
-            }
-
-            let self_name = format!("{kind}_self");
-            let mut source = exported_callable(kind, &self_name, &self_name);
-            source.push_str(&named_call(kind, &self_name, &self_name));
-            assert!(
-                shadowing_diagnostics(&source).is_empty(),
-                "{kind} self label: {source}"
-            );
-        }
-    }
-
-    #[test]
-    fn shadowing_still_covers_private_bindings_and_module_values() {
-        let source = "pure peer() -> Int { 1 }\npure private_target(peer: Int) -> Int { peer }\nlet existing = 1\nexport pure value_target(existing: Int) -> Int { existing }\npure local_name() -> Int { 1 }\npure pattern_name() -> Int { 2 }\npure callback_name() -> Int { 3 }\npure exercise(flag: Bool, items: List[Int]) -> Int {\n  let local_name = 4\n  let matched = match flag { pattern_name => 5 }\n  let mapped = items |> map { |callback_name| callback_name }\n  local_name + matched + mapped[0]\n}\n";
-        let diagnostics = shadowing_diagnostics(source);
-        assert_eq!(
-            diagnostics
-                .iter()
-                .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintShadowing))
-                .count(),
-            5,
-            "{diagnostics:?}"
-        );
     }
 }
 
@@ -3064,6 +2799,272 @@ impl<'a> Linter<'a> {
                 "infer the validation target",
                 String::new(),
             )),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CheckedFact, LINT_RULES, LintOptions, Linter, RuleSelection, lint_codes, rule};
+    use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticFamily};
+
+    fn shadowing_diagnostics(source: &str) -> Vec<Diagnostic> {
+        use xsh::frontend::check::Checker;
+        use xsh::frontend::source::SourceId;
+        use xsh::frontend::syntax::parser::Parser;
+
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}\n{source}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}\n{source}", checked.diagnostics);
+        Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                only: Some(vec![DiagnosticCode::LintShadowing]),
+                ..LintOptions::default()
+            },
+        )
+        .diagnostics
+    }
+
+    fn exported_callable(kind: &str, name: &str, parameter: &str) -> String {
+        match kind {
+            "pure" => format!("export pure {name}({parameter}: Int) -> Int {{ {parameter} }}\n"),
+            "proc" => format!("export proc {name}({parameter}: Int) [] {{}}\n"),
+            "stream" => format!(
+                "export stream {name}({parameter}: Int) [] -> Stream[Int] {{ yield {parameter} }}\n"
+            ),
+            _ => unreachable!(),
+        }
+    }
+
+    fn named_call(kind: &str, name: &str, parameter: &str) -> String {
+        match kind {
+            "pure" => format!("pure invoke() -> Int {{ {name}({parameter}: 1) }}\n"),
+            "proc" => format!("proc invoke() [] {{ {name}({parameter}: 1) }}\n"),
+            "stream" => format!("proc invoke() [] {{ let _ = {name}({parameter}: 1) }}\n"),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn table_contains_every_lint_code_once() {
+        let codes: Vec<_> = LINT_RULES.iter().map(|rule| rule.code).collect();
+        assert_eq!(codes.len(), 147);
+        for (index, code) in codes.iter().enumerate() {
+            assert_eq!(code.family(), DiagnosticFamily::Lint);
+            assert!(codes[..index].iter().all(|previous| previous != code), "duplicate rule: {}", code.name());
+        }
+        let expected: Vec<_> = DiagnosticCode::ALL.iter().copied().filter(|code| code.family() == DiagnosticFamily::Lint).collect();
+        assert_eq!(lint_codes().collect::<Vec<_>>(), expected);
+    }
+    #[test]
+    fn selected_facts_follow_only_and_exclusion() {
+        let selection = |only, excluded_rules| {
+            RuleSelection::new(&LintOptions {
+                only,
+                excluded_rules,
+                ..LintOptions::default()
+            })
+        };
+        let no_facts = selection(Some(vec![DiagnosticCode::LintRunless]), Vec::new());
+        let unused_local = selection(Some(vec![DiagnosticCode::LintUnusedLocal]), Vec::new());
+        let checked = selection(Some(vec![DiagnosticCode::LintPreferListSplicing]), Vec::new());
+        let default_parameter = selection(Some(vec![DiagnosticCode::LintDefaultParamType]), Vec::new());
+        let parser_alias = selection(Some(vec![DiagnosticCode::LintBlockHeader]), Vec::new());
+        let excluded = selection(
+            Some(vec![DiagnosticCode::LintPreferListSplicing]),
+            vec![DiagnosticCode::LintPreferListSplicing],
+        );
+        assert!(!no_facts.requires_check_output());
+        assert_eq!(
+            rule(DiagnosticCode::LintUnusedLocal).unwrap().facts,
+            &[CheckedFact::LocalBindingTypes],
+        );
+        assert!(unused_local.requires_check_output());
+        assert!(!selection(Some(vec![DiagnosticCode::LintRunStatus]), Vec::new()).requires_check_output());
+        assert!(selection(Some(vec![DiagnosticCode::LintPreferMapLiteral]), Vec::new()).requires_check_output());
+        assert!(!selection(Some(vec![DiagnosticCode::LintPreferEmptyMapLiteral]), Vec::new()).requires_check_output());
+        assert!(default_parameter.requires_check_output());
+        assert!(parser_alias.enabled(DiagnosticCode::LintBlockHeader));
+        assert!(!parser_alias.requires_check_output());
+        assert!(checked.requires_check_output());
+        assert!(!excluded.requires_check_output());
+        assert!(checked.enabled(DiagnosticCode::LintPreferListSplicing));
+        for code in [
+            DiagnosticCode::LintCompatibilityVocabulary,
+            DiagnosticCode::LintPositionalErrorArguments,
+            DiagnosticCode::LintPublicResultError,
+            DiagnosticCode::LintRemovedRecordRequire,
+            DiagnosticCode::LintPreferCallableAlias,
+            DiagnosticCode::LintPreferSignatureCli,
+            DiagnosticCode::LintNeedlessAnnotation,
+            DiagnosticCode::LintMissingEffects,
+            DiagnosticCode::LintPreferInferredPrivateEffects,
+            DiagnosticCode::LintPreferInferredPureReturn,
+            DiagnosticCode::LintPreferInferredProcReturn,
+            DiagnosticCode::LintRedundantClose,
+            DiagnosticCode::LintPreferTempdir,
+            DiagnosticCode::LintPreferAtomicallyReplace,
+            DiagnosticCode::LintPreferForIndex,
+            DiagnosticCode::LintPreferTempdirScope,
+            DiagnosticCode::LintPreferWriteMode,
+            DiagnosticCode::LintPreferTryCapture,
+            DiagnosticCode::LintDefaultParamType,
+            DiagnosticCode::LintEmptySentinel,
+            DiagnosticCode::LintLookupAbsence,
+            DiagnosticCode::LintPatternConditional,
+            DiagnosticCode::LintRedundantOptionalFallback,
+            DiagnosticCode::LintRedundantPathParse,
+            DiagnosticCode::LintRedundantRequire,
+            DiagnosticCode::LintPathConstructor,
+            DiagnosticCode::LintPreferImplicitMessage,
+            DiagnosticCode::LintPreferIn,
+            DiagnosticCode::LintPreferPropagation,
+            DiagnosticCode::LintPreferRecordDestructuring,
+            DiagnosticCode::LintPreferRunArgv,
+            DiagnosticCode::LintRedundantDefault,
+            DiagnosticCode::LintRedundantDisplayParse,
+            DiagnosticCode::LintRedundantPathDisplay,
+            DiagnosticCode::LintRedundantPathInterpolation,
+            DiagnosticCode::LintRedundantPropagation,
+            DiagnosticCode::LintRedundantStringInterpolation,
+            DiagnosticCode::LintStageCallable,
+            DiagnosticCode::LintPreferTypedCallable,
+            DiagnosticCode::LintRedundantOkTail,
+            DiagnosticCode::LintRedundantTailReturnBinding,
+            DiagnosticCode::LintRedundantTailReturn,
+            DiagnosticCode::LintRedundantCommandFmt,
+        ] {
+            let checked_rule = selection(Some(vec![code]), Vec::new());
+            assert!(checked_rule.enabled(code), "{}", code.name());
+            assert!(checked_rule.requires_check_output(), "{}", code.name());
+        }
+        assert!(!excluded.enabled(DiagnosticCode::LintPreferListSplicing));
+
+        let annotation_policy = RuleSelection::new(&LintOptions {
+            only: Some(vec![DiagnosticCode::LintPreferInferredProcReturn]),
+            annotation_policy_writes_returns: true,
+            ..LintOptions::default()
+        });
+        assert!(!annotation_policy.enabled(DiagnosticCode::LintPreferInferredProcReturn));
+        assert!(!annotation_policy.requires_check_output());
+    }
+
+    #[test]
+    fn selecting_an_opt_in_rule_runs_its_table_hook() {
+        use xsh::diagnostic::DiagnosticCode;
+        use xsh::frontend::check::Checker;
+        use xsh::frontend::source::SourceId;
+        use xsh::frontend::syntax::parser::Parser;
+
+        let source = "pure probe(line: Str) -> Str {\n  let parts = line.split(\"=\")\n  let key = parts[0]\n  let value = parts[1]\n  if line.starts_with(\"#define \") {\n    return line.byte_slice(8, line.byte_len() - 8)\n  }\n  key + value\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let diagnostics = Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked)),
+                only: Some(vec![DiagnosticCode::LintPreferTextPattern]),
+                ..LintOptions::default()
+            },
+        )
+        .diagnostics;
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferTextPattern))
+                .count(),
+            2,
+            "{diagnostics:?}"
+        );
+    }
+
+    #[test]
+    fn source_only_lint_has_no_unprovided_checked_facts() {
+        use xsh::diagnostic::DiagnosticCode;
+        use xsh::frontend::check::Checker;
+        use xsh::frontend::source::SourceId;
+        use xsh::frontend::syntax::parser::Parser;
+
+        let source = "proc launch(argv: List[Str]) [process, error] -> Result[Status, ProcessError] {\n  let status = process.run(process.command_argv(argv[0], argv))?\n  Ok(status)\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let selected = || {
+            LintOptions {
+                only: Some(vec![DiagnosticCode::LintPreferRunArgv]),
+                ..LintOptions::default()
+            }
+        };
+        let source_only = Linter::lint(&parsed.arena, source, selected());
+        assert!(source_only.diagnostics.is_empty());
+
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let with_facts = Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked)),
+                only: Some(vec![DiagnosticCode::LintPreferRunArgv]),
+                ..LintOptions::default()
+            },
+        );
+        assert_eq!(
+            with_facts
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferRunArgv))
+                .count(),
+            1,
+            "{:?}",
+            with_facts.diagnostics
+        );
+    }
+
+    #[test]
+    fn exported_callable_labels_may_match_module_callable_names() {
+        for kind in ["proc", "pure", "stream"] {
+            for sibling_first in [true, false] {
+                let sibling = "pure peer() -> Int { 1 }\n";
+                let exported = exported_callable(kind, "target", "peer");
+                let mut source = if sibling_first {
+                    format!("{sibling}{exported}")
+                } else {
+                    format!("{exported}{sibling}")
+                };
+                source.push_str(&named_call(kind, "target", "peer"));
+                assert!(
+                    shadowing_diagnostics(&source).is_empty(),
+                    "{kind}, sibling_first={sibling_first}: {source}"
+                );
+            }
+
+            let self_name = format!("{kind}_self");
+            let mut source = exported_callable(kind, &self_name, &self_name);
+            source.push_str(&named_call(kind, &self_name, &self_name));
+            assert!(
+                shadowing_diagnostics(&source).is_empty(),
+                "{kind} self label: {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn shadowing_still_covers_private_bindings_and_module_values() {
+        let source = "pure peer() -> Int { 1 }\npure private_target(peer: Int) -> Int { peer }\nlet existing = 1\nexport pure value_target(existing: Int) -> Int { existing }\npure local_name() -> Int { 1 }\npure pattern_name() -> Int { 2 }\npure callback_name() -> Int { 3 }\npure exercise(flag: Bool, items: List[Int]) -> Int {\n  let local_name = 4\n  let matched = match flag { pattern_name => 5 }\n  let mapped = items |> map { |callback_name| callback_name }\n  local_name + matched + mapped[0]\n}\n";
+        let diagnostics = shadowing_diagnostics(source);
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintShadowing))
+                .count(),
+            5,
+            "{diagnostics:?}"
         );
     }
 }

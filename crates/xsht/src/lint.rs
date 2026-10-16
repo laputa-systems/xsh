@@ -843,12 +843,12 @@ impl<'a> Linter<'a> {
                     None,
                     Some(source_id),
                 );
-                let mut module_options = LintOptions::default();
-                module_options.only = Some(vec![DiagnosticCode::LintUnusedCallable]);
-                #[cfg(test)]
-                {
-                    module_options.function_effect_facts_checked = true;
-                }
+                let module_options = LintOptions {
+                    only: Some(vec![DiagnosticCode::LintUnusedCallable]),
+                    #[cfg(test)]
+                    function_effect_facts_checked: true,
+                    ..LintOptions::default()
+                };
                 let module_run = Self::lint_view_internal(
                     &module_view,
                     "",
@@ -1599,15 +1599,11 @@ impl<'a> Linter<'a> {
             {
                 continue;
             }
-            if let Some(candidate_index) = self
+            let candidate_index = self
                 .assignment_candidates
                 .iter()
-                .position(|candidate| candidate.diagnostic_index == diagnostic_index)
-            {
-                suppressors.push(AssignmentCandidateId(candidate_index));
-            } else {
-                return None;
-            }
+                .position(|candidate| candidate.diagnostic_index == diagnostic_index)?;
+            suppressors.push(AssignmentCandidateId(candidate_index));
         }
         Some(suppressors)
     }
@@ -1990,15 +1986,15 @@ impl<'a> Linter<'a> {
             statement_positions: &self.statement_positions,
             propagating_statements: &self.propagating_statements,
         };
-        if rules::enabled(self, DiagnosticCode::LintRedundantPropagation) {
-            if let Some(finding) = lint_redundant_propagation::redundant_propagation(
+        if rules::enabled(self, DiagnosticCode::LintRedundantPropagation)
+            && let Some(finding) = lint_redundant_propagation::redundant_propagation(
                 self.arena,
                 self.source,
                 &facts,
                 statement,
-            ) {
-                self.diagnostics.push(finding);
-            }
+            )
+        {
+            self.diagnostics.push(finding);
         }
         if rules::enabled(self, DiagnosticCode::LintRedundantScopePropagation)
             && let Some(finding) = lint_redundant_scope_propagation::redundant_scope_propagation(

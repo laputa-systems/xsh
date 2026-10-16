@@ -198,18 +198,18 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         };
     }
 
-    if options.exact && cases.is_empty() {
-        if let Some(filter) = options.filter.as_deref() {
-            return CliOutput {
-                status: 2,
-                stdout: stdout.into_bytes(),
-                stderr: text_bytes(format!(
-                    "xsht: no native tests matched exact filter: {filter}\n"
-                )),
-                trace_text: String::new(),
-                syscall_summary: None,
-            };
-        }
+    if options.exact && cases.is_empty()
+        && let Some(filter) = options.filter.as_deref()
+    {
+        return CliOutput {
+            status: 2,
+            stdout: stdout.into_bytes(),
+            stderr: text_bytes(format!(
+                "xsht: no native tests matched exact filter: {filter}\n"
+            )),
+            trace_text: String::new(),
+            syscall_summary: None,
+        };
     }
 
     write_test_output(&format!("running {} tests\n", cases.len()));
@@ -1493,14 +1493,12 @@ fn native_test_host(
             )
             .with_span(request.span)
         })?;
-    if has_route_witness_transport {
-        if request.kind != NativeTestRunKind::Xsh || faked {
-            return Err(RuntimeError::new(
-                native_test_error_kind(request.kind),
-                "route-witness descriptor is only valid for a direct xsh child without test fakes",
-            )
-            .with_span(request.span));
-        }
+    if has_route_witness_transport && (request.kind != NativeTestRunKind::Xsh || faked) {
+        return Err(RuntimeError::new(
+            native_test_error_kind(request.kind),
+            "route-witness descriptor is only valid for a direct xsh child without test fakes",
+        )
+        .with_span(request.span));
     }
 
     // Each child leads a runner-owned process group so cancellation can stop

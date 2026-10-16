@@ -783,10 +783,8 @@ impl<'a> Linter<'a> {
         }
         let mut found = false;
         self.arena.for_each_expr_child(expr, |child| {
-            if !found {
-                if let ArenaChild::Expr(child) = child {
-                    found = predicate(child);
-                }
+            if !found && let ArenaChild::Expr(child) = child {
+                found = predicate(child);
             }
         });
         found

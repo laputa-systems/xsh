@@ -41,7 +41,19 @@ fn apply(diagnostics: &[Diagnostic], source: &str) -> String {
 // without it.
 #[test]
 fn the_default_the_row_removes_is_the_runtime_default() {
-    assert!(xsh_registry::signature::REMOVE_MISSING_OK_DEFAULT);
+    let path_remove_has_defaulted_missing_ok = xsh_registry::signature::api_spec()
+        .methods
+        .iter()
+        .filter(|receiver| receiver.receiver == xsh_registry::signature::MethodReceiver::Path)
+        .flat_map(|receiver| &receiver.methods)
+        .filter(|method| method.name == "remove")
+        .flat_map(|method| &method.overloads)
+        .flat_map(|overload| &overload.sig.params)
+        .any(|parameter| parameter.name == "missing_ok" && parameter.defaulted);
+    assert!(
+        path_remove_has_defaulted_missing_ok
+            && xsh_registry::signature::REMOVE_MISSING_OK_DEFAULT
+    );
 }
 
 #[test]

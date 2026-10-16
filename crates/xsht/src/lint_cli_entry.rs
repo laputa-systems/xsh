@@ -307,7 +307,7 @@ fn signature_cli_migration_inner(
             };
             if position_facts(&before, declaration.span.start()..binding.span.end(), delta)
                 != position_facts(
-                    &after,
+                    after,
                     declaration.span.start()..binding.span.end().checked_add_signed(delta).unwrap(),
                     0,
                 )

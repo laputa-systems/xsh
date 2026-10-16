@@ -159,9 +159,9 @@ fn built_list(
         appends: Vec::new(),
     };
     let mut last = None;
-    for at in first..stmts.len() {
+    for (at, &statement) in stmts.iter().enumerate().skip(first) {
         let before = scan.appends.len();
-        if !scan.statement(stmts[at], true) {
+        if !scan.statement(statement, true) {
             scan.appends.truncate(before);
             break;
         }
@@ -579,7 +579,7 @@ fn assigns(text: &str, name: &str) -> bool {
         {
             return false;
         }
-        let access = rest.trim_start_matches(|byte| byte == ' ' || byte == '\t');
+        let access = rest.trim_start_matches([' ', '\t']);
         if assignment(access) {
             return true;
         }
@@ -692,7 +692,7 @@ fn access_chain_assigns_at(
     }
 
     accessed
-        && assignment(source[offset..].trim_start_matches(|byte| byte == ' ' || byte == '\t'))
+        && assignment(source[offset..].trim_start_matches([' ', '\t']))
 }
 
 fn member_continuation_start(

@@ -158,29 +158,26 @@ impl Candidates {
         let [argument] = arena.call_args(args) else {
             return;
         };
-        match arena.expr(callee).kind {
-            ArenaExprKind::Field { base, name } => {
-                let ArenaExprKind::Ident(family) = arena.expr(base).kind else {
-                    return;
-                };
-                let Some(index) = self
-                    .families
-                    .iter()
-                    .position(|candidate| candidate.name == family && candidate.variant == name)
-                else {
-                    return;
-                };
-                if !matches!(argument.kind, ArenaCallArgKind::Positional(_))
-                    && !matches!(argument.kind, ArenaCallArgKind::Named { name, .. } if name == "message")
-                {
-                    return;
-                }
-                self.constructors.push(Constructor {
-                    family: index,
-                    call: expr,
-                });
+        if let ArenaExprKind::Field { base, name } = arena.expr(callee).kind {
+            let ArenaExprKind::Ident(family) = arena.expr(base).kind else {
+                return;
+            };
+            let Some(index) = self
+                .families
+                .iter()
+                .position(|candidate| candidate.name == family && candidate.variant == name)
+            else {
+                return;
+            };
+            if !matches!(argument.kind, ArenaCallArgKind::Positional(_))
+                && !matches!(argument.kind, ArenaCallArgKind::Named { name, .. } if name == "message")
+            {
+                return;
             }
-            _ => {}
+            self.constructors.push(Constructor {
+                family: index,
+                call: expr,
+            });
         }
     }
 
@@ -723,13 +720,8 @@ mod tests {
 
     #[test]
     fn other_returned_errors_keep_their_return() {
-        for source in [
-            // A qualified constructor, an error that already exists, and an
-            // `Err` that is a value and not a `return`.
-            "error LoadError = Missing(path: Path) | Busy\n\nproc load(inner: Result[Int, LoadError]) -> Result[Int, LoadError] {\n  match inner {\n    Ok(0) => return Err(LoadError.Busy())\n    Ok(value) => Ok(value)\n    Err(problem) => return Err(problem)\n  }\n}\n\nproc tail() -> Result[Int, LoadError] {\n  Err(.Busy())\n}\n",
-        ] {
-            let diagnostics = lint(source);
-            assert!(diagnostics.is_empty(), "{source}\n{diagnostics:?}");
-        }
+        let source = "error LoadError = Missing(path: Path) | Busy\n\nproc load(inner: Result[Int, LoadError]) -> Result[Int, LoadError] {\n  match inner {\n    Ok(0) => return Err(LoadError.Busy())\n    Ok(value) => Ok(value)\n    Err(problem) => return Err(problem)\n  }\n}\n\nproc tail() -> Result[Int, LoadError] {\n  Err(.Busy())\n}\n";
+        let diagnostics = lint(source);
+        assert!(diagnostics.is_empty(), "{source}\n{diagnostics:?}");
     }
 }

@@ -664,10 +664,8 @@ impl<'a> Linter<'a> {
         let collect_pair_hooks = rules::statement_pair_enabled(self);
         let mut pair_insertion_points = Vec::new();
         for (index, &stmt) in stmts.iter().enumerate() {
-            if index > 0 {
-                if collect_pair_hooks {
-                    pair_insertion_points.push((stmts[index - 1], stmt, self.diagnostics.len()));
-                }
+            if index > 0 && collect_pair_hooks {
+                pair_insertion_points.push((stmts[index - 1], stmt, self.diagnostics.len()));
             }
             if flow.is_some_and(|flow| !flow.fallthrough)
                 && !reported_dead_region
