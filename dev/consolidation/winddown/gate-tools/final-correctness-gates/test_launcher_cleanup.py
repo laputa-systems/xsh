@@ -213,6 +213,45 @@ class CoverageTests(unittest.TestCase):
         self.assertIn("--memory=1g", argv)
         self.assertIn("--memory-swap=1g", argv)
 
+    def test_privileged_copy_fixture_mounts_its_actual_tmpdir_nodev(self):
+        fixture = next(
+            run for run in self.plan["linux_context_runs"]
+            if run.get("filter") == "cp::privileged::test_cp_recursive_block_device_"
+        )
+        self.assertTrue(LAUNCHER.context_requires_nodev_tmpdir(fixture))
+        self.assertEqual(
+            sum(LAUNCHER.context_requires_nodev_tmpdir(run) for run in self.plan["linux_context_runs"]),
+            1,
+        )
+
+        gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        gate.source_root = FROZEN_E048_SOURCE_ROOT
+        gate.git_common_dir = LAUNCHER.resolve_source_root(FROZEN_E048_SOURCE_ROOT)[1]
+        gate.cid_dir = SCRATCH_ROOT
+        gate.step_number = 0
+        gate.target_dir = SCRATCH_ROOT / "nodev-tempdir-target"
+        gate.run = mock.Mock(return_value={})
+        gate.run_special_container(
+            "privileged-copy-nodev-tempdir",
+            [fixture["filter"], "--nocapture", "--test-threads=1"],
+            target_dir=gate.target_dir,
+            privileged=fixture["privileged"],
+            memory=fixture["memory"],
+            cpus=fixture.get("cpus", "12"),
+            network=fixture["network"],
+            nodev_tmpdir=LAUNCHER.context_requires_nodev_tmpdir(fixture),
+        )
+
+        argv = gate.run.call_args.args[1]
+        scratch = FROZEN_E048_SOURCE_ROOT / ".work/tmp"
+        volumes = [argv[index + 1] for index, value in enumerate(argv[:-1]) if value == "-v"]
+        tmpfs = [argv[index + 1] for index, value in enumerate(argv[:-1]) if value == "--tmpfs"]
+        environment = [argv[index + 1] for index, value in enumerate(argv[:-1]) if value == "-e"]
+        self.assertNotIn(f"{scratch}:{scratch}:rw", volumes)
+        self.assertIn(f"{scratch}:rw,nodev,exec,nosuid,mode=1777,size=1g", tmpfs)
+        self.assertIn("/tmp:rw,nodev,exec,nosuid,mode=1777", tmpfs)
+        self.assertIn(f"TMPDIR={scratch}", environment)
+
     def test_approved_plan_matches_current_product_and_lint_contract(self):
         self.assertEqual(self.plan["plan_status"], "approved")
         self.assertEqual(

@@ -97,8 +97,10 @@ repository root and that its common Git directory matches the controller's.
 It checks the requested commit, tree, and clean status in that selected source
 checkout before inspecting the pinned image or starting a build. The runner
 uses that same root as its working directory and read-only source mount.
-Supplemental contexts keep the existing `/tmp` tmpfs and mount the selected
-source checkout's ignored `.work/tmp` separately for disk-backed `TMPDIR`.
+Supplemental contexts keep the existing `/tmp` tmpfs and set `TMPDIR` to the
+selected source checkout's ignored `.work/tmp`. The privileged cp fixture
+context mounts that same absolute path as a 1 GiB nodev tmpfs so its generated
+block devices cannot be accessed; other contexts use host-backed scratch.
 
 The controller root continues to own the Cargo and native-suite locks, pinned
 image and tool inputs, corpus mount, and ignored output directory. Launcher,
