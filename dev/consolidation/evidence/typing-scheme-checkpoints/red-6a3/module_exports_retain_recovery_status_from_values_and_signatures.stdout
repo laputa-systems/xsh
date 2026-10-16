@@ -1,0 +1,18 @@
+
+running 1 test
+test sema::types::tests::module_exports_retain_recovery_status_from_values_and_signatures ... FAILED
+
+failures:
+
+---- sema::types::tests::module_exports_retain_recovery_status_from_values_and_signatures stdout ----
+
+thread 'sema::types::tests::module_exports_retain_recovery_status_from_values_and_signatures' (55) panicked at src/sema/types.rs:1615:13:
+assertion failed: value.contains_recovery()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::types::tests::module_exports_retain_recovery_status_from_values_and_signatures
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 774 filtered out; finished in 0.00s
+

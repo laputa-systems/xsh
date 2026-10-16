@@ -24,7 +24,7 @@ The new harness SHA-256 is
 - [Corrected full suite](suite-green/stdout.log): fourteen pass, status 0.
 - [Integrated exact test](integrated/stdout.log): one pass on main `8805a8ece`.
 
-The lane build preloads jemalloc into Cargo and its build children. This
-differs from the prescribed rustc-only preload. Direct runtime checks have no
-preload. Final canonical verification still requires the prescribed build
-environment. No timing or performance result is claimed from these checks.
+The lane build preloads jemalloc into Cargo and its build children, as
+`docs/TESTING.md` prescribes for build steps. Direct runtime checks have no
+preload. Fresh canonical acceptance remains required. No timing or performance
+result is claimed from these checks.

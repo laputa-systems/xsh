@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_process_command_argv","source_hash":"92f0873bda06574a85b1e538a002bc9170a03e28e96f14b7eb62ad705b7596b3","records":[{"tag_name":"ExprProcessCommandArgv","tag_ordinal":100,"route":"explicit_frame_control_path","mode":"forced"}]}

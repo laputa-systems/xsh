@@ -1,0 +1,6 @@
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/alias/up/alias points to an ancestor /work/core/tests/data/grep/fx/dl/alias
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/alias/up/real/up points to an ancestor /work/core/tests/data/grep/fx/dl/alias/up
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/real/up/alias/up points to an ancestor /work/core/tests/data/grep/fx/dl/real/up
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/real/up/real/up points to an ancestor /work/core/tests/data/grep/fx/dl/real/up
+   Compiling xsh v0.0.1 (/work)
+    Finished `verification` profile [optimized] target(s) in 3m 00s

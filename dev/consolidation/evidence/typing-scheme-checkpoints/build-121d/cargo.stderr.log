@@ -1,0 +1,5 @@
+   Compiling xsh v0.0.1 (/work)
+    Finished `test` profile [unoptimized] target(s) in 37.21s
+    Checking xsh v0.0.1 (/work)
+    Checking xsht v0.0.1 (/work/crates/xsht)
+    Finished `dev` profile [unoptimized] target(s) in 15.37s

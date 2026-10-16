@@ -1,0 +1,27 @@
+LD_PRELOAD=unset
+XSH_TEST_HARNESS=/work/target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2
+AR=/usr/local/bin/llvm-ar
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld
+CC=/usr/bin/clang-23
+CC_AARCH64_UNKNOWN_LINUX_MUSL=/usr/bin/clang-23
+CC_X86_64_UNKNOWN_LINUX_MUSL=/usr/bin/clang-23
+CFLAGS_aarch64_unknown_linux_musl=--target=aarch64-unknown-linux-musl -B/usr/lib/xsh-crt/aarch64-unknown-linux-musl -I/usr/include
+CFLAGS_x86_64_unknown_linux_musl=--target=x86_64-unknown-linux-musl -B/usr/lib/xsh-crt/x86_64-unknown-linux-musl -I/usr/include
+HOME=/root
+HOSTNAME=0b3913d59907
+LIBCLANG_PATH=/usr/lib/llvm23/lib
+PATH=/usr/local/bin:/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+PWD=/work
+RANLIB=/usr/bin/ranlib
+RUN_NAME=typing-rank1-runtime-6a3b8f462fb7
+SHLVL=1
+TARGET=x86_64-unknown-linux-musl
+TMPDIR=/scratch/typing-rank1-runtime-6a3b8f462fb7/tmp
+XSH_TEST_HARNESS=/work/target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2
+_=/usr/bin/env
+Cpus_allowed_list:	14-15
+/sys/fs/cgroup/cpuset.cpus.effective=14-15
+/sys/fs/cgroup/cpu.max=200000 100000
+/sys/fs/cgroup/memory.max=4294967296
+/sys/fs/cgroup/memory.swap.max=0
