@@ -853,10 +853,10 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
     match parent.exists() {
       Ok(true) => {}
       Ok(false) => {
-        if !settings.create_dirs {
+        guard settings.create_dirs else {
           return output_write_failure(settings, url, method)
         }
-        if let Err(_) = parent.mkdir(parents: true) {
+        if let Err(_) = parent.mkdir() {
           return output_write_failure(settings, url, method)
         }
       }

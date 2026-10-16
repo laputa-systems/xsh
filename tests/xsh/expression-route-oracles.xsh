@@ -6,7 +6,7 @@ pure route_checked(value: UInt) -> UInt { value }
 
 enum RouteOracleTagMatch { Ready, Busy }
 
-proc route_oracle_match_tag() -> RouteOracleTagMatch { return Ready }
+proc route_oracle_match_tag() -> RouteOracleTagMatch { Ready }
 
 test test_expr_comparison_chain { |ctx|
   assert 1 < 2 < 3
@@ -410,7 +410,10 @@ test test_expr_archive_tar_create { |ctx|
   let archive_file = fp"{root}/payload.tar"
   test.expect(
     ctx,
-    "let root = Path(args[0])\narchive.tar_create(fp\"{root}/payload.tar\", root, [p\"member\"])\nassert fp\"{root}/payload.tar\".exists()?\n",
+    r"""let root = Path(args[0])
+archive.tar_create(fp"{root}/payload.tar", root, [p"member"])
+assert fp"{root}/payload.tar".exists()?
+""",
     status: 0,
     args: [root],
   )?

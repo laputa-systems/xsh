@@ -35,8 +35,8 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{unix.id()?.egid}}|{{home}}|{{env.get("TMP
     ...fixtures.linux_context(fixture_root, "verification")?,
     target_dir: target_dir,
   }
-  let host_uid = env.get("HOST_UID")?.trim().parse_int()?
-  let host_gid = env.get("HOST_GID")?.trim().parse_int()?
+  let host_uid = env.get("HOST_UID")?.trim() as Int
+  let host_gid = env.get("HOST_GID")?.trim() as Int
   let scratch = fp"{work_root}/tmp/native-tests-{host_uid}-{host_gid}"
   let home = fp"{scratch}/home"
   let temp = fp"{scratch}/tmp"
@@ -45,7 +45,7 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{unix.id()?.egid}}|{{home}}|{{env.get("TMP
 
   env HOST_UID=$padded_uid HOST_GID=$padded_gid {
     test_workflows.native(workflow_context, test_workflows.Verification,
-      ["--exact", "native-workflow-contract"])?
+      ["--exact", "native-workflow-contract"])
   }
 
   assert log.read_text()? == f"{host_uid}|{host_gid}|{home}|{temp}|test|--exact|native-workflow-contract"
@@ -160,7 +160,7 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{env.get("HOME")?}}|{{env.get("TMPDIR")?}}
 
   env HOST_UID="" HOST_GID="" HOME=$home_value TMPDIR=$temp_value PATH="" {
     test_workflows.native(workflow_context, test_workflows.Verification,
-      ["--exact", "native-workflow-contract"])?
+      ["--exact", "native-workflow-contract"])
   }
 
   assert log.read_text()? == f"{identity.euid}|{home}|{temp}|test|--exact|native-workflow-contract"
@@ -195,7 +195,7 @@ p"{log}".write(f"{{unix.id()?.euid}}|{{env.get("HOME")?}}|{{env.get("TMPDIR")?}}
 
   env HOST_UID="" HOST_GID="" HOME=$home_value TMPDIR=$temp_value PATH="" {
     test_workflows.native(workflow_context, test_workflows.Verification,
-      ["--exact", "native-workflow-contract"])?
+      ["--exact", "native-workflow-contract"])
   }
 
   assert log.read_text()? == f"{identity.euid}|{home}|{temp}|test|--exact|native-workflow-contract"

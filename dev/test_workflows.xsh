@@ -135,7 +135,7 @@ export pure product_builds(
 export pure rust_plan(
   ctx: context.Context,
   profile: TestProfile,
-  privileged: Bool = false,
+  privileged = false,
 ) -> Result[List[contract.CommandSpec], Error] {
   let environment = cargo_environment(ctx)?
   let profile_args = ["--locked", "--profile", profile_name(profile), "--target", ctx.target.triple]
@@ -185,8 +185,8 @@ export proc native(
 ) [process, env, error, io] -> Result[Unit, Error] {
   let xsht = product_path(ctx, profile, Xsht)
   if ctx.target.os == "linux" and unix.id()?.euid == 0 {
-    let host_uid = env.get("HOST_UID")?.trim().parse_int()?
-    let host_gid = env.get("HOST_GID")?.trim().parse_int()?
+    let host_uid = env.get("HOST_UID")?.trim() as Int
+    let host_gid = env.get("HOST_GID")?.trim() as Int
     guard host_uid > 0 and host_gid >= 0 else {
       return Err(stages.StageError.Failed(
         stage: "test-xsh",
@@ -224,7 +224,7 @@ export proc native(
 export proc full(
   ctx: context.Context,
   profile: TestProfile,
-  privileged: Bool = false,
+  privileged = false,
 ) [fs, process, env, error, io] -> Result[Unit, Error] {
   run_commands(rust_plan(ctx, profile, privileged)?)
   native(ctx, profile, [])
