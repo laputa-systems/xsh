@@ -207,13 +207,13 @@ field	ExprCheckedValue	66	Expr	CheckedValue	value	BuildExprId	strict	value
 field	ExprCheckedValue	66	Expr	CheckedValue	check	LoweredTypeCheck	not_applicable
 field	ExprCheckedValue	66	Expr	CheckedValue	span	Span	not_applicable
 row	ExprRunCapture	67	Expr	RunCapture
-field	ExprRunCapture	67	Expr	RunCapture	value	Box<LoweredRunCapture>	iterative	value.target.value;value.args[*].value;value.env[*].value.value;value.redirections[*].target.value;value.timeout?;value.cpu_max?;value.accept?
+field	ExprRunCapture	67	Expr	RunCapture	value	Box<LoweredRunCapture>	iterative	value.operands.options[*].Timeout.value;value.operands.options[*].CpuMax.value;value.operands.options[*].Accept.value;value.operands.env[*].value.kind.Single.value;value.operands.env[*].value.kind.SingleOrSplice.value;value.operands.env[*].value.kind.Splice.value;value.operands.target.kind.Single.value;value.operands.target.kind.SingleOrSplice.value;value.operands.target.kind.Splice.value;value.operands.tail[*].Argument.value.kind.Single.value;value.operands.tail[*].Argument.value.kind.SingleOrSplice.value;value.operands.tail[*].Argument.value.kind.Splice.value;value.operands.tail[*].Redirection.value.target.kind.Single.value;value.operands.tail[*].Redirection.value.target.kind.SingleOrSplice.value;value.operands.tail[*].Redirection.value.target.kind.Splice.value
 row	ExprRunPipeline	68	Expr	RunPipeline
-field	ExprRunPipeline	68	Expr	RunPipeline	segments	Vec<LoweredRunPipelineSegment>	iterative	segments[*].target.value;segments[*].args[*].value;segments[*].env[*].value.value;segments[*].redirections[*].target.value;segments[*].timeout?;segments[*].cpu_max?;segments[*].accept?
+field	ExprRunPipeline	68	Expr	RunPipeline	segments	Vec<LoweredRunPipelineSegment>	iterative	segments[*].operands.options[*].Timeout.value;segments[*].operands.options[*].CpuMax.value;segments[*].operands.options[*].Accept.value;segments[*].operands.env[*].value.kind.Single.value;segments[*].operands.env[*].value.kind.SingleOrSplice.value;segments[*].operands.env[*].value.kind.Splice.value;segments[*].operands.target.kind.Single.value;segments[*].operands.target.kind.SingleOrSplice.value;segments[*].operands.target.kind.Splice.value;segments[*].operands.tail[*].Argument.value.kind.Single.value;segments[*].operands.tail[*].Argument.value.kind.SingleOrSplice.value;segments[*].operands.tail[*].Argument.value.kind.Splice.value;segments[*].operands.tail[*].Redirection.value.target.kind.Single.value;segments[*].operands.tail[*].Redirection.value.target.kind.SingleOrSplice.value;segments[*].operands.tail[*].Redirection.value.target.kind.Splice.value
 field	ExprRunPipeline	68	Expr	RunPipeline	propagate	bool	not_applicable
 field	ExprRunPipeline	68	Expr	RunPipeline	span	Span	not_applicable
 row	ExprSpawnRun	69	Expr	SpawnRun
-field	ExprSpawnRun	69	Expr	SpawnRun	value	Box<LoweredSpawnRun>	iterative	value.target.value;value.args[*].value;value.env[*].value.value;value.redirections[*].target.value;value.timeout?;value.cpu_max?;value.accept?
+field	ExprSpawnRun	69	Expr	SpawnRun	value	Box<LoweredSpawnRun>	iterative	value.operands.options[*].Timeout.value;value.operands.options[*].CpuMax.value;value.operands.options[*].Accept.value;value.operands.env[*].value.kind.Single.value;value.operands.env[*].value.kind.SingleOrSplice.value;value.operands.env[*].value.kind.Splice.value;value.operands.target.kind.Single.value;value.operands.target.kind.SingleOrSplice.value;value.operands.target.kind.Splice.value;value.operands.tail[*].Argument.value.kind.Single.value;value.operands.tail[*].Argument.value.kind.SingleOrSplice.value;value.operands.tail[*].Argument.value.kind.Splice.value;value.operands.tail[*].Redirection.value.target.kind.Single.value;value.operands.tail[*].Redirection.value.target.kind.SingleOrSplice.value;value.operands.tail[*].Redirection.value.target.kind.Splice.value
 row	ExprSpawnCommand	70	Expr	SpawnCommand
 field	ExprSpawnCommand	70	Expr	SpawnCommand	command	BuildExprId	strict	command
 field	ExprSpawnCommand	70	Expr	SpawnCommand	span	Span	not_applicable
@@ -328,7 +328,7 @@ field	ExprModuleCall	99	Expr	ModuleCall	span	Span	not_applicable
 row	ExprProcessCommandArgv	100	Expr	ProcessCommandArgv
 field	ExprProcessCommandArgv	100	Expr	ProcessCommandArgv	value	Box<LoweredProcessCommandArgv>	strict	value.target;value.argv;value.cwd?;value.env?;value.stdin?;value.stdout?;value.stderr?;value.stdout_append?;value.stderr_append?;value.timeout?;value.detach?;value.new_session?;value.ignore_hup?;value.cpu_max?;value.accept?;value.same_group?
 row	ExprProcessCommandBuilder	101	Expr	ProcessCommandBuilder
-field	ExprProcessCommandBuilder	101	Expr	ProcessCommandBuilder	entries	Vec<LoweredProcessCommandBuilderEntry>	iterative	entries[*].Field.value;entries[*].Run.target.value;entries[*].Run.args[*].value;entries[*].Run.env[*].value.value;entries[*].Run.timeout?;entries[*].Run.cpu_max?;entries[*].Run.accept?
+field	ExprProcessCommandBuilder	101	Expr	ProcessCommandBuilder	entries	Vec<LoweredProcessCommandBuilderEntry>	iterative	entries[*].Field.value;entries[*].Run.operands.options[*].Timeout.value;entries[*].Run.operands.options[*].CpuMax.value;entries[*].Run.operands.options[*].Accept.value;entries[*].Run.operands.env[*].value.kind.Single.value;entries[*].Run.operands.env[*].value.kind.SingleOrSplice.value;entries[*].Run.operands.env[*].value.kind.Splice.value;entries[*].Run.operands.target.kind.Single.value;entries[*].Run.operands.target.kind.SingleOrSplice.value;entries[*].Run.operands.target.kind.Splice.value;entries[*].Run.operands.tail[*].Argument.value.kind.Single.value;entries[*].Run.operands.tail[*].Argument.value.kind.SingleOrSplice.value;entries[*].Run.operands.tail[*].Argument.value.kind.Splice.value;entries[*].Run.operands.tail[*].Redirection.value.target.kind.Single.value;entries[*].Run.operands.tail[*].Redirection.value.target.kind.SingleOrSplice.value;entries[*].Run.operands.tail[*].Redirection.value.target.kind.Splice.value
 field	ExprProcessCommandBuilder	101	Expr	ProcessCommandBuilder	span	Span	not_applicable
 row	ExprAbort	102	Expr	Abort
 field	ExprAbort	102	Expr	Abort	status	BuildExprId	strict	status
@@ -510,7 +510,7 @@ field	StmtCd	145	Stmt	Cd	target	BuildExprId	strict	target
 field	StmtCd	145	Stmt	Cd	body	Vec<BuildStmtId>	iterative	body[*]
 field	StmtCd	145	Stmt	Cd	span	Span	not_applicable
 row	StmtEnv	146	Stmt	Env
-field	StmtEnv	146	Stmt	Env	env	Vec<LoweredRunEnv>	iterative	env[*].value.value
+field	StmtEnv	146	Stmt	Env	env	Vec<LoweredRunEnv>	iterative	env[*].value.kind.Single.value;env[*].value.kind.SingleOrSplice.value;env[*].value.kind.Splice.value
 field	StmtEnv	146	Stmt	Env	body	Vec<BuildStmtId>	iterative	body[*]
 row	StmtRun	148	Stmt	Run
 field	StmtRun	148	Stmt	Run	value	BuildExprId	strict	value

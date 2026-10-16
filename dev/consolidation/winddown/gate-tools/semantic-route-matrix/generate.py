@@ -28,6 +28,7 @@ KACHE_EXE = pathlib.Path.home() / ".cargo/bin/kache"
 SCHEMA_PATH = pathlib.Path("src/runtime/eval/indexed/full/schema.rs")
 ARENA_PATH = pathlib.Path("src/syntax/arena.rs")
 PIPELINE_STAGE_SOURCE_PATH = pathlib.Path("src/runtime/eval/indexed/full.rs")
+RUN_OPERAND_DECODE_PATH = pathlib.Path("src/runtime/eval/indexed/full/decode.rs")
 LOWERED_RUN_SOURCE_PATH = pathlib.Path("src/runtime/eval/lowered_run.rs")
 TYPED_SCALAR_VALUES_PATH = pathlib.Path("src/runtime/eval/lowered_run/indexed_run/values.rs")
 OPERANDS_HELPER_PATH = pathlib.Path("src/runtime/eval/lowered_run/indexed_run/operands.rs")
@@ -517,6 +518,36 @@ RUNTIME_ERROR_SOURCE_FUNCTIONS["ExprIndexFromEnd"].append(
     (_LOWERED_OPS, "lowered_index_from_end_value")
 )
 
+RUN_ARGUMENT_VARIANTS = ("Single", "SingleOrSplice", "Splice")
+RUN_OPTION_VARIANTS = ("Timeout", "CpuMax", "Accept")
+RUN_TAIL_VARIANTS = ("Argument", "Redirection")
+PROCESS_BUILDER_ENTRY_VARIANTS = ("Field", "Run")
+RUN_OPERAND_ENUM_VARIANTS = {
+    "LoweredRunArgKind": RUN_ARGUMENT_VARIANTS,
+    "LoweredRunOption": RUN_OPTION_VARIANTS,
+    "LoweredRunTailOperand": RUN_TAIL_VARIANTS,
+    "LoweredProcessCommandBuilderEntry": PROCESS_BUILDER_ENTRY_VARIANTS,
+}
+RUN_ARGUMENT_CHILD_PATHS = [
+    f".kind.{variant}.value" for variant in RUN_ARGUMENT_VARIANTS
+]
+RUN_OPERANDS_CHILD_PATHS = [
+    *[f".options[*].{variant}.value" for variant in RUN_OPTION_VARIANTS],
+    *[
+        f".env[*].value{path}"
+        for path in RUN_ARGUMENT_CHILD_PATHS
+    ],
+    *[f".target{path}" for path in RUN_ARGUMENT_CHILD_PATHS],
+    *[
+        f".tail[*].Argument.value{path}"
+        for path in RUN_ARGUMENT_CHILD_PATHS
+    ],
+    *[
+        f".tail[*].Redirection.value.target{path}"
+        for path in RUN_ARGUMENT_CHILD_PATHS
+    ],
+]
+
 CUSTOM_CHILD_PATHS = {
     "LoweredAssignPath": ["[*].Index.index"],
     "LoweredCallArg": [".Single.value", ".Splice.value"],
@@ -530,25 +561,15 @@ CUSTOM_CHILD_PATHS = {
         ".accept?", ".same_group?",
     ],
     "LoweredProcessCommandBuilderEntry": [
-        ".Field.value", ".Run.target.value", ".Run.args[*].value",
-        ".Run.env[*].value.value", ".Run.timeout?", ".Run.cpu_max?",
-        ".Run.accept?",
+        ".Field.value",
+        *[f".Run.operands{path}" for path in RUN_OPERANDS_CHILD_PATHS],
     ],
     "LoweredRecordEntry": [".Field.value", ".Spread.value"],
     "LoweredRecordUpdates": ["[*].value"],
-    "LoweredRunCapture": [
-        ".target.value", ".args[*].value", ".env[*].value.value",
-        ".redirections[*].target.value", ".timeout?", ".cpu_max?", ".accept?",
-    ],
-    "LoweredRunEnv": [".value.value"],
-    "LoweredRunPipelineSegment": [
-        ".target.value", ".args[*].value", ".env[*].value.value",
-        ".redirections[*].target.value", ".timeout?", ".cpu_max?", ".accept?",
-    ],
-    "LoweredSpawnRun": [
-        ".target.value", ".args[*].value", ".env[*].value.value",
-        ".redirections[*].target.value", ".timeout?", ".cpu_max?", ".accept?",
-    ],
+    "LoweredRunCapture": [f".operands{path}" for path in RUN_OPERANDS_CHILD_PATHS],
+    "LoweredRunEnv": [f".value{path}" for path in RUN_ARGUMENT_CHILD_PATHS],
+    "LoweredRunPipelineSegment": [f".operands{path}" for path in RUN_OPERANDS_CHILD_PATHS],
+    "LoweredSpawnRun": [f".operands{path}" for path in RUN_OPERANDS_CHILD_PATHS],
 }
 
 # Unit variants have no child paths, so checking the closed set also makes new
@@ -1680,6 +1701,54 @@ def expression_dispatch_ast_inventory(
         indexed_path,
         explicit_path,
     )
+
+
+def validate_run_operand_variant_inventory(inventory: Any) -> dict[str, Any]:
+    if not isinstance(inventory, dict) or set(inventory) != {"source_path", "enums"}:
+        raise EvidenceError("run operand variant inventory has an unknown shape")
+    if inventory["source_path"] != RUN_OPERAND_DECODE_PATH.as_posix():
+        raise EvidenceError("run operand variant inventory names the wrong source path")
+    enums = inventory["enums"]
+    if not isinstance(enums, list):
+        raise EvidenceError("run operand variant inventory is not a list")
+    actual: dict[str, list[str]] = {}
+    for row in enums:
+        if not isinstance(row, dict) or set(row) != {"name", "variants"}:
+            raise EvidenceError("run operand enum row has an unknown shape")
+        name = row["name"]
+        variants = row["variants"]
+        if (
+            not isinstance(name, str)
+            or not isinstance(variants, list)
+            or any(not isinstance(variant, str) or not variant for variant in variants)
+            or len(variants) != len(set(variants))
+            or name in actual
+        ):
+            raise EvidenceError("run operand enum inventory has duplicate or invalid variants")
+        actual[name] = variants
+    expected = {
+        name: list(variants)
+        for name, variants in RUN_OPERAND_ENUM_VARIANTS.items()
+    }
+    if actual != expected:
+        raise EvidenceError(
+            f"run operand enum variants differ from the child-path contract: "
+            f"expected={expected}; actual={actual}"
+        )
+    return inventory
+
+
+def run_operand_variant_ast_inventory(root: pathlib.Path) -> dict[str, Any]:
+    inventory = run_ast_extractor(
+        root,
+        [
+            "--run-operand-variants",
+            str(root / RUN_OPERAND_DECODE_PATH),
+            RUN_OPERAND_DECODE_PATH.as_posix(),
+        ],
+        "run operand variant",
+    )
+    return validate_run_operand_variant_inventory(inventory)
 
 
 def expression_dispatch_source_record(
@@ -6341,6 +6410,7 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
     operand_inventory = validate_operand_inventory(
         rows, OPERAND_MANIFEST.read_text(), arena_text, pipeline_stage_source
     )
+    run_operand_variant_inventory = run_operand_variant_ast_inventory(root)
 
     indexed_source = (root / config["indexed_dispatch"]).read_text()
     explicit_source = (root / config["explicit_dispatch"]).read_text()
@@ -6900,6 +6970,10 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
             "operand_payload_rows": operand_inventory["payload_rows"],
             "operand_schema_fields": operand_inventory["payload_fields"],
             "operand_child_paths": operand_inventory["evaluable_child_paths"],
+            "run_operand_enum_variants": sum(
+                len(row["variants"])
+                for row in run_operand_variant_inventory["enums"]
+            ),
             "unresolved_runtime_operand_rows": sum(
                 row["runtime_operand_order"]["status"] == "unresolved" for row in routed
             ),
@@ -7067,6 +7141,7 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                 "are source-classified; runtime route receipts and expression semantics remain separate evidence"
             ),
         },
+        "run_operand_variant_inventory": run_operand_variant_inventory,
         "eager_atom_dispatch_inventory": {
             "status": "source_exhaustive_dispatch_path",
             "rows": len(eager_inventory["schema_rows"]),

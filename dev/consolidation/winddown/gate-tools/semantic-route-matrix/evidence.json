@@ -4760,6 +4760,7 @@
   },
   "source_paths": [
     "src/runtime/eval/indexed/full.rs",
+    "src/runtime/eval/indexed/full/decode.rs",
     "src/runtime/eval/indexed/full/in_place.rs",
     "src/runtime/eval/indexed/full/schema.rs",
     "src/runtime/eval/lowered_ops.rs",

@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::visit::{self, Visit};
-use syn::{Block, Expr, File, ImplItemFn, ItemFn, Pat, Stmt, Token};
+use syn::{Attribute, Block, Expr, File, Ident, ImplItemFn, Item, ItemFn, Pat, Stmt, Token};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TagBranch {
@@ -347,6 +347,18 @@ pub struct ExpressionDispatchInventory {
     pub rows: Vec<ExpressionDispatchRow>,
     pub boundaries: Vec<ExpressionDispatchBoundary>,
     pub source_paths: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RunOperandEnumVariants {
+    pub name: String,
+    pub variants: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RunOperandVariantInventory {
+    pub source_path: String,
+    pub enums: Vec<RunOperandEnumVariants>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1489,6 +1501,116 @@ pub fn extract_expression_dispatch_inventory(
     })
 }
 
+pub fn extract_run_operand_variant_inventory(
+    decode_source: &str,
+    source_path: &str,
+) -> Result<RunOperandVariantInventory, String> {
+    let file = syn::parse_file(decode_source)
+        .map_err(|error| format!("parse indexed decoder schema: {error}"))?;
+    let expected_names = [
+        "LoweredRunArgKind",
+        "LoweredRunOption",
+        "LoweredRunTailOperand",
+        "LoweredProcessCommandBuilderEntry",
+    ];
+    let mut found = BTreeMap::new();
+    for item in &file.items {
+        let Item::Macro(item_macro) = item else {
+            continue;
+        };
+        if !item_macro.mac.path.is_ident("enum_schema") {
+            continue;
+        }
+        let name = syn::parse2::<EnumSchemaName>(item_macro.mac.tokens.clone())
+            .map_err(|error| format!("parse enum schema name: {error}"))?
+            .name;
+        if !expected_names.contains(&name.as_str()) {
+            continue;
+        }
+        let parsed = syn::parse2::<EnumSchemaVariants>(item_macro.mac.tokens.clone())
+            .map_err(|error| format!("parse {name} variants: {error}"))?;
+        if parsed.name != name {
+            return Err(format!("enum schema name changed while parsing {name}"));
+        }
+        let unique = parsed.variants.iter().collect::<BTreeSet<_>>();
+        if unique.len() != parsed.variants.len() {
+            return Err(format!("duplicate variants in {name}"));
+        }
+        if found.insert(name.clone(), parsed.variants).is_some() {
+            return Err(format!("duplicate enum schema: {name}"));
+        }
+    }
+    let enums = expected_names
+        .iter()
+        .map(|name| {
+            found
+                .remove(*name)
+                .map(|variants| RunOperandEnumVariants {
+                    name: (*name).into(),
+                    variants,
+                })
+                .ok_or_else(|| format!("missing enum schema: {name}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(RunOperandVariantInventory {
+        source_path: source_path.into(),
+        enums,
+    })
+}
+
+struct EnumSchemaName {
+    name: String,
+}
+
+impl Parse for EnumSchemaName {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let _attributes = Attribute::parse_outer(input)?;
+        let name: Ident = input.parse()?;
+        while !input.is_empty() {
+            let _token: TokenTree = input.parse()?;
+        }
+        Ok(Self {
+            name: name.to_string(),
+        })
+    }
+}
+
+struct EnumSchemaVariants {
+    name: String,
+    variants: Vec<String>,
+}
+
+impl Parse for EnumSchemaVariants {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let _attributes = Attribute::parse_outer(input)?;
+        let name: Ident = input.parse()?;
+        let _arrow: Token![=>] = input.parse()?;
+        let _view: Ident = input.parse()?;
+        while !input.peek(syn::token::Brace) {
+            let _token: TokenTree = input.parse()?;
+        }
+        let contents;
+        syn::braced!(contents in input);
+        let mut variants = Vec::new();
+        while !contents.is_empty() {
+            let _attributes = Attribute::parse_outer(&contents)?;
+            let variant: Ident = contents.parse()?;
+            variants.push(variant.to_string());
+            while !contents.is_empty() && !contents.peek(Token![;]) {
+                let _token: TokenTree = contents.parse()?;
+            }
+            contents.parse::<Token![;]>()?;
+        }
+        while !input.is_empty() {
+            let _token: TokenTree = input.parse()?;
+        }
+        Ok(Self {
+            name: name.to_string(),
+            variants,
+        })
+    }
+}
+
 fn expression_schema_row(
     row: &ParsedExprSchemaRow,
     source: &str,
@@ -2036,6 +2158,34 @@ fn expression_helper_boundaries(
         }
     }
     Ok(boundaries)
+}
+
+impl RunOperandVariantInventory {
+    pub fn to_json(&self) -> String {
+        let enums = self
+            .enums
+            .iter()
+            .map(|entry| {
+                let variants = entry
+                    .variants
+                    .iter()
+                    .map(|variant| json_string(variant))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!(
+                    "{{\"name\":{},\"variants\":[{}]}}",
+                    json_string(&entry.name),
+                    variants
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(
+            "{{\"source_path\":{},\"enums\":[{}]}}",
+            json_string(&self.source_path),
+            enums
+        )
+    }
 }
 
 impl ExpressionDispatchInventory {
@@ -14660,5 +14810,78 @@ mod field_index_tests {
         );
         assert!(inventory(&(sources.0.clone(), sources.1.clone(), intercepted))
             .unwrap_err().contains("intercepted by frame_strategy_error"));
+    }
+}
+
+#[cfg(test)]
+mod run_operand_variant_tests {
+    use super::*;
+
+    const SOURCE: &str = r#"
+enum_schema!(LoweredRunArgKind => RunArgKindView ["run argument tag is invalid"] {
+    Single(value: BuildExprId) = 0;
+    SingleOrSplice(value: BuildExprId) = 1;
+    Splice(value: BuildExprId) = 2;
+});
+enum_schema!(LoweredRunOption => RunOptionView ["run option tag is invalid"] {
+    Timeout(value: BuildExprId) = 0;
+    CpuMax(value: BuildExprId) = 1;
+    Accept(value: BuildExprId) = 2;
+});
+enum_schema!(LoweredRunTailOperand => RunTailOperandView ["run tail operand tag is invalid"] {
+    Argument(value: LoweredRunArg) = 0;
+    Redirection(value: LoweredRunRedirection) = 1;
+});
+enum_schema!(
+    #[expect(clippy::large_enum_variant)]
+    LoweredProcessCommandBuilderEntry => ProcessCommandBuilderEntryView ["process command builder entry tag is invalid"] {
+        Field { name: Name, value: BuildExprId } = 0;
+        Run { operands: LoweredRunOperands } = 1;
+    }
+);
+"#;
+
+    #[test]
+    fn run_operand_variant_inventory_reports_source_additions() {
+        let inventory = extract_run_operand_variant_inventory(SOURCE, "decode.rs").unwrap();
+        assert_eq!(inventory.source_path, "decode.rs");
+        assert_eq!(
+            inventory
+                .enums
+                .iter()
+                .find(|entry| entry.name == "LoweredRunOption")
+                .unwrap()
+                .variants,
+            ["Timeout", "CpuMax", "Accept"]
+        );
+
+        let changed = SOURCE
+            .replace(
+                "Accept(value: BuildExprId) = 2;",
+                "Accept(value: BuildExprId) = 2;\n    Retry(value: BuildExprId) = 3;",
+            )
+            .replace(
+                "Redirection(value: LoweredRunRedirection) = 1;",
+                "Redirection(value: LoweredRunRedirection) = 1;\n    HereDoc(value: LoweredRunArg) = 2;",
+            );
+        let changed_inventory = extract_run_operand_variant_inventory(&changed, "decode.rs").unwrap();
+        assert_eq!(
+            changed_inventory
+                .enums
+                .iter()
+                .find(|entry| entry.name == "LoweredRunOption")
+                .unwrap()
+                .variants,
+            ["Timeout", "CpuMax", "Accept", "Retry"]
+        );
+        assert_eq!(
+            changed_inventory
+                .enums
+                .iter()
+                .find(|entry| entry.name == "LoweredRunTailOperand")
+                .unwrap()
+                .variants,
+            ["Argument", "Redirection", "HereDoc"]
+        );
     }
 }

@@ -4,6 +4,32 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
+    if arguments.first().is_some_and(|argument| argument == "--run-operand-variants") {
+        if arguments.len() != 3 {
+            eprintln!("usage: semantic-route-ast-extractor --run-operand-variants DECODE SOURCE_PATH");
+            return ExitCode::from(2);
+        }
+        let source = match fs::read_to_string(&arguments[1]) {
+            Ok(source) => source,
+            Err(error) => {
+                eprintln!("read indexed decoder schema: {error}");
+                return ExitCode::from(2);
+            }
+        };
+        return match semantic_route_ast_extractor::extract_run_operand_variant_inventory(
+            &source,
+            &arguments[2],
+        ) {
+            Ok(inventory) => {
+                println!("{}", inventory.to_json());
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("run operand variant inventory: {error}");
+                ExitCode::from(2)
+            }
+        };
+    }
     if arguments.first().is_some_and(|argument| argument == "--expression-dispatch") {
         if arguments.len() != 7 {
             eprintln!("usage: semantic-route-ast-extractor --expression-dispatch SCHEMA INDEXED EXPLICIT SCHEMA_PATH INDEXED_PATH EXPLICIT_PATH");

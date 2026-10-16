@@ -1408,6 +1408,54 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         with self.assertRaisesRegex(generate.EvidenceError, "operand fields are unclassified for ExprBinary"):
             generate.validate_operand_inventory(rows, manifest, ARENA_SHAPES)
 
+    def test_run_operand_paths_cover_closed_source_variants(self) -> None:
+        expected = [
+            ".options[*].Timeout.value",
+            ".options[*].CpuMax.value",
+            ".options[*].Accept.value",
+            ".env[*].value.kind.Single.value",
+            ".env[*].value.kind.SingleOrSplice.value",
+            ".env[*].value.kind.Splice.value",
+            ".target.kind.Single.value",
+            ".target.kind.SingleOrSplice.value",
+            ".target.kind.Splice.value",
+            ".tail[*].Argument.value.kind.Single.value",
+            ".tail[*].Argument.value.kind.SingleOrSplice.value",
+            ".tail[*].Argument.value.kind.Splice.value",
+            ".tail[*].Redirection.value.target.kind.Single.value",
+            ".tail[*].Redirection.value.target.kind.SingleOrSplice.value",
+            ".tail[*].Redirection.value.target.kind.Splice.value",
+        ]
+        self.assertEqual(generate.RUN_OPERANDS_CHILD_PATHS, expected)
+        self.assertEqual(generate.CUSTOM_CHILD_PATHS["LoweredRunEnv"], [
+            ".value.kind.Single.value",
+            ".value.kind.SingleOrSplice.value",
+            ".value.kind.Splice.value",
+        ])
+        for name in ("LoweredRunCapture", "LoweredRunPipelineSegment", "LoweredSpawnRun"):
+            self.assertEqual(
+                generate.CUSTOM_CHILD_PATHS[name],
+                [f".operands{path}" for path in expected],
+            )
+        self.assertEqual(
+            generate.CUSTOM_CHILD_PATHS["LoweredProcessCommandBuilderEntry"],
+            [".Field.value", *[f".Run.operands{path}" for path in expected]],
+        )
+        inventory = {
+            "source_path": generate.RUN_OPERAND_DECODE_PATH.as_posix(),
+            "enums": [
+                {"name": name, "variants": list(variants)}
+                for name, variants in generate.RUN_OPERAND_ENUM_VARIANTS.items()
+            ],
+        }
+        self.assertEqual(generate.validate_run_operand_variant_inventory(inventory), inventory)
+        for enum_name in ("LoweredRunOption", "LoweredRunTailOperand"):
+            changed = copy.deepcopy(inventory)
+            row = next(item for item in changed["enums"] if item["name"] == enum_name)
+            row["variants"].append("Unmapped")
+            with self.assertRaisesRegex(generate.EvidenceError, "variants differ from the child-path contract"):
+                generate.validate_run_operand_variant_inventory(changed)
+
     def test_runtime_operand_order_is_not_applicable_only_for_exactly_empty_children(self) -> None:
         row = {
             "schema_fields": [
