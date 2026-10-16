@@ -242,6 +242,20 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         self.assertIn(f"{self.scratch_dir}:{runner.SCRATCH_CONTAINER_PATH}:rw", volumes)
         self.assertIn(f"{self.metrics}:{runner.METRICS_CONTAINER_PATH}:rw", volumes)
         self.assertFalse(any(value.endswith(":/work:rw") for value in volumes))
+        hostname_index = command.index("--hostname")
+        self.assertEqual(command[hostname_index + 1], runner.CONTAINER_HOSTNAME)
+        hosts_index = command.index("--add-host")
+        self.assertEqual(
+            command[hosts_index + 1],
+            f"{runner.CONTAINER_HOSTNAME}:{runner.CONTAINER_HOST_ADDRESS}",
+        )
+        self.assertEqual(command[command.index("--network") + 1], "none")
+        self.assertIn(f"--cpus={runner.CPU_LIMIT}", command)
+        self.assertIn(f"--memory={runner.MEMORY_LIMIT_BYTES // (1024 * 1024 * 1024)}g", command)
+        self.assertIn(
+            f"--memory-swap={(runner.MEMORY_LIMIT_BYTES + runner.SWAP_LIMIT_BYTES) // (1024 * 1024 * 1024)}g",
+            command,
+        )
         self.assertEqual(command[-len(runner.batch_command()):], runner.batch_command())
         self.assertEqual(runner.batch_command()[0], f"/work/target/{runner.TARGET}/verification/xsh")
         self.assertNotIn("cargo", runner.batch_command())
@@ -281,7 +295,17 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
             ["docker", "image", "inspect", "--format", "{{.Id}}", runner.IMAGE], self.repo
         )
         popen.assert_called_once()
-        self.assertTrue((self.output / "canonical-replay.json").is_file())
+        receipt_path = self.output / "canonical-replay.json"
+        self.assertTrue(receipt_path.is_file())
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            receipt["docker_argv"],
+            runner.docker_command(
+                validated,
+                "xsh-canonical-canonical-run",
+                self.output / "container.cid",
+            ),
+        )
 
     def test_resource_schema_accepts_measurement_even_when_batch_failed(self):
         runner.validate_resource_record(resource_record(exit_code=3), 3)

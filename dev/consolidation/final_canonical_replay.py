@@ -45,6 +45,8 @@ BOOTSTRAP_CONTAINER_TARGET_DIR = "/work/target"
 CPU_LIMIT = 12
 MEMORY_LIMIT_BYTES = 24 * 1024 * 1024 * 1024
 SWAP_LIMIT_BYTES = 0
+CONTAINER_HOSTNAME = "xsh-canonical"
+CONTAINER_HOST_ADDRESS = "127.0.0.1"
 CASE_TIMEOUT_SECONDS = 4 * 60 * 60
 SAMPLE_INTERVAL_SECONDS = 0.1
 TERM_GRACE_SECONDS = 30
@@ -358,6 +360,10 @@ def docker_command(validated: dict[str, Any], container_name: str, cid_file: pat
         "--privileged",
         "--network",
         "none",
+        "--hostname",
+        CONTAINER_HOSTNAME,
+        "--add-host",
+        f"{CONTAINER_HOSTNAME}:{CONTAINER_HOST_ADDRESS}",
         f"--cpus={CPU_LIMIT}",
         f"--memory={MEMORY_LIMIT_BYTES // (1024 * 1024 * 1024)}g",
         f"--memory-swap={(MEMORY_LIMIT_BYTES + SWAP_LIMIT_BYTES) // (1024 * 1024 * 1024)}g",
