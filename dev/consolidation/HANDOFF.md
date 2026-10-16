@@ -9,11 +9,11 @@ functional close or performance credit. Lean and Phase F remain paused.
 ## Current resume
 
 The owner resumed the typing consolidation campaign after the documentation
-refresh at `bfffd3af5e0002668e685e1711d7e6d9ee90ad51`. Main is frozen at
+refresh at `bfffd3af5e0002668e685e1711d7e6d9ee90ad51`. The canonical batch on
 `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542`, tree
-`08769a1d438d5d93f55bb21e7a4dbe8051f7b966`, while the canonical batch runs.
-The current container has completed the btop file (58 tests, three skipped)
-and is in root stage 223. This handoff records no terminal batch result.
+`08769a1d438d5d93f55bb21e7a4dbe8051f7b966`, ended with XSHT failure and exit
+3. Source checks match before and after; cleanup completed, with no OOM or swap
+event. The container is gone and main is clean and unfrozen after the run.
 Historical gate helpers require fresh paths and source qualification.
 
 Acceptance launch, structural/semantic review, loop selection, typing witness
@@ -93,36 +93,50 @@ work is authorized by this resume.
 ### Latest canonical and solver checkpoints
 
 - The [8d acceptance follow-up](evidence/acceptance-follow-up-8d/README.md)
-  records the live canonical batch and current product qualification. On clean
-  source `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542`, container
-  `xsh-canonical-canonical-8d0d63624` passes btop 58 tests with three skipped;
-  root stage 223 is in progress. No terminal result is available. The `8d`
-  bootstrap produced source-matched `xsh` product prefix `d058`; the tracked
-  driver enforces resource, command, swap, cleanup, read-only source, and
-  shared-lock checks. There is no release, timing, or functional-close credit.
-- Integrated queue `b6` passes 11 tests and its four-file check/lint. Lint
-  changes at `a22` record a whole check with 1,526 passes, zero lint findings
-  and 113 notes, plus metrics and three docs tests. The shared `xsh` product
-  changed from `a911` to `d058` during bootstrap, so that result does not qualify
-  the current unchanged-product set; a stable private-copy rerun is active.
+  records the terminal canonical batch on clean source
+  `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542`: exit 3 at XSHT after integration
+  223, auxiliary 23, symbol 1, PTY 58 passed (3 ignored), debug 747 passed
+  (3 ignored), and XSHT 115 passed, 1 failed, 5 filtered. The desugar failure
+  is original `core/tests/test-df.xsh::test_df_reports_filesystem_capacity_counters`:
+  observed 192512 instead of 65536; its transformed counterpart passes. No
+  later stages, full native suite, or canonical suffix stages ran. Source
+  checks match before and after; no OOM or swap event occurred. Cleanup
+  resolved, and the container is absent. The `8d` bootstrap produced
+  source-matched `xsh` prefix
+  `d058`; the tracked driver enforces resource, command, swap, cleanup,
+  read-only source, and shared-lock checks. No release, timing, or
+  functional-close credit is claimed.
+- Integrated queue `b6` passes 11 tests and its four-file check/lint. Stable
+  copied-artifact rerun of lint changes `a22` passes check with 1,526 files,
+  lint with zero findings and 113 notes, metrics, and docs/tour tests (3 pass).
+  The original shared `xsh` changed from `a911` to `d058` during bootstrap;
+  qualification is from the immutable copied artifacts, not the changing shared
+  product. Detailed receipts are in disposable
+  `.work/tmp/consolidation-main-suffix-a22-stable`.
   Replay launcher/bridge `73c`/`334` are integrated. The SGID private-scratch
   repair passes 288 Python scripts. Lint cleanup `f958` passes its focused gate
   with zero findings and notes and three negative preflight cases.
 - Driver checkpoints `4c`/`a0`/`9a` pass 21 tests and bootstrap `9a`; its replay
-  launch raised `NameError` before Docker and ran no suites. The `8d` driver fix
-  passes 22 tests as root. Keep the `9a` launcher failure distinct from the
-  current running canonical container.
-- Current isolated typing work has a fresh compile of the library, `xsh`,
-  `xsht`, and helper. Four encoding, five semantic, and one module-ground tests
-  pass. Prepared and three forged tests fail on invalid doc/`Result` fixtures;
-  identity/projection fails in `FullBuilder`, and new generic list/`Result`
-  tests are staged at the wrong phase. Verifier `539`→`root3f`, lowerer
-  `f53`→`fb`, and fixture lint/docs `a0`→`3d` fixes are not tested on the new
-  pin; an encoding forwarder fix is active. A 1,520-case native run exercised
-  both routes through `indexed_build_instruction`; investigation found
-  unconditional instruction lookup on forwarders. SPEC docs render `0cf`
-  passes only as a static check with old 787 products; cohort plan `044` has no
-  95/85 result. No inference is on main.
+  launch raised `NameError` before Docker and ran no suites. The separate `8d`
+  driver fix passes 22 tests as root. This launcher failure is not part of the
+  canonical batch.
+- Typing branch `1c` passes fresh library and binary builds plus check and lint.
+  Its focused positive tests fail on missing `Return`; paired native routes
+  report 3/8 pass, with bare-print fixtures, alias, and mixed-`Any` cases
+  outstanding. Pipeline `4b71771f1` includes the Return fixes and `41be` print
+  fixtures. Its grouped build and focused gate plus 205 full-verifier tests are
+  queued; no result is available. A dedicated mixed-`Any`/alias lane is active.
+  SPEC docs render `0cf` passes only as a static check with old 787 products;
+  cohort plan `044` has no 95/85 result. No inference is on main.
+- Earlier typing results include a fresh compile of the library, `xsh`, `xsht`,
+  and helper, with four encoding, five semantic, and one module-ground tests
+  passing. Prepared and three forged tests failed on invalid doc/`Result`
+  fixtures; identity/projection failed in `FullBuilder`, and new generic
+  list/`Result` tests were staged at the wrong phase. Verifier `539`→`root3f`,
+  lowerer `f53`→`fb`, and fixture lint/docs `a0`→`3d` fixes were not tested on
+  that pin. The 1,520-case native run exercised both routes through
+  `indexed_build_instruction`; investigation found unconditional instruction
+  lookup on forwarders.
 - W9 chain `03` passes 1,690 assignment proofs and 68 ranges. Its comparison
   stopped after 75 inputs/300 outcomes, with 12 mismatches and exit 130. The
   first input `52b2` differs only in resolved binding-import rows for
@@ -131,8 +145,14 @@ work is authorized by this resume.
   `74f1551ee9e3066b653ae190779e16d511c90293`, tree
   `3162d2f33076a8c9261d0ffb7a89a9952662f03f`, parent `1fd9e5f2f`; it applies
   the exact nine-line source patch and leaves prior refs/captures unchanged.
-  Schema 3's explicit combined-derivation controller source prep is active; no
-  build or capture is approved yet. The comparison is not parity acceptance.
+  Schema 3's explicit combined-derivation controller at `aac` passes 85 Python
+  tests. Corrected reference source `74f1551ee9e3066b653ae190779e16d511c90293`
+  builds successfully; its root-validated receipt is under
+  `.work/consolidation/w9-publication-adapter-v1-aljarimz/` as
+  `w9-publication-adapter-derived-reference-74f1551ee9e3.receipt`, binary SHA
+  `5c95fac28ebbaf52a92e31e277da010a57c0fda90389a9bd54232464335e867f`. One
+  derived capture is now authorized, but no capture result or comparison exists.
+  No parity is claimed.
 - The [915 acceptance follow-up](evidence/acceptance-follow-up-915/README.md)
   records the suffix checks and focused head rerun. `xsht check` passes 1,542
   files; `xsht lint` exits zero with 72 findings and 115 notes, so lint is not
@@ -490,21 +510,26 @@ work is authorized by this resume.
 
 ### Current queue
 
-The integrator owns `master`, frozen for the canonical run at
-`8d0d6362418a6ab1b58582cf5574a7e0f4ac3542`. The live container reports btop
-58 passed and three skipped and is in root stage 223; the terminal
-native and suffix results are not yet known. Integrated checks recorded on this
-source include queue `b6` (11 tests and a four-file check/lint), lint `a22`
-(1,526 check passes, zero findings, 113 notes, metrics, and three docs tests),
-the SGID private-scratch repair (288 Python scripts), and lint `f958` (zero
-findings/notes, three negative preflight cases). Replay launcher/bridge `73c`/
-`334` are integrated. The `a22` result needs a stable
-private-copy rerun because bootstrap changed shared `xsh` from `a911` to
-`d058`. The current bootstrap uses source-matched `d058`; its driver checks
-resource and command bounds, swap, cleanup, read-only source, and shared lock.
-No release or timing result is available. Binding-identity repairs and W9
-receipt recovery have isolated worktrees under `.work/wt/`; review and focused
-verification remain required before integration.
+The integrator owns `master`. The canonical batch on
+`8d0d6362418a6ab1b58582cf5574a7e0f4ac3542` ended with exit 3 at the XSHT
+`test-df_reports_filesystem_capacity_counters` desugar mismatch. The original
+reports 192512 instead of 65536; its transformed counterpart passes. Earlier
+stages include integration 223, auxiliary 23, symbol 1, PTY 58 passed/3
+ignored, debug 747 passed/3 ignored, and XSHT 115 passed/1 failed/5 filtered.
+No later stage, full native suite, or canonical suffix ran. Source was clean
+before and after; no OOM/swap occurred, cleanup resolved, and the container is
+gone. Main is clean and unfrozen for repairs and review.
+
+Stable copied-artifact suffix rerun of `a22` passes check 1,526, lint zero
+findings/113 notes, metrics, and docs/tour 3. The shared `xsh` drift from
+`a911` to `d058` is handled by immutable copies, not by assuming the products
+are interchangeable. Queue `b6` passes 11 tests and four-file check/lint;
+SGID private-scratch passes 288 Python scripts; `f958` passes focused lint with
+zero findings/notes and three negative preflight cases. Replay launcher/bridge
+`73c`/`334` are integrated. Driver fix `8d` passes 22 tests as root; the earlier
+`9a` replay failed before Docker and ran no suites. The DF test-repair lane and
+Cargo runtime guarded-unlock prototype are active. No release or timing result
+is available.
 
 The checker audit's assignment and reader repairs and imported-standard-module
 fact correction are integrated. Requalify the repaired facts and readers on the
