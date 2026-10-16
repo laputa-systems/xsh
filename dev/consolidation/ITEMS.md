@@ -4,11 +4,11 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `5e66b6b896a47d0c692739135d51200b007a2a67`. The accepted designs and historical
 ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
-**Current status: winding down, 2026-10-16.** Start no new item or lane.
-The leading [campaign stop handoff](CAMPAIGN.md#stop-handoff-2026-10-16) owns
-resume and current outcomes. Lean and Phase F remain paused; inference remains
-isolated and unaccepted. The approved replacement gate plan stays authorized.
-Reviewed Clippy and collector repairs land during this stop. Their focused
+**Current status: resumed by the owner, 2026-10-16.** The
+[active handoff](HANDOFF.md#active-resume) owns lane assignments and the live
+queue. Lean and Phase F remain paused; inference remains isolated and
+unaccepted. The approved replacement gate plan stays authorized.
+Reviewed Clippy and collector repairs are integrated. Their focused
 passes do not close canonical, route-matrix, or resource acceptance. Parked
 inference still needs exact generic module exports and initialized-value
 ownership by binding identity. Broader inference, corpus removal, performance

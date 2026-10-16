@@ -1,9 +1,31 @@
 # Consolidation handoff
 
-Status: paused 2026-10-16 at the owner's request. The leading
-[stop handoff in CAMPAIGN.md](CAMPAIGN.md#stop-handoff-2026-10-16) owns resume,
-parked branches, retained worktrees and the final audit. No new item starts
-until explicit resume. Lean and Phase F stay paused; inference is isolated.
+Status: resumed by the owner on 2026-10-16. Lean and Phase F stay paused.
+Inference remains isolated until consolidation acceptance permits its merge.
+The [stop handoff](CAMPAIGN.md#stop-handoff-2026-10-16) records the starting
+state, parked branches, retained worktrees and completed stop audit.
+
+## Active resume
+
+The integration tree was clean at `e048b33f2`. The integrator cancelled the
+closeout guard before selecting work. Five independent lanes are assigned:
+
+| Lane | Worktree below `.work/wt/` | Base and scope |
+|---|---|---|
+| Inference ownership | `typing-pipeline-integration` | `e2cf1fec2`; exact generic exports, retained values by binding identity, and required regressions |
+| Acceptance | `resume-acceptance` | `e048b33f2`; approved supplemental and canonical gates |
+| Loop speed | `resume-loop` | `e048b33f2`; selected work, repeated validation, and focused gate controls |
+| W9 parity | `resume-w9` | `e048b33f2`; immutable capture admission and strict comparison |
+| Routes and resources | `resume-routes` | `e048b33f2`; current route matrix and remaining resource gates |
+
+Each resume worktree has its matching `campaign/resume-*-20261016` branch.
+Inference retains `campaign/typing-pipeline-integration`. All lanes use
+`gpt-6-luna` at `xhigh`, with no nested delegation. Acceptance owns the main
+build slot. Inference may run one focused debug build in a separate target
+directory. Only one full native suite may run at a time.
+
+The accepted results remain those recorded below. Starting a gate or repairing
+its iteration loop does not accept the source or close a remaining requirement.
 
 ## Latest stop checkpoint
 

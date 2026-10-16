@@ -1,8 +1,9 @@
 # XSH Consolidation Campaign
 
-Status: paused 2026-10-16. No new items or lanes may start. Lean and
+Status: resumed by the owner on 2026-10-16 after the stop below. Consolidation
+acceptance and the isolated inference ownership repair are active. Lean and
 Phase F remain paused. Inference has not merged to main and has no accepted
-end-to-end first slice. The earlier status sections below are historical.
+end-to-end first slice. The stop below records the retained starting state.
 
 ## Stop handoff, 2026-10-16
 
