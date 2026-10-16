@@ -4,6 +4,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from unittest.mock import patch
 
 repo_root = Path(__file__).resolve().parents[5]
 compare_path = Path(__file__).with_name("compare.py")
@@ -101,7 +102,6 @@ def test_exact_reference_overlay_and_two_file_control():
         scratch_path = Path(scratch)
         candidate = scratch_path / "candidate"
         reference = scratch_path / "reference"
-        altered = scratch_path / "altered"
         candidate.mkdir()
         base_commit = make_candidate(candidate)
         cloned_reference(candidate, reference)
@@ -112,28 +112,41 @@ def test_exact_reference_overlay_and_two_file_control():
 
         candidate_source = compare.capture_source(candidate, base_commit)
         reference_source = compare.capture_reference_source(reference, base_commit)
-        changed = compare.validate_reference_overlay(
-            candidate_source, reference_source, reference
-        )
-        assert changed == [
-            "crates/xsht/src/commands.rs",
-            "crates/xsht/src/xsht/test.rs",
-        ]
-
-        cloned_reference(candidate, altered)
-        for relative in (
-            "crates/xsht/src/commands.rs",
-            "crates/xsht/src/xsht/test.rs",
+        synthetic_diff = subprocess.check_output([
+            "git", "-C", str(reference), "diff", "--binary", "--full-index", "HEAD"
+        ])
+        with patch.object(
+            compare,
+            "REFERENCE_AGGREGATE_PATCH_SHA256",
+            compare.sha256_bytes(synthetic_diff),
         ):
-            path = altered / relative
-            path.write_bytes(path.read_bytes() + b"\n")
-        altered_source = compare.capture_reference_source(altered, base_commit)
-        expect_value_error(
-            lambda: compare.validate_reference_overlay(
-                candidate_source, altered_source, altered
-            ),
-            "does not match the pinned scheduler reference overlay",
-        )
+            changed = compare.validate_reference_overlay(
+                candidate_source, reference_source, reference
+            )
+            assert changed == [
+                "crates/xsht/src/commands.rs",
+                "crates/xsht/src/xsht/test.rs",
+            ]
+
+            for index, relative in enumerate((
+                "crates/xsht/src/commands.rs",
+                "crates/xsht/src/xsht/test.rs",
+            )):
+                altered = scratch_path / f"altered-{index}"
+                cloned_reference(candidate, altered)
+                subprocess.run(
+                    ["git", "-C", str(altered), "apply", str(aggregate)],
+                    check=True,
+                )
+                path = altered / relative
+                path.write_bytes(path.read_bytes() + b"\n")
+                altered_source = compare.capture_reference_source(altered, base_commit)
+                expect_value_error(
+                    lambda: compare.validate_reference_overlay(
+                        candidate_source, altered_source, altered
+                    ),
+                    "does not match the pinned scheduler reference overlay",
+                )
 
 
 test_derivation_patch_pin_and_ancestry()
