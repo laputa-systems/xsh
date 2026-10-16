@@ -1,0 +1,10 @@
+role=reference owners=1690 proof_receipt=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/.work/consolidation/w9-d20af40/capture-chain-01/compare-final-2b221766/exact-reference/proof.receipt
+role=candidate owners=1690 proof_receipt=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/.work/consolidation/w9-d20af40/capture-chain-01/compare-final-2b221766/exact-candidate/proof.receipt
+corpus=1690 outcomes=6760 mismatches=6732
+reference_capture=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/.work/consolidation/w9-d20af40/capture-chain-01/derived/derived-reference/capture.receipt
+candidate_capture=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/.work/consolidation/w9-d20af40/capture-chain-01/adapter/candidate/capture.receipt
+reference_exact_proof=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/.work/consolidation/w9-d20af40/capture-chain-01/compare-final-2b221766/exact-reference
+candidate_exact_proof=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/.work/consolidation/w9-d20af40/capture-chain-01/compare-final-2b221766/exact-candidate
+mismatch_file=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/.work/consolidation/w9-d20af40/capture-chain-01/compare-final-2b221766/comparison/mismatches.tsv
+original_to_derived_delta=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/.work/consolidation/w9-d20af40/capture-chain-01/compare-final-2b221766/comparison/original-to-derived-reference.tsv
+derived_reference_comparison_receipt=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/.work/consolidation/w9-d20af40/capture-chain-01/compare-final-2b221766/comparison/derived-reference-comparison.receipt

@@ -1,0 +1,3 @@
+status=complete
+completed_ranges=0
+detail=corpus=1690 outcomes=6760 mismatches=6732

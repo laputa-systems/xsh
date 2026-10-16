@@ -1,0 +1,29 @@
+[controller]
+root	/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-hash-role
+head	2b221766d26f27415183666f03a91cd49238c3a1
+tree	803c159b85d3accc7cf65254ff8e5486f38bfce9
+status	clean
+[candidate]
+root	/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format
+head	d20af40bcacce38ce0eac714de40853130557215
+tree	c8a3f4034de97b133cb613048136d1503cd7ff99
+status	clean
+[reference]
+root	/home/josh/d/laputa-systems/xsh/.work/wt/w9-adapter-ref-e240
+head	e240efad273fe35d66d91f4037b6a8193527da2e
+tree	a1ef04ac7b6f759c272e8f841acee3a3b3a6ff08
+status	clean
+[derived-reference]
+root	/home/josh/d/laputa-systems/xsh/.work/wt/w9-derived-retry-context-bb
+head	1fd9e5f2f366833b786e57d1fc54bcd9a238731e
+tree	1d1661f02f3126c05fb5a7d9487f4fa0c3845556
+status	clean
+[controller-and-candidate-files]
+51f2b41bfb43fe7e35033a57e06a17421b73e8eb92066194f5a3104ebc185bbe  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-hash-role/dev/consolidation/w9_publication_adapter_runner.py
+2306ef7cfb2851465cfbce7aeacd473a1e78ad499c0b63d1b35e09761a8b2653  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/dev/consolidation/w9_publication_adapter_runner.py
+6cc37ba51cea2e93ce315de1fbe5b57a16ada7b8196bae997fc349390269468b  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-hash-role/dev/consolidation/w9_publication_exact_owner_runner.py
+6cc37ba51cea2e93ce315de1fbe5b57a16ada7b8196bae997fc349390269468b  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/dev/consolidation/w9_publication_exact_owner_runner.py
+33c77273d9f9096d3e6478622d0b29a3f0f1f79dee772cdea12b06f2ac8200d8  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-hash-role/dev/consolidation/w9-publication-exact-owners.rs
+33c77273d9f9096d3e6478622d0b29a3f0f1f79dee772cdea12b06f2ac8200d8  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/dev/consolidation/w9-publication-exact-owners.rs
+23fafe5b4140396242543bb4c59b0bcc1e0d4b59280f1f0e8dabf0cbd8431562  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/dev/consolidation/w9-publication-owner-helper.rs
+2ff5aaa74f8ae3d0597a3c14796d8643211a5b57b8b95147ba87205540ca95b0  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-w9-format/dev/consolidation/winddown/gate-tools/w9-repository-parity.rs
