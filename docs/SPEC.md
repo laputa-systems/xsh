@@ -4636,6 +4636,13 @@ run --timeout=30s --cpumax=80 make check
 let status = run.status --accept=[0, 1] grep -q pattern file
 ```
 
+Within each segment, option values evaluate in written order, followed by
+environment values and the command target. Arguments and redirection targets
+then evaluate in their written order. Each operand value is converted and
+checked before the next operand evaluates. A failure skips later operands.
+The run form starts its child processes after all segments finish operand
+evaluation.
+
 - `--timeout=DURATION` measures from spawn. When it expires, the child is
   terminated and the form fails with `Timeout`.
 - `--cpumax=N` requests a CPU quota of `N` percent of one core (values above
