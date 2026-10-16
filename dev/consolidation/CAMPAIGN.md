@@ -2,12 +2,25 @@
 
 Status: resumed on 2026-10-15 for consolidation acceptance and the typing
 successor. The owner explicitly resumed after the documentation refresh.
-Consolidation acceptance remains incomplete. Canonical batch source `e89e35f29`
-reached native tests and exited 3: 13,891 passed, 13 failed, and 78 skipped out
-of 13,982 selected. No canonical suffix or performance close ran. Main later
-integrated hostname repair `06a` at `63734367c`; its 22 driver unit tests and
-three focused hostname tests pass, but no full canonical rerun followed. See
-the [current handoff](HANDOFF.md) for exact failures and retained replay files.
+Consolidation remains incomplete. The canonical batch on `e89e35f29` ended at
+native tests with 13,891 passed, 13 failed, and 78 skipped out of 13,982.
+Follow-up fixes address all 13 causes; all exact tests pass (3 hostname, 8
+lifecycle, 2 OS). The integrated `14ad` run passed 15/15 exact tests and
+`xsht check`. The corrected four-caller gate passed 45/45. Two earlier
+`docker.host_link_tools` errors came from missing mold and common Git mounts;
+the corrected run needed no source patch. Main is now `3bae6555c`.
+Route-runner fixes `36d58` and `70192` pass seven integrated runner tests and 63
+route self-tests. The private `gates` debug-default lint warning is removed
+without changing its `Bool` contract. Source check, lint, and exact plan are
+running. The canonical batch has not rerun and remains held for W9 source-closure
+tooling review, not inference.
+
+Route-pin refresh `f19` preserves 92 child-byte outputs and passes 62 self-tests;
+its 184 actual outputs remain unrun. Gate map `7d087dd` scopes native workflow
+checks to three callers, four native files, and XSH/XSHT products. Cache fix
+`f3afacb63` is on main as `af7c55374`; its root and non-root cases, check, and
+lint pass. None grants performance credit. See the [current handoff](HANDOFF.md)
+for exact failures and retained replay files.
 The accepted `df` repair from `507` is integrated. Integrated check and lint
 pass on four files. Fake runner lane `5f21` passes 11 tests and its plan test
 passes 1/1. `sh -n` passes, and real workload test `2ab` passes 1/1. W9 source
@@ -15,12 +28,18 @@ repair `b8` passes 213 Python tests. The schema-3 comparison at controller
 `bef` processed 1,690 inputs and 6,760 outcomes, then exited 1 with seven
 visible mismatches. Later review found all chain 01, 03, and 04 captures
 unqualified because 64 mutable main-import paths crossed 218 source entries;
-W9 parity is not accepted and no new captures exist. Staggered inference work
-continues in isolated worktrees. Inference remains off main until consolidation
-closes; the cohort scan count and P2 units are not accepted while a
-config-deletion bypass remains under repair. The accepted post-consolidation performance
-baseline still waits for close. Lean and Phase F remain paused. Parked source is
-recovery material, not accepted implementation.
+W9 parity is not accepted and no new captures exist. Schema-4 source
+checkpoint `191` passed 52 focused tests. Integrated checkpoint `9acd` passes
+200 plus 52 Python tests. Review found config-consumed roots were not compared
+with audit-config bytes; helper closure repair is active. No native build,
+capture, or parity result exists. Staggered inference work
+continues in isolated worktrees. Pipeline `7ef89df4e` has scalar/list proof
+commits `6135` and `7ef8`, which are not compiled. Capture-writer and
+runtime-identity repairs remain source-only with a known red witness. Inference
+remains off main until consolidation closes; the cohort scan count and P2 units
+remain unaccepted while a config-deletion bypass is under repair. The accepted post-consolidation performance baseline still waits for close.
+Lean and Phase F remain paused. Parked source is recovery material, not accepted
+implementation.
 
 ## Owner steering, 2026-10-15
 

@@ -16,12 +16,22 @@ occurred; cleanup resolved and the container is gone. This remains historical.
 
 The canonical batch on source `e89e35f29` ended at native tests with exit 3:
 13,891 passed, 13 failed, and 78 skipped out of 13,982 selected. Earlier Rust,
-XSHT, soundness, and privileged stages passed; no suffix stages or performance
-close ran. Source was clean before and after, cleanup resolved, and no OOM or
-swap occurred. Hostname repair `06a` was later integrated at `63734367c`; 22
-driver unit tests and three focused hostname tests pass, but no full canonical
-rerun followed. The [current handoff](HANDOFF.md) lists the failures and links
-the retained replay evidence.
+XSHT, soundness, and privileged stages passed. No suffix or performance close
+ran. Follow-up fixes address all 13 causes, and their exact tests pass (3
+hostname, 8 lifecycle, 2 OS). The integrated `14ad` run passed 15/15 exact tests
+and `xsht check`. A corrected four-caller gate passed 45/45. Two earlier
+`docker.host_link_tools` errors came from missing mold and common Git mounts;
+the corrected run needed no source patch. Main is now `3bae6555c`. Route-runner
+fixes `36d58` and `70192` pass seven integrated runner tests and 63 route
+self-tests. The private `gates` debug-default lint warning is removed; its
+`Bool` contract is unchanged. Source check, lint, and exact plan are running.
+The canonical batch has not rerun and remains held for W9 source-closure tooling
+review. Route-pin refresh `f19` preserves 92 child-byte outputs and passes 62
+self-tests; its 184 actual outputs remain unrun. Gate map `7d087dd` scopes the
+native workflow to three callers, four native files, and XSH/XSHT products.
+Cache fix `f3afacb63` is on main as `af7c55374`; its root and non-root cases,
+check, and lint pass. These checks grant no performance credit. See the [current
+handoff](HANDOFF.md) for the failures and retained replay evidence.
 
 The accepted `df` repair from `507` replaces the shared-filesystem counter
 comparison with same-output invariants and exact counters on a private 64 MiB
@@ -44,17 +54,20 @@ is active. Later review found all chain 01, 03, and 04 captures unqualified
 because 64 mutable main-import paths crossed 218 source entries; the seven
 mismatches are only the visible subset. The closure builder passes 8 tests as
 root and controller wiring is active on a separate e240 program snapshot. No
-new captures exist and W9 parity is not accepted.
+new captures exist and W9 parity is not accepted. Schema-4 source checkpoint
+`191` passed 52 focused tests. Integrated checkpoint `9acd` passes 200 plus 52
+Python tests. Review found config-consumed roots were not compared with
+audit-config bytes; helper closure repair is active. No native build, capture,
+or parity result exists.
 
-Inference checkpoint `037` passes 183/207 full tests, lowerer 35/46 outside the
-corpus, semantic 19, schemes 5, scheme-body 3, and alias 1. Paired native routes
-pass 3/9. Shape fix `9ad` and module fixture `4f1` are integrated but
-unverified. Checker `85e` is under review; BlockOwner and rest-parameter proofs
-remain in progress. The cohort scan's 9,194-site count and ten P2 repair units are not accepted
-while a config-deletion bypass is under repair. No annotations have been
-removed. No inference is on main; Lean remains paused. Final acceptance and the
-post-consolidation performance baseline remain
-incomplete. See
+Isolated inference pipeline `7ef89df4e` has scalar/list proof commits `6135`
+and `7ef8`, which are not compiled. The prior diagnostic passes 206/207 full
+tests and 44/46 lowerer tests outside the corpus. Capture-writer and
+runtime-identity repairs remain source-only with a known red witness. No
+inference is on main. The cohort scan's 9,194-site count and ten P2 repair units
+remain unaccepted while a config-deletion bypass is under repair. No annotations
+have been removed. Lean remains paused. Final acceptance and the
+post-consolidation performance baseline remain incomplete. See
 [the current handoff](HANDOFF.md) for per-lane evidence.
 
 **Earlier checkpoints:** The implementation and focused

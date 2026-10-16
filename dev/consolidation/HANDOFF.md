@@ -17,11 +17,20 @@ tests and its plan test passes 1/1. Shell syntax check and real workload test
 The canonical batch on `e89e35f29` ended with exit 3 and 13 native failures.
 It left source clean before and after. Cleanup resolved, with no OOM or swap;
 the container is absent. No canonical suffix or performance close was reached.
-Main later integrated hostname repair `06a` at `63734367c`; its 22 driver unit
-tests and three focused hostname tests pass. No full canonical rerun followed.
-The preceding canonical run at `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542`
-ended with the failure detailed below. Historical gate helpers require fresh
-paths and source qualification.
+Follow-up repairs on main address all 13 failure causes: hostname `63734367c`,
+lifecycle `fff7fed23` and `610a22965`, and OS `14adcd5e6`. Their exact focused
+tests pass (3, 8, and 2 respectively). The integrated `14ad` run passed 15/15
+exact tests and `xsht check`. The corrected four-caller gate passed 45/45. Its
+two earlier `docker.host_link_tools` errors came from missing mold and common
+Git mounts; the corrected runner needed no source patch. Cache fix `f3afacb63`
+is on main as `af7c55374`. Main is now `3bae6555c`; route-runner fixes `36d58`
+and `70192` are integrated. Seven integrated runner tests and 63 route self-tests
+pass. The private `gates` debug-default lint warning is removed without changing
+its `Bool` contract. Source check, lint, and exact plan are running. The
+canonical batch has not rerun and remains held for W9 source-closure tooling
+review. The preceding canonical run at
+`8d0d6362418a6ab1b58582cf5574a7e0f4ac3542` ended with the failure detailed
+below. Historical gate helpers require fresh paths and source qualification.
 
 Acceptance launch, structural/semantic review, loop selection, typing witness
 readiness, and historical AWK evidence were inventoried independently. No Lean
@@ -114,6 +123,28 @@ work is authorized by this resume.
   [container resources](evidence/canonical-e89/container-resources.json), and
   [bootstrap receipt](evidence/canonical-e89/bootstrap-receipt.json) preserve
   the failure and source qualification.
+- Follow-up repairs on main address all 13 native failure causes. Hostname
+  commit `63734367c` passes three exact tests. Lifecycle commits `fff7fed23`
+  and `610a22965` pass eight exact tests. OS commit `14adcd5e6` fixes cat's
+  proc-fd handling and the XDG cache path; both exact tests pass. The integrated
+  `14ad` run passed 15/15 exact tests and `xsht check`. The corrected four-caller
+  gate passed 45/45 with no failures or skips. Its two earlier
+  `docker.host_link_tools` errors came from missing mold and common Git mounts;
+  the corrected runner passed without a source patch. No full canonical batch
+  has rerun.
+- Route-pin refresh `f19` preserves all 92 child-byte outputs and passes 62
+  self-tests. Its 184 actual child outputs have not run. Gate map `7d087dd`
+  scopes the native workflow to three callers, four native files, and the
+  XSH/XSHT products. Cache fix `f3afacb63` is on main as `af7c55374`; its root
+  and non-root cases, check, and lint pass. These checks claim no performance
+  credit.
+- Main is at `3bae6555c`. Route-runner fixes `36d58` and `70192` preserve
+  explicit product attestations and use the canonical `xsht` path in the
+  collector. Seven integrated runner tests and 63 route self-tests pass. The
+  lint warning for the private `gates` debug default is removed; its `Bool`
+  contract is unchanged. Source check, lint, and exact plan
+  are running. The canonical batch remains held for W9 source-closure tooling
+  review, not inference.
 - The 13 native failures fall into three groups:
   - Hostname (3): `core/tests/test-bb-hostname.xsh::test_bb_hostname_hostname_i_works_89c47685`,
     `core/tests/test-hostname.xsh::test_hostname_ip_address_lists_distinct_addresses`,
@@ -135,9 +166,9 @@ work is authorized by this resume.
     `tests/xsh/stdlib/fs.xsh::test_fs_tree_metadata_install_and_locking`.
     The socket reports `invalid-argument: unix socket name is too long or
     contains NUL`; the filesystem test reports `fs-dir: Permission denied`.
-    Both remain under investigation. Full native uses
+    Both were under investigation at `e89`. Full native used
     `/work/.work/tmp/native-tests-1000-1000/tmp`; the socket path may exceed
-    108 bytes, so path length is not ruled out.
+    108 bytes, so path length remained plausible before the later repair.
 - The [8d acceptance follow-up](evidence/acceptance-follow-up-8d/README.md)
   records the terminal canonical batch on clean source
   `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542`: exit 3 at XSHT after integration
@@ -181,10 +212,21 @@ work is authorized by this resume.
   paths across 218 source entries make the seven mismatches only a subset.
   The closure builder passes 8 tests as root. Controller wiring is active on a
   separate e240 program snapshot; no new captures exist. W9 parity is not
-  accepted.
-- Pure inference pipeline `360ed` carries the cohort record and raw 9,194-site
-  count. Its `0ea` diagnostic passes 206/207 full tests, 44/46 lowerer tests
-  outside the corpus, semantic 23, schemes 8, declarations 9, and two module
+  accepted. Schema-4 source checkpoint `191` passed 52 focused tests. Integrated
+  checkpoint `9acd` passes 200 plus 52 Python tests. Review found that
+  config-consumed roots were not compared with audit-config bytes. The helper
+  closure repair is active; no native build, capture, or parity result exists.
+- Isolated inference pipeline `7ef89df4e` has scalar/list proof commits `6135`
+  and `7ef8`, which are not compiled or accepted. Source review found an
+  empty-splice over-rejection and a proof gap in Int/UInt binder substitution.
+  Corrective source work is active, and Cargo remains held. The prior `0ea`
+  diagnostic passes 206/207 full tests and 44/46 lowerer tests outside the
+  corpus. Capture-writer and runtime-identity repairs remain source-only with a
+  known red witness. No inference implementation is on main.
+- Earlier pure inference pipeline `360ed` carries the cohort record and raw
+  9,194-site count. Its `0ea` diagnostic records 206/207 full tests, 44/46
+  lowerer tests outside the corpus, semantic 23, schemes 8, declarations 9,
+  and two module
   tests. Lower diagnostic fixes `0624` and docs `4c390` are integrated, with
   compilation pending. Red type-forgery capture `067` is confirmed; its origin
   fix and scalar/list proofs are active. Shape fix `9ad` and module fixture
@@ -581,12 +623,21 @@ work is authorized by this resume.
 ### Current queue
 
 The canonical batch on `e89e35f29` ended at native tests with exit 3, as
-recorded above. Main later integrated hostname repair `06a` at `63734367c`; 22
-driver unit tests and three focused hostname tests pass, but the full canonical
-batch has not been rerun. The `df` capacity repair from `507` is integrated.
-The focused check and lint, fake runner 11/11, plan 1/1, `sh -n`, and real
-workload test `2ab` 1/1 pass as detailed above. The earlier `8d` canonical
-failure is historical and remains documented above.
+recorded above. All 13 failure causes have targeted fixes, and their exact tests
+pass. The corrected four-caller gate passes 45/45. Its two earlier
+`docker.host_link_tools` errors came from missing mold and common Git mounts;
+the corrected runner needed no source patch. Main is now `3bae6555c`. The
+`df` capacity repair from `507` is integrated. Focused check and lint, fake
+runner 11/11, plan 1/1, `sh -n`, and workload test `2ab` 1/1 pass as detailed
+above. The earlier `8d` canonical failure is historical and remains documented.
+
+Route-runner fixes `36d58` and `70192` preserve explicit product attestations
+and use the canonical `xsht` path in the collector. Seven integrated runner
+tests and 63 route self-tests pass. The private `gates` debug-default lint
+warning is removed without changing its `Bool` contract. Source check, lint,
+and exact plan are running. Canonical preflight sees unchanged Rust since `e89`
+and sufficient host headroom. The canonical batch has not rerun and remains
+held for W9 source-closure tooling review, not inference.
 
 Stable copied-artifact suffix rerun of `a22` passes check 1,526, lint zero
 findings/113 notes, metrics, and docs/tour 3. The shared `xsh` drift from
