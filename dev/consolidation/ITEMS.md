@@ -5,49 +5,44 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `master` in `/home/josh/d/laputa-systems/xsh`; the owner merged consolidation
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
-**Status: active and incomplete, 2026-10-16.** Canonical source
-`8d0d6362418a6ab1b58582cf5574a7e0f4ac3542` ended with XSHT exit 3 on the
-original `df` filesystem-capacity desugar test (192512 instead of 65536); its
-transformed counterpart passes. Earlier counts were integration 223, auxiliary
-23, symbol 1, PTY 58 passed/3 ignored, debug 747 passed/3 ignored, and XSHT 115
-passed/1 failed/5 filtered. No later stages, full native suite, or canonical
-suffix ran. Source was clean before/after, with no OOM or swap; cleanup resolved
-and the container is gone. This is a historical failure checkpoint.
+**Status: active and incomplete, 2026-10-16.** The canonical batch on clean
+source `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542` ended at XSHT with exit 3 on
+the original `df` filesystem-capacity desugar test (192512 instead of 65536);
+its transformed counterpart passed. Earlier stages were integration 223,
+auxiliary 23, symbol 1, PTY 58 passed/3 ignored, debug 747 passed/3 ignored,
+and XSHT 115 passed/1 failed/5 filtered. No later stage, full native suite, or
+canonical suffix ran. Source checks matched before and after. No OOM or swap
+occurred; cleanup resolved and the container is gone. This remains historical.
 
-At main checkpoint `507`, the accepted `df` repair replaces the cross-shared-
-filesystem counter assertion with same-output invariants and exact counters on
-a private 64 MiB tmpfs, using a controlled 256 KiB host writer. Original and
-desugared variants each pass two tests with zero skips; check and lint pass, and
-the integrated two tests pass. A new full verification batch has not started; no terminal result
-is recorded.
+Main is frozen at `e89e35f29`. The accepted `df` repair from `507` replaces the
+shared-filesystem counter comparison with same-output invariants and exact
+counters on a private 64 MiB tmpfs, using a controlled 256 KiB host writer.
+Cargo runner lock handoff `fcf` and selector fix `e89` are integrated. Integrated
+check and lint pass on four files. Fake runner lane `5f21` passes 11 tests, its
+plan test passes 1/1, and `sh -n` passes. Real workload test `2ab` passes 1/1.
+One fresh bootstrap and canonical batch are authorized for `loop_speed` and
+being prepared. No batch result is available. The stable copied-artifact suffix
+rerun of `a22` passes check 1,526, lint zero findings/113 notes, metrics, and
+docs/tour 3. Queue `b6` passes 11 tests and four-file check/lint; SGID private-
+scratch passes three Python regression scripts; `f958` passes focused lint with
+zero findings/notes and three negative preflight cases. These suffix results
+use immutable copied products after the shared `xsh` hash changed `a911`→`d058`.
 
-Stable copied-artifact suffix rerun of `a22` passes check 1,526, lint zero
-findings/113 notes, metrics, and docs/tour 3. Queue `b6` passes 11 tests and
-four-file check/lint; SGID private-scratch passes three Python regression
-scripts; `f958` passes focused lint with zero findings/notes and three negative
-preflight cases.
-The copied rerun qualifies those suffix results despite the earlier shared
-`xsh` hash change `a911`→`d058`. No functional close or performance credit is
-claimed.
+W9 source repair `b8` passes 213 Python tests and is integrated. The full
+schema-3 comparison at controller `bef` processed 1,690 inputs and 6,760
+outcomes, then exited 1. It found seven exact-owner legacy-projection
+mismatches at indices 885, 887, 889, 897, 899, 1686, and 1688. Investigation
+is active; no rerun or parity acceptance is reported.
 
-The runner lock-handoff source prototype remains active.
-
-The owner authorized wider, staggered inference implementation in isolated
-worktrees while consolidation acceptance runs, superseding the old
-wait-before-lowerer sequence. No inference implementation is on main. Typing
-pipeline `4b` passes fresh builds/check/lint; verifier passes 178/205, lowerer
-34/42 (corpus-120 timeout is not a pass), semantic 19, schemes 5, and body 3.
-Paired native routes pass 3/8. Mixed-`Any`/alias fix `6a` in pipeline `520` is
-unverified. A diagnostic initially suggested a producer-association bug, but
-the next trace established a one-based block-ID lookup error in the verifier.
-The emitted return and its fact agree. The verifier lookup and reversed
-default/rest parameter encoding flags are under repair. W9 chain `04` corrected capture on source
-`74f`/schema 3 passes 6,760 outcomes across 68 ranges; both original exact-owner
-proofs cover 1,690 inputs. Historical source qualification fix `bef85594c`
-passes 71 focused tests and revalidates all chain-03 assignment proofs without
-changing its receipt. One corrected comparison is authorized; no terminal result
-or parity acceptance is claimed. See [the current handoff](HANDOFF.md) for pins,
-per-lane status, and evidence. Lean remains paused.
+Inference checkpoint `037` passes 183/207 full tests, lowerer 35/46 outside the
+corpus, semantic 19, schemes 5, scheme-body 3, and alias 1. Paired native routes
+pass 3/9. Shape fix `9ad` and module fixture `4f1` are integrated but
+unverified. Checker `85e` is under review; BlockOwner and rest-parameter proofs
+remain in progress. The preliminary cohort scan found 9,194 sites; the count is
+not accepted. Ten P2 repair units are under review. No annotations have been
+removed. No inference is on main; Lean remains paused. Final acceptance and
+the post-consolidation performance baseline remain incomplete. See
+[the current handoff](HANDOFF.md) for per-lane evidence.
 
 **Earlier checkpoints:** The implementation and focused
 repairs are integrated on `master`. The latest bounded corpus-worker and

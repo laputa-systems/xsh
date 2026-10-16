@@ -2,17 +2,19 @@
 
 Status: resumed on 2026-10-15 for consolidation acceptance and the typing
 successor. The owner explicitly resumed after the documentation refresh.
-Consolidation acceptance remains incomplete. The current canonical batch is
-complete on source `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542` and exits 3 on an
-XSHT desugar mismatch in the `df` filesystem-capacity test. No full native or
-canonical suffix stages ran. A separate stable copied-artifact suffix rerun
-passes as recorded in the handoff. Main is clean and unfrozen after the failed
-batch; its result does not close consolidation. The owner authorized staggered
-inference implementation in isolated worktrees on 2026-10-15 and widened that
-parallel authorization on 2026-10-16. This supersedes the earlier
-wait-before-lowerer sequence: independent successor work may continue while
-acceptance runs. Inference remains off main until consolidation closes. The
-accepted post-consolidation performance baseline still waits for consolidation
+Consolidation acceptance remains incomplete. Main is frozen at `e89e35f29`.
+The accepted `df` repair from `507` is integrated. Integrated check and lint
+pass on four files. Fake runner lane `5f21` passes 11 tests and its plan test
+passes 1/1. `sh -n` passes, and real workload test `2ab` passes 1/1. One fresh
+bootstrap and canonical batch are authorized for `loop_speed` and are being
+prepared. No result is available. W9 source repair `b8` is integrated. The
+schema-3 comparison at controller `bef` processed 1,690 inputs and 6,760
+outcomes, then exited 1. It found seven exact-owner legacy-projection
+mismatches at indices 885, 887, 889, 897, 899, 1686, and 1688. Investigation
+is active. No rerun or W9 parity acceptance is reported. The owner authorized
+staggered inference work in isolated worktrees on 2026-10-15 and widened that
+authorization on 2026-10-16. Inference remains off main until consolidation
+closes. The accepted post-consolidation performance baseline still waits for
 close. Lean and Phase F remain paused. Parked source is recovery material, not
 accepted implementation.
 
