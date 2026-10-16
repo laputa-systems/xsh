@@ -1,41 +1,114 @@
 # XSH Consolidation Campaign
 
-Status: winding down 2026-10-16. Finish only already-held items; launch no
-new lanes, tests beyond their existing closure checks, or campaign waves.
-The winddown integration branch is `campaign/winddown-20261016`; master stays
-at `56bf3286c` until the already-running W9 attempt releases its controller
-freeze. Inference remains isolated. Lean and Phase F remain paused.
+Status: paused 2026-10-16. No new items or lanes may start. Lean and
+Phase F remain paused. Inference has not merged to main and has no accepted
+end-to-end first slice. The earlier status sections below are historical.
 
-The last full canonical run, on `7b1485310abdf2190ce4532d840114e74ff7c2cd`,
-failed: 13,902 passed, 3 failed, 78 skipped. Qualified default products on
-`be0b79a48403d74b11186166ba739a81dcbed702` and its focused PCI before/after
-check pass. Isolated rm and sort selectors also pass; they do not close the
-full-suite failures. See [canonical evidence](evidence/canonical-7b148/README.md),
-[PCI evidence](evidence/rooted-path-openat2-9b2/README.md), and
-[rm/sort evidence](evidence/rm-sort-isolated-be0b/README.md).
+## Stop handoff, 2026-10-16
 
-The behavioral acceptance blockers are a fresh canonical run, W9 parity,
-current route-matrix collection, and mandatory resource gates. W9's be0b
-captures failed strict validation because the derived helper removed AST-owner
-rows. The producer repair and consumer repairs are integrated; 274 Python
-checks pass. The next discriminating W9 test is a newly sealed input-0 capture
-with independent owner projection and source-audit checks before the full
-1,690-input / 6,760-outcome run. [Failure evidence](evidence/w9-owner-row-derivation-be0b/README.md)
-retains the rejected captures' minimal reproducer.
+- **Resume:** “Resume the XSH campaign from dev/consolidation/CAMPAIGN.md;
+  keep Lean and Phase F paused and inference isolated until consolidation
+  acceptance permits its merge.” First run, from the repository root:
+  `git status --short && git worktree list`. Read this block and
+  [HANDOFF.md](HANDOFF.md) before selecting an item. Reading is not a resume.
+- **State:** integration is `master`; winddown was prepared on
+  `campaign/winddown-20261016` so the W9 controller could stay frozen at
+  `56bf3286c`. This stop integrates the already-held XSHT Clippy repairs and
+  audited route collector. Workspace source/build inputs match isolated
+  Clippy qualification `e55dc689`; the separate collector source matches
+  `dc64ac3f5`. Root reran its 65 Python controls after integration.
+- **Known red:** the last complete canonical run remains 7b: 13,902 pass,
+  3 fail, 78 skip. Focused PCI/rm/sort passes do not close it. The approved
+  56bf supplemental run built products and three harnesses, then failed
+  XSHT Clippy; the five Linux contexts did not execute. Clippy repairs are
+  qualified separately, not a rewrite of that failure. Current route matrix,
+  mandatory resource gates, and final canonical acceptance remain open.
+- **W9:** the held attempt used frozen controller/candidate `56bf3286c`.
+  All adapter and exact-owner captures, the derived capture (6,760 outcomes),
+  and assignment capture (1,690 inputs) completed. Seven assignment controls,
+  both 1,690-owner proofs and three native hash admissions passed. The first
+  comparison failed because cleanup removed a receipt's historical source
+  checkout. That exact checkout and patch were restored. A separately named
+  compare-only retry used unchanged captures and reached 225 inputs / 900
+  outcomes with zero observed mismatches before the 15-minute winddown bound.
+  The runner exit was -2 after signal 15. Status remains incomplete with zero
+  completed ranges. W9 parity is open; no further attempt starts during pause.
+  [The W9 stop evidence](evidence/w9-final-56bf/README.md) retains both attempts,
+  exact commands, admission receipts and the required historical patch.
+- **Open lanes:** all inference work is parked on
+  `campaign/typing-pipeline-integration` at `e2cf1fec2` (implementation
+  `e20914bb9`): 286 selected Rust passes, native 19/20; no slice acceptance.
+  Generic pure exports are omitted from exact module types. Static shared
+  module export materialization also resolves values by global name, which
+  cannot preserve ownership across collisions. The next edit is the approved
+  exact GenericPure marker plus initialized-value retention by binding identity;
+  [the parked reproducer and repair contract](winddown/typing-first-slice.md)
+  name the consumers and required negative/import/frontend-disposal tests.
+  Do not integrate the optional Arc experiment or start composition yet.
+- **Parked support:** `campaign/typing-solver-warning-closure` at `7d27ee07d`
+  has the reviewed test-only API cleanup (47 constraint + 9 scheme tests
+  and production check pass). It is not integrated into inference. Stage the
+  remaining rigid diagnostic enum/consumer together when resuming. Existing
+  always-on counter storage/increments stay intact. The body-count result
+  counts only the final Checker, and retained-byte estimates are not RSS or
+  one simultaneously live graph. No speedup is claimed.
+- **Not started:** after explicit resume, finish the parked inference ownership
+  item and its same-pin named gate; seal the next consolidation source and
+  rerun the approved supplemental/canonical gates under their existing owners;
+  finish strict W9 comparison as a new identified attempt using the retained
+  immutable inputs and existing admission rules;
+  execute current 184 route probes plus 64 source-order cases once on that
+  final freeze and collect the real matrix; complete mandatory resource checks.
+  No new owner decision is pending for the approved replacement gate plan.
+  The broader inference goals remain open; the next composition is a generic
+  helper calling identity/projection after first-slice acceptance. The raw
+  9,194 annotation sites are an inventory, not an accepted denominator.
 
-The approved supplemental gate reached Clippy and failed on a needless borrow
-in an mdev test. Its focused repair passes; a separately identified full attempt
-is required. Be0b route executions pass 184/184 and source-order executions
-64/64. The isolated collector still needs its typed-scalar decoder contract
-updated before those results earn matrix credit. See the [handoff](HANDOFF.md)
-for exact sources, failed attempts, and the bounded closure queue.
+### Retained worktrees
 
-The inference slice remains isolated under one coherence owner. At `e2ecbb906`,
-the prepared frontend-disposal test passes on both routes, but the expanded
-Rust/native groups expose new driver-annotation verification regressions.
-They are being repaired before one final named capability matrix is accepted.
-Main merge remains blocked on consolidation acceptance. Optional Arc storage
-is separate; no performance or general-inference completion is claimed.
+All paths are under the repository's disk-backed `.work/wt/`. Keep these clean
+checkouts because the retained W9 receipts name their exact paths. Recreate
+other parked lanes from the branch index when explicitly resuming them.
+
+| Path below `.work/wt/` | Source | Reason |
+|---|---|---|
+| `consolidation-final-56bf` | `56bf3286c` | immutable candidate used by the W9 attempt |
+| `w9-adapter-ref-e240` | `e240efad2` | immutable W9 compiler reference |
+| `w9-program-e240` | `e240efad2` | sealed W9 program and imported inputs |
+| `w9-derived-api-imports` | `74f1551ee` on `campaign/w9-derived-api-imports` | derived reference producer |
+| `w9-derived-retry-context-bb` | `1fd9e5f2f` | historical source required by the derivation receipt |
+| `typing-cohort-laputa` | `ca658ce1d` | clean independent Laputa clone used for corpus inventory |
+
+The Laputa clone is a separate repository, not a registered XSH worktree. Its
+commit also resolves in the sibling Laputa repository. Other source snapshots
+and four diagnostic overlays survive on committed parked branches. Ignored
+logs and caches from removed worktrees remain in the optional local archive
+described in [winddown recovery](winddown/README.md#2026-10-16-stop).
+
+### Verified at the stop
+
+The branch index covers all 1,173 local branch names and every recorded tip
+resolves to a commit. The retained source checkouts are clean. Main is clean
+after the final handoff commit. Logs and caches were kept; removing source
+worktrees reclaimed about 19 GiB. No campaign build, test, lane worker or
+watcher remains. Cargo and native-suite locks are free. No campaign timer was
+installed, and the user crontab is absent.
+
+The resume command was rehearsed under `env -i`, local document links were
+opened, and `.work/` is ignored through `.git/info/exclude` on ext4. The source
+path scan found no temporary-directory dependency in current campaign/brief
+text. The skill's remaining temporary-directory mention is a prohibition.
+The configured Stop guard has a recorded trusted hash. The `/hooks` UI is not
+available through this API; the configured guard was checked directly.
+Canonical, current route-matrix and mandatory resource gates were not rerun
+during this stop. No performance acceptance or release is claimed.
+
+Detailed evidence: [canonical](evidence/canonical-7b148/README.md),
+[PCI](evidence/rooted-path-openat2-9b2/README.md),
+[rm/sort](evidence/rm-sort-isolated-be0b/README.md),
+[failed and corrected Clippy](evidence/clippy-56bf-warning-deny-01/README.md).
+The [branch index](winddown/branches.tsv) names parked alternatives; preserve
+their histories without treating them as accepted or mass-merging them.
 
 ## Owner steering, 2026-10-15
 
@@ -981,7 +1054,7 @@ The owner paused implementation and requested a durable restart handoff. See
 [`HANDOFF.md`](HANDOFF.md) for the integration checkpoint, unmerged commits,
 unfinished diffs, completed versus interrupted gates, environment recovery,
 and remaining campaign work. All owned jobs are stopped. Required artifacts
-and extra source snapshots are on disk outside `/tmp`; resume only on the
+and extra source snapshots are on disk under `.work/`; resume only on the
 owner's request. The campaign is not complete.
 
 ### 2026-10-11 — approval and Setup started
@@ -1028,7 +1101,7 @@ owner's request. The campaign is not complete.
 - Established the three internal designs under `designs/`. Their schema,
   child-order, semantic-walker, lint-fact, and fix-proof invariants constrain
   later implementation slices.
-- Owner requested disk-backed worktrees and build artifacts outside `/tmp`.
+- Owner requested disk-backed worktrees and build artifacts under `.work/`.
   All campaign worktrees use `xsh-consolidation-lanes`; logs, launchers,
   frozen binaries, and scratch evidence use `.work/consolidation`.
 - Owner excluded `dev/compat` check/lint while compatibility is WIP.
@@ -1481,3 +1554,11 @@ The final report must answer, in order:
 5. For a typing-only report, state that Lean is deferred by the owner and does not block typing acceptance. Only after an explicit Lean resume, report which statements form a connected proof/correspondence milestone, which are finite empirical evidence, and which universal obligations remain unproved.
 
 The desired outcome is not another large volume of syntax, formal fragments, or acceptance paperwork. It is an annotation-light, fast, soundly constrained compiler whose existing corpus and formal layer test the same semantic contracts.
+
+### 2026-10-16 — paused after integrated lane winddown
+
+Integrated the held Clippy and collector repairs and preserved their focused
+qualification. Parked inference with the exact module-export and value-ownership
+blockers. Preserved full W9 captures and the incomplete bounded comparison.
+Removed retired source worktrees while keeping logs, caches and parked branch
+history. Resume only on the owner's explicit request. Lean remains paused.
