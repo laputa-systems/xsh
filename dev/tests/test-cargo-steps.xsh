@@ -120,6 +120,7 @@ test test_build_steps_run_cargo_under_the_preload_and_test_runs_do_not { |ctx|
   let log = fp"{root}/cargo.log"
   let library = fp"{root}/libjemalloc.so.2"
   let inherited_linker = env.get_or("CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER", "<unset>")?
+  let inherited_path = env.get_or("PATH", "")?
   library.write("")
   write_fake_toolchain(tools, ctx.xsh_bin, log)
   let repository = fs.cwd()?
@@ -154,7 +155,7 @@ docs.build_release(ctx)?
     ],
     args: [],
     env: {
-      PATH: tools,
+      PATH: f"{tools}:{inherited_path}",
       XSH_MODULE_PATH: fp"{repository}/dev",
       XSH_DEV_BUILD_PRELOAD: library,
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "",
@@ -195,7 +196,7 @@ docs.build_release(ctx)?
     stdout: ["[docs-build target=x86_64-unknown-linux-musl] cargo build --release"],
     args: [],
     env: {
-      PATH: tools,
+      PATH: f"{tools}:{inherited_path}",
       XSH_MODULE_PATH: fp"{repository}/dev",
       XSH_DEV_BUILD_PRELOAD: "",
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: rustflags,
@@ -214,7 +215,7 @@ docs.build_release(ctx)?
     stdout: ["[docs-build target=x86_64-unknown-linux-musl] cargo build --release"],
     args: [],
     env: {
-      PATH: tools,
+      PATH: f"{tools}:{inherited_path}",
       XSH_MODULE_PATH: fp"{repository}/dev",
       XSH_DEV_BUILD_PRELOAD: "",
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "",
@@ -231,7 +232,7 @@ docs.build_release(ctx)?
     status: 0,
     args: [],
     env: {
-      PATH: tools,
+      PATH: f"{tools}:{inherited_path}",
       XSH_MODULE_PATH: fp"{repository}/dev",
       XSH_DEV_BUILD_PRELOAD: "",
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: "",
@@ -245,4 +246,101 @@ docs.build_release(ctx)?
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsht --test integration -- --skip syntax::formatter_is_idempotent_on_laputa_corpus --skip lint_format_invariance::formatting_preserves_lints_on_laputa_corpus --skip examples::example_corpus_is_formatted --skip examples::example_corpus_lints_without_warnings --skip lint_performance::repository_lint_is_clean_within_wall_budget preload=",
     "test --locked --profile verification --target x86_64-unknown-linux-musl -p xsh-fuzz --test soundness preload=",
   ]
+}
+
+test test_cargo_compilers_in_different_targets_serialize_on_the_shared_lock { |ctx|
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("requires Linux flock")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "cargo-shared-lock")?
+  let tools = fp"{root}/tools"
+  let repository = fs.cwd()?
+  let lock_file = fp"{root}/.work/consolidation/infra/cargo.lock"
+  let first_script = fp"{root}/first.xsh"
+  let second_script = fp"{root}/second.xsh"
+  let xsh = ctx.xsh_bin
+
+  tools.mkdir()
+  fp"{tools}/rustc".write(f"#!{xsh}\nprint \"host: x86_64-unknown-linux-musl\"\n", mode: 0o755)
+  fp"{tools}/flock".write(
+    """#!/bin/sh
+: > "$LOCK_TEST_DIR/$LOCK_TEST_ROLE.flock"
+if [ "$LOCK_TEST_ROLE" = "second" ]; then
+  if /usr/bin/flock -n "$LOCK_TEST_LOCK" /bin/true; then
+    : > "$LOCK_TEST_DIR/second-unlocked"
+  else
+    : > "$LOCK_TEST_DIR/second-locked"
+  fi
+fi
+exec /usr/bin/flock "$@"
+""",
+    mode: 0o755,
+  )
+  fp"{tools}/cargo".write(
+    f"""#!{xsh}
+let root = fp"{{env.get("LOCK_TEST_DIR")?}}"
+let role = env.get("LOCK_TEST_ROLE")?
+fp"{{root}}/{{role}}.cargo".write("entered")?
+run /bin/cat fp"{{root}}/{{role}}.gate" > /dev/null
+""",
+    mode: 0o755,
+  )
+
+  let first_source = f"""
+use cargo_steps
+use stage as stages
+
+let root = p"{root}"
+let spec = stages.command("lock-first", "target-a", "cargo", ["cargo", "build", "--target-dir", "target-a"], root,
+  {{LOCK_TEST_DIR: "{root}", LOCK_TEST_LOCK: "{lock_file}", LOCK_TEST_ROLE: "first"}})
+cargo_steps.run_build(spec)?
+"""
+  let second_source = f"""
+use cargo_steps
+use stage as stages
+
+let root = p"{root}"
+let spec = stages.command("lock-second", "target-b", "cargo", ["cargo", "build", "--target-dir", "target-b"], root,
+  {{LOCK_TEST_DIR: "{root}", LOCK_TEST_LOCK: "{lock_file}", LOCK_TEST_ROLE: "second"}})
+cargo_steps.run_build(spec)?
+"""
+  first_script.write(f"#!{xsh}\n{first_source}", mode: 0o755)
+  second_script.write(f"#!{xsh}\n{second_source}", mode: 0o755)
+  let orchestration = fp"{root}/run-concurrent.sh"
+  orchestration.write(
+    f"""#!/bin/sh
+set -eu
+mkfifo "{root}/first.gate" "{root}/second.gate"
+export PATH="{tools}:$PATH"
+export XSH_MODULE_PATH="{repository}/dev"
+export XSH_DEV_BUILD_PRELOAD=
+"{first_script}" &
+first_pid=$!
+while [ ! -f "{root}/first.cargo" ]; do :; done
+"{second_script}" &
+second_pid=$!
+while [ ! -f "{root}/second-locked" ] && [ ! -f "{root}/second-unlocked" ] && [ ! -f "{root}/second.cargo" ]; do :; done
+if [ ! -f "{root}/second-locked" ] || [ -f "{root}/second-unlocked" ] || [ -f "{root}/second.cargo" ]; then
+  printf x > "{root}/first.gate"
+  printf x > "{root}/second.gate"
+  wait "$first_pid" || true
+  wait "$second_pid" || true
+  exit 1
+fi
+printf x > "{root}/first.gate"
+while [ ! -f "{root}/second.cargo" ]; do :; done
+printf x > "{root}/second.gate"
+wait "$first_pid"
+wait "$second_pid"
+""",
+    mode: 0o755,
+  )
+
+  run /bin/sh $orchestration
+  assert fp"{root}/first.cargo".exists()?
+  assert fp"{root}/second.cargo".exists()?
+  assert fp"{root}/second-locked".exists()?
+  assert ! fp"{root}/second-unlocked".exists()?
 }

@@ -39,10 +39,9 @@ export proc ensure_dir(directory: Path) [fs, error] -> Result[Unit, Error] {
   }
 }
 
-## Executes one visible direct process boundary and classifies failed status.
-export proc execute(spec: contract.CommandSpec) [process, error, io] -> Result[Unit, Error] {
+proc execute_with(spec: contract.CommandSpec, executable: Str, argv: List[Str]) [process, error, io] {
   print f"[{spec.stage} target={spec.target}] {spec.argv.join(" ")}"
-  let status = process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))?
+  let status = process.run(process.command_argv(executable, argv, cwd: spec.cwd, env: spec.environment))?
   return when status.ok
 
   let detail = if status.exited() {
@@ -53,4 +52,24 @@ export proc execute(spec: contract.CommandSpec) [process, error, io] -> Result[U
     "unknown process status"
   }
   return Err(StageError.Failed(stage: spec.stage, target: spec.target, detail:))
+}
+
+## Executes one visible direct process boundary and classifies failed status.
+export proc execute(spec: contract.CommandSpec) [process, error, io] -> Result[Unit, Error] {
+  execute_with(spec, spec.executable, spec.argv)
+}
+
+## Executes a command under flock with a 30-minute wait limit.
+export proc execute_with_flock(spec: contract.CommandSpec, lock_file: Path) [process, error, io] -> Result[Unit, Error] {
+  let flock = require_tool("flock")?
+  var argv = ["flock", "-w", "1800", "-x", lock_file.display(), spec.executable]
+  var skip_executable = true
+  for word in spec.argv {
+    if skip_executable {
+      skip_executable = false
+    } else {
+      argv += [word]
+    }
+  }
+  execute_with(spec, flock.display(), argv)
 }

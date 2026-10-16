@@ -1,6 +1,7 @@
 ##! Cargo build and test steps, and the allocator preload their compiler runs under.
 use stage as stages
 use stage_contract as contract
+use targets as target_policy
 
 ## A `rustc` built for a musl host allocates through musl's allocator, and a
 ## thin-LTO build then spends most of its time in the kernel. Preloading this
@@ -64,6 +65,31 @@ export pure preload_value(library: Path, inherited: Str) -> Str {
   f"{library}:{inherited.trim()}"
 }
 
+pure cargo_lock_path(cwd: Path) -> Path {
+  let worktree_parent = cwd.parent()
+  let worktree_area = worktree_parent.parent()
+  let shared_root = if worktree_parent.name() == "wt" and worktree_area.name() == ".work" {
+    worktree_area.parent()
+  } else {
+    cwd
+  }
+
+  fp"{shared_root}/.work/consolidation/infra/cargo.lock"
+}
+
+pure uses_shared_cargo_lock(host_os: target_policy.HostOs) -> Bool {
+  host_os == .Linux
+}
+
+proc ensure_cargo_lock_directory(lock_file: Path) [fs, error] {
+  let infra = lock_file.parent()
+  let consolidation = infra.parent()
+  let work = consolidation.parent()
+  stages.ensure_dir(work)
+  stages.ensure_dir(consolidation)
+  stages.ensure_dir(infra)
+}
+
 ## Turns a `cargo test` argv into the argv that builds the same test
 ## executables without running them.
 export pure test_build_argv(argv: List[Str]) -> List[Str] {
@@ -92,19 +118,17 @@ export pure test_steps(spec: contract.CommandSpec, library: Path?, inherited: St
 
   [
     Step(
-      spec: {
+      {
         ...spec,
         stage: f"{spec.stage}-build",
         argv: test_build_argv(spec.argv),
       },
-      preload: preload_value(library, inherited),
+      preload_value(library, inherited),
     ),
     Step(spec:, preload: null),
   ]
 }
 
-# The preload is an environment overlay that ends with the step, so a later
-# step never inherits it.
 proc execute(step: Step) [process, env, error, io] -> Result[Unit, Error] {
   let preload = step.preload
 
@@ -117,15 +141,44 @@ proc execute(step: Step) [process, env, error, io] -> Result[Unit, Error] {
   }
 }
 
+proc execute_with_cargo_lock(step: Step, lock_file: Path) [process, env, error, io] -> Result[Unit, Error] {
+  let preload = step.preload
+
+  if preload == null {
+    stages.execute_with_flock(step.spec, lock_file)
+  } else {
+    env ({LD_PRELOAD: preload}) {
+      stages.execute_with_flock(step.spec, lock_file)
+    }
+  }
+}
+
 ## Runs a Cargo step that only compiles, under this machine's preload.
 export proc run_build(spec: contract.CommandSpec) [fs, process, env, error, io] -> Result[Unit, Error] {
-  execute(build_step(spec, detect_preload()?, env.get_or("LD_PRELOAD", "")?))
+  let step = build_step(spec, detect_preload()?, env.get_or("LD_PRELOAD", "")?)
+  if uses_shared_cargo_lock(target_policy.host_os_tag(system.uname()?.sysname)?) {
+    let lock_file = cargo_lock_path(spec.cwd)
+    ensure_cargo_lock_directory(lock_file)
+    execute_with_cargo_lock(step, lock_file)
+  } else {
+    execute(step)
+  }
 }
 
 ## Runs a `cargo test` step: compiles under this machine's preload, then runs
 ## the tests without it.
 export proc run_test(spec: contract.CommandSpec) [fs, process, env, error, io] -> Result[Unit, Error] {
+  let linux_host = uses_shared_cargo_lock(target_policy.host_os_tag(system.uname()?.sysname)?)
+  let lock_file = cargo_lock_path(spec.cwd)
+  if linux_host {
+    ensure_cargo_lock_directory(lock_file)
+  }
+
   for step in test_steps(spec, detect_preload()?, env.get_or("LD_PRELOAD", "")?) {
-    execute(step)
+    if linux_host {
+      execute_with_cargo_lock(step, lock_file)
+    } else {
+      execute(step)
+    }
   }
 }
