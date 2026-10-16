@@ -458,6 +458,99 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         self.assertEqual(capture["outcome_count"], str(len(adapter_runner.PROFILES)))
         self.assertNotIn("legacy_capture_receipt", capture)
 
+    def test_schema_two_build_receipt_pins_approved_helper_to_candidate_cohort(self):
+        candidate_root = self.root / "candidate-source"
+        candidate_root.mkdir()
+        source_paths = (
+            pathlib.Path("tests/sema.rs"),
+            pathlib.Path("dev/consolidation/w9-source-build.sh"),
+            pathlib.Path("dev/consolidation/w9-publication-run.py"),
+            pathlib.Path("dev/consolidation/w9-publication-owner-helper.rs"),
+            pathlib.Path("dev/consolidation/winddown/gate-tools/w9-repository-parity.rs"),
+        )
+        for relative_path in source_paths:
+            destination = candidate_root / relative_path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self.repository / relative_path, destination)
+        for command in (
+            ["git", "init", "--quiet", str(candidate_root)],
+            ["git", "-C", str(candidate_root), "config", "user.name", "Test"],
+            ["git", "-C", str(candidate_root), "config", "user.email", "test@example.invalid"],
+            ["git", "-C", str(candidate_root), "add", *[str(path) for path in source_paths]],
+            ["git", "-C", str(candidate_root), "commit", "--quiet", "-m", "test(fixtures): initialize candidate source"],
+        ):
+            subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        candidate_commit, candidate_tree = self.runner.source_identity(candidate_root)
+        candidate_approved_helper = (
+            candidate_root / "dev/consolidation/winddown/gate-tools/w9-repository-parity.rs"
+        )
+        controller_approved_helper = adapter_runner.SOURCE_APPROVED_HELPER
+        source_record = dict(
+            self.source_record,
+            candidate_root=str(candidate_root),
+            candidate_commit=candidate_commit,
+            candidate_tree=candidate_tree,
+            builder_path=str(candidate_root / "dev/consolidation/w9-source-build.sh"),
+            builder_sha256=self.runner.sha256_file(
+                candidate_root / "dev/consolidation/w9-source-build.sh"
+            ),
+            runner=str(candidate_root / "dev/consolidation/w9-publication-run.py"),
+            runner_sha256=self.runner.sha256_file(
+                candidate_root / "dev/consolidation/w9-publication-run.py"
+            ),
+        )
+        record = dict(
+            self.build,
+            source_root=str(candidate_root),
+            source_commit=candidate_commit,
+            source_tree=candidate_tree,
+            builder_path=source_record["builder_path"],
+            builder_sha256=source_record["builder_sha256"],
+            runner_path=source_record["runner"],
+            runner_sha256=source_record["runner_sha256"],
+            approved_helper_path=str(candidate_approved_helper),
+            owner_helper_source_path=str(
+                candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+            ),
+            owner_helper_source_sha256=self.runner.sha256_file(
+                candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+            ),
+            overlay_sha256=hashlib.sha256(
+                adapter_runner._adapter_overlay(
+                    (candidate_root / "tests/sema.rs").read_bytes(), self.runner
+                )
+            ).hexdigest(),
+        )
+
+        def parse_candidate_build(build_record):
+            self.build_receipt.write_text(
+                "".join(
+                    f"{field}\t{build_record[field]}\n"
+                    for field in adapter_runner.SOURCE_ADAPTER_BUILD_FIELDS
+                ),
+                encoding="utf-8",
+            )
+            with patch.object(self.runner, "parse_candidate_receipt", return_value=source_record):
+                return adapter_runner._parse_adapter_build_receipt(
+                    self.build_receipt, "candidate", self.runner, self.owner_helper_source
+                )
+
+        self.assertNotEqual(controller_approved_helper, candidate_approved_helper)
+        self.assertEqual(
+            self.runner.sha256_file(controller_approved_helper),
+            self.runner.sha256_file(candidate_approved_helper),
+        )
+        parsed = parse_candidate_build(record)
+        self.assertEqual(parsed["approved_helper_path"], str(candidate_approved_helper))
+
+        with self.assertRaisesRegex(
+            adapter_runner.PublicationError,
+            "source-qualified approved helper identity differs",
+        ):
+            parse_candidate_build(
+                dict(record, approved_helper_path=str(controller_approved_helper))
+            )
+
     def test_schema_two_build_receipt_rejects_stale_source_runner_or_mixed_schema(self):
         for field, value, message in (
             ("source_root", str(self.root / "stale-source"), "source root"),
