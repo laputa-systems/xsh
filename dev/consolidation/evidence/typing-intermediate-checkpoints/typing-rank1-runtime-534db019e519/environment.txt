@@ -1,0 +1,5 @@
+image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+platform=linux/amd64
+network=none
+LD_PRELOAD=unset
+filter=sema::check::module_driver::tests::exported_generic_scheme_is_published_from_module_declaration_identity

@@ -1,0 +1,18 @@
+
+running 1 test
+test sema::check::module_driver::tests::exported_generic_scheme_is_published_from_module_declaration_identity ... FAILED
+
+failures:
+
+---- sema::check::module_driver::tests::exported_generic_scheme_is_published_from_module_declaration_identity stdout ----
+
+thread 'sema::check::module_driver::tests::exported_generic_scheme_is_published_from_module_declaration_identity' (13) panicked at src/sema/check/module_driver.rs:965:9:
+[Diagnostic { severity: Error, code: Some(CheckConst), message: "expression is outside the bounded constant data subset", span: None, labels: [Label { style: Primary, span: Span { source_id: SourceId(0), start: 26, len: 18 }, message: Some("constant preparation failed") }], notes: [], fix_hints: [] }, Diagnostic { severity: Error, code: Some(CheckMissingModuleDoc), message: "exported modules require a preceding ##! module doc comment", span: None, labels: [Label { style: Primary, span: Span { source_id: SourceId(1), start: 0, len: 37 }, message: Some("exported modules require a preceding ##! module doc comment") }], notes: [], fix_hints: [] }, Diagnostic { severity: Error, code: Some(CheckMissingPublicDoc), message: "exported declarations require preceding ## doc comments", span: None, labels: [Label { style: Primary, span: Span { source_id: SourceId(1), start: 0, len: 37 }, message: Some("exported declarations require preceding ## doc comments") }], notes: [], fix_hints: [] }, Diagnostic { severity: Error, code: Some(CheckLocalInference), message: "material type needs an annotation", span: None, labels: [Label { style: Primary, span: Span { source_id: SourceId(1), start: 30, len: 5 }, message: Some("no unique concrete type is established for this value") }, Label { style: Secondary, span: Span { source_id: SourceId(1), start: 21, len: 5 }, message: Some("type inference started here") }], notes: [], fix_hints: [] }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::check::module_driver::tests::exported_generic_scheme_is_published_from_module_declaration_identity
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 782 filtered out; finished in 0.01s
+

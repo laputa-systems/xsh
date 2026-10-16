@@ -58,6 +58,20 @@ export-visibility acceptance is claimed from these partial checkpoints.
 
 At `e63689e1d`, export visibility is captured on the pending declaration's
 identity and passed explicitly into checked publication. [Independent source
-review returns GO](typing-e636-source-review.md). Actual compilation and the
-new source-based module/export probe remain pending. The next lowering step
-has a retained plan; implementation waits for those gates.
+review returns GO](typing-e636-source-review.md). Compilation passes, and
+the source-based probe failure is recorded below. The next lowering step
+has a retained plan; implementation waits for that probe to pass.
+
+## Source-based module export failure
+
+The `e63689e1d` declaration-visibility repair compiles. Its actual module-source
+probe fails on an unsupported constant initializer, missing documentation, and
+an unresolved generic body expression. Test-only `534db019e` corrects the
+initializer and documentation. After a real recompilation (`fresh:false`),
+the exact probe still fails solely with `check.local-inference` on `value`.
+The runtime uses the pinned Linux image without preload, and source and harness
+identities match before and after.
+
+The checker retains a symbolic scheme body fact while also finalizing the same
+expression through its ground-type table. This ownership conflict is under
+repair. The failed probe gives no lowerer, import, or feature acceptance credit.

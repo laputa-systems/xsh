@@ -1,0 +1,11 @@
+
+running 1 test
+test sema::check::module_driver::tests::exported_generic_scheme_is_published_from_module_declaration_identity ... FAILED
+
+failures:
+
+failures:
+    sema::check::module_driver::tests::exported_generic_scheme_is_published_from_module_declaration_identity
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 782 filtered out; finished in 0.01s
+

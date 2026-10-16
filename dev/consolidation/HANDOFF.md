@@ -90,6 +90,11 @@ work is authorized by this resume.
 
 ### Latest canonical and solver checkpoints
 
+- Isolated test-only `534db019e` removes invalid fixture diagnostics from
+  the actual module-source export probe. Its fresh build passes, but the exact
+  probe still reports `check.local-inference` on the generic body expression.
+  [The retained failure](evidence/typing-intermediate-checkpoints/README.md#source-based-module-export-failure)
+  blocks lowering until symbolic and ground expression facts have separate owners.
 - Test-only `7d01429ba` repairs the generated ethtool namespace entry point
   by declaring its required `net` effect. [All 20 file tests pass](evidence/ethtool-fixture-7d014/README.md)
   both before and after integration, including every device-backed case.
@@ -107,7 +112,7 @@ work is authorized by this resume.
   all four hard zeros and the established 152/17/46 schema counts. Production
   source totals 268,539 lines, 60 above the original qualified baseline. The
   Linux test module is correctly excluded without a metric-policy change.
-- Isolated inference `935d7da01` passes a nonfresh library build, both new Any
+- Isolated inference `935d7da01` passes a recompiled library build, both new Any
   row regressions, all 42 constraints, all five schemes, and the synthetic export
   projection probe. Test-only `9ea2333e0` reproduces the two Any failures first.
   The real exported-identity handoff remains HOLD: visibility must persist on

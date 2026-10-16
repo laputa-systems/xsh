@@ -1,0 +1,5 @@
+head=534db019e519886f3431bb122c326301570da92e
+tree=ab219e62d2678a279e4855a6c479414a4240fc01
+status=module_driver_sha256=aa7cb35e1ad36801f550c188a6ea63e2bf39ebc0c2dec6264df626b1a855ae15  /home/josh/d/laputa-systems/xsh/.work/wt/typing-rank1-integration/src/sema/check/module_driver.rs
+harness_path=/home/josh/d/laputa-systems/xsh/.work/target-typing-regressions/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2
+harness_sha256=96d2bd8cf67f27eac1aa384cbd22aa0882b71747250b6c08c3a47cd73a043ea3  /home/josh/d/laputa-systems/xsh/.work/target-typing-regressions/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2
