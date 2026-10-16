@@ -12,7 +12,14 @@ transformed counterpart passes. Earlier counts were integration 223, auxiliary
 23, symbol 1, PTY 58 passed/3 ignored, debug 747 passed/3 ignored, and XSHT 115
 passed/1 failed/5 filtered. No later stages, full native suite, or canonical
 suffix ran. Source was clean before/after, with no OOM or swap; cleanup resolved
-and the container is gone. Main is clean and unfrozen for repair and review.
+and the container is gone. This is a historical failure checkpoint.
+
+At main checkpoint `507`, the accepted `df` repair replaces the cross-shared-
+filesystem counter assertion with same-output invariants and exact counters on
+a private 64 MiB tmpfs, using a controlled 256 KiB host writer. Original and
+desugared variants each pass two tests with zero skips; check and lint pass, and
+the integrated two tests pass. A new full verification batch has not started; no terminal result
+is recorded.
 
 Stable copied-artifact suffix rerun of `a22` passes check 1,526, lint zero
 findings/113 notes, metrics, and docs/tour 3. Queue `b6` passes 11 tests and
@@ -23,18 +30,22 @@ The copied rerun qualifies those suffix results despite the earlier shared
 `xsh` hash change `a911`→`d058`. No functional close or performance credit is
 claimed.
 
+The runner lock-handoff source prototype remains active.
+
 The owner authorized wider, staggered inference implementation in isolated
 worktrees while consolidation acceptance runs, superseding the old
 wait-before-lowerer sequence. No inference implementation is on main. Typing
-branch `1c` passes fresh builds/check/lint, but focused positives fail on
-missing `Return`; pipeline `4b71771f1` includes the Return fix and `41be` print
-fixtures. Its grouped build/focused checks and 205 full-verifier tests are
-queued, with no result yet. The paired native route is 3/8 passing; alias and
-mixed-`Any` work remains separate. W9 comparison stopped with 12 mismatches;
-corrected reference build `74f1551ee9e3066b653ae190779e16d511c90293` passed,
-and one derived capture is authorized but not yet reported; no comparison is
-authorized. No parity acceptance is claimed. See [the current handoff](HANDOFF.md)
-for pins, per-lane status, and evidence. Lean remains paused.
+pipeline `4b` passes fresh builds/check/lint; verifier passes 178/205, lowerer
+34/42 (corpus-120 timeout is not a pass), semantic 19, schemes 5, and body 3.
+Paired native routes pass 3/8. Mixed-`Any`/alias fix `6a` in pipeline `520` is
+unverified. Generic fact `Return` 16 / `value` 15 versus actual body `Return`
+19 / `value` 18 indicates a producer-association bug; verifier remains strict
+and the encoder owner is active. W9 chain `04` corrected capture on source
+`74f`/schema 3 passes 6,760 outcomes across 68 ranges; both original exact-owner
+proofs cover 1,690 inputs. Chain-03 rejects controller `a8` against new `aac`;
+historical source qualification repair is underway. No post-repair comparison
+or parity acceptance is claimed. See [the current handoff](HANDOFF.md) for pins,
+per-lane status, and evidence. Lean remains paused.
 
 **Earlier checkpoints:** The implementation and focused
 repairs are integrated on `master`. The latest bounded corpus-worker and

@@ -9,12 +9,15 @@ functional close or performance credit. Lean and Phase F remain paused.
 ## Current resume
 
 The owner resumed the typing consolidation campaign after the documentation
-refresh at `bfffd3af5e0002668e685e1711d7e6d9ee90ad51`. The canonical batch on
-`8d0d6362418a6ab1b58582cf5574a7e0f4ac3542`, tree
-`08769a1d438d5d93f55bb21e7a4dbe8051f7b966`, ended with XSHT failure and exit
-3. Source checks match before and after; cleanup completed, with no OOM or swap
-event. The container is gone and main is clean and unfrozen after the run.
-Historical gate helpers require fresh paths and source qualification.
+refresh at `bfffd3af5e0002668e685e1711d7e6d9ee90ad51`. Main is at checkpoint
+`507`; the accepted `df` repair replaces the cross-shared-filesystem counter
+assertion with same-output invariants plus exact counters on a private 64 MiB
+tmpfs, using a controlled 256 KiB host writer. Original and desugared variants
+each pass two tests with zero skips; check and lint pass, and the integrated two
+tests pass. A new full verification batch has not started.
+The preceding canonical run at `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542`
+ended with the failure detailed below. Historical gate helpers require fresh
+paths and source qualification.
 
 Acceptance launch, structural/semantic review, loop selection, typing witness
 readiness, and historical AWK evidence were inventoried independently. No Lean
@@ -122,14 +125,16 @@ work is authorized by this resume.
   launch raised `NameError` before Docker and ran no suites. The separate `8d`
   driver fix passes 22 tests as root. This launcher failure is not part of the
   canonical batch.
-- Typing branch `1c` passes fresh library and binary builds plus check and lint.
-  Its focused positive tests fail on missing `Return`; paired native routes
-  report 3/8 pass, with bare-print fixtures, alias, and mixed-`Any` cases
-  outstanding. Pipeline `4b71771f1` includes the Return fixes and `41be` print
-  fixtures. Its grouped build and focused gate plus 205 full-verifier tests are
-  queued; no result is available. A dedicated mixed-`Any`/alias lane is active.
+- Typing pipeline `4b` passes fresh builds, check, and lint. The full verifier
+  passes 178/205 tests; lowerer passes 34/42, with the corpus-120 timeout not a
+  pass; semantic, schemes, and body suites pass 19, 5, and 3 tests. Paired
+  native routes pass 3/8. Follow-on mixed-`Any`/alias fix `6a` in pipeline `520`
+  is unverified. Diagnostics show the generic fact at `Return` 16 / `value` 15
+  while the actual body is `Return` 19 / `value` 18, indicating a producer
+  association bug. The verifier remains strict and the encoder owner is active.
+  No inference is on main.
   SPEC docs render `0cf` passes only as a static check with old 787 products;
-  cohort plan `044` has no 95/85 result. No inference is on main.
+  cohort plan `044` has no 95/85 result.
 - Earlier typing results include a fresh compile of the library, `xsh`, `xsht`,
   and helper, with four encoding, five semantic, and one module-ground tests
   passing. Prepared and three forged tests failed on invalid doc/`Result`
@@ -138,11 +143,11 @@ work is authorized by this resume.
   lowerer `f53`→`fb`, and fixture lint/docs `a0`→`3d` fixes were not tested on
   that pin. The 1,520-case native harness entered both modes but executed zero
   cases: `indexed_build_instruction` attempted pattern-forwarder lookup at the
-  first test declaration. Source fixes `f71`/`86a` address that failure; no
-  post-fix native result is available.
-- W9 chain `03` passes 1,690 assignment proofs and 68 ranges. Its comparison
-  stopped after 75 inputs/300 outcomes, with 12 mismatches and exit 130. The
-  first input `52b2` differs only in resolved-binding import rows for
+  first test declaration. Source fixes `f71`/`86a` address that failure; the
+  later `4b` native results are recorded above.
+- W9 chain `03` passes 1,690 assignment proofs and 68 ranges. Its historical
+  comparison stopped after 75 inputs/300 outcomes, with 12 mismatches and exit
+  130. The first input `52b2` differs only in resolved-binding import rows for
   `system`/`unix`. Accepted bugfix `5366` removes the false ScopeChecker runtime
   `BindingID` rows from reference expectations for unaliased single-component
   API-registry imports; the actual checker does not publish these rows.
@@ -152,12 +157,11 @@ work is authorized by this resume.
   the exact nine-line source patch and leaves prior refs/captures unchanged.
   Schema 3's explicit combined-derivation controller at `aac` passes 85 Python
   tests. Corrected reference source `74f1551ee9e3066b653ae190779e16d511c90293`
-  builds successfully; its root-validated receipt is under
-  `.work/consolidation/w9-publication-adapter-v1-aljarimz/` as
-  `w9-publication-adapter-derived-reference-74f1551ee9e3.receipt`, binary SHA
-  `5c95fac28ebbaf52a92e31e277da010a57c0fda90389a9bd54232464335e867f`. One
-  derived capture is now authorized, but it has no result and no post-repair
-  comparison has run. No parity is claimed.
+  builds successfully. Chain `04` on that source and schema 3 passes the
+  corrected capture: 6,760 outcomes across 68 ranges; both original exact-owner
+  proofs cover 1,690 inputs. The chain-03 assignment rejects controller `a8`
+  against the new `aac`; historical source qualification repair is underway.
+  No post-repair comparison has run and no parity is claimed.
 - The [915 acceptance follow-up](evidence/acceptance-follow-up-915/README.md)
   records the suffix checks and focused head rerun. `xsht check` passes 1,542
   files; `xsht lint` exits zero with 72 findings and 115 notes, so lint is not
@@ -169,7 +173,8 @@ work is authorized by this resume.
   since advanced to `e31732415`; at that checkpoint focused checks passed:
   `xsht check` 1,526, exact archive 1, workflow 3 plus one skip, non-root 1,
   curl 2, and route 2. Lint reported two warnings and 113 notes, with fixes
-  assigned. The newer terminal 8d checkpoint is above.
+  assigned. The later terminal 8d batch and current 507 repair checkpoint are
+  above.
 - Earlier isolated successor checkpoints: checker `f734` passed a fresh build
   and 57 tests (body 3, focused 7, constraints 42, schemes 5); the earlier `1d`
   module-export, `FullNameOf`, and body-domain probes pass three tests. Draft
