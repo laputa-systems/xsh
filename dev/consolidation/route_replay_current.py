@@ -16,7 +16,7 @@ from typing import Any
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
-DRIVER_RELATIVE = pathlib.Path("dev/consolidation/evidence/routes-ed908/driver.py")
+DRIVER_RELATIVE = pathlib.Path("dev/consolidation/route_replay_driver.py")
 CONFIG_RELATIVE = pathlib.Path("dev/consolidation/winddown/gate-tools/semantic-route-matrix/evidence.json")
 SOURCE_PIN_KEY = "route_witness_source_commit"
 
@@ -75,7 +75,7 @@ def configure_source_pin(driver: ModuleType, config: dict[str, Any]) -> str:
 def load_route_driver(root: pathlib.Path) -> ModuleType:
     driver_path = checked_source_file(root, DRIVER_RELATIVE)
     spec = importlib.util.spec_from_file_location(
-        "routes_ed908_driver_current_replay", driver_path
+        "route_replay_driver_current", driver_path
     )
     if spec is None or spec.loader is None:
         raise CurrentReplayError(f"could not load retained route executor: {driver_path}")

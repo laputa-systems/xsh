@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import datetime as dt
 import fcntl
 import hashlib
@@ -23,7 +22,6 @@ sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 PINNED_SOURCE_COMMIT = "95488faf20621dd2fd182e840e4ff5fafdb0abfd"
-MAPPING_SHA256 = "d0f4084f9f3eccbdb7192cdc815ce47858156cd2eb00043bb99c9f0ac9f75e7b"
 IMAGE = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
 TARGET = "x86_64-unknown-linux-musl"
 CONFIG_PATH = pathlib.Path("dev/consolidation/winddown/gate-tools/semantic-route-matrix/evidence.json")
@@ -31,19 +29,7 @@ GENERATOR_PATH = pathlib.Path("dev/consolidation/winddown/gate-tools/semantic-ro
 SCHEMA_PATH = pathlib.Path("src/runtime/eval/indexed/full/schema.rs")
 LOCK_PATH = pathlib.Path(".work/consolidation/infra/native-suite.lock")
 CLEANUP_MARKER = pathlib.Path(".work/consolidation/infra/native-suite.cleanup-unresolved")
-MAPPING_FIELDS = (
-    "test_id",
-    "tag_name",
-    "ordinal",
-    "child_source_file",
-    "child_source_sha256",
-    "child_status",
-    "normal_route",
-    "forced_route",
-    "artifact_root",
-)
 MODES = ("normal", "forced")
-EXPECTED_CASES = 92
 CASE_TIMEOUT_SECONDS = 150
 OUTER_TERM_SECONDS = 10
 
@@ -110,28 +96,80 @@ def load_helper(root: pathlib.Path) -> Any:
     return module
 
 
-def read_mapping_table(path: pathlib.Path) -> list[dict[str, str]]:
+def build_case_rows(
+    root: pathlib.Path,
+    helper: Any,
+    config: dict[str, Any],
+    schema_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     try:
-        raw = path.read_bytes()
-        actual_digest = sha256_bytes(raw)
-        if actual_digest != MAPPING_SHA256:
-            raise ReplayError(f"mapping table digest differs: {actual_digest}")
-        with path.open(newline="", encoding="utf-8") as source:
-            reader = csv.DictReader(source, delimiter="\t")
-            if tuple(reader.fieldnames or ()) != MAPPING_FIELDS:
-                raise ReplayError("mapping table header differs from the reviewed 92-row format")
-            rows = list(reader)
-    except OSError as error:
-        raise ReplayError(f"could not read mapping table {path}: {error}") from error
-    if len(rows) != EXPECTED_CASES:
-        raise ReplayError(f"mapping table has {len(rows)} rows, expected {EXPECTED_CASES}")
-    if any(set(row) != set(MAPPING_FIELDS) or None in row.values() for row in rows):
-        raise ReplayError("mapping table contains a malformed row")
-    ids = [row["test_id"] for row in rows]
-    tags = [row["tag_name"] for row in rows]
-    if len(set(ids)) != EXPECTED_CASES or len(set(tags)) != EXPECTED_CASES:
-        raise ReplayError("mapping table repeats a test ID or schema tag")
+        mappings = helper.validate_route_witness_mappings(root, config, schema_rows)
+        helper.validate_scalar_route_oracle_mappings(config, set(mappings))
+    except (OSError, helper.EvidenceError) as error:
+        raise ReplayError(f"existing route-witness source validation failed: {error}") from error
+
+    expression_by_tag = {
+        row["tag"]: row for row in schema_rows if row.get("kind") == "Expr"
+    }
+    source_commit = config.get("route_witness_source_commit")
+    if source_commit != PINNED_SOURCE_COMMIT:
+        raise ReplayError("current route-witness source pin differs from the configured commit")
+
+    source_mappings = {
+        test_id: mapping
+        for test_id, mapping in mappings.items()
+        if "child_source" in mapping
+    }
+    source_tags = {mapping["tag"] for mapping in source_mappings.values()}
+    if source_tags != set(expression_by_tag):
+        raise ReplayError(
+            "source-validated child mappings do not cover every expression schema tag: "
+            f"missing={sorted(set(expression_by_tag) - source_tags)}; "
+            f"extra={sorted(source_tags - set(expression_by_tag))}"
+        )
+
+    rows: list[dict[str, Any]] = []
+    for test_id, mapping in sorted(
+        source_mappings.items(),
+        key=lambda item: (expression_by_tag[item[1]["tag"]]["ordinal"], item[0]),
+    ):
+        schema = expression_by_tag.get(mapping["tag"])
+        if schema is None:
+            raise ReplayError(f"source mapping names a non-expression schema tag: {test_id}")
+        source_bytes = helper.route_witness_source_bytes(root, mapping, source_commit)
+        if source_bytes is None:
+            raise ReplayError(
+                f"canonical test source differs from pinned {source_commit}: {test_id}"
+            )
+        if mapping["child_source"].encode("utf-8") != source_bytes:
+            raise ReplayError(f"configured child source bytes differ for {test_id}")
+        mode_expectations = mapping["mode_expectations"]
+        case_row: dict[str, Any] = {
+            "test_id": test_id,
+            "tag_name": mapping["tag"],
+            "ordinal": schema["ordinal"],
+            "source_bytes": source_bytes,
+            "child_source_sha256": sha256_bytes(source_bytes),
+            "mapping": mapping,
+            "schema": schema,
+        }
+        for mode in MODES:
+            expectation = mode_expectations[mode]
+            route_id = expectation.get("route_id")
+            if (
+                not isinstance(route_id, str)
+                or expectation.get("status") != "supported_by_artifact_format"
+                or not helper.route_witness_route_allowed(schema, mode, route_id)
+            ):
+                raise ReplayError(f"unsupported {mode} route mapping for {test_id}")
+            case_row[f"{mode}_route"] = route_id
+        rows.append(case_row)
     return rows
+
+
+def case_slug(row: dict[str, Any]) -> str:
+    test_id = row["test_id"].encode("utf-8")
+    return f"{row['ordinal']:03d}-{row['tag_name']}-{sha256_bytes(test_id)[:12]}"
 
 
 def normalized_under(path: pathlib.Path, parent: pathlib.Path, *, strict_parent: bool = True) -> pathlib.Path:
@@ -162,79 +200,9 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
     config = read_json(root / CONFIG_PATH, helper)
     try:
         schema_rows = helper.parse_schema((root / SCHEMA_PATH).read_text())
-        mappings = helper.validate_route_witness_mappings(root, config, schema_rows)
-        helper.validate_scalar_route_oracle_mappings(config, set(mappings))
+        rows = build_case_rows(root, helper, config, schema_rows)
     except (OSError, helper.EvidenceError) as error:
         raise ReplayError(f"existing route-witness source validation failed: {error}") from error
-
-    mapping_arg = args.mapping if args.mapping.is_absolute() else root / args.mapping
-    mapping_path = mapping_arg.resolve(strict=True)
-    normalized_under(mapping_path, root / ".work/tmp")
-    table_rows = read_mapping_table(mapping_path)
-    schema_by_tag = {row["tag"]: row for row in schema_rows if row["kind"] == "Expr"}
-    mapped_expression = {
-        mapping["tag"]: mapping
-        for mapping in mappings.values()
-        if "child_source" in mapping
-    }
-    if len(schema_by_tag) != EXPECTED_CASES or set(schema_by_tag) != set(mapped_expression):
-        raise ReplayError("schema expression rows and reviewed child-source mappings differ")
-    if {row["tag_name"] for row in table_rows} != set(schema_by_tag):
-        raise ReplayError("mapping table does not cover every live expression schema row")
-    if {row["test_id"] for row in table_rows} != {
-        mapping["test_id"] for mapping in mapped_expression.values()
-    }:
-        raise ReplayError("mapping table test IDs differ from the validated child-source mappings")
-
-    rows: list[dict[str, Any]] = []
-    for row in table_rows:
-        try:
-            ordinal = int(row["ordinal"])
-            child_status = int(row["child_status"])
-        except ValueError as error:
-            raise ReplayError(f"non-integer ordinal or child status for {row['test_id']}") from error
-        schema = schema_by_tag.get(row["tag_name"])
-        mapping = mappings.get(row["test_id"])
-        if schema is None or mapping is None:
-            raise ReplayError(f"source mapping is absent for {row['test_id']}")
-        if schema["ordinal"] != ordinal or mapping["tag"] != schema["tag"]:
-            raise ReplayError(f"schema tag or ordinal differs for {row['test_id']}")
-        if mapping["source_file"] != row["test_id"].split("::", 1)[0]:
-            raise ReplayError(f"source file differs for {row['test_id']}")
-        source_bytes = helper.route_witness_source_bytes(root, mapping, PINNED_SOURCE_COMMIT)
-        if source_bytes is None:
-            raise ReplayError(f"canonical test source differs from pinned {PINNED_SOURCE_COMMIT}: {row['test_id']}")
-        source_path = root / row["child_source_file"]
-        try:
-            extracted_bytes = source_path.read_bytes()
-        except OSError as error:
-            raise ReplayError(f"extracted child source is missing for {row['test_id']}: {error}") from error
-        if extracted_bytes != source_bytes or sha256_bytes(extracted_bytes) != row["child_source_sha256"]:
-            raise ReplayError(f"extracted child bytes differ from the pinned mapping for {row['test_id']}")
-        if mapping.get("child_source", "").encode("utf-8") != source_bytes:
-            raise ReplayError(f"configured child source bytes differ for {row['test_id']}")
-        expected_child_status = 23 if row["tag_name"] == "ExprAbort" else 0
-        if child_status != expected_child_status:
-            raise ReplayError(f"unexpected child status mapping for {row['test_id']}")
-        mode_expectations = mapping["mode_expectations"]
-        for mode, field in (("normal", "normal_route"), ("forced", "forced_route")):
-            expectation = mode_expectations[mode]
-            if expectation.get("route_id") != row[field]:
-                raise ReplayError(f"expected {mode} route differs for {row['test_id']}")
-            if not helper.route_witness_route_allowed(schema, mode, row[field]):
-                raise ReplayError(f"schema policy rejects {mode} route for {row['test_id']}")
-            if expectation.get("status") != "supported_by_artifact_format":
-                raise ReplayError(f"{mode} route is not artifact-supported for {row['test_id']}")
-        rows.append(
-            {
-                **row,
-                "ordinal": ordinal,
-                "child_status": child_status,
-                "source_bytes": source_bytes,
-                "mapping": mapping,
-                "schema": schema,
-            }
-        )
 
     products: dict[str, dict[str, Any]] = {}
     for name, path_arg, digest_arg in (
@@ -283,8 +251,6 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
         "config": config,
         "rows": rows,
         "products": products,
-        "mapping_path": mapping_path,
-        "mapping_sha256": MAPPING_SHA256,
         "output_root": output_root,
     }
 
@@ -296,8 +262,6 @@ def print_plan(validated: dict[str, Any]) -> None:
     print(f"head={validated['head']}")
     print(f"tree={validated['tree']}")
     print(f"pinned_child_source={PINNED_SOURCE_COMMIT}")
-    print(f"mapping={validated['mapping_path']}")
-    print(f"mapping_sha256={validated['mapping_sha256']}")
     print(f"xsh={validated['products']['xsh']['path']}")
     print(f"xsh_sha256={validated['products']['xsh']['sha256']}")
     print(f"xsht={validated['products']['xsht']['path']}")
@@ -307,13 +271,17 @@ def print_plan(validated: dict[str, Any]) -> None:
     print(f"root_mount={root}:/repo:ro")
     print(f"output_mount={validated['output_root']}:/scratch:rw; TMPDIR=/scratch")
     print(f"native_lock={root / LOCK_PATH}")
-    print("tests=92; modes=2; invocations=184; xsht_args=test --exact ID; timeout=150s")
-    print("test_id\ttag\tordinal\tmode\texpected_child_status\texpected_route\tchild_source_sha256")
+    print(
+        f"tests={len(validated['rows'])}; modes={len(MODES)}; "
+        f"invocations={len(validated['rows']) * len(MODES)}; "
+        "xsht_args=test --exact ID; timeout=150s"
+    )
+    print("test_id\ttag\tordinal\tmode\texpected_route\tchild_source_sha256")
     for row in validated["rows"]:
         for mode in MODES:
             print(
                 f"{row['test_id']}\t{row['tag_name']}\t{row['ordinal']}\t{mode}\t"
-                f"{row['child_status']}\t{row[f'{mode}_route']}\t{row['child_source_sha256']}"
+                f"{row[f'{mode}_route']}\t{row['child_source_sha256']}"
             )
 
 
@@ -445,7 +413,7 @@ def run_case(
 ) -> bool:
     root = validated["root"]
     output_root = validated["output_root"]
-    slug = f"{row['ordinal']:03d}-{row['tag_name']}"
+    slug = case_slug(row)
     case_dir = output_root / "probes" / slug / mode
     witness_dir = case_dir / "witness"
     witness_dir.mkdir(parents=True)
@@ -453,15 +421,13 @@ def run_case(
     (output_root / "logs").mkdir(exist_ok=True)
     (output_root / "container-ids").mkdir(exist_ok=True)
     step_id = f"{run_name}-{slug}-{mode}"
-    container_name = f"route-{run_name}-{row['ordinal']:03d}-{mode}"
+    container_name = f"route-{run_name}-{slug}-{mode}"
     cid_file = output_root / "container-ids" / f"{step_id}.cid"
     log_path = output_root / "logs" / f"{step_id}.log"
     command = native_command(validated, row, mode, witness_dir, cid_file, container_name)
     before = source_snapshot(root)
     if before["head"] != receipt["source_expected"]["commit"] or before["tree"] != receipt["source_expected"]["tree"] or not before["clean"]:
         raise ReplayError(f"source changed before {step_id}: {before}")
-    if sha256_file(validated["mapping_path"]) != validated["mapping_sha256"]:
-        raise ReplayError(f"mapping table changed before {step_id}")
     receipt["source_checks"].append(
         {"where": f"before:{step_id}", **before}
     )
@@ -517,7 +483,6 @@ def run_case(
 
     after = source_snapshot(root)
     receipt["source_checks"].append({"where": f"after:{step_id}", **after})
-    mapping_stable_after = sha256_file(validated["mapping_path"]) == validated["mapping_sha256"]
     after_xsh_hash = sha256_file(validated["products"]["xsh"]["path"])
     after_xsht_hash = sha256_file(validated["products"]["xsht"]["path"])
     receipt["hashes"]["binaries_after_tests"] = {
@@ -576,13 +541,14 @@ def run_case(
         case_ok = False
     if after["head"] != receipt["source_expected"]["commit"] or after["tree"] != receipt["source_expected"]["tree"] or not after["clean"]:
         case_ok = False
-    if not mapping_stable_after:
-        case_ok = False
     if after_xsh_hash != current_xsh_hash or after_xsht_hash != current_xsht_hash:
         case_ok = False
     receipt["steps"].append(step)
     write_json(output_root / "receipt.json", receipt)
-    print(f"{row['ordinal']:03d} {row['tag_name']} {mode} outer={exit_code} artifacts={len(artifacts)}")
+    print(
+        f"{row['ordinal']:03d} {row['tag_name']} {row['test_id']} "
+        f"{mode} outer={exit_code} artifacts={len(artifacts)}"
+    )
     if cleanup is not None and not cleanup.get("resolved", False):
         marker_path = root / CLEANUP_MARKER
         write_json(
@@ -673,7 +639,10 @@ def execute(validated: dict[str, Any], run_name: str) -> int:
         receipt["finished_utc"] = utc_now()
         write_json(output_root / "receipt.json", receipt)
     print(f"receipt={output_root / 'receipt.json'}")
-    print(f"completed_steps={len(receipt['steps'])}; expected={EXPECTED_CASES * len(MODES)}")
+    print(
+        f"completed_steps={len(receipt['steps'])}; "
+        f"expected={len(validated['rows']) * len(MODES)}"
+    )
     print(f"route_credit=none until accepted by the source-pinned evidence owner")
     if failure_count:
         print(f"failures={failure_count}; inspect receipt, logs, and preserved artifacts", file=sys.stderr)
@@ -703,13 +672,17 @@ def add_inputs(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--xsh-sha256", required=True)
     parser.add_argument("--xsht", type=pathlib.Path, required=True)
     parser.add_argument("--xsht-sha256", required=True)
-    parser.add_argument("--mapping", type=pathlib.Path, required=True)
     parser.add_argument("--output-root", type=pathlib.Path, required=True)
     parser.add_argument("--run-name", required=True)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        description=(
+            "Replay every source-validated expression route oracle in the current "
+            "evidence configuration."
+        )
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     plan_parser = subparsers.add_parser("plan")
     add_inputs(plan_parser)
