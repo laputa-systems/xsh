@@ -65,7 +65,19 @@ class CurrentRouteReplayTests(unittest.TestCase):
             return 0
 
         driver.main = mock.Mock(side_effect=driver_main)
-        arguments = ["plan", "--repo", str(ROOT), "--head", "h", "--tree", "t"]
+        arguments = [
+            "plan",
+            "--repo",
+            str(ROOT),
+            "--head",
+            "h",
+            "--tree",
+            "t",
+            "--product-head",
+            "product-head",
+            "--product-tree",
+            "product-tree",
+        ]
         old_argv = sys.argv[:]
 
         with (
@@ -76,35 +88,32 @@ class CurrentRouteReplayTests(unittest.TestCase):
 
         self.assertEqual(driver.PINNED_SOURCE_COMMIT, "b" * 40)
         driver.main.assert_called_once_with()
-        self.assertEqual(
-            forwarded_argv,
-            [str(RUNNER_PATH), *arguments, "--product-head", "h", "--product-tree", "t"],
-        )
+        self.assertEqual(forwarded_argv, [str(RUNNER_PATH), *arguments])
         self.assertEqual(sys.argv, old_argv)
 
-    def test_entrypoint_rejects_caller_supplied_product_identity(self):
-        with (
-            mock.patch.object(runner, "load_route_driver") as load_driver,
-            mock.patch.object(sys, "stderr"),
-        ):
-            self.assertEqual(
-                runner.main(
-                    [
-                        "plan",
-                        "--repo",
-                        str(ROOT),
-                        "--head",
-                        "h",
-                        "--tree",
-                        "t",
-                        "--product-head",
-                        "different",
-                    ]
-                ),
-                2,
+    def test_retained_executor_rejects_product_source_mismatch(self):
+        driver = runner.load_route_driver(ROOT)
+        head = "a" * 40
+        tree = "b" * 40
+        for product_head, product_tree in (("c" * 40, tree), (head, "d" * 40)):
+            arguments = SimpleNamespace(
+                repo=ROOT,
+                head=head,
+                tree=tree,
+                product_head=product_head,
+                product_tree=product_tree,
             )
-
-        load_driver.assert_not_called()
+            with self.subTest(product_head=product_head, product_tree=product_tree):
+                with mock.patch.object(
+                    driver,
+                    "source_snapshot",
+                    return_value={"head": head, "tree": tree, "clean": True},
+                ):
+                    with self.assertRaisesRegex(
+                        driver.ReplayError,
+                        "verification products must be explicitly pinned",
+                    ):
+                        driver.validate_inputs(arguments)
 
     def test_help_uses_retained_executor_without_requiring_repository_argument(self):
         driver = SimpleNamespace(main=mock.Mock(return_value=0))

@@ -85,20 +85,11 @@ def load_route_driver(root: pathlib.Path) -> ModuleType:
     return driver
 
 
-def execution_identity(arguments: list[str]) -> tuple[pathlib.Path, str, str]:
-    product_identity_options = ("--product-head", "--product-tree")
-    if any(
-        argument == option or argument.startswith(f"{option}=")
-        for argument in arguments
-        for option in product_identity_options
-    ):
-        raise CurrentReplayError("product source identity is derived from --head and --tree")
+def repository_root(arguments: list[str]) -> pathlib.Path:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--repo", type=pathlib.Path, required=True)
-    parser.add_argument("--head", required=True)
-    parser.add_argument("--tree", required=True)
     parsed, _ = parser.parse_known_args(arguments)
-    return parsed.repo.resolve(strict=True), parsed.head, parsed.tree
+    return parsed.repo.resolve(strict=True)
 
 
 def invoke_driver(driver: ModuleType, arguments: list[str]) -> int:
@@ -116,7 +107,7 @@ def main(arguments: list[str] | None = None) -> int:
     try:
         root = pathlib.Path(__file__).resolve().parents[2]
         if not help_requested:
-            root, head, tree = execution_identity(forwarded)
+            root = repository_root(forwarded)
         driver = load_route_driver(root)
         if not help_requested:
             configure_source_pin(driver, read_route_config(root))
@@ -124,8 +115,6 @@ def main(arguments: list[str] | None = None) -> int:
         print(f"current route replay: {error}", file=sys.stderr)
         return 2
 
-    if not help_requested:
-        forwarded.extend(("--product-head", head, "--product-tree", tree))
     return invoke_driver(driver, forwarded)
 
 
