@@ -31,6 +31,22 @@ pattern_schema! {}
 """
 
 
+def exact_native_test_stdout(oracle_id: str) -> bytes:
+    return (
+        f"running 1 tests\n{oracle_id} ... ok 5ms\n"
+        "test result: ok. 1 passed; 0 failed; 0 skipped\n"
+    ).encode()
+
+
+def write_native_test_log(path: pathlib.Path, oracle_id: str, stdout: bytes | None = None) -> str:
+    path.write_bytes(
+        b"argv: []\n\n[stdout]\n"
+        + (exact_native_test_stdout(oracle_id) if stdout is None else stdout)
+        + b"\n[stderr]\n"
+    )
+    return generate.sha256_file(path)
+
+
 def expression_dispatch_fixture(rows: list[dict]) -> dict:
     expression_rows = [row for row in rows if row["kind"] == "Expr"]
     paths = {
@@ -1316,11 +1332,12 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         run_dir.mkdir(parents=True)
         (run_dir / "route-witness.json").write_bytes(artifact_bytes)
         log_path = run_dir / "step.log"
-        log_path.write_text("native test passed\n")
+        log_sha256 = write_native_test_log(log_path, mapping["test_id"])
         step_id = f"{mapping['tag']}-{mode}-{run_dir.name}"
         step = {
             "id": step_id,
             "exit_code": 0,
+            "process_exit_code": 0,
             "argv": [
                 "bash", "run-native-final.sh", "run",
                 "target/x86_64-unknown-linux-musl/verification/xsht",
@@ -1331,7 +1348,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
                 **(extra_env or {}),
             },
             "log": str(log_path.relative_to(root)),
-            "log_sha256": generate.sha256_file(log_path),
+            "log_sha256": log_sha256,
             "route_witness_artifact": {
                 "path": "route-witness.json",
                 "sha256": generate.sha256_bytes(artifact_bytes),
@@ -2055,6 +2072,13 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             self.assertNotIn("receipt", mapped_route)
 
         oracle_id = expected[tag]
+        root = generate.HERE.parents[4]
+        scratch = root / ".work/tmp"
+        scratch.mkdir(parents=True, exist_ok=True)
+        temporary = tempfile.TemporaryDirectory(dir=scratch, prefix="scalar-receipt-")
+        self.addCleanup(temporary.cleanup)
+        log_path = pathlib.Path(temporary.name) / "scalar.log"
+        log_sha256 = write_native_test_log(log_path, oracle_id)
         receipt = {
             "source_expected": {"commit": "head", "tree": "tree"},
             "hashes": {
@@ -2071,9 +2095,11 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             "exit_code": 0,
             "argv": ["bash", "run-native-final.sh", "run", "target/x86_64-unknown-linux-musl/verification/xsht", "test", "--exact", oracle_id],
             "env": {},
-            "log_sha256": "a" * 64,
+            "log": str(log_path.relative_to(root)),
+            "log_sha256": log_sha256,
         }
         self.assertTrue(generate.receipt_step_matches(
+            root,
             receipt,
             normal_step,
             expected_head="head",
@@ -2083,6 +2109,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             expected_xsht_sha256="xsht-hash",
         ))
         self.assertFalse(generate.receipt_step_matches(
+            root,
             receipt,
             normal_step,
             expected_head="head",
@@ -2091,6 +2118,44 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             mode="forced",
             expected_xsht_sha256="xsht-hash",
         ))
+
+    def test_native_exact_test_output_rejects_incomplete_or_wrong_runs(self) -> None:
+        oracle_id = "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map"
+        valid = exact_native_test_stdout(oracle_id)
+        rejected = (
+            b"running 0 tests\ntest result: ok. 0 passed; 0 failed; 0 skipped\n",
+            valid.replace(b"0 failed; 0 skipped", b"0 failed; 1 skipped"),
+            valid.replace(oracle_id.encode(), b"tests/xsh/wrong.xsh::test_wrong"),
+            valid.replace(b"1 passed; 0 failed", b"0 passed; 1 failed"),
+        )
+        self.assertTrue(generate.native_exact_test_passed(valid, oracle_id))
+        for stdout in rejected:
+            self.assertFalse(generate.native_exact_test_passed(stdout, oracle_id))
+
+    def test_source_order_candidate_fields_match_the_schema_row(self) -> None:
+        row = next(row for row in generate.parse_schema(SCHEMA) if row["tag"] == "ExprBinary")
+        candidate = {"fields": ["left"], "scope": "left"}
+        self.assertIsNone(generate.validate_source_order_candidate(row, candidate))
+        for mutation, message in (
+            ({"fields": ["missing"], "scope": "left"}, "unknown source-order candidate fields"),
+            ({"fields": ["left", "left"], "scope": "left"}, "duplicate source-order candidate fields"),
+            ({"fields": [], "scope": "left"}, "fields are empty or invalid"),
+            ({"fields": ["left"], "scope": " "}, "scope is empty"),
+        ):
+            with self.subTest(mutation=mutation):
+                with self.assertRaisesRegex(generate.EvidenceError, message):
+                    generate.validate_source_order_candidate(row, mutation)
+        root = generate.HERE.parents[4]
+        invalid_row = {
+            **row,
+            "source_order_evidence": {
+                "oracle_ids": ["tests/xsh/operand-order.xsh::test_order"],
+                "fields": ["missing"],
+                "scope": "left",
+            },
+        }
+        with self.assertRaisesRegex(generate.EvidenceError, "unknown source-order candidate fields"):
+            generate.collect_source_order_receipts(root, [invalid_row], "head", "tree", "hash", [])
 
     def test_expression_dispatch_requires_and_consumes_ast_inventory(self) -> None:
         rows = generate.parse_schema(SCHEMA)
@@ -3786,8 +3851,19 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         )
 
     def test_receipt_reuse_requires_exact_source_id_command_and_mode(self) -> None:
+        root = generate.HERE.parents[4]
+        scratch = root / ".work/tmp"
+        scratch.mkdir(parents=True, exist_ok=True)
         oracle_id = "tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map"
+        temporary = tempfile.TemporaryDirectory(dir=scratch, prefix="exact-receipt-")
+        self.addCleanup(temporary.cleanup)
+        run_dir = pathlib.Path(temporary.name)
+        normal_log = run_dir / "normal.log"
+        forced_log = run_dir / "forced.log"
+        normal_hash = write_native_test_log(normal_log, oracle_id)
+        forced_hash = write_native_test_log(forced_log, oracle_id)
         receipt = {
+            "status": "failed",
             "source_expected": {"commit": "head", "tree": "tree"},
             "hashes": {
                 "binaries_before_tests": {"xsht-verification": "xsht-hash"},
@@ -3803,17 +3879,20 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             "exit_code": 0,
             "argv": ["bash", "run-native-final.sh", "run", "target/x86_64-unknown-linux-musl/verification/xsht", "test", "--exact", oracle_id],
             "env": {},
-            "log_sha256": "a" * 64,
+            "log": str(normal_log.relative_to(root)),
+            "log_sha256": normal_hash,
         }
         forced = {
             "id": "empty-map",
             "exit_code": 0,
             "argv": ["bash", "run-native-final.sh", "run", "target/x86_64-unknown-linux-musl/verification/xsht", "test", "--exact", oracle_id],
             "env": {"XSH_INTERNAL_TEST_FORCE_FRAMES": "1"},
-            "log_sha256": "b" * 64,
+            "log": str(forced_log.relative_to(root)),
+            "log_sha256": forced_hash,
         }
         self.assertTrue(
             generate.receipt_step_matches(
+                root,
                 receipt,
                 normal,
                 expected_head="head",
@@ -3826,6 +3905,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         trailing_option = {**normal, "argv": [*normal["argv"], "--list"]}
         self.assertFalse(
             generate.receipt_step_matches(
+                root,
                 receipt,
                 trailing_option,
                 expected_head="head",
@@ -3841,6 +3921,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         }
         self.assertFalse(
             generate.receipt_step_matches(
+                root,
                 duplicate_source_check,
                 normal,
                 expected_head="head",
@@ -3859,6 +3940,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         }
         self.assertFalse(
             generate.receipt_step_matches(
+                root,
                 malformed_source_check,
                 normal,
                 expected_head="head",
@@ -3870,6 +3952,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         )
         self.assertTrue(
             generate.receipt_step_matches(
+                root,
                 receipt,
                 forced,
                 expected_head="head",
@@ -3881,6 +3964,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         )
         self.assertFalse(
             generate.receipt_step_matches(
+                root,
                 receipt,
                 normal,
                 expected_head="other-head",
@@ -3892,6 +3976,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         )
         self.assertFalse(
             generate.receipt_step_matches(
+                root,
                 receipt,
                 normal,
                 expected_head="head",
@@ -3903,6 +3988,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         )
         self.assertFalse(
             generate.receipt_step_matches(
+                root,
                 receipt,
                 forced,
                 expected_head="head",
@@ -3914,6 +4000,35 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         )
         self.assertFalse(
             generate.receipt_step_matches(
+                root,
+                receipt,
+                {**normal, "process_exit_code": 9},
+                expected_head="head",
+                expected_tree="tree",
+                oracle_id=oracle_id,
+                mode="normal",
+                expected_xsht_sha256="xsht-hash",
+            )
+        )
+        wrong_output = exact_native_test_stdout(oracle_id).replace(
+            b"1 passed; 0 failed", b"0 passed; 1 failed"
+        )
+        wrong_output_hash = write_native_test_log(normal_log, oracle_id, wrong_output)
+        self.assertFalse(
+            generate.receipt_step_matches(
+                root,
+                receipt,
+                {**normal, "log_sha256": wrong_output_hash},
+                expected_head="head",
+                expected_tree="tree",
+                oracle_id=oracle_id,
+                mode="normal",
+                expected_xsht_sha256="xsht-hash",
+            )
+        )
+        self.assertFalse(
+            generate.receipt_step_matches(
+                root,
                 receipt,
                 normal,
                 expected_head="head",
@@ -3937,11 +4052,12 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             for mode in ("normal", "forced"):
                 step_id = f"int-binary-{mode}"
                 log_path = run_dir / f"{step_id}.log"
-                log_path.write_text("native test passed\n")
+                log_sha256 = write_native_test_log(log_path, oracle_id)
                 log_paths[mode] = log_path
                 step = {
                     "id": step_id,
                     "exit_code": 0,
+                    "process_exit_code": 0,
                     "argv": [
                         "bash", "run-native-final.sh", "run",
                         "target/x86_64-unknown-linux-musl/verification/xsht",
@@ -3949,7 +4065,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                     ],
                     "env": {"XSH_INTERNAL_TEST_FORCE_FRAMES": "1"} if mode == "forced" else {},
                     "log": str(log_path.relative_to(root)),
-                    "log_sha256": generate.sha256_file(log_path),
+                    "log_sha256": log_sha256,
                 }
                 steps.append(step)
                 source_checks.extend([
@@ -3957,6 +4073,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                     {"where": f"after:{step_id}", "head": "head", "tree": "tree", "clean": True},
                 ])
             receipt = {
+                "status": "failed",
                 "source_expected": {"commit": "head", "tree": "tree"},
                 "hashes": {
                     "binaries_before_tests": {"xsht-verification": "xsht-hash"},
@@ -3965,9 +4082,18 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 "source_checks": source_checks,
                 "steps": steps,
             }
+            schema_row = next(
+                row
+                for row in generate.parse_schema((root / generate.SCHEMA_PATH).read_text())
+                if row["tag"] == "IntBinary"
+            )
             row = {
-                "tag": "IntBinary",
-                "source_order_evidence": {"oracle_ids": [oracle_id]},
+                **schema_row,
+                "source_order_evidence": {
+                    "oracle_ids": [oracle_id],
+                    "fields": ["left", "right"],
+                    "scope": "left then right",
+                },
             }
             collected = generate.collect_source_order_receipts(
                 root, [row], "head", "tree", "xsht-hash", [(run_dir / "receipt.json", receipt)]

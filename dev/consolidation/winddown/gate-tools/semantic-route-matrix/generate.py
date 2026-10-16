@@ -938,6 +938,41 @@ def schema_fields(raw: str, variant: str) -> list[dict[str, str]]:
     return fields
 
 
+def validate_source_order_candidate(
+    schema_row: dict[str, Any], candidate: dict[str, Any]
+) -> None:
+    if not isinstance(schema_row, dict) or not isinstance(candidate, dict):
+        raise EvidenceError("source-order candidate needs a schema row and object")
+    tag = schema_row.get("tag")
+    schema_fields = schema_row.get("schema_fields")
+    if not isinstance(tag, str) or not isinstance(schema_fields, list):
+        raise EvidenceError("source-order candidate schema row lacks its field inventory")
+    field_names = [field.get("name") for field in schema_fields if isinstance(field, dict)]
+    if len(field_names) != len(schema_fields) or any(
+        not isinstance(name, str) or not name for name in field_names
+    ):
+        raise EvidenceError(f"source-order schema field inventory is invalid for {tag}")
+    if len(field_names) != len(set(field_names)):
+        raise EvidenceError(f"duplicate schema fields in source-order row {tag}")
+    fields = candidate.get("fields")
+    if (
+        not isinstance(fields, list)
+        or not fields
+        or any(not isinstance(name, str) or not name.strip() for name in fields)
+    ):
+        raise EvidenceError(f"source-order candidate fields are empty or invalid for {tag}")
+    if len(fields) != len(set(fields)):
+        raise EvidenceError(f"duplicate source-order candidate fields for {tag}")
+    unknown_fields = sorted(set(fields) - set(field_names))
+    if unknown_fields:
+        raise EvidenceError(
+            f"unknown source-order candidate fields for {tag}: {unknown_fields}"
+        )
+    scope = candidate.get("scope")
+    if not isinstance(scope, str) or not scope.strip():
+        raise EvidenceError(f"source-order candidate scope is empty for {tag}")
+
+
 def schema_child_paths(
     field_type: str,
     prefix: str,
@@ -5752,6 +5787,24 @@ def native_commands(oracle_id: str) -> dict[str, list[str]]:
     }
 
 
+def native_exact_test_passed(stdout: bytes, oracle_id: str) -> bool:
+    if not isinstance(stdout, bytes) or not isinstance(oracle_id, str) or not oracle_id:
+        return False
+    try:
+        lines = stdout.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        return False
+    return (
+        len(lines) == 3
+        and lines[0] == "running 1 tests"
+        and re.fullmatch(
+            re.escape(oracle_id) + r" \.\.\. ok [0-9]+ms",
+            lines[1],
+        ) is not None
+        and lines[2] == "test result: ok. 1 passed; 0 failed; 0 skipped"
+    )
+
+
 def rust_test_command(oracle_id: str) -> list[str]:
     return [
         "cargo",
@@ -5774,6 +5827,7 @@ def runtime_oracle_commands(oracle_id: str, rust_ids: set[str]) -> dict[str, lis
 
 
 def receipt_step_matches(
+    root: pathlib.Path,
     receipt: dict[str, Any],
     step: dict[str, Any],
     *,
@@ -5791,6 +5845,11 @@ def receipt_step_matches(
     if identity.get("commit") != expected_head or identity.get("tree") != expected_tree:
         return False
     if type(step.get("exit_code")) is not int or step["exit_code"] != 0:
+        return False
+    process_exit_code = step.get("process_exit_code")
+    if process_exit_code is not None and (
+        type(process_exit_code) is not int or process_exit_code != 0
+    ):
         return False
     hashes = receipt.get("hashes", {})
     if not isinstance(hashes, dict):
@@ -5851,10 +5910,13 @@ def receipt_step_matches(
         return False
     force_is_set = bool(markers)
     log_sha256 = step.get("log_sha256")
+    stdout = receipt_step_log_stdout(root, step)
     return (
         force_is_set == (mode == "forced")
         and isinstance(log_sha256, str)
         and re.fullmatch(r"[0-9a-f]{64}", log_sha256) is not None
+        and stdout is not None
+        and native_exact_test_passed(stdout, oracle_id)
     )
 
 
@@ -6012,6 +6074,7 @@ def route_witness_step_matches(
         return None
     try:
         if not receipt_step_matches(
+            root,
             receipt,
             step,
             expected_head=expected_head,
@@ -6344,20 +6407,31 @@ def imported_final_correctness_receipts(
     return imported
 
 
-def receipt_step_log_matches(root: pathlib.Path, step: dict[str, Any]) -> bool:
+def receipt_step_log_stdout(root: pathlib.Path, step: dict[str, Any]) -> bytes | None:
     log_name = step.get("log")
     if not isinstance(log_name, str) or not log_name:
-        return False
+        return None
     log_path = pathlib.Path(log_name)
     if not log_path.is_absolute():
         log_path = root / log_path
     try:
         resolved_log = log_path.resolve(strict=True)
         if not resolved_log.is_relative_to(root.resolve()):
-            return False
-        return sha256_file(resolved_log) == step.get("log_sha256")
+            return None
+        log = resolved_log.read_bytes()
     except (OSError, RuntimeError, ValueError):
-        return False
+        return None
+    if sha256_bytes(log) != step.get("log_sha256"):
+        return None
+    stdout_marker = b"\n\n[stdout]\n"
+    stderr_marker = b"\n[stderr]\n"
+    if log.count(stdout_marker) != 1:
+        return None
+    _, _, output = log.partition(stdout_marker)
+    if output.count(stderr_marker) != 1:
+        return None
+    stdout, _, _ = output.partition(stderr_marker)
+    return stdout
 
 
 def collect_source_order_receipts(
@@ -6379,6 +6453,7 @@ def collect_source_order_receipts(
         evidence = row.get("source_order_evidence")
         if not isinstance(evidence, dict):
             continue
+        validate_source_order_candidate(row, evidence)
         oracle_ids = evidence.get("oracle_ids")
         if (
             not isinstance(oracle_ids, list)
@@ -6395,6 +6470,7 @@ def collect_source_order_receipts(
                     for step in receipt.get("steps", []):
                         try:
                             valid = receipt_step_matches(
+                                root,
                                 receipt,
                                 step,
                                 expected_head=expected_head,
@@ -6405,7 +6481,7 @@ def collect_source_order_receipts(
                             )
                         except (AttributeError, KeyError, TypeError):
                             valid = False
-                        if not valid or not receipt_step_log_matches(root, step):
+                        if not valid:
                             continue
                         matched.add((oracle_id, mode))
                         executions.append({
@@ -6492,6 +6568,7 @@ def final_correctness_receipts(
                 for oracle_id in row["oracles"]["runtime"]:
                     for step in receipt.get("steps", []):
                         if not receipt_step_matches(
+                            root,
                             receipt,
                             step,
                             expected_head=expected_head,
@@ -6500,8 +6577,6 @@ def final_correctness_receipts(
                             mode=mode,
                             expected_xsht_sha256=expected_xsht_sha256,
                         ):
-                            continue
-                        if not receipt_step_log_matches(root, step):
                             continue
                         reusable[row["tag"]].append(
                             {
@@ -6657,9 +6732,13 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
         if missing:
             raise EvidenceError(f"candidate oracle IDs are absent at {commit}: {missing}")
     order_candidates = config.get("source_order_candidates", {})
+    if not isinstance(order_candidates, dict):
+        raise EvidenceError("source-order candidates must be an object")
+    schema_by_tag = {row["tag"]: row for row in routed}
     for tag, evidence in order_candidates.items():
         if tag not in {row["tag"] for row in routed}:
             raise EvidenceError(f"source-order evidence names an unknown instruction row: {tag}")
+        validate_source_order_candidate(schema_by_tag[tag], evidence)
         ids = evidence.get("ids", [])
         commit = evidence.get("source_commit")
         known_ids = runtime_ids
