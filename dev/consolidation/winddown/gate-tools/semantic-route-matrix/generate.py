@@ -73,6 +73,15 @@ EXPRESSION_DISPATCH_BOUNDARY_IDENTITIES = {
     ("indexed_frame_apply_value", "typed_view_unreachable_boundary", '{\n            unreachable!("error and abort values are applied before generic operands")\n        }'),
     ("indexed_frame_apply_value", "typed_view_unreachable_boundary", 'unreachable!("frame apply tag has a matching typed view")'),
 }
+EXPRESSION_DISPATCH_NORMAL_BYPASS_IDENTITY = (
+    "eval_expr",
+    "normal_in_place_bypass",
+    "delegates to eval_indexed_expr and returns before frame dispatch",
+)
+EXPRESSION_DISPATCH_NORMAL_BYPASS_PREDICATE = "in_place"
+EXPRESSION_DISPATCH_DEFENSIVE_BOUNDARY_IDENTITIES = (
+    EXPRESSION_DISPATCH_BOUNDARY_IDENTITIES - {EXPRESSION_DISPATCH_NORMAL_BYPASS_IDENTITY}
+)
 EAGER_ATOM_PROVENANCE = {
     "Null": ("ExprNull", "none", "construct", "LoweredValue::Null"),
     "Unit": ("ExprUnit", "none", "construct", "LoweredValue::Unit"),
@@ -1849,19 +1858,27 @@ def validate_expression_dispatch_inventory(
     expected_boundaries = EXPRESSION_DISPATCH_BOUNDARY_IDENTITIES
     boundaries = inventory.get("boundaries")
     if not isinstance(boundaries, list) or any(not isinstance(boundary, dict) for boundary in boundaries):
-        raise EvidenceError("expression dispatch defensive boundaries are malformed")
+        raise EvidenceError("expression dispatch boundary inventory is malformed")
     actual_boundaries = {
         (boundary.get("function"), boundary.get("kind"), boundary.get("outcome"))
         for boundary in boundaries
     }
     if actual_boundaries != expected_boundaries or len(boundaries) != len(expected_boundaries):
-        raise EvidenceError("expression dispatch defensive boundary inventory changed")
+        raise EvidenceError("expression dispatch boundary inventory changed")
     if any(
         not isinstance(boundary.get("predicate"), str)
         or not boundary["predicate"]
         for boundary in boundaries
     ):
-        raise EvidenceError("expression dispatch defensive boundary has no predicate")
+        raise EvidenceError("expression dispatch boundary has no predicate")
+    normal_bypass = next(
+        boundary
+        for boundary in boundaries
+        if (boundary["function"], boundary["kind"], boundary["outcome"])
+        == EXPRESSION_DISPATCH_NORMAL_BYPASS_IDENTITY
+    )
+    if normal_bypass["predicate"] != EXPRESSION_DISPATCH_NORMAL_BYPASS_PREDICATE:
+        raise EvidenceError("expression dispatch normal in-place bypass predicate changed")
 
     schema_rows = inventory.get("schema_rows")
     dispatch_rows = inventory.get("rows")
@@ -4240,7 +4257,20 @@ def expression_dispatch_fallback_path_map(
     if item["prepared_operands_selected"] != bool(item["host_value_dispatch"]):
         raise EvidenceError(f"prepared-operand dispatch lacks its host value arm for {tag}")
 
-    boundaries = [
+    normal_bypass = next(
+        boundary
+        for boundary in inventory["boundaries"]
+        if (boundary["function"], boundary["kind"], boundary["outcome"])
+        == EXPRESSION_DISPATCH_NORMAL_BYPASS_IDENTITY
+    )
+    bypass_source_ref = (
+        f"{normal_bypass['source']['path']}:{normal_bypass['source']['start_line']}"
+    )
+    bypass_selector = inventory["selectors"]["forced_in_place_condition"]
+    bypass_selector_source_ref = (
+        f"{bypass_selector['source']['path']}:{bypass_selector['source']['start_line']}"
+    )
+    defensive_boundaries = [
         {
             "function": boundary["function"],
             "kind": boundary["kind"],
@@ -4249,6 +4279,8 @@ def expression_dispatch_fallback_path_map(
             "reachable_for_valid_schema_row": False,
         }
         for boundary in inventory["boundaries"]
+        if (boundary["function"], boundary["kind"], boundary["outcome"])
+        in EXPRESSION_DISPATCH_DEFENSIVE_BOUNDARY_IDENTITIES
     ]
     return {
         "review_status": "source_exhaustive_dispatch_path",
@@ -4279,6 +4311,16 @@ def expression_dispatch_fallback_path_map(
                     f"{normal_dispatch['source']['path']}:{normal_dispatch['source']['start_line']}"
                 ),
                 "recursive_match_reachable": class_name == "Operands",
+                "in_place_bypass": {
+                    "kind": normal_bypass["kind"],
+                    "mode": "normal",
+                    "predicate": normal_bypass["predicate"],
+                    "mode_selector_predicate": bypass_selector["predicate"],
+                    "required_schema_class": "Operands",
+                    "reachable_for_schema_row": class_name == "Operands",
+                    "source_ref": bypass_source_ref,
+                    "mode_selector_source_ref": bypass_selector_source_ref,
+                },
             },
             "forced_dispatch": {
                 "kind": forced_kind,
@@ -4323,8 +4365,8 @@ def expression_dispatch_fallback_path_map(
         }],
         "branches_exhaustive": True,
         "no_fallback": None,
-        "fallbacks": boundaries,
-        "defensive_boundaries": boundaries,
+        "fallbacks": defensive_boundaries,
+        "defensive_boundaries": defensive_boundaries,
         "runtime_behavior_proven": False,
         "source_refs": source_refs,
         "unreviewed_branch_behavior": (
@@ -6295,6 +6337,12 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
         config["indexed_dispatch"],
         config["explicit_dispatch"],
     )
+    normal_bypass = next(
+        boundary
+        for boundary in expression_dispatch_inventory["boundaries"]
+        if (boundary["function"], boundary["kind"], boundary["outcome"])
+        == EXPRESSION_DISPATCH_NORMAL_BYPASS_IDENTITY
+    )
     scalar_inventory = typed_scalar_ast_inventory(
         root,
         rows,
@@ -6842,7 +6890,12 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                 for row in routed
             ),
             "expression_dispatch_rows": len(expression_dispatch_inventory["rows_by_tag"]),
-            "expression_dispatch_defensive_boundaries": len(expression_dispatch_inventory["boundaries"]),
+            "expression_dispatch_inventory_boundaries": len(expression_dispatch_inventory["boundaries"]),
+            "expression_dispatch_defensive_boundaries": len(EXPRESSION_DISPATCH_DEFENSIVE_BOUNDARY_IDENTITIES),
+            "expression_dispatch_valid_branches": (
+                len(EXPRESSION_DISPATCH_BOUNDARY_IDENTITIES)
+                - len(EXPRESSION_DISPATCH_DEFENSIVE_BOUNDARY_IDENTITIES)
+            ),
             "typed_scalar_runtime_error_rows_source_classified": sum(
                 row["kind"] in {"Int", "Bool"}
                 and
@@ -6956,6 +7009,25 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                 name: classifier["tags"]
                 for name, classifier in expression_dispatch_inventory["classifiers"].items()
             },
+            "valid_branches": [
+                {
+                    "function": normal_bypass["function"],
+                    "kind": normal_bypass["kind"],
+                    "mode": "normal",
+                    "predicate": normal_bypass["predicate"],
+                    "required_schema_class": "Operands",
+                    "mode_selector_predicate": expression_dispatch_inventory["selectors"][
+                        "forced_in_place_condition"
+                    ]["predicate"],
+                    "mode_selector_source_ref": (
+                        f"{expression_dispatch_inventory['selectors']['forced_in_place_condition']['source']['path']}"
+                        f":{expression_dispatch_inventory['selectors']['forced_in_place_condition']['source']['start_line']}"
+                    ),
+                    "source_ref": (
+                        f"{normal_bypass['source']['path']}:{normal_bypass['source']['start_line']}"
+                    ),
+                }
+            ],
             "defensive_boundaries": [
                 {
                     "function": boundary["function"],
@@ -6966,6 +7038,8 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                     ),
                 }
                 for boundary in expression_dispatch_inventory["boundaries"]
+                if (boundary["function"], boundary["kind"], boundary["outcome"])
+                in EXPRESSION_DISPATCH_DEFENSIVE_BOUNDARY_IDENTITIES
             ],
             "source_paths": expression_dispatch_inventory["source_paths"],
             "runtime_behavior_proven": False,

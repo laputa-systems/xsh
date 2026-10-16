@@ -207,7 +207,12 @@ def expression_dispatch_fixture(rows: list[dict]) -> dict:
             "function": function,
             "kind": kind,
             "outcome": outcome,
-            "predicate": "boundary predicate",
+            "predicate": (
+                generate.EXPRESSION_DISPATCH_NORMAL_BYPASS_PREDICATE
+                if (function, kind, outcome)
+                == generate.EXPRESSION_DISPATCH_NORMAL_BYPASS_IDENTITY
+                else "boundary predicate"
+            ),
             "source": source(paths["normal_dispatch"], 1),
         }
         for function, kind, outcome in generate.EXPRESSION_DISPATCH_BOUNDARY_IDENTITIES
@@ -2070,7 +2075,35 @@ fn eval_indexed_expr() {
         self.assertIsNone(fallback["no_fallback"])
         self.assertEqual(fallback["branches"][0]["normal_dispatch"]["kind"], "in_place_recursive_dispatch")
         self.assertEqual(fallback["branches"][0]["forced_dispatch"]["kind"], "explicit_frame_view_dispatch")
+        bypass = fallback["branches"][0]["normal_dispatch"]["in_place_bypass"]
+        self.assertEqual(bypass["kind"], "normal_in_place_bypass")
+        self.assertEqual(bypass["mode"], "normal")
+        self.assertEqual(bypass["predicate"], "in_place")
+        self.assertEqual(
+            bypass["mode_selector_predicate"],
+            "!self.evaluator.force_frames\n            && execution.is_in_place(instruction)",
+        )
+        self.assertTrue(bypass["reachable_for_schema_row"])
+        self.assertEqual(len(fallback["defensive_boundaries"]), 7)
+        self.assertNotIn(
+            "normal_in_place_bypass",
+            {boundary["kind"] for boundary in fallback["defensive_boundaries"]},
+        )
+        self.assertTrue(all(
+            boundary["reachable_for_valid_schema_row"] is False
+            for boundary in fallback["defensive_boundaries"]
+        ))
         self.assertFalse(fallback["runtime_behavior_proven"])
+
+        malformed_inventory = expression_dispatch_fixture(rows)
+        next(
+            boundary
+            for boundary in malformed_inventory["boundaries"]
+            if (boundary["function"], boundary["kind"], boundary["outcome"])
+            == generate.EXPRESSION_DISPATCH_NORMAL_BYPASS_IDENTITY
+        )["predicate"] = "always"
+        with self.assertRaisesRegex(generate.EvidenceError, "normal in-place bypass predicate changed"):
+            generate.validate_expression_dispatch_inventory(rows, malformed_inventory)
 
     def test_expression_fallback_uses_schema_class_and_frame_apply_classifier(self) -> None:
         schema = """instruction_schema! {
@@ -2100,6 +2133,15 @@ pattern_schema! {}
         )
         self.assertFalse(result_call["branches"][0]["normal_dispatch"]["selected"])
         self.assertFalse(result_call["branches"][0]["normal_dispatch"]["recursive_match_reachable"])
+        bypass = result_call["branches"][0]["normal_dispatch"]["in_place_bypass"]
+        self.assertFalse(bypass["reachable_for_schema_row"])
+        self.assertEqual(bypass["required_schema_class"], "Operands")
+        self.assertEqual(bypass["mode"], "normal")
+        self.assertEqual(len(result_call["defensive_boundaries"]), 7)
+        self.assertTrue(all(
+            boundary["reachable_for_valid_schema_row"] is False
+            for boundary in result_call["defensive_boundaries"]
+        ))
         self.assertEqual(result_call["branches"][0]["normal_dispatch"]["executor"], "eval_indexed_expr_with_frames")
         self.assertTrue(process_argv["branches"][0]["forced_dispatch"]["indexed_frame_apply_selected"])
         self.assertFalse(process_argv["branches"][0]["forced_dispatch"]["frame_strategy_overridden"])
