@@ -20,6 +20,7 @@ from typing import NamedTuple
 import w9_publication_adapter as adapter
 import w9_publication_sources as source_alignment
 import w9_publication_reference_correction as reference_correction
+import w9_publication_reference_derivation as reference_derivation
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -153,6 +154,45 @@ SOURCE_CAPTURE_FIELDS = (
 
 class PublicationError(ValueError):
     pass
+
+
+def _derived_reference_schema_for_root(source_root: pathlib.Path) -> str:
+    if source_root == reference_correction.SOURCE_ROOT:
+        return "2"
+    if source_root == reference_derivation.SOURCE_ROOT:
+        return "3"
+    raise PublicationError(f"derived reference source root is not pinned: {source_root}")
+
+
+def _validate_derived_reference_source(
+    source_root: pathlib.Path,
+    runner,
+    derivation_schema: str,
+) -> dict[str, str]:
+    source_root = runner.real_directory(source_root, "derived reference source")
+    try:
+        if derivation_schema == "2":
+            if source_root != reference_correction.SOURCE_ROOT:
+                raise PublicationError("schema-2 derived reference source root differs")
+            return reference_correction.validate_source(
+                source_root, reference_correction.PATCH_PATH, runner
+            )
+        if derivation_schema == "3":
+            if source_root != reference_derivation.SOURCE_ROOT:
+                raise PublicationError("schema-3 derived reference source root differs")
+            return reference_derivation.validate_source(source_root, runner)
+    except (reference_correction.CorrectionError, reference_derivation.DerivationError) as error:
+        raise PublicationError(str(error)) from error
+    raise PublicationError(f"unsupported derived reference derivation schema {derivation_schema!r}")
+
+
+def _validate_pinned_derived_reference_source(source_root: pathlib.Path, runner) -> dict[str, str]:
+    source_root = runner.real_directory(source_root, "derived reference source")
+    return _validate_derived_reference_source(
+        source_root,
+        runner,
+        _derived_reference_schema_for_root(source_root),
+    )
 
 
 class _PublicationComparisonTermination(BaseException):
@@ -1160,10 +1200,8 @@ def _parse_historical_adapter_build_receipt(
         raise PublicationError(f"{receipt}: reference source root is not the clean adapter clone")
     if role == "derived-reference":
         try:
-            reference_correction.validate_source(
-                source_root, reference_correction.PATCH_PATH, runner
-            )
-        except reference_correction.CorrectionError as error:
+            _validate_pinned_derived_reference_source(source_root, runner)
+        except PublicationError as error:
             raise PublicationError(f"{receipt}: {error}") from error
     binary = runner.regular_file(record["binary"], f"{role} adapter harness", executable=True)
     if runner.source_identity(source_root) != (record["source_commit"], record["source_tree"]):
@@ -1236,10 +1274,8 @@ def _parse_source_adapter_build_receipt(
         raise PublicationError(f"{receipt}: reference source root is not the clean adapter clone")
     if role == "derived-reference":
         try:
-            reference_correction.validate_source(
-                source_root, reference_correction.PATCH_PATH, runner
-            )
-        except reference_correction.CorrectionError as error:
+            _validate_pinned_derived_reference_source(source_root, runner)
+        except PublicationError as error:
             raise PublicationError(f"{receipt}: {error}") from error
     binary = runner.regular_file(record["binary"], f"{role} adapter harness", executable=True)
     if str(binary) != record["binary"] or runner.sha256_file(binary) != record["binary_sha256"]:
@@ -2049,12 +2085,7 @@ def build_adapter_harness(
     if role == "reference" and commit != runner.REFERENCE_HEAD:
         raise PublicationError(f"reference source commit differs from the approved head: {commit}")
     if role == "derived-reference":
-        try:
-            reference_correction.validate_source(
-                source_root, reference_correction.PATCH_PATH, runner
-            )
-        except reference_correction.CorrectionError as error:
-            raise PublicationError(str(error)) from error
+        _validate_pinned_derived_reference_source(source_root, runner)
     helper_bytes = runner.read_regular_bytes(adapter_helper)
     if hashlib.sha256(helper_bytes).hexdigest() != helper_sha256:
         raise PublicationError("derived adapter helper changed before harness build")
@@ -2132,12 +2163,7 @@ def build_adapter_harness(
         if hashlib.sha256(runner.read_regular_bytes(scratch_root / ".work/consolidation/w9-publication-owner-helper.rs")).hexdigest() != owner_helper_sha256:
             raise PublicationError(f"{role} owner helper changed during build")
         if role == "derived-reference":
-            try:
-                reference_correction.validate_source(
-                    source_root, reference_correction.PATCH_PATH, runner
-                )
-            except reference_correction.CorrectionError as error:
-                raise PublicationError(str(error)) from error
+            _validate_pinned_derived_reference_source(source_root, runner)
         runtime_commit, runtime_tree = runner.source_identity(candidate_root)
         runner.run_harness_test_listing(
             builder,
@@ -2272,6 +2298,7 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
 
 
 def build_derived_reference_harness(args: argparse.Namespace, runner) -> int:
+    derivation_schema = getattr(args, "derivation_schema", "2")
     candidate_root = runner.real_directory(args.candidate_root, "candidate source")
     source_receipt = runner.regular_file(args.candidate_source_receipt, "candidate source receipt")
     source_record = runner.parse_candidate_receipt(source_receipt)
@@ -2283,12 +2310,9 @@ def build_derived_reference_harness(args: argparse.Namespace, runner) -> int:
     if len(expected_inputs) != 1690:
         raise PublicationError(f"candidate source receipt input count differs: {len(expected_inputs)}")
     derived_root = runner.real_directory(args.derived_reference_source_root, "derived reference source")
-    try:
-        reference_correction.validate_source(
-            derived_root, reference_correction.PATCH_PATH, runner
-        )
-    except reference_correction.CorrectionError as error:
-        raise PublicationError(str(error)) from error
+    source_identity = _validate_derived_reference_source(
+        derived_root, runner, derivation_schema
+    )
     if runner.source_identity(candidate_root) != (
         source_record["candidate_commit"], source_record["candidate_tree"]
     ):
@@ -2314,20 +2338,16 @@ def build_derived_reference_harness(args: argparse.Namespace, runner) -> int:
         owner_helper_source_sha256,
         runner,
     )
-    try:
-        reference_correction.validate_source(
-            derived_root, reference_correction.PATCH_PATH, runner
-        )
-    except reference_correction.CorrectionError as error:
-        raise PublicationError(str(error)) from error
+    _validate_derived_reference_source(derived_root, runner, derivation_schema)
     print(
         f"derived_reference_binary={binary}\nderived_reference_build_receipt={build_receipt}\n"
-        f"derived_reference_source={reference_correction.SOURCE_COMMIT}:{reference_correction.SOURCE_TREE}"
+        f"derived_reference_source={source_identity['source_commit']}:{source_identity['source_tree']}"
     )
     return 0
 
 
 def capture_derived_reference(args: argparse.Namespace, runner) -> int:
+    derivation_schema = getattr(args, "derivation_schema", "2")
     candidate_root = runner.real_directory(args.candidate_root, "candidate source")
     source_receipt = runner.regular_file(args.candidate_source_receipt, "candidate source receipt")
     source_record = runner.parse_candidate_receipt(source_receipt)
@@ -2337,6 +2357,8 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
         expected_inputs, _paths_by_name = runner.validate_source_cohort_inputs(source_record)
         reference = None
     else:
+        if derivation_schema == "3":
+            raise PublicationError("schema-3 reference derivations require a source-qualified cohort")
         expected_inputs, _paths_by_name, reference = runner.validate_all_inputs(source_record)
     if len(expected_inputs) * len(PROFILES) != reference_correction.EXPECTED_OUTCOME_COUNT:
         raise PublicationError("derived reference corpus size differs from its pinned coverage")
@@ -2345,12 +2367,12 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
     ):
         raise PublicationError("candidate source identity differs from its source receipt")
     derived_root = runner.real_directory(args.derived_reference_source_root, "derived reference source")
-    try:
-        source_identity = reference_correction.validate_source(
-            derived_root, reference_correction.PATCH_PATH, runner
-        )
-    except reference_correction.CorrectionError as error:
-        raise PublicationError(str(error)) from error
+    source_identity = _validate_derived_reference_source(
+        derived_root, runner, derivation_schema
+    )
+    derivation_module = (
+        reference_derivation if derivation_schema == "3" else reference_correction
+    )
     input_root = pathlib.Path(source_record["input_root"])
     input_manifest = pathlib.Path(source_record["input_manifest"])
     original_capture_path = runner.regular_file(
@@ -2484,13 +2506,8 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
                 range_receipts,
                 runner,
             )
-            try:
-                reference_correction.validate_source(
-                    derived_root, reference_correction.PATCH_PATH, runner
-                )
-            except reference_correction.CorrectionError as error:
-                raise PublicationError(str(error)) from error
-            correction_record = reference_correction.create_receipt_record(
+            _validate_derived_reference_source(derived_root, runner, derivation_schema)
+            correction_record = derivation_module.create_receipt_record(
                 source_identity,
                 build_receipt_path,
                 build,
@@ -2499,10 +2516,12 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
                 original_exact_capture_path,
                 runner,
             )
-            correction_receipt = output / "correction.receipt"
+            correction_receipt = output / (
+                "derivation.receipt" if derivation_schema == "3" else "correction.receipt"
+            )
             _write_new_file(
                 correction_receipt,
-                reference_correction.receipt_bytes(correction_record),
+                derivation_module.receipt_bytes(correction_record),
                 runner,
             )
             summary = (
@@ -2519,7 +2538,7 @@ def capture_derived_reference(args: argparse.Namespace, runner) -> int:
         raise
     print(
         f"{summary}\nderived_reference_capture={capture_receipt}\n"
-        f"correction_receipt={correction_receipt}\n"
+        f"{('derivation' if derivation_schema == '3' else 'correction')}_receipt={correction_receipt}\n"
         f"original_reference_capture={original_capture_path}\n"
         f"original_exact_owner_capture={original_exact_capture_path}"
     )
@@ -3133,12 +3152,7 @@ def compare_full_publications(
     if pathlib.Path(reference_build["source_root"]) != expected_reference_root:
         raise PublicationError("reference adapter build receipt names a different checkout")
     if corrected_reference:
-        try:
-            reference_correction.validate_source(
-                expected_reference_root, reference_correction.PATCH_PATH, runner
-            )
-        except reference_correction.CorrectionError as error:
-            raise PublicationError(str(error)) from error
+        _validate_pinned_derived_reference_source(expected_reference_root, runner)
     if pathlib.Path(candidate_build["source_root"]) != candidate_root:
         raise PublicationError("candidate adapter build receipt names a different checkout")
     if (candidate_build["source_commit"], candidate_build["source_tree"]) != (
@@ -3348,6 +3362,11 @@ def compare_full_publications(
 
 
 def compare_captured_publications(args: argparse.Namespace, runner) -> int:
+    correction_receipt_arg = getattr(args, "derived_reference_correction_receipt", None)
+    derivation_receipt_arg = getattr(args, "derived_reference_derivation_receipt", None)
+    if correction_receipt_arg is not None and derivation_receipt_arg is not None:
+        raise PublicationError("derived reference correction and derivation receipts are mutually exclusive")
+    combined_derivation = derivation_receipt_arg is not None
     candidate_root = runner.real_directory(args.candidate_root, "candidate source")
     source_receipt = runner.regular_file(args.candidate_source_receipt, "candidate source and binary receipt")
     source_record = runner.parse_candidate_receipt(source_receipt)
@@ -3367,7 +3386,11 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
     reference_source_root = _prepare_reference_source(
         candidate_root, pathlib.Path(args.reference_source_root), runner
     )
-    corrected_reference = getattr(args, "derived_reference_correction_receipt", None) is not None
+    corrected_reference = correction_receipt_arg is not None or combined_derivation
+    derivation_schema = "3" if combined_derivation else "2"
+    derivation_module = reference_derivation if combined_derivation else reference_correction
+    if combined_derivation and source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+        raise PublicationError("schema-3 reference derivations require a source-qualified cohort")
     original_capture_path = None
     correction_record = None
     derived_reference_root = None
@@ -3375,16 +3398,16 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
         derived_reference_root = runner.real_directory(
             args.derived_reference_source_root, "derived reference source"
         )
-        try:
-            correction_source = reference_correction.validate_source(
-                derived_reference_root, reference_correction.PATCH_PATH, runner
-            )
-        except reference_correction.CorrectionError as error:
-            raise PublicationError(str(error)) from error
-        correction_receipt_path = runner.regular_file(
-            args.derived_reference_correction_receipt, "derived reference correction receipt"
+        correction_source = _validate_derived_reference_source(
+            derived_reference_root, runner, derivation_schema
         )
-        correction_record = reference_correction.parse_receipt(
+        correction_receipt_path = runner.regular_file(
+            derivation_receipt_arg if combined_derivation else correction_receipt_arg,
+            "combined derived reference derivation receipt"
+            if combined_derivation
+            else "derived reference correction receipt",
+        )
+        correction_record = derivation_module.parse_receipt(
             correction_receipt_path, runner.read_regular_text(correction_receipt_path)
         )
         for field, expected in correction_source.items():
@@ -3430,7 +3453,7 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
         )
         if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA and derived_capture_record["schema"] != "2":
             raise PublicationError("source-qualified correction requires a fresh derived adapter capture")
-        reference_correction.validate_receipt_associations(
+        derivation_module.validate_receipt_associations(
             correction_record,
             derived_build_path,
             derived_build,
@@ -3607,15 +3630,22 @@ def compare_captured_publications(args: argparse.Namespace, runner) -> int:
                     else ("none", "none", "none", "none", "none", "none")
                 )
                 first_difference_value = "\t".join(delta_fields)
+                derivation_field = "derivation_receipt" if combined_derivation else "correction_receipt"
+                comparison_schema = "2" if combined_derivation else "1"
+                comparison_role = (
+                    "original-to-combined-derived-reference-comparison"
+                    if combined_derivation
+                    else "original-to-derived-reference-comparison"
+                )
                 comparison_lines = (
-                    "schema\t1\n"
-                    "role\toriginal-to-derived-reference-comparison\n"
+                    f"schema\t{comparison_schema}\n"
+                    f"role\t{comparison_role}\n"
                     f"original_capture_receipt\t{original_capture_path}\n"
                     f"original_capture_receipt_sha256\t{runner.sha256_file(original_capture_path)}\n"
                     f"derived_capture_receipt\t{reference_capture_path}\n"
                     f"derived_capture_receipt_sha256\t{runner.sha256_file(reference_capture_path)}\n"
-                    f"correction_receipt\t{correction_receipt_path}\n"
-                    f"correction_receipt_sha256\t{runner.sha256_file(correction_receipt_path)}\n"
+                    f"{derivation_field}\t{correction_receipt_path}\n"
+                    f"{derivation_field}_sha256\t{runner.sha256_file(correction_receipt_path)}\n"
                     f"original_exact_capture_receipt\t{reference_exact_capture_path}\n"
                     f"original_exact_capture_receipt_sha256\t{runner.sha256_file(reference_exact_capture_path)}\n"
                     f"delta_file\t{delta_path}\n"
@@ -3700,6 +3730,7 @@ def main(argv: list[str] | None = None) -> int:
     build_derived.add_argument("--candidate-root", type=pathlib.Path, required=True)
     build_derived.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
     build_derived.add_argument("--derived-reference-source-root", type=pathlib.Path, required=True)
+    build_derived.add_argument("--derivation-schema", choices=("2", "3"), default="2")
     capture_derived = commands.add_parser("capture-derived-reference")
     capture_derived.add_argument("--candidate-root", type=pathlib.Path, required=True)
     capture_derived.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
@@ -3709,6 +3740,7 @@ def main(argv: list[str] | None = None) -> int:
     capture_derived.add_argument("--original-exact-build-receipt", type=pathlib.Path, required=True)
     capture_derived.add_argument("--original-exact-capture-receipt", type=pathlib.Path, required=True)
     capture_derived.add_argument("--output", required=True)
+    capture_derived.add_argument("--derivation-schema", choices=("2", "3"), default="2")
     run = commands.add_parser(
         "run",
         help="capture legacy outcomes before exact-owner comparison",
@@ -3747,7 +3779,9 @@ def main(argv: list[str] | None = None) -> int:
     compare_derived.add_argument("--candidate-source-receipt", type=pathlib.Path, required=True)
     compare_derived.add_argument("--reference-source-root", type=pathlib.Path, required=True)
     compare_derived.add_argument("--derived-reference-source-root", type=pathlib.Path, required=True)
-    compare_derived.add_argument("--derived-reference-correction-receipt", type=pathlib.Path, required=True)
+    derived_receipts = compare_derived.add_mutually_exclusive_group(required=True)
+    derived_receipts.add_argument("--derived-reference-correction-receipt", type=pathlib.Path)
+    derived_receipts.add_argument("--derived-reference-derivation-receipt", type=pathlib.Path)
     compare_derived.add_argument("--original-capture-receipt", type=pathlib.Path, required=True)
     compare_derived.add_argument("--reference-exact-build-receipt", type=pathlib.Path, required=True)
     compare_derived.add_argument("--candidate-exact-build-receipt", type=pathlib.Path, required=True)
@@ -3782,6 +3816,7 @@ def main(argv: list[str] | None = None) -> int:
     except (
         PublicationError,
         reference_correction.CorrectionError,
+        reference_derivation.DerivationError,
         runner.PublicationError,
         runner.CleanupFailure,
         OSError,

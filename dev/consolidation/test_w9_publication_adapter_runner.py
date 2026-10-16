@@ -1580,6 +1580,11 @@ class DerivedCaptureClaimTests(unittest.TestCase):
                 output=output,
             )
             expected_inputs = dict.fromkeys(range(1690))
+            source_root_patch = patch.object(
+                adapter_runner.reference_correction, "SOURCE_ROOT", derived_root
+            )
+            source_root_patch.start()
+            self.addCleanup(source_root_patch.stop)
             with (
                 patch.object(runner, "regular_file", side_effect=lambda path, *_args, **_kwargs: pathlib.Path(path)),
                 patch.object(runner, "parse_candidate_receipt", return_value=source_record),
@@ -2774,6 +2779,11 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         args.derived_reference_correction_receipt = correction_receipt
         args.original_capture_receipt = case["reference_capture_receipt"]
 
+        source_root_patch = patch.object(
+            adapter_runner.reference_correction, "SOURCE_ROOT", self.reference_root
+        )
+        source_root_patch.start()
+        self.addCleanup(source_root_patch.stop)
         with (
             patch.object(self.runner, "parse_candidate_receipt", return_value=case["source_record"]),
             patch.object(
