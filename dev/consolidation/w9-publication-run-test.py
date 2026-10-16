@@ -1079,6 +1079,46 @@ class PublicationRunnerTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(runner.PublicationError, "under publication work root"):
             runner.require_output_path(str(output), candidate_root, schema3_record)
+        original_candidate_root = candidate_root
+        candidate_root = controller_work / "candidate-outside-worktrees"
+        original_candidate_root.rename(candidate_root)
+        source_record["candidate_root"] = str(candidate_root)
+        worktrees_target = controller_work / "wt-target"
+        worktrees.rename(worktrees_target)
+        worktrees.symlink_to(worktrees_target, target_is_directory=True)
+        worktree_output_parent = worktrees_target / "output-parent"
+        worktree_output_parent.mkdir()
+        worktree_output = worktree_output_parent / "attempt"
+        with self.assertRaisesRegex(runner.PublicationError, "symlink or non-canonical path"):
+            runner.require_output_path(str(worktree_output), candidate_root, source_record)
+        self.assertFalse(worktree_output.exists())
+        worktrees.unlink()
+        worktrees_target.rename(worktrees)
+
+        temporary = controller_work / "tmp"
+        shutil.rmtree(temporary)
+        temporary_target = controller_work / "tmp-target"
+        temporary_target.mkdir()
+        temporary.symlink_to(temporary_target, target_is_directory=True)
+        temporary_output_parent = temporary_target / "output-parent"
+        temporary_output_parent.mkdir()
+        temporary_output = temporary_output_parent / "attempt"
+        with self.assertRaisesRegex(runner.PublicationError, "symlink or non-canonical path"):
+            runner.require_output_path(str(temporary_output), candidate_root, source_record)
+        self.assertFalse(temporary_output.exists())
+        temporary.unlink()
+        temporary_target.rename(temporary)
+
+        scratch_target = controller_work / "scratch-target"
+        scratch_target.mkdir()
+        scratch = temporary / "w9-container-scratch"
+        scratch.symlink_to(scratch_target, target_is_directory=True)
+        scratch_output_parent = scratch_target / "output-parent"
+        scratch_output_parent.mkdir()
+        scratch_output = scratch_output_parent / "attempt"
+        with self.assertRaisesRegex(runner.PublicationError, "symlink or non-canonical path"):
+            runner.require_output_path(str(scratch_output), candidate_root, source_record)
+        self.assertFalse(scratch_output.exists())
 
     def test_docker_configuration_must_name_local_context_and_socket(self):
         environment = {"PATH": "/usr/bin:/bin"}

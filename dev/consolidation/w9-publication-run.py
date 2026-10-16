@@ -1350,6 +1350,19 @@ def _paths_overlap(left: pathlib.Path, right: pathlib.Path) -> bool:
     return under(left, right) or under(right, left)
 
 
+def _canonical_protected_root(path: pathlib.Path, kind: str) -> pathlib.Path:
+    path = pathlib.Path(os.path.abspath(path))
+    missing: list[str] = []
+    existing = path
+    while not os.path.lexists(existing):
+        if existing.parent == existing:
+            raise PublicationError(f"{kind}: no existing path ancestor for {path}")
+        missing.append(existing.name)
+        existing = existing.parent
+    canonical_existing = real_directory(existing, kind)
+    return canonical_existing.joinpath(*reversed(missing))
+
+
 def _source_qualified_protected_roots(
     candidate_root: pathlib.Path,
     source_record: dict[str, str],
@@ -1374,7 +1387,12 @@ def _source_qualified_protected_roots(
     ]
     if builder_root not in {controller_root, common_root}:
         roots.append(builder_root)
-    return tuple(dict.fromkeys(roots))
+    return tuple(
+        dict.fromkeys(
+            _canonical_protected_root(root, "source-qualified protected root")
+            for root in roots
+        )
+    )
 
 
 def _validate_publication_output_path(
