@@ -1,8 +1,10 @@
 # XSH Consolidation Campaign
 
-Status: active and incomplete. The next production acceptance freeze must be
-sealed after this reviewed repair checkpoint. No inference implementation is
-on main. Lean and Phase F remain paused.
+Status: winding down 2026-10-16. Finish only already-held items; launch no
+new lanes, tests beyond their existing closure checks, or campaign waves.
+The winddown integration branch is `campaign/winddown-20261016`; master stays
+at `56bf3286c` until the already-running W9 attempt releases its controller
+freeze. Inference remains isolated. Lean and Phase F remain paused.
 
 The last full canonical run, on `7b1485310abdf2190ce4532d840114e74ff7c2cd`,
 failed: 13,902 passed, 3 failed, 78 skipped. Qualified default products on
