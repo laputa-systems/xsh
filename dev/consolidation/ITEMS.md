@@ -5,27 +5,25 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `master` in `/home/josh/d/laputa-systems/xsh`; the owner merged consolidation
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
-**Status: active and incomplete, 2026-10-15.** Main integrates the reviewed
-curl, AWK, tail, and strict-Clippy repairs through `c1c6e4c87`. Forty focused
-Rust tests, 23 native tests, and eight paired repository/Laputa checks pass.
-Canonical acceptance and full W9 capture remain open. Canonical `45b4` passes
-the complete desugar comparison, then fails the fuzz replacement-label seed
-oracle. Its test-only repair at `8805a8ece` passes fourteen soundness cases;
-fresh canonical verification remains required. Reviewed compact W9 formatting
-is integrated at `71f7cd689`; bounded
-canonical equality and 121 Python tests pass. Five fresh harness roles build,
-and the full comparison completes with 6,732 common checked-fact mismatches
-among 6,760 outcomes. The first mismatch exposes a candidate-only assignment
-summary that needs an independent legacy oracle. Full cohort parity remains
-unaccepted. Checkpoint `449320b18` passes 184 expression route probes, the bounded
-Linux residuals, and seven QEMU assertions. A second reproduced process-exit
-sampling race is repaired at `787ba37a4`: its bounded 500-call replay, written
-and transformed procps files, and malformed-counter rejection pass. The fresh canonical batch passes all Rust stages, then fails the native suite
-with 13,720 passed, 160 failed, and 92 skipped. Focused environment diagnosis is active. Isolated inference935 passes 42 constraints and
-five schemes; declaration export visibility and end-to-end capability remain open.
-The original-source AWK/curl reproducer establishes the cross-file fixture
-mutation. One isolated rank-1 inference lane is active. Lean remains paused.
-See [the current handoff](HANDOFF.md) for source pins and evidence.
+**Status: active and incomplete, 2026-10-16.** Current reported main is
+`e31732415`; integrated checks are pending. On frozen source `915e9d8bd`, the
+canonical native suite recorded 13,720 passed, 160 failed, and 92 skipped.
+Root-UID, `/dev/full` fixture-pollution, and SGID repairs cleared 159 of the
+160 failure-census cases. The remaining head memory regression passes all
+seven focused file tests after its repair; the full native suite has not been
+rerun. The suffix `xsht check`, diff hygiene, approved metrics check, and docs
+check pass. Lint exits zero with 72 findings and 115 notes and is not clean.
+No functional close or performance credit is claimed.
+
+The owner authorized wider, staggered inference implementation in isolated
+worktrees while consolidation acceptance runs, superseding the old
+wait-before-lowerer sequence. No inference implementation is on main. Checker
+`f734` passes a fresh build and 57 tests; pipeline `cbb`'s first combined
+compile failed with eight Rust errors and is routed for repairs. W9 `a8` passes
+69 tests and a single-input proof; chain `03` has 1,690 ownership proofs and
+68 validated ranges, with actual comparison pending. Native-witness and SPEC
+lanes and driver review are active. Lean remains paused. See [the current
+handoff](HANDOFF.md) for pins, per-lane status, and evidence.
 
 **Earlier checkpoints:** The implementation and focused
 repairs are integrated on `master`. The latest bounded corpus-worker and

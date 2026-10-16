@@ -1,24 +1,24 @@
 # Consolidation restart handoff
 
-Status: resumed 2026-10-15. The owner subsequently authorized staggered
-inference implementation in isolated worktrees while consolidation acceptance
-continues. Consolidation remains incomplete. Its accepted source and performance
-baseline are not replaced by the inference branches. Lean and Phase F stay paused.
+Status: active and incomplete, updated 2026-10-16. The owner authorized wider,
+staggered inference work in isolated worktrees while consolidation acceptance
+continues; this supersedes the earlier sequence that held lowerer work until
+acceptance closed. No inference implementation is on main. Consolidation has no
+functional close or performance credit. Lean and Phase F remain paused.
 
 ## Current resume
 
-The owner explicitly resumed the typing consolidation campaign after the
-documentation refresh at `bfffd3af5e0002668e685e1711d7e6d9ee90ad51`.
-The checkout was clean on `master`. The pinned x86_64 Linux image is present,
-and no campaign containers or linked worktrees were running. At that initial freeze, product Rust, stdlib, applet, and test sources retained
-the pre-winddown implementation.
-Historical gate helpers require fresh paths and source qualification.
+The owner resumed the typing consolidation campaign after the documentation
+refresh at `bfffd3af5e0002668e685e1711d7e6d9ee90ad51`. The current reported main
+tip is `e31732415`; this handoff's suffix and head receipts below are bound to
+the earlier frozen source `915e9d8bd`. Integrated gates on `e31732415` remain
+pending. Historical gate helpers require fresh paths and source qualification.
 
 Acceptance launch, structural/semantic review, loop selection, typing witness
 readiness, and historical AWK evidence were inventoried independently. No Lean
 work is authorized by this resume.
 
-### Current batch: fixtures, historical AWK cause, and inference overlap
+### Resume baseline: fixtures, historical AWK cause, and inference overlap
 
 - Source `577bebfb9` integrates reviewed curl repair `07dd3bfbb`, AWK fixture
   `66945cbdd`, and tail fixture `11eac7c02`. Five exact checks on the integrated
@@ -90,6 +90,28 @@ work is authorized by this resume.
 
 ### Latest canonical and solver checkpoints
 
+- The [915 acceptance follow-up](evidence/acceptance-follow-up-915/README.md)
+  records the suffix checks and focused head rerun. `xsht check` passes 1,542
+  files; `xsht lint` exits zero with 72 findings and 115 notes, so lint is not
+  clean; `git diff --check`, approved current-metrics accounting, and docs
+  checks pass, including three tour-project tests. The seven head file tests
+  pass with the existing pinned products. These are suffix-stage results on
+  `915e9d8bd`, not a complete canonical batch. The metrics report records
+  previously approved integration growth. Products are unchanged. Main has
+  since advanced to `e31732415`, where integrated checks remain pending.
+- Current isolated successor checkpoints: checker `f734` passes a fresh build
+  and 57 tests (body 3, focused 7, constraints 42, schemes 5); the earlier `1d`
+  module-export, `FullNameOf`, and body-domain probes pass three tests. Draft
+  pipeline `cbb` changes encoding, lowering, and runtime sources; its first
+  combined compile failed with eight Rust errors and was routed for encoding,
+  lowerer, and verifier work. Review also assigned duplicate-authority and
+  ground-`Any` fixes. W9 parser repair `a8` passes 69 tests and the single-input
+  proof. Fresh chain `03` has 1,690 ownership proofs and 68 independently
+  validated ranges; its actual comparison is pending. The canonical driver
+  `c410`, serialized Linux queue `f2`, and final-prep `41ac`/`f446` are in the
+  integration history; final-prep review and integrated checks remain pending.
+  Native-witness and SPEC lanes and driver review are active. No inference code
+  is accepted on main. Lean remains paused.
 - Isolated test-only `534db019e` removes invalid fixture diagnostics from
   the actual module-source export probe. Its fresh build passes, but the exact
   probe still reports `check.local-inference` on the generic body expression.
@@ -105,9 +127,12 @@ work is authorized by this resume.
   desugared procps 39/39 each, and passes the native malformed-counter rejection.
   [The canonical batch](evidence/canonical-787/README.md) passes all Rust stages,
   then finishes the native suite with 13,720 passed, 160 failed, and 92 skipped.
-  Its root execution reproduces a permission failure that passes as UID 1000.
-  Remaining permission, device, and network failures require focused diagnosis.
-  Repository check, lint, structural checks, and docs were not reached.
+  Follow-up repairs addressed root-UID execution, `/dev/full` fixture pollution,
+  and SGID setup; 159 of the 160 failure-census cases then passed. The remaining
+  head memory case passes all seven `test-gnu-head.xsh` tests separately on
+  `915e9d8bd`, including the huge excluded-tail-count regression. This focused
+  pass is not a full native-suite rerun. Repository check, lint, structural
+  checks, and docs were not reached in the original canonical run.
 - [The source-bound structural scan](evidence/structural-787/README.md) retains
   all four hard zeros and the established 152/17/46 schema counts. Production
   source totals 268,539 lines, 60 above the original qualified baseline. The
@@ -419,8 +444,10 @@ work is authorized by this resume.
 
 ### Current queue
 
-The integrator owns `master`. Binding-identity repairs and W9 receipt recovery
-have isolated worktrees under `.work/wt/`. Each lane
+The integrator owns `master`, reported at `e31732415`. Lint/archive integration
+at `14d` and `1ac` and the canonical driver/queue/final-prep changes are present
+in that history; their integrated checks are pending. Binding-identity repairs
+and W9 receipt recovery have isolated worktrees under `.work/wt/`. Each lane
 requires review and focused verification before integration. Source changes
 require a new canonical freeze.
 
@@ -453,18 +480,22 @@ is integrated with focused parity and an independent static review. Replay the
 feature-touch probe and structural scan on the repaired source. Focused checks
 do not replace the final canonical and full native gates.
 
-Isolated general inference implementation and its initial red/green witnesses
-are active under the owner's overlap authorization. Preserve the frozen
-consolidation source separately. Lean and Phase F remain paused.
+Wider, staggered general-inference work is authorized in isolated worktrees
+while consolidation acceptance continues. This supersedes the earlier
+wait-before-lowerer sequence. Keep each lane's source and evidence separate;
+there is no inference implementation on main. Shared integration, convergence,
+and the accepted performance baseline remain gated on consolidation acceptance.
+Lean and Phase F remain paused.
 
 ## Resume
 
-Prompt: "Resume consolidation acceptance from this handoff. Keep Lean paused.
-Follow the campaign's successor direction only after its prerequisites close."
-For an inference resume, continue the isolated first slice while consolidation
-acceptance runs. Shared integration and the accepted performance baseline still
-wait for consolidation acceptance. Judge Phases B–E independently of deferred
-Phase F. The owner authorized consolidation and typing only.
+Prompt: "Continue consolidation acceptance from this handoff. Keep Lean
+paused. Continue authorized inference lanes in isolated worktrees; do not
+integrate inference on main before consolidation acceptance closes."
+The owner authorized wider, staggered isolated inference work alongside
+acceptance, including lowerer work without a whole-acceptance barrier. Shared
+integration, convergence, and the accepted performance baseline still wait for
+consolidation acceptance. Judge Phases B–E independently of deferred Phase F.
 
 First command, from the repository root:
 

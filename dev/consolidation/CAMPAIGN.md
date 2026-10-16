@@ -3,9 +3,12 @@
 Status: resumed on 2026-10-15 for consolidation acceptance and the typing
 successor. The owner explicitly resumed after the documentation refresh.
 Consolidation acceptance remains incomplete. The owner authorized staggered
-inference implementation in isolated worktrees on 2026-10-15. The accepted
-post-consolidation performance baseline still waits for consolidation close.
-Lean and Phase F remain paused. Parked source is recovery material, not
+inference implementation in isolated worktrees on 2026-10-15 and widened that
+parallel authorization on 2026-10-16. This supersedes the earlier
+wait-before-lowerer sequence: independent successor work may continue while
+acceptance runs. Inference remains off main until consolidation closes. The
+accepted post-consolidation performance baseline still waits for consolidation
+close. Lean and Phase F remain paused. Parked source is recovery material, not
 accepted implementation.
 
 ## Owner steering, 2026-10-15
@@ -37,8 +40,11 @@ Judge these outcomes separately:
 
 Use the existing acceptance owners and pinned x86_64 Linux musl environment.
 General inference changes language acceptance. Its isolated implementation may
-overlap consolidation under the owner's 2026-10-15 steering; shared integration
-and the post-consolidation performance baseline retain their acceptance gates.
+overlap consolidation under the owner's 2026-10-15 and 2026-10-16 steering,
+including independent lowerer work without waiting for consolidation close.
+Shared integration, convergence acceptance, and the post-consolidation
+performance baseline retain their gates. Do not put inference implementation
+on main before consolidation acceptance closes.
 Do not add another language-surface campaign or expand consolidation's scope.
 The [restart handoff](HANDOFF.md) owns the current stop and remaining gates.
 
@@ -1378,14 +1384,13 @@ Complete one connected slice as an intermediate milestone while leaving broader 
 ### Execution and completion
 
 Typing convergence is judged on Phases B–E, after the existing consolidation
-prerequisite closes. Phase F remains deferred until the owner explicitly
-resumes Lean. A typing-only resume does not authorize formal work, and the
-paused formal milestone does not block typing acceptance.
-
-The paused status at the top of this document is a deliberate stop. Reading
-these requirements or completing documentation does not resume implementation
-or verification. After explicit typing resume, use the first end-to-end slice
-in Phase B as the initial implementation milestone.
+prerequisite closes. The owner has authorized independent, staggered Phase B–E
+implementation in isolated worktrees while consolidation acceptance proceeds;
+this supersedes the earlier wait-before-lowerer sequence. Shared integration
+and convergence acceptance remain gated on consolidation close. Phase F remains
+deferred until the owner explicitly resumes Lean. A typing-only resume does not
+authorize formal work, and the paused formal milestone does not block typing
+acceptance.
 
 Use existing current repository gate commands and changed-path selection. Process tests use verification/release products from the same target; debug-only unit assertions still run in their proper profile. Respect the no-source-tree-formatter/autofixer rule. Focused migration acceptance in isolated temporary fixtures is in scope; whole-tree mechanical churn is not.
 
