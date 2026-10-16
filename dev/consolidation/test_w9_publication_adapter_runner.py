@@ -263,6 +263,8 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         self.runner = adapter_runner._load_publication_runner(
             self.repository / "dev/consolidation/w9-publication-run.py"
         )
+        self.original_source_identity = self.runner.source_identity
+        self.source_identity_overrides = {}
         self.scratch = self.repository / ".work/tmp"
         self.scratch.mkdir(parents=True, exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(prefix="w9-source-adapter-receipt-", dir=self.scratch)
@@ -276,16 +278,70 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         self.input_manifest.write_text("0\tsource.xsh\t" + "a" * 64 + "\t444\n", encoding="utf-8")
         self.source_receipt = self.root / "source-cohort.receipt"
         self.source_receipt.write_text("source receipt fixture\n", encoding="utf-8")
+        self.controller_root = self.root / "controller"
+        self.controller_helper_source = (
+            self.controller_root / "dev/consolidation/w9-publication-owner-helper.rs"
+        )
+        self.controller_helper_source.parent.mkdir(parents=True)
+        shutil.copyfile(
+            self.repository / "dev/consolidation/w9-publication-owner-helper.rs",
+            self.controller_helper_source,
+        )
+        subprocess.run(
+            ["git", "init", "--quiet", str(self.controller_root)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.controller_root), "config", "user.name", "W9 test"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.controller_root), "config", "user.email", "w9-test@example.invalid"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.controller_root), "add", "dev/consolidation/w9-publication-owner-helper.rs"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.controller_root), "commit", "--quiet", "-m", "test(fixtures): pin controller helper"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.controller_commit, self.controller_tree = self.original_source_identity(
+            self.controller_root
+        )
+        self.source_identity_overrides[self.controller_root] = (
+            self.controller_commit,
+            self.controller_tree,
+        )
+        self.source_identity_overrides[self.source_root] = (
+            self.source_commit,
+            self.source_tree,
+        )
         self.source_record = {
             "schema": self.runner.SOURCE_COHORT_SCHEMA,
             "role": "source-cohort",
             "candidate_root": str(self.source_root),
             "candidate_commit": self.source_commit,
             "candidate_tree": self.source_tree,
+            "controller_root": str(self.controller_root),
+            "controller_commit": self.controller_commit,
+            "controller_tree": self.controller_tree,
             "input_root": str(self.input_root),
             "input_manifest": str(self.input_manifest),
             "input_manifest_sha256": self.runner.sha256_file(self.input_manifest),
             "corpus_blake3": self.runner.CORPUS_BLAKE3,
+            "program_root": str(self.runner.PROGRAM_SNAPSHOT_ROOT.resolve()),
             "builder_path": str(self.runner.SOURCE_BUILDER_PATH),
             "builder_sha256": self.runner.sha256_file(self.runner.SOURCE_BUILDER_PATH),
             "builder_image": self.runner.SOURCE_BUILD_IMAGE,
@@ -305,8 +361,12 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         self.helper = self.root / "w9-publication-adapter.rs"
         self.helper.write_bytes(b"adapter helper")
         self.owner_helper = self.root / "w9-publication-owner-helper.rs"
-        self.owner_helper.write_bytes(b"owner helper")
-        self.owner_helper_source = self.source_root / "dev/consolidation/w9-publication-owner-helper.rs"
+        self.owner_helper.write_bytes(
+            adapter_runner._derived_owner_helper_bytes(
+                self.controller_helper_source.read_bytes()
+            )
+        )
+        self.owner_helper_source = self.controller_helper_source
         tests = self.source_root / "tests/sema.rs"
         overlay = adapter_runner._adapter_overlay(self.runner.read_regular_bytes(tests), self.runner)
         self.build = {
@@ -355,11 +415,22 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             )
         with (
             patch.object(self.runner, "parse_candidate_receipt", return_value=self.source_record),
-            patch.object(self.runner, "source_identity", return_value=(self.source_commit, self.source_tree)),
+            patch.object(
+                self.runner,
+                "source_identity",
+                side_effect=self._fixture_source_identity,
+            ),
+            patch.object(self.runner, "ROOT", self.controller_root),
         ):
             return adapter_runner._parse_adapter_build_receipt(
                 self.build_receipt, "candidate", self.runner, self.owner_helper_source
             )
+
+    def _fixture_source_identity(self, root):
+        root = pathlib.Path(root)
+        if root in self.source_identity_overrides:
+            return self.source_identity_overrides[root]
+        return self.original_source_identity(root)
 
     def capture_fixture(self):
         capture_root = self.root / "candidate-capture"
@@ -481,6 +552,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         ):
             subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         candidate_commit, candidate_tree = self.runner.source_identity(candidate_root)
+        self.source_identity_overrides[candidate_root] = (candidate_commit, candidate_tree)
         candidate_approved_helper = (
             candidate_root / "dev/consolidation/winddown/gate-tools/w9-repository-parity.rs"
         )
@@ -489,6 +561,9 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             candidate_approved_helper,
         )
         controller_approved_helper = adapter_runner.SOURCE_APPROVED_HELPER
+        derived_owner_bytes = adapter_runner._derived_owner_helper_bytes(
+            self.controller_helper_source.read_bytes()
+        )
         source_record = dict(
             self.source_record,
             candidate_root=str(candidate_root),
@@ -513,12 +588,9 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             runner_path=source_record["runner"],
             runner_sha256=source_record["runner_sha256"],
             approved_helper_path=str(candidate_approved_helper),
-            owner_helper_source_path=str(
-                candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
-            ),
-            owner_helper_source_sha256=self.runner.sha256_file(
-                candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
-            ),
+            owner_helper_source_path=str(self.controller_helper_source),
+            owner_helper_source_sha256=self.runner.sha256_file(self.controller_helper_source),
+            owner_helper_sha256=hashlib.sha256(derived_owner_bytes).hexdigest(),
             overlay_sha256=hashlib.sha256(
                 adapter_runner._adapter_overlay(
                     (candidate_root / "tests/sema.rs").read_bytes(), self.runner
@@ -532,9 +604,20 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
                 self.build_receipt, build_record, self.runner
             )
             with patch.object(self.runner, "parse_candidate_receipt", return_value=source_record):
-                return adapter_runner._parse_adapter_build_receipt(
-                    self.build_receipt, "candidate", self.runner, self.owner_helper_source
-                )
+                with (
+                    patch.object(
+                        self.runner,
+                        "source_identity",
+                        side_effect=self._fixture_source_identity,
+                    ),
+                    patch.object(self.runner, "ROOT", self.controller_root),
+                ):
+                    return adapter_runner._parse_adapter_build_receipt(
+                        self.build_receipt,
+                        "candidate",
+                        self.runner,
+                        self.controller_helper_source,
+                    )
 
         self.assertNotEqual(controller_approved_helper, candidate_approved_helper)
         self.assertEqual(
@@ -551,6 +634,203 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             parse_candidate_build(
                 dict(record, approved_helper_path=str(controller_approved_helper))
             )
+
+        with self.assertRaisesRegex(
+            adapter_runner.PublicationError,
+            "owner helper source identity differs",
+        ):
+            parse_candidate_build(
+                dict(
+                    record,
+                    owner_helper_source_path=str(
+                        candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+                    ),
+                )
+            )
+
+        with self.assertRaisesRegex(
+            adapter_runner.PublicationError,
+            "owner helper source identity differs",
+        ):
+            parse_candidate_build(
+                dict(record, owner_helper_source_sha256="f" * 64)
+            )
+
+        wrong_controller = dict(
+            source_record,
+            controller_root=str(candidate_root),
+        )
+        with (
+            patch.object(
+                self.runner,
+                "source_identity",
+                side_effect=self._fixture_source_identity,
+            ),
+            patch.object(self.runner, "ROOT", self.controller_root),
+            patch.object(self.runner, "parse_candidate_receipt", return_value=wrong_controller),
+        ):
+            self.build_receipt.unlink(missing_ok=True)
+            adapter_runner._write_adapter_build_receipt(
+                self.build_receipt, record, self.runner
+            )
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "source-qualified helper controller root differs",
+            ):
+                adapter_runner._parse_adapter_build_receipt(
+                    self.build_receipt,
+                    "candidate",
+                    self.runner,
+                    self.controller_helper_source,
+                )
+
+    def test_derived_owner_helper_passes_build_validation_and_rejects_drift(self):
+        output_directory = adapter_runner._new_derived_helper_directory(
+            self.source_root, self.runner
+        )
+        self.addCleanup(shutil.rmtree, output_directory.parent, ignore_errors=True)
+        helper, helper_sha256, owner_sha256, owner_source_sha256 = (
+            adapter_runner.derive_helper(
+                approved_helper=adapter_runner.SOURCE_APPROVED_HELPER,
+                owner_helper=self.controller_helper_source,
+                output_directory=output_directory,
+                output_root=self.source_root,
+            )
+        )
+        owner_helper = output_directory / "w9-publication-owner-helper.rs"
+        self.assertNotEqual(owner_sha256, owner_source_sha256)
+
+        real_run = subprocess.run
+        clone_calls = []
+
+        def stop_before_compiler(command, *args, **kwargs):
+            if command[:2] == ["git", "clone"]:
+                clone_calls.append(command)
+                return subprocess.CompletedProcess(command, 1, "", "stopped before compiler")
+            return real_run(command, *args, **kwargs)
+
+        def build_helper():
+            with (
+                patch.object(self.runner, "parse_candidate_receipt", return_value=self.source_record),
+                patch.object(
+                    self.runner,
+                    "source_identity",
+                    side_effect=self._fixture_source_identity,
+                ),
+                patch.object(self.runner, "ROOT", self.controller_root),
+                patch.object(self.runner, "local_docker_environment", return_value={}),
+                patch.object(adapter_runner.subprocess, "run", side_effect=stop_before_compiler),
+            ):
+                adapter_runner.build_adapter_harness(
+                    self.source_root,
+                    self.source_root,
+                    self.source_receipt,
+                    self.source_record,
+                    "candidate",
+                    helper,
+                    helper_sha256,
+                    owner_sha256,
+                    owner_source_sha256,
+                    self.runner,
+                )
+
+        with self.assertRaisesRegex(
+            adapter_runner.PublicationError,
+            "could not clone candidate source for adapter build: stopped before compiler",
+        ):
+            build_helper()
+        self.assertEqual(len(clone_calls), 1)
+
+        owner_helper.write_bytes(owner_helper.read_bytes() + b"drift")
+        with self.assertRaisesRegex(
+            adapter_runner.PublicationError,
+            "owner helper changed before harness build",
+        ):
+            build_helper()
+        self.assertEqual(len(clone_calls), 1)
+
+    def test_build_receipt_authenticates_raw_and_derived_owner_helper_bytes(self):
+        output_directory = adapter_runner._new_derived_helper_directory(
+            self.source_root, self.runner
+        )
+        self.addCleanup(shutil.rmtree, output_directory.parent, ignore_errors=True)
+        _helper, _helper_sha256, owner_sha256, owner_source_sha256 = (
+            adapter_runner.derive_helper(
+                approved_helper=adapter_runner.SOURCE_APPROVED_HELPER,
+                owner_helper=self.controller_helper_source,
+                output_directory=output_directory,
+                output_root=self.source_root,
+            )
+        )
+        owner_helper = output_directory / "w9-publication-owner-helper.rs"
+        record = dict(
+            self.build,
+            owner_helper_path=str(owner_helper),
+            owner_helper_sha256=owner_sha256,
+            owner_helper_source_path=str(self.controller_helper_source),
+            owner_helper_source_sha256=owner_source_sha256,
+        )
+
+        parsed = self.parse_build(record)
+        self.assertEqual(parsed["owner_helper_source_sha256"], owner_source_sha256)
+        self.assertEqual(parsed["owner_helper_sha256"], owner_sha256)
+        self.assertNotEqual(owner_sha256, owner_source_sha256)
+
+        tampered_helper = output_directory / "w9-publication-owner-helper-tampered.rs"
+        tampered_helper.write_bytes(owner_helper.read_bytes() + b"drift")
+        tampered_record = dict(
+            record,
+            owner_helper_path=str(tampered_helper),
+            owner_helper_sha256=self.runner.sha256_file(tampered_helper),
+        )
+        with self.assertRaisesRegex(
+            adapter_runner.PublicationError,
+            "derived owner helper bytes differ",
+        ):
+            self.parse_build(tampered_record)
+
+        raw_owner_helper = self.controller_helper_source.read_bytes()
+        self.controller_helper_source.write_bytes(raw_owner_helper + b"drift")
+        try:
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "source-qualified controller owner helper SHA-256 changed",
+            ):
+                self.parse_build(record)
+        finally:
+            self.controller_helper_source.write_bytes(raw_owner_helper)
+
+    def test_schema_three_build_keeps_candidate_owner_helper_authority(self):
+        candidate_helper = self.source_root / "dev/consolidation/w9-publication-owner-helper.rs"
+        self.owner_helper.write_bytes(candidate_helper.read_bytes())
+        source_record = dict(self.source_record, schema="3")
+        record = dict(
+            self.build,
+            owner_helper_source_path=str(candidate_helper),
+            owner_helper_source_sha256=self.runner.sha256_file(candidate_helper),
+            owner_helper_sha256=self.runner.sha256_file(candidate_helper),
+        )
+        self.build_receipt.unlink(missing_ok=True)
+        adapter_runner._write_adapter_build_receipt(
+            self.build_receipt, record, self.runner
+        )
+        with (
+            patch.object(self.runner, "SOURCE_COHORT_SCHEMA", "3"),
+            patch.object(self.runner, "parse_candidate_receipt", return_value=source_record),
+            patch.object(
+                self.runner,
+                "source_identity",
+                side_effect=self._fixture_source_identity,
+            ),
+            patch.object(self.runner, "ROOT", self.controller_root),
+        ):
+            parsed = adapter_runner._parse_adapter_build_receipt(
+                self.build_receipt,
+                "candidate",
+                self.runner,
+                candidate_helper,
+            )
+        self.assertEqual(parsed["owner_helper_source_path"], str(candidate_helper))
 
     def test_schema_two_build_receipt_rejects_stale_source_runner_or_mixed_schema(self):
         for field, value, message in (
@@ -604,6 +884,101 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(adapter_runner.PublicationError, "schemas differ"):
             self.parse_capture(capture_receipt, capture_root, raw_root, receipt_directory)
 
+    def test_schema_four_comparison_rejects_a_mixed_capture_bundle(self):
+        expected_inputs = {
+            0: self.runner.ManifestSource("source.xsh", "a" * 64, 0o444)
+        }
+        reference_root = self.root / "reference-source"
+        reference_root.mkdir()
+        reference_capture = self.root / "reference/capture.receipt"
+        candidate_capture = self.root / "candidate/capture.receipt"
+        reference_capture.parent.mkdir()
+        candidate_capture.parent.mkdir()
+        reference_build_path = self.root / "reference-build.receipt"
+        candidate_build_path = self.root / "candidate-build.receipt"
+        reference_build_path.write_text("reference build\n", encoding="utf-8")
+        candidate_build_path.write_text("candidate build\n", encoding="utf-8")
+        candidate_source_record = {
+            "schema": self.runner.SOURCE_COHORT_SCHEMA,
+            "candidate_commit": self.source_commit,
+            "candidate_tree": self.source_tree,
+        }
+        builds = {
+            reference_build_path: {
+                "schema": "2",
+                "source_root": str(reference_root),
+                "source_commit": "c" * 40,
+                "source_tree": "d" * 40,
+                "helper_sha256": "e" * 64,
+                "owner_helper_sha256": "f" * 64,
+            },
+            candidate_build_path: {
+                "schema": "2",
+                "source_root": str(self.source_root),
+                "source_commit": self.source_commit,
+                "source_tree": self.source_tree,
+                "helper_sha256": "e" * 64,
+                "owner_helper_sha256": "f" * 64,
+            },
+        }
+        capture_records = {
+            reference_capture: {"schema": "2"},
+            candidate_capture: {"schema": "1"},
+        }
+
+        with (
+            patch.object(self.runner, "regular_file", side_effect=lambda path, *_args, **_kwargs: pathlib.Path(path)),
+            patch.object(self.runner, "require_sha256", return_value="a" * 64),
+            patch.object(
+                self.runner,
+                "validate_source_cohort_inputs",
+                return_value=(expected_inputs, {}),
+            ),
+            patch.object(
+                adapter_runner,
+                "_capture_field",
+                side_effect=lambda _path, field, _runner: (
+                    str(reference_build_path)
+                    if field == "build_receipt" and _path == reference_capture
+                    else str(candidate_build_path)
+                ),
+            ),
+            patch.object(
+                adapter_runner,
+                "_parse_adapter_build_receipt",
+                side_effect=lambda path, *_args: builds[path],
+            ),
+            patch.object(
+                adapter_runner,
+                "_parse_capture_receipt",
+                side_effect=lambda path, *_args: capture_records[path],
+            ),
+            patch.object(self.runner, "real_directory", side_effect=lambda path, *_args: pathlib.Path(path)),
+        ):
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "source-qualified comparison requires source-qualified adapter captures",
+            ):
+                adapter_runner.compare_full_publications(
+                    self.runner,
+                    None,
+                    self.root / "candidate-receipts",
+                    self.root / "reference-raw",
+                    self.root / "candidate-raw",
+                    expected_inputs,
+                    self.root / "mismatches.tsv",
+                    reference_capture,
+                    candidate_capture,
+                    self.source_root,
+                    reference_root,
+                    candidate_source_record,
+                    self.input_root,
+                    self.input_manifest,
+                    {"PATH": os.environ["PATH"]},
+                    reference_exact_owners={0: (object(), {})},
+                    candidate_exact_owners={0: (object(), {})},
+                )
+
     def test_exact_owner_binding_dispatches_capture_schema_without_legacy_fallback(self):
         capture_receipt = self.root / "adapter-capture.receipt"
         capture_receipt.write_text("adapter capture fixture\n", encoding="utf-8")
@@ -644,6 +1019,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             "candidate_tree": self.source_tree,
             "builder_path": self.source_record["builder_path"],
             "input_root": str(self.input_root),
+            "program_root": str(self.runner.PROGRAM_SNAPSHOT_ROOT.resolve()),
         }
         output = self.root / "capture-jobs"
         receipt_directory = output / "candidate/receipts"
@@ -681,7 +1057,9 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             captured["command"][2:5],
             [source_record["builder_path"], str(self.source_root), "run"],
         )
+        self.assertIn(f"W9_OUTPUT_ROOT={output.resolve()}", captured["command"][:captured["command"].index("env")])
         self.assertIn(f"W9_INPUT_ROOT={self.input_root}", captured["command"])
+        self.assertIn(f"W9_OUTPUT_ROOT={output.resolve()}", captured["command"])
         self.assertIn("W9_CPU_SET=0", captured["command"])
         self.assertEqual(captured["environment"]["W9_SOURCE_COMMIT"], self.source_commit)
         self.assertEqual(captured["environment"]["W9_SOURCE_TREE"], self.source_tree)
@@ -1015,6 +1393,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             "input_manifest_sha256": "a" * 64,
             "corpus_blake3": self.runner.CORPUS_BLAKE3,
             "builder_path": str(self.runner.SOURCE_BUILDER_PATH),
+            "program_root": str(self.runner.PROGRAM_SNAPSHOT_ROOT.resolve()),
         }
         capture_roots = {}
         builds = {}
@@ -1261,6 +1640,15 @@ class AdapterRawOutcomeContinuationTests(unittest.TestCase):
             self.assertEqual(len(helper_hash), 64)
             self.assertEqual(len(owner_hash), 64)
             self.assertEqual(owner_source_hash, adapter_runner.OWNER_HELPER_SHA256)
+            self.assertEqual(
+                hashlib.sha256(adapter_runner.OWNER_HELPER.read_bytes()).hexdigest(),
+                adapter_runner.OWNER_HELPER_SHA256,
+            )
+            self.assertEqual(
+                owner.count("xsh::execution::value::Value::Record(fields)"),
+                2,
+            )
+            self.assertNotIn("xsh::runtime::value::Value::Record(fields)", owner)
             self.assertIn("W9_ADAPTER_HASH_ROOT", source)
             self.assertIn("w9_hash_adapter_tree", source)
             self.assertEqual(
@@ -1273,6 +1661,10 @@ class AdapterRawOutcomeContinuationTests(unittest.TestCase):
             )
             self.assertNotIn("create_dir_all(outputdir)", owner)
             self.assertIn("w9_create_new_adapter_file", owner)
+            self.assertIn("w9_resolve_project_module_config(&program_entry, &program_root)", source)
+            self.assertIn("let roots = resolved_config.module_roots.clone();", source)
+            self.assertIn("&program_root, &resolved_config", source)
+            self.assertNotIn("project_module_roots(&program_entry)", source)
 
     def test_retry_uses_a_new_retained_derived_helper_directory(self):
         repository = pathlib.Path(__file__).resolve().parents[2]
@@ -1813,6 +2205,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             b"",
             None,
             None,
+            False,
         )
 
     def setUp(self):
@@ -3974,7 +4367,7 @@ candidate_root.mkdir()
 (candidate_root / ".work").mkdir()
 subprocess.run(["git", "init", "--quiet", str(candidate_root)], check=True)
 output = candidate_root / ".work" / "comparison"
-context = runner._PublicationComparisonContext(-1, -1, {}, None, {}, {}, {}, {}, {}, b"", b"", None, None)
+context = runner._PublicationComparisonContext(-1, -1, {}, None, {}, {}, {}, {}, {}, b"", b"", None, None, False)
 original_kill = os.kill
 original_excepthook = sys.excepthook
 
@@ -4264,6 +4657,191 @@ raise SystemExit(runner.main(arguments))
 
 
 class SourceQualifiedBuildArtifactTests(unittest.TestCase):
+    def test_adapter_build_retains_cargo_output_before_success_and_failure_validation(self):
+        repository = pathlib.Path(adapter_runner.__file__).resolve().parents[2]
+        runner = adapter_runner._load_publication_runner(
+            repository / "dev/consolidation/w9-publication-run.py"
+        )
+        scratch_root = repository / ".work/tmp"
+        scratch_root.mkdir(parents=True, exist_ok=True)
+
+        with tempfile.TemporaryDirectory(prefix="w9-cargo-output-", dir=scratch_root) as scratch:
+            attempt = pathlib.Path(scratch)
+            success_binary = attempt / "candidate-success"
+            success_stdout = b'{"reason":"build-finished"}\n'
+            success_stderr = b"warning: retained warning\n"
+            success_command = [
+                sys.executable,
+                "-c",
+                "import sys; sys.stdout.buffer.write(bytes.fromhex(sys.argv[1])); "
+                "sys.stderr.buffer.write(bytes.fromhex(sys.argv[2]))",
+                success_stdout.hex(),
+                success_stderr.hex(),
+            ]
+
+            output = adapter_runner._run_adapter_build(
+                success_command, {}, "candidate", success_binary, runner
+            )
+
+            self.assertEqual(output.encode("utf-8"), success_stdout)
+            self.assertEqual(
+                success_binary.with_name(success_binary.name + ".cargo.jsonl").read_bytes(),
+                success_stdout,
+            )
+            self.assertEqual(
+                success_binary.with_name(success_binary.name + ".cargo.stderr").read_bytes(),
+                success_stderr,
+            )
+
+            failed_binary = attempt / "candidate-failed"
+            failure_stdout = b"cargo build output\n"
+            failure_stderr = b"compiler stopped\n"
+            failure_command = [
+                sys.executable,
+                "-c",
+                "import sys; sys.stdout.buffer.write(bytes.fromhex(sys.argv[1])); "
+                "sys.stderr.buffer.write(bytes.fromhex(sys.argv[2])); sys.exit(7)",
+                failure_stdout.hex(),
+                failure_stderr.hex(),
+            ]
+
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "pinned candidate adapter harness build failed: compiler stopped",
+            ):
+                adapter_runner._run_adapter_build(
+                    failure_command, {}, "candidate", failed_binary, runner
+                )
+
+            self.assertEqual(
+                failed_binary.with_name(failed_binary.name + ".cargo.jsonl").read_bytes(),
+                failure_stdout,
+            )
+            self.assertEqual(
+                failed_binary.with_name(failed_binary.name + ".cargo.stderr").read_bytes(),
+                failure_stderr,
+            )
+
+    def test_build_command_matches_the_frozen_cargo_argv(self):
+        source_record = {
+            "build_profile": "verification",
+            "build_target": "x86_64-unknown-linux-musl",
+            "program_root": "/repository/.work/wt/w9-program-e240",
+        }
+
+        command = adapter_runner._source_adapter_build_command(
+            pathlib.Path("/repository/dev/consolidation/w9-source-build.sh"),
+            pathlib.Path("/repository/.work/tmp/adapter-source"),
+            source_record,
+        )
+
+        self.assertEqual(
+            command,
+            [
+                "/repository/dev/consolidation/w9-source-build.sh",
+                "/repository/.work/tmp/adapter-source",
+                "build",
+                "cargo",
+                "test",
+                "--locked",
+                "--profile",
+                "verification",
+                "--target",
+                "x86_64-unknown-linux-musl",
+                "-p",
+                "xsh",
+                "--test",
+                "integration",
+                "--no-run",
+                "--message-format=json-render-diagnostics",
+            ],
+        )
+        self.assertNotIn("W9_PROGRAM_ROOT=/repository/.work/wt/w9-program-e240", command)
+
+    def test_build_command_passes_the_pinned_builder_plan(self):
+        repository = pathlib.Path(adapter_runner.__file__).resolve().parents[2]
+        runner = adapter_runner._load_publication_runner(
+            repository / "dev/consolidation/w9-publication-run.py"
+        )
+        scratch_parent = runner.CONTROLLER_ROOT / ".work/wt"
+        scratch_parent.mkdir(parents=True, exist_ok=True)
+
+        with tempfile.TemporaryDirectory(prefix="w9-build-plan-", dir=scratch_parent) as scratch:
+            source_root = pathlib.Path(scratch)
+            tests_path = source_root / "tests/sema.rs"
+            tests_path.parent.mkdir()
+            tests_path.write_bytes(b"#[test]\nfn original_test() {}\n")
+            for command in (
+                ["git", "init", "--quiet", str(source_root)],
+                ["git", "-C", str(source_root), "config", "user.name", "Test"],
+                ["git", "-C", str(source_root), "config", "user.email", "test@example.invalid"],
+                ["git", "-C", str(source_root), "add", "tests/sema.rs"],
+                ["git", "-C", str(source_root), "commit", "--quiet", "-m", "test(fixtures): initialize source"],
+            ):
+                subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            commit, tree = runner.source_identity(source_root)
+            runner.exclude_work_from_git(source_root)
+            helper_output = adapter_runner._new_derived_helper_directory(source_root, runner)
+            helper, helper_sha256, owner_sha256, _owner_source_sha256 = (
+                adapter_runner.derive_helper(
+                    approved_helper=adapter_runner.SOURCE_APPROVED_HELPER,
+                    owner_helper=adapter_runner.OWNER_HELPER,
+                    output_directory=helper_output,
+                    output_root=source_root,
+                )
+            )
+            owner_helper = helper_output / "w9-publication-owner-helper.rs"
+            consolidation = source_root / ".work/consolidation"
+            adapter_include = consolidation / "w9-publication-adapter.rs"
+            owner_include = consolidation / "w9-publication-owner-helper.rs"
+            adapter_runner._write_new_file(
+                adapter_include, runner.read_regular_bytes(helper), runner
+            )
+            adapter_runner._write_new_file(
+                owner_include, runner.read_regular_bytes(owner_helper), runner
+            )
+            self.assertEqual(hashlib.sha256(adapter_include.read_bytes()).hexdigest(), helper_sha256)
+            self.assertEqual(hashlib.sha256(owner_include.read_bytes()).hexdigest(), owner_sha256)
+            overlay = adapter_runner._adapter_overlay(tests_path.read_bytes(), runner)
+            tests_path.write_bytes(overlay)
+            overlay_sha256 = hashlib.sha256(overlay).hexdigest()
+            command = adapter_runner._source_adapter_build_command(
+                runner.SOURCE_BUILDER_PATH,
+                source_root,
+                {
+                    "build_profile": "verification",
+                    "build_target": "x86_64-unknown-linux-musl",
+                    "program_root": str(runner.PROGRAM_SNAPSHOT_ROOT),
+                },
+            )
+            environment = os.environ.copy()
+            environment.pop("LD_PRELOAD", None)
+            environment.update(
+                {
+                    "W9_SOURCE_COMMIT": commit,
+                    "W9_SOURCE_TREE": tree,
+                    "W9_ROLE": "candidate",
+                    "W9_OVERLAY_SHA256": overlay_sha256,
+                    "W9_LINKER_PATH": str(runner.SOURCE_LINKER_PATH),
+                    "W9_LINKER_SHA256": runner.SOURCE_LINKER_SHA256,
+                }
+            )
+
+            artifact_root = adapter_runner._planned_adapter_artifact_root(
+                command, environment, runner
+            )
+            helper_bytes = adapter_include.read_bytes()
+            adapter_include.write_bytes(helper_bytes + b"\n")
+            changed_artifact_root = adapter_runner._planned_adapter_artifact_root(
+                command, environment, runner
+            )
+            adapter_include.write_bytes(helper_bytes)
+
+        target_prefix = f"w9-target-{commit}-{tree}-"
+        self.assertTrue(artifact_root.name.startswith(target_prefix))
+        self.assertRegex(artifact_root.name[len(target_prefix):], r"^[0-9a-f]{64}-candidate$")
+        self.assertNotEqual(changed_artifact_root, artifact_root)
+
     def test_artifact_root_comes_from_same_builder_request_and_environment(self):
         artifact_root = pathlib.Path("/repository/.work/tmp/w9-target-source-role")
         plan_arguments = b"/usr/bin/docker\0-e\0CARGO_TARGET_DIR=/repository/.work/tmp/w9-target-source-role\0"

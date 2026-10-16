@@ -14,12 +14,14 @@ from collections.abc import Mapping
 
 import w9_publication_adapter as adapter
 import w9_publication_adapter_runner as adapter_runner
+import w9_program_snapshot
 
 
 EXACT_OWNER_TEST = "sema::w9_exact_repository_owners_receipt"
 EXACT_OWNER_HASH_LIBTEST_PREFIX = f"test {EXACT_OWNER_TEST} ... "
+SOURCE_AUDIT_HASH_PREFIX = "w9sourceaudit-hash"
 EXACT_OWNER_HELPER = pathlib.Path(__file__).with_name("w9-publication-exact-owners.rs")
-EXACT_OWNER_HELPER_SHA256 = "33c77273d9f9096d3e6478622d0b29a3f0f1f79dee772cdea12b06f2ac8200d8"
+EXACT_OWNER_HELPER_SHA256 = "805238f65bf1df312c895a2bce061fb2ca3d40737d7e0073186c897ce0ef37dd"
 ASSIGNMENT_FACTS_HELPER = pathlib.Path(__file__).with_name("w9-publication-assignment-facts.rs")
 ASSIGNMENT_FACTS_SCHEMA = "1"
 ASSIGNMENT_PROOF_AUTHORITY_SOURCES = (
@@ -388,6 +390,8 @@ def _field_name(kind: str, value: str, label: str) -> str | tuple[str, ...]:
 
 def parse_exact_owner_index(
     contents: str,
+    *,
+    allow_source_audit: bool = False,
 ) -> tuple[
     tuple[
         dict[int, int],
@@ -423,6 +427,8 @@ def parse_exact_owner_index(
         fields = line.split("\t")
         if fields[0] in {"source", "stmt", "tail"}:
             legacy_lines.append(line)
+        elif allow_source_audit and fields[0] in {"source-audit", "module-config", "module-root"}:
+            continue
         elif fields[0] == "owner" and len(fields) == 3 and fields[2] == "run:RunForm":
             run_owner_spans.append(fields[1])
         elif fields[0] == "owner":
@@ -870,6 +876,164 @@ def parse_exact_owner_hash_output(stdout: str, count: int) -> dict[int, str]:
             f"native exact-owner hash output coverage differs: missing={count - len(hashes)}"
         )
     return hashes
+
+
+def parse_source_audit_hash_output(
+    stdout: str,
+    expected: set[tuple[str, str]],
+) -> dict[tuple[str, str], tuple[int, str]]:
+    hashes: dict[tuple[str, str], tuple[int, str]] = {}
+    for line in stdout.splitlines():
+        if line.startswith(SOURCE_AUDIT_HASH_PREFIX):
+            row = line
+        elif SOURCE_AUDIT_HASH_PREFIX in line:
+            if not line.startswith(EXACT_OWNER_HASH_LIBTEST_PREFIX):
+                raise ExactOwnerError("native source-audit hash output has an unknown prefix")
+            row = line[len(EXACT_OWNER_HASH_LIBTEST_PREFIX) :]
+        else:
+            continue
+        fields = row.split("\t")
+        if len(fields) != 5 or fields[0] != SOURCE_AUDIT_HASH_PREFIX:
+            raise ExactOwnerError("native source-audit hash output has a malformed row")
+        kind = fields[1]
+        if kind not in {"file", "stdlib"}:
+            raise ExactOwnerError("native source-audit hash output has an unknown source kind")
+        try:
+            identity_bytes = bytes.fromhex(fields[2])
+            identity = identity_bytes.decode("utf-8")
+        except (ValueError, UnicodeError):
+            raise ExactOwnerError("native source-audit hash output has a malformed identity") from None
+        if not identity or identity.encode("utf-8").hex() != fields[2]:
+            raise ExactOwnerError("native source-audit hash output identity is not canonical")
+        byte_length = _decimal(fields[3], "native source-audit byte length")
+        if not HEX256.fullmatch(fields[4]):
+            raise ExactOwnerError("native source-audit hash output has a malformed BLAKE3 digest")
+        key = (kind, identity)
+        if key in hashes:
+            raise ExactOwnerError("native source-audit hash output repeats an identity")
+        hashes[key] = (byte_length, fields[4])
+    if set(hashes) != expected:
+        missing = sorted(expected - set(hashes))
+        extra = sorted(set(hashes) - expected)
+        raise ExactOwnerError(
+            f"native source-audit hash output coverage differs: missing={len(missing)} extra={len(extra)}"
+        )
+    return hashes
+
+
+def _source_audit_hash_expectations(
+    audits: list[adapter.OwnerSourceAudit],
+) -> dict[tuple[str, str], tuple[int, str]]:
+    expected: dict[tuple[str, str], tuple[int, str]] = {}
+    for audit in audits:
+        rows = list(audit.sources.values())
+        if audit.module_config is None:
+            raise ExactOwnerError("source-audit module config is missing")
+        rows.append(("file", *audit.module_config))
+        for kind, path, byte_length, digest in rows:
+            if kind == "file":
+                identity = path
+            else:
+                match = re.fullmatch(r"<xsh-stdlib:([a-z0-9-]+)>", path)
+                if match is None:
+                    raise ExactOwnerError("source-audit standard-library identity is malformed")
+                identity = match.group(1)
+            key = (kind, identity)
+            value = (byte_length, digest)
+            previous = expected.get(key)
+            if previous is not None and previous != value:
+                raise ExactOwnerError("source-audit sidecars disagree about a loaded source digest")
+            expected[key] = value
+    return expected
+
+
+def _validate_source_audit_hashes(
+    audits: list[adapter.OwnerSourceAudit],
+    actual: Mapping[tuple[str, str], tuple[int, str]],
+) -> None:
+    expected = _source_audit_hash_expectations(audits)
+    if set(actual) != set(expected):
+        missing = sorted(set(expected) - set(actual))
+        extra = sorted(set(actual) - set(expected))
+        raise ExactOwnerError(
+            f"source-audit native hash coverage differs: missing={len(missing)} extra={len(extra)}"
+        )
+    for key, value in expected.items():
+        if actual[key] != value:
+            raise ExactOwnerError(f"source-audit native hash differs for {key[0]} {key[1]}")
+
+
+def _validate_source_audit_source_rows(
+    audit: adapter.OwnerSourceAudit,
+    source_sizes: Mapping[int, int],
+) -> None:
+    if set(audit.sources) != set(source_sizes):
+        missing = sorted(set(source_sizes) - set(audit.sources))
+        extra = sorted(set(audit.sources) - set(source_sizes))
+        raise ExactOwnerError(
+            f"source-audit source-id coverage differs: missing={len(missing)} extra={len(extra)}"
+        )
+    for source_id, (_kind, _path, byte_length, _digest) in audit.sources.items():
+        if source_sizes[source_id] != byte_length:
+            raise ExactOwnerError(f"source-audit source length differs at SourceId({source_id})")
+
+
+def _validate_source_audit_files(
+    audit: adapter.OwnerSourceAudit,
+    source_sizes: Mapping[int, int],
+    input_paths: Mapping[str, str],
+    source_record: Mapping[str, str],
+    snapshot,
+    runner,
+    input_relative: str,
+) -> tuple[dict[pathlib.Path, w9_program_snapshot.LoadedProgramSource], tuple[pathlib.Path, ...]]:
+    _validate_source_audit_source_rows(audit, source_sizes)
+    input_root = pathlib.Path(source_record["input_root"])
+    program_root = snapshot.root
+    module_roots = tuple(pathlib.Path(value) for value in audit.module_roots)
+    program_sources: dict[pathlib.Path, w9_program_snapshot.LoadedProgramSource] = {}
+    for source_id, (kind, value, byte_length, digest) in audit.sources.items():
+        if kind == "stdlib":
+            if re.fullmatch(r"<xsh-stdlib:[a-z0-9-]+>", value) is None:
+                raise ExactOwnerError(f"source-audit standard-library name differs at SourceId({source_id})")
+            continue
+        path = pathlib.Path(value)
+        if not path.is_absolute() or path.resolve(strict=True) != path:
+            raise ExactOwnerError(f"source-audit path is not canonical at SourceId({source_id})")
+        if path.is_relative_to(input_root):
+            relative = path.relative_to(input_root).as_posix()
+            expected_digest = input_paths.get(relative)
+            if expected_digest is None:
+                raise ExactOwnerError(f"source-audit input path is not in the frozen manifest: {relative}")
+            source_bytes = runner.read_regular_bytes(path)
+            if len(source_bytes) != byte_length or hashlib.sha256(source_bytes).hexdigest() != expected_digest:
+                raise ExactOwnerError(f"source-audit input bytes differ from the frozen manifest: {relative}")
+        elif path.is_relative_to(program_root):
+            if not any(path.is_relative_to(root) for root in module_roots):
+                raise ExactOwnerError(f"source-audit program source is outside resolved module roots: {path}")
+            source = w9_program_snapshot.LoadedProgramSource(path, byte_length, digest)
+            previous = program_sources.get(path)
+            if previous is not None and previous != source:
+                raise ExactOwnerError(f"source-audit records disagree for common program source {path}")
+            program_sources[path] = source
+        else:
+            raise ExactOwnerError(f"source-audit file is outside the frozen roots: {path}")
+    try:
+        program_entry = w9_program_snapshot.program_entry_path(snapshot, input_relative)
+        expected_config = w9_program_snapshot.program_config_path(snapshot, program_entry)
+    except w9_program_snapshot.ProgramSnapshotError as error:
+        raise ExactOwnerError(f"source-audit program entry config is invalid: {error}") from error
+    if audit.module_config is None or audit.module_config[0] != str(expected_config):
+        raise ExactOwnerError("source-audit nearest config path differs from the pinned entry config")
+    config_path, config_length, config_digest = audit.module_config
+    config_source = w9_program_snapshot.LoadedProgramSource(
+        pathlib.Path(config_path), config_length, config_digest
+    )
+    previous = program_sources.get(config_source.path)
+    if previous is not None and previous != config_source:
+        raise ExactOwnerError("source-audit config file disagrees with a loaded program source")
+    program_sources[config_source.path] = config_source
+    return program_sources, module_roots
 
 
 def _read_exact_owner_receipt(
@@ -1370,7 +1534,7 @@ def _exact_helper_payload(
     source_record: Mapping[str, str], exact_helper_bytes: bytes, runner
 ) -> bytes:
     schema = source_record.get("schema")
-    if schema == runner.SOURCE_COHORT_SCHEMA:
+    if schema in {runner.SOURCE_COHORT_SCHEMA_3, runner.SOURCE_COHORT_SCHEMA}:
         return _project_exact_owner_helper(exact_helper_bytes)
     if schema == "2":
         return exact_helper_bytes
@@ -1686,15 +1850,24 @@ def _assignment_facts_helper_suffix(
     exact_helper = _replace_exact_helper_once(
         exact_helper,
         "        let entry = entry_source_from_text(&file, source);\n"
-        "        let (sources, parsed) = parse_load_entry_source_arena_only(&file, entry, roots);\n",
+        "        let root_source_id = entry.source_id;\n"
+        "        let (sources, parsed) = parse_load_entry_source_arena_only(&file, entry, roots.clone());\n",
         "        let entry = entry_source_from_text(&file, source);\n"
         "        let root_source_id = entry.source_id;\n"
-        "        let (sources, parsed) = parse_load_entry_source_arena_only(&file, entry, roots);\n",
+        "        let (sources, parsed) = parse_load_entry_source_arena_only(&file, entry, roots.clone());\n",
         "assignment root source identity",
     )
     exact_helper = _replace_exact_helper_once(
         exact_helper,
-        "        w9_write_exact_adapter_owners(&outputdir, index, &parsed.arena, &sources)\n"
+        "        w9_write_exact_adapter_owners(\n"
+        "            &outputdir,\n"
+        "            index,\n"
+        "            &parsed.arena,\n"
+        "            &sources,\n"
+        "            &root,\n"
+        "            &program_root,\n"
+        "            &resolved_config,\n"
+        "        )\n"
         "            .unwrap_or_else(|error| panic!(\"write exact owner sidecar {index}: {error}\"));\n"
         "        let owner_path = format!(\"owners-{index}.tsv\");\n"
         "        let owner_bytes = w9_exact_read_file_at(&w9_exact_open_directory(&outputdir).expect(\"open owner output directory\"), &owner_path)\n"
@@ -1738,7 +1911,7 @@ def _assignment_facts_helper_suffix(
     )
     exact_helper = _remove_exact_helper_function(
         exact_helper,
-        "pub fn w9_write_exact_adapter_owners(\n",
+        "fn w9_write_exact_adapter_owners(\n",
         "fn w9_exact_assert_structured_stage_is_published(",
         "unused exact-owner writer",
     )
@@ -2274,10 +2447,15 @@ def _check_exact_harness_listing(
     source_root: pathlib.Path,
     binary: pathlib.Path,
     docker_environment: dict[str, str],
+    program_root: pathlib.Path | None = None,
 ) -> None:
     try:
+        command = [str(builder), str(source_root), "run"]
+        if program_root is not None:
+            command.append(f"W9_PROGRAM_ROOT={program_root}")
+        command.extend((str(binary), "--list"))
         result = subprocess.run(
-            [str(builder), str(source_root), "run", str(binary), "--list"],
+            command,
             check=False,
             text=True,
             stdout=subprocess.PIPE,
@@ -2321,7 +2499,9 @@ def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> N
         candidate_root, pathlib.Path(args.reference_source_root), runner
     )
     runner.candidate_scratch_parent(candidate_root)
-    owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+    owner_helper_source, _owner_helper_source_bytes = (
+        adapter_runner._source_cohort_owner_helper_source(source_record, runner)
+    )
     owner_helper_path, exact_helper_bytes, exact_helper_sha256 = _load_exact_helper(runner)
     helper_attempt = adapter_runner._new_derived_helper_directory(candidate_root, runner)
     previous_root = adapter_runner.ROOT
@@ -2393,17 +2573,24 @@ def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> N
             listing_environment = docker_environment
         else:
             raise ExactOwnerError(f"{role} build receipt has an unsupported schema")
+        program_root = (
+            pathlib.Path(source_record["program_root"])
+            if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
+            else None
+        )
         runner.run_harness_test_listing(
             listing_builder,
             source_root,
             binary,
             listing_environment,
+            program_root=program_root,
         )
         _check_exact_harness_listing(
             listing_builder,
             source_root,
             binary,
             listing_environment,
+            program_root,
         )
         if build["helper_sha256"] != helper_sha256:
             raise ExactOwnerError(f"{role} build receipt helper hash differs")
@@ -2635,6 +2822,7 @@ def _run_exact_owner_hashes(
         command = [
             "timeout", "900s", source_record["builder_path"], source_record["candidate_root"], "run",
             f"W9_INPUT_ROOT={source_record['input_root']}",
+            f"W9_PROGRAM_ROOT={source_record['program_root']}",
             "W9_CPU_SET=0",
             f"W9_CONTAINER_NAME={container}",
             "env",
@@ -2712,6 +2900,98 @@ def _run_exact_owner_hashes(
         raise
 
 
+def _run_source_audit_hashes(
+    binary: pathlib.Path,
+    source_record: Mapping[str, str],
+    requested: set[tuple[str, str]],
+    capture_output: pathlib.Path,
+    role: str,
+    docker_environment: dict[str, str],
+    runner,
+) -> dict[tuple[str, str], tuple[int, str]]:
+    if not requested:
+        raise ExactOwnerError("source-audit hash request is empty")
+    hash_jobs = capture_output / "hashjobs"
+    job_dir = hash_jobs / f"{role}-source-audit"
+    adapter_runner._mkdir_new_directory(job_dir, runner)
+    input_path = job_dir / "inputs.tsv"
+    input_rows = "".join(
+        f"{kind}\t{identity.encode('utf-8').hex()}\n"
+        for kind, identity in sorted(requested)
+    )
+    adapter_runner._write_new_file(input_path, input_rows.encode("ascii"), runner)
+    container = f"w9exact-{os.getpid()}-{role}-hash-1"
+    if runner.existing_container(container, docker_environment):
+        raise ExactOwnerError(f"source-audit hash Docker container already exists: {container}")
+    runtime_environment = adapter_runner._source_qualified_runtime_environment(source_record)
+    command = [
+        "timeout", "900s", source_record["builder_path"], source_record["candidate_root"], "run",
+        f"W9_INPUT_ROOT={source_record['input_root']}",
+        f"W9_PROGRAM_ROOT={source_record['program_root']}",
+        "W9_CPU_SET=0",
+        f"W9_CONTAINER_NAME={container}",
+        "env",
+        f"W9_SOURCE_AUDIT_HASH_LIST={input_path}",
+        "taskset", "-c", "0", str(binary), "--exact", EXACT_OWNER_TEST, "--nocapture",
+    ]
+    environment = {**docker_environment, **runtime_environment}
+    log = job_dir / "worker.log"
+    descriptor = os.open(
+        log,
+        os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0),
+        0o600,
+    )
+    output = os.fdopen(descriptor, "wb")
+    output.write(
+        f"hash_role={role} cpu=0 source_audit_items={len(requested)} "
+        f"binary_sha256={runner.sha256_file(binary)}\n".encode()
+    )
+    output.flush()
+    job = {
+        "worker": role,
+        "cpu": 0,
+        "start": 0,
+        "end": len(requested),
+        "container": container,
+        "receipt": log,
+        "timing": log,
+        "log": log,
+        "process": None,
+        "output": output,
+    }
+    active: list[dict[str, object]] = []
+    try:
+        runner.start_and_register_job(job, active, command, source_record["candidate_root"], environment)
+        process = job["process"]
+        while process.poll() is None:
+            time.sleep(1)
+        if not output.closed:
+            output.close()
+        if process.returncode != 0:
+            raise ExactOwnerError(
+                f"native {role} source-audit hashing failed with status {process.returncode}; log={log}"
+            )
+        leftovers = runner.inspect_owned_containers(
+            f"^w9exact-{os.getpid()}-{role}-hash-1$", docker_environment
+        )
+        if leftovers:
+            runner.stop_jobs(active, docker_environment)
+            raise ExactOwnerError(f"source-audit hash container remained: {', '.join(leftovers)}")
+        active.remove(job)
+        return parse_source_audit_hash_output(runner.read_regular_text(log), requested)
+    except BaseException as primary_error:
+        if not output.closed:
+            output.close()
+        if active:
+            try:
+                runner.stop_jobs(active, docker_environment)
+            except runner.CleanupFailure as cleanup_error:
+                raise runner.CleanupFailure(
+                    f"{role} source-audit hashing failed: {primary_error}; {cleanup_error}"
+                ) from primary_error
+        raise
+
+
 def _launch_exact_owner_job(
     runner,
     source_record: dict[str, str],
@@ -2741,6 +3021,7 @@ def _launch_exact_owner_job(
         raise ExactOwnerError(f"exact-owner Docker container already exists: {container}")
     source_qualified = source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
     if source_qualified:
+        output_root = runner.real_directory(output, f"{role} exact-owner capture output root")
         runtime_environment = adapter_runner._source_qualified_runtime_environment(source_record)
         assignment_environment = []
         if assignment_helper_sha256 is not None:
@@ -2753,6 +3034,8 @@ def _launch_exact_owner_job(
         command = [
             "timeout", "900s", source_record["builder_path"], source_record["candidate_root"], "run",
             f"W9_INPUT_ROOT={source_record['input_root']}",
+            f"W9_PROGRAM_ROOT={source_record['program_root']}",
+            f"W9_OUTPUT_ROOT={output_root}",
             f"W9_CPU_SET={cpu}",
             f"W9_CONTAINER_NAME={container}",
             "env",
@@ -3011,7 +3294,7 @@ def capture_exact_owner_role(args: argparse.Namespace, bootstrap_runner) -> int:
         source_record["candidate_commit"], source_record["candidate_tree"]
     ):
         raise ExactOwnerError("candidate source identity differs from its source receipt")
-    expected_inputs, _paths_by_name, reference = _validate_source_inputs(source_record, runner)
+    expected_inputs, paths_by_name, reference = _validate_source_inputs(source_record, runner)
     if len(expected_inputs) != 1690:
         raise ExactOwnerError(f"candidate input count differs: {len(expected_inputs)}")
     reference_root = adapter_runner._prepare_reference_source(
@@ -3217,6 +3500,13 @@ def _validate_owner_projections(
     expected_inputs: dict[int, object],
     exact_hashes: dict[int, str],
     runner,
+    *,
+    source_record: Mapping[str, str] | None = None,
+    input_paths: Mapping[str, str] | None = None,
+    binary: pathlib.Path | None = None,
+    capture_output: pathlib.Path | None = None,
+    role: str | None = None,
+    docker_environment: dict[str, str] | None = None,
 ) -> dict[int, tuple[object, dict[str, object]]]:
     exact_descriptor = runner.open_absolute_nofollow(exact_raw_root, directory=True)
     legacy_descriptor = runner.open_absolute_nofollow(legacy_raw_root, directory=True)
@@ -3229,6 +3519,13 @@ def _validate_owner_projections(
         if not expected_exact_names <= legacy_names:
             raise ExactOwnerError("original owner sidecar set is incomplete")
         validated: dict[int, tuple[object, dict[str, object]]] = {}
+        source_qualified = (
+            source_record is not None
+            and source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
+        )
+        audit_pairs: list[
+            tuple[int, adapter.OwnerSourceAudit, adapter.OwnerSourceAudit, Mapping[int, int]]
+        ] = []
         for index in range(len(expected_inputs)):
             exact_bytes = adapter_runner._read_regular_bytes_at(
                 exact_descriptor, f"owners-{index}.tsv"
@@ -3238,8 +3535,19 @@ def _validate_owner_projections(
             )
             try:
                 exact_text = exact_bytes.decode("utf-8")
-                legacy_projection = adapter.parse_owner_index(legacy_text)
-                exact_projection, exact_owners = parse_exact_owner_index(exact_text)
+                legacy_projection = adapter.parse_owner_index(
+                    legacy_text, allow_source_audit=source_qualified
+                )
+                exact_projection, exact_owners = parse_exact_owner_index(
+                    exact_text, allow_source_audit=source_qualified
+                )
+                if source_qualified:
+                    legacy_audit = adapter.parse_owner_source_audit(legacy_text)
+                    exact_audit = adapter.parse_owner_source_audit(exact_text)
+                    if exact_audit != legacy_audit:
+                        raise ExactOwnerError("source audit differs between exact and adapter sidecars")
+                    _validate_source_audit_source_rows(legacy_audit, legacy_projection[0])
+                    audit_pairs.append((index, exact_audit, legacy_audit, exact_projection[0]))
             except (UnicodeError, adapter.AdapterError, ExactOwnerError) as error:
                 raise ExactOwnerError(f"owner {index}: invalid owner projection: {error}") from error
             if exact_projection != legacy_projection:
@@ -3251,6 +3559,58 @@ def _validate_owner_projections(
             if not HEX256.fullmatch(exact_hashes[index]):
                 raise ExactOwnerError(f"owner {index}: native exact-owner digest is malformed")
             validated[index] = (exact_projection, exact_owners)
+        if source_qualified:
+            if (
+                input_paths is None
+                or binary is None
+                or capture_output is None
+                or role is None
+                or source_record is None
+                or docker_environment is None
+            ):
+                raise ExactOwnerError("source-audit validation context is incomplete")
+            snapshot = w9_program_snapshot.validate_program_snapshot(
+                pathlib.Path(source_record["program_root"])
+            )
+            audit_records = [audit for pair in audit_pairs for audit in pair[1:3]]
+            program_sources: dict[pathlib.Path, w9_program_snapshot.LoadedProgramSource] = {}
+            module_roots: set[pathlib.Path] = set()
+            for index, exact_audit, _legacy_audit, source_sizes in audit_pairs:
+                input_program_sources, input_module_roots = _validate_source_audit_files(
+                    exact_audit,
+                    source_sizes,
+                    input_paths=input_paths,
+                    source_record=source_record,
+                    snapshot=snapshot,
+                    runner=runner,
+                    input_relative=expected_inputs[index].relative_path,
+                )
+                for path, source in input_program_sources.items():
+                    previous = program_sources.get(path)
+                    if previous is not None and previous != source:
+                        raise ExactOwnerError(f"source-audit records disagree for common program source {path}")
+                    program_sources[path] = source
+                module_roots.update(input_module_roots)
+            try:
+                w9_program_snapshot.validate_loaded_program_sources(
+                    snapshot, tuple(program_sources.values())
+                )
+                w9_program_snapshot.validate_module_roots(
+                    snapshot, tuple(sorted(module_roots, key=str))
+                )
+            except w9_program_snapshot.ProgramSnapshotError as error:
+                raise ExactOwnerError(f"source-audit common program files are invalid: {error}") from error
+            requested = _source_audit_hash_expectations(audit_records)
+            actual_hashes = _run_source_audit_hashes(
+                binary,
+                source_record,
+                set(requested),
+                capture_output,
+                role,
+                docker_environment,
+                runner,
+            )
+            _validate_source_audit_hashes(audit_records, actual_hashes)
         return validated
     finally:
         os.close(exact_descriptor)
@@ -3533,7 +3893,17 @@ def validate_proof(
         ):
             raise ExactOwnerError(f"{role} source identity changed before exact-owner sidecar validation")
         validated = _validate_owner_projections(
-            pathlib.Path(capture["raw_root"]), adapter_raw_root, expected_inputs, native_hashes, runner
+            pathlib.Path(capture["raw_root"]),
+            adapter_raw_root,
+            expected_inputs,
+            native_hashes,
+            runner,
+            source_record=source_record,
+            input_paths=paths_by_name,
+            binary=binary,
+            capture_output=output,
+            role=role,
+            docker_environment=docker_environment,
         )
         confirmed_hashes = _run_exact_owner_hashes(
             binary, pathlib.Path(capture["raw_root"]), source_record, output, role, 2,

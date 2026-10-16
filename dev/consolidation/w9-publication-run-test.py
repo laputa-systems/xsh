@@ -1509,7 +1509,7 @@ class SourceCohortReceiptTests(unittest.TestCase):
     def source_record(self, manifest_sha256):
         commit, tree = runner.source_identity(self.candidate_root)
         return {
-            "schema": runner.SOURCE_COHORT_SCHEMA,
+            "schema": runner.SOURCE_COHORT_SCHEMA_3,
             "role": "source-cohort",
             "candidate_root": str(self.candidate_root),
             "candidate_commit": commit,
@@ -1534,10 +1534,64 @@ class SourceCohortReceiptTests(unittest.TestCase):
         manifest_sha256 = self.write_cohort()
         record = self.source_record(manifest_sha256)
         with patch.object(runner, "INPUT_MANIFEST_SHA256", manifest_sha256):
-            by_index, by_path = runner.validate_source_cohort_inputs(record)
+            with patch.object(
+                runner.w9_program_snapshot,
+                "validate_program_snapshot",
+                side_effect=AssertionError("schema 3 must not require a program snapshot"),
+            ):
+                by_index, by_path = runner.validate_source_cohort_inputs(record)
         self.assertEqual(len(by_index), 1690)
         self.assertEqual(len(by_path), 1690)
         self.assertEqual(by_index[0].mode, 0o444)
+
+    def test_schema_four_cohort_preflights_each_entry_config(self):
+        program_root = self.root / "program"
+        config_path = program_root / "xsht-config.ini"
+        snapshot = runner.w9_program_snapshot.ProgramSnapshot(
+            program_root,
+            "a" * 40,
+            "b" * 40,
+            config_path,
+            {},
+            {},
+        )
+        sources = {0: runner.ManifestSource("sources/0000.xsh", "c" * 64, 0o444)}
+        record = {
+            "schema": runner.SOURCE_COHORT_SCHEMA,
+            "input_root": str(self.input_root),
+            "input_manifest": str(self.manifest),
+            "program_root": str(program_root),
+            "program_commit": snapshot.commit,
+            "program_tree": snapshot.tree,
+            "program_config_path": str(config_path),
+        }
+        program_entry = program_root / "sources/0000.xsh"
+        with (
+            patch.object(runner, "validate_source_receipt_record"),
+            patch.object(
+                runner,
+                "validate_source_qualified_inputs",
+                return_value=(sources, {"sources/0000.xsh": "c" * 64}),
+            ),
+            patch.object(
+                runner.w9_program_snapshot,
+                "validate_program_snapshot",
+                return_value=snapshot,
+            ),
+            patch.object(
+                runner.w9_program_snapshot,
+                "program_entry_path",
+                return_value=program_entry,
+            ) as entry_path,
+            patch.object(
+                runner.w9_program_snapshot,
+                "program_config_path",
+                return_value=config_path,
+            ) as selected_config,
+        ):
+            runner.validate_source_cohort_inputs(record)
+        entry_path.assert_called_once_with(snapshot, "sources/0000.xsh")
+        selected_config.assert_called_once_with(snapshot, program_entry)
 
     def test_source_cohort_rejects_short_manifest_and_nonfrozen_modes(self):
         manifest_sha256 = self.write_cohort(count=1689)
@@ -1617,6 +1671,152 @@ class SourceCohortReceiptTests(unittest.TestCase):
             with self.assertRaisesRegex(runner.PublicationError, "SHA-256 mismatch"):
                 runner.validate_source_cohort_inputs(record)
 
+
+class SourceQualifiedControllerReceiptTests(unittest.TestCase):
+    def setUp(self):
+        scratch = ROOT / ".work/tmp"
+        scratch.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(prefix="w9-controller-receipt-", dir=scratch)
+        self.addCleanup(self.temporary.cleanup)
+        self.root = pathlib.Path(self.temporary.name)
+        subprocess.run(["git", "-C", str(self.root), "init", "--quiet"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.root), "config", "user.name", "controller receipt fixture"],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "config",
+                "user.email",
+                "controller-receipt-fixture@example.invalid",
+            ],
+            check=True,
+        )
+        (self.root / ".git/info/exclude").write_text("/.work/\n", encoding="utf-8")
+        self.consolidation = self.root / "dev/consolidation"
+        self.consolidation.mkdir(parents=True)
+        self.runner_path = self.consolidation / "w9-publication-run.py"
+        shutil.copy2(RUNNER_PATH, self.runner_path)
+        self.builder_path = self.consolidation / "w9-source-build.sh"
+        self.builder_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        self.builder_path.chmod(0o755)
+        self.linker_path = self.root / "dev/musl-linker.sh"
+        self.linker_path.parent.mkdir(parents=True, exist_ok=True)
+        self.linker_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        self.linker_path.chmod(0o755)
+        self.snapshot_helper_path = self.consolidation / "w9_program_snapshot.py"
+        shutil.copy2(runner.w9_program_snapshot.__file__, self.snapshot_helper_path)
+        self.program_snapshot = runner.w9_program_snapshot.validate_program_snapshot(
+            runner.PROGRAM_SNAPSHOT_ROOT
+        )
+        subprocess.run(
+            ["git", "-C", str(self.root), "add", "dev"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(self.root), "commit", "--quiet", "-m", "test(fixtures): pin controller"],
+            check=True,
+        )
+        (self.root / ".work").mkdir()
+        self.input_root = self.root / ".work/input-corpus"
+        self.input_root.mkdir()
+        self.manifest = self.root / ".work/input-files.tsv"
+        self.manifest.write_text(
+            "0\tsource.xsh\t" + "a" * 64 + "\t444\n",
+            encoding="utf-8",
+        )
+        self.manifest_sha256 = runner.sha256_file(self.manifest)
+
+    def source_record(self):
+        commit, tree = runner.source_identity(self.root)
+        return {
+            "schema": runner.SOURCE_COHORT_SCHEMA,
+            "role": "source-cohort",
+            "candidate_root": str(self.root),
+            "candidate_commit": commit,
+            "candidate_tree": tree,
+            "input_root": str(self.input_root),
+            "input_manifest": str(self.manifest),
+            "input_manifest_sha256": self.manifest_sha256,
+            "corpus_blake3": runner.CORPUS_BLAKE3,
+            "builder_path": str(self.builder_path),
+            "builder_sha256": runner.sha256_file(self.builder_path),
+            "builder_image": runner.SOURCE_BUILD_IMAGE,
+            "build_target": runner.SOURCE_BUILD_TARGET,
+            "build_profile": runner.SOURCE_BUILD_PROFILE,
+            "rustflags": runner.SOURCE_RUSTFLAGS,
+            "linker_path": str(self.linker_path),
+            "linker_sha256": runner.sha256_file(self.linker_path),
+            "controller_root": str(self.root),
+            "controller_commit": commit,
+            "controller_tree": tree,
+            "program_root": str(self.program_snapshot.root),
+            "program_commit": self.program_snapshot.commit,
+            "program_tree": self.program_snapshot.tree,
+            "program_config_path": str(self.program_snapshot.config_path),
+            "program_snapshot_helper": str(self.snapshot_helper_path),
+            "program_snapshot_helper_sha256": runner.sha256_file(self.snapshot_helper_path),
+            "runner": str(self.runner_path),
+            "runner_sha256": runner.sha256_file(self.runner_path),
+        }
+
+    def validate(self, record):
+        with (
+            patch.object(runner, "ROOT", self.root),
+            patch.object(runner, "CONTROLLER_ROOT", self.root),
+            patch.object(runner, "SOURCE_BUILDER_PATH", self.builder_path),
+            patch.object(
+                runner,
+                "SOURCE_BUILDER_SHA256",
+                runner.sha256_file(self.builder_path),
+            ),
+            patch.object(runner, "SOURCE_LINKER_PATH", self.linker_path),
+            patch.object(
+                runner,
+                "SOURCE_LINKER_SHA256",
+                runner.sha256_file(self.linker_path),
+            ),
+            patch.object(runner, "INPUT_MANIFEST_SHA256", self.manifest_sha256),
+            patch.object(runner, "PROGRAM_SNAPSHOT_HELPER", self.snapshot_helper_path),
+            patch.object(
+                runner,
+                "PROGRAM_SNAPSHOT_HELPER_SHA256",
+                runner.sha256_file(self.snapshot_helper_path),
+            ),
+        ):
+            return runner.validate_source_receipt_record(record)
+
+    def test_schema_four_binds_controller_runner_root_and_tree(self):
+        record = self.source_record()
+        self.assertEqual(self.validate(record), record)
+
+        for field, value, message in (
+            ("controller_root", str(self.input_root), "controller root differs"),
+            ("runner", str(self.root / "stale-runner"), "controller runner path differs"),
+            ("runner_sha256", "0" * 64, "controller runner: SHA-256 mismatch"),
+            ("controller_tree", "0" * 40, "controller identity differs"),
+            ("program_root", str(self.input_root), "program snapshot path differs"),
+            ("program_commit", "0" * 40, "program snapshot identity differs"),
+            ("program_config_path", str(self.manifest), "program config path differs"),
+            (
+                "program_snapshot_helper",
+                str(self.runner_path),
+                "program snapshot validator path differs",
+            ),
+            (
+                "program_snapshot_helper_sha256",
+                "0" * 64,
+                "program snapshot validator hash differs",
+            ),
+        ):
+            with self.subTest(field=field), self.assertRaisesRegex(
+                runner.PublicationError,
+                message,
+            ):
+                self.validate(dict(record, **{field: value}))
 
 if __name__ == "__main__":
     unittest.main()

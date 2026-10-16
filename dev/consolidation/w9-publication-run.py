@@ -21,7 +21,9 @@ import tempfile
 import time
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Literal, overload
+from typing import Iterable, Literal, overload
+
+import w9_program_snapshot
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -86,12 +88,17 @@ DOCKER_RESOURCE_FLAGS = (
     "--memory-swappiness",
 )
 REFERENCE_HEAD = "e240efad273fe35d66d91f4037b6a8193527da2e"
-SOURCE_COHORT_SCHEMA = "3"
+SOURCE_COHORT_SCHEMA_3 = "3"
+SOURCE_COHORT_SCHEMA = "4"
+SOURCE_COHORT_SCHEMAS = frozenset({SOURCE_COHORT_SCHEMA_3, SOURCE_COHORT_SCHEMA})
+PROGRAM_SNAPSHOT_ROOT = CONTROLLER_ROOT / ".work/wt/w9-program-e240"
+PROGRAM_SNAPSHOT_HELPER = ROOT / "dev/consolidation/w9_program_snapshot.py"
+PROGRAM_SNAPSHOT_HELPER_SHA256 = "f2022a43b12acd30553411a899c37a16ac0815737f52e5598f16058257d376a1"
 SOURCE_BUILD_TARGET = "x86_64-unknown-linux-musl"
 SOURCE_BUILD_PROFILE = "verification"
 SOURCE_BUILD_IMAGE = PINNED_IMAGE
 SOURCE_BUILDER_RELATIVE_PATH = pathlib.Path("dev/consolidation/w9-source-build.sh")
-SOURCE_BUILDER_SHA256 = "ef12d889fb0d58bd76ec0fa35102492a9d991dcb726744bbcd2c86f19f3e9c07"
+SOURCE_BUILDER_SHA256 = "1e8c0c44fe09214df8135a49eec961329cb1a64dc1c636a38d6fdfac4e535865"
 SOURCE_BUILDER_PATH = ROOT / SOURCE_BUILDER_RELATIVE_PATH
 SOURCE_LINKER_PATH = CONTROLLER_ROOT / "dev/musl-linker.sh"
 SOURCE_LINKER_SHA256 = "583039d8ee08330c3eaab1970802181f1ed766f412bfe9d7493fb39135ebc727"
@@ -100,7 +107,7 @@ SOURCE_RUSTFLAGS = (
     "-C link-arg=--defsym=__isoc23_sscanf=sscanf "
     "-C link-arg=--defsym=__isoc23_strtol=strtol"
 )
-SOURCE_RECEIPT_FIELDS = (
+SOURCE_RECEIPT_FIELDS_3 = (
     "schema",
     "role",
     "candidate_root",
@@ -120,6 +127,18 @@ SOURCE_RECEIPT_FIELDS = (
     "linker_sha256",
     "runner",
     "runner_sha256",
+)
+SOURCE_RECEIPT_FIELDS = (
+    *SOURCE_RECEIPT_FIELDS_3,
+    "controller_root",
+    "controller_commit",
+    "controller_tree",
+    "program_root",
+    "program_commit",
+    "program_tree",
+    "program_config_path",
+    "program_snapshot_helper",
+    "program_snapshot_helper_sha256",
 )
 REFERENCE_INPUT_ROOT = pathlib.Path(
     "/home/josh/d/laputa-systems/xsh-consolidation-lanes/module-record-driver/"
@@ -554,10 +573,15 @@ def run_harness_test_listing(
     task_tree: pathlib.Path,
     binary: pathlib.Path,
     docker_environment: dict[str, str],
+    program_root: pathlib.Path | None = None,
 ) -> None:
     try:
+        command = [str(builder), str(task_tree), "run"]
+        if program_root is not None:
+            command.append(f"W9_PROGRAM_ROOT={program_root}")
+        command.extend((str(binary), "--list"))
         result = subprocess.run(
-            [str(builder), str(task_tree), "run", str(binary), "--list"],
+            command,
             check=False,
             text=True,
             stdout=subprocess.PIPE,
@@ -944,6 +968,20 @@ def validate_source_qualified_inputs(
     expected_modes = {source.relative_path: source.mode for source in by_index.values()}
     verify_corpus_tree(input_root, by_path, expected_modes)
     return by_index, by_path
+
+
+def validate_source_program_entries(
+    snapshot: w9_program_snapshot.ProgramSnapshot,
+    sources: Iterable[ManifestSource],
+) -> None:
+    try:
+        for source in sources:
+            program_entry = w9_program_snapshot.program_entry_path(
+                snapshot, source.relative_path
+            )
+            w9_program_snapshot.program_config_path(snapshot, program_entry)
+    except w9_program_snapshot.ProgramSnapshotError as error:
+        raise PublicationError(f"source-qualified program entries are invalid: {error}") from error
 
 
 def validate_work_ignored(root: pathlib.Path) -> None:
@@ -1508,13 +1546,17 @@ def validate_candidate_files(record: dict[str, str]) -> tuple[pathlib.Path, path
 
 
 def validate_source_receipt_record(record: dict[str, str]) -> dict[str, str]:
-    if set(record) != set(SOURCE_RECEIPT_FIELDS):
-        missing = sorted(set(SOURCE_RECEIPT_FIELDS) - set(record))
-        extra = sorted(set(record) - set(SOURCE_RECEIPT_FIELDS))
+    schema = record.get("schema")
+    fields = SOURCE_RECEIPT_FIELDS if schema == SOURCE_COHORT_SCHEMA else SOURCE_RECEIPT_FIELDS_3
+    if schema not in SOURCE_COHORT_SCHEMAS:
+        raise PublicationError(f"unsupported source-qualified receipt schema {schema!r}")
+    if set(record) != set(fields):
+        missing = sorted(set(fields) - set(record))
+        extra = sorted(set(record) - set(fields))
         raise PublicationError(f"source-qualified receipt fields differ: missing={missing} extra={extra}")
-    if record["schema"] != SOURCE_COHORT_SCHEMA or record["role"] != "source-cohort":
+    if record["role"] != "source-cohort":
         raise PublicationError("source-qualified receipt schema or role differs")
-    for field in SOURCE_RECEIPT_FIELDS:
+    for field in fields:
         value = record[field]
         if not value or any(char in value for char in "\r\n\t"):
             raise PublicationError(f"source-qualified receipt has invalid {field}")
@@ -1556,11 +1598,58 @@ def validate_source_receipt_record(record: dict[str, str]) -> dict[str, str]:
     linker = regular_file(record["linker_path"], "source-qualified musl linker")
     if linker != SOURCE_LINKER_PATH or require_sha256(linker, SOURCE_LINKER_SHA256, "source-qualified musl linker") != record["linker_sha256"]:
         raise PublicationError("source-qualified musl linker identity differs")
-    candidate_runner = regular_file(root / "dev/consolidation/w9-publication-run.py", "source-qualified publication runner")
-    if record["runner"] != str(candidate_runner):
-        raise PublicationError("source-qualified publication runner path is not canonical")
-    require_sha256(candidate_runner, record["runner_sha256"], "source-qualified publication runner")
+    if schema == SOURCE_COHORT_SCHEMA_3:
+        candidate_runner = regular_file(root / "dev/consolidation/w9-publication-run.py", "source-qualified publication runner")
+        if record["runner"] != str(candidate_runner):
+            raise PublicationError("source-qualified publication runner path is not canonical")
+        require_sha256(candidate_runner, record["runner_sha256"], "source-qualified publication runner")
+        return record
+    controller_root = real_directory(record["controller_root"], "source-qualified capture controller")
+    if controller_root != ROOT or record["controller_root"] != str(controller_root):
+        raise PublicationError("source-qualified capture controller root differs")
+    if re.fullmatch(r"[0-9a-f]{40}", record["controller_commit"]) is None or re.fullmatch(
+        r"[0-9a-f]{40}", record["controller_tree"]
+    ) is None:
+        raise PublicationError("source-qualified capture controller identity is malformed")
+    if source_identity(controller_root) != (record["controller_commit"], record["controller_tree"]):
+        raise PublicationError("source-qualified capture controller identity differs")
+    if git_output(controller_root, "status", "--porcelain=v1", "--untracked-files=all"):
+        raise PublicationError("source-qualified capture controller is not clean")
+    if record["runner"] != str(controller_runner_path(controller_root)):
+        raise PublicationError("source-qualified controller runner path differs")
+    controller_runner = regular_file(record["runner"], "source-qualified controller runner")
+    require_sha256(controller_runner, record["runner_sha256"], "source-qualified controller runner")
+    if re.fullmatch(r"[0-9a-f]{40}", record["program_commit"]) is None or re.fullmatch(
+        r"[0-9a-f]{40}", record["program_tree"]
+    ) is None:
+        raise PublicationError("source-qualified program snapshot identity is malformed")
+    program_root = real_directory(record["program_root"], "source-qualified common program snapshot")
+    if program_root != PROGRAM_SNAPSHOT_ROOT.resolve(strict=True) or record["program_root"] != str(program_root):
+        raise PublicationError("source-qualified common program snapshot path differs")
+    try:
+        snapshot = w9_program_snapshot.validate_program_snapshot(program_root)
+    except w9_program_snapshot.ProgramSnapshotError as error:
+        raise PublicationError(f"source-qualified common program snapshot is invalid: {error}") from error
+    if (snapshot.commit, snapshot.tree) != (record["program_commit"], record["program_tree"]):
+        raise PublicationError("source-qualified common program snapshot identity differs")
+    if record["program_config_path"] != str(snapshot.config_path):
+        raise PublicationError("source-qualified common program config path differs")
+    snapshot_helper = regular_file(record["program_snapshot_helper"], "program snapshot validator")
+    if snapshot_helper != PROGRAM_SNAPSHOT_HELPER or record["program_snapshot_helper"] != str(snapshot_helper):
+        raise PublicationError("program snapshot validator path differs")
+    if require_sha256(snapshot_helper, PROGRAM_SNAPSHOT_HELPER_SHA256, "program snapshot validator") != record[
+        "program_snapshot_helper_sha256"
+    ]:
+        raise PublicationError("program snapshot validator hash differs")
     return record
+
+
+def controller_runner_path(controller_root: pathlib.Path) -> pathlib.Path:
+    return controller_root / "dev/consolidation/w9-publication-run.py"
+
+
+def is_source_cohort_schema(schema: str | None) -> bool:
+    return schema in SOURCE_COHORT_SCHEMAS
 
 
 def parse_source_receipt(path: pathlib.Path) -> dict[str, str]:
@@ -1617,7 +1706,7 @@ def parse_candidate_receipt(path: pathlib.Path) -> dict[str, str]:
         if key in record:
             raise PublicationError(f"{path}: duplicate candidate receipt field {key}")
         record[key] = value
-    if record.get("schema") == SOURCE_COHORT_SCHEMA:
+    if is_source_cohort_schema(record.get("schema")):
         validate_source_receipt_record(record)
         return record
     validate_receipt_shape(record)
@@ -1743,7 +1832,22 @@ def validate_source_cohort_inputs(
     validate_source_receipt_record(record)
     input_root = pathlib.Path(record["input_root"])
     input_manifest = pathlib.Path(record["input_manifest"])
-    return validate_source_qualified_inputs(input_root, input_manifest)
+    by_index, by_path = validate_source_qualified_inputs(input_root, input_manifest)
+    if record["schema"] == SOURCE_COHORT_SCHEMA:
+        try:
+            snapshot = w9_program_snapshot.validate_program_snapshot(
+                pathlib.Path(record["program_root"])
+            )
+        except w9_program_snapshot.ProgramSnapshotError as error:
+            raise PublicationError(f"source-qualified program snapshot is invalid: {error}") from error
+        if (
+            snapshot.commit != record["program_commit"]
+            or snapshot.tree != record["program_tree"]
+            or str(snapshot.config_path) != record["program_config_path"]
+        ):
+            raise PublicationError("source-qualified program snapshot identity differs")
+        validate_source_program_entries(snapshot, by_index.values())
+    return by_index, by_path
 
 
 def validate_all_inputs(
@@ -1791,7 +1895,17 @@ def seal_source_cohort(args: argparse.Namespace) -> None:
     builder_sha256 = require_sha256(builder, SOURCE_BUILDER_SHA256, "source-qualified build runner")
     linker = regular_file(SOURCE_LINKER_PATH, "source-qualified musl linker")
     linker_sha256 = require_sha256(linker, SOURCE_LINKER_SHA256, "source-qualified musl linker")
-    runner_path = regular_file(root / "dev/consolidation/w9-publication-run.py", "source-qualified publication runner")
+    controller_root = real_directory(ROOT, "source-qualified capture controller")
+    controller_commit, controller_tree = source_identity(controller_root)
+    if git_output(controller_root, "status", "--porcelain=v1", "--untracked-files=all"):
+        raise PublicationError("source-qualified capture controller is not clean")
+    program_snapshot = w9_program_snapshot.validate_program_snapshot(PROGRAM_SNAPSHOT_ROOT)
+    program_root = real_directory(program_snapshot.root, "source-qualified common program snapshot")
+    snapshot_helper = regular_file(PROGRAM_SNAPSHOT_HELPER, "program snapshot validator")
+    snapshot_helper_sha256 = require_sha256(
+        snapshot_helper, PROGRAM_SNAPSHOT_HELPER_SHA256, "program snapshot validator"
+    )
+    runner_path = regular_file(controller_runner_path(controller_root), "source-qualified controller runner")
     record = {
         "schema": SOURCE_COHORT_SCHEMA,
         "role": "source-cohort",
@@ -1810,9 +1924,19 @@ def seal_source_cohort(args: argparse.Namespace) -> None:
         "rustflags": SOURCE_RUSTFLAGS,
         "linker_path": str(linker),
         "linker_sha256": linker_sha256,
+        "controller_root": str(controller_root),
+        "controller_commit": controller_commit,
+        "controller_tree": controller_tree,
+        "program_root": str(program_root),
+        "program_commit": program_snapshot.commit,
+        "program_tree": program_snapshot.tree,
+        "program_config_path": str(program_snapshot.config_path),
+        "program_snapshot_helper": str(snapshot_helper),
+        "program_snapshot_helper_sha256": snapshot_helper_sha256,
         "runner": str(runner_path),
         "runner_sha256": sha256_file(runner_path),
     }
+    validate_source_program_entries(program_snapshot, paths_by_index.values())
     validate_source_receipt_record(record)
     receipt_path = new_work_file_path(args.receipt, root, "source-qualified cohort receipt")
     write_new_receipt(receipt_path, record, SOURCE_RECEIPT_FIELDS, "source-qualified cohort receipt")

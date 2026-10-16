@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import w9_publication_adapter_runner as adapter_runner
+import w9_publication_adapter as adapter
 import w9_publication_exact_owner_runner as exact_runner
 import w9_assignment_facts as assignment_facts
 
@@ -630,6 +631,18 @@ class ExactOwnerHelperSourceTests(unittest.TestCase):
             exact_runner.EXACT_OWNER_HELPER_SHA256,
         )
 
+    def test_source_audit_hash_helpers_are_owned_by_the_exact_projection(self):
+        owner = adapter_runner.OWNER_HELPER.read_bytes()
+        exact = exact_runner.EXACT_OWNER_HELPER.read_bytes()
+
+        self.assertNotIn(b"fn w9_decode_hex_bytes(", owner)
+        self.assertNotIn(b"fn w9_hash_source_audit_inputs(", owner)
+        self.assertIn(b"fn w9_hex_bytes(", owner)
+        self.assertIn(b"fn w9_audit_regular_file(", owner)
+        self.assertIn(b"fn w9_decode_hex_bytes(", exact)
+        self.assertIn(b"fn w9_hash_source_audit_inputs(", exact)
+        self.assertEqual(exact.count(b"w9_hash_source_audit_inputs("), 2)
+
     def test_source_qualified_projection_removes_only_three_unused_imports(self):
         original = exact_runner.EXACT_OWNER_HELPER.read_bytes()
         projected = exact_runner._project_exact_owner_helper(original)
@@ -677,7 +690,7 @@ class ExactOwnerHelperSourceTests(unittest.TestCase):
         scratch_root = repository / ".work/tmp"
         scratch_root.mkdir(parents=True, exist_ok=True)
         original = exact_runner.EXACT_OWNER_HELPER.read_bytes()
-        runner = SimpleNamespace(SOURCE_COHORT_SCHEMA="3")
+        runner = SimpleNamespace(SOURCE_COHORT_SCHEMA="4", SOURCE_COHORT_SCHEMA_3="3")
         source_record = {"schema": runner.SOURCE_COHORT_SCHEMA}
         with tempfile.TemporaryDirectory(
             prefix="w9-exact-owner-compact-", dir=scratch_root
@@ -720,6 +733,9 @@ class ExactOwnerHelperSourceTests(unittest.TestCase):
         self.assertIn(b"let root_source_id = entry.source_id;", suffix)
         self.assertIn(b"&sources, root_source_id, &binding", suffix)
         self.assertIn(b"w9_exact_write_absolute_file(&sidecar", suffix)
+        self.assertIn(b"w9_resolve_project_module_config(&program_entry, &program_root)", suffix)
+        self.assertIn(b"let roots = resolved_config.module_roots.clone();", suffix)
+        self.assertNotIn(b"project_module_roots(&program_entry)", suffix)
 
     def test_source_qualified_projection_rejects_missing_or_duplicate_imports(self):
         original = exact_runner.EXACT_OWNER_HELPER.read_bytes()
@@ -745,9 +761,10 @@ class ExactOwnerHelperSourceTests(unittest.TestCase):
 
     def test_legacy_identity_and_modern_build_capture_proof_share_projected_suffix(self):
         original = exact_runner.EXACT_OWNER_HELPER.read_bytes()
-        adapter_record = SimpleNamespace(SOURCE_COHORT_SCHEMA="3")
+        adapter_record = SimpleNamespace(SOURCE_COHORT_SCHEMA="4", SOURCE_COHORT_SCHEMA_3="3")
         legacy = {"schema": "2"}
-        modern = {"schema": "3"}
+        historical = {"schema": "3"}
+        modern = {"schema": "4"}
         projected = exact_runner._project_exact_owner_helper(original)
 
         self.assertEqual(
@@ -755,10 +772,18 @@ class ExactOwnerHelperSourceTests(unittest.TestCase):
             original,
         )
         self.assertEqual(
+            exact_runner._exact_helper_payload(historical, original, adapter_record),
+            projected,
+        )
+        self.assertEqual(
             exact_runner._exact_helper_payload(modern, original, adapter_record),
             projected,
         )
-        for source_record, suffix in ((legacy, original), (modern, projected)):
+        for source_record, suffix in (
+            (legacy, original),
+            (historical, projected),
+            (modern, projected),
+        ):
             with self.subTest(schema=source_record["schema"]):
                 combined = exact_runner._compose_exact_helper(
                     b"base helper\n", source_record, original, adapter_record
@@ -813,7 +838,7 @@ class ExactOwnerHelperSourceTests(unittest.TestCase):
             )
 
         with self.assertRaisesRegex(exact_runner.ExactOwnerError, "unsupported source receipt schema"):
-            exact_runner._exact_helper_payload({"schema": "4"}, original, adapter_record)
+            exact_runner._exact_helper_payload({"schema": "5"}, original, adapter_record)
 
 
 class ExactOwnerHashOutputTests(unittest.TestCase):
@@ -870,15 +895,29 @@ class HarnessTestListingTests(unittest.TestCase):
             "W9_SOURCE_COMMIT": "a" * 40,
             "W9_SOURCE_TREE": "b" * 40,
         }
+        program_root = pathlib.Path("/repository/.work/wt/w9-program-e240")
         output = f"{exact_runner.EXACT_OWNER_TEST}: test\n"
         completed = exact_runner.subprocess.CompletedProcess([], 0, output, "")
 
         with mock.patch.object(exact_runner.subprocess, "run", return_value=completed) as launch:
-            exact_runner._check_exact_harness_listing(builder, source_root, binary, environment)
+            exact_runner._check_exact_harness_listing(
+                builder,
+                source_root,
+                binary,
+                environment,
+                program_root,
+            )
 
         self.assertEqual(
             launch.call_args.args[0],
-            [str(builder), str(source_root), "run", str(binary), "--list"],
+            [
+                str(builder),
+                str(source_root),
+                "run",
+                f"W9_PROGRAM_ROOT={program_root}",
+                str(binary),
+                "--list",
+            ],
         )
         self.assertEqual(launch.call_args.kwargs["env"], environment)
 
@@ -1924,6 +1963,7 @@ class SourceQualifiedExactOwnerReceiptTests(unittest.TestCase):
             "input_manifest": str(self.input_manifest),
             "input_manifest_sha256": self.runner.sha256_file(self.input_manifest),
             "corpus_blake3": self.runner.CORPUS_BLAKE3,
+            "program_root": str(self.runner.PROGRAM_SNAPSHOT_ROOT.resolve()),
         }
         self.source_commit = "a" * 40
         self.source_tree = "b" * 40
@@ -2384,17 +2424,19 @@ class ExactOwnerCaptureSchedulingTests(unittest.TestCase):
             controller_tree = "d" * 40
             helper_sha256 = "e" * 64
             source_record = {
-                "schema": "3",
+                "schema": "4",
                 "candidate_root": str(candidate_root),
                 "candidate_commit": candidate_commit,
                 "candidate_tree": candidate_tree,
                 "builder_path": "/qualified/w9-source-build.sh",
                 "input_root": str(input_root),
+                "program_root": "/qualified/e240-program",
             }
             runner = SimpleNamespace(
-                SOURCE_COHORT_SCHEMA="3",
+                SOURCE_COHORT_SCHEMA="4",
                 CORPUS_BLAKE3="123456789abcdef0",
                 existing_container=lambda *_args: False,
+                real_directory=lambda path, _kind: pathlib.Path(path).resolve(strict=True),
                 start_and_register_job=record_launch,
             )
 
@@ -2424,11 +2466,15 @@ class ExactOwnerCaptureSchedulingTests(unittest.TestCase):
             self.assertNotEqual(candidate_tree, controller_tree)
             self.assertEqual(captured["environment"]["W9_SOURCE_COMMIT"], candidate_commit)
             self.assertEqual(captured["environment"]["W9_SOURCE_TREE"], candidate_tree)
+            self.assertEqual(captured["environment"]["W9_PROGRAM_ROOT"], source_record["program_root"])
             self.assertNotIn("W9_ASSIGNMENT_HELPER_SHA256", captured["environment"])
             command = captured["command"]
+            run_arguments = command[command.index("run") + 1:command.index("env")]
+            self.assertIn(f"W9_OUTPUT_ROOT={output.resolve()}", run_arguments)
             environment_arguments = command[command.index("env") + 1:command.index("taskset")]
             self.assertIn(f"W9_SOURCE_COMMIT={candidate_commit}", environment_arguments)
             self.assertIn(f"W9_SOURCE_TREE={candidate_tree}", environment_arguments)
+            self.assertIn(f"W9_PROGRAM_ROOT={source_record['program_root']}", environment_arguments)
             self.assertIn(f"W9_ASSIGNMENT_HELPER_SHA256={helper_sha256}", environment_arguments)
             self.assertNotIn(f"W9_SOURCE_COMMIT={controller_commit}", environment_arguments)
             self.assertNotIn(f"W9_SOURCE_TREE={controller_tree}", environment_arguments)
@@ -2561,6 +2607,110 @@ class ExactOwnerCaptureSchedulingTests(unittest.TestCase):
 
 
 class ExactOwnerProjectionTests(unittest.TestCase):
+    def test_source_audit_uses_the_nearest_pinned_config_for_each_entry(self):
+        root = pathlib.Path(__file__).resolve().parents[2]
+        git_common_directory = pathlib.Path(
+            subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+                check=True,
+                text=True,
+                stdout=subprocess.PIPE,
+            ).stdout.strip()
+        )
+        snapshot = exact_runner.w9_program_snapshot.validate_program_snapshot(
+            git_common_directory.parent / ".work/wt/w9-program-e240"
+        )
+        relative = "docs/snippets/tour/project/bin/harden.xsh"
+        entry = exact_runner.w9_program_snapshot.program_entry_path(snapshot, relative)
+        nested_config = exact_runner.w9_program_snapshot.program_config_path(snapshot, entry)
+        config_bytes = nested_config.read_bytes()
+        module_root = nested_config.parent / "lib"
+        source_record = {"input_root": "/unread-input-root"}
+
+        audit = adapter.OwnerSourceAudit(
+            {},
+            (str(nested_config), len(config_bytes), "a" * 64),
+            (str(module_root),),
+        )
+        program_sources, module_roots = exact_runner._validate_source_audit_files(
+            audit,
+            {},
+            input_paths={},
+            source_record=source_record,
+            snapshot=snapshot,
+            runner=object(),
+            input_relative=relative,
+        )
+        self.assertEqual(set(program_sources), {nested_config})
+        self.assertEqual(module_roots, (module_root,))
+
+        wrong_config_audit = adapter.OwnerSourceAudit(
+            {},
+            (str(snapshot.config_path), len(snapshot.config_path.read_bytes()), "b" * 64),
+            (str(module_root),),
+        )
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "pinned entry config"):
+            exact_runner._validate_source_audit_files(
+                wrong_config_audit,
+                {},
+                input_paths={},
+                source_record=source_record,
+                snapshot=snapshot,
+                runner=object(),
+                input_relative=relative,
+            )
+
+    def test_source_audit_ids_lengths_and_native_hashes_are_exact(self):
+        audit = adapter.OwnerSourceAudit(
+            {0: ("file", "/program/module.xsh", 3, "a" * 64)},
+            ("/program/xsht-config.ini", 9, "b" * 64),
+            ("/program",),
+        )
+        exact_runner._validate_source_audit_source_rows(audit, {0: 3})
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "source-id coverage"):
+            exact_runner._validate_source_audit_source_rows(audit, {0: 3, 1: 2})
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "source-id coverage"):
+            exact_runner._validate_source_audit_source_rows(
+                adapter.OwnerSourceAudit(
+                    {0: audit.sources[0], 1: ("file", "/program/extra.xsh", 1, "c" * 64)},
+                    audit.module_config,
+                    audit.module_roots,
+                ),
+                {0: 3},
+            )
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "length differs"):
+            exact_runner._validate_source_audit_source_rows(audit, {0: 4})
+
+        expected = exact_runner._source_audit_hash_expectations([audit])
+        self.assertEqual(
+            exact_runner._source_audit_hash_expectations([audit, audit]),
+            expected,
+        )
+        exact_runner._validate_source_audit_hashes([audit], expected)
+        changed = dict(expected)
+        changed[("file", "/program/module.xsh")] = (3, "c" * 64)
+        with self.assertRaisesRegex(exact_runner.ExactOwnerError, "native hash differs"):
+            exact_runner._validate_source_audit_hashes([audit], changed)
+
+        path_hex = "/program/module.xsh".encode().hex()
+        row = f"w9sourceaudit-hash\tfile\t{path_hex}\t3\t{'a' * 64}"
+        prefix = exact_runner.EXACT_OWNER_HASH_LIBTEST_PREFIX
+        parsed = exact_runner.parse_source_audit_hash_output(
+            f"test sema::w9_exact_repository_owners_receipt ... {row}\n"
+            f"test sema::w9_exact_repository_owners_receipt ... w9sourceaudit-hash\tfile\t"
+            f"{'/program/xsht-config.ini'.encode().hex()}\t9\t{'b' * 64}\n",
+            set(expected),
+        )
+        self.assertEqual(parsed, expected)
+        for malformed in (
+            f"{prefix}{row}\n{prefix}{row}\n",
+            f"{prefix}{row}\n",
+            f"{prefix}{row}\n{prefix}w9sourceaudit-hash\tfile\t"
+            f"{'/program/extra.xsh'.encode().hex()}\t1\t{'c' * 64}\n",
+        ):
+            with self.subTest(malformed=malformed), self.assertRaises(exact_runner.ExactOwnerError):
+                exact_runner.parse_source_audit_hash_output(malformed, set(expected))
+
     def test_returns_validated_legacy_and_exact_owners(self):
         root = pathlib.Path(__file__).resolve().parents[2]
         work = root / ".work/tmp"

@@ -1028,6 +1028,37 @@ class PublicationAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(AdapterError, "no TailBareIdent node"):
             parse_owner_index(missing_tail_owner)
 
+    def test_source_audit_rows_are_strict_and_do_not_change_owner_projection(self):
+        source_path = "/frozen/program/module.xsh"
+        config_path = "/frozen/program/xsht-config.ini"
+        root_path = "/frozen/program"
+        contents = (
+            "source\tSourceId(0)\t3\n"
+            f"source-audit\tSourceId(0)\tfile\t{source_path.encode().hex()}\t3\t{'a' * 64}\n"
+            f"module-config\t{config_path.encode().hex()}\t9\t{'b' * 64}\n"
+            f"module-root\t{root_path.encode().hex()}\n"
+        )
+
+        with self.assertRaisesRegex(AdapterError, "unrecognized row"):
+            parse_owner_index(contents)
+        self.assertEqual(
+            parse_owner_index(contents, allow_source_audit=True),
+            ({0: 3}, {}, {}, {}),
+        )
+        audit = adapter.parse_owner_source_audit(contents)
+        self.assertEqual(audit.sources[0], ("file", source_path, 3, "a" * 64))
+        self.assertEqual(audit.module_config, (config_path, 9, "b" * 64))
+        self.assertEqual(audit.module_roots, (root_path,))
+
+        malformed = (
+            contents + f"source-audit\tSourceId(0)\tfile\t{source_path.encode().hex()}\t3\t{'a' * 64}\n",
+            contents.replace("\t" + "a" * 64, "\t" + "A" * 64, 1),
+            contents.replace(source_path.encode().hex(), source_path.encode().hex().upper(), 1),
+        )
+        for value in malformed:
+            with self.subTest(value=value), self.assertRaises(AdapterError):
+                adapter.parse_owner_source_audit(value)
+
     def test_projection_removes_only_the_four_schema_fields_after_nonempty_legacy_check(self):
         legacy = project_legacy(LEGACY_PUBLICATION)
         current = project_publication(

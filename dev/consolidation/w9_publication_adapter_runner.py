@@ -34,7 +34,7 @@ SOURCE_APPROVED_HELPER = (
 )
 OWNER_HELPER = ROOT / "dev/consolidation/w9-publication-owner-helper.rs"
 APPROVED_HELPER_SHA256 = "2ff5aaa74f8ae3d0597a3c14796d8643211a5b57b8b95147ba87205540ca95b0"
-OWNER_HELPER_SHA256 = "23fafe5b4140396242543bb4c59b0bcc1e0d4b59280f1f0e8dabf0cbd8431562"
+OWNER_HELPER_SHA256 = "e1adfab0e53223ca739457959a682f2484d11cc64b2808fc845feabdc8504a81"
 REFERENCE_TREE = "a1ef04ac7b6f759c272e8f841acee3a3b3a6ff08"
 RECORD_NAME = re.compile(r"record-(0|[1-9][0-9]*)-(default|reveal|execution|check-cli)\Z")
 PROFILES = ("default", "reveal", "execution", "check-cli")
@@ -214,6 +214,7 @@ class _PublicationComparisonContext(NamedTuple):
     candidate_tui_source: bytes
     candidate_assignment_proofs: dict[int, object] | None
     assignment_facts_module: object | None
+    source_audit: bool
 
 
 def _replace_once(source: str, before: str, after: str) -> str:
@@ -221,6 +222,29 @@ def _replace_once(source: str, before: str, after: str) -> str:
     if count != 1:
         raise PublicationError(f"adapter helper marker matched {count} times: {before[:80]!r}")
     return source.replace(before, after, 1)
+
+
+def _derived_owner_helper_bytes(owner_bytes: bytes) -> bytes:
+    owner_source = owner_bytes.decode("utf-8")
+    owner_source = _replace_once(
+        owner_source,
+        '    std::fs::create_dir_all(outputdir)?;\n'
+        '    let path = outputdir.join(format!("owners-{index}.tsv"));\n'
+        '    let mut output = std::io::BufWriter::new(std::fs::File::create(path)?);\n',
+        '    let mut output = std::io::BufWriter::new(\n'
+        '        w9_create_new_adapter_file(outputdir, &format!("owners-{index}.tsv"))?,\n'
+        '    );\n',
+    )
+    owner_source = _replace_once(
+        owner_source,
+        '    for (span, kind) in owner_rows {\n'
+        '        writeln!(output, "owner\\t{span:?}\\t{kind}")?;\n'
+        '    }\n\n'
+        '    output.flush()\n',
+        '    output.flush()?;\n'
+        '    output.get_ref().sync_all()\n',
+    )
+    return owner_source.encode("utf-8")
 
 
 def _adapter_overlay(source_tests: bytes, runner) -> bytes:
@@ -295,24 +319,14 @@ def derive_helper(
         raise PublicationError("approved W9 helper SHA-256 changed")
     if hashlib.sha256(owner_bytes).hexdigest() != OWNER_HELPER_SHA256:
         raise PublicationError("W9 owner helper SHA-256 changed")
-    owner_source = owner_bytes.decode("utf-8")
-    owner_source = _replace_once(
-        owner_source,
-        '    std::fs::create_dir_all(outputdir)?;\n'
-        '    let path = outputdir.join(format!("owners-{index}.tsv"));\n'
-        '    let mut output = std::io::BufWriter::new(std::fs::File::create(path)?);\n',
-        '    let mut output = std::io::BufWriter::new(\n'
-        '        w9_create_new_adapter_file(outputdir, &format!("owners-{index}.tsv"))?,\n'
-        '    );\n',
-    )
-    owner_source = _replace_once(
-        owner_source,
-        '    output.flush()\n',
-        '    output.flush()?;\n'
-        '    output.get_ref().sync_all()\n',
-    )
+    derived_owner_bytes = _derived_owner_helper_bytes(owner_bytes)
     source = approved_bytes.decode("utf-8")
     source = 'include!("w9-publication-owner-helper.rs");\n' + source
+    source = _replace_once(
+        source,
+        '    use xsh::frontend::load::{entry_source_from_text, parse_load_entry_source_arena_only, project_module_roots};\n',
+        '    use xsh::frontend::load::{entry_source_from_text, parse_load_entry_source_arena_only};\n',
+    )
     source = _replace_once(
         source,
         '                let publication_facts = w9_canonical_debug(&format!("{checked:#?}"));\n',
@@ -326,7 +340,15 @@ def derive_helper(
         '        w9_hash_adapter_tree(&PathBuf::from(path), count).unwrap_or_else(|error| panic!("hash raw adapter outcomes: {error}"));\n'
         '        return;\n'
         '    }\n'
-        '    let root = PathBuf::from(std::env::var("W9_INPUT_ROOT").expect("W9_INPUT_ROOT"));\n',
+        '    let root = PathBuf::from(std::env::var("W9_INPUT_ROOT").expect("W9_INPUT_ROOT"));\n'
+        '    let program_root = PathBuf::from(std::env::var("W9_PROGRAM_ROOT").expect("W9_PROGRAM_ROOT"));\n',
+    )
+    source = _replace_once(
+        source,
+        '        let roots = project_module_roots(&path).unwrap_or_else(|error| panic!("module roots for {file}: {error}"));\n',
+        '        let program_entry = program_root.join(path.strip_prefix(&root).expect("input is under root"));\n'
+        '        let resolved_config = w9_resolve_project_module_config(&program_entry, &program_root).unwrap_or_else(|error| panic!("module config for {program_entry:?}: {error}"));\n'
+        '        let roots = resolved_config.module_roots.clone();\n',
     )
     source = _replace_once(
         source,
@@ -338,9 +360,11 @@ def derive_helper(
     source = _replace_once(
         source,
         '        let (sources, parsed) = parse_load_entry_source_arena_only(&file, entry, roots);\n',
-        '        let (sources, parsed) = parse_load_entry_source_arena_only(&file, entry, roots);\n'
+        '        let (sources, parsed) = parse_load_entry_source_arena_only(&file, entry, roots.clone());\n'
         '        if let Some(path) = adapter_output.as_ref() {\n'
-        '            w9_write_adapter_owners(path, index, &parsed.arena, &sources)\n'
+        '            w9_write_adapter_owners(\n'
+        '                path, index, &parsed.arena, &sources, &root, &program_root, &resolved_config,\n'
+        '            )\n'
         '                .unwrap_or_else(|error| panic!("write owner index {index}: {error}"));\n'
         '        }\n',
     )
@@ -605,11 +629,11 @@ fn w9_hash_adapter_tree(root_path: &std::path::Path, count: usize) -> std::io::R
     helper = output_directory / "w9-publication-adapter.rs"
     _write_new_file(helper, source.encode("utf-8"), runner)
     owner_copy = output_directory / "w9-publication-owner-helper.rs"
-    _write_new_file(owner_copy, owner_source.encode("utf-8"), runner)
+    _write_new_file(owner_copy, derived_owner_bytes, runner)
     return (
         helper,
         hashlib.sha256(source.encode()).hexdigest(),
-        hashlib.sha256(owner_source.encode("utf-8")).hexdigest(),
+        hashlib.sha256(derived_owner_bytes).hexdigest(),
         hashlib.sha256(owner_bytes).hexdigest(),
     )
 
@@ -649,6 +673,12 @@ def _load_candidate_publication_runner(
         source_record.get("candidate_commit"), source_record.get("candidate_tree")
     ):
         raise PublicationError("candidate source identity differs from its source receipt")
+    if source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA:
+        if source_record.get("runner") != str(runner.controller_runner_path(runner.ROOT)):
+            raise PublicationError("source-qualified capture controller path differs")
+        if runner.sha256_file(runner.controller_runner_path(runner.ROOT)) != source_record.get("runner_sha256"):
+            raise PublicationError("source-qualified capture controller runner hash differs")
+        return runner
     candidate_runner = runner.regular_file(
         candidate_root / "dev/consolidation/w9-publication-run.py",
         "candidate publication runner",
@@ -894,10 +924,13 @@ def _raw_hash_pair_matches(
 
 
 def _source_qualified_runtime_environment(source_record: dict[str, str]) -> dict[str, str]:
-    return {
+    environment = {
         "W9_SOURCE_COMMIT": source_record["candidate_commit"],
         "W9_SOURCE_TREE": source_record["candidate_tree"],
     }
+    if "program_root" in source_record:
+        environment["W9_PROGRAM_ROOT"] = source_record["program_root"]
+    return environment
 
 
 def _hash_raw_outcomes(
@@ -922,6 +955,7 @@ def _hash_raw_outcomes(
         command = [
             "timeout", "900s", source_record["builder_path"], source_record["candidate_root"], "run",
             f"W9_INPUT_ROOT={source_record['input_root']}",
+            f"W9_PROGRAM_ROOT={source_record['program_root']}",
             f"W9_CPU_SET={cpu}",
             f"W9_CONTAINER_NAME={container}",
             "env",
@@ -932,8 +966,7 @@ def _hash_raw_outcomes(
         ]
         environment = {
             **docker_environment,
-            "W9_SOURCE_COMMIT": source_record["candidate_commit"],
-            "W9_SOURCE_TREE": source_record["candidate_tree"],
+            **_source_qualified_runtime_environment(source_record),
         }
         job_root = pathlib.Path(source_record["candidate_root"])
     else:
@@ -1106,6 +1139,31 @@ def _planned_adapter_artifact_root(command, build_environment, runner):
             f"source-qualified adapter build planning failed with status {result.returncode}: {detail}"
         )
     return runner.cargo_target_directory_from_plan(result.stdout)
+
+
+def _run_adapter_build(command, build_environment, role, binary_path, runner) -> str:
+    result = subprocess.run(
+        command,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=build_environment,
+    )
+    _write_new_file(
+        binary_path.with_name(f"{binary_path.name}.cargo.jsonl"), result.stdout, runner
+    )
+    _write_new_file(
+        binary_path.with_name(f"{binary_path.name}.cargo.stderr"), result.stderr, runner
+    )
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        if not detail:
+            detail = result.stdout.decode("utf-8", errors="replace").strip()
+        raise PublicationError(f"pinned {role} adapter harness build failed: {detail}")
+    try:
+        return result.stdout.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise PublicationError(f"pinned {role} adapter harness build output is not UTF-8") from error
 
 
 def _write_adapter_build_receipt(path: pathlib.Path, record: dict[str, str], runner) -> None:
@@ -1337,23 +1395,66 @@ def _parse_source_adapter_build_receipt(
     owner_helper_path = runner.regular_file(record["owner_helper_path"], "derived W9 owner helper")
     if runner.sha256_file(helper_path) != record["helper_sha256"]:
         raise PublicationError(f"{receipt}: derived helper hash differs")
-    if runner.sha256_file(owner_helper_path) != record["owner_helper_sha256"]:
+    derived_owner_bytes = runner.read_regular_bytes(owner_helper_path)
+    if hashlib.sha256(derived_owner_bytes).hexdigest() != record["owner_helper_sha256"]:
         raise PublicationError(f"{receipt}: derived owner helper hash differs")
-    owner_helper_source = runner.regular_file(
-        record["owner_helper_source_path"], "pinned W9 owner helper source"
+    expected_owner_source, owner_source_bytes = _source_cohort_owner_helper_source(
+        source_record, runner
     )
-    expected_owner_source = runner.real_directory(
-        source_record["candidate_root"], "candidate source"
-    ) / "dev/consolidation/w9-publication-owner-helper.rs"
-    if owner_helper_source != expected_owner_source or runner.require_sha256(
-        owner_helper_source, OWNER_HELPER_SHA256, "pinned W9 owner helper source"
-    ) != record["owner_helper_source_sha256"]:
+    expected_owner_source_sha256 = hashlib.sha256(owner_source_bytes).hexdigest()
+    if (
+        record["owner_helper_source_path"] != str(expected_owner_source)
+        or record["owner_helper_source_sha256"] != expected_owner_source_sha256
+    ):
         raise PublicationError(f"{receipt}: owner helper source identity differs")
+    if source_record.get("schema") == "4" and (
+        derived_owner_bytes != _derived_owner_helper_bytes(owner_source_bytes)
+    ):
+        raise PublicationError(f"{receipt}: derived owner helper bytes differ")
     source_tests = runner.regular_file(source_root / "tests/sema.rs", f"{role} semantic tests")
     expected_overlay = hashlib.sha256(_adapter_overlay(runner.read_regular_bytes(source_tests), runner)).hexdigest()
     if record["overlay_sha256"] != expected_overlay:
         raise PublicationError(f"{receipt}: source-derived overlay hash differs")
     return record
+
+
+def _source_cohort_owner_helper_source(
+    source_record: dict[str, str], runner
+) -> tuple[pathlib.Path, bytes]:
+    if source_record.get("schema") == "3" and runner.SOURCE_COHORT_SCHEMA == "3":
+        candidate_root = runner.real_directory(
+            source_record["candidate_root"], "source-qualified candidate source"
+        )
+        helper = runner.regular_file(
+            candidate_root / "dev/consolidation/w9-publication-owner-helper.rs",
+            "source-qualified candidate owner helper",
+        )
+        source_bytes = runner.read_regular_bytes(helper)
+        if hashlib.sha256(source_bytes).hexdigest() != OWNER_HELPER_SHA256:
+            raise PublicationError("source-qualified candidate owner helper SHA-256 changed")
+        return helper, source_bytes
+    if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
+        raise PublicationError("source-qualified owner helper requires a schema-3 or schema-4 cohort")
+    controller_root = runner.real_directory(
+        source_record["controller_root"], "source-qualified capture controller"
+    )
+    if str(controller_root) != source_record["controller_root"] or controller_root != runner.ROOT:
+        raise PublicationError("source-qualified helper controller root differs")
+    if runner.source_identity(controller_root) != (
+        source_record["controller_commit"], source_record["controller_tree"]
+    ):
+        raise PublicationError("source-qualified helper controller identity differs")
+    relative_path = "dev/consolidation/w9-publication-owner-helper.rs"
+    tracked_path = runner.git_output(controller_root, "ls-files", "--error-unmatch", relative_path)
+    if tracked_path != relative_path:
+        raise PublicationError("source-qualified owner helper is not tracked by its controller")
+    helper = runner.regular_file(
+        controller_root / relative_path, "source-qualified controller owner helper"
+    )
+    source_bytes = runner.read_regular_bytes(helper)
+    if hashlib.sha256(source_bytes).hexdigest() != OWNER_HELPER_SHA256:
+        raise PublicationError("source-qualified controller owner helper SHA-256 changed")
+    return helper, source_bytes
 
 
 def _write_capture_receipt(
@@ -1779,9 +1880,12 @@ def _launch_capture_job(
         raise PublicationError(f"adapter Docker container already exists: {container}")
     source_qualified = source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
     if source_qualified:
+        output_root = runner.real_directory(output, f"{role} adapter capture output root")
         command = [
             "timeout", "900s", source_record["builder_path"], source_record["candidate_root"], "run",
             f"W9_INPUT_ROOT={source_record['input_root']}",
+            f"W9_PROGRAM_ROOT={source_record['program_root']}",
+            f"W9_OUTPUT_ROOT={output_root}",
             f"W9_CPU_SET={cpu}",
             f"W9_CONTAINER_NAME={container}",
             "env",
@@ -1797,8 +1901,7 @@ def _launch_capture_job(
         ]
         environment = {
             **docker_environment,
-            "W9_SOURCE_COMMIT": source_record["candidate_commit"],
-            "W9_SOURCE_TREE": source_record["candidate_tree"],
+            **_source_qualified_runtime_environment(source_record),
         }
     else:
         shim_dir = runner.docker_shim(job_dir, container, cpu, pathlib.Path(source_record["input_root"]))
@@ -2077,9 +2180,15 @@ def build_adapter_harness(
     source_root = runner.real_directory(source_root, f"{role} source")
     source_receipt = runner.regular_file(source_receipt, "source-qualified cohort receipt")
     if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
-        raise PublicationError("source-qualified adapter build requires a schema-3 cohort receipt")
+        raise PublicationError("source-qualified adapter build requires a schema-4 cohort receipt")
     if runner.parse_candidate_receipt(source_receipt) != source_record:
         raise PublicationError("source-qualified cohort receipt changed before adapter build")
+    owner_helper_source, owner_source_bytes = (
+        _source_cohort_owner_helper_source(source_record, runner)
+    )
+    observed_owner_helper_source_sha256 = hashlib.sha256(owner_source_bytes).hexdigest()
+    if owner_helper_source_sha256 != observed_owner_helper_source_sha256:
+        raise PublicationError("source-qualified controller owner helper digest differs")
     approved_helper = _candidate_approved_helper(candidate_root, runner)
     commit, tree = runner.source_identity(source_root)
     if role == "reference" and commit != runner.REFERENCE_HEAD:
@@ -2090,7 +2199,11 @@ def build_adapter_harness(
     if hashlib.sha256(helper_bytes).hexdigest() != helper_sha256:
         raise PublicationError("derived adapter helper changed before harness build")
     owner_bytes = runner.read_regular_bytes(adapter_helper.parent / "w9-publication-owner-helper.rs")
-    if hashlib.sha256(owner_bytes).hexdigest() != owner_helper_sha256:
+    if (
+        hashlib.sha256(owner_bytes).hexdigest() != owner_helper_sha256
+        or owner_bytes != _derived_owner_helper_bytes(owner_source_bytes)
+        or owner_helper_source_sha256 != observed_owner_helper_source_sha256
+    ):
         raise PublicationError("owner helper changed before harness build")
     builder = runner.regular_file(source_record["builder_path"], "source-qualified adapter build runner", executable=True)
     builder_sha256 = runner.require_sha256(
@@ -2127,13 +2240,7 @@ def build_adapter_harness(
         if hashlib.sha256(runner.read_regular_bytes(scratch_tests)).hexdigest() != overlay_sha256:
             raise PublicationError(f"{role} scratch parity overlay hash differs")
         runner.require_only_parity_overlay(scratch_root, f"{role} scratch source changes escaped the parity include")
-        command = [
-            str(builder), str(scratch_root), "build", "cargo", "test", "--locked",
-            "--profile", source_record["build_profile"],
-            "--target", source_record["build_target"],
-            "-p", "xsh", "--test", "integration", "--no-run",
-            "--message-format=json-render-diagnostics",
-        ]
+        command = _source_adapter_build_command(builder, scratch_root, source_record)
         build_environment = {
             **docker_environment,
             "W9_SOURCE_COMMIT": commit,
@@ -2144,17 +2251,10 @@ def build_adapter_harness(
             "W9_LINKER_SHA256": source_record["linker_sha256"],
         }
         artifact_root = _planned_adapter_artifact_root(command, build_environment, runner)
-        result = subprocess.run(
-            command,
-            check=False,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=build_environment,
+        cargo_output = _run_adapter_build(
+            command, build_environment, role, binary_path, runner
         )
-        if result.returncode != 0:
-            raise PublicationError(f"pinned {role} adapter harness build failed: {result.stderr.strip() or result.stdout.strip()}")
-        scratch_binary = runner.cargo_target_integration_executable(result.stdout, artifact_root)
+        scratch_binary = runner.cargo_target_integration_executable(cargo_output, artifact_root)
         _require_scratch_overlay_identity(scratch_root, commit, tree, role, runner)
         if hashlib.sha256(runner.read_regular_bytes(scratch_tests)).hexdigest() != overlay_sha256:
             raise PublicationError(f"{role} parity overlay changed during adapter build")
@@ -2174,6 +2274,7 @@ def build_adapter_harness(
                 "W9_SOURCE_COMMIT": runtime_commit,
                 "W9_SOURCE_TREE": runtime_tree,
             },
+            program_root=pathlib.Path(source_record["program_root"]),
         )
         binary = runner.copy_executable(scratch_binary, binary_path)
     binary_sha256 = runner.sha256_file(binary)
@@ -2207,14 +2308,26 @@ def build_adapter_harness(
         "helper_sha256": helper_sha256,
         "owner_helper_path": str(adapter_helper.parent / "w9-publication-owner-helper.rs"),
         "owner_helper_sha256": owner_helper_sha256,
-        "owner_helper_source_path": str(
-            candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
-        ),
+        "owner_helper_source_path": str(owner_helper_source),
         "owner_helper_source_sha256": owner_helper_source_sha256,
         "overlay_sha256": overlay_sha256,
     }
     _write_adapter_build_receipt(receipt_path, record, runner)
     return binary, receipt_path
+
+
+def _source_adapter_build_command(
+    builder: pathlib.Path,
+    scratch_root: pathlib.Path,
+    source_record: dict[str, str],
+) -> list[str]:
+    return [
+        str(builder), str(scratch_root), "build", "cargo", "test", "--locked",
+        "--profile", source_record["build_profile"],
+        "--target", source_record["build_target"],
+        "-p", "xsh", "--test", "integration", "--no-run",
+        "--message-format=json-render-diagnostics",
+    ]
 
 
 def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
@@ -2251,7 +2364,9 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
         if pathlib.Path(reference_build["source_root"]) != reference_root:
             raise PublicationError("reference adapter build receipt names a different source root")
     derived_directory = _new_derived_helper_directory(candidate_root, runner)
-    owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+    owner_helper_source, _owner_helper_source_bytes = (
+        _source_cohort_owner_helper_source(source_record, runner)
+    )
     adapter_helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = derive_helper(
         approved_helper=_candidate_approved_helper(candidate_root, runner),
         owner_helper=owner_helper_source,
@@ -2319,7 +2434,9 @@ def build_derived_reference_harness(args: argparse.Namespace, runner) -> int:
         raise PublicationError("candidate source identity differs from its source receipt")
     runner.candidate_scratch_parent(candidate_root)
     derived_directory = _new_derived_helper_directory(candidate_root, runner)
-    owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+    owner_helper_source, _owner_helper_source_bytes = (
+        _source_cohort_owner_helper_source(source_record, runner)
+    )
     helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = derive_helper(
         approved_helper=_candidate_approved_helper(candidate_root, runner),
         owner_helper=owner_helper_source,
@@ -2674,10 +2791,12 @@ def _compare_publication_input(
     owner_error = False
     try:
         reference_owner = adapter.parse_owner_index(
-            _read_regular_at(context.reference_root, f"owners-{index}.tsv")
+            _read_regular_at(context.reference_root, f"owners-{index}.tsv"),
+            allow_source_audit=context.source_audit,
         )
         candidate_owner = adapter.parse_owner_index(
-            _read_regular_at(context.candidate_root, f"owners-{index}.tsv")
+            _read_regular_at(context.candidate_root, f"owners-{index}.tsv"),
+            allow_source_audit=context.source_audit,
         )
     except (adapter.AdapterError, PublicationError, UnicodeError) as error:
         owner_error = True
@@ -3334,6 +3453,7 @@ def compare_full_publications(
             candidate_tui_source,
             candidate_assignment_proofs,
             assignment_facts_module,
+            source_qualified,
         )
 
         def accept_input_result(index: int, input_mismatches: tuple[str, ...]) -> None:

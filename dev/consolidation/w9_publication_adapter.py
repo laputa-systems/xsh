@@ -57,6 +57,12 @@ class ParsedResolvedBindings(NamedTuple):
     declaration_sites: Mapping[tuple[str, str], str]
 
 
+class OwnerSourceAudit(NamedTuple):
+    sources: Mapping[int, tuple[str, str, int, str]]
+    module_config: tuple[str, int, str] | None
+    module_roots: tuple[str, ...]
+
+
 def _canonical_owner_span(value: str, line_number: int) -> str:
     try:
         return _canonicalize_span(value)[0]
@@ -66,6 +72,8 @@ def _canonical_owner_span(value: str, line_number: int) -> str:
 
 def parse_owner_index(
     contents: str,
+    *,
+    allow_source_audit: bool = False,
 ) -> tuple[
     dict[int, int],
     dict[str, set[str]],
@@ -120,6 +128,8 @@ def parse_owner_index(
             if statement_id in tail_statement_owners:
                 raise AdapterError(f"owner index line {line_number}: duplicate tail statement")
             tail_statement_owners[statement_id] = (span, name, kind)
+        elif allow_source_audit and fields[0] in {"source-audit", "module-config", "module-root"}:
+            continue
         else:
             raise AdapterError(f"owner index line {line_number}: unrecognized row")
     if not source_sizes or set(source_sizes) != set(range(max(source_sizes) + 1)):
@@ -137,6 +147,59 @@ def parse_owner_index(
         if kind not in source_owners.get(span, set()):
             raise AdapterError(f"owner index statement has no matching AST owner: {statement_id}")
     return source_sizes, source_owners, tail_statement_owners, statement_owners
+
+
+def parse_owner_source_audit(contents: str) -> OwnerSourceAudit:
+    sources: dict[int, tuple[str, str, int, str]] = {}
+    module_config: tuple[str, int, str] | None = None
+    module_roots: list[str] = []
+    seen_module_roots: set[str] = set()
+    for line_number, line in enumerate(contents.splitlines(), 1):
+        fields = line.split("\t")
+        if fields[0] == "source-audit":
+            if len(fields) != 6:
+                raise AdapterError(f"owner index line {line_number}: malformed source-audit row")
+            source = re.fullmatch(r"SourceId\((\d+)\)", fields[1])
+            byte_length = re.fullmatch(r"\d+", fields[4])
+            if source is None or fields[2] not in {"file", "stdlib"} or byte_length is None:
+                raise AdapterError(f"owner index line {line_number}: malformed source-audit identity")
+            source_id = int(source.group(1))
+            if source_id in sources:
+                raise AdapterError(f"owner index line {line_number}: duplicate source-audit id")
+            path = _decode_source_audit_path(fields[3], line_number)
+            if not re.fullmatch(r"[0-9a-f]{64}", fields[5]):
+                raise AdapterError(f"owner index line {line_number}: malformed source-audit BLAKE3")
+            sources[source_id] = (fields[2], path, int(byte_length.group()), fields[5])
+        elif fields[0] == "module-config":
+            if len(fields) != 4 or module_config is not None:
+                raise AdapterError(f"owner index line {line_number}: malformed or duplicate module-config row")
+            byte_length = re.fullmatch(r"\d+", fields[2])
+            if byte_length is None or not re.fullmatch(r"[0-9a-f]{64}", fields[3]):
+                raise AdapterError(f"owner index line {line_number}: malformed module-config identity")
+            module_config = (_decode_source_audit_path(fields[1], line_number), int(byte_length.group()), fields[3])
+        elif fields[0] == "module-root":
+            if len(fields) != 2:
+                raise AdapterError(f"owner index line {line_number}: malformed module-root row")
+            path = _decode_source_audit_path(fields[1], line_number)
+            if path in seen_module_roots:
+                raise AdapterError(f"owner index line {line_number}: duplicate module-root row")
+            seen_module_roots.add(path)
+            module_roots.append(path)
+    if not sources or module_config is None or not module_roots:
+        raise AdapterError("owner index source audit is incomplete")
+    return OwnerSourceAudit(sources, module_config, tuple(module_roots))
+
+
+def _decode_source_audit_path(value: str, line_number: int) -> str:
+    if not re.fullmatch(r"(?:[0-9a-f]{2})+", value):
+        raise AdapterError(f"owner index line {line_number}: malformed source-audit path encoding")
+    try:
+        decoded = bytes.fromhex(value).decode("utf-8")
+    except UnicodeError:
+        raise AdapterError(f"owner index line {line_number}: source-audit path is not UTF-8") from None
+    if not decoded or decoded.encode("utf-8").hex() != value:
+        raise AdapterError(f"owner index line {line_number}: noncanonical source-audit path")
+    return decoded
 
 
 def _quoted_end(value: str, start: int) -> int | None:

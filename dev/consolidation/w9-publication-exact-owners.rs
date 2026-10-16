@@ -1,8 +1,180 @@
-pub fn w9_write_exact_adapter_owners(
+fn w9_decode_hex_bytes(value: &str) -> std::io::Result<Vec<u8>> {
+    if value.is_empty() || value.len() % 2 != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "source audit path encoding is malformed",
+        ));
+    }
+    let mut decoded = Vec::with_capacity(value.len() / 2);
+    for pair in value.as_bytes().chunks_exact(2) {
+        let digit = |byte: u8| match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            _ => None,
+        };
+        let high = digit(pair[0]).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "source audit path encoding is not lowercase hex",
+            )
+        })?;
+        let low = digit(pair[1]).ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "source audit path encoding is not lowercase hex",
+            )
+        })?;
+        decoded.push((high << 4) | low);
+    }
+    Ok(decoded)
+}
+
+fn w9_hash_source_audit_inputs(
+    list_path: &std::path::Path,
+    input_root: &std::path::Path,
+    program_root: &std::path::Path,
+) -> std::io::Result<()> {
+    let list_bytes = std::fs::read(list_path)?;
+    let list = std::str::from_utf8(&list_bytes).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "source audit hash input is not UTF-8",
+        )
+    })?;
+    let input_root = input_root.canonicalize()?;
+    let program_root = program_root.canonicalize()?;
+    let mut requested = std::collections::BTreeSet::new();
+    let mut output = std::io::BufWriter::new(std::io::stdout().lock());
+    for line in list.split_terminator('\n') {
+        if line.contains('\r') {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "source audit hash input contains a carriage return",
+            ));
+        }
+        let (kind, encoded) = line.split_once('\t').ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "source audit hash input row is malformed",
+            )
+        })?;
+        if encoded.contains('\t') {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "source audit hash input row has extra fields",
+            ));
+        }
+        let decoded = w9_decode_hex_bytes(encoded)?;
+        let identity = String::from_utf8(decoded).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "source audit hash input path is not UTF-8",
+            )
+        })?;
+        if identity.is_empty() || w9_hex_bytes(identity.as_bytes()) != encoded {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "source audit hash input path is not canonical",
+            ));
+        }
+        if kind == "file" {
+            if !requested.insert((kind.to_owned(), identity.clone())) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "source audit hash input repeats a file path",
+                ));
+            }
+            let path = std::path::PathBuf::from(&identity);
+            let allowed_root = if path.starts_with(&input_root) {
+                &input_root
+            } else if path.starts_with(&program_root) {
+                &program_root
+            } else {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "source audit hash path is outside approved roots",
+                ));
+            };
+            let (canonical, bytes) = w9_audit_regular_file(&path, allowed_root)?;
+            writeln!(
+                output,
+                "w9sourceaudit-hash\tfile\t{}\t{}\t{}",
+                w9_hex_bytes(canonical.to_str().ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "source audit file path is not UTF-8",
+                    )
+                })?.as_bytes()),
+                bytes.len(),
+                blake3::hash(&bytes).to_hex()
+            )?;
+        } else if kind == "stdlib" {
+            if !identity
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+                || !requested.insert((kind.to_owned(), identity.clone()))
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "source audit standard-library identity is malformed or repeated",
+                ));
+            }
+            let expected_name = format!("<xsh-stdlib:{identity}>");
+            let (sources, _parsed) = xsh::frontend::load::prepare_stdlib_catalog_module(&identity)
+                .ok_or_else(|| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "source audit standard-library module is missing",
+                    )
+                })?;
+            let mut found = None;
+            for source in sources.files() {
+                if source.name() == expected_name {
+                    if found.is_some() {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "source audit standard-library source is duplicated",
+                        ));
+                    }
+                    let bytes = source.text().as_bytes();
+                    found = Some((bytes.len(), blake3::hash(bytes).to_hex().to_string()));
+                }
+            }
+            let (byte_length, digest) = found.ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "source audit standard-library source is missing",
+                )
+            })?;
+            writeln!(
+                output,
+                "w9sourceaudit-hash\tstdlib\t{}\t{}\t{}",
+                encoded, byte_length, digest
+            )?;
+        } else {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "source audit hash input has an unknown source kind",
+            ));
+        }
+    }
+    if requested.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "source audit hash input is empty",
+        ));
+    }
+    output.flush()
+}
+
+fn w9_write_exact_adapter_owners(
     outputdir: &std::path::Path,
     index: usize,
     program: &xsh::frontend::syntax::arena::ArenaProgram,
     sources: &xsh::frontend::source::SourceMap,
+    input_root: &std::path::Path,
+    program_root: &std::path::Path,
+    resolved_config: &W9ResolvedProjectModuleConfig,
 ) -> std::io::Result<()> {
     use std::io::Write as _;
     use xsh::frontend::syntax::arena::{
@@ -19,6 +191,13 @@ pub fn w9_write_exact_adapter_owners(
     for source in sources.files() {
         writeln!(output, "source\t{:?}\t{}", source.id(), source.text().len())?;
     }
+    w9_write_source_audit_rows(
+        &mut output,
+        sources,
+        input_root,
+        program_root,
+        resolved_config,
+    )?;
 
     for raw in 0..program.arena.stmt_tags.len() {
         let id = StmtId::from_index(raw);
@@ -460,12 +639,28 @@ fn w9_exact_repository_owners_receipt() {
     use std::io::Read as _;
     use walkdir::WalkDir;
     use xsh::frontend::load::{
-        entry_source_from_text, parse_load_entry_source_arena_only, project_module_roots,
+        entry_source_from_text, parse_load_entry_source_arena_only,
     };
 
     const EXPECTED_CORPUS_BLAKE3: &str =
         "a7b1f70466c4e978222af3d329e9c71b0a15030480e24b8d7f77a5fa4f57f17d";
     const SOURCE_COUNT: usize = 1_690;
+
+    if let Some(list_path) = std::env::var_os("W9_SOURCE_AUDIT_HASH_LIST") {
+        let input_root = std::path::PathBuf::from(
+            std::env::var("W9_INPUT_ROOT").expect("W9_INPUT_ROOT"),
+        );
+        let program_root = std::path::PathBuf::from(
+            std::env::var("W9_PROGRAM_ROOT").expect("W9_PROGRAM_ROOT"),
+        );
+        w9_hash_source_audit_inputs(
+            std::path::Path::new(&list_path),
+            &input_root,
+            &program_root,
+        )
+        .unwrap_or_else(|error| panic!("hash source audit files: {error}"));
+        return;
+    }
 
     if let Some(root) = std::env::var_os("W9_EXACT_OWNER_HASH_ROOT") {
         let root = std::path::PathBuf::from(root);
@@ -478,6 +673,8 @@ fn w9_exact_repository_owners_receipt() {
     }
 
     let root = std::path::PathBuf::from(std::env::var("W9_INPUT_ROOT").expect("W9_INPUT_ROOT"));
+    let program_root =
+        std::path::PathBuf::from(std::env::var("W9_PROGRAM_ROOT").expect("W9_PROGRAM_ROOT"));
     let outputdir = std::path::PathBuf::from(
         std::env::var_os("W9_EXACT_OWNER_OUTPUT_DIR").expect("W9_EXACT_OWNER_OUTPUT_DIR"),
     );
@@ -566,11 +763,29 @@ fn w9_exact_repository_owners_receipt() {
         );
         let source = String::from_utf8(bytes).expect("XSH corpus is UTF-8");
         let file = path.to_string_lossy().into_owned();
-        let roots = project_module_roots(path)
-            .unwrap_or_else(|error| panic!("module roots for {file}: {error}"));
+        let program_entry = program_root.join(
+            path.strip_prefix(&root)
+                .expect("input path is under the frozen corpus root"),
+        );
+        let resolved_config = w9_resolve_project_module_config(&program_entry, &program_root)
+            .unwrap_or_else(|error| panic!("module config for {program_entry:?}: {error}"));
+        let roots = resolved_config.module_roots.clone();
         let entry = entry_source_from_text(&file, source);
-        let (sources, parsed) = parse_load_entry_source_arena_only(&file, entry, roots);
-        w9_write_exact_adapter_owners(&outputdir, index, &parsed.arena, &sources)
+        let root_source_id = entry.source_id;
+        let (sources, parsed) = parse_load_entry_source_arena_only(&file, entry, roots.clone());
+        assert!(
+            sources.get(root_source_id).is_some(),
+            "entry source ID is missing from its loaded source map"
+        );
+        w9_write_exact_adapter_owners(
+            &outputdir,
+            index,
+            &parsed.arena,
+            &sources,
+            &root,
+            &program_root,
+            &resolved_config,
+        )
             .unwrap_or_else(|error| panic!("write exact owner sidecar {index}: {error}"));
         let owner_path = format!("owners-{index}.tsv");
         let owner_bytes = w9_exact_read_file_at(&w9_exact_open_directory(&outputdir).expect("open owner output directory"), &owner_path)
