@@ -151,6 +151,17 @@ the old assertion. Run capture, pipeline, spawn-run, and command-builder order
 credit remains open until repaired. Final source qualification waits for this
 behavior change. Other route and inference work continues independently.
 
+The isolated generic module export slice is accepted at `8475984a9`, tree
+`2d2dfebdb892fa6dbae70db5fd38199489321fdf`. All 289 Rust selections
+(288 distinct tests), 21 native tests, production `-D warnings`, and
+verification-product builds pass on that source. Independent review found no
+remaining issue in exact export authority and the reused-module writer lookup.
+The [accepted evidence](winddown/evidence/typing-8475984a9/README.md) retains
+the exact selectors, commands, outputs, source snapshots, and product hashes.
+Main integration waits for consolidation closure. Broader inference and
+performance goals remain open; test-only rigid/skolem checks do not establish
+production support.
+
 The accepted results remain those recorded below. Starting a gate or repairing
 its iteration loop does not accept the source or close a remaining requirement.
 

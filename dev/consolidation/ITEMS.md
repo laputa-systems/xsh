@@ -6,12 +6,13 @@ ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
 **Current status: resumed by the owner, 2026-10-16.** The
 [active handoff](HANDOFF.md#active-resume) owns lane assignments and the live
-queue. Lean and Phase F remain paused; inference remains isolated and
-unaccepted. The approved replacement gate plan stays authorized.
+queue. Lean and Phase F remain paused; inference remains isolated.
+The approved replacement gate plan stays authorized.
 Reviewed Clippy and collector repairs are integrated. Their focused
-passes do not close canonical, route-matrix, or resource acceptance. Parked
-inference still needs exact generic module exports and initialized-value
-ownership by binding identity. Broader inference, corpus removal, performance
+passes do not close canonical, route-matrix, or resource acceptance. The isolated
+generic module export slice is accepted at `8475984a9`, with initialized-value
+ownership verified by binding identity. Its main merge waits for consolidation
+closure. Broader inference, corpus removal, performance
 baselines, and formal work have not been accepted.
 
 **Earlier checkpoints:** the progress and verification entries below are

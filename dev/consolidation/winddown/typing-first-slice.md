@@ -1,5 +1,12 @@
 # Resume the generic module export slice
 
+**Accepted in isolation on 2026-10-16:** `8475984a9` passes 289 Rust selections
+and 21 native tests, production warning denial, and verification-product builds.
+The [accepted evidence](evidence/typing-8475984a9/README.md) records the exact
+source, contracts, commands, review, and limits. Main integration still waits
+for consolidation closure. The sections below retain the original failure and
+repair contract.
+
 The typing pipeline is parked at `e20914bb9` on `campaign/typing-pipeline-integration`. The focused Rust group passed 286 tests; the native group passed 19 of 20. No accepted end-to-end slice was established. The worktree is clean after the winddown handoff.
 
 ## Confirmed failure

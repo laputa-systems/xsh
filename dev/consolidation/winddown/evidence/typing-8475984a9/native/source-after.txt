@@ -1,0 +1,4 @@
+head=8475984a9ce1e8dbc987a8cf409f0747583c4878
+tree=2d2dfebdb892fa6dbae70db5fd38199489321fdf
+status=7d66943bfdab5931d7053aeda5b3a59d056579cc1f52effa220dca4ed1e86797  /home/josh/d/laputa-systems/xsh/.work/wt/typing-pipeline-integration/Cargo.lock
+2552d2bb44ccf78069b225b5a17b4d31a289f31deede15a00ac656f43f3933f2  /home/josh/d/laputa-systems/xsh/.work/wt/typing-pipeline-integration/rust-toolchain.toml
