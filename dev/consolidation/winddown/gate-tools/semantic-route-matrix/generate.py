@@ -24,6 +24,7 @@ CANONICAL_VERIFICATION_XSHT_RELATIVE = pathlib.Path(
 )
 AST_EXTRACTOR_MANIFEST = HERE / "ast-extractor/Cargo.toml"
 CARGO_EXE = pathlib.Path.home() / ".cargo/bin/cargo"
+KACHE_EXE = pathlib.Path.home() / ".cargo/bin/kache"
 SCHEMA_PATH = pathlib.Path("src/runtime/eval/indexed/full/schema.rs")
 ARENA_PATH = pathlib.Path("src/syntax/arena.rs")
 PIPELINE_STAGE_SOURCE_PATH = pathlib.Path("src/runtime/eval/indexed/full.rs")
@@ -1616,11 +1617,14 @@ def run_ast_extractor(
     scratch_tmp = root / ".work/tmp"
     if not scratch_tmp.is_dir():
         raise EvidenceError(f"scratch temporary directory is missing: {scratch_tmp}")
-    if not CARGO_EXE.is_file():
-        raise EvidenceError(f"explicit cargo executable is missing: {CARGO_EXE}")
+    if not CARGO_EXE.is_file() or not os.access(CARGO_EXE, os.X_OK):
+        raise EvidenceError(f"explicit cargo executable is missing or not executable: {CARGO_EXE}")
+    if not KACHE_EXE.is_file() or not os.access(KACHE_EXE, os.X_OK):
+        raise EvidenceError(f"explicit kache rustc wrapper is missing or not executable: {KACHE_EXE}")
     env = os.environ.copy()
-    env["CARGO_TARGET_DIR"] = str(AST_EXTRACTOR_MANIFEST.parent / "target")
     env["TMPDIR"] = str(scratch_tmp)
+    env["RUSTC_WRAPPER"] = str(KACHE_EXE)
+    env["CARGO_TARGET_DIR"] = str(ast_extractor_target_directory(root, env))
     try:
         result = subprocess.run(
             [
@@ -1651,6 +1655,50 @@ def run_ast_extractor(
     except json.JSONDecodeError as error:
         raise EvidenceError(f"{subject} AST extractor emitted invalid JSON: {error}") from error
     return inventory
+
+
+def ast_extractor_target_directory(root: pathlib.Path, env: dict[str, str]) -> pathlib.Path:
+    root = root.resolve(strict=True)
+    head = git_value(root, "rev-parse", "HEAD")
+    tree = git_value(root, "rev-parse", "HEAD^{tree}")
+    cargo = subprocess.run(
+        [str(CARGO_EXE), "--version"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    ).stdout.strip()
+    rustc = subprocess.run(
+        [env.get("RUSTC", "rustc"), "--version", "--verbose"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    ).stdout.strip()
+    compiler_inputs = {
+        "cargo": cargo,
+        "rustc": rustc,
+        "kache_sha256": sha256_file(KACHE_EXE),
+        "rustc_wrapper": env["RUSTC_WRAPPER"],
+        "rustflags": env.get("RUSTFLAGS", ""),
+        "cargo_encoded_rustflags": env.get("CARGO_ENCODED_RUSTFLAGS", ""),
+        "cargo_build_target": env.get("CARGO_BUILD_TARGET", ""),
+        "rustup_toolchain": env.get("RUSTUP_TOOLCHAIN", ""),
+    }
+    fingerprint = sha256_bytes(
+        json.dumps(
+            {"head": head, "tree": tree, "compiler_inputs": compiler_inputs},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    )
+    return (
+        root
+        / ".work/tmp/semantic-route-matrix/ast-extractor"
+        / f"{head[:12]}-{tree[:12]}-{fingerprint[:16]}"
+    )
 
 
 def typed_scalar_ast_inventory(

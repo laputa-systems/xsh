@@ -9,6 +9,7 @@ import io
 import json
 import pathlib
 import re
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -920,6 +921,59 @@ ARENA_SHAPES = arena_shape_source()
 
 
 class SemanticRouteMatrixTests(unittest.TestCase):
+    def test_ast_extractor_uses_worktree_and_compiler_qualified_target(self) -> None:
+        root = generate.HERE.parents[4]
+        scratch = root / ".work/tmp"
+        scratch.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch, prefix="route-ast-target-") as temporary:
+            fixture = pathlib.Path(temporary)
+            cargo = fixture / "cargo"
+            cargo.write_bytes(b"cargo fixture")
+            cargo.chmod(0o755)
+            kache = fixture / "kache"
+            kache.write_bytes(b"kache fixture")
+            kache.chmod(0o755)
+            identity = {
+                "head": "a" * 40,
+                "tree": "b" * 40,
+                "cargo": "cargo 1.0",
+                "rustc": "rustc 1.0",
+            }
+            target_dirs: list[pathlib.Path] = []
+            cargo_environments: list[dict[str, str]] = []
+
+            def fake_run(argv, **kwargs):
+                if argv[0] == "git":
+                    value = identity["head"] if argv[-1] == "HEAD" else identity["tree"]
+                    return subprocess.CompletedProcess(argv, 0, stdout=value, stderr="")
+                if argv == [str(cargo), "--version"]:
+                    return subprocess.CompletedProcess(argv, 0, stdout=identity["cargo"], stderr="")
+                if argv == ["rustc", "--version", "--verbose"]:
+                    return subprocess.CompletedProcess(argv, 0, stdout=identity["rustc"], stderr="")
+                if argv[0] == str(cargo) and "run" in argv:
+                    target_dirs.append(pathlib.Path(kwargs["env"]["CARGO_TARGET_DIR"]))
+                    cargo_environments.append(kwargs["env"])
+                    return subprocess.CompletedProcess(argv, 0, stdout="{}", stderr="")
+                self.fail(f"unexpected subprocess: {argv}")
+
+            with (
+                mock.patch.object(generate, "CARGO_EXE", cargo),
+                mock.patch.object(generate, "KACHE_EXE", kache, create=True),
+                mock.patch.object(generate.subprocess, "run", side_effect=fake_run),
+            ):
+                generate.run_ast_extractor(root, ["fixture.rs"], "test subject")
+                identity["tree"] = "c" * 40
+                generate.run_ast_extractor(root, ["fixture.rs"], "test subject")
+                identity["rustc"] = "rustc 2.0"
+                generate.run_ast_extractor(root, ["fixture.rs"], "test subject")
+
+            self.assertEqual(len(target_dirs), 3)
+            self.assertTrue(all(path.is_relative_to(root / ".work") for path in target_dirs))
+            self.assertIn("b" * 12, str(target_dirs[0]))
+            self.assertIn("c" * 12, str(target_dirs[1]))
+            self.assertEqual(len(set(target_dirs)), 3)
+            self.assertTrue(all(env["RUSTC_WRAPPER"] == str(kache) for env in cargo_environments))
+
     def test_receipt_collector_uses_canonical_xsht_and_rejects_symlinks(self) -> None:
         root = generate.HERE.parents[4]
         scratch = root / ".work/tmp"
