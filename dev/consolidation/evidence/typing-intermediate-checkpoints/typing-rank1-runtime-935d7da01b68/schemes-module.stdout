@@ -1,0 +1,10 @@
+
+running 5 tests
+test sema::schemes::tests::checked_scheme_reuses_its_callable_shape ... ok
+test sema::schemes::tests::row_evidence_rejects_any_and_call_instantiations_require_valid_evidence ... ok
+test sema::schemes::tests::scheme_ground_type_mapping_visits_both_map_components ... ok
+test sema::schemes::tests::type_scheme_rejects_recovery_nested_in_sets_and_module_exports ... ok
+test sema::schemes::tests::type_scheme_retained_bytes_include_row_and_schema_payloads ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 777 filtered out; finished in 0.00s
+

@@ -1,0 +1,2 @@
+cwd=/work
+argv=/artifact/xsht test --exact tests/xsh/stdlib/linux_sampling.xsh::test_linux_sample_rejects_missing_and_malformed_required_counters 

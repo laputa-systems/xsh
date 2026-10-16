@@ -26,3 +26,38 @@ Pending-to-Checked transition. Local provisional calls remain distinct from
 generalized instantiations. Parser omissions, immutable generic body facts,
 lowering, and capability acceptance remain unfinished. The retained loop review
 distinguishes the intentional pre-fix red checkpoint from later green sources.
+
+## Row evidence and export visibility
+
+Source review of `afceaec9d` finds two gaps: row metavariables can retain an Any
+payload, and the qualified scheme index includes private declarations. The
+checkpoint also fails compilation on missing imports and a wrong type path;
+`0e4f4c970` repairs those direct compiler errors.
+
+Test-only `9ea2333e0` reproduces both Any failures: row binding returns success,
+and RowEvidence accepts a nested Set(Any). The initial container fails before
+Cargo because its read-only worktree lacks the target mountpoint. The corrected
+launch builds and runs the actual red tests; both fail as expected.
+
+At `935d7da01`, the actual nonfresh library build succeeds. Both exact Any
+regressions pass, all 42 constraint tests pass, all five scheme tests pass,
+and the synthetic compact export-index test passes. RowEvidence now validates
+its private immutable payload once; CallInstantiation trusts that invariant
+and validates its own binder correspondence. Explicit Any remains legal in
+nonquantified ground signatures.
+
+The real exported-identity probe fails first on an unrelated private helper's
+unannotated signature. `fb537001b` annotates that helper to isolate visibility;
+the private inferred identity capability remains required and unfinished.
+[Independent review of 935](typing-935-source-review.md) finds that finalization
+reads visibility after the Export wrapper restores it, so the export handoff
+remains HOLD. The synthetic test alone cannot close it. `3edce3ab6` also has
+an earlier compiler failure from assigning the compact scheme map to CheckOutput;
+that failure and its source review remain separate. No generic feature or
+export-visibility acceptance is claimed from these partial checkpoints.
+
+At `e63689e1d`, export visibility is captured on the pending declaration's
+identity and passed explicitly into checked publication. [Independent source
+review returns GO](typing-e636-source-review.md). Actual compilation and the
+new source-based module/export probe remain pending. The next lowering step
+has a retained plan; implementation waits for those gates.

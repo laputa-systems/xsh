@@ -1,0 +1,2 @@
+cwd=/scratch/generated-workspace
+argv=/artifact/xsht test core/tests/test-procps.xsh 

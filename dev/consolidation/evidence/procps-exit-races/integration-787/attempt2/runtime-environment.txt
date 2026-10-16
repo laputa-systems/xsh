@@ -1,0 +1,9 @@
+runtime_image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+architecture=linux/amd64
+cpu_cap=2
+memory_cap=4g
+swap=none
+network=none
+runtime_preload=unset
+source=/work at 787ba37a43e808c6b63b85b17cc912fe36352b22
+products=/artifact verification

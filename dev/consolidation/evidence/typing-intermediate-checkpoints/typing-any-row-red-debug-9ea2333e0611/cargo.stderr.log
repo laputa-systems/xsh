@@ -1,0 +1,3 @@
+docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error mounting "/home/josh/d/laputa-systems/xsh/.work/target-typing-regressions" to rootfs at "/work/target": create mountpoint for /work/target mount: make mountpoint "/work/target": create next directory component failed: mkdirat([13]<"/var/lib/docker/rootfs/overlayfs/29710562565bea074cf77d04d690054267469bd2fdbd6af41bc044dc95e4285d/work">, "target", 0o755): Read-only file system (os error 30)
+
+Run 'docker run --help' for more information

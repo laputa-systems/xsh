@@ -1,0 +1,20 @@
+
+running 1 test
+test sema::schemes::tests::row_evidence_and_call_instantiations_reject_any ... FAILED
+
+failures:
+
+---- sema::schemes::tests::row_evidence_and_call_instantiations_reject_any stdout ----
+
+thread 'sema::schemes::tests::row_evidence_and_call_instantiations_reject_any' (25) panicked at src/sema/schemes.rs:846:13:
+assertion `left == right` failed
+  left: Ok(RowEvidence { fields: {Name(Symbol(1643)): Set(Any)} })
+ right: Err(DynamicType)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::schemes::tests::row_evidence_and_call_instantiations_reject_any
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 779 filtered out; finished in 0.00s
+

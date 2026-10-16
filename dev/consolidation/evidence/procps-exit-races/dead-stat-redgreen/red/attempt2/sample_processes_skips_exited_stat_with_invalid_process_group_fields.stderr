@@ -1,0 +1,4 @@
+
+thread 'modules::process::linux_sample_process_tests::sample_processes_skips_exited_stat_with_invalid_process_group_fields' (10) panicked at src/modules/process.rs:2336:14:
+exited process is skipped: RuntimeError { family: "Error", variant: "linux-sample", kind: "linux-sample", message: "malformed stat for pid 28197", payload: Dynamic({}), facets: [], span: Some(Span { source_id: SourceId(0), start: 0, len: 0 }), contexts: [], cause: None, abort: None, within: None, propagated: false, propagated_run_error: None, scope_cleanup: false, family_name: Name(Symbol(19)), family_identity: Name(Symbol(19)), variant_name: Name(Symbol(1643)), _symbols: SymbolOwner(SymbolOwnerData { .. }) }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

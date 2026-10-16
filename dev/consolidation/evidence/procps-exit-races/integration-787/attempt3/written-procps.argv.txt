@@ -1,0 +1,2 @@
+cwd=/work
+argv=/artifact/xsht test core/tests/test-procps.xsh 

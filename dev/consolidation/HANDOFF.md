@@ -90,6 +90,23 @@ work is authorized by this resume.
 
 ### Latest canonical and solver checkpoints
 
+- Frozen `787ba37a4`, tree `31681c63f0`, integrates the second process-exit repair
+  and builds matching verification products. [The bounded integrated replay](evidence/procps-exit-races/README.md)
+  completes 500 iostat calls under eight-worker churn, passes written and freshly
+  desugared procps 39/39 each, and passes the native malformed-counter rejection.
+  A fresh canonical batch is running; its process stage passes 305 tests.
+- [The source-bound structural scan](evidence/structural-787/README.md) retains
+  all four hard zeros and the established 152/17/46 schema counts. Production
+  source totals 268,539 lines, 60 above the original qualified baseline. The
+  Linux test module is correctly excluded without a metric-policy change.
+- Isolated inference `935d7da01` passes a nonfresh library build, both new Any
+  row regressions, all 42 constraints, all five schemes, and the synthetic export
+  projection probe. Test-only `9ea2333e0` reproduces the two Any failures first.
+  The real exported-identity handoff remains HOLD: visibility must persist on
+  the declaration through finalization. Private pure identity inference also
+  remains required. [Intermediate evidence](evidence/typing-intermediate-checkpoints/README.md)
+  keeps the source-review findings, failed builds, and partial runtime results
+  distinct from feature acceptance. No inference implementation is on main.
 - Clean source `449320b18`, tree `b1f2632d9`, builds matching xsh, xsht, xshi,
   ordinary, and dedicated privileged products. All 184 expression route probes
   pass and [independent review accepts the exact set](evidence/routes-449/README.md).
@@ -101,18 +118,24 @@ work is authorized by this resume.
   `ba14ae8e4` is integrated at `204467038`. A subsequent bounded run on `449`
   finds a readable dead-state X record with pgrp/session both -1. A read-only
   probe captures the exact row before the entry vanishes. The second repair
-  and its captured-row/live-record controls remain under review and verification.
+  `3646630bb` has independent source approval: the captured row fails before
+  the fix, both live controls pass, and all six focused tests pass after a real
+  recompilation. [Raw evidence](evidence/procps-exit-races/README.md) preserves
+  the rejected stale-cache attempt. The fix is integrated at `787ba37a4`;
+  the matching product replay above passes and fresh canonical acceptance
+  remains pending.
 - The private cp mount-worker selector repair is integrated at `449320b18`.
   Exact ordinary and wrapped name controls pass. On matching source and products,
-  QEMU passes three XSH date cases, three GNU date cases, and one reflink case;
+  [QEMU passes three XSH date cases, three GNU date cases, and one reflink case](evidence/linux-qemu-449/README.md);
   every successful guest and QEMU exits zero. The reflink retry explicitly
   exports the guest PATH so Rust can find `/sbin/mkfs.btrfs`. Its earlier ENOENT
   receipt is retained separately; it is not a product failure or a pass.
 - The full W9 comparison completes at controller `2b221766` against candidate
   `d20af40bc`: both exact-owner proofs cover all 1,690 inputs, but comparison
   exits one with 6,732 common checked-fact mismatches among 6,760 outcomes.
-  The first mismatch is the candidate-only assignment summary absent from
-  legacy publication. An independent legacy assignment-name oracle is required
+  [The complete failed comparison](evidence/w9-d20-final-failure/README.md) is
+  retained. Its first mismatch is the candidate-only assignment summary absent
+  from legacy publication. An independent legacy assignment-name oracle is required
   before projecting that field. Full publication captures remain immutable;
   no current W9 parity pass is claimed.
 - [Isolated inference checkpoints](evidence/typing-intermediate-checkpoints/README.md)

@@ -1,0 +1,5 @@
+## campaign/iostat-fixture
+3646630bb5d6e0f406b63676cf828091be6dd9b3
+5f0c540a802e27d2ed12f682c00bb518eead0438
+8cb60efd2b4b57369c3c02648ec65e38219fdb97051a3b7d3d2d4ba0e47d7ceb  .work/wt/consolidation-iostat-fixture/src/modules/process.rs
+2026-10-16 01:03:49.011693000 +0000 .work/wt/consolidation-iostat-fixture/src/modules/process.rs

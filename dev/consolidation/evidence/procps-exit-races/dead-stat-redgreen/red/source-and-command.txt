@@ -1,0 +1,8 @@
+worktree=.work/wt/procps-exit-red
+head=d4e9ddd2dcc258304f8a03f78b47b5fbf6602852
+tree=f323ae88da8d9a0208cd8c1991714a83e6a94b86
+cargo argv=cargo test --locked --offline --target x86_64-unknown-linux-musl -p xsh --lib linux_sample_process_tests --no-run --message-format=json
+## campaign/procps-exit-red
+d4e9ddd2dcc258304f8a03f78b47b5fbf6602852
+f323ae88da8d9a0208cd8c1991714a83e6a94b86
+dd16f0c876e28807dcd61a17e01e7bf2912deae97a7b2d88978831a68a9aea54  .work/wt/procps-exit-red/src/modules/process.rs

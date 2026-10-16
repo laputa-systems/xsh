@@ -1,0 +1,11 @@
+head=9ea2333e061197cc86b82c6d57011c2b404a8ec1
+tree=b3eaee154b20f5564d587e829c96ef9f801db44b
+image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+platform=linux/amd64
+cpuset=14-15
+cpus=2
+memory=4g
+memory_swap=4g (no swap)
+network=none
+profile=debug (Cargo default)
+LD_PRELOAD=unset for direct harness execution

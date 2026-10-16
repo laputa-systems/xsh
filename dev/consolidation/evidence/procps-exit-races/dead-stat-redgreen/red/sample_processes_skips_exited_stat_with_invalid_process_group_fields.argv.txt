@@ -1,0 +1,1 @@
+/target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2 --exact modules::process::linux_sample_process_tests::sample_processes_skips_exited_stat_with_invalid_process_group_fields --nocapture --format=json

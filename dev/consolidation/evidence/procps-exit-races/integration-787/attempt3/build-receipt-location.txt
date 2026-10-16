@@ -1,0 +1,1 @@
+receipt_dir=/home/josh/d/laputa-systems/xsh/.work/tmp/acceptance-products-exit-state.XXliGcHd

@@ -1,0 +1,6 @@
+iterations=500
+status=0
+workers=8
+max_churn_children=8
+argv=/artifact/xsh /work/core/iostat.xsh -- -d -m 0.01 1
+reason=500 completed iterations

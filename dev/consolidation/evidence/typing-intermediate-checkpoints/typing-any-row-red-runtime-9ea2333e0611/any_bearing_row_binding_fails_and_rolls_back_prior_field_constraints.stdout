@@ -1,0 +1,18 @@
+
+running 1 test
+test sema::constraints::tests::any_bearing_row_binding_fails_and_rolls_back_prior_field_constraints ... FAILED
+
+failures:
+
+---- sema::constraints::tests::any_bearing_row_binding_fails_and_rolls_back_prior_field_constraints stdout ----
+
+thread 'sema::constraints::tests::any_bearing_row_binding_fails_and_rolls_back_prior_field_constraints' (20) panicked at src/sema/constraints.rs:4278:18:
+called `Result::unwrap_err()` on an `Ok` value: ()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::constraints::tests::any_bearing_row_binding_fails_and_rolls_back_prior_field_constraints
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 779 filtered out; finished in 0.00s
+

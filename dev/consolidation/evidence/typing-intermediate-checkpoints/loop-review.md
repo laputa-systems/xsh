@@ -13,7 +13,7 @@ cargo check --locked --offline --target "$TARGET" -p xsht --all-targets --messag
 
 The `6a3` receipts show both commands exit 0. The before and after source snapshots match. The Cargo JSON reports one rebuilt `xsh --lib` test harness, one rebuilt `xsh` library, and six rebuilt `xsht` target variants. The build-script artifacts are fresh. The harness lists 775 unit tests and no benchmarks. The XSHT check compiles test targets but runs no XSHT tests.
 
-The `25be` and `6a3` builds share `.work/target-typing-regressions`. Cargo reports the same harness path, and the harness digest changes between commits. Each build and runtime receipt records the full source commit, tree, clean status, and harness digest before and after use. These checks bind each result to its own source revision. Existing log durations are not performance evidence because the runs were not bracketed by the readiness gate and the host has overlapping campaign work.
+The `25be` and `6a3` builds share `.work/target-typing-regressions`. Cargo reports the same harness path, and the harness digest changes between commits. The retained `121d39242b9e`, `aef756e1a4df`, and `81481a573c0e` Cargo JSON receipts all show `fresh:false` for the `xsh --lib` test harness. The `121d` receipt also shows `fresh:false` for the ordinary `xsh` library. The `aef` and `814` receipts compile only the test harness. Their recorded harness digests begin `4b6efd2a`, `64dc0169`, and `2f35cac3`, respectively. These receipts have zero exit status. Existing log durations are not performance evidence because the runs were not bracketed by the readiness gate and the host has overlapping campaign work.
 
 ## Focused private tests
 
@@ -37,9 +37,11 @@ The single `xsh --lib` harness build is unavoidable with the current layout. The
 
 ## Revision-safe artifact use
 
-The build driver reuses one target directory across revisions. That keeps Cargo's compiled dependencies available. The shared harness path changes contents between commits, so each run must keep the full source commit, tree, clean status, and matching harness digest in its before and after snapshots. The `25be` and `6a3` receipts record those values for their own runs.
+The build driver reuses one target directory across revisions. That keeps Cargo's compiled dependencies available. Source snapshots and harness digests alone cannot prove that Cargo compiled the current source. A shared mount path can preserve file timestamps across distinct worktrees, so Cargo can report `fresh:true` for an artifact after the source bytes changed.
 
-Keep the shared target directory. When an old checkpoint must remain rerunnable after another build replaces the shared path, copy only its harness to a revision-specific scratch path and retain its digest. Do not copy the full target tree. Bind each runtime receipt to the source commit, tree, target, profile, features, Rust toolchain, flags, and harness digest.
+The integrator reports this hazard in the OS lane. Cargo mounted red commit `d4e9ddd2` and then the older-created green commit `364` at the same `/work` path with the shared target directory. The source hashes differ, but Cargo reported the green artifact `fresh:true` in 0.05 seconds because the green `process.rs` mtime predates the red build. No green test credit was taken. The integrator authorized touching only the green `process.rs` mtime. Accept that attempt only after Cargo reports `fresh:false` and the harness digest changes before runtime.
+
+Keep the shared target directory. When worktrees reuse a mount path, compare changed source hashes and require a non-fresh Cargo artifact for the affected target before running tests. Keep each receipt bound to the full source commit, tree, clean status, target, profile, features, Rust toolchain, flags, and harness digest before and after runtime. When an old checkpoint must remain rerunnable after another build replaces the shared path, copy only its harness to a revision-specific scratch path and retain its digest. Do not copy the full target tree.
 
 ## Timing status
 

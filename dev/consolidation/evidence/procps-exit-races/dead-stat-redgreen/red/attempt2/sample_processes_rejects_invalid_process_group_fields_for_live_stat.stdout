@@ -1,0 +1,4 @@
+{ "type": "suite", "event": "started", "test_count": 1 }
+{ "type": "test", "event": "started", "name": "modules::process::linux_sample_process_tests::sample_processes_rejects_invalid_process_group_fields_for_live_stat" }
+{ "type": "test", "name": "modules::process::linux_sample_process_tests::sample_processes_rejects_invalid_process_group_fields_for_live_stat", "event": "ok" }
+{ "type": "suite", "event": "ok", "passed": 1, "failed": 0, "ignored": 0, "measured": 0, "filtered_out": 749, "exec_time": 0.000528155 }

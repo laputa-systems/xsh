@@ -1,0 +1,7 @@
+   Compiling xsh-registry v0.0.1 (/work/crates/xsh-registry)
+   Compiling xsh-net v0.0.1 (/work/crates/xsh-net)
+   Compiling xsh-applets v0.0.1 (/work/crates/xsh-applets)
+   Compiling xsh-root v0.0.1 (/work/crates/xsh-root)
+   Compiling regex-lite v0.1.9 (/work/third_party/regex-lite)
+   Compiling xsh v0.0.1 (/work)
+    Finished `test` profile [unoptimized] target(s) in 26.45s

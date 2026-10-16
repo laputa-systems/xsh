@@ -1,0 +1,9 @@
+LD_PRELOAD=/usr/lib/libjemalloc.so.2
+RUSTC_WRAPPER=/usr/local/bin/kache
+CARGO_TARGET_DIR=/work/target
+TMPDIR=/scratch/typing-rank1-integration-debug-935d7da01b68/tmp
+Cpus_allowed_list:	4-11
+/sys/fs/cgroup/cpuset.cpus.effective=4-11
+/sys/fs/cgroup/cpu.max=800000 100000
+/sys/fs/cgroup/memory.max=17179869184
+/sys/fs/cgroup/memory.swap.max=0
