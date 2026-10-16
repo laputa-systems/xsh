@@ -38,7 +38,7 @@ type SchedulerReceipt = {
 }
 
 const IMAGE = "xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
-const BRIDGE_RELATIVE = ".work/tmp/final-scheduler-receipt-bridge.py"
+const BRIDGE_RELATIVE = "dev/consolidation/final_scheduler_receipt_bridge.py"
 
 pure valid_git_id(value: Str) -> Bool {
   return false when value.byte_len() != 40
@@ -126,8 +126,20 @@ proc validate_inputs(options: Options) [fs, process, error, io] -> Result[Unit, 
     fail "reference worktree base tree differs from --source-tree"
   }
 
+  let work = fp"{root}/.work"
+  if work.exists()? {
+    if work.resolve()? != work { fail "work directory must not contain symlinks" }
+    if !work.is_dir()? { fail "work path must be a directory" }
+  } else {
+    work.mkdir()
+  }
   let scratch = fp"{root}/.work/tmp"
-  if !scratch.is_dir()? { fail f"scratch directory is missing: {scratch}" }
+  if scratch.exists()? {
+    if scratch.resolve()? != scratch { fail "scratch directory must not contain symlinks" }
+    if !scratch.is_dir()? { fail "scratch path must be a directory" }
+  } else {
+    scratch.mkdir()
+  }
   let bridge = fp"{root}/{BRIDGE_RELATIVE}"
   if !bridge.is_file()? { fail f"scheduler receipt bridge is missing: {bridge}" }
   let bridge_source = bridge.read_text()?
