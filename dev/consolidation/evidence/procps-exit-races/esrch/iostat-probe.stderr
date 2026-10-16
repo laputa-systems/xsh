@@ -1,0 +1,5 @@
+err: linux-sample: No such process (os error 3)
+executable: /artifact/xsh
+at /work/core/iostat.xsh:12:19-12:34
+call path:
+  1. proc main at /work/core/iostat.xsh:1:1-1:1

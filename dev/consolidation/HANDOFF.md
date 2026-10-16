@@ -90,11 +90,43 @@ work is authorized by this resume.
 
 ### Latest canonical and solver checkpoints
 
+- Clean source `449320b18`, tree `b1f2632d9`, builds matching xsh, xsht, xshi,
+  ordinary, and dedicated privileged products. All 184 expression route probes
+  pass and [independent review accepts the exact set](evidence/routes-449/README.md).
+  [Targeted Linux checks](evidence/linux-residual-449/README.md) pass: traceroute
+  18 passes and two expected skips, root block-device two passes, and all 68
+  integrated adapter-runner tests. These do not close canonical acceptance.
+- The procps failure has two reproduced exit races. The first returns ESRCH
+  from an open proc stat descriptor after its task exits; reviewed repair
+  `ba14ae8e4` is integrated at `204467038`. A subsequent bounded run on `449`
+  finds a readable dead-state X record with pgrp/session both -1. A read-only
+  probe captures the exact row before the entry vanishes. The second repair
+  and its captured-row/live-record controls remain under review and verification.
+- The private cp mount-worker selector repair is integrated at `449320b18`.
+  Exact ordinary and wrapped name controls pass. On matching source and products,
+  QEMU passes three XSH date cases, three GNU date cases, and one reflink case;
+  every successful guest and QEMU exits zero. The reflink retry explicitly
+  exports the guest PATH so Rust can find `/sbin/mkfs.btrfs`. Its earlier ENOENT
+  receipt is retained separately; it is not a product failure or a pass.
+- The full W9 comparison completes at controller `2b221766` against candidate
+  `d20af40bc`: both exact-owner proofs cover all 1,690 inputs, but comparison
+  exits one with 6,732 common checked-fact mismatches among 6,760 outcomes.
+  The first mismatch is the candidate-only assignment summary absent from
+  legacy publication. An independent legacy assignment-name oracle is required
+  before projecting that field. Full publication captures remain immutable;
+  no current W9 parity pass is claimed.
+- [Isolated inference checkpoints](evidence/typing-intermediate-checkpoints/README.md)
+  retain the accepted retained-byte probe at `aef756e1a` and intermediate scheme
+  review at `81481a573`. The latter passes 41 constraints, three checker probes,
+  and XSHT all-target compilation. One newly added scheme test has an incorrect
+  Ground-map fixture; its gate stays open pending correction and rerun. Source
+  review approves the intermediate canonical-scheme and Pending-to-Checked
+  boundary. Generic body facts, lowering, and capability acceptance remain open.
 - The clean `ed90857bd` replay passes 305 process tests and 741 library tests,
   then stops at the desugar comparison: 115 XSHT tests pass and one fails.
   The written procps file passes 39 tests; its transformed counterpart fails
-  the iostat mebibyte-header assertion with empty stdout. A separate repair
-  owner is narrowing the cause. [Raw evidence](evidence/canonical-ed908/README.md)
+  the iostat mebibyte-header assertion with empty stdout. The exit-race
+  investigation above follows this failure. [Raw evidence](evidence/canonical-ed908/README.md)
   preserves the failure. Soundness, privileged checks, and the normal full
   native suite were not reached. No timing credit is claimed.
 - All 184 mapped expression route probes pass on clean `ed90857bd` with its
@@ -126,8 +158,9 @@ work is authorized by this resume.
   integrated tree. [Evidence](evidence/w9-compact/README.md) retains the
   1 GiB diagnostic, four Rust oracles, failed assertion correction, and review.
   Five fresh harness roles build and pass listing checks at isolated source
-  `d20af40bc`. Its application source matches `45b4c1cd8`. A fresh full capture
-  is running. Full cohort parity remains unaccepted.
+  `d20af40bc`. Its application source matches `45b4c1cd8`. Full capture and
+  comparison now complete with the assignment-summary gap recorded above.
+  Full cohort parity remains unaccepted.
 - Isolated solver checkpoint `3545a21d6` passes all 29 constraint tests. Its
   corrected rollback oracle expects the established canonical alias, with
   the error and parent assertions retained. Independent review then finds

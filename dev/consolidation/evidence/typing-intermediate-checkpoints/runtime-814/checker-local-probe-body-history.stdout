@@ -1,0 +1,6 @@
+
+running 1 test
+test sema::check::local_inference::tests::local_constraint_probe_does_not_copy_completed_body_binding_history ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 777 filtered out; finished in 0.00s
+

@@ -1,0 +1,23 @@
+
+running 4 tests
+test sema::schemes::tests::checked_scheme_reuses_its_callable_shape ... ok
+test sema::schemes::tests::scheme_ground_type_mapping_visits_both_map_components ... FAILED
+test sema::schemes::tests::type_scheme_rejects_recovery_nested_in_sets_and_module_exports ... ok
+test sema::schemes::tests::type_scheme_retained_bytes_include_row_and_schema_payloads ... ok
+
+failures:
+
+---- sema::schemes::tests::scheme_ground_type_mapping_visits_both_map_components stdout ----
+
+thread 'sema::schemes::tests::scheme_ground_type_mapping_visits_both_map_components' (62) panicked at src/sema/schemes.rs:649:9:
+assertion `left == right` failed
+  left: Ground(Map(Int, Int))
+ right: Ground(Map(Str, Str))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::schemes::tests::scheme_ground_type_mapping_visits_both_map_components
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 774 filtered out; finished in 0.00s
+

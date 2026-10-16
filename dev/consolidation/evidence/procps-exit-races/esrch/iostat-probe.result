@@ -1,0 +1,3 @@
+iterations=148
+status=3
+argv=/artifact/xsh /work/core/iostat.xsh -- -d -m 0.01 1

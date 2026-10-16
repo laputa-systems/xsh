@@ -1,0 +1,11 @@
+
+running 1 test
+test modules::process::linux_sample_process_tests::sample_processes_skips_esrch_from_a_held_proc_stat_file ... FAILED
+
+failures:
+
+failures:
+    modules::process::linux_sample_process_tests::sample_processes_skips_esrch_from_a_held_proc_stat_file
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 744 filtered out; finished in 0.00s
+

@@ -1,0 +1,6 @@
+
+running 1 test
+test sema::check::module_driver::tests::imported_effects_flow_into_entry_inference ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 777 filtered out; finished in 0.01s
+

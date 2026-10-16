@@ -1,0 +1,14 @@
+container_image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+architecture=linux/amd64
+cpuset=12-13
+cpus=2
+memory=4g
+memory_swap=4g (no swap)
+network=none
+preload=unset
+workers=8
+max_churn_children=8
+hard_deadline_seconds=22
+probe_argv=python3 /scratch/procps-stat-observe/observe_stat_churn.py
+source_mount=/home/josh/d/laputa-systems/xsh/.work/wt/procps-stat-observe:/work:ro
+scratch_mount=/home/josh/d/laputa-systems/xsh/.work/tmp:/scratch:rw

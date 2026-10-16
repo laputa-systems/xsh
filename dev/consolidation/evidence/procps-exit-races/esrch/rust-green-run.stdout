@@ -1,0 +1,8 @@
+
+running 3 tests
+test modules::process::linux_sample_process_tests::linux_process_vanished_matches_only_not_found_and_esrch ... ok
+test modules::process::linux_sample_process_tests::sample_processes_skips_esrch_from_a_held_proc_stat_file ... ok
+test modules::process::linux_sample_process_tests::sample_processes_propagates_unexpected_stat_io_errors ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 744 filtered out; finished in 0.00s
+

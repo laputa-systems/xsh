@@ -1,0 +1,22 @@
+running 20 tests
+core/tests/test-traceroute.xsh::test_traceroute_gateway_adds_a_source_route ... skipped: IPv4 source-route IP_OPTIONS requires CAP_NET_RAW 52ms
+core/tests/test-traceroute.xsh::test_traceroute_default_udp_reaches_loopback_in_one_hop ... ok 54ms
+core/tests/test-traceroute.xsh::test_traceroute_gateway_option_validation ... ok 95ms
+core/tests/test-traceroute.xsh::test_traceroute_icmp_echo_reaches_loopback ... ok 96ms
+core/tests/test-traceroute.xsh::test_traceroute_help_and_version ... ok 127ms
+core/tests/test-traceroute.xsh::test_traceroute_address_family_flags_follow_the_literal ... ok 135ms
+core/tests/test-traceroute.xsh::test_traceroute_hop_range_and_probe_count ... ok 146ms
+core/tests/test-traceroute.xsh::test_traceroute_ipv6_loopback ... ok 125ms
+core/tests/test-traceroute.xsh::test_traceroute_icmp_socket_choice_is_honored ... ok 134ms
+core/tests/test-traceroute.xsh::test_traceroute_prints_names_unless_numeric ... ok 82ms
+core/tests/test-traceroute.xsh::test_traceroute_applies_source_tos_ttl_and_port ... ok 246ms
+core/tests/test-traceroute.xsh::test_traceroute_tcp_syn_reaches_open_and_closed_ports ... skipped: TCP probes need a raw ICMP socket 41ms
+core/tests/test-traceroute.xsh::test_traceroute_module_option_help ... ok 164ms
+core/tests/test-traceroute.xsh::test_traceroute_reports_socket_setup_failures_after_the_header ... ok 123ms
+core/tests/test-traceroute.xsh::test_traceroute_socket_flags_are_applied_or_refused_by_the_kernel ... ok 165ms
+core/tests/test-traceroute.xsh::test_traceroute_refuses_unsupported_options_by_name ... ok 410ms
+core/tests/test-traceroute.xsh::test_traceroute_rejects_invalid_values ... ok 781ms
+core/tests/test-traceroute.xsh::test_traceroute_packet_length_sets_the_payload ... ok 1.3s
+core/tests/test-traceroute.xsh::test_traceroute_udp_port_advances_per_probe_unless_fixed ... ok 2.4s
+core/tests/test-traceroute.xsh::test_traceroute_wait_and_sendwait_pace_the_probes ... ok 4.5s
+test result: ok. 18 passed; 0 failed; 2 skipped

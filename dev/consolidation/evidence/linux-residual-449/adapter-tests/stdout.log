@@ -1,0 +1,6 @@
+corpus=1690 outcomes=6760 mismatches=0
+reference_capture=/home/josh/d/laputa-systems/xsh/.work/tmp/w9-adapter-reference-reuse-toz7591q/.work/wt/candidate/.work/test/reference-capture/capture.receipt
+candidate_capture=/home/josh/d/laputa-systems/xsh/.work/tmp/w9-adapter-reference-reuse-toz7591q/.work/wt/candidate/.work/test/candidate-capture/capture.receipt
+reference_exact_proof=/home/josh/d/laputa-systems/xsh/.work/tmp/w9-adapter-reference-reuse-toz7591q/.work/wt/candidate/.work/test/compare/exact-reference
+candidate_exact_proof=/home/josh/d/laputa-systems/xsh/.work/tmp/w9-adapter-reference-reuse-toz7591q/.work/wt/candidate/.work/test/compare/exact-candidate
+mismatch_file=/home/josh/d/laputa-systems/xsh/.work/tmp/w9-adapter-reference-reuse-toz7591q/.work/wt/candidate/.work/test/compare/comparison/mismatches.tsv
