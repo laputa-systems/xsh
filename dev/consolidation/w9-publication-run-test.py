@@ -991,13 +991,43 @@ class PublicationRunnerTests(unittest.TestCase):
             check=True,
         )
         controller_commit, controller_tree = runner.source_identity(self.root)
-        candidate_root = self.root / "candidate"
         controller_work = self.root / ".work"
         controller_work.mkdir()
+        worktrees = controller_work / "wt"
+        worktrees.mkdir()
+        candidate_root = worktrees / "candidate"
+        candidate_root.mkdir()
         input_root = controller_work / "inputs"
         program_root = self.root / "program"
-        for root in (candidate_root, input_root, program_root):
+        builder_root = controller_work / "build-source"
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "worktree",
+                "add",
+                "--quiet",
+                "--detach",
+                str(builder_root),
+                "HEAD",
+            ],
+            check=True,
+        )
+        self.addCleanup(
+            lambda: subprocess.run(
+                ["git", "-C", str(self.root), "worktree", "remove", "--force", str(builder_root)],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        )
+        builder_path = builder_root / "dev/consolidation/w9-source-build.sh"
+        for root in (input_root, program_root):
             root.mkdir()
+        builder_path.parent.mkdir(parents=True)
+        builder_path.write_text("#!/bin/sh\n", encoding="utf-8")
+        builder_path.chmod(0o755)
         candidate_work = candidate_root / ".work"
         candidate_work.mkdir()
         output_parent = controller_work / "consolidation"
@@ -1008,6 +1038,7 @@ class PublicationRunnerTests(unittest.TestCase):
             "controller_root": str(self.root),
             "controller_commit": controller_commit,
             "controller_tree": controller_tree,
+            "builder_path": str(builder_path),
             "input_root": str(input_root),
             "program_root": str(program_root),
         }
@@ -1017,10 +1048,29 @@ class PublicationRunnerTests(unittest.TestCase):
             runner.require_output_path(str(output), candidate_root, source_record),
             output,
         )
-        with self.assertRaisesRegex(runner.PublicationError, "under publication work root"):
+        with self.assertRaisesRegex(runner.PublicationError, "overlaps a source-qualified protected root"):
             runner.require_output_path(str(candidate_work / "legacy-run"), candidate_root, source_record)
         with self.assertRaisesRegex(runner.PublicationError, "overlaps a source-qualified protected root"):
             runner.require_output_path(str(input_root / "nested-run"), candidate_root, source_record)
+        protected_roots = (
+            worktrees / "w9-adapter-ref-e240",
+            worktrees / "w9-derived-retry-context-bb",
+            worktrees / "w9-derived-api-imports",
+            controller_work / "tmp/w9-container-scratch",
+            builder_root,
+        )
+        for protected_root in protected_roots:
+            with self.subTest(protected_root=protected_root):
+                protected_output = protected_root / "nested-run"
+                protected_output.parent.mkdir(parents=True, exist_ok=True)
+                with self.assertRaisesRegex(
+                    runner.PublicationError,
+                    "overlaps a source-qualified protected root",
+                ):
+                    runner.require_output_path(
+                        str(protected_output), candidate_root, source_record
+                    )
+                self.assertFalse(protected_output.exists())
 
         schema3_record = {**source_record, "schema": "3"}
         self.assertEqual(

@@ -265,11 +265,7 @@ def _prepare_reference_source(
 ) -> pathlib.Path:
     candidate_root = runner.real_directory(candidate_root, "candidate source root")
     reference_source_root = pathlib.Path(os.path.abspath(reference_source_root))
-    if candidate_root.parent.name == "wt" and candidate_root.parent.parent.name == ".work":
-        worktrees = candidate_root.parent
-    else:
-        worktrees = candidate_root / ".work/wt"
-    expected_root = worktrees / "w9-adapter-ref-e240"
+    expected_root = runner.reference_source_root(candidate_root)
     if reference_source_root != expected_root:
         raise PublicationError(
             f"reference source clone must use the approved shared worktree path: {expected_root}"
@@ -944,9 +940,15 @@ def _hash_raw_outcomes(
     docker_environment: dict[str, str],
     runner,
 ) -> dict[tuple[int, str, str], str]:
-    work_root = runner.publication_work_root(pathlib.Path(source_record["candidate_root"]), source_record)
-    if not runner.under(raw_root, work_root):
-        raise PublicationError(f"raw adapter output is outside publication work root: {raw_root}")
+    try:
+        runner._validate_publication_output_path(
+            raw_root,
+            pathlib.Path(source_record["candidate_root"]),
+            source_record,
+            "raw adapter output",
+        )
+    except runner.PublicationError as error:
+        raise PublicationError(f"raw adapter output is invalid: {error}") from error
     job_dir = capture_output / "hashjobs" / role
     _mkdir_new_directory(job_dir, runner)
     container = f"w9adapter-{os.getpid()}-hash-{role}"
@@ -1057,9 +1059,15 @@ def prepare_raw_output_directory(
     source_record: dict[str, str] | None = None,
 ) -> pathlib.Path:
     output = pathlib.Path(os.path.abspath(path))
-    work_root = runner.publication_work_root(candidate_root, source_record)
-    if not runner.under(output, work_root):
-        raise PublicationError(f"raw sidecar directory must be under publication work root: {output}")
+    try:
+        runner._validate_publication_output_path(
+            output,
+            candidate_root,
+            source_record,
+            "raw sidecar directory",
+        )
+    except runner.PublicationError as error:
+        raise PublicationError(f"raw sidecar directory is invalid: {error}") from error
     _mkdir_new_directory(output, runner)
     _write_new_file(output / "schema", RAW_SCHEMA.encode("utf-8"), runner)
     return output
@@ -1689,6 +1697,23 @@ def _parse_source_capture_receipt(
         raise PublicationError(f"{receipt}: source cohort identity differs from the adapter build receipt")
     if record["input_root"] != str(input_root) or record["input_manifest"] != str(input_manifest):
         raise PublicationError(f"{receipt}: frozen input root or manifest path differs")
+    for path, kind in (
+        (capture_root, f"{role} adapter capture root"),
+        (raw_root, f"{role} adapter raw outcomes"),
+        (receipt_directory, f"{role} adapter range receipts"),
+    ):
+        canonical_path = runner.real_directory(path, kind)
+        if canonical_path != path:
+            raise PublicationError(f"{receipt}: {kind} path is not canonical")
+        try:
+            runner._validate_publication_output_path(
+                canonical_path,
+                pathlib.Path(source_record["candidate_root"]),
+                source_record,
+                kind,
+            )
+        except runner.PublicationError as error:
+            raise PublicationError(f"{receipt}: invalid {kind}: {error}") from error
     if (
         record["capture_root"] != str(capture_root)
         or record["raw_root"] != str(raw_root)
@@ -3360,7 +3385,7 @@ def compare_full_publications(
         expected_original_source = runner.real_directory(
             original_reference_source_root
             if original_reference_source_root is not None
-            else reference_source_root.parent / "w9-adapter-ref-e240",
+            else runner.reference_source_root(candidate_root),
             "clean original reference source",
         )
         if pathlib.Path(original_capture_record["source_root"]) != expected_original_source:

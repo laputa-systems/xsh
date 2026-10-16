@@ -35,6 +35,37 @@ EMPTY_EXACT_OWNER_FACTS = {
 
 
 class AdapterRawOutcomeTests(unittest.TestCase):
+    def test_source_qualified_raw_output_rejects_worktree_path_before_creation(self):
+        repository = pathlib.Path(__file__).resolve().parents[2]
+        runner = adapter_runner._load_publication_runner(
+            repository / "dev/consolidation/w9-publication-run.py"
+        )
+        controller_root = runner.CONTROLLER_ROOT
+        worktrees = controller_root / ".work/wt"
+        worktrees.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="w9-raw-output-guard-", dir=worktrees) as attempt:
+            raw_root = pathlib.Path(attempt) / "raw"
+            source_record = {
+                "schema": runner.SOURCE_COHORT_SCHEMA,
+                "candidate_root": str(controller_root),
+                "controller_root": str(controller_root),
+                "controller_commit": runner.source_identity(controller_root)[0],
+                "controller_tree": runner.source_identity(controller_root)[1],
+                "builder_path": str(runner.SOURCE_BUILDER_PATH),
+                "input_root": str(repository / ".work/tmp"),
+                "program_root": str(runner.PROGRAM_SNAPSHOT_ROOT.resolve()),
+            }
+
+            with self.assertRaisesRegex(
+                adapter_runner.PublicationError,
+                "overlaps a source-qualified protected root",
+            ):
+                adapter_runner.prepare_raw_output_directory(
+                    raw_root, controller_root, runner, source_record
+                )
+
+            self.assertFalse(raw_root.exists())
+
     def test_scratch_overlay_identity_accepts_only_the_recorded_source_change(self):
         repository = pathlib.Path(__file__).resolve().parents[2]
         scratch_parent = repository / ".work/tmp"
@@ -90,6 +121,7 @@ class AdapterRawOutcomeTests(unittest.TestCase):
         runner = SimpleNamespace(
             REFERENCE_HEAD="e240efad273fe35d66d91f4037b6a8193527da2e",
             real_directory=lambda path, label: pathlib.Path(path),
+            reference_source_root=lambda path: pathlib.Path(path) / ".work/wt/w9-adapter-ref-e240",
             source_identity=lambda path: (
                 "e240efad273fe35d66d91f4037b6a8193527da2e",
                 adapter_runner.REFERENCE_TREE,
@@ -265,7 +297,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         )
         self.original_source_identity = self.runner.source_identity
         self.source_identity_overrides = {}
-        self.scratch = self.repository / ".work/tmp"
+        self.scratch = self.runner.CONTROLLER_ROOT / ".work/tmp"
         self.scratch.mkdir(parents=True, exist_ok=True)
         self.temporary = tempfile.TemporaryDirectory(prefix="w9-source-adapter-receipt-", dir=self.scratch)
         self.addCleanup(self.temporary.cleanup)
@@ -1067,7 +1099,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         self.assertEqual(captured["environment"]["W9_SOURCE_COMMIT"], self.source_commit)
         self.assertEqual(captured["environment"]["W9_SOURCE_TREE"], self.source_tree)
 
-    def test_source_qualified_worker_plan_uses_controller_output_with_sibling_roots(self):
+    def test_integrated_main_context_worker_plan_uses_controller_output_with_sibling_roots(self):
         controller_root = self.runner.CONTROLLER_ROOT
         worktrees = controller_root / ".work/wt"
         worktrees.mkdir(parents=True, exist_ok=True)
@@ -1114,6 +1146,12 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
                 "input_root": str(input_root),
                 "program_root": str(program_root),
             }
+            self.runner._validate_publication_output_path(
+                output,
+                candidate_root,
+                source_record,
+                "source-qualified worker output",
+            )
             captured = {}
 
             def record_launch(job, active, command, cwd, environment):

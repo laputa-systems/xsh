@@ -1371,6 +1371,20 @@ def _parse_exact_capture_receipt(
         receipt_directory = runner.real_directory(
             record["receipt_directory"], f"{role} exact-owner range receipts"
         )
+        for path, kind in (
+            (capture_root, f"{role} exact-owner capture root"),
+            (raw_root, f"{role} exact-owner sidecars"),
+            (receipt_directory, f"{role} exact-owner range receipts"),
+        ):
+            try:
+                runner._validate_publication_output_path(
+                    path,
+                    pathlib.Path(source_record["candidate_root"]),
+                    source_record,
+                    kind,
+                )
+            except runner.PublicationError as error:
+                raise ExactOwnerError(f"{receipt}: invalid {kind}: {error}") from error
         if (
             receipt.parent != capture_root
             or raw_root != capture_root / "owners"
@@ -2207,6 +2221,20 @@ def validate_assignment_facts_capture(
     capture_root = runner.real_directory(record["capture_root"], "assignment facts capture root")
     sidecar_root = runner.real_directory(record["sidecar_root"], "assignment facts sidecar root")
     receipt_directory = runner.real_directory(record["receipt_directory"], "assignment facts range receipts")
+    for path, kind in (
+        (capture_root, "assignment facts capture root"),
+        (sidecar_root, "assignment facts sidecar root"),
+        (receipt_directory, "assignment facts range receipts"),
+    ):
+        try:
+            runner._validate_publication_output_path(
+                path,
+                candidate_root,
+                source_record,
+                kind,
+            )
+        except runner.PublicationError as error:
+            raise ExactOwnerError(f"{receipt}: invalid {kind}: {error}") from error
     if (
         receipt.parent != capture_root
         or sidecar_root != capture_root / "facts"
@@ -2817,11 +2845,19 @@ def _run_exact_owner_hashes(
 ) -> dict[int, str]:
     source_qualified = source_record.get("schema") == runner.SOURCE_COHORT_SCHEMA
     if source_qualified:
-        work_root = runner.publication_work_root(pathlib.Path(source_record["candidate_root"]), source_record)
+        try:
+            runner._validate_publication_output_path(
+                raw_root,
+                pathlib.Path(source_record["candidate_root"]),
+                source_record,
+                "exact-owner sidecars",
+            )
+        except runner.PublicationError as error:
+            raise ExactOwnerError(f"exact-owner sidecars are invalid: {error}") from error
     else:
         work_root = pathlib.Path(source_record["candidate_root"]) / ".work"
-    if not runner.under(raw_root, work_root):
-        raise ExactOwnerError(f"exact-owner sidecars are outside publication work root: {raw_root}")
+        if not runner.under(raw_root, work_root):
+            raise ExactOwnerError(f"exact-owner sidecars are outside publication work root: {raw_root}")
     job_dir = _exact_owner_hash_job_directory(capture_output, role, pass_number, runner)
     container = f"w9exact-{os.getpid()}-{role}-hash-{pass_number}"
     if runner.existing_container(container, docker_environment):

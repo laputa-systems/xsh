@@ -1264,10 +1264,12 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
             "controller_root": str(self.runner.CONTROLLER_ROOT),
             "controller_commit": self.runner.source_identity(self.runner.CONTROLLER_ROOT)[0],
             "controller_tree": self.runner.source_identity(self.runner.CONTROLLER_ROOT)[1],
+            "builder_path": str(self.runner.SOURCE_BUILDER_PATH),
             "input_root": str(self.input_root),
             "input_manifest": str(self.input_manifest),
             "input_manifest_sha256": self.runner.sha256_file(self.input_manifest),
             "corpus_blake3": self.corpus_digest,
+            "program_root": str(self.runner.PROGRAM_SNAPSHOT_ROOT.resolve()),
         }
         self.adapter_capture_receipt = self.candidate_work / "adapter-capture.receipt"
         self.adapter_capture_receipt.write_text("adapter capture fixture\n", encoding="utf-8")
@@ -1970,6 +1972,7 @@ class SourceQualifiedExactOwnerReceiptTests(unittest.TestCase):
             "controller_root": str(self.runner.CONTROLLER_ROOT),
             "controller_commit": self.runner.source_identity(self.runner.CONTROLLER_ROOT)[0],
             "controller_tree": self.runner.source_identity(self.runner.CONTROLLER_ROOT)[1],
+            "builder_path": str(self.runner.SOURCE_BUILDER_PATH),
             "input_root": str(self.input_root),
             "input_manifest": str(self.input_manifest),
             "input_manifest_sha256": self.runner.sha256_file(self.input_manifest),
@@ -2061,6 +2064,30 @@ class SourceQualifiedExactOwnerReceiptTests(unittest.TestCase):
             {(0, 1): self.range_receipt},
             self.runner,
         )
+
+    def test_source_qualified_hash_rejects_worktree_sidecars_before_creating_jobs(self):
+        worktrees = self.runner.CONTROLLER_ROOT / ".work/wt"
+        worktrees.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="w9-exact-hash-guard-", dir=worktrees) as attempt:
+            raw_root = pathlib.Path(attempt) / "owners"
+            hash_output = self.root / "hash-attempt"
+
+            with self.assertRaisesRegex(
+                exact_runner.ExactOwnerError,
+                "overlaps a source-qualified protected root",
+            ):
+                exact_runner._run_exact_owner_hashes(
+                    self.binary,
+                    raw_root,
+                    self.source_record,
+                    hash_output,
+                    "candidate",
+                    1,
+                    {},
+                    self.runner,
+                )
+
+            self.assertFalse(hash_output.exists())
 
     def parse_capture(self, record=None):
         if record is not None:

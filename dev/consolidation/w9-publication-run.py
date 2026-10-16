@@ -1337,8 +1337,44 @@ def publication_work_root(
     return real_directory(controller_root / ".work", "source-qualified controller .work")
 
 
+def reference_source_root(candidate_root: pathlib.Path) -> pathlib.Path:
+    candidate_root = real_directory(candidate_root, "candidate source")
+    if candidate_root.parent.name == "wt" and candidate_root.parent.parent.name == ".work":
+        worktrees = candidate_root.parent
+    else:
+        worktrees = candidate_root / ".work/wt"
+    return worktrees / "w9-adapter-ref-e240"
+
+
 def _paths_overlap(left: pathlib.Path, right: pathlib.Path) -> bool:
     return under(left, right) or under(right, left)
+
+
+def _source_qualified_protected_roots(
+    candidate_root: pathlib.Path,
+    source_record: dict[str, str],
+) -> tuple[pathlib.Path, ...]:
+    controller_root = real_directory(
+        source_record["controller_root"], "source-qualified capture controller"
+    )
+    builder_path = regular_file(
+        source_record["builder_path"], "source-qualified build runner", executable=True
+    )
+    if len(builder_path.parents) < 3:
+        raise PublicationError("source-qualified builder path has no worktree root")
+    builder_root = builder_path.parents[2]
+    common_root = git_common_controller_root(builder_path.parent)
+    roots = [
+        pathlib.Path(source_record["candidate_root"]),
+        pathlib.Path(source_record["input_root"]),
+        pathlib.Path(source_record["program_root"]),
+        common_root / ".work/wt",
+        common_root / ".work/tmp/w9-container-scratch",
+        reference_source_root(candidate_root),
+    ]
+    if builder_root not in {controller_root, common_root}:
+        roots.append(builder_root)
+    return tuple(dict.fromkeys(roots))
 
 
 def _validate_publication_output_path(
@@ -1351,11 +1387,7 @@ def _validate_publication_output_path(
     if not under(path, work_root):
         raise PublicationError(f"{kind} must be under publication work root: {path}")
     if source_record is not None and source_record.get("schema") == SOURCE_COHORT_SCHEMA:
-        protected_roots = (
-            pathlib.Path(source_record["candidate_root"]),
-            pathlib.Path(source_record["input_root"]),
-            pathlib.Path(source_record["program_root"]),
-        )
+        protected_roots = _source_qualified_protected_roots(candidate_root, source_record)
         if any(_paths_overlap(path, protected_root) for protected_root in protected_roots):
             raise PublicationError(f"{kind} overlaps a source-qualified protected root: {path}")
 
