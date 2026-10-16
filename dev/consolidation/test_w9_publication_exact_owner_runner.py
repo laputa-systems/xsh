@@ -717,6 +717,8 @@ class ExactOwnerHelperSourceTests(unittest.TestCase):
             with self.subTest(function=function):
                 self.assertNotIn(function, suffix)
         self.assertIn(b"w9_assignment_facts_tsv(&parsed.arena", suffix)
+        self.assertIn(b"let root_source_id = entry.source_id;", suffix)
+        self.assertIn(b"&sources, root_source_id, &binding", suffix)
         self.assertIn(b"w9_exact_write_absolute_file(&sidecar", suffix)
 
     def test_source_qualified_projection_rejects_missing_or_duplicate_imports(self):

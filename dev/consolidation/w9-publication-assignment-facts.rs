@@ -17,6 +17,7 @@ struct W9AssignmentFactsOwner {
 pub fn w9_assignment_facts_tsv(
     program: &xsh::frontend::syntax::arena::ArenaProgram,
     sources: &xsh::frontend::source::SourceMap,
+    root_source_id: xsh::frontend::source::SourceId,
     binding: &W9AssignmentFactsBinding<'_>,
 ) -> Result<String, String> {
     use std::fmt::Write as _;
@@ -174,30 +175,31 @@ pub fn w9_assignment_facts_tsv(
             program,
             program.statements,
             Some(sources),
-            program.source_text_source_id(),
+            Some(root_source_id),
         );
         let mut owners = Vec::new();
-        if let Some(source_id) = range_source_id(program, view.root_statements())
-            .or_else(|| program.source_text_source_id())
+        if range_source_id(program, view.root_statements())
+            .is_some_and(|parsed_source_id| parsed_source_id != root_source_id)
         {
-            let source_path = source_name(sources, source_id)?;
-            let identity = format!("root\0{source_path}");
-            let mut names = std::collections::BTreeSet::new();
-            for statement in program.arena.stmt_ids(view.root_statements()) {
-                legacy_assignment_statement(program, statement, &mut names);
-            }
-            let mut names = names
-                .into_iter()
-                .map(|name| name.as_str().as_str().to_owned())
-                .collect::<Vec<_>>();
-            names.sort();
-            owners.push(W9AssignmentFactsOwner {
-                source_id,
-                statements: view.root_statements(),
-                identity,
-                names,
-            });
+            return Err("assignment root source id differs from parsed root".to_owned());
         }
+        let source_path = source_name(sources, root_source_id)?;
+        let identity = format!("root\0{source_path}");
+        let mut names = std::collections::BTreeSet::new();
+        for statement in program.arena.stmt_ids(view.root_statements()) {
+            legacy_assignment_statement(program, statement, &mut names);
+        }
+        let mut names = names
+            .into_iter()
+            .map(|name| name.as_str().as_str().to_owned())
+            .collect::<Vec<_>>();
+        names.sort();
+        owners.push(W9AssignmentFactsOwner {
+            source_id: root_source_id,
+            statements: view.root_statements(),
+            identity,
+            names,
+        });
 
         for module in view.modules() {
             let Some(source_id) = range_source_id(program, module.statements) else {
@@ -413,7 +415,7 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let statements = parsed.statements;
         let program = builder.finish_with_statements(statements);
-        let proof = w9_assignment_facts_tsv(&program, &sources, &binding()).unwrap();
+        let proof = w9_assignment_facts_tsv(&program, &sources, source_id, &binding()).unwrap();
         assert_eq!(owner_rows(&proof).len(), 1);
         assert_eq!(
             owner_names(&proof, source_id, statements),
@@ -453,7 +455,7 @@ mod tests {
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let statements = parsed.statements;
         let program = builder.finish_with_statements(statements);
-        let proof = w9_assignment_facts_tsv(&program, &sources, &binding()).unwrap();
+        let proof = w9_assignment_facts_tsv(&program, &sources, source_id, &binding()).unwrap();
         assert_eq!(
             owner_names(&proof, source_id, statements),
             expected_names(&["atomic_written", "items", "root", "total"])
@@ -464,13 +466,17 @@ mod tests {
     fn source_backed_empty_root_keeps_an_explicit_empty_owner() {
         let source = "##! Empty assignment root.\n";
         let mut sources = SourceMap::new();
+        let preceding_source_id = sources.add_file("preceding.xsh", "unused = 1\n");
         let source_id = sources.add_file("empty-assignment-root.xsh", source);
+        assert_ne!(source_id, preceding_source_id);
         let parsed = Parser::parse_source_arena_only(source_id, source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
         let statements = parsed.arena.statements;
         let program = parsed.arena;
-        let proof = w9_assignment_facts_tsv(&program, &sources, &binding()).unwrap();
-        assert_eq!(owner_rows(&proof).len(), 1);
+        let proof = w9_assignment_facts_tsv(&program, &sources, source_id, &binding()).unwrap();
+        let rows = owner_rows(&proof);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0][1].parse::<usize>().unwrap(), source_id.raw());
         assert_eq!(owner_names(&proof, source_id, statements), BTreeSet::new());
     }
 
@@ -502,7 +508,7 @@ mod tests {
         let root_statements = root.statements;
         let module_statements = module.statements;
         let program = builder.finish_with_statements(root_statements);
-        let proof = w9_assignment_facts_tsv(&program, &sources, &binding()).unwrap();
+        let proof = w9_assignment_facts_tsv(&program, &sources, root_id, &binding()).unwrap();
         assert_eq!(owner_rows(&proof).len(), 2);
         assert_eq!(owner_names(&proof, root_id, root_statements), BTreeSet::new());
         assert_eq!(

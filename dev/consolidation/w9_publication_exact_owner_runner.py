@@ -1614,6 +1614,15 @@ def _assignment_facts_helper_suffix(
     )
     exact_helper = _replace_exact_helper_once(
         exact_helper,
+        "        let entry = entry_source_from_text(&file, source);\n"
+        "        let (sources, parsed) = parse_load_entry_source_arena_only(&file, entry, roots);\n",
+        "        let entry = entry_source_from_text(&file, source);\n"
+        "        let root_source_id = entry.source_id;\n"
+        "        let (sources, parsed) = parse_load_entry_source_arena_only(&file, entry, roots);\n",
+        "assignment root source identity",
+    )
+    exact_helper = _replace_exact_helper_once(
+        exact_helper,
         "        w9_write_exact_adapter_owners(&outputdir, index, &parsed.arena, &sources)\n"
         "            .unwrap_or_else(|error| panic!(\"write exact owner sidecar {index}: {error}\"));\n"
         "        let owner_path = format!(\"owners-{index}.tsv\");\n"
@@ -1632,7 +1641,7 @@ def _assignment_facts_helper_suffix(
         "            input_index: index,\n"
         "            input_path: &relative,\n"
         "        };\n"
-        "        let facts = w9_assignment_facts_tsv(&parsed.arena, &sources, &binding)\n"
+        "        let facts = w9_assignment_facts_tsv(&parsed.arena, &sources, root_source_id, &binding)\n"
         "            .unwrap_or_else(|error| panic!(\"assignment facts for input {index}: {error}\"));\n"
         "        let sidecar = outputdir.join(format!(\"facts-{index}.tsv\"));\n"
         "        w9_exact_write_absolute_file(&sidecar, facts.as_bytes())\n"
