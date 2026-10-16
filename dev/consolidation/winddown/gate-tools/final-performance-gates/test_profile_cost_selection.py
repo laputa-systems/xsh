@@ -3,6 +3,7 @@ from importlib.util import module_from_spec, spec_from_file_location
 from io import StringIO
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -33,6 +34,8 @@ def make_working_tree():
     with tempfile.TemporaryDirectory(dir=Path.cwd() / ".work/tmp") as temporary:
         tree = Path(temporary) / "source"
         tree.mkdir()
+        subprocess.run(["git", "init", "--quiet", str(tree)], check=True)
+        (tree / ".git/info/exclude").write_text(".work/\n", encoding="utf-8")
         for filename in ("Cargo.lock", "Cargo.toml", "rust-toolchain.toml"):
             (tree / filename).write_text(filename)
         close_record = tree / "functional-close.json"
@@ -44,10 +47,12 @@ def run_profile_cost(tree, output, close_record, commit):
     source_identity = {"commit": commit, "git_tree": "1" * 40, "status": "clean"}
     stages = []
 
-    def docker_base(_tree, target_dir, _cpus, image, user=False, candidate_xsh=None):
+    def docker_base(_tree, target_dir, _cpus, image, repository_tmp, user=False, candidate_xsh=None):
         return [
             "docker",
             "run",
+            "-e",
+            f"TMPDIR={repository_tmp}",
             "-e",
             f"CARGO_TARGET_DIR={target_dir}",
             "-e",
@@ -83,6 +88,7 @@ def run_profile_cost(tree, output, close_record, commit):
         output=output,
     )
     with (
+        patch.object(profile, "ROOT", tree),
         patch.object(profile, "check_source", return_value=source_identity),
         patch.object(profile, "check_close", return_value={"functional_complete": True, "commit": commit}),
         patch.object(profile, "image_identity", return_value={"image_id": "sha256:test", "clang_driver": "/clang", "tool_hashes": {}}),
@@ -117,6 +123,10 @@ def test_profile_cost_emits_only_the_selected_release_profile():
         assert selected["native_suite"]["status"] == 0
         assert selected["native_suite_command"][-1] == "test"
         assert selected["native_suite_command"][-2].endswith("/opt3/target/x86_64-unknown-linux-musl/release/xsht")
+        build_tmp = next(argument.removeprefix("TMPDIR=") for argument in selected["build"]["command"] if argument.startswith("TMPDIR="))
+        test_tmp = next(argument.removeprefix("TMPDIR=") for argument in selected["native_suite"]["command"] if argument.startswith("TMPDIR="))
+        assert build_tmp == test_tmp
+        assert not Path(build_tmp).exists()
         receipt_path = output / "receipt.json"
         assert forced.load_profile(receipt_path, tree, commit, receipt["source_identity"])["name"] == "release-opt3"
         with patch.object(observer, "source_identity", return_value=receipt["source_identity"]):

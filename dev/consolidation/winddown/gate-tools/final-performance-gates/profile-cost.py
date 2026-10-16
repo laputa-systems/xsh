@@ -12,6 +12,8 @@ from pathlib import Path
 import re
 import secrets
 import signal
+import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -181,7 +183,7 @@ def expand_cpu_list(raw):
     return sorted(result)
 
 
-def repository_tmp_dir():
+def repository_tmp_parent():
     root = ROOT.resolve(strict=True)
     path = root / ".work/tmp"
     cursor = root
@@ -215,8 +217,28 @@ def repository_tmp_dir():
     return path
 
 
-def docker_base(tree, target_dir, cpus, native_image, user=False, candidate_xsh=None):
-    repository_tmp = repository_tmp_dir()
+@contextmanager
+def repository_tmp_dir(run_id):
+    parent = repository_tmp_parent()
+    path = parent / f"profile-cost-{run_id}"
+    if path.exists() or path.is_symlink():
+        raise ValueError(f"profile temporary path already exists: {path}")
+    path.mkdir(mode=0o700)
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fchmod(descriptor, 0o700)
+            mode = os.fstat(descriptor).st_mode
+        finally:
+            os.close(descriptor)
+        if not stat.S_ISDIR(mode) or stat.S_IMODE(mode) != 0o700:
+            raise ValueError(f"profile temporary directory is not private: {path}")
+        yield path
+    finally:
+        shutil.rmtree(path)
+
+
+def docker_base(tree, target_dir, cpus, native_image, repository_tmp, user=False, candidate_xsh=None):
     git_common = Path(subprocess.check_output(["git", "-C", str(tree), "rev-parse", "--path-format=absolute", "--git-common-dir"], text=True).strip())
     baseline = INFRA / "baseline-bin"
     work = ROOT / ".work/consolidation"
@@ -375,8 +397,8 @@ def run_stage(command, log, *, run_id, stage, verify_after=None):
     }
 
 
-def profile_build(tree, target_dir, level, cpus, image):
-    command = docker_base(tree, target_dir, cpus, image)
+def profile_build(tree, target_dir, level, cpus, image, repository_tmp):
+    command = docker_base(tree, target_dir, cpus, image, repository_tmp)
     profile_env = ["-e", f"CARGO_PROFILE_RELEASE_OPT_LEVEL={level}"]
     image_index = command.index(image)
     command[image_index:image_index] = profile_env
@@ -384,16 +406,16 @@ def profile_build(tree, target_dir, level, cpus, image):
     return command + wrapped
 
 
-def profile_test(tree, target_dir, cpus, image):
+def profile_test(tree, target_dir, cpus, image, repository_tmp):
     binary_dir = target_dir / TARGET / "release"
     candidate_xsh = binary_dir / "xsh"
-    command = docker_base(tree, target_dir, cpus, image, user=True, candidate_xsh=candidate_xsh)
+    command = docker_base(tree, target_dir, cpus, image, repository_tmp, user=True, candidate_xsh=candidate_xsh)
     command += [str(binary_dir / "xsht"), "test"]
     return command
 
 
-def probe_profile_resources(tree, target_dir, cpus, image, candidate_xsh, *, run_id, output_dir):
-    command = docker_base(tree, target_dir, cpus, image, user=True, candidate_xsh=candidate_xsh)
+def probe_profile_resources(tree, target_dir, cpus, image, candidate_xsh, *, run_id, output_dir, repository_tmp):
+    command = docker_base(tree, target_dir, cpus, image, repository_tmp, user=True, candidate_xsh=candidate_xsh)
     command += ["/bin/sh", "-c", "grep '^Cpus_allowed_list:' /proc/self/status; cat /sys/fs/cgroup/memory.max; cat /sys/fs/cgroup/memory.swap.max"]
     stage = "resource-probe"
     cidfile = output_dir / "resource-probe.cid"
@@ -454,7 +476,7 @@ def run(args):
     run_id = secrets.token_hex(16)
     ownership = exclusive_lock(PROFILE_LOCK, reject_unresolved=True)
     native_suite_lock = exclusive_lock(INFRA / "native-suite.lock")
-    with ownership as ownership_stream, native_suite_lock:
+    with ownership as ownership_stream, native_suite_lock, repository_tmp_dir(run_id) as repository_tmp:
         no_active_native_containers(image["image_id"])
         output.mkdir(parents=True)
         receipt_path = output / "receipt.json"
@@ -490,7 +512,7 @@ def run(args):
                 profile_dir.mkdir()
                 binary_dir = target_dir / TARGET / "release"
                 binaries = {name: binary_dir / name for name in ("xsh", "xsht", "xsh-test-helper")}
-                build_command = profile_build(tree, target_dir, level, cpus, image["image_id"])
+                build_command = profile_build(tree, target_dir, level, cpus, image["image_id"], repository_tmp)
                 with exclusive_lock(INFRA / "cargo.lock"):
                     build = run_stage(
                         build_command,
@@ -514,9 +536,9 @@ def run(args):
                 if build["status"] != 0:
                     raise ValueError(f"release opt{level} build failed; inspect {profile_dir / 'build.log'}")
                 result["binaries"] = build["stage_validation"]["binary_hashes"]
-                result["container_resources"] = probe_profile_resources(tree, target_dir, cpus, image["image_id"], binaries["xsh"], run_id=run_id, output_dir=profile_dir)
+                result["container_resources"] = probe_profile_resources(tree, target_dir, cpus, image["image_id"], binaries["xsh"], run_id=run_id, output_dir=profile_dir, repository_tmp=repository_tmp)
                 verify_profile_stage(tree, source_identity, binaries, result["binaries"])
-                test_command = profile_test(tree, target_dir, cpus, image["image_id"])
+                test_command = profile_test(tree, target_dir, cpus, image["image_id"], repository_tmp)
                 no_active_native_containers(image["image_id"])
                 test = run_stage(
                     test_command,

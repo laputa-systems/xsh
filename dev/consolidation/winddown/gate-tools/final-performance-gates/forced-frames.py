@@ -570,7 +570,12 @@ def validate_static_paths(args: argparse.Namespace) -> tuple[Path, Path, Path, P
     return tree, close_path, receipt_path, output, output_parent
 
 
-def ensure_repository_tmp() -> Path:
+def repository_tmp_path(run_id: str) -> Path:
+    return ROOT / ".work/tmp" / f"forced-frames-{run_id}"
+
+
+@contextmanager
+def ensure_repository_tmp(private_path: Path):
     path = require_exact_path(ROOT / ".work/tmp", ROOT / ".work/tmp", must_exist=False)
     exclude_path = ROOT / ".git/info/exclude"
     try:
@@ -597,12 +602,28 @@ def ensure_repository_tmp() -> Path:
         raise GateFailure(f"cannot verify repository temporary directory is ignored: {error}") from error
     if result.returncode != 0:
         raise GateFailure("repository temporary directory is not ignored by Git")
-    return path
+    private_path = require_exact_path(private_path, path / private_path.name, must_exist=False)
+    if not private_path.name.startswith("forced-frames-"):
+        raise GateFailure(f"forced-frame temporary path is not run-scoped: {private_path}")
+    if private_path.exists() or private_path.is_symlink():
+        raise GateFailure(f"forced-frame temporary directory already exists: {private_path}")
+    private_path.mkdir(mode=0o700)
+    try:
+        descriptor = os.open(private_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fchmod(descriptor, 0o700)
+            mode = os.fstat(descriptor).st_mode
+        finally:
+            os.close(descriptor)
+        if not stat.S_ISDIR(mode) or stat.S_IMODE(mode) != 0o700:
+            raise GateFailure(f"forced-frame temporary directory is not private: {private_path}")
+        yield private_path
+    finally:
+        shutil.rmtree(private_path)
 
 
 def run(args: argparse.Namespace) -> int:
     tree, close_path, receipt_path, output, _ = validate_static_paths(args)
-    repository_tmp = ensure_repository_tmp()
     source = source_identity(tree, args.commit)
     close = load_functional_close(close_path, args.commit)
     profile = load_profile(receipt_path, tree, args.commit, source)
@@ -623,6 +644,7 @@ def run(args: argparse.Namespace) -> int:
     if not laputa_corpus.is_dir():
         raise GateFailure(f"required Laputa corpus is not a directory: {laputa_corpus}")
     run_id = secrets.token_hex(16)
+    repository_tmp = repository_tmp_path(run_id)
     log_path = output / "native-suite.log"
     cidfile = output / "container.cid"
     receipt_path_out = output / "receipt.json"
@@ -652,7 +674,7 @@ def run(args: argparse.Namespace) -> int:
         "timing_claim": "none; correctness-only forced-frame full-suite run",
     }
     output_created = False
-    with native_suite_lock():
+    with native_suite_lock(), ensure_repository_tmp(repository_tmp) as repository_tmp:
         previous_handlers = install_signal_handlers()
         try:
             output.mkdir(mode=0o755)
