@@ -6274,7 +6274,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         index: usize,
         instruction: u32,
         position: StatementIfPosition,
-        else_body: Option<IrBlockId>,
+        else_body: Option<u32>,
         span: Span,
     ) -> Result<(), RuntimeError> {
         let (branch, position) =
@@ -6333,7 +6333,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         instruction: u32,
         target: LoweredCompTarget,
         iter: u32,
-        body: IrBlockId,
+        body: u32,
         span: Span,
     ) -> Result<(), RuntimeError> {
         self.declare_target(index, &target);
