@@ -151,6 +151,18 @@ the old assertion. Run capture, pipeline, spawn-run, and command-builder order
 credit remains open until repaired. Final source qualification waits for this
 behavior change. Other route and inference work continues independently.
 
+The source-order repair is integrated as `68cbed2b4` and `877ae06a9`.
+`106ef25fa` updates the SPEC template and regenerates its output with qualified
+verification tools. The clean lane `50f54522c` passes nine process-frame tests
+and two compatibility tests in each execution mode. The integrator reran the
+corrected runtime regression in both modes and confirmed production-source
+equivalence after integration. [Repair evidence](evidence/process-source-order-50f54522c/README.md)
+retains its old-source failure, new-source passes, and bounded AST accounting.
+One old test was wrong: `*${empty}` failed checking rather than exercising
+runtime splice conversion. The corrected computed `@(...)` splice reaches the
+runtime error and proves later operands are skipped. Collector field paths and
+variant completeness controls must integrate before the final source freeze.
+
 The isolated generic module export slice is accepted at `8475984a9`, tree
 `2d2dfebdb892fa6dbae70db5fd38199489321fdf`. All 289 Rust selections
 (288 distinct tests), 21 native tests, production `-D warnings`, and

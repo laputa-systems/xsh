@@ -1,0 +1,26 @@
+running 1 tests
+tests/xsh/stdlib/process_frames.xsh::test_run_operands_evaluate_in_source_order_before_conversion_stops_later_operands ... FAILED 4ms
+
+failures:
+
+---- tests/xsh/stdlib/process_frames.xsh::test_run_operands_evaluate_in_source_order_before_conversion_stops_later_operands ----
+AssertionError.Failed: assertion failed: output.stdout == """accept
+timeout
+cpu
+env
+target
+""": target
+
+left: "target\n"
+right: "accept\ntimeout\ncpu\nenv\ntarget\n"
+diff:
+--- original
++++ modified
+@@ -1 +1,5 @@
++accept
++timeout
++cpu
++env
+ target
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
