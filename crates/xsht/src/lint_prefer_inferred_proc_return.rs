@@ -134,14 +134,11 @@ impl Linter<'_> {
     }
 }
 
-/// Everything a proof compares between the file and the file without an
-/// annotation.
 type WarningFact = (Option<(usize, usize)>, Option<&'static str>, String);
 
 #[derive(Eq, PartialEq)]
 struct ProofFacts {
     checked: CheckedReturnRemovalFacts,
-    /// Each warning's place, code, and message.
     warnings: Vec<WarningFact>,
 }
 

@@ -36,9 +36,6 @@ fn apply(diagnostics: &[Diagnostic], source: &str) -> String {
     fixed
 }
 
-// The row and the runtime must name the same default: the fix deletes the
-// argument, which is only the same call while a missing path is accepted
-// without it.
 #[test]
 fn the_default_the_row_removes_is_the_runtime_default() {
     let path_remove_has_defaulted_missing_ok = xsh_registry::signature::api_spec()
