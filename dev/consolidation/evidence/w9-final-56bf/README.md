@@ -2,7 +2,7 @@
 
 ## Result
 
-The source-sealed run completed both adapter roles, both exact-owner roles, the derived reference, and assignment-facts proofs for all 1,690 inputs. Each adapter capture and the derived-reference capture covers 68 ranges and 6,760 outcomes; both exact-owner captures and the assignment-facts proof cover all 1,690 inputs. The seven focused assignment-harness selectors each passed exactly once. The attempt did not produce a complete comparison and is not parity acceptance.
+The source-sealed run completed both adapter roles, both exact-owner roles, the derived reference, and assignment-facts captures for all 1,690 inputs. Each adapter capture and the derived-reference capture covers 68 ranges and 6,760 outcomes; both exact-owner captures and the assignment-facts capture cover all 1,690 inputs. The seven focused assignment-harness selectors each passed exactly once. The attempt did not produce a complete comparison and is not parity acceptance.
 
 The first compare command stopped before creating output because cleanup had removed the derivation receipt's retry-context source worktree. The error is retained in `commands/compare-first.log`. Root restored the exact source worktree and ignored patch named by the receipt. The compare-only retry used the same capture and proof receipts and changed only the output path. At the 15-minute bound it was stopped with SIGTERM. Its runner handled signal 15 and returned `-2`; `comparison-r2/compare.log` records 225 of 1,690 inputs and 900 of 6,760 outcomes with zero mismatches observed so far. The attempt status remains incomplete, so the partial count does not establish parity.
 
@@ -16,7 +16,9 @@ The frozen corpus had 1,690 inputs and manifest SHA-256 `1ec4e8eb67681591d25c69b
 
 ## Commands
 
-The exact prepare, capture, and assignment phase command template is retained in `w9-final-closure.sh`. The phases used:
+The exact prepare, capture, and assignment phase command template is retained in `w9-final-closure.sh`. The phases used are historical commands. They require the sealed controller
+56bf and fresh output paths for a new attempt. Do not rerun them on current
+main or overwrite the retained failure.
 
 ```sh
 bash .work/tmp/w9-final-closure.sh 56bf3286c0034c183515c0dc4adbf041f398a776 2d4cf52e64d4dbf06daa5e169c88d6eef8bccdd5 .work/wt/consolidation-final-56bf w9-final-56bf prepare

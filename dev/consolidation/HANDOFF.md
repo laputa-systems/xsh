@@ -1,6 +1,6 @@
 # Consolidation handoff
 
-Status: winding down 2026-10-16 at the owner's request. The leading
+Status: paused 2026-10-16 at the owner's request. The leading
 [stop handoff in CAMPAIGN.md](CAMPAIGN.md#stop-handoff-2026-10-16) owns resume,
 parked branches, retained worktrees and the final audit. No new item starts
 until explicit resume. Lean and Phase F stay paused; inference is isolated.
@@ -19,6 +19,16 @@ inventory families. Lane checks pass 56 Rust and 65 Python tests; root reran
 65 Python tests after integration. The earlier be0b actual routes pass 184/184
 and source-order cases 64/64, but their exact source pins do not qualify a
 new final matrix. Run the current routes only after the next final freeze.
+
+W9 completed its held captures and admission proofs on controller/candidate
+56bf. The original comparison failed after winddown cleanup removed a historical
+source dependency; that exact source and patch were restored. A separately
+named compare-only retry reached 225 inputs and 900 outcomes with no observed
+mismatch, then stopped at the 15-minute winddown bound. Its exit -2 followed
+signal 15. Comparison remains incomplete with zero completed ranges. No W9
+parity is accepted and no replacement run starts during pause.
+[The W9 stop evidence](evidence/w9-final-56bf/README.md) records the exact
+commands, source pins, admissions, failed first comparison and bounded retry.
 
 Inference is parked at `e2cf1fec2`, with implementation `e20914bb9`: 286 selected
 Rust tests pass and the native capability group is 19/20. The source loader's
