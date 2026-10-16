@@ -105,18 +105,27 @@ def load_helper(root: pathlib.Path) -> Any:
     return module
 
 
-def build_case_rows(
+def validate_route_mappings(
     root: pathlib.Path,
     helper: Any,
     config: dict[str, Any],
     schema_rows: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     try:
         mappings = helper.validate_route_witness_mappings(root, config, schema_rows)
         helper.validate_scalar_route_oracle_mappings(config, set(mappings))
     except (OSError, helper.EvidenceError) as error:
         raise ReplayError(f"existing route-witness source validation failed: {error}") from error
+    return mappings
 
+
+def build_artifact_case_rows(
+    root: pathlib.Path,
+    helper: Any,
+    config: dict[str, Any],
+    schema_rows: list[dict[str, Any]],
+    mappings: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
     expression_by_tag = {
         row["tag"]: row for row in schema_rows if row.get("kind") == "Expr"
     }
@@ -174,9 +183,114 @@ def build_case_rows(
     return rows
 
 
+def source_order_candidate_ids(
+    helper: Any,
+    config: dict[str, Any],
+    schema_rows: list[dict[str, Any]],
+    known_ids: set[str],
+) -> set[str]:
+    candidates = config.get("source_order_candidates")
+    if not isinstance(candidates, dict) or not candidates:
+        raise ReplayError("source-order candidates must be a nonempty object")
+    schema_by_tag = {row["tag"]: row for row in schema_rows}
+    selected: set[str] = set()
+    for tag, candidate in candidates.items():
+        schema_row = schema_by_tag.get(tag)
+        if schema_row is None:
+            raise ReplayError(
+                f"source-order candidate names an unknown schema tag: {tag}"
+            )
+        if (
+            not isinstance(candidate, dict)
+            or set(candidate) - {"fields", "ids", "scope"}
+            or "ids" not in candidate
+        ):
+            raise ReplayError(f"source-order candidate has an unexpected shape: {tag}")
+        helper.validate_source_order_candidate(schema_row, candidate)
+        ids = candidate["ids"]
+        if (
+            not isinstance(ids, list)
+            or not ids
+            or any(not isinstance(test_id, str) or not test_id for test_id in ids)
+            or len(ids) != len(set(ids))
+        ):
+            raise ReplayError(
+                f"source-order candidate IDs are malformed or duplicated: {tag}"
+            )
+        unknown = sorted(set(ids) - known_ids)
+        if unknown:
+            raise ReplayError(
+                f"source-order candidate IDs are not current validated tests: {unknown}"
+            )
+        selected.update(ids)
+    return selected
+
+
+def build_replay_rows(
+    root: pathlib.Path,
+    helper: Any,
+    config: dict[str, Any],
+    schema_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    mappings = validate_route_mappings(root, helper, config, schema_rows)
+
+    schema_by_tag = {row["tag"]: row for row in schema_rows}
+    artifact_rows = build_artifact_case_rows(root, helper, config, schema_rows, mappings)
+    artifact_by_id = {row["test_id"]: row for row in artifact_rows}
+    behavior_ids: set[str] = set()
+    for test_id, mapping in mappings.items():
+        schema = schema_by_tag.get(mapping["tag"])
+        if schema is None:
+            raise ReplayError(
+                f"route-witness mapping names an unknown schema tag: {mapping['tag']}"
+            )
+        if schema["kind"] == "Expr":
+            if test_id not in artifact_by_id:
+                raise ReplayError(
+                    f"expression route mapping has no supported artifact source: {test_id}"
+                )
+        else:
+            if "child_source" in mapping:
+                raise ReplayError(
+                    f"non-expression route mapping cannot produce a child artifact: {test_id}"
+                )
+            behavior_ids.add(test_id)
+
+    xsh_oracle_files = config.get("xsh_oracle_files")
+    if (
+        not isinstance(xsh_oracle_files, list)
+        or not xsh_oracle_files
+        or any(not isinstance(path, str) or not path for path in xsh_oracle_files)
+    ):
+        raise ReplayError("current XSH oracle source list is malformed")
+    known_ids = helper.xsh_test_ids(root, xsh_oracle_files) | set(mappings)
+    source_order_ids = source_order_candidate_ids(helper, config, schema_rows, known_ids)
+    roles_by_id: dict[str, set[str]] = {}
+    for test_id in artifact_by_id:
+        roles_by_id.setdefault(test_id, set()).add("artifact")
+    for test_id in behavior_ids:
+        roles_by_id.setdefault(test_id, set()).add("behavior")
+    for test_id in source_order_ids:
+        roles_by_id.setdefault(test_id, set()).add("source-order")
+
+    rows: list[dict[str, Any]] = []
+    for test_id, roles in sorted(roles_by_id.items()):
+        artifact = artifact_by_id.get(test_id)
+        rows.append({
+            "test_id": test_id,
+            "roles": tuple(sorted(roles)),
+            "artifact": artifact,
+        })
+    return rows
+
+
 def case_slug(row: dict[str, Any]) -> str:
     test_id = row["test_id"].encode("utf-8")
-    return f"{row['ordinal']:03d}-{row['tag_name']}-{sha256_bytes(test_id)[:12]}"
+    digest = sha256_bytes(test_id)[:12]
+    artifact = row["artifact"]
+    if artifact is not None:
+        return f"{artifact['ordinal']:03d}-{artifact['tag_name']}-{digest}"
+    return f"{'-'.join(row.get('roles', ()))}-{digest}"
 
 
 def normalized_under(path: pathlib.Path, parent: pathlib.Path, *, strict_parent: bool = True) -> pathlib.Path:
@@ -211,7 +325,7 @@ def validate_inputs(
     git_value(root, "cat-file", "-e", f"{source_commit}^{{commit}}")
     try:
         schema_rows = helper.parse_schema((root / SCHEMA_PATH).read_text())
-        rows = build_case_rows(root, helper, config, schema_rows)
+        rows = build_replay_rows(root, helper, config, schema_rows)
     except (OSError, helper.EvidenceError) as error:
         raise ReplayError(f"existing route-witness source validation failed: {error}") from error
 
@@ -283,17 +397,26 @@ def print_plan(validated: dict[str, Any]) -> None:
     print(f"root_mount={root}:/repo:ro")
     print(f"output_mount={validated['output_root']}:/scratch:rw; TMPDIR=/scratch")
     print(f"native_lock={root / LOCK_PATH}")
+    artifact_count = sum(row["artifact"] is not None for row in validated["rows"])
+    behavior_count = sum("behavior" in row["roles"] for row in validated["rows"])
+    source_order_count = sum("source-order" in row["roles"] for row in validated["rows"])
     print(
-        f"tests={len(validated['rows'])}; modes={len(MODES)}; "
+        f"unique_tests={len(validated['rows'])}; artifact_tests={artifact_count}; "
+        f"behavior_tests={behavior_count}; source_order_tests={source_order_count}; "
+        f"modes={len(MODES)}; "
         f"invocations={len(validated['rows']) * len(MODES)}; "
         "xsht_args=test --exact ID; timeout=150s"
     )
-    print("test_id\ttag\tordinal\tmode\texpected_route\tchild_source_sha256")
+    print("test_id\troles\ttag\tordinal\tmode\texpected_route\tchild_source_sha256")
     for row in validated["rows"]:
+        artifact = row["artifact"]
         for mode in MODES:
             print(
-                f"{row['test_id']}\t{row['tag_name']}\t{row['ordinal']}\t{mode}\t"
-                f"{row[f'{mode}_route']}\t{row['child_source_sha256']}"
+                f"{row['test_id']}\t{','.join(row['roles'])}\t"
+                f"{artifact['tag_name'] if artifact else ''}\t"
+                f"{artifact['ordinal'] if artifact else ''}\t{mode}\t"
+                f"{artifact[f'{mode}_route'] if artifact else ''}\t"
+                f"{artifact['child_source_sha256'] if artifact else ''}"
             )
 
 
@@ -350,7 +473,7 @@ def native_command(
     validated: dict[str, Any],
     row: dict[str, Any],
     mode: str,
-    witness_path: pathlib.Path,
+    witness_path: pathlib.Path | None,
     cid_file: pathlib.Path,
     container_name: str,
 ) -> list[str]:
@@ -360,14 +483,21 @@ def native_command(
     target_root = validated["products"]["xsh"]["path"].parents[2]
     xsh_relative = validated["products"]["xsh"]["path"].relative_to(target_root).as_posix()
     xsht_relative = validated["products"]["xsht"]["path"].relative_to(target_root).as_posix()
-    container_witness_path = "/scratch/" + witness_path.relative_to(output_root).as_posix()
-    inner_env = [
-        "/usr/bin/env",
-        f"XSHT_INTERNAL_ROUTE_WITNESS_TEST_ID={test_id}",
-        f"XSHT_INTERNAL_ROUTE_WITNESS_OUTPUT_DIR={container_witness_path}",
+    inner_env = ["/usr/bin/env"]
+    if row["artifact"] is not None:
+        if witness_path is None:
+            raise ReplayError(f"route artifact output path is missing for {test_id}")
+        container_witness_path = (
+            "/scratch/" + witness_path.relative_to(output_root).as_posix()
+        )
+        inner_env.extend([
+            f"XSHT_INTERNAL_ROUTE_WITNESS_TEST_ID={test_id}",
+            f"XSHT_INTERNAL_ROUTE_WITNESS_OUTPUT_DIR={container_witness_path}",
+        ])
+    inner_env.extend([
         f"XSH_BIN=/artifacts/target/{xsh_relative}",
         f"CARGO_BIN_EXE_xsh=/artifacts/target/{xsh_relative}",
-    ]
+    ])
     if mode == "forced":
         inner_env.append("XSH_INTERNAL_TEST_FORCE_FRAMES=1")
     inner_env.extend([f"/artifacts/target/{xsht_relative}", "test", "--exact", test_id])
@@ -416,6 +546,12 @@ def native_command(
     ]
 
 
+def accepted_test_exit_code(process_exit_code: int, exact_test_passed: bool) -> int:
+    if process_exit_code != 0 or exact_test_passed:
+        return process_exit_code
+    return 1
+
+
 def run_case(
     validated: dict[str, Any],
     receipt: dict[str, Any],
@@ -428,7 +564,9 @@ def run_case(
     slug = case_slug(row)
     case_dir = output_root / "probes" / slug / mode
     witness_dir = case_dir / "witness"
-    witness_dir.mkdir(parents=True)
+    case_dir.mkdir(parents=True)
+    if row["artifact"] is not None:
+        witness_dir.mkdir()
     (output_root / "home").mkdir(exist_ok=True)
     (output_root / "logs").mkdir(exist_ok=True)
     (output_root / "container-ids").mkdir(exist_ok=True)
@@ -436,7 +574,14 @@ def run_case(
     container_name = f"route-{run_name}-{slug}-{mode}"
     cid_file = output_root / "container-ids" / f"{step_id}.cid"
     log_path = output_root / "logs" / f"{step_id}.log"
-    command = native_command(validated, row, mode, witness_dir, cid_file, container_name)
+    command = native_command(
+        validated,
+        row,
+        mode,
+        witness_dir if row["artifact"] is not None else None,
+        cid_file,
+        container_name,
+    )
     before = source_snapshot(root)
     if before["head"] != receipt["source_expected"]["commit"] or before["tree"] != receipt["source_expected"]["tree"] or not before["clean"]:
         raise ReplayError(f"source changed before {step_id}: {before}")
@@ -485,6 +630,8 @@ def run_case(
     except OSError as error:
         stderr = str(error).encode("utf-8", "replace")
 
+    exact_test_passed = validated["helper"].native_exact_test_passed(stdout, row["test_id"])
+    accepted_exit_code = accepted_test_exit_code(exit_code, exact_test_passed)
     with log_path.open("wb") as log:
         log.write(("argv: " + json.dumps(command) + "\n\n[stdout]\n").encode())
         log.write(stdout)
@@ -508,7 +655,8 @@ def run_case(
         "cwd": str(root),
         "log": str(log_path.relative_to(root)),
         "started_utc": started,
-        "exit_code": exit_code,
+        "exit_code": accepted_exit_code,
+        "process_exit_code": exit_code,
         "timed_out": timed_out,
         "duration_seconds": round(time.monotonic() - start_time, 3),
         "log_sha256": sha256_file(log_path),
@@ -517,10 +665,9 @@ def run_case(
     if cleanup is not None:
         step["cleanup"] = cleanup
 
-    artifacts = sorted(witness_dir.rglob("route-witness.json"))
-    case_ok = exit_code == 0 and len(artifacts) == 1
-    artifact_copy: pathlib.Path | None = None
-    if len(artifacts) == 1:
+    artifacts = sorted(witness_dir.rglob("route-witness.json")) if row["artifact"] is not None else []
+    case_ok = accepted_exit_code == 0
+    if row["artifact"] is not None and len(artifacts) == 1:
         artifact_copy = output_root / "artifacts" / slug / mode / "route-witness.json"
         artifact_copy.parent.mkdir(parents=True, exist_ok=True)
         artifact_bytes = artifacts[0].read_bytes()
@@ -540,13 +687,13 @@ def run_case(
         }
         case_ok = case_ok and validated["helper"].route_witness_artifact_matches(
             artifact_bytes,
-            row["mapping"],
-            row["schema"],
+            row["artifact"]["mapping"],
+            row["artifact"]["schema"],
             mode,
-            row["ordinal"],
-            row["source_bytes"],
+            row["artifact"]["ordinal"],
+            row["artifact"]["source_bytes"],
         )
-    else:
+    elif row["artifact"] is not None:
         (case_dir / "artifact-paths.txt").write_text(
             "".join(f"{path.relative_to(case_dir)}\n" for path in artifacts)
         )
@@ -557,9 +704,11 @@ def run_case(
         case_ok = False
     receipt["steps"].append(step)
     write_json(output_root / "receipt.json", receipt)
+    artifact = row["artifact"]
+    ordinal = f"{artifact['ordinal']:03d} {artifact['tag_name']} " if artifact else ""
     print(
-        f"{row['ordinal']:03d} {row['tag_name']} {row['test_id']} "
-        f"{mode} outer={exit_code} artifacts={len(artifacts)}"
+        f"{ordinal}{row['test_id']} {','.join(row['roles'])} "
+        f"{mode} outer={exit_code} accepted={accepted_exit_code} artifacts={len(artifacts)}"
     )
     if cleanup is not None and not cleanup.get("resolved", False):
         marker_path = root / CLEANUP_MARKER
@@ -691,8 +840,8 @@ def add_inputs(parser: argparse.ArgumentParser) -> None:
 def main(config: dict[str, Any] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Replay every source-validated expression route oracle in the current "
-            "evidence configuration."
+            "Replay every validated route artifact, non-expression behavior, and "
+            "source-order test in the current evidence configuration."
         )
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
