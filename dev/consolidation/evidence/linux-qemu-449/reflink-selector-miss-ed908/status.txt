@@ -1,0 +1,15 @@
+label=reflink-xsh
+source_head=ed90857bdd825439159b7d788ea5d57cd9652920
+source_tree_oid=efc56a4a81c7993e35b2fd76a2549742eb8d8847
+product_disk=/home/josh/d/laputa-systems/xsh/.work/consolidation/qemu/source-products.ext4
+product_disk_sha256=8ac68f3a86f77594310c8b60cb624cab4436c8282c5db7f731f0d85d2bd1e2da
+xsh_sha256=e0062e3280732626ebc3b2aa3eabe09ec3400156f112e0458e6694b9136ee9fa
+core_extra_path=target/x86_64-unknown-linux-musl/verification/build/xsh/409440b2a43657bc/out/core_compat_extra-409440b2a43657bc
+core_extra_sha256=66b35d1aeece51b28329abaa7cd8e652cbedfa68252a6af296d49842a1de739a
+core_extra_privileged_path=target/x86_64-unknown-linux-musl/verification/build/xsh/cf73e16bb50a016e/out/core_compat_extra_privileged-cf73e16bb50a016e
+core_extra_privileged_sha256=21f4d5c06c07bfbd957c757e179e6d63a146c1eb099014882e328ef740bac88a
+nonce=4f6160f3d97d02e76404f27536d0ca2fbc6fc2ed372694614e23f6b7ea7201d7
+root_overlay=/home/josh/d/laputa-systems/xsh/.work/tmp/qemu-final-reflink-xsh.XXpKIeCO/guest-root.qcow2
+test_command=/work/target/x86_64-unknown-linux-musl/verification/build/xsh/cf73e16bb50a016e/out/core_compat_extra_privileged-cf73e16bb50a016e --ignored --test-threads=1 --nocapture cp::privileged::test_cp_reflink_always_override
+launcher_exit=101
+evidence=/home/josh/d/laputa-systems/xsh/.work/tmp/qemu-final-reflink-xsh.XXpKIeCO

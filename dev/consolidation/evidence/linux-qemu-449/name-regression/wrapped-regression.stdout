@@ -1,0 +1,6 @@
+
+running 1 test
+test core_compat_extra::cp::privileged::test_mount_worker_name_matches_current_test ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 89 filtered out; finished in 0.00s
+
