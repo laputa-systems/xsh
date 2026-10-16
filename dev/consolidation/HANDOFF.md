@@ -90,6 +90,10 @@ work is authorized by this resume.
 
 ### Latest canonical and solver checkpoints
 
+- Test-only `7d01429ba` repairs the generated ethtool namespace entry point
+  by declaring its required `net` effect. [All 20 file tests pass](evidence/ethtool-fixture-7d014/README.md)
+  both before and after integration, including every device-backed case.
+  Canonical root and shared-device failures remain under investigation.
 - Frozen `787ba37a4`, tree `31681c63f0`, integrates the second process-exit repair
   and builds matching verification products. [The bounded integrated replay](evidence/procps-exit-races/README.md)
   completes 500 iostat calls under eight-worker churn, passes written and freshly

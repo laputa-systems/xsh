@@ -1,0 +1,22 @@
+running 20 tests
+core/tests/test-ethtool.xsh::test_channel_refusals_name_the_offending_attribute ... ok 1ms
+core/tests/test-ethtool.xsh::test_channels_are_read_and_changed_on_a_veth_pair ... ok 628ms
+core/tests/test-ethtool.xsh::test_driver_and_hardware_address_decoding ... ok 1ms
+core/tests/test-ethtool.xsh::test_command_line_forms_and_json ... ok 775ms
+core/tests/test-ethtool.xsh::test_driver_information_matches_the_reference_layout ... ok 389ms
+core/tests/test-ethtool.xsh::test_feature_names_expand_flags_to_kernel_features ... ok 1ms
+core/tests/test-ethtool.xsh::test_feature_outcome_names_only_surprises ... ok 0ms
+core/tests/test-ethtool.xsh::test_feature_report_orders_flags_before_loose_features ... ok 6ms
+core/tests/test-ethtool.xsh::test_feature_changes_report_what_actually_changed ... ok 703ms
+core/tests/test-ethtool.xsh::test_feature_request_errors_follow_the_reference ... ok 622ms
+core/tests/test-ethtool.xsh::test_link_settings_requests_carry_the_handshake_and_round_trip ... ok 0ms
+core/tests/test-ethtool.xsh::test_features_report_groups_flags_and_marks_fixed_features ... ok 490ms
+core/tests/test-ethtool.xsh::test_ring_pause_and_coalesce_text ... ok 1ms
+core/tests/test-ethtool.xsh::test_settings_report_lists_modes_and_partner_when_present ... ok 4ms
+core/tests/test-ethtool.xsh::test_permanent_address_and_time_stamping ... ok 434ms
+core/tests/test-ethtool.xsh::test_settings_report_matches_the_reference_layout ... ok 347ms
+core/tests/test-ethtool.xsh::test_time_stamping_report_lists_hardware_modes ... ok 0ms
+core/tests/test-ethtool.xsh::test_statistics_names_and_values_come_from_the_driver ... ok 406ms
+core/tests/test-ethtool.xsh::test_wake_on_lan_and_message_level_text ... ok 1ms
+core/tests/test-ethtool.xsh::test_unsupported_operations_report_the_kernel_reason ... ok 958ms
+test result: ok. 20 passed; 0 failed; 0 skipped
