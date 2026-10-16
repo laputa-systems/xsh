@@ -16,8 +16,9 @@ and the container is gone. Main is clean and unfrozen for repair and review.
 
 Stable copied-artifact suffix rerun of `a22` passes check 1,526, lint zero
 findings/113 notes, metrics, and docs/tour 3. Queue `b6` passes 11 tests and
-four-file check/lint; SGID private-scratch passes 288 Python scripts; `f958`
-passes focused lint with zero findings/notes and three negative preflight cases.
+four-file check/lint; SGID private-scratch passes three Python regression
+scripts; `f958` passes focused lint with zero findings/notes and three negative
+preflight cases.
 The copied rerun qualifies those suffix results despite the earlier shared
 `xsh` hash change `a911`→`d058`. No functional close or performance credit is
 claimed.
@@ -31,9 +32,9 @@ fixtures. Its grouped build/focused checks and 205 full-verifier tests are
 queued, with no result yet. The paired native route is 3/8 passing; alias and
 mixed-`Any` work remains separate. W9 comparison stopped with 12 mismatches;
 corrected reference build `74f1551ee9e3066b653ae190779e16d511c90293` passed,
-and one derived capture is authorized but not yet reported. No parity
-acceptance is claimed. See [the current handoff](HANDOFF.md) for pins,
-per-lane status, and evidence. Lean remains paused.
+and one derived capture is authorized but not yet reported; no comparison is
+authorized. No parity acceptance is claimed. See [the current handoff](HANDOFF.md)
+for pins, per-lane status, and evidence. Lean remains paused.
 
 **Earlier checkpoints:** The implementation and focused
 repairs are integrated on `master`. The latest bounded corpus-worker and

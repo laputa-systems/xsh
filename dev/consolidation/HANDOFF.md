@@ -114,8 +114,10 @@ work is authorized by this resume.
   product. Detailed receipts are in disposable
   `.work/tmp/consolidation-main-suffix-a22-stable`.
   Replay launcher/bridge `73c`/`334` are integrated. The SGID private-scratch
-  repair passes 288 Python scripts. Lint cleanup `f958` passes its focused gate
-  with zero findings and notes and three negative preflight cases.
+  repair passes three Python regression scripts: `test_repository_tmp.py`,
+  `test_profile_cost_selection.py`, and `test_profile_cleanup_signal.py`.
+  Lint cleanup `f958` passes its focused gate with zero findings and notes and
+  three negative preflight cases.
 - Driver checkpoints `4c`/`a0`/`9a` pass 21 tests and bootstrap `9a`; its replay
   launch raised `NameError` before Docker and ran no suites. The separate `8d`
   driver fix passes 22 tests as root. This launcher failure is not part of the
@@ -134,14 +136,17 @@ work is authorized by this resume.
   fixtures; identity/projection failed in `FullBuilder`, and new generic
   list/`Result` tests were staged at the wrong phase. Verifier `539`→`root3f`,
   lowerer `f53`→`fb`, and fixture lint/docs `a0`→`3d` fixes were not tested on
-  that pin. The 1,520-case native run exercised both routes through
-  `indexed_build_instruction`; investigation found unconditional instruction
-  lookup on forwarders.
+  that pin. The 1,520-case native harness entered both modes but executed zero
+  cases: `indexed_build_instruction` attempted pattern-forwarder lookup at the
+  first test declaration. Source fixes `f71`/`86a` address that failure; no
+  post-fix native result is available.
 - W9 chain `03` passes 1,690 assignment proofs and 68 ranges. Its comparison
   stopped after 75 inputs/300 outcomes, with 12 mismatches and exit 130. The
-  first input `52b2` differs only in resolved binding-import rows for
-  `system`/`unix`; reference repair `5366` supplies the missing row. Corrected
-  reference worktree `w9-derived-api-imports` is commit
+  first input `52b2` differs only in resolved-binding import rows for
+  `system`/`unix`. Accepted bugfix `5366` removes the false ScopeChecker runtime
+  `BindingID` rows from reference expectations for unaliased single-component
+  API-registry imports; the actual checker does not publish these rows.
+  Corrected reference worktree `w9-derived-api-imports` is commit
   `74f1551ee9e3066b653ae190779e16d511c90293`, tree
   `3162d2f33076a8c9261d0ffb7a89a9952662f03f`, parent `1fd9e5f2f`; it applies
   the exact nine-line source patch and leaves prior refs/captures unchanged.
@@ -151,8 +156,8 @@ work is authorized by this resume.
   `.work/consolidation/w9-publication-adapter-v1-aljarimz/` as
   `w9-publication-adapter-derived-reference-74f1551ee9e3.receipt`, binary SHA
   `5c95fac28ebbaf52a92e31e277da010a57c0fda90389a9bd54232464335e867f`. One
-  derived capture is now authorized, but no capture result or comparison exists.
-  No parity is claimed.
+  derived capture is now authorized, but it has no result and no post-repair
+  comparison has run. No parity is claimed.
 - The [915 acceptance follow-up](evidence/acceptance-follow-up-915/README.md)
   records the suffix checks and focused head rerun. `xsht check` passes 1,542
   files; `xsht lint` exits zero with 72 findings and 115 notes, so lint is not
@@ -164,7 +169,7 @@ work is authorized by this resume.
   since advanced to `e31732415`; at that checkpoint focused checks passed:
   `xsht check` 1,526, exact archive 1, workflow 3 plus one skip, non-root 1,
   curl 2, and route 2. Lint reported two warnings and 113 notes, with fixes
-  assigned. The newer 8d checkpoint and live canonical run are above.
+  assigned. The newer terminal 8d checkpoint is above.
 - Earlier isolated successor checkpoints: checker `f734` passed a fresh build
   and 57 tests (body 3, focused 7, constraints 42, schemes 5); the earlier `1d`
   module-export, `FullNameOf`, and body-domain probes pass three tests. Draft
@@ -524,9 +529,11 @@ Stable copied-artifact suffix rerun of `a22` passes check 1,526, lint zero
 findings/113 notes, metrics, and docs/tour 3. The shared `xsh` drift from
 `a911` to `d058` is handled by immutable copies, not by assuming the products
 are interchangeable. Queue `b6` passes 11 tests and four-file check/lint;
-SGID private-scratch passes 288 Python scripts; `f958` passes focused lint with
-zero findings/notes and three negative preflight cases. Replay launcher/bridge
-`73c`/`334` are integrated. Driver fix `8d` passes 22 tests as root; the earlier
+SGID private-scratch passes `test_repository_tmp.py`,
+`test_profile_cost_selection.py`, and `test_profile_cleanup_signal.py`; `f958`
+passes focused lint with zero findings/notes and three negative preflight cases.
+Replay launcher/bridge `73c`/`334` are integrated. Driver fix `8d` passes 22
+tests as root; the earlier
 `9a` replay failed before Docker and ran no suites. The DF test-repair lane and
 Cargo runtime guarded-unlock prototype are active. No release or timing result
 is available.
