@@ -94,7 +94,11 @@ work is authorized by this resume.
   and builds matching verification products. [The bounded integrated replay](evidence/procps-exit-races/README.md)
   completes 500 iostat calls under eight-worker churn, passes written and freshly
   desugared procps 39/39 each, and passes the native malformed-counter rejection.
-  A fresh canonical batch is running; its process stage passes 305 tests.
+  [The canonical batch](evidence/canonical-787/README.md) passes all Rust stages,
+  then finishes the native suite with 13,720 passed, 160 failed, and 92 skipped.
+  Its root execution reproduces a permission failure that passes as UID 1000.
+  Remaining permission, device, and network failures require focused diagnosis.
+  Repository check, lint, structural checks, and docs were not reached.
 - [The source-bound structural scan](evidence/structural-787/README.md) retains
   all four hard zeros and the established 152/17/46 schema counts. Production
   source totals 268,539 lines, 60 above the original qualified baseline. The

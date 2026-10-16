@@ -1,0 +1,100 @@
+    Finished `verification` profile [optimized] target(s) in 0.05s
+   Compiling xsh v0.0.1 (/work)
+    Finished `verification` profile [optimized] target(s) in 48.88s
+  Executable tests/ambient_fs_policy.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/dc5d058a3e44a7eb/out/ambient_fs_policy-dc5d058a3e44a7eb)
+  Executable tests/core_compat_boundaries.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/31455098c0a3c506/out/core_compat_boundaries-31455098c0a3c506)
+  Executable tests/core_compat_extra.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/409440b2a43657bc/out/core_compat_extra-409440b2a43657bc)
+  Executable tests/integration.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/4a9d55a76cf51b08/out/integration-4a9d55a76cf51b08)
+  Executable tests/symbol_plateau.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/0d1af18a8111f93b/out/symbol_plateau-0d1af18a8111f93b)
+    Finished `verification` profile [optimized] target(s) in 0.04s
+     Running tests/ambient_fs_policy.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/dc5d058a3e44a7eb/out/ambient_fs_policy-dc5d058a3e44a7eb)
+     Running tests/core_compat_boundaries.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/31455098c0a3c506/out/core_compat_boundaries-31455098c0a3c506)
+     Running tests/core_compat_extra.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/409440b2a43657bc/out/core_compat_extra-409440b2a43657bc)
+     Running tests/integration.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/4a9d55a76cf51b08/out/integration-4a9d55a76cf51b08)
+     Running tests/symbol_plateau.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/0d1af18a8111f93b/out/symbol_plateau-0d1af18a8111f93b)
+   Compiling xsh v0.0.1 (/work)
+    Finished `test` profile [unoptimized] target(s) in 27.33s
+  Executable unittests src/lib.rs (target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+   Compiling xsh v0.0.1 (/work)
+   Compiling xsht v0.0.1 (/work/crates/xsht)
+    Finished `verification` profile [optimized] target(s) in 48.88s
+  Executable tests/integration.rs (target/x86_64-unknown-linux-musl/verification/build/xsht/958dd2b17d7d1726/out/integration-958dd2b17d7d1726)
+    Finished `verification` profile [optimized] target(s) in 0.05s
+     Running tests/integration.rs (target/x86_64-unknown-linux-musl/verification/build/xsht/958dd2b17d7d1726/out/integration-958dd2b17d7d1726)
+   Compiling xsh-fuzz v0.0.1 (/work/crates/xsh-fuzz)
+    Finished `verification` profile [optimized] target(s) in 3.78s
+  Executable tests/soundness.rs (target/x86_64-unknown-linux-musl/verification/build/xsh-fuzz/a93f27f92fa19b8e/out/soundness-a93f27f92fa19b8e)
+    Finished `verification` profile [optimized] target(s) in 0.04s
+     Running tests/soundness.rs (target/x86_64-unknown-linux-musl/verification/build/xsh-fuzz/a93f27f92fa19b8e/out/soundness-a93f27f92fa19b8e)
+   Compiling xsh v0.0.1 (/work)
+    Finished `verification` profile [optimized] target(s) in 0.86s
+  Executable tests/core_compat_extra.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/a67ed2905136c9b7/out/core_compat_extra-a67ed2905136c9b7)
+  Executable tests/linux_priv.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/8b0e479015c4c497/out/linux_priv-8b0e479015c4c497)
+    Finished `verification` profile [optimized] target(s) in 0.04s
+     Running tests/core_compat_extra.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/a67ed2905136c9b7/out/core_compat_extra-a67ed2905136c9b7)
+
+thread 'test_binary::tests::other_profiles_are_rejected' (183727) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/debug/xsh has an unsupported profile; run `cargo test --profile verification`
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'test_binary::tests::other_profiles_are_rejected' (183727) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/dist/xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_binary::tests::other_profiles_are_rejected' (183727) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/custom/xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_binary::tests::other_profiles_are_rejected' (183727) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but xsh has an unsupported profile; run `cargo test --profile verification`
+     Running tests/linux_priv.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/8b0e479015c4c497/out/linux_priv-8b0e479015c4c497)
+
+thread 'test_binary::tests::other_profiles_are_rejected' (183777) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/debug/xsh has an unsupported profile; run `cargo test --profile verification`
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'test_binary::tests::other_profiles_are_rejected' (183777) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/dist/xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_binary::tests::other_profiles_are_rejected' (183777) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/custom/xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_binary::tests::other_profiles_are_rejected' (183777) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but xsh has an unsupported profile; run `cargo test --profile verification`
+egrep: warning: egrep is obsolescent; using grep -E
+fgrep: warning: fgrep is obsolescent; using grep -F
+unlink: extra operand '/scratch/xsh-test-183809-1792115710640286191-4050-test_unlink_extra_operand_is_not_removed/tmp-1/b'
+Try 'unlink --help' for more information.
+err: fs-copy-tree: source is not a directory
+executable: /work/target/x86_64-unknown-linux-musl/verification/xsh
+at /work/showcase/release-pack.xsh:60:16-60:55
+call path:
+  1. proc main at /work/showcase/release-pack.xsh:1:1-1:1
+install: backing up '/scratch/xsh-test-183809-1792115710640286191-2549-test_install_backup_cannot_destroy_source/tmp-1/file' might destroy source;  '/scratch/xsh-test-183809-1792115710640286191-2549-test_install_backup_cannot_destroy_source/tmp-1/file~' not copied
+err: archive-escape: symlink target escape
+executable: /work/target/x86_64-unknown-linux-musl/verification/xsh
+at /work/showcase/archive-unpack.xsh:130:9-131:1
+call path:
+  1. proc main at /work/showcase/archive-unpack.xsh:1:1-1:1
+ln: failed to access '/scratch/xsh-test-183809-1792115710640286191-2674-test_ln_backup_restored_on_failed_link/tmp-1/missing': No such file or directory
+unlink: cannot unlink '/scratch/xsh-test-183809-1792115710640286191-4053-test_unlink_removes_link_and_refuses_directory/tmp-1': Is a directory
+mv: cannot stat '/scratch/xsh-test-183809-1792115710640286191-2892-test_mv_continues_after_missing_source/tmp-1/missing': No such file or directory
+tr: misaligned [:upper:] and/or [:lower:] construct
+install: cannot create directory '/scratch/xsh-test-183809-1792115710640286191-2558-test_install_directory_continues_after_existing_file/tmp-1/existing': File exists
+ln: failed to access '/scratch/xsh-test-183809-1792115710640286191-2685-test_ln_failed_force_preserves_destination/tmp-1/missing': No such file or directory
+ln: '/scratch/xsh-test-183809-1792115710640286191-2687-test_ln_force_same_entry_keeps_source/tmp-1' and '/scratch/xsh-test-183809-1792115710640286191-2687-test_ln_force_same_entry_keeps_source/tmp-1' are the same file
+ln: failed to create symbolic link '/scratch/xsh-test-183809-1792115710640286191-2693-test_ln_no_dereference_does_not_imply_force/tmp-1/dest': File exists
+mv: '/scratch/xsh-test-183809-1792115710640286191-2908-test_mv_same_entry_fails_and_retains_source/tmp-1' and '/scratch/xsh-test-183809-1792115710640286191-2908-test_mv_same_entry_fails_and_retains_source/tmp-1' are the same file
+cp: overwrite '/scratch/xsh-test-183809-1792115710640286191-1380-test_cp_interactive_decline_and_accept/cp-interactive-1/dest'? install: cannot create regular file '/scratch/xsh-test-183809-1792115710640286191-2573-test_install_missing_directory_target_does_not_create_it/tmp-1/missing/': Not a directory
+/scratch/.tmp0t0qN6:
+cp: overwrite '/scratch/xsh-test-183809-1792115710640286191-1390-test_cp_option_order_and_equals_validation/cp-argv-1/dest'? install: '/scratch/xsh-test-183809-1792115710640286191-2584-test_install_source_symlink_cannot_replace_its_own_target/tmp-1/source' and '/scratch/xsh-test-183809-1792115710640286191-2584-test_install_source_symlink_cannot_replace_its_own_target/tmp-1/target' are the same file
+err: StageError.Failed
+executable: target/x86_64-unknown-linux-musl/debug/xsh
+at /work/dev/test_workflows.xsh:187:3-189:1
+call path:
+  1. proc main at /work/dev/main.xsh:1:1-1:1
+  2. proc dispatch at /work/dev/main.xsh:372:10-372:40
+  3. proc /work/dev/internal.xsh.gate_batch at /work/dev/main.xsh:355:29-355:63
+  4. proc /work/dev/gates.xsh.batch at /work/dev/internal.xsh:107:3-107:19
+  5. proc /work/dev/test_workflows.xsh.full at /work/dev/gates.xsh:186:3-186:65
+  6. proc /work/dev/test_workflows.xsh.native at /work/dev/test_workflows.xsh:198:3-198:27

@@ -1,0 +1,7 @@
+image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+source=787ba37a43e808c6b63b85b17cc912fe36352b22/tree31681c63f02b825b4352017482230a33e78a819d
+runtime_preload=unset
+cpu_cap=2
+memory_cap=4g
+swap=none
+network=none

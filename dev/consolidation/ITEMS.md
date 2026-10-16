@@ -20,8 +20,8 @@ summary that needs an independent legacy oracle. Full cohort parity remains
 unaccepted. Checkpoint `449320b18` passes 184 expression route probes, the bounded
 Linux residuals, and seven QEMU assertions. A second reproduced process-exit
 sampling race is repaired at `787ba37a4`: its bounded 500-call replay, written
-and transformed procps files, and malformed-counter rejection pass. A fresh
-canonical batch is running. Isolated inference935 passes 42 constraints and
+and transformed procps files, and malformed-counter rejection pass. The fresh canonical batch passes all Rust stages, then fails the native suite
+with 13,720 passed, 160 failed, and 92 skipped. Focused environment diagnosis is active. Isolated inference935 passes 42 constraints and
 five schemes; declaration export visibility and end-to-end capability remain open.
 The original-source AWK/curl reproducer establishes the cross-file fixture
 mutation. One isolated rank-1 inference lane is active. Lean remains paused.

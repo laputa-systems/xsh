@@ -1,0 +1,11 @@
+running 1 tests
+core/tests/test-uu-rm.xsh::test_uu_rm_inaccessible_dir_interactive ... FAILED 31ms
+
+failures:
+
+---- core/tests/test-uu-rm.xsh::test_uu_rm_inaccessible_dir_interactive ----
+AssertionError.Failed: assertion failed: r.stderr == bytes.from_text(expected): rm -i -d dir: stderr rm: remove directory 'dir'?  expected rm: attempt removal of inaccessible directory 'dir'? 
+left: [114, 109, 58, 32, 114, 101, 109, 111, 118, 101, 32, 100, 105, 114, 101, 99, 116, 111, 114, 121, 32, 39, 100, 105, 114, 39, 63, 32]
+right: [114, 109, 58, 32, 97, 116, 116, 101, 109, 112, 116, 32, 114, 101, 109, 111, 118, 97, 108, 32, 111, 102, 32, 105, 110, 97, 99, 99, 101, 115, 115, 105, 98, 108, 101, 32, 100, 105, 114, 101, 99, 116, 111, 114, 121, 32, 39, 100, 105, 114, 39, 63, 32]
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
