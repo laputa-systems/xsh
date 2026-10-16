@@ -3136,21 +3136,58 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             )
             self.assertEqual(duplicate_claim, {})
 
-    def test_route_witness_closes_only_matching_tag_route_and_mode_gaps(self) -> None:
+    def test_route_witness_uses_current_emitter_mapping_and_preserves_uncovered_branch(self) -> None:
         gaps = [
-            {"tag": "ExprEmptyMap", "path": "normal", "route_id": "explicit_frame_apply_path"},
-            {"tag": "ExprEmptyMap", "path": "forced", "route_id": "generic_operand_apply_path"},
-            {"tag": "ExprEmptyMap", "path": "normal", "route_id": "other_route"},
-            {"tag": "ExprPath", "path": "normal", "route_id": "explicit_frame_apply_path"},
-            {"tag": "ExprEmptyMap", "path": "normal", "reason": "receipt is missing"},
+            {"tag": "ExprEmptyMap", "path": "normal", "route": "normal"},
+            {"tag": "ExprEmptyMap", "path": "forced", "route": "forced"},
+            {"tag": "ExprIf", "path": "normal", "route": "verifier_approved_in_place_recursive_selection"},
+            {"tag": "ExprIf", "path": "normal", "route": "non_in_place_explicit_frame_selection"},
+            {"tag": "ExprInt", "path": "normal", "route": "normal"},
+            {"tag": "ExprEmptyMap", "path": "fallback_branch_inventory"},
         ]
-        witnesses = {
-            ("ExprEmptyMap", "normal"): {"route_id": "explicit_frame_apply_path"},
-            ("ExprEmptyMap", "forced"): {"route_id": "generic_operand_apply_path"},
+        rows = {
+            "ExprEmptyMap": {
+                "execution_paths": {
+                    "normal": [{"name": "normal", "route": "recursive_bridge_to_explicit_frames"}],
+                    "forced": [{"name": "forced", "route": "generic_operand_apply_path"}],
+                },
+            },
+            "ExprIf": {
+                "execution_paths": {
+                    "normal": [
+                        {
+                            "name": "verifier_approved_in_place_recursive_selection",
+                            "selected_when": "execution.is_in_place(instruction)",
+                        },
+                        {
+                            "name": "non_in_place_explicit_frame_selection",
+                            "selected_when": "execution.is_in_place(instruction) is false",
+                        },
+                    ],
+                },
+                "route_witness_expectations": {
+                    "normal": {"route_id": "explicit_frame_control_path"},
+                },
+            },
+            "ExprInt": {
+                "execution_paths": {"normal": [{"name": "normal", "route": "typed_recursive_scalar"}]},
+            },
+        }
+        evidence = {
+            "ExprEmptyMap": {
+                "normal": {"status": "route_witness_credited", "route_id": "explicit_frame_apply_path"},
+                "forced": {"status": "route_witness_credited", "route_id": "generic_operand_apply_path"},
+            },
+            "ExprIf": {
+                "normal": {"status": "route_witness_credited", "route_id": "explicit_frame_control_path"},
+            },
+            "ExprInt": {
+                "normal": {"status": "behavior_only_receipt", "receipts": [{"mode": "normal"}]},
+            },
         }
         self.assertEqual(
-            generate.retain_unwitnessed_route_gaps(gaps, witnesses),
-            [gaps[2], gaps[3], gaps[4]],
+            generate.retain_unwitnessed_route_gaps(gaps, evidence, rows),
+            [gaps[2], gaps[5]],
         )
 
     def test_receipt_reuse_requires_exact_source_id_command_and_mode(self) -> None:
@@ -3292,6 +3329,72 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             )
         )
 
+    def test_source_order_receipts_require_both_modes_exact_ids_and_logs(self) -> None:
+        root = generate.HERE.parents[4]
+        scratch = root / ".work/tmp"
+        scratch.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch, prefix="source-order-receipt-") as temporary:
+            run_dir = pathlib.Path(temporary)
+            oracle_id = "tests/xsh/operand-order-scalars.xsh::test_operand_order_int_binary_is_left_to_right"
+            log_paths = {}
+            steps = []
+            source_checks = []
+            for mode in ("normal", "forced"):
+                step_id = f"int-binary-{mode}"
+                log_path = run_dir / f"{step_id}.log"
+                log_path.write_text("native test passed\n")
+                log_paths[mode] = log_path
+                step = {
+                    "id": step_id,
+                    "exit_code": 0,
+                    "argv": [
+                        "bash", "run-native-final.sh", "run",
+                        "target/x86_64-unknown-linux-musl/verification/xsht",
+                        "test", "--exact", oracle_id,
+                    ],
+                    "env": {"XSH_INTERNAL_TEST_FORCE_FRAMES": "1"} if mode == "forced" else {},
+                    "log": str(log_path.relative_to(root)),
+                    "log_sha256": generate.sha256_file(log_path),
+                }
+                steps.append(step)
+                source_checks.extend([
+                    {"where": f"before:{step_id}", "head": "head", "tree": "tree", "clean": True},
+                    {"where": f"after:{step_id}", "head": "head", "tree": "tree", "clean": True},
+                ])
+            receipt = {
+                "source_expected": {"commit": "head", "tree": "tree"},
+                "hashes": {
+                    "binaries_before_tests": {"xsht-verification": "xsht-hash"},
+                    "binaries_after_tests": {"xsht-verification": "xsht-hash"},
+                },
+                "source_checks": source_checks,
+                "steps": steps,
+            }
+            row = {
+                "tag": "IntBinary",
+                "source_order_evidence": {"oracle_ids": [oracle_id]},
+            }
+            collected = generate.collect_source_order_receipts(
+                root, [row], "head", "tree", "xsht-hash", [(run_dir / "receipt.json", receipt)]
+            )
+            self.assertEqual(collected["IntBinary"]["status"], "credited")
+            self.assertEqual(
+                {execution["mode"] for execution in collected["IntBinary"]["executions"]},
+                {"normal", "forced"},
+            )
+
+            missing_forced = {**receipt, "steps": steps[:1]}
+            pending = generate.collect_source_order_receipts(
+                root, [row], "head", "tree", "xsht-hash", [(run_dir / "receipt.json", missing_forced)]
+            )
+            self.assertEqual(pending["IntBinary"]["status"], "pending")
+
+            log_paths["normal"].write_text("changed after receipt\n")
+            changed_log = generate.collect_source_order_receipts(
+                root, [row], "head", "tree", "xsht-hash", [(run_dir / "receipt.json", receipt)]
+            )
+            self.assertEqual(changed_log["IntBinary"]["status"], "pending")
+
     def test_receipts_reject_duplicate_steps_and_unverified_binaries(self) -> None:
         step = {"id": "same", "argv": ["xsht", "test"], "env": {}}
         self.assertTrue(generate.receipt_steps_are_unique([step]))
@@ -3306,6 +3409,9 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             {"steps": [step]},
             {"steps": [{**step, "id": "different"}]},
         ]))
+
+    def test_explicit_empty_defensive_path_inventory_has_no_gaps(self) -> None:
+        self.assertEqual(generate.defensive_path_gaps([]), [])
 
     def test_unmapped_defensive_path_cannot_disappear_from_gap_report(self) -> None:
         path = {
@@ -3324,8 +3430,12 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
         self.assertEqual([gap["mode"] for gap in gaps], ["normal", "forced"])
         self.assertEqual(gaps[0]["route_behavior"]["result_message"], "frame-scheduler normal rejection")
         self.assertEqual(gaps[1]["route_behavior"]["result_message"], "frame strategy error")
-        with self.assertRaisesRegex(generate.EvidenceError, "defensive paths must be inventoried"):
-            generate.defensive_path_gaps([])
+
+    def test_defensive_path_inventory_requires_explicit_list(self) -> None:
+        with self.assertRaisesRegex(generate.EvidenceError, "must be explicitly configured"):
+            generate.defensive_path_inventory({})
+        with self.assertRaisesRegex(generate.EvidenceError, "must be a list"):
+            generate.defensive_path_inventory({"unmapped_paths": None})
 
     def test_stale_source_lock_is_reported_without_resealing(self) -> None:
         actual = {

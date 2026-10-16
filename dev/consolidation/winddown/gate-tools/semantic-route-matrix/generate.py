@@ -5215,19 +5215,114 @@ def collect_route_witness_receipts(
 
 def retain_unwitnessed_route_gaps(
     route_gaps: list[dict[str, Any]],
-    witnesses: dict[tuple[str, str], dict[str, str]],
+    path_evidence: dict[str, dict[str, dict[str, Any]]],
+    rows_by_tag: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Close only a route gap whose tag, scheduler mode, and route ID all match."""
-    return [
-        gap
-        for gap in route_gaps
-        if not any(
-            gap.get("tag") == tag
-            and gap.get("path") == mode
-            and gap.get("route_id") == proof["route_id"]
-            for (tag, mode), proof in witnesses.items()
-        )
+    retained: list[dict[str, Any]] = []
+    for gap in route_gaps:
+        mode = gap.get("path")
+        if mode not in ROUTE_WITNESS_EXPECTATION_MODES:
+            retained.append(gap)
+            continue
+        tag = gap.get("tag")
+        row = rows_by_tag.get(tag)
+        mode_evidence = path_evidence.get(tag, {}).get(mode)
+        if row is None or mode_evidence is None:
+            retained.append(gap)
+            continue
+        status = mode_evidence.get("status")
+        if status == "behavior_only_receipt":
+            continue
+        if status != "route_witness_credited":
+            retained.append(gap)
+            continue
+
+        routes = row.get("execution_paths", {}).get(mode)
+        if not isinstance(routes, list) or not routes:
+            raise EvidenceError(f"source route inventory is missing for {tag}/{mode}")
+        if len(routes) == 1:
+            if routes[0].get("name") != gap.get("route"):
+                raise EvidenceError(f"route gap differs from source inventory for {tag}/{mode}")
+            continue
+
+        expectation = row.get("route_witness_expectations", {}).get(mode, {})
+        selected = [
+            route for route in routes
+            if route.get("selected_when") == "execution.is_in_place(instruction) is false"
+        ]
+        in_place = [
+            route for route in routes
+            if route.get("selected_when") == "execution.is_in_place(instruction)"
+        ]
+        if (
+            len(routes) != 2
+            or len(selected) != 1
+            or len(in_place) != 1
+            or expectation.get("route_id") != "explicit_frame_control_path"
+        ):
+            raise EvidenceError(f"unsupported multi-route witness mapping for {tag}/{mode}")
+        if gap.get("route") == in_place[0].get("name"):
+            retained.append(gap)
+        elif gap.get("route") != selected[0].get("name"):
+            raise EvidenceError(f"route gap differs from source inventory for {tag}/{mode}")
+    return retained
+
+
+def exact_behavior_receipts_for_mode(
+    row: dict[str, Any],
+    mode: str,
+) -> list[dict[str, str]]:
+    expected_ids = row.get("oracles", {}).get("runtime", [])
+    receipts = [
+        receipt
+        for receipt in row.get("reused_final_correctness_receipts", [])
+        if receipt.get("mode") == mode
     ]
+    receipt_ids = {receipt.get("oracle_id") for receipt in receipts}
+    if not expected_ids or not set(expected_ids).issubset(receipt_ids):
+        return []
+    return [receipt for receipt in receipts if receipt.get("oracle_id") in expected_ids]
+
+
+def build_route_path_evidence(
+    rows: list[dict[str, Any]],
+    route_witnesses: dict[tuple[str, str], dict[str, str]],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    evidence_by_tag: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in rows:
+        tag = row["tag"]
+        row_evidence: dict[str, dict[str, Any]] = {}
+        for mode in ROUTE_WITNESS_EXPECTATION_MODES:
+            expectation = row["route_witness_expectations"][mode]
+            witness = route_witnesses.get((tag, mode))
+            if (
+                witness is not None
+                and expectation.get("status") == "credited"
+                and witness.get("route_id") == expectation.get("route_id")
+            ):
+                row_evidence[mode] = {
+                    "status": "route_witness_credited",
+                    **witness,
+                }
+                continue
+            behavior_receipts = exact_behavior_receipts_for_mode(row, mode)
+            if (
+                expectation.get("status") == "unsupported_by_artifact_format"
+                and behavior_receipts
+            ):
+                row_evidence[mode] = {
+                    "status": "behavior_only_receipt",
+                    "receipts": behavior_receipts,
+                }
+                continue
+            row_evidence[mode] = {
+                "status": "pending",
+                "artifact_status": expectation.get("status"),
+                "expected_route_id": expectation.get("route_id"),
+                "behavior_receipts": behavior_receipts,
+            }
+        evidence_by_tag[tag] = row_evidence
+    return evidence_by_tag
 
 
 def receipt_steps_are_unique(steps: list[dict[str, Any]]) -> bool:
@@ -5261,9 +5356,132 @@ def receipt_corpus_steps_are_unique(receipts: list[dict[str, Any]]) -> bool:
     )
 
 
+def imported_final_correctness_receipts(
+    root: pathlib.Path,
+) -> list[tuple[pathlib.Path, dict[str, Any]]]:
+    receipt_root = root / ".work/final-review-evidence/final-correctness-gates"
+    if not receipt_root.is_dir():
+        return []
+    imported: list[tuple[pathlib.Path, dict[str, Any]]] = []
+    for path in sorted(receipt_root.glob("*/receipt.json")):
+        try:
+            receipt = json.loads(path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(receipt, dict) and isinstance(receipt.get("steps"), list):
+            imported.append((path, receipt))
+    if not receipt_corpus_steps_are_unique([receipt for _, receipt in imported]):
+        return []
+    return imported
+
+
+def receipt_step_log_matches(root: pathlib.Path, step: dict[str, Any]) -> bool:
+    log_name = step.get("log")
+    if not isinstance(log_name, str) or not log_name:
+        return False
+    log_path = pathlib.Path(log_name)
+    if not log_path.is_absolute():
+        log_path = root / log_path
+    try:
+        resolved_log = log_path.resolve(strict=True)
+        if not resolved_log.is_relative_to(root.resolve()):
+            return False
+        return sha256_file(resolved_log) == step.get("log_sha256")
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def collect_source_order_receipts(
+    root: pathlib.Path,
+    rows: list[dict[str, Any]],
+    expected_head: str,
+    expected_tree: str,
+    expected_xsht_sha256: str,
+    imported: list[tuple[pathlib.Path, dict[str, Any]]],
+) -> dict[str, dict[str, Any]]:
+    """Credit source-order candidates only when every exact ID ran in both modes."""
+    reusable: dict[str, dict[str, Any]] = {}
+    if (
+        not expected_xsht_sha256
+        or not receipt_corpus_steps_are_unique([receipt for _, receipt in imported])
+    ):
+        return reusable
+    for row in rows:
+        evidence = row.get("source_order_evidence")
+        if not isinstance(evidence, dict):
+            continue
+        oracle_ids = evidence.get("oracle_ids")
+        if (
+            not isinstance(oracle_ids, list)
+            or not oracle_ids
+            or any(not isinstance(oracle_id, str) or not oracle_id for oracle_id in oracle_ids)
+            or len(oracle_ids) != len(set(oracle_ids))
+        ):
+            continue
+        executions: list[dict[str, str]] = []
+        matched: set[tuple[str, str]] = set()
+        for oracle_id in oracle_ids:
+            for mode in ("normal", "forced"):
+                for receipt_path, receipt in imported:
+                    for step in receipt.get("steps", []):
+                        try:
+                            valid = receipt_step_matches(
+                                receipt,
+                                step,
+                                expected_head=expected_head,
+                                expected_tree=expected_tree,
+                                oracle_id=oracle_id,
+                                mode=mode,
+                                expected_xsht_sha256=expected_xsht_sha256,
+                            )
+                        except (AttributeError, KeyError, TypeError):
+                            valid = False
+                        if not valid or not receipt_step_log_matches(root, step):
+                            continue
+                        matched.add((oracle_id, mode))
+                        executions.append({
+                            "mode": mode,
+                            "receipt": str(receipt_path.relative_to(root)),
+                            "step": step.get("id", ""),
+                            "log_sha256": step["log_sha256"],
+                            "oracle_id": oracle_id,
+                        })
+        expected = {
+            (oracle_id, mode)
+            for oracle_id in oracle_ids
+            for mode in ("normal", "forced")
+        }
+        reusable[row["tag"]] = {
+            "status": "credited" if matched == expected else "pending",
+            "executions": executions,
+        }
+    return reusable
+
+
+def retain_source_order_gaps(
+    route_gaps: list[dict[str, Any]],
+    receipts: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        gap
+        for gap in route_gaps
+        if not (
+            gap.get("path") == "runtime_operand_order"
+            and receipts.get(gap.get("tag"), {}).get("status") == "credited"
+        )
+    ]
+
+
+def defensive_path_inventory(config: dict[str, Any]) -> list[dict[str, Any]]:
+    if "unmapped_paths" not in config:
+        raise EvidenceError("defensive paths must be explicitly configured")
+    paths = config["unmapped_paths"]
+    if not isinstance(paths, list) or any(not isinstance(path, dict) for path in paths):
+        raise EvidenceError("defensive path inventory must be a list of objects")
+    return paths
+
+
 def defensive_path_gaps(paths: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    if not paths:
-        raise EvidenceError("defensive paths must be inventoried explicitly")
     required = {"tag", "path", "modes", "reason", "source", "structural_note", "route_behaviors"}
     for path in paths:
         missing = sorted(required - path.keys())
@@ -5296,19 +5514,7 @@ def final_correctness_receipts(
 ) -> dict[str, list[dict[str, str]]]:
     """Credit only successful exact-ID steps from a source-identical launch receipt."""
     reusable: dict[str, list[dict[str, str]]] = {row["tag"]: [] for row in rows}
-    receipt_root = root / ".work/final-review-evidence/final-correctness-gates"
-    if not receipt_root.is_dir():
-        return reusable
-    imported: list[tuple[pathlib.Path, dict[str, Any]]] = []
-    for path in sorted(receipt_root.glob("*/receipt.json")):
-        try:
-            receipt = json.loads(path.read_text())
-        except (OSError, json.JSONDecodeError):
-            continue
-        if isinstance(receipt, dict) and isinstance(receipt.get("steps"), list):
-            imported.append((path, receipt))
-    if not receipt_corpus_steps_are_unique([receipt for _, receipt in imported]):
-        return reusable
+    imported = imported_final_correctness_receipts(root)
     for path, receipt in imported:
         for row in rows:
             if row.get("proof_kind") != "runtime":
@@ -5326,19 +5532,7 @@ def final_correctness_receipts(
                             expected_xsht_sha256=expected_xsht_sha256,
                         ):
                             continue
-                        log_name = step.get("log")
-                        if not log_name:
-                            continue
-                        log_path = pathlib.Path(log_name)
-                        if not log_path.is_absolute():
-                            log_path = root / log_path
-                        try:
-                            resolved_log = log_path.resolve()
-                            if not resolved_log.is_relative_to(root.resolve()):
-                                continue
-                            if sha256_file(resolved_log) != step["log_sha256"]:
-                                continue
-                        except OSError:
+                        if not receipt_step_log_matches(root, step):
                             continue
                         reusable[row["tag"]].append(
                             {
@@ -5353,6 +5547,7 @@ def final_correctness_receipts(
 
 
 def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any]) -> dict[str, Any]:
+    unmapped_paths = defensive_path_inventory(config)
     source_paths = source_lock_paths(config)
     actual = source_snapshot(root, source_paths)
     if not actual["clean"]:
@@ -5678,7 +5873,8 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                         "tag": tag,
                         "path": mode,
                         "route": route["name"],
-                        "route_id": route.get("route"),
+                        "source_route": route.get("route"),
+                        "expected_runtime_route_id": row["route_witness_expectations"][mode].get("route_id"),
                         "reason": (
                             "mapped route test has no source-matched final-correctness receipt"
                             if route.get("test_ids")
@@ -5692,7 +5888,8 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                         "tag": tag,
                         "path": mode,
                         "route": route["name"],
-                        "route_id": route.get("route"),
+                        "source_route": route.get("route"),
+                        "expected_runtime_route_id": row["route_witness_expectations"][mode].get("route_id"),
                         "reason": "candidate test IDs lack an explicit source witness for this tag and route",
                     })
         if row["kind"] != "Stmt" and not row["fallback_path_map"].get("branches_exhaustive"):
@@ -5733,7 +5930,7 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
             })
 
     # Defensive paths are independent of the valid path's test mapping.
-    for path in defensive_path_gaps(config["unmapped_paths"]):
+    for path in defensive_path_gaps(unmapped_paths):
         if path["tag"] not in all_tags_set:
             raise EvidenceError(f"defensive path names an unknown instruction row: {path['tag']}")
         if path not in route_gaps:
@@ -5773,7 +5970,47 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
                 else "pending_receipt_artifact"
             )
             expectation["receipt_artifact"] = proof
-    route_gaps = retain_unwitnessed_route_gaps(route_gaps, route_witness_reusable)
+    imported_receipts = imported_final_correctness_receipts(root)
+    source_order_reusable = collect_source_order_receipts(
+        root,
+        routed,
+        actual["head"],
+        actual["tree"],
+        expected_xsht_sha256,
+        imported_receipts,
+    )
+    for row in routed:
+        order_execution = source_order_reusable.get(row["tag"])
+        if order_execution is None:
+            continue
+        row["source_order_evidence"]["execution_status"] = order_execution["status"]
+        row["source_order_evidence"]["execution_receipts"] = order_execution["executions"]
+        row["runtime_operand_order"]["source_order_execution"] = order_execution
+
+    route_path_evidence = build_route_path_evidence(routed, route_witness_reusable)
+    for row in routed:
+        row["execution_paths"]["evidence"] = route_path_evidence[row["tag"]]
+    rows_by_tag = {row["tag"]: row for row in routed}
+    route_gaps = retain_unwitnessed_route_gaps(route_gaps, route_path_evidence, rows_by_tag)
+    route_gaps = retain_source_order_gaps(route_gaps, source_order_reusable)
+    for gap in route_gaps:
+        if gap.get("path") not in ROUTE_WITNESS_EXPECTATION_MODES:
+            continue
+        evidence = route_path_evidence.get(gap.get("tag"), {}).get(gap["path"], {})
+        if evidence.get("artifact_status") == "unsupported_by_artifact_format":
+            gap["route_artifact_status"] = "unsupported_by_artifact_format"
+            gap["reason"] = "route artifact format does not cover this row; exact behavior receipt is pending"
+        elif evidence.get("status") == "route_witness_credited":
+            gap["route_artifact_status"] = "supported_by_artifact_format"
+            gap["witnessed_runtime_route_id"] = evidence.get("route_id")
+            gap["reason"] = "credited emitter route does not cover this distinct source branch"
+        else:
+            gap["route_artifact_status"] = "supported_by_artifact_format"
+            gap["expected_runtime_route_id"] = evidence.get("expected_route_id")
+            gap["reason"] = "source-matched route-witness artifact receipt is pending"
+        row = rows_by_tag.get(gap.get("tag"))
+        if row is not None:
+            gap["source_oracle_ids"] = row.get("oracles", {}).get("runtime", [])
     # Candidate commands remain red until both modes have source-identical receipts.
     for row in routed:
         if row.get("proof_kind") != "runtime":
@@ -5805,6 +6042,25 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
             "retired_ordinals": ORDINAL_HOLES,
             "review_focus_rows": len(focus_tags),
             "runtime_rows": sum(row["proof_kind"] == "runtime" for row in routed),
+            "route_witness_paths_credited": sum(
+                evidence["status"] == "route_witness_credited"
+                for row in routed
+                for evidence in row["execution_paths"]["evidence"].values()
+            ),
+            "behavior_only_paths_credited": sum(
+                evidence["status"] == "behavior_only_receipt"
+                for row in routed
+                for evidence in row["execution_paths"]["evidence"].values()
+            ),
+            "source_order_rows_receipts_verified": sum(
+                evidence.get("status") == "credited"
+                for evidence in source_order_reusable.values()
+            ),
+            "source_order_execution_steps_verified": sum(
+                len(evidence.get("executions", []))
+                for evidence in source_order_reusable.values()
+                if evidence.get("status") == "credited"
+            ),
             "static_or_rejection_only_rows": sum(
                 row["proof_kind"] == "static_or_rejection_only" for row in routed
             ),
@@ -6022,7 +6278,7 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
             ),
         },
         "route_gaps": route_gaps,
-        "unmapped_paths": config["unmapped_paths"],
+        "unmapped_paths": unmapped_paths,
         "readiness": "red" if route_gaps or not expected_xsht_sha256 else "green",
         "verified_xsht_sha256": expected_xsht_sha256 or None,
         "rows": sorted(routed, key=lambda row: row["ordinal"]),
