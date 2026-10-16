@@ -691,6 +691,16 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         original_source_root, derived_source_root, patch_path, correction_source = (
             self._local_correction_sources(correction)
         )
+        candidate_root = self.root / "candidate-source"
+        candidate_root.mkdir()
+        subprocess.run(
+            ["git", "init", "--quiet", str(candidate_root)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        candidate_work = candidate_root / ".work"
+        candidate_work.mkdir()
         expected_inputs = {
             index: self.runner.ManifestSource(
                 f"source/{index:04}.xsh", f"{index + 1:064x}", 0o444
@@ -699,7 +709,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         }
         source_record = dict(
             self.source_record,
-            candidate_root=str(self.source_root),
+            candidate_root=str(candidate_root),
             candidate_commit=self.source_commit,
             candidate_tree=self.source_tree,
         )
@@ -755,7 +765,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         candidate_capture_receipt, candidate_capture_fields = capture_fixture(
             "candidate-capture",
             "candidate",
-            self.source_root,
+            candidate_root,
             self.source_commit,
             self.source_tree,
             candidate_build_receipt,
@@ -851,7 +861,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             return correction.EXPECTED_OUTCOME_COUNT, 0, first_delta
 
         args = argparse.Namespace(
-            candidate_root=self.source_root,
+            candidate_root=candidate_root,
             candidate_source_receipt=source_receipt,
             reference_source_root=original_source_root,
             reference_capture_receipt=original_capture_receipt,
@@ -864,7 +874,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             original_capture_receipt=original_capture_receipt,
             derived_reference_source_root=derived_source_root,
             derived_reference_correction_receipt=correction_receipt,
-            output=self.root / "source-qualified-comparison",
+            output=candidate_work / "source-qualified-comparison",
         )
         with (
             patch.object(self.runner, "parse_candidate_receipt", return_value=source_record),
@@ -911,7 +921,7 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
             proof_calls,
             [("reference", original_capture_receipt), ("candidate", candidate_capture_receipt)],
         )
-        comparison_receipt = self.root / "source-qualified-comparison/comparison/derived-reference-comparison.receipt"
+        comparison_receipt = candidate_work / "source-qualified-comparison/comparison/derived-reference-comparison.receipt"
         fields = dict(
             line.split("\t", 1)
             for line in comparison_receipt.read_text(encoding="utf-8").splitlines()
