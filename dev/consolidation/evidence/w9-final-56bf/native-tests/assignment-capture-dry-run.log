@@ -1,0 +1,1 @@
+preflight ok: source=56bf3286c0034c183515c0dc4adbf041f398a776:2d4cf52e64d4dbf06daa5e169c88d6eef8bccdd5 assignment_helper=cbf7fc11a782947b78951dc6658d001faf129f8777ccf433c9df038b0070fe87 corpus=1690 ranges=68 workers=4 cpus=0,1,2,3 memory_per_worker=1GiB output=/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-final-56bf/assignment-facts

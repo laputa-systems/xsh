@@ -1,0 +1,6 @@
+
+running 1 test
+test sema::w9_source_audit_keeps_roots_bound_to_the_config_bytes_it_resolved ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 234 filtered out; finished in 0.00s
+

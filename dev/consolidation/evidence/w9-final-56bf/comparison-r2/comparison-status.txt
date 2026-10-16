@@ -1,0 +1,3 @@
+status=incomplete
+completed_ranges=0
+detail=KeyboardInterrupt: received signal 15

@@ -1,0 +1,952 @@
+diff --git a/src/sema/check/expr.rs b/src/sema/check/expr.rs
+index db58a0730..24d5e68f7 100644
+--- a/src/sema/check/expr.rs
++++ b/src/sema/check/expr.rs
+@@ -1999,8 +1999,7 @@ impl Checker {
+             match *qualifier {
+                 ArenaCompQualifier::For { target, iter, span } => {
+                     let iter_ty = self.check_expr_arena(arena, source, iter, None);
+-                    if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes))
+-                    {
++                    if iter_ty.is_result_iteration_source() {
+                         self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
+                     }
+                     let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
+@@ -2218,18 +2217,30 @@ impl Checker {
+         self.push_scope();
+         self.begin_error_boundary();
+         self.boundary.retry_block_depth += 1;
+-        let expected_ok = match expected {
+-            Some(Type::Result(ok, _)) => Some(ok.as_ref()),
+-            _ => None,
++        let (expected_ok, expected_error) = match expected {
++            Some(Type::Result(ok, error)) => (Some(ok.as_ref()), Some(error.as_ref())),
++            _ => (None, None),
+         };
+         let body_ty = self.check_tail_block_arena(arena, source, block, expected_ok);
+         self.boundary.retry_block_depth -= 1;
+-        let error_ty = self.end_error_boundary(None);
++        let error_ty = self.end_error_boundary(expected_error);
+         self.pop_scope();
+ 
++        let body_ty = if let Some(expected_ok) = expected_ok {
++            if matches!(&body_ty, Type::Unknown | Type::Invalid)
++                && body_ty.matches_expected(expected_ok)
++            {
++                expected_ok.clone()
++            } else {
++                body_ty
++            }
++        } else {
++            body_ty
++        };
++
+         let result_ty = match body_ty {
+             Type::Result(ok, err) => Type::Result(ok, err),
+-            Type::Invalid | Type::Unknown => Type::Result(Box::new(body_ty), Box::new(Type::Error)),
++            Type::Invalid | Type::Unknown => Type::Result(Box::new(body_ty), Box::new(error_ty)),
+             ty => Type::Result(Box::new(ty), Box::new(error_ty)),
+         };
+         if let Some(pattern) = pattern {
+diff --git a/src/sema/check/resource.rs b/src/sema/check/resource.rs
+index 05a03e5e6..48b7e5f6b 100644
+--- a/src/sema/check/resource.rs
++++ b/src/sema/check/resource.rs
+@@ -289,6 +289,44 @@ impl Analyzer<'_> {
+                         if self.checker.statement_positions.get(&node.span).is_some_and(|position|
+                             *position == super::StatementPosition::Value
+                         ) => self.checker.expr_types.get(&node.span).map(Type::may_hold_resource),
++                    ArenaStmtKind::Match { arms, .. }
++                        if self.checker.statement_positions.get(&node.span).is_some_and(|position|
++                            *position == super::StatementPosition::Value
++                        ) => {
++                            let arm_blocks = self
++                                .program
++                                .arena
++                                .match_arms(arms)
++                                .iter()
++                                .map(|arm| arm.block)
++                                .collect::<Vec<_>>();
++                            let mut holds_resource = false;
++                            let mut unresolved = false;
++                            for arm_block in arm_blocks {
++                                let statements = self
++                                    .program
++                                    .arena
++                                    .stmt_ids(self.program.arena.block(arm_block).statements)
++                                    .collect::<Vec<_>>();
++                                self.publish_block_transfer(arm_block, &statements);
++                                match self
++                                    .transfers
++                                    .get(&ResourceTransferSite::BlockValue(arm_block))
++                                    .copied()
++                                {
++                                    Some(true) => holds_resource = true,
++                                    Some(false) => {}
++                                    None => unresolved = true,
++                                }
++                            }
++                            if holds_resource {
++                                Some(true)
++                            } else if unresolved {
++                                None
++                            } else {
++                                Some(false)
++                            }
++                        }
+                     _ => Some(false),
+                 }
+             }
+@@ -657,6 +695,27 @@ mod tests {
+         assert_eq!(compact.bodies.resource_transfer(scalar_return), Some(false));
+     }
+ 
++    #[test]
++    fn match_tail_transfer_fact_uses_its_checked_arm_values() {
++        let source = "proc tail_match() [fs, process] -> FsRoot { let opened = fs.tempdir(); match opened { Ok(root) => root; Err(_) => exit 1 } }\n";
++        let program = Parser::parse_source_arena_only(SourceId::new(0), source).arena;
++        let checked = Checker::check_arena_with_options(
++            &program,
++            source,
++            super::super::CheckOptions {
++                embedded_bodies: true,
++                ..super::super::CheckOptions::default()
++            },
++        );
++        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
++
++        let tail = ResourceTransferSite::BlockValue(function_body(&program, "tail_match"));
++        assert_eq!(checked.resource_transfer(tail), Some(true));
++
++        let compact = Checker::compact_declarations(&program, checked);
++        assert_eq!(compact.bodies.resource_transfer(tail), Some(true));
++    }
++
+     #[test]
+     fn transfer_facts_distinguish_outer_and_same_block_assignments() {
+         let source = "proc transfers() [fs, error] -> Result[Unit] { var local: FsRoot? = null; local = fs.tempdir()?; var outer: FsRoot? = null; { outer = fs.tempdir()? }; return Ok() }\n";
+diff --git a/src/sema/check/stmt.rs b/src/sema/check/stmt.rs
+index 702120438..172317e7a 100644
+--- a/src/sema/check/stmt.rs
++++ b/src/sema/check/stmt.rs
+@@ -11,8 +11,8 @@ use super::{Binding, TypeDefBody, tail_type_matches_expected};
+ use crate::diagnostic::DiagnosticCode;
+ use crate::syntax::arena::{
+     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef,
+-    ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, ArenaSugar, AssignTargetId,
+-    BindingTargetId, BlockId, ExprId, StmtId, TypeExprId,
++    ArenaChild, ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, ArenaSugar,
++    AssignTargetId, BindingTargetId, BlockId, ExprId, StmtId, SugarView, TypeExprId,
+ };
+ use crate::syntax::node::AssignOp;
+ use rustc_hash::FxHashMap;
+@@ -33,8 +33,6 @@ fn annotation_type_is_nontrivial(ty: &Type) -> bool {
+     )
+ }
+ 
+-/// Arena-native mirror of `block_always_returns`/`stmt_always_returns` — a
+-/// pure structural walk, same pattern as `block_has_exit_point_arena`.
+ #[allow(dead_code)]
+ pub(super) fn block_always_returns_arena(arena: &ArenaProgram, block_id: BlockId) -> bool {
+     let block = arena.arena.block(block_id);
+@@ -48,11 +46,11 @@ pub(super) fn block_always_returns_arena(arena: &ArenaProgram, block_id: BlockId
+ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> bool {
+     match arena.arena.stmt(id).kind {
+         ArenaStmtKind::Sugar { expansion, .. } => stmt_always_returns_arena(arena, expansion),
+-        ArenaStmtKind::Return(_) => true,
+-        ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
+-            ArenaExprKind::ErrorContext { block, .. } => block_always_returns_arena(arena, block),
+-            _ => false,
+-        },
++        ArenaStmtKind::Return(_)
++        | ArenaStmtKind::Break { .. }
++        | ArenaStmtKind::Continue
++        | ArenaStmtKind::Exit(_) => true,
++        ArenaStmtKind::Expr(expr) => expr_never_falls_through_arena(arena, expr),
+ 
+         ArenaStmtKind::If {
+             branches,
+@@ -62,14 +60,12 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
+                 .arena
+                 .if_branches(branches)
+                 .iter()
+-                // A branch whose condition is the literal `false` never runs.
+-                .filter(|branch| {
+-                    !matches!(
++                .all(|branch| {
++                    matches!(
+                         arena.arena.expr(branch.condition).kind,
+                         ArenaExprKind::Bool(false)
+-                    )
++                    ) || block_always_returns_arena(arena, branch.block)
+                 })
+-                .all(|branch| block_always_returns_arena(arena, branch.block))
+                 && block_always_returns_arena(arena, else_block)
+         }
+         ArenaStmtKind::Match { arms, .. } => arena
+@@ -82,10 +78,284 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
+         } => {
+             block_always_returns_arena(arena, body) && block_always_returns_arena(arena, else_block)
+         }
++        ArenaStmtKind::Loop { block } => !block_has_reachable_break_target_arena(arena, block),
++        ArenaStmtKind::While { condition, block }
++            if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(true)) =>
++        {
++            !block_has_reachable_break_target_arena(arena, block)
++        }
+         _ => false,
+     }
+ }
+ 
++fn block_never_falls_through_arena(arena: &ArenaProgram, block: BlockId) -> bool {
++    arena
++        .arena
++        .stmt_ids(arena.arena.block(block).statements)
++        .any(|id| stmt_never_falls_through_arena(arena, id))
++}
++
++fn block_guarantees_escaping_control_arena(arena: &ArenaProgram, block: BlockId) -> bool {
++    let mut statements = arena
++        .arena
++        .stmt_ids(arena.arena.block(block).statements);
++    let Some(statement) = statements.next() else {
++        return false;
++    };
++    if statements.next().is_some() {
++        return false;
++    }
++    stmt_guarantees_escaping_control_arena(arena, arena.arena.core_stmt_id(statement))
++}
++
++fn stmt_guarantees_escaping_control_arena(arena: &ArenaProgram, statement: StmtId) -> bool {
++    match arena.arena.stmt(statement).kind {
++        ArenaStmtKind::Sugar { expansion, .. } => {
++            stmt_guarantees_escaping_control_arena(arena, expansion)
++        }
++        ArenaStmtKind::Return(value) => value
++            .is_none_or(|value| matches!(value, ArenaExprOrRun::Expr(expr) if control_operand_is_infallible_literal_arena(arena, expr))),
++        ArenaStmtKind::Break { value } => value
++            .is_none_or(|expr| control_operand_is_infallible_literal_arena(arena, expr)),
++        ArenaStmtKind::Continue => true,
++        ArenaStmtKind::Exit(status) => control_operand_is_infallible_literal_arena(arena, status),
++        _ => false,
++    }
++}
++
++fn control_operand_is_infallible_literal_arena(arena: &ArenaProgram, expression: ExprId) -> bool {
++    matches!(
++        arena.arena.expr(expression).kind,
++        ArenaExprKind::Null
++            | ArenaExprKind::Bool(_)
++            | ArenaExprKind::Int(_)
++            | ArenaExprKind::Float(_)
++            | ArenaExprKind::Duration(_)
++            | ArenaExprKind::Str(_)
++            | ArenaExprKind::Bytes(_)
++            | ArenaExprKind::Regex(_)
++    )
++}
++
++fn block_has_reachable_break_target_arena(arena: &ArenaProgram, block: BlockId) -> bool {
++    for id in arena.arena.stmt_ids(arena.arena.block(block).statements) {
++        if stmt_has_reachable_break_target_arena(arena, id) {
++            return true;
++        }
++        if stmt_never_falls_through_arena(arena, id) {
++            return false;
++        }
++    }
++    false
++}
++
++fn stmt_never_falls_through_arena(arena: &ArenaProgram, id: StmtId) -> bool {
++    match arena.arena.stmt(id).kind {
++        ArenaStmtKind::Match { .. } => false,
++        ArenaStmtKind::Sugar { expansion, .. } => stmt_never_falls_through_arena(arena, expansion),
++        ArenaStmtKind::If {
++            branches,
++            else_block,
++        } => {
++            for branch in arena.arena.if_branches(branches) {
++                let condition = arena.arena.expr(branch.condition).kind;
++                if matches!(condition, ArenaExprKind::Bool(false)) {
++                    continue;
++                }
++                if !block_never_falls_through_arena(arena, branch.block) {
++                    return false;
++                }
++                if matches!(condition, ArenaExprKind::Bool(true)) {
++                    return true;
++                }
++            }
++            else_block.is_some_and(|block| block_never_falls_through_arena(arena, block))
++        }
++        ArenaStmtKind::With { body, else_block, .. } => {
++            block_never_falls_through_arena(arena, body)
++                && block_never_falls_through_arena(arena, else_block)
++        }
++        _ => stmt_always_returns_arena(arena, id),
++    }
++}
++
++fn stmt_has_reachable_break_target_arena(arena: &ArenaProgram, id: StmtId) -> bool {
++    match arena.arena.stmt(id).kind {
++        ArenaStmtKind::Break { .. } => true,
++        ArenaStmtKind::Loop { .. }
++        | ArenaStmtKind::Defer(..)
++        | ArenaStmtKind::ProcDef(_)
++        | ArenaStmtKind::CliMain(_)
++        | ArenaStmtKind::PureDef(_)
++        | ArenaStmtKind::StreamDef(_)
++        | ArenaStmtKind::SignalHook(_) => false,
++        ArenaStmtKind::While { condition, .. } => {
++            expr_has_reachable_break_target_arena(arena, condition)
++        }
++        ArenaStmtKind::For { iter, .. } => expr_has_reachable_break_target_arena(arena, iter),
++        ArenaStmtKind::If {
++            branches,
++            else_block,
++        } => {
++            for branch in arena.arena.if_branches(branches) {
++                if expr_has_reachable_break_target_arena(arena, branch.condition) {
++                    return true;
++                }
++                let condition = arena.arena.expr(branch.condition).kind;
++                if matches!(condition, ArenaExprKind::Bool(false)) {
++                    continue;
++                }
++                if block_has_reachable_break_target_arena(arena, branch.block) {
++                    return true;
++                }
++                if matches!(condition, ArenaExprKind::Bool(true)) {
++                    return false;
++                }
++            }
++            else_block.is_some_and(|block| block_has_reachable_break_target_arena(arena, block))
++        }
++        _ => {
++            let mut found = false;
++            arena
++                .arena
++                .for_each_stmt_child(id, SugarView::Core, |child| {
++                    found |= child_has_reachable_break_target_arena(arena, child)
++                });
++            found
++        }
++    }
++}
++
++fn expr_never_falls_through_arena(arena: &ArenaProgram, id: ExprId) -> bool {
++    match arena.arena.expr(id).kind {
++        ArenaExprKind::Try(inner) => result_wrapper_block_arena(arena, inner)
++            .map_or_else(
++                || expr_never_falls_through_arena(arena, inner),
++                |block| block_never_falls_through_arena(arena, block),
++            ),
++        ArenaExprKind::If {
++            branches,
++            else_value,
++        } => {
++            for branch in arena.arena.if_expr_branches(branches) {
++                if matches!(
++                    arena.arena.expr(branch.condition).kind,
++                    ArenaExprKind::Bool(false)
++                ) {
++                    continue;
++                }
++                if !expr_never_falls_through_arena(arena, branch.value) {
++                    return false;
++                }
++                if matches!(
++                    arena.arena.expr(branch.condition).kind,
++                    ArenaExprKind::Bool(true)
++                ) {
++                    return true;
++                }
++            }
++            expr_never_falls_through_arena(arena, else_value)
++        }
++        ArenaExprKind::Capture(block) => block_guarantees_escaping_control_arena(arena, block),
++        ArenaExprKind::ContextScope { .. }
++        | ArenaExprKind::TempDirScope { .. }
++        | ArenaExprKind::ResourceScope { .. } => false,
++        ArenaExprKind::ValueBlock(block)
++        | ArenaExprKind::Collect { block }
++        | ArenaExprKind::ErrorContext { block, .. } => block_never_falls_through_arena(arena, block),
++        ArenaExprKind::Loop { block } => !block_has_reachable_break_target_arena(arena, block),
++        _ => false,
++    }
++}
++
++fn result_wrapper_block_arena(arena: &ArenaProgram, expression: ExprId) -> Option<BlockId> {
++    match arena.arena.expr(expression).kind {
++        ArenaExprKind::Capture(block)
++        | ArenaExprKind::ContextScope { block, .. }
++        | ArenaExprKind::TempDirScope { block, .. }
++        | ArenaExprKind::ResourceScope { block, .. } => Some(block),
++        _ => None,
++    }
++}
++
++fn child_has_reachable_break_target_arena(arena: &ArenaProgram, child: ArenaChild) -> bool {
++    match child {
++        ArenaChild::Stmt(id) => stmt_has_reachable_break_target_arena(arena, id),
++        ArenaChild::Expr(id) => expr_has_reachable_break_target_arena(arena, id),
++        ArenaChild::Block(id) => block_has_reachable_break_target_arena(arena, id),
++        ArenaChild::Pattern(id) => {
++            let mut found = false;
++            arena.arena.for_each_pattern_child(id, |child| {
++                found |= child_has_reachable_break_target_arena(arena, child)
++            });
++            found
++        }
++        ArenaChild::BindingTarget(id) => {
++            let mut found = false;
++            arena.arena.for_each_binding_target_child(id, |child| {
++                found |= child_has_reachable_break_target_arena(arena, child)
++            });
++            found
++        }
++        ArenaChild::AssignTarget(id) => {
++            let mut found = false;
++            arena.arena.for_each_assign_target_child(id, |child| {
++                found |= child_has_reachable_break_target_arena(arena, child)
++            });
++            found
++        }
++        ArenaChild::TypeExpr(_) => false,
++        ArenaChild::BuilderBlock(id) => {
++            let mut found = false;
++            arena.arena.for_each_builder_child(id, |child| {
++                if !matches!(child, ArenaChild::Block(_)) {
++                    found |= child_has_reachable_break_target_arena(arena, child);
++                }
++            });
++            found
++        }
++    }
++}
++
++fn expr_has_reachable_break_target_arena(arena: &ArenaProgram, id: ExprId) -> bool {
++    if matches!(arena.arena.expr(id).kind, ArenaExprKind::Loop { .. }) {
++        return false;
++    }
++    if let ArenaExprKind::If {
++        branches,
++        else_value,
++    } = arena.arena.expr(id).kind
++    {
++        for branch in arena.arena.if_expr_branches(branches) {
++            if expr_has_reachable_break_target_arena(arena, branch.condition) {
++                return true;
++            }
++            let condition = arena.arena.expr(branch.condition).kind;
++            if matches!(condition, ArenaExprKind::Bool(false)) {
++                continue;
++            }
++            if expr_has_reachable_break_target_arena(arena, branch.value) {
++                return true;
++            }
++            if matches!(condition, ArenaExprKind::Bool(true)) {
++                return false;
++            }
++        }
++        return expr_has_reachable_break_target_arena(arena, else_value);
++    }
++    let callbacks = matches!(
++        arena.arena.expr(id).kind,
++        ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }
++    );
++    let mut found = false;
++    arena.arena.for_each_expr_child(id, |child| {
++        if !(callbacks && matches!(child, ArenaChild::Block(_) | ArenaChild::BuilderBlock(_))) {
++            found |= child_has_reachable_break_target_arena(arena, child);
++        }
++    });
++    found
++}
++
+ /// Whether a tail `if` can supply its block's value: some branch ends in a
+ /// statement that has one. An `if` whose branches all end in a control
+ /// transfer, a binding, or nothing completes as a statement wherever it
+@@ -1790,8 +2060,7 @@ impl Checker {
+         span: Span,
+     ) {
+         let iter_ty = self.check_expr_arena(arena, source, iter, None);
+-        if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes))
+-        {
++        if iter_ty.is_result_iteration_source() {
+             self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
+         }
+         let item_ty = iter_ty
+@@ -3656,7 +3925,7 @@ impl Checker {
+         let always_returns = if self.inferred_returns.is_some() {
+             self.return_inference_block_returns(arena, block_id)
+         } else {
+-            block_always_returns_arena(arena, block_id)
++            self.block_always_returns_checked_arena(arena, block_id)
+         };
+         if !reachable || always_returns {
+             Type::Unknown
+@@ -3665,6 +3934,40 @@ impl Checker {
+         }
+     }
+ 
++    fn block_always_returns_checked_arena(&self, arena: &ArenaProgram, block_id: BlockId) -> bool {
++        block_always_returns_arena(arena, block_id)
++            || arena
++                .arena
++                .stmt_ids(arena.arena.block(block_id).statements)
++                .any(|id| self.stmt_result_wrapper_without_success_arena(arena, id))
++    }
++
++    fn stmt_result_wrapper_without_success_arena(
++        &self,
++        arena: &ArenaProgram,
++        id: StmtId,
++    ) -> bool {
++        let id = arena.arena.core_stmt_id(id);
++        let stmt = arena.arena.stmt(id);
++        match stmt.kind {
++            ArenaStmtKind::Sugar { expansion, .. } => {
++                self.stmt_result_wrapper_without_success_arena(arena, expansion)
++            }
++            ArenaStmtKind::Expr(expression) => {
++                self.statement_positions.get(&stmt.span)
++                    == Some(&super::StatementPosition::Statement)
++                    && self.propagating_statements.contains(&stmt.span)
++                    && self
++                        .expr_types
++                        .get(&arena.arena.expr(expression).span)
++                        .is_some_and(Type::is_result_unit)
++                    && result_wrapper_block_arena(arena, expression)
++                        .is_some_and(|block| block_never_falls_through_arena(arena, block))
++            }
++            _ => false,
++        }
++    }
++
+     /// A value branch whose block ends without a value (a trailing `let`, or
+     /// nothing) completes with Unit. The block checker reports a mismatch only
+     /// for a tail value, so such a branch used to satisfy any expected type
+@@ -4599,3 +4902,243 @@ fn copy_update_mistake(
+         repair,
+     })
+ }
++
++#[cfg(test)]
++mod termination_tests {
++    use super::block_always_returns_arena;
++    use super::Type;
++    use crate::diagnostic::DiagnosticCode;
++    use crate::sema::check::Checker;
++    use crate::source::SourceId;
++    use crate::syntax::arena::{ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind};
++    use crate::syntax::parser::Parser;
++
++    fn parse(source: &str) -> ArenaProgram {
++        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
++        assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
++        parsed.arena
++    }
++
++    fn first_proc_body(program: &ArenaProgram) -> crate::syntax::arena::BlockId {
++        program
++            .arena
++            .stmt_ids(program.statements)
++            .find_map(|id| match program.arena.stmt(id).kind {
++                ArenaStmtKind::ProcDef(def) => Some(program.arena.function_def(def).body),
++                _ => None,
++            })
++            .expect("source must declare a procedure")
++    }
++
++    fn proc_never_completes(source: &str) -> bool {
++        let program = parse(source);
++        block_always_returns_arena(&program, first_proc_body(&program))
++    }
++
++    fn value_block_type(source: &str) -> Type {
++        let program = parse(source);
++        let statement = program
++            .arena
++            .stmt_ids(program.statements)
++            .next()
++            .expect("source must declare a binding");
++        let ArenaStmtKind::Let {
++            initializer: ArenaExprOrRun::Expr(expression),
++            ..
++        } = program.arena.stmt(statement).kind
++        else {
++            panic!("source must start with a binding expression");
++        };
++        assert!(matches!(
++            program.arena.expr(expression).kind,
++            ArenaExprKind::ValueBlock(_)
++        ));
++        let span = program.arena.expr(expression).span;
++        let checked = program
++            .symbol_owner()
++            .with_current(|| Checker::check_arena(&program, source));
++        assert!(
++            checked
++                .diagnostics
++                .iter()
++                .all(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLoopNoBreak)),
++            "{:?}",
++            checked.diagnostics
++        );
++        checked
++            .expr_types
++            .get(&span)
++            .cloned()
++            .expect("value block should have a checked type")
++    }
++
++    #[test]
++    fn captured_failure_value_block_completes_with_result_error() {
++        assert_eq!(
++            value_block_type(
++                "let result: Result[Unit] = { try { loop { assert false } } }\n"
++            ),
++            Type::Result(Box::new(Type::Unit), Box::new(Type::Error))
++        );
++    }
++
++    #[test]
++    fn within_timeout_value_block_completes_with_result_error() {
++        assert_eq!(
++            value_block_type(
++                "let result: Result[Unit] = { within 50ms { loop {} } }\n"
++            ),
++            Type::Result(Box::new(Type::Unknown), Box::new(Type::Error))
++        );
++    }
++
++    #[test]
++    fn unit_position_scope_without_success_prevents_a_later_value() {
++        assert_eq!(
++            value_block_type(
++                "let result: Result[Unit] = {\n  within 50ms { loop {} }\n  Ok()\n}\n"
++            ),
++            Type::Unknown
++        );
++    }
++
++    #[test]
++    fn wait_until_with_a_false_condition_has_no_inferred_success_value() {
++        let source = "let late = try {\n  wait until false within 50ms backoff 10ms..20ms\n}\n";
++        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
++        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++        let program = parsed.arena;
++        let diagnostics = program
++            .symbol_owner()
++            .with_current(|| Checker::check_arena(&program, source).diagnostics);
++
++        assert!(
++            diagnostics
++                .iter()
++                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckTrySuccessType)),
++            "{diagnostics:?}"
++        );
++    }
++
++    #[test]
++    fn loop_completion_uses_only_reachable_breaks_for_its_own_loop() {
++        assert!(proc_never_completes(
++            "proc spin() [] { loop { if false { break } } }"
++        ));
++        assert!(!proc_never_completes(
++            "proc exits() [] { while true { break } }"
++        ));
++        assert!(!proc_never_completes(
++            "proc known_true() [] { loop { if true { break } } }"
++        ));
++        assert!(proc_never_completes(
++            "proc nested() [] { loop { loop { break } } }"
++        ));
++        assert!(!proc_never_completes(
++            "proc nested_exit() [] { loop { loop { break }; break } }"
++        ));
++        assert!(proc_never_completes(
++            "proc dead_break() [] { loop { return; break } }"
++        ));
++        assert!(proc_never_completes(
++            "proc dead_continue() [] { loop { continue; break } }"
++        ));
++        assert!(proc_never_completes(
++            "proc dead_exit() [] { loop { exit 0; break } }"
++        ));
++        assert!(!proc_never_completes(
++            "proc unexhaustive_match() [] { loop { match true { true => { return } }; break } }"
++        ));
++    }
++
++    #[test]
++    fn try_retry_and_context_scopes_keep_enclosing_loop_breaks() {
++        assert!(!proc_never_completes(
++            "proc tried() [] { loop { try { break } } }"
++        ));
++        assert!(!proc_never_completes(
++            "proc retried() [] { loop { retry [] { break } } }"
++        ));
++        assert!(!proc_never_completes(
++            "proc scoped() [] { loop { within 1s { break } } }"
++        ));
++    }
++
++    #[test]
++    fn captured_returns_make_the_enclosing_loop_non_fallthrough() {
++        let source = "proc value() [] -> Int { loop { try { return 1 }; break } }";
++        assert!(proc_never_completes(source));
++        let program = parse(source);
++        let diagnostics = program
++            .symbol_owner()
++            .with_current(|| Checker::check_arena(&program, source).diagnostics);
++
++        assert!(
++            diagnostics
++                .iter()
++                .all(|diagnostic| diagnostic.code != Some(DiagnosticCode::CheckMissingReturn)),
++            "{diagnostics:?}"
++        );
++    }
++
++    #[test]
++    fn captured_error_before_return_keeps_the_enclosing_loop_break_reachable() {
++        assert!(!proc_never_completes(
++            "proc value() [] { loop { try { assert false; return 1 }; break } }"
++        ));
++    }
++
++    #[test]
++    fn glob_failure_before_return_keeps_capture_result_value() {
++        let source = "proc f() [fs] -> List[Path] {\n  let ignored: Result[Unit] = { try { return g\"\\0\" } }\n  []\n}\n";
++        let program = parse(source);
++        let binding = program
++            .arena
++            .stmt_ids(program.arena.block(first_proc_body(&program)).statements)
++            .find(|id| matches!(program.arena.stmt(*id).kind, ArenaStmtKind::Let { .. }))
++            .expect("procedure body should declare ignored");
++        let ArenaStmtKind::Let {
++            initializer: ArenaExprOrRun::Expr(expression),
++            ..
++        } = program.arena.stmt(binding).kind
++        else {
++            panic!("ignored initializer should be an expression");
++        };
++        let span = program.arena.expr(expression).span;
++        let checked = program
++            .symbol_owner()
++            .with_current(|| Checker::check_arena(&program, source));
++
++        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
++        assert_eq!(
++            checked.expr_types.get(&span),
++            Some(&Type::Result(Box::new(Type::Unit), Box::new(Type::Error)))
++        );
++    }
++
++    #[test]
++    fn evaluated_assignment_and_builder_values_keep_enclosing_loop_breaks() {
++        assert!(!proc_never_completes(
++            "proc indexed() [] { loop { items[try { break }] = 0 } }"
++        ));
++        assert!(!proc_never_completes(
++            "proc builder() [] { loop { let _plan = process.command { timeout = try { break }; run true } } }"
++        ));
++    }
++
++    #[test]
++    fn deferred_break_does_not_complete_the_enclosing_loop() {
++        assert!(proc_never_completes(
++            "proc deferred() [] { loop { defer { break } } }"
++        ));
++        assert!(proc_never_completes(
++            "proc callback() [] { loop { [1] |> map { break } } }"
++        ));
++        assert!(proc_never_completes(
++            "proc nested_callable() [] { loop { proc nested() [] { break } } }"
++        ));
++        assert!(proc_never_completes(
++            "proc builder_task() [] { loop { let _plan = process.command { task child { break } } } }"
++        ));
++    }
++}
+diff --git a/src/sema/types.rs b/src/sema/types.rs
+index e9505e138..07af54aa6 100644
+--- a/src/sema/types.rs
++++ b/src/sema/types.rs
+@@ -587,6 +587,10 @@ impl Type {
+         }
+     }
+ 
++    pub(crate) fn is_result_iteration_source(&self) -> bool {
++        matches!(self.unvalidated(), Self::Result(_, _)) && self.iteration_item_type().is_some()
++    }
++
+     /// Conservative owned-heap estimate for one semantic type tree.
+     pub fn retained_bytes(&self) -> usize {
+         use std::mem::size_of;
+@@ -1065,6 +1069,10 @@ impl Type {
+             (Self::Callable(actual), Self::Pure) => actual.pure,
+             (Self::Tag(a), Self::Tag(b)) => a == b,
+             (Self::ErrorVariant { family, .. }, Self::ErrorFamily(expected)) => family == expected,
++            (Self::ErrorVariant { family, .. }, Self::ProcessError) => {
++                *family == Name::PROCESS_ERROR
++            }
++            (Self::ErrorFamily(family), Self::ProcessError) => *family == Name::PROCESS_ERROR,
+             (Self::ErrorVariant { .. }, Self::Error) => true,
+             (Self::ErrorFamily(_), Self::Error) => true,
+             (Self::ErrorFacet(_), Self::Error) => true,
+@@ -1535,7 +1543,7 @@ pub(crate) fn callable_effects_match(
+ #[cfg(test)]
+ mod tests {
+     use super::{CallableParamType, CallableType, ModuleExportType, Type};
+-    use crate::symbol::Name;
++    use crate::symbol::{Name, SymbolOwner};
+     use crate::syntax::node::Effect;
+     use std::collections::BTreeMap;
+ 
+@@ -1640,6 +1648,22 @@ mod tests {
+         assert!(!Type::Union(vec![Type::Int, Type::Float]).can_be_argv_item());
+     }
+ 
++    #[test]
++    fn process_error_accepts_only_its_variants_and_family() {
++        SymbolOwner::new().with_current(|| {
++            let family = Name::PROCESS_ERROR;
++            let variant = Type::ErrorVariant {
++                family,
++                variant: Name::intern("NotFound"),
++            };
++
++            assert!(variant.matches_expected(&Type::ProcessError));
++            assert!(Type::ErrorFamily(family).matches_expected(&Type::ProcessError));
++            assert!(!Type::ErrorFamily(Name::intern("LocalError"))
++                .matches_expected(&Type::ProcessError));
++        });
++    }
++
+     // Every shape a simplifier would rewrite is an error, and the order the
+     // members are written in is the order they are asked in.
+     #[test]
+diff --git a/tests/xsh/checker-streams.xsh b/tests/xsh/checker-streams.xsh
+index a272747df..573e30f3a 100644
+--- a/tests/xsh/checker-streams.xsh
++++ b/tests/xsh/checker-streams.xsh
+@@ -247,7 +247,7 @@ test test_checker_multi_clause_comprehensions_reject_invalid_inner_domains_and_f
+   }
+ }
+ 
+-test test_checker_map_iteration_preserves_entry_types_and_error_boundaries { |ctx|
++test test_checker_result_iteration_sources_propagate_errors { |ctx|
+   for case in [
+     {
+       source: "pure wrong(values: Map[Int]) -> Unit { for entry in values { let bad: Int = entry.key } }\n",
+@@ -265,10 +265,58 @@ test test_checker_map_iteration_preserves_entry_types_and_error_boundaries { |ct
+       source: "proc wrong(values: Result[Map[Int]]) [] { for entry in values {} }\n",
+       code: "check.effect-violation",
+     },
++    {
++      source: "proc wrong(values: Result[Str]) [] { for item in values {} }\n",
++      code: "check.effect-violation",
++    },
++    {
++      source: "proc wrong(values: Result[Bytes]) [] { for item in values {} }\n",
++      code: "check.effect-violation",
++    },
++    {
++      source: "proc wrong(values: Result[List[Int]]) [] { for item in values {} }\n",
++      code: "check.effect-violation",
++    },
++    {
++      source: "proc wrong(values: Result[Set[Int]]) [] { for item in values {} }\n",
++      code: "check.effect-violation",
++    },
++    {
++      source: "proc wrong(values: Result[Stream[Int]]) [] { for item in values {} }\n",
++      code: "check.effect-violation",
++    },
++    {
++      source: "proc wrong(values: Result[NonEmpty[Int]]) [] { for item in values {} }\n",
++      code: "check.effect-violation",
++    },
+     {
+       source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[Map[Int], MapError]) -> Result[List[Str], OtherError] { [entry.key for entry in values] }\n",
+       code: "check.try-error",
+     },
++    {
++      source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[Str, MapError]) -> Result[List[Str], OtherError] { [item for item in values] }\n",
++      code: "check.try-error",
++    },
++    {
++      source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[Bytes, MapError]) -> Result[List[Int], OtherError] { [item for item in values] }\n",
++      code: "check.try-error",
++    },
++    {
++      source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[List[Int], MapError]) -> Result[List[Int], OtherError] { [item for item in values] }\n",
++      code: "check.try-error",
++    },
++    {
++      source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[Set[Int], MapError]) -> Result[Set[Int], OtherError] { {item for item in values} }\n",
++      code: "check.try-error",
++    },
++    {
++      source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[Stream[Int], MapError]) -> Result[List[Int], OtherError] { [item for item in values] }\n",
++      code: "check.try-error",
++    },
++    {
++      source: "error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[NonEmpty[Int], MapError]) -> Result[List[Int], OtherError] { [item for item in values] }\n",
++      code: "check.try-error",
++    },
+   ] {
+     expect_rejected(ctx, case.source, [case.code])
+   }
+diff --git a/tests/xsh/resource-ownership.xsh b/tests/xsh/resource-ownership.xsh
+index 2135ca51e..a0a45545f 100644
+--- a/tests/xsh/resource-ownership.xsh
++++ b/tests/xsh/resource-ownership.xsh
+@@ -31,6 +31,14 @@ proc resource_return_tail_root() [fs, error] -> Result[FsRoot] {
+   root
+ }
+ 
++proc resource_return_match_root() [fs, process] -> FsRoot {
++  let opened = fs.tempdir()
++  match opened {
++    Ok(root) => root
++    Err(_) => exit 1
++  }
++}
++
+ proc resource_borrow_root(root: FsRoot) [fs, error] -> Result[Unit] {
+   root.write(p"borrowed", "live")
+ }
+@@ -246,6 +254,10 @@ test resource_root_return_block_break_and_borrow_survive {
+   defer bare_tail.close()
+   assert bare_tail.exists(p".")?
+ 
++  let matched_tail = resource_return_match_root()
++  defer matched_tail.close()
++  assert matched_tail.exists(p".")?
++
+   let block = { fs.tempdir()? }
+   defer block.close()
+   assert block.exists(p".")?
+diff --git a/tests/xsh/retry.xsh b/tests/xsh/retry.xsh
+index 611bcbf0a..90468dfa3 100644
+--- a/tests/xsh/retry.xsh
++++ b/tests/xsh/retry.xsh
+@@ -545,9 +545,9 @@ let value = retry ["soon"] {
+ test test_retry_family_selectors_keep_builtin_and_user_error_identity { |ctx|
+   for source in [
+     "let result: Result[Unit, AssertionError] = retry [] on (AssertionError) { assert false, \"condition\" }\n",
+-    "error LocalError = Failed(message: Str)\nlet result = retry [] on (LocalError) { Err(LocalError.Failed(message: \"local\"))? }\n",
+-    "let result = retry [] on (Error) { assert false, \"condition\" }\n",
+-    "let result = retry [] on (ProcessError) { Err(ProcessError.NotFound(message: \"missing\", status: null))? }\n",
++    "error LocalError = Failed(message: Str)\nlet result: Result[Unit, LocalError] = retry [] on (LocalError) { Err(LocalError.Failed(message: \"local\"))? }\n",
++    "let result: Result[Unit, Error] = retry [] on (Error) { assert false, \"condition\" }\n",
++    "let result: Result[Unit, ProcessError] = retry [] on (ProcessError) { Err(ProcessError.NotFound(message: \"missing\", status: null))? }\n",
+   ] {
+     let file = test.temp_file(ctx, name: "selector.xsh", contents: bytes.from_text(source))?
+     let checked = run.capture --text "xsht" check $file

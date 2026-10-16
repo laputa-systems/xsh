@@ -1,0 +1,2 @@
+817f1c46724cd15d825d9cab2c6325296ad83ecd995d5d98a1e78fa4940eb442  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-56bf/dev/consolidation/evidence/w9-final-56bf/w9-final-closure.sh
+5f5de52a036b2410b93ead022d81b14f2ce5076b3263e581b18931cafcba1ad5  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-56bf/dev/consolidation/evidence/w9-final-56bf/retry-context.patch
