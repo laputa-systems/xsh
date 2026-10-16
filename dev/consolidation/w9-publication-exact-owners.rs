@@ -662,6 +662,15 @@ fn w9_exact_assert_structured_stage_is_published(outputdir: &std::path::Path) {
 }
 
 #[test]
+fn w9_exact_structured_stage_fixture() {
+    let scratch_root = std::path::PathBuf::from(std::env::var_os("TMPDIR").expect("TMPDIR"));
+    std::fs::create_dir_all(&scratch_root).expect("create structured-stage test scratch root");
+    let output = tempfile::tempdir_in(&scratch_root)
+        .expect("create structured-stage test output directory");
+    w9_exact_assert_structured_stage_is_published(output.path());
+}
+
+#[test]
 fn w9_exact_repository_owners_receipt() {
     use std::io::Read as _;
     use walkdir::WalkDir;
