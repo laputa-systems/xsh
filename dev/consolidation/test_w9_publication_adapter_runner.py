@@ -484,6 +484,10 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         candidate_approved_helper = (
             candidate_root / "dev/consolidation/winddown/gate-tools/w9-repository-parity.rs"
         )
+        self.assertEqual(
+            adapter_runner._candidate_approved_helper(candidate_root, self.runner),
+            candidate_approved_helper,
+        )
         controller_approved_helper = adapter_runner.SOURCE_APPROVED_HELPER
         source_record = dict(
             self.source_record,
@@ -523,12 +527,9 @@ class SourceQualifiedAdapterReceiptTests(unittest.TestCase):
         )
 
         def parse_candidate_build(build_record):
-            self.build_receipt.write_text(
-                "".join(
-                    f"{field}\t{build_record[field]}\n"
-                    for field in adapter_runner.SOURCE_ADAPTER_BUILD_FIELDS
-                ),
-                encoding="utf-8",
+            self.build_receipt.unlink(missing_ok=True)
+            adapter_runner._write_adapter_build_receipt(
+                self.build_receipt, build_record, self.runner
             )
             with patch.object(self.runner, "parse_candidate_receipt", return_value=source_record):
                 return adapter_runner._parse_adapter_build_receipt(

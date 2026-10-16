@@ -574,6 +574,17 @@ fn w9_hash_adapter_tree(root_path: &std::path::Path, count: usize) -> std::io::R
     )
 
 
+def _candidate_approved_helper(candidate_root: pathlib.Path, runner) -> pathlib.Path:
+    candidate_root = runner.real_directory(candidate_root, "candidate source")
+    expected = candidate_root / "dev/consolidation/winddown/gate-tools/w9-repository-parity.rs"
+    helper = runner.regular_file(expected, "candidate source-approved helper")
+    if helper != expected or runner.require_sha256(
+        helper, APPROVED_HELPER_SHA256, "candidate source-approved helper"
+    ) != APPROVED_HELPER_SHA256:
+        raise PublicationError("candidate source-approved helper identity differs")
+    return helper
+
+
 def _load_publication_runner(path: pathlib.Path):
     spec = importlib.util.spec_from_file_location("w9_publication_run", path)
     if spec is None or spec.loader is None:
@@ -2019,12 +2030,14 @@ def build_adapter_harness(
     owner_helper_source_sha256: str,
     runner,
 ) -> tuple[pathlib.Path, pathlib.Path]:
+    candidate_root = runner.real_directory(candidate_root, f"{role} candidate source")
     source_root = runner.real_directory(source_root, f"{role} source")
     source_receipt = runner.regular_file(source_receipt, "source-qualified cohort receipt")
     if source_record.get("schema") != runner.SOURCE_COHORT_SCHEMA:
         raise PublicationError("source-qualified adapter build requires a schema-3 cohort receipt")
     if runner.parse_candidate_receipt(source_receipt) != source_record:
         raise PublicationError("source-qualified cohort receipt changed before adapter build")
+    approved_helper = _candidate_approved_helper(candidate_root, runner)
     commit, tree = runner.source_identity(source_root)
     if role == "reference" and commit != runner.REFERENCE_HEAD:
         raise PublicationError(f"reference source commit differs from the approved head: {commit}")
@@ -2155,7 +2168,7 @@ def build_adapter_harness(
         "linker_sha256": source_record["linker_sha256"],
         "runner_path": source_record["runner"],
         "runner_sha256": source_record["runner_sha256"],
-        "approved_helper_path": str(SOURCE_APPROVED_HELPER),
+        "approved_helper_path": str(approved_helper),
         "approved_helper_sha256": APPROVED_HELPER_SHA256,
         "helper_path": str(adapter_helper),
         "helper_sha256": helper_sha256,
@@ -2190,16 +2203,29 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
     ):
         raise PublicationError("candidate source identity differs from its source receipt")
     runner.candidate_scratch_parent(candidate_root)
+    reference_build_receipt = getattr(args, "reference_build_receipt", None)
+    reference_build = None
+    if reference_build_receipt is not None:
+        reference_receipt = runner.regular_file(
+            reference_build_receipt, "reference adapter build receipt"
+        )
+        owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
+        reference_build = _parse_adapter_build_receipt(
+            reference_receipt, "reference", runner, owner_helper_source
+        )
+        if reference_build["schema"] != "2":
+            raise PublicationError("reused reference adapter build is not source-qualified")
+        if pathlib.Path(reference_build["source_root"]) != reference_root:
+            raise PublicationError("reference adapter build receipt names a different source root")
     derived_directory = _new_derived_helper_directory(candidate_root, runner)
     owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
     adapter_helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = derive_helper(
-        approved_helper=SOURCE_APPROVED_HELPER,
+        approved_helper=_candidate_approved_helper(candidate_root, runner),
         owner_helper=owner_helper_source,
         output_directory=derived_directory,
         output_root=candidate_root,
     )
-    reference_build_receipt = getattr(args, "reference_build_receipt", None)
-    if reference_build_receipt is None:
+    if reference_build is None:
         reference_binary, reference_receipt = build_adapter_harness(
             reference_root,
             candidate_root,
@@ -2213,17 +2239,6 @@ def build_adapter_harnesses(args: argparse.Namespace, runner) -> None:
             runner,
         )
     else:
-        reference_receipt = runner.regular_file(
-            reference_build_receipt, "reference adapter build receipt"
-        )
-        owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
-        reference_build = _parse_adapter_build_receipt(
-            reference_receipt, "reference", runner, owner_helper_source
-        )
-        if reference_build["schema"] != "2":
-            raise PublicationError("reused reference adapter build is not source-qualified")
-        if pathlib.Path(reference_build["source_root"]) != reference_root:
-            raise PublicationError("reference adapter build receipt names a different source root")
         if reference_build["helper_sha256"] != helper_sha256:
             raise PublicationError("reused reference adapter helper differs from the current helper")
         if reference_build["owner_helper_sha256"] != owner_helper_sha256:
@@ -2275,7 +2290,7 @@ def build_derived_reference_harness(args: argparse.Namespace, runner) -> int:
     derived_directory = _new_derived_helper_directory(candidate_root, runner)
     owner_helper_source = candidate_root / "dev/consolidation/w9-publication-owner-helper.rs"
     helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = derive_helper(
-        approved_helper=SOURCE_APPROVED_HELPER,
+        approved_helper=_candidate_approved_helper(candidate_root, runner),
         owner_helper=owner_helper_source,
         output_directory=derived_directory,
         output_root=candidate_root,

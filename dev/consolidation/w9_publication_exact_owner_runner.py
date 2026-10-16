@@ -2206,7 +2206,7 @@ def build_exact_owner_harnesses(args: argparse.Namespace, bootstrap_runner) -> N
         adapter_runner.ROOT = candidate_root
         helper, helper_sha256, owner_helper_sha256, owner_helper_source_sha256 = (
             adapter_runner.derive_helper(
-                approved_helper=adapter_runner.SOURCE_APPROVED_HELPER,
+                approved_helper=adapter_runner._candidate_approved_helper(candidate_root, runner),
                 owner_helper=owner_helper_source,
                 output_directory=helper_attempt,
                 output_root=candidate_root,
