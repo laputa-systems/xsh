@@ -136,11 +136,21 @@ test test_process_plan_uses_the_selected_target_profile_and_required_oracles {
       assert "test-linux-priv" in stages
       assert "test-debug-assertions" in stages
       let privileged = [spec for spec in plan |> where .stage == "test-linux-priv"]
-      assert privileged.len() == 1
-      let privileged_args = privileged[0].argv
-      assert privileged_args[privileged_args.len() - 4..] == [
-        "--skip", "split::", "--skip", "cp::privileged::test_cp_recursive_block_device_",
+      assert [spec.argv[12] for spec in privileged] == ["core_compat_extra", "linux_priv"]
+      for spec in privileged {
+        assert spec.argv[11] == "--test"
+        assert spec.argv[spec.argv.len() - 4..] == [
+          "--skip", "split::", "--skip", "cp::privileged::test_cp_recursive_block_device_",
+        ]
+      }
+      let ordinary = [spec for spec in plan |> where .stage == "test-rust"]
+      assert [spec.argv[10] for spec in ordinary] == [
+        "integration", "ambient_fs_policy", "symbol_plateau", "core_compat_boundaries", "core_compat_extra",
       ]
+      for spec in ordinary {
+        assert spec.argv[9] == "--test"
+        assert spec.argv[spec.argv.len() - 4..] == ["--skip", "split::", "--skip", "runtime::coverage::"]
+      }
       for spec in plan {
         assert "--target" in spec.argv
         assert ctx.target.triple in spec.argv

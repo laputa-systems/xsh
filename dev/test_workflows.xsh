@@ -141,12 +141,19 @@ export pure rust_plan(
   let profile_args = ["--locked", "--profile", profile_name(profile), "--target", ctx.target.triple]
   let debug_args = ["--locked", "--target", ctx.target.triple]
   var plan = product_builds(ctx, profile, all_products())?
-  plan += [
-    stages.command("test-rust", ctx.target.triple, "cargo",
-      ["cargo", "test", @profile_args, "-p", "xsh", "--test", "integration", "--test", "ambient_fs_policy",
-        "--test", "symbol_plateau", "--test", "core_compat_boundaries", "--test", "core_compat_extra", "--",
+  for target in [
+    "integration",
+    "ambient_fs_policy",
+    "symbol_plateau",
+    "core_compat_boundaries",
+    "core_compat_extra",
+  ] {
+    plan += [stages.command("test-rust", ctx.target.triple, "cargo",
+      ["cargo", "test", @profile_args, "-p", "xsh", "--test", target, "--",
         "--skip", "split::", "--skip", "runtime::coverage::"],
-      ctx.root, environment),
+      ctx.root, environment)]
+  }
+  plan += [
     stages.command("test-debug-assertions", ctx.target.triple, "cargo",
       ["cargo", "test", @debug_args, "-p", "xsh", "--lib"], ctx.root, environment),
     stages.command("test-xsht", ctx.target.triple, "cargo",
@@ -155,10 +162,12 @@ export pure rust_plan(
       ["cargo", "test", @profile_args, "-p", "xsh-fuzz", "--test", "soundness"], ctx.root, environment),
   ]
   if privileged {
-    plan += [stages.command("test-linux-priv", ctx.target.triple, "cargo",
-      ["cargo", "test", @profile_args, "-p", "xsh", "--features", "linux-priv-tests", "--test", "core_compat_extra",
-        "--test", "linux_priv", "--", "--nocapture", "--skip", "split::",
-        "--skip", "cp::privileged::test_cp_recursive_block_device_"], ctx.root, environment)]
+    for target in ["core_compat_extra", "linux_priv"] {
+      plan += [stages.command("test-linux-priv", ctx.target.triple, "cargo",
+        ["cargo", "test", @profile_args, "-p", "xsh", "--features", "linux-priv-tests", "--test", target,
+          "--", "--nocapture", "--skip", "split::",
+          "--skip", "cp::privileged::test_cp_recursive_block_device_"], ctx.root, environment)]
+    }
   }
   plan
 }
