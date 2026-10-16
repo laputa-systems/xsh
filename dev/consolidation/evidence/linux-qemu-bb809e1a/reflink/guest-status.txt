@@ -1,0 +1,2 @@
+guest_exit=0
+qemu_exit=0
