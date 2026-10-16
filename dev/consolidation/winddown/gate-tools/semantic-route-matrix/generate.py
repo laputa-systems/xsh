@@ -5798,7 +5798,11 @@ def native_exact_test_passed(stdout: bytes, oracle_id: str) -> bool:
         len(lines) == 3
         and lines[0] == "running 1 tests"
         and re.fullmatch(
-            re.escape(oracle_id) + r" \.\.\. ok [0-9]+ms",
+            re.escape(oracle_id)
+            + (
+                r" \.\.\. ok (?:[0-9]+ms|[0-9]+(?:\.[0-9])?s|"
+                r"[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)"
+            ),
             lines[1],
         ) is not None
         and lines[2] == "test result: ok. 1 passed; 0 failed; 0 skipped"

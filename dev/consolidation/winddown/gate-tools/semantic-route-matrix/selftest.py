@@ -2129,6 +2129,9 @@ class SemanticRouteMatrixTests(unittest.TestCase):
             valid.replace(b"1 passed; 0 failed", b"0 passed; 1 failed"),
         )
         self.assertTrue(generate.native_exact_test_passed(valid, oracle_id))
+        for duration in ("1.5s", "60.0s", "2m5s", "1h2m"):
+            slow = valid.replace(b"5ms", duration.encode())
+            self.assertTrue(generate.native_exact_test_passed(slow, oracle_id))
         for stdout in rejected:
             self.assertFalse(generate.native_exact_test_passed(stdout, oracle_id))
 
