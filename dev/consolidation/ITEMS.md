@@ -18,7 +18,9 @@ The failures are GNU rm ext3perf (exit 3, empty stderr; stdout failure entry
 9,121, not established to be a timeout), uu-sort `buffer_sizes` (timeout after
 4 minutes, canceled with signal 15), and PCI capture identity links (EAGAIN,
 errno 11, 9 ms; stdout failure entry 15,061). Three hostname cases pass on
-source-identical fix `63734367c`. The source check reports
+source-identical fix `63734367c`. The default-product restore passed on 7b and
+the `xsh` bootstrap matches. Execution of all 184 actual route outputs is
+starting under the owned driver review. The source check reports
 `blanket_dead_code_lines=0`, `lowering_type_resolver_definitions=0`,
 `manual_payload_calls=0`, `optional_raw_calls=0`, and
 `wide_arena_wildcards=0`; 152 instructions, 17 patterns, 46 stages, 5
@@ -27,10 +29,19 @@ growth is advisory.
 
 W9 final parity is pending after E0061 in the 7b attempt. Reviewed isolated
 repairs have build, fixture, and Python evidence, but no final integration,
-capture, or 1,690-input/6,760-outcome comparison. The correctness-input plan is
-on HOLD pending owner approval. Inference remains isolated and off main; no
-functional close or performance result is claimed. Lean and Phase F remain
-paused. The [handoff](HANDOFF.md) lists the remaining acceptance steps.
+capture, or 1,690-input/6,760-outcome comparison. Current correctness-input
+proposal `c6616fad` has 15 passing Python tests; independent review is pending.
+
+The owner authorized closing one coherent typing slice in isolation while
+consolidation continues. `typing_scheme_encoding` is the sole coherence owner
+for integrating mandatory capture identity source `46ce` into pipeline source
+`7a7418b5` in the existing `typing-pipeline-integration` worktree. Its combined
+six-case capability matrix, verifier, native, frontend-drop, and both route
+gates are pending. Separate selector passes are component evidence only; they
+do not accept the feature. Main merge remains blocked until consolidation
+closes; isolated convergence and lowerer work are authorized. The next
+composition follows this slice's closure. Lean and Phase F remain paused. The
+[handoff](HANDOFF.md) records the sequence and remaining gates.
 
 **Earlier checkpoints:** the progress and verification entries below are
 historical and source-specific. They are not the current work queue. The
@@ -281,11 +292,13 @@ result and failure details are recorded in [`HANDOFF.md`](HANDOFF.md). Restoring
 products separately may support downstream focused gates, but does not change
 the failed canonical result.
 
-Remaining acceptance is the final canonical result, 184 route outputs, final
-W9 capture and parity, ten semantic review rows, and functional close. Resource,
-profile, forced-frame, and scheduler comparisons follow functional close and
-must use the existing readiness checks. The initial source-qualified native
-baseline and 1,162-file check are historical evidence, not current acceptance.
+Remaining acceptance includes triaging the terminal canonical failures and
+rerunning on a qualified source freeze, the 184 route outputs now starting,
+final W9 capture and parity, ten semantic review rows, and functional close.
+Resource, profile, forced-frame, and scheduler comparisons follow functional
+close and must use the existing readiness checks. The initial source-qualified
+native baseline and 1,162-file check are historical evidence, not current
+acceptance.
 
 Campaign worktrees and scratch stay under ignored `.work/`; only one full
 native corpus runs at a time. The owner excludes `dev/compat` from check/lint

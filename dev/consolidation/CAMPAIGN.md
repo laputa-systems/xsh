@@ -15,10 +15,11 @@ The three native failures are GNU rm ext3perf (exit 3, empty stderr; failure
 entry at stdout line 9,121), uu-sort `buffer_sizes` (timeout at 4 minutes,
 canceled with signal 15), and PCI capture identity links (EAGAIN, errno 11, 9
 ms; failure entry at stdout line 15,061). The run does not establish that the
-GNU rm failure was a timeout. Default-product restoration remains available as
-a separate step for downstream focused gates and does not change the failed
-canonical result. Three hostname cases pass on source-identical fix
-`63734367c`. The source check passes on this tree:
+GNU rm failure was a timeout. The default-product restore passed on 7b with
+the `xsh` bootstrap matching; it does not change the failed canonical result.
+Three hostname cases pass on source-identical fix `63734367c`. Execution of
+the 184 actual route outputs is starting under the owned driver review. The
+source check passes on this tree:
 `blanket_dead_code_lines=0`, `lowering_type_resolver_definitions=0`,
 `manual_payload_calls=0`, `optional_raw_calls=0`, and
 `wide_arena_wildcards=0`; counts are 152 instructions, 17 patterns, 46 stages,
@@ -30,9 +31,20 @@ error E0061. Isolated repair commits `f1e1d08` and `8932aaed` have reviewed
 reference, candidate, and derived builds (`fresh=false`), three passing
 structured fixtures, and 270 passing Python tests; integration, fresh capture
 of 1,690 inputs, and comparison of 6,760 outcomes remain pending. The
-profile-cost fallback cleanup `322889` is isolated. Correctness-input plan
-`8dae13e` is on HOLD pending owner approval because the original ignored
-manifest has not been recovered.
+profile-cost fallback cleanup `322889` is isolated. Current correctness-input
+proposal `c6616fad` has 15 passing Python tests, with independent review
+pending; `8dae13e` is superseded as the current proposal.
+
+The owner authorized closing one coherent typing slice in isolation while
+consolidation continues. `typing_scheme_encoding` is its sole coherence owner.
+It will integrate mandatory capture identity source `46ce` into pipeline source
+`7a7418b5` in the existing `typing-pipeline-integration` worktree. The combined
+six-case capability matrix, verifier checks, native tests, frontend-drop check,
+and both route gates remain pending. The separate pipeline and capture selector
+passes are component evidence, not feature acceptance. Main merge remains
+blocked until consolidation closes; isolated integration, convergence, and
+lowerer work are authorized now. The next composition follows the first
+slice's closure. Broader approved goals remain in force.
 
 Isolated inference pipeline `7a7418b5` passed 17 Rust and 20 native selectors;
 capture source `46ce549a` passed its Rust selectors. Root accepted the isolated
@@ -40,8 +52,9 @@ Arc storage change after source, evidence, and ownership review. Its capture
 integration worktree now points to `e4d282457672a1fc87464c051820ebb64a9eb857`,
 tree `aa7eda1ae791a622cf831937a3f45cb2f94c3a02`; 16 candidate controls and 5
 matched pairs pass with lower candidate allocation traffic. It remains off
-main and distinct from the generic inference pipeline. No time, RSS, or general
-performance result is established. Evidence commit
+main and distinct from the generic inference pipeline; it is excluded from the
+first slice. No time, RSS, or general performance result is established.
+Evidence commit
 `cfcdd2737a941468d5d680d4e2418f289c0065bf` records the checks and allocation
 pairs in `dev/consolidation/evidence/typing-capture-memory-e4/`. The fast-forward
 adds no new runtime pass. Consolidation has no functional close or performance
@@ -76,12 +89,12 @@ Judge these outcomes separately:
    post-consolidation source freeze before claiming Rust correspondence.
 
 Use the existing acceptance owners and pinned x86_64 Linux musl environment.
-General inference changes language acceptance. Its isolated implementation may
-overlap consolidation under the owner's 2026-10-15 and 2026-10-16 steering,
-including independent lowerer work without waiting for consolidation close.
-Shared integration, convergence acceptance, and the post-consolidation
-performance baseline retain their gates. Do not put inference implementation
-on main before consolidation acceptance closes.
+General inference changes language acceptance. The owner has authorized
+isolated first-slice integration, convergence, acceptance, and lowerer work
+while consolidation proceeds. Main merge and whole-campaign convergence
+acceptance remain blocked until consolidation closes. The post-consolidation
+performance baseline retains its gate. Do not put inference implementation on
+main before consolidation acceptance closes.
 Do not add another language-surface campaign or expand consolidation's scope.
 The [restart handoff](HANDOFF.md) owns the current stop and remaining gates.
 
@@ -1452,14 +1465,13 @@ Complete one connected slice as an intermediate milestone while leaving broader 
 
 ### Execution and completion
 
-Typing convergence is judged on Phases B–E, after the existing consolidation
-prerequisite closes. The owner has authorized independent, staggered Phase B–E
-implementation in isolated worktrees while consolidation acceptance proceeds;
-this supersedes the earlier wait-before-lowerer sequence. Shared integration
-and convergence acceptance remain gated on consolidation close. Phase F remains
-deferred until the owner explicitly resumes Lean. A typing-only resume does not
-authorize formal work, and the paused formal milestone does not block typing
-acceptance.
+The owner has authorized closing one coherent typing slice in isolation while
+consolidation proceeds, including its integration, convergence, acceptance, and
+lowerer work. Isolated Phase B–E work may continue in staggered worktrees. Main
+integration and campaign-wide convergence remain gated on consolidation
+close; compose the next slice after this first slice closes. Phase F remains
+deferred until the owner explicitly resumes Lean. The paused formal milestone
+does not block typing acceptance.
 
 Use existing current repository gate commands and changed-path selection. Process tests use verification/release products from the same target; debug-only unit assertions still run in their proper profile. Respect the no-source-tree-formatter/autofixer rule. Focused migration acceptance in isolated temporary fixtures is in scope; whole-tree mechanical churn is not.
 

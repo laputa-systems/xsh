@@ -32,10 +32,11 @@ Three exact failures remain in the terminal report:
   failed with EAGAIN (errno 11) in 9 ms; its failure entry is at stdout line
   15,061.
 
-Default products and the remaining canonical routes are outstanding. Driver
-review can restore default products separately for downstream focused gates;
-that restore does not change the failed canonical result. Three hostname cases
-pass on source-identical fix `63734367c`.
+The default-product restore passed on the 7b source, with the `xsh` bootstrap
+matching. It supports downstream focused gates and does not change the failed
+canonical result. Three hostname cases pass on source-identical fix
+`63734367c`. The owned driver review is starting execution of all 184 route
+outputs; results are pending.
 
 The current source check passed on this main tree. It reports
 `blanket_dead_code_lines=0`, `lowering_type_resolver_definitions=0`,
@@ -56,19 +57,9 @@ lines; growth is advisory.
 - **Diagnostic baseline:** qualification remains open because the source of
   older `27ec`/`0f204` binaries is unknown. This is separate from fallback
   cleanup `322889`.
-- **Correctness-input plan:** worktree commit `8dae13e` is on HOLD. The plan
-  adds workspace Clippy coverage and harness feature-variant qualification,
-  while the original ignored manifest has not been recovered. Obtain owner
-  approval before executing that plan.
-- **Inference pipeline:** isolated source `7a7418b5` passed 17 Rust and 20 native
-  selectors. Its evidence commit is `903004f98320ac5b5aef80ce8ff7144beb971a8b`,
-  which records the exact source, tree, products, and selector lists at
-  `dev/consolidation/evidence/typing-pipeline-7a741/README.md`. The record
-  covers focused selectors; full inference acceptance remains open.
-- **Capture identity:** isolated source `46ce549a` passed its Rust selectors.
-  Evidence commit `cdeeebcd7aaf23d8821d4f4107b357021ffafdc2` records the scope
-  at `dev/consolidation/evidence/typing-capture-46ce/README.md`. It does not
-  qualify a full capture or consolidation close.
+- **Correctness-input plan:** current proposal commit `c6616fad` has 15 passing
+  Python tests. Independent review is pending. Commit `8dae13e` is superseded
+  as the current proposal.
 - **Arc storage comparison:** root accepted the isolated shared-storage change
   after source, evidence, and ownership review. The capture integration worktree
   now fast-forwards from `46ce` to source commit
@@ -79,20 +70,53 @@ lines; growth is advisory.
   pins, checks, allocation pairs, and binary sizes in
   `dev/consolidation/evidence/typing-capture-memory-e4/`. This is separate from
   generic inference source `7a7418b5`, remains off main, and gives no time, RSS,
-  or general performance result. The fast-forward adds no new runtime pass.
+  or general performance result. The fast-forward adds no new runtime pass and
+  this optional change is excluded from the first slice.
 
-Inference remains isolated and off main. Shared integration and convergence wait for consolidation close. Lean and Phase F remain paused. No push is authorized.
+## First isolated typing slice
+
+The owner authorized closing one coherent slice in isolation while
+consolidation continues. `typing_scheme_encoding` is its sole coherence owner.
+The target is the existing `typing-pipeline-integration` worktree: integrate
+mandatory capture identity source `46ce` into pipeline source `7a7418b5`. Do not
+include the optional Arc storage change.
+
+The combined source still needs the existing [six-case capability matrix]
+(evidence/typing-witnesses-b6d4/test.stdout), verifier checks, native tests,
+the frontend-drop check, and both route gates. These gates are pending on the
+combined source. Pipeline source `7a7418b5` passed 17 Rust and 20 native
+selectors; evidence commit `903004f98320ac5b5aef80ce8ff7144beb971a8b` records
+them at `dev/consolidation/evidence/typing-pipeline-7a741/README.md`. Capture
+source `46ce549a` passed 15 Rust selectors; evidence commit
+`cdeeebcd7aaf23d8821d4f4107b357021ffafdc2` records them at
+`dev/consolidation/evidence/typing-capture-46ce/README.md`. These remain
+component evidence only and do not accept the combined feature.
+
+Isolated integration, convergence, and acceptance work are authorized now,
+including lowerer work. Main integration remains blocked until consolidation
+closes. After this first slice closes, continue with the next composition in
+the existing approved goals. Lean and Phase F remain paused.
 
 ## Next acceptance steps
 
 1. Preserve the terminal canonical receipt. Triage the three failures, review
-   any repairs separately, qualify a new source freeze, then rerun the affected
-   gates. Restore default products separately for focused gates.
-2. Complete all 184 route outputs and the final W9 capture/comparison on qualified common program inputs. Require all 1,690 inputs and 6,760 outcomes to pass before claiming parity.
-3. Close the ten semantic review rows and remaining functional acceptance work. Keep the current source check and canonical evidence tied to the exact main commit above.
-4. Only after functional close, run the required resource, profile, forced-frame, and scheduler comparisons. Apply the existing readiness checks before and after time-based measurements.
-5. Keep the correctness-input plan on HOLD until owner approval; do not treat its proposed gates as executed.
-6. Keep inference work isolated until consolidation acceptance closes. Phase F stays paused unless the owner resumes Lean.
+   repairs separately, qualify a new source freeze, then rerun affected gates.
+   The default products are restored and `xsh` bootstrap-matched on 7b.
+2. Close the first isolated typing slice on combined source using its named
+   capability, verifier, native, frontend-drop, and two-route gates. Keep main
+   integration blocked until consolidation closes; compose the next slice after
+   this one closes.
+3. Complete the 184 route executions now starting under driver review, then
+   finish final W9 capture/comparison on qualified common program inputs.
+   Require all 1,690 inputs and 6,760 outcomes to pass before claiming parity.
+4. Close the ten semantic review rows and remaining functional acceptance
+   work. Keep evidence tied to its exact source commit.
+5. Only after functional close, run the required resource, profile,
+   forced-frame, and scheduler comparisons. Apply readiness checks before and
+   after time-based measurements.
+6. Complete independent review of correctness-input proposal `c6616fad` before
+   treating its gates as ready. Phase F stays paused unless the owner resumes
+   Lean.
 
 Run only one full native suite at a time. Development and final platform gates remain x86_64 Linux musl in the pinned test image. The campaign has no accepted performance result yet.
 
