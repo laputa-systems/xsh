@@ -1586,6 +1586,18 @@ def _replace_exact_helper_once(contents: str, before: str, after: str, label: st
     return contents.replace(before, after, 1)
 
 
+def _remove_exact_helper_function(
+    contents: str, signature: str, next_signature: str, label: str
+) -> str:
+    if contents.count(signature) != 1 or contents.count(next_signature) != 1:
+        raise ExactOwnerError(f"assignment facts helper composition drift: {label}")
+    start = contents.index(signature)
+    end = contents.index(next_signature, start)
+    if contents.rfind("\n", 0, start) + 1 != start:
+        raise ExactOwnerError(f"assignment facts helper composition drift: {label}")
+    return contents[:start] + contents[end:]
+
+
 def _assignment_facts_helper_suffix(
     assignment_helper_bytes: bytes,
     exact_helper_bytes: bytes,
@@ -1644,6 +1656,24 @@ def _assignment_facts_helper_suffix(
         "    let assignment_helper_sha256 = std::env::var(\"W9_ASSIGNMENT_HELPER_SHA256\")\n"
         "        .expect(\"W9_ASSIGNMENT_HELPER_SHA256\");\n",
         "assignment facts binding inputs",
+    )
+    exact_helper = _remove_exact_helper_function(
+        exact_helper,
+        "pub fn w9_write_exact_adapter_owners(\n",
+        "fn w9_exact_assert_structured_stage_is_published(",
+        "unused exact-owner writer",
+    )
+    exact_helper = _remove_exact_helper_function(
+        exact_helper,
+        "fn w9_exact_assert_structured_stage_is_published(",
+        "#[test]\nfn w9_exact_repository_owners_receipt()",
+        "unused structured-stage assertion",
+    )
+    exact_helper = _remove_exact_helper_function(
+        exact_helper,
+        "fn w9_exact_read_file_at(\n",
+        "fn w9_exact_write_absolute_file(",
+        "unused exact-owner file reader",
     )
     return assignment_helper_bytes + b"\n" + exact_helper.encode("utf-8")
 

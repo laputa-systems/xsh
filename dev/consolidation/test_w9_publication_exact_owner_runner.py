@@ -703,6 +703,22 @@ class ExactOwnerHelperSourceTests(unittest.TestCase):
             composed.endswith(exact_runner._project_exact_owner_helper(original))
         )
 
+    def test_assignment_facts_composition_removes_unused_exact_owner_functions(self):
+        suffix = exact_runner._assignment_facts_helper_suffix(
+            exact_runner.ASSIGNMENT_FACTS_HELPER.read_bytes(),
+            exact_runner.EXACT_OWNER_HELPER.read_bytes(),
+        )
+
+        for function in (
+            b"w9_write_exact_adapter_owners",
+            b"w9_exact_assert_structured_stage_is_published",
+            b"w9_exact_read_file_at",
+        ):
+            with self.subTest(function=function):
+                self.assertNotIn(function, suffix)
+        self.assertIn(b"w9_assignment_facts_tsv(&parsed.arena", suffix)
+        self.assertIn(b"w9_exact_write_absolute_file(&sidecar", suffix)
+
     def test_source_qualified_projection_rejects_missing_or_duplicate_imports(self):
         original = exact_runner.EXACT_OWNER_HELPER.read_bytes()
         import_fragments = (
@@ -1593,6 +1609,22 @@ class AssignmentFactsCaptureValidationTests(unittest.TestCase):
             self._validate()
         self.write_capture()
         first_sidecar = self.sidecar_root / "facts-0.tsv"
+        original_sidecar = first_sidecar.read_text(encoding="utf-8")
+        mutated_fields = original_sidecar.splitlines()
+        binding_fields = mutated_fields[1].split("\t")
+        binding_fields[-1] = b"bench/consolidation/xsh/changed-input.xsh".hex()
+        mutated_fields[1] = "\t".join(binding_fields)
+        first_sidecar.write_text("\n".join(mutated_fields) + "\n", encoding="utf-8")
+        self.sidecar_hashes[0] = self.runner.sha256_file(first_sidecar)
+        self.write_capture()
+        with self.assertRaisesRegex(
+            exact_runner.ExactOwnerError,
+            "proof source, helper, corpus, or input binding differs",
+        ):
+            self._validate()
+        first_sidecar.write_text(original_sidecar, encoding="utf-8")
+        self.sidecar_hashes[0] = self.runner.sha256_file(first_sidecar)
+        self.write_capture()
         first_sidecar.unlink()
         with self.assertRaisesRegex(exact_runner.ExactOwnerError, "sidecar set differs"):
             self._validate()
