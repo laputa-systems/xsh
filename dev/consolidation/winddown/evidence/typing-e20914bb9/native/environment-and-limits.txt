@@ -1,0 +1,10 @@
+head=e20914bb9c9091cab36bfe219184e2f9dbb5dca1
+tree=1cae8ed274160dcb0df3e4168e28012ff1681647
+image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+platform=linux/amd64
+cpus=4
+memory=8g
+memory_swap=8g (no swap)
+network=none
+profile=verification
+test selectors=20

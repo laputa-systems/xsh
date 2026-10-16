@@ -1,0 +1,5 @@
+Cpus_allowed_list:	12-15
+/sys/fs/cgroup/cpuset.cpus.effective=12-15
+/sys/fs/cgroup/cpu.max=400000 100000
+/sys/fs/cgroup/memory.max=8589934592
+/sys/fs/cgroup/memory.swap.max=0

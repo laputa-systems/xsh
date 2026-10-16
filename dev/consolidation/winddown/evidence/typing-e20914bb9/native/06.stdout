@@ -1,0 +1,17 @@
+running 1 tests
+tests/xsh/typing-capability-witnesses.xsh::test_typing_exported_scheme_is_independent_of_other_importers ... FAILED 77ms
+
+failures:
+
+---- tests/xsh/typing-capability-witnesses.xsh::test_typing_exported_scheme_is_independent_of_other_importers ----
+AssertionError.Failed: assertion failed: all_succeeded: integer-only: err[compact.indexed-build]: indexed IR could not encode `full_ir_verification`: registered module type differs from its exact export set
+  /scratch/typing-native-witnesses-e20914bb9/tmp/xsh-test-126-1792175951100123971-0-test_typing_exported_scheme_is_independent_of_other_importers/typing-root-int.xsh-2:1:1
+  use typing-capability-import-int as integer
+  ^ indexed IR could not encode `full_ir_verification`: registered module type differs from its exact export set
+; text-only: err[compact.indexed-build]: indexed IR could not encode `full_ir_verification`: registered module type differs from its exact export set
+  /scratch/typing-native-witnesses-e20914bb9/tmp/xsh-test-126-1792175951100123971-0-test_typing_exported_scheme_is_independent_of_other_importers/typing-root-text.xsh-3:1:1
+  use typing-capability-import-text as text
+  ^ indexed IR could not encode `full_ir_verification`: registered module type differs from its exact export set
+; A-to-B: err[compact.indexed-build]: indexed IR could not enc…
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped

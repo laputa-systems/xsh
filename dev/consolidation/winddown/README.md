@@ -1,7 +1,8 @@
 # Recover work after winddown
 
 This directory preserves unfinished work and selected verification evidence
-before removing every linked worktree. Consolidation acceptance is incomplete.
+before removing linked worktrees. The latest stop is in the leading handoff
+in [CAMPAIGN.md](../CAMPAIGN.md). Older counts below describe the previous stop. Consolidation acceptance is incomplete.
 Lean is paused. The current owner direction is
 [the typing and formal successor requirements](../CAMPAIGN.md#typing-and-formal-successor-requirements).
 
@@ -94,3 +95,23 @@ launch scripts as qualification for a changed source tree.
 Build products, Cargo caches, disposable test fixtures, process state, and
 unselected historical captures can be regenerated. Their ignored locations are
 not needed to recover the committed source or these unfinished overlays.
+
+## 2026-10-16 stop
+
+The branch index is refreshed from all local branch tips. Every non-ancestor
+branch is parked unless explicitly selected in the leading campaign handoff;
+none becomes accepted merely by appearing here. Four previously uncommitted
+diagnostic overlays are now committed on their own parked branches:
+`campaign/consolidation-final-reference`,
+`campaign/native-scheduler-reference-ed908`,
+`campaign/winddown-assignment-reference-20261016`, and
+`campaign/winddown-pipeline-diagnostic-20261016`. They are unqualified source.
+
+Ignored logs and caches from removed worktrees were moved without deleting
+their bytes to `.work/tmp/winddown-retained-20261016/<old-worktree-name>/`,
+retaining each original relative ignored path. This local archive is optional;
+source recovery uses the committed branch index and the campaign handoff.
+Current qualification summaries, exact commands and essential failed-run
+records are committed. Disposable binaries and caches must be rebuilt for any
+fresh accepted run. Historical absolute paths in raw records are observations,
+not commands to resume blindly.
