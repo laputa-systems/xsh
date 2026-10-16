@@ -1,0 +1,586 @@
+argv: ["/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/run-native-final.sh", "/home/josh/d/laputa-systems/xsh", "lint", "cargo", "clippy", "--locked", "--offline", "--workspace", "--target", "x86_64-unknown-linux-musl", "--all-targets", "--all-features", "--quiet", "--", "-D", "warnings"]
+env: {"XSH_GATE_CARGO_LOCK_TIMEOUT": "900", "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-56bf-20261016-r1/container-ids/006-warning-deny-01.cid", "XSH_GATE_NATIVE_LOCK_FD": "3", "XSH_GATE_TARGET_DIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-56bf-20261016-r1/target/products"}
+
+stdout:
+
+stderr:
+inner Docker argv: docker run --rm --init --cidfile /home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-56bf-20261016-r1/container-ids/006-warning-deny-01.cid --platform linux/amd64 --cpus=12 --memory=24g --memory-swap=24g --network=none --tmpfs /tmp:rw\,exec\,nosuid\,mode=1777 -v /home/josh/d/laputa-systems/xsh:/home/josh/d/laputa-systems/xsh:ro -v /home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro -v /home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro -v /home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro -v /usr/local/bin/mold:/usr/local/bin/mold:ro -v /home/josh/d/laputa-systems/xsh/.work/consolidation/infra/mold-linker.sh:/usr/local/bin/xsh-mold-linker:ro -w /home/josh/d/laputa-systems/xsh -e LC_ALL=C -e TZ=UTC -e CARGO_TARGET_DIR=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-56bf-20261016-r1/target/products -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker -e CARGO_BUILD_JOBS=12 -e XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa -e PATH=/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C\ target-feature=+crt-static\ -C\ link-arg=-Wl\,--defsym=__isoc23_sscanf=sscanf\ -C\ link-arg=-Wl\,--defsym=__isoc23_strtol=strtol -v /home/josh/d/laputa-systems/xsh/.work/tmp:/home/josh/d/laputa-systems/xsh/.work/tmp:rw -e TMPDIR=/home/josh/d/laputa-systems/xsh/.work/tmp -v /home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-56bf-20261016-r1/target/products:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-56bf-20261016-r1/target/products:rw -v xsh-consolidation-kache:/root/.cache/kache -v /usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro -v xsh-cargo-registry:/root/.cargo/registry -e RUSTC_WRAPPER=/usr/local/bin/kache -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c cargo clippy --locked --offline --workspace --target x86_64-unknown-linux-musl --all-targets --all-features --quiet -- -D warnings
+error: this call to `as_ref` does nothing
+   --> crates/xsht/src/cli/files.rs:471:29
+    |
+471 |         let section: &str = section.as_ref();
+    |                             ^^^^^^^^^^^^^^^^ help: try: `section`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#useless_asref
+    = note: `-D clippy::useless-asref` implied by `-D clippy::complexity`
+    = help: to override `-D clippy::complexity` add `#[allow(clippy::useless_asref)]`
+
+error: large size difference between variants
+   --> crates/xsht/src/cli/lint.rs:286:1
+    |
+286 | / enum LintWorkspaceRootCheckWork {
+287 | |     Complete(Vec<LintResult>),
+    | |     ------------------------- the second-largest variant contains at least 24 bytes
+288 | |     Ready(LintWorkspaceRootReady),
+    | |     ----------------------------- the largest variant contains at least 2184 bytes
+289 | | }
+    | |_^ the entire enum is at least 2184 bytes
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#large_enum_variant
+    = note: `-D clippy::large-enum-variant` implied by `-D clippy::perf`
+    = help: to override `-D clippy::perf` add `#[allow(clippy::large_enum_variant)]`
+help: consider boxing the large fields or introducing indirection in some other way to reduce the total size of the enum
+    |
+288 -     Ready(LintWorkspaceRootReady),
+288 +     Ready(Box<LintWorkspaceRootReady>),
+    |
+
+error: usage of `contains_key` followed by `insert` on a `HashMap`
+   --> crates/xsht/src/cli/lint.rs:375:9
+    |
+375 | /         if state.contains_key(&source_id) {
+376 | |             false
+377 | |         } else {
+378 | |             state.insert(source_id, None);
+379 | |             true
+380 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#map_entry
+    = note: `-D clippy::map-entry` implied by `-D clippy::perf`
+    = help: to override `-D clippy::perf` add `#[allow(clippy::map_entry)]`
+help: try
+    |
+375 ~         if let std::collections::hash_map::Entry::Vacant(e) = state.entry(source_id) {
+376 +             e.insert(None);
+377 +             true
+378 +         } else {
+379 +             false
+380 +         }
+    |
+
+error: redundant redefinition of a binding `workspace`
+   --> crates/xsht/src/cli/lint.rs:715:13
+    |
+715 |             let workspace = workspace;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: `workspace` is initially defined here
+   --> crates/xsht/src/cli/lint.rs:702:5
+    |
+702 |     workspace: &LintWorkspace,
+    |     ^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_locals
+    = note: `-D clippy::redundant-locals` implied by `-D clippy::suspicious`
+    = help: to override `-D clippy::suspicious` add `#[allow(clippy::redundant_locals)]`
+
+error: redundant redefinition of a binding `type_program`
+   --> crates/xsht/src/cli/lint.rs:716:13
+    |
+716 |             let type_program = type_program;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: `type_program` is initially defined here
+   --> crates/xsht/src/cli/lint.rs:706:5
+    |
+706 |     type_program: &Arc<ArenaProgram>,
+    |     ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_locals
+
+error: redundant redefinition of a binding `workspace`
+   --> crates/xsht/src/cli/lint.rs:805:13
+    |
+805 |             let workspace = workspace;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: `workspace` is initially defined here
+   --> crates/xsht/src/cli/lint.rs:771:5
+    |
+771 |     workspace: &LintWorkspace,
+    |     ^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_locals
+
+error: redundant redefinition of a binding `callable_edge_facts`
+   --> crates/xsht/src/cli/lint.rs:806:13
+    |
+806 |             let callable_edge_facts = callable_edge_facts;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+help: `callable_edge_facts` is initially defined here
+   --> crates/xsht/src/cli/lint.rs:775:5
+    |
+775 |     callable_edge_facts: &CallableEdgeFactStore,
+    |     ^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_locals
+
+error: this `if` statement can be collapsed
+    --> crates/xsht/src/cli/lint.rs:1026:9
+     |
+1026 | /         if key != root {
+1027 | |             if !imported_module_ownership.includes(&key) {
+1028 | |                 if collect_callable_edges {
+1029 | |                     let view = workspace.module_view(&key);
+...    |
+1038 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+     = note: `-D clippy::collapsible-if` implied by `-D clippy::style`
+     = help: to override `-D clippy::style` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+     |
+1026 ~         if key != root
+1027 ~             && !imported_module_ownership.includes(&key) {
+1028 |                 if collect_callable_edges {
+ ...
+1036 |                 continue;
+1037 ~             }
+     |
+
+error: field assignment outside of initializer for an instance created with Default::default()
+    --> crates/xsht/src/cli/lint.rs:1137:5
+     |
+1137 |     options.only = Some(vec![DiagnosticCode::LintUnusedCallable]);
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+note: consider initializing the variable with `xsht::lint::LintOptions { only: Some(vec![DiagnosticCode::LintUnusedCallable]), ..Default::default() }` and removing relevant reassignments
+    --> crates/xsht/src/cli/lint.rs:1136:5
+     |
+1136 |     let mut options = LintOptions::default();
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#field_reassign_with_default
+     = note: `-D clippy::field-reassign-with-default` implied by `-D clippy::style`
+     = help: to override `-D clippy::style` add `#[allow(clippy::field_reassign_with_default)]`
+
+error: struct update has no effect, all the fields in the struct have already been specified
+    --> crates/xsht/src/cli/lint.rs:1841:11
+     |
+1841 |         ..LintOptions::default()
+     |           ^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_update
+     = note: `-D clippy::needless-update` implied by `-D clippy::complexity`
+     = help: to override `-D clippy::complexity` add `#[allow(clippy::needless_update)]`
+
+error: this expression creates a reference which is immediately dereferenced by the compiler
+   --> crates/xsht/src/lint_cli_entry.rs:310:21
+    |
+310 |                     &after,
+    |                     ^^^^^^ help: change this to: `after`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_borrow
+    = note: `-D clippy::needless-borrow` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::needless_borrow)]`
+
+error: using `clone` on type `Option<Name>` which implements the `Copy` trait
+   --> crates/xsht/src/lint_try_capture.rs:444:20
+    |
+444 |             Some(((id.namespace.clone(), edits.map(id.body)?), fact.effective.clone()))
+    |                    ^^^^^^^^^^^^^^^^^^^^ help: try removing the `clone` call: `id.namespace`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#clone_on_copy
+    = note: `-D clippy::clone-on-copy` implied by `-D clippy::complexity`
+    = help: to override `-D clippy::complexity` add `#[allow(clippy::clone_on_copy)]`
+
+error: using `clone` on type `Option<Name>` which implements the `Copy` trait
+   --> crates/xsht/src/lint_try_capture.rs:451:29
+    |
+451 |         .map(|(id, fact)| ((id.namespace.clone(), id.body), fact.effective.clone()))
+    |                             ^^^^^^^^^^^^^^^^^^^^ help: try removing the `clone` call: `id.namespace`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#clone_on_copy
+
+error: the loop variable `at` is used to index `stmts`
+   --> crates/xsht/src/lint_prefer_collect.rs:162:15
+    |
+162 |     for at in first..stmts.len() {
+    |               ^^^^^^^^^^^^^^^^^^
+    |
+note: for this index operation
+   --> crates/xsht/src/lint_prefer_collect.rs:164:28
+    |
+164 |         if !scan.statement(stmts[at], true) {
+    |                            ^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#needless_range_loop
+    = note: `-D clippy::needless-range-loop` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::needless_range_loop)]`
+help: consider using an iterator and `.enumerate()`
+    |
+162 -     for at in first..stmts.len() {
+162 +     for (at, <item>) in stmts.iter().enumerate().skip(first) {
+    |
+
+error: this manual char comparison can be written more succinctly
+   --> crates/xsht/src/lint_prefer_collect.rs:582:46
+    |
+582 |         let access = rest.trim_start_matches(|byte| byte == ' ' || byte == '\t');
+    |                                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using an array of `char`: `[' ', '\t']`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#manual_pattern_char_comparison
+    = note: `-D clippy::manual-pattern-char-comparison` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::manual_pattern_char_comparison)]`
+
+error: this manual char comparison can be written more succinctly
+   --> crates/xsht/src/lint_prefer_collect.rs:695:59
+    |
+695 |         && assignment(source[offset..].trim_start_matches(|byte| byte == ' ' || byte == '\t'))
+    |                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider using an array of `char`: `[' ', '\t']`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#manual_pattern_char_comparison
+
+error: very complex type used. Consider factoring parts into `type` definitions
+   --> crates/xsht/src/lint_prefer_inferred_proc_return.rs:143:15
+    |
+143 |     warnings: Vec<(Option<(usize, usize)>, Option<&'static str>, String)>,
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#type_complexity
+    = note: `-D clippy::type-complexity` implied by `-D clippy::complexity`
+    = help: to override `-D clippy::complexity` add `#[allow(clippy::type_complexity)]`
+
+error: you seem to be trying to use `match` for destructuring a single pattern. Consider using `if let`
+   --> crates/xsht/src/lint_prefer_fail.rs:161:9
+    |
+161 | /         match arena.expr(callee).kind {
+162 | |             ArenaExprKind::Field { base, name } => {
+163 | |                 let ArenaExprKind::Ident(family) = arena.expr(base).kind else {
+164 | |                     return;
+...   |
+183 | |             _ => {}
+184 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#single_match
+    = note: `-D clippy::single-match` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::single_match)]`
+help: try
+    |
+161 ~         if let ArenaExprKind::Field { base, name } = arena.expr(callee).kind {
+162 +             let ArenaExprKind::Ident(family) = arena.expr(base).kind else {
+163 +                 return;
+164 +             };
+165 +             let Some(index) = self
+166 +                 .families
+167 +                 .iter()
+168 +                 .position(|candidate| candidate.name == family && candidate.variant == name)
+169 +             else {
+170 +                 return;
+171 +             };
+172 +             if !matches!(argument.kind, ArenaCallArgKind::Positional(_))
+173 +                 && !matches!(argument.kind, ArenaCallArgKind::Named { name, .. } if name == "message")
+174 +             {
+175 +                 return;
+176 +             }
+177 +             self.constructors.push(Constructor {
+178 +                 family: index,
+179 +                 call: expr,
+180 +             });
+181 +         }
+    |
+
+error: redundant closure
+   --> crates/xsht/src/lint_rules.rs:156:168
+    |
+156 | ...ite::Root, |linter, statements, block| super::prefer_tempdir::lint_scratch_directories(linter, statements, block)), RuleHook::Se...
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `super::prefer_tempdir::lint_scratch_directories`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_closure
+    = note: `-D clippy::redundant-closure` implied by `-D clippy::style`
+    = help: to override `-D clippy::style` add `#[allow(clippy::redundant_closure)]`
+
+error: redundant closure
+   --> crates/xsht/src/lint_rules.rs:156:313
+    |
+156 | ...te::Block, |linter, statements, block| super::prefer_tempdir::lint_scratch_directories(linter, statements, block))]);
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `super::prefer_tempdir::lint_scratch_directories`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_closure
+
+error: redundant closure
+   --> crates/xsht/src/lint_rules.rs:157:189
+    |
+157 | ...ite::Root, |linter, statements, block| super::prefer_atomically::lint_published_files(linter, statements, block)), RuleHook::Seq...
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `super::prefer_atomically::lint_published_files`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_closure
+
+error: redundant closure
+   --> crates/xsht/src/lint_rules.rs:157:333
+    |
+157 | ...te::Block, |linter, statements, block| super::prefer_atomically::lint_published_files(linter, statements, block))]);
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `super::prefer_atomically::lint_published_files`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_closure
+
+error: redundant closure
+   --> crates/xsht/src/lint_rules.rs:158:133
+    |
+158 | ...::Block, |linter, statements, block| super::lint_prefer_for_index::lint_counter_loops(linter, statements, block))]);
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `super::lint_prefer_for_index::lint_counter_loops`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_closure
+
+error: redundant closure
+   --> crates/xsht/src/lint_rules.rs:215:168
+    |
+215 | ...alBinding, |linter, statements| super::lint_optional_binding::lint_null_test_then_binding(linter, statements))]);
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `super::lint_optional_binding::lint_null_test_then_binding`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_closure
+
+error: redundant closure
+   --> crates/xsht/src/lint_rules.rs:268:156
+    |
+268 | ...Site::WriteMode, |linter, statements| super::lint_write_mode::lint_write_then_chmod(linter, statements))]);
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `super::lint_write_mode::lint_write_then_chmod`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_closure
+
+error: redundant closure
+   --> crates/xsht/src/lint_rules.rs:271:143
+    |
+271 | ...e::TestExpect, |linter, statements| super::lint_prefer_test_expect::lint_script_runs(linter, statements))]);
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `super::lint_prefer_test_expect::lint_script_runs`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_closure
+
+error: redundant closure
+   --> crates/xsht/src/lint_rules.rs:278:362
+    |
+278 | ...ySentinel, |linter, statements| super::lint_empty_sentinel::lint_empty_fallback_then_test(linter, statements))]);
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `super::lint_empty_sentinel::lint_empty_fallback_then_test`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#redundant_closure
+
+error: this `if` statement can be collapsed
+   --> crates/xsht/src/lint_annotations.rs:786:13
+    |
+786 | /             if !found {
+787 | |                 if let ArenaChild::Expr(child) = child {
+788 | |                     found = predicate(child);
+789 | |                 }
+790 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+786 ~             if !found
+787 ~                 && let ArenaChild::Expr(child) = child {
+788 |                     found = predicate(child);
+789 ~                 }
+    |
+
+error: this `if` statement can be collapsed
+   --> crates/xsht/src/lint_sequence.rs:667:13
+    |
+667 | /             if index > 0 {
+668 | |                 if collect_pair_hooks {
+669 | |                     pair_insertion_points.push((stmts[index - 1], stmt, self.diagnostics.len()));
+670 | |                 }
+671 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+667 ~             if index > 0
+668 ~                 && collect_pair_hooks {
+669 |                     pair_insertion_points.push((stmts[index - 1], stmt, self.diagnostics.len()));
+670 ~                 }
+    |
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> crates/xsht/src/lint.rs:847:17
+    |
+847 |                 module_options.only = Some(vec![DiagnosticCode::LintUnusedCallable]);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `xsht::lint::LintOptions { only: Some(vec![DiagnosticCode::LintUnusedCallable]), ..Default::default() }` and removing relevant reassignments
+   --> crates/xsht/src/lint.rs:846:17
+    |
+846 |                 let mut module_options = LintOptions::default();
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#field_reassign_with_default
+
+error: this block may be rewritten with the `?` operator
+    --> crates/xsht/src/lint.rs:1602:13
+     |
+1602 | /             if let Some(candidate_index) = self
+1603 | |                 .assignment_candidates
+1604 | |                 .iter()
+1605 | |                 .position(|candidate| candidate.diagnostic_index == diagnostic_index)
+...    |
+1609 | |                 return None;
+1610 | |             }
+     | |_____________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#question_mark
+     = note: `-D clippy::question-mark` implied by `-D clippy::style`
+     = help: to override `-D clippy::style` add `#[allow(clippy::question_mark)]`
+help: replace it with
+     |
+1602 ~             {
+1603 +                 let candidate_index = self
+1604 +                 .assignment_candidates
+1605 +                 .iter()
+1606 +                 .position(|candidate| candidate.diagnostic_index == diagnostic_index)?;
+1607 +                 suppressors.push(AssignmentCandidateId(candidate_index));
+1608 +             }
+     |
+
+error: this `if` statement can be collapsed
+    --> crates/xsht/src/lint.rs:1993:9
+     |
+1993 | /         if rules::enabled(self, DiagnosticCode::LintRedundantPropagation) {
+1994 | |             if let Some(finding) = lint_redundant_propagation::redundant_propagation(
+1995 | |                 self.arena,
+1996 | |                 self.source,
+...    |
+2002 | |         }
+     | |_________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+1993 ~         if rules::enabled(self, DiagnosticCode::LintRedundantPropagation)
+1994 ~             && let Some(finding) = lint_redundant_propagation::redundant_propagation(
+1995 |                 self.arena,
+ ...
+2000 |                 self.diagnostics.push(finding);
+2001 ~             }
+     |
+
+error: this `if` statement can be collapsed
+   --> crates/xsht/src/xsht/test.rs:201:5
+    |
+201 | /     if options.exact && cases.is_empty() {
+202 | |         if let Some(filter) = options.filter.as_deref() {
+203 | |             return CliOutput {
+204 | |                 status: 2,
+...   |
+213 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+    |
+201 ~     if options.exact && cases.is_empty()
+202 ~         && let Some(filter) = options.filter.as_deref() {
+203 |             return CliOutput {
+...
+211 |             };
+212 ~         }
+    |
+
+error: this `if` statement can be collapsed
+    --> crates/xsht/src/xsht/test.rs:1496:5
+     |
+1496 | /     if has_route_witness_transport {
+1497 | |         if request.kind != NativeTestRunKind::Xsh || faked {
+1498 | |             return Err(RuntimeError::new(
+1499 | |                 native_test_error_kind(request.kind),
+...    |
+1504 | |     }
+     | |_____^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#collapsible_if
+help: collapse nested if block
+     |
+1496 ~     if has_route_witness_transport
+1497 ~         && (request.kind != NativeTestRunKind::Xsh || faked) {
+1498 |             return Err(RuntimeError::new(
+ ...
+1502 |             .with_span(request.span));
+1503 ~         }
+     |
+
+error: could not compile `xsht` (lib) due to 34 previous errors
+error: field assignment outside of initializer for an instance created with Default::default()
+    --> crates/xsht/src/cli/lint.rs:2966:9
+     |
+2966 |         options.checked_output = Some(std::sync::Arc::clone(&checked));
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+note: consider initializing the variable with `xsht::lint::LintOptions { checked_output: Some(std::sync::Arc::clone(&checked)), ..Default::default() }` and removing relevant reassignments
+    --> crates/xsht/src/cli/lint.rs:2965:9
+     |
+2965 |         let mut options = LintOptions::default();
+     |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#field_reassign_with_default
+
+error: field assignment outside of initializer for an instance created with Default::default()
+    --> crates/xsht/src/cli/lint.rs:3286:13
+     |
+3286 |             shared.checked_output = Some(std::sync::Arc::clone(&checked));
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+note: consider initializing the variable with `xsht::lint::LintOptions { checked_output: Some(std::sync::Arc::clone(&checked)), ..Default::default() }` and removing relevant reassignments
+    --> crates/xsht/src/cli/lint.rs:3285:13
+     |
+3285 |             let mut shared = LintOptions::default();
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#field_reassign_with_default
+
+error: for loop over a single element
+   --> crates/xsht/src/lint_prefer_fail.rs:726:9
+    |
+726 | / ...   for source in [
+727 | | ...       // A qualified constructor, an error that already exists, and an
+728 | | ...       // `Err` that is a value and not a `return`.
+729 | | ...       "error LoadError = Missing(path: Path) | Busy\n\nproc load(inner: Result[Int, LoadError]) -> Result[Int, LoadError] {\n...
+...   |
+732 | | ...       assert!(diagnostics.is_empty(), "{source}\n{diagnostics:?}");
+733 | | ...   }
+    | |_______^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#single_element_loop
+    = note: `-D clippy::single-element-loop` implied by `-D clippy::complexity`
+    = help: to override `-D clippy::complexity` add `#[allow(clippy::single_element_loop)]`
+help: try
+    |
+726 ~         {
+727 +             let source = "error LoadError = Missing(path: Path) | Busy\n\nproc load(inner: Result[Int, LoadError]) -> Result[Int, LoadError] {\n  match inner {\n    Ok(0) => return Err(LoadError.Busy())\n    Ok(value) => Ok(value)\n    Err(problem) => return Err(problem)\n  }\n}\n\nproc tail() -> Result[Int, LoadError] {\n  Err(.Busy())\n}\n";
+728 +             let diagnostics = lint(source);
+729 +             assert!(diagnostics.is_empty(), "{source}\n{diagnostics:?}");
+730 +         }
+    |
+
+error: this assertion has a constant value
+  --> crates/xsht/src/lint_redundant_default_remove_tests.rs:44:5
+   |
+44 |     assert!(xsh_registry::signature::REMOVE_MISSING_OK_DEFAULT);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: consider moving this into a const block: `const { assert!(..) }`
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#assertions_on_constants
+   = note: `-D clippy::assertions-on-constants` implied by `-D clippy::style`
+   = help: to override `-D clippy::style` add `#[allow(clippy::assertions_on_constants)]`
+
+error: items after a test module
+    --> crates/xsht/src/lint_rules.rs:1436:1
+     |
+1436 | mod tests {
+     | ^^^^^^^^^
+...
+1701 | impl<'a> Linter<'a> {
+     | ^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/main/index.html#items_after_test_module
+     = note: `-D clippy::items-after-test-module` implied by `-D clippy::style`
+     = help: to override `-D clippy::style` add `#[allow(clippy::items_after_test_module)]`
+     = help: move the items to before the test module was defined
+
+error: could not compile `xsht` (lib test) due to 38 previous errors
+
+
+cleanup argv: ["docker", "stop", "--time", "5", "057f78f4f42fee8aa337be63e97f2e3b3be2398a571a18668326bb1c0f8693e3"]
+Flag --time has been deprecated, use --timeout instead
+Error response from daemon: No such container: 057f78f4f42fee8aa337be63e97f2e3b3be2398a571a18668326bb1c0f8693e3
+cleanup exit: 1
+
+cleanup argv: ["docker", "rm", "--force", "057f78f4f42fee8aa337be63e97f2e3b3be2398a571a18668326bb1c0f8693e3"]
+cleanup exit: 0
+
+cleanup argv: ["docker", "ps", "--all", "--no-trunc", "--filter", "id=057f78f4f42fee8aa337be63e97f2e3b3be2398a571a18668326bb1c0f8693e3", "--format", "{{.ID}}"]
+cleanup exit: 0
