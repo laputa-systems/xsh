@@ -271,7 +271,7 @@ impl LiveStream for LinuxThreadStream {
                     let Ok(stat) = std::fs::read_to_string(path.join("stat")) else {
                         continue;
                     };
-                    let Some(parsed) = parse_linux_stat(&stat) else {
+                    let LinuxStatParse::Valid(parsed) = parse_linux_stat(&stat) else {
                         continue;
                     };
                     return Ok(Some(thread_record_value(
@@ -1282,7 +1282,9 @@ fn linux_process_record(
     uid: u32,
 ) -> Option<ProcessRecord> {
     let stat = linux_stat_text(&path.join("stat")).ok()?;
-    let parsed = parse_linux_stat(&stat)?;
+    let LinuxStatParse::Valid(parsed) = parse_linux_stat(&stat) else {
+        return None;
+    };
     Some(linux_process_from_stat(pid, path, boot_time_ms, ticks_per_second, uid, parsed))
 }
 
@@ -1347,34 +1349,57 @@ struct LinuxStat {
 }
 
 #[cfg(target_os = "linux")]
-fn parse_linux_stat(stat: &str) -> Option<LinuxStat> {
-    let open = stat.find('(')?;
-    let close = stat.rfind(") ")?;
+enum LinuxStatParse {
+    Exited,
+    Valid(LinuxStat),
+    Malformed,
+}
+
+#[cfg(target_os = "linux")]
+fn parse_linux_stat(stat: &str) -> LinuxStatParse {
+    let Some(open) = stat.find('(') else {
+        return LinuxStatParse::Malformed;
+    };
+    let Some(close) = stat.rfind(") ") else {
+        return LinuxStatParse::Malformed;
+    };
     let command = stat[open + 1..close].to_string();
     let rest = &stat[close + 2..];
     let fields = rest.split_whitespace().collect::<Vec<_>>();
-    let status = fields.first()?.to_string();
-    let parent_pid = fields.get(1)?.parse::<i64>().ok()?;
-    let start_ticks = fields.get(19)?.parse::<i64>().ok()?;
-    let integer = |index: usize| fields.get(index)?.parse::<i64>().ok();
-    let user_ticks = integer(11)?;
-    let system_ticks = integer(12)?;
-    let rss_bytes = integer(21)?.checked_mul(rustix::param::page_size() as i64)?;
-    let counters = [
-        user_ticks, system_ticks, user_ticks.checked_add(system_ticks)?, start_ticks,
-        0, rss_bytes, integer(20)?, integer(2)?, integer(3)?, integer(4)?,
-        integer(16)?, integer(15)?, integer(17)?, integer(36)?,
-    ];
-    if [0, 1, 2, 3, 5, 6, 7, 8, 12, 13].into_iter().any(|index| counters[index] < 0) {
-        return None;
+    let Some(status) = fields.first() else {
+        return LinuxStatParse::Malformed;
+    };
+    let status = *status;
+    if status == "X" {
+        return LinuxStatParse::Exited;
     }
-    Some(LinuxStat {
-        command,
-        status,
-        parent_pid,
-        start_ticks,
-        counters,
-    })
+    let parsed = (|| {
+        let parent_pid = fields.get(1)?.parse::<i64>().ok()?;
+        let start_ticks = fields.get(19)?.parse::<i64>().ok()?;
+        let integer = |index: usize| fields.get(index)?.parse::<i64>().ok();
+        let user_ticks = integer(11)?;
+        let system_ticks = integer(12)?;
+        let rss_bytes = integer(21)?.checked_mul(rustix::param::page_size() as i64)?;
+        let counters = [
+            user_ticks, system_ticks, user_ticks.checked_add(system_ticks)?, start_ticks,
+            0, rss_bytes, integer(20)?, integer(2)?, integer(3)?, integer(4)?,
+            integer(16)?, integer(15)?, integer(17)?, integer(36)?,
+        ];
+        if [0, 1, 2, 3, 5, 6, 7, 8, 12, 13].into_iter().any(|index| counters[index] < 0) {
+            return None;
+        }
+        Some(LinuxStat {
+            command,
+            status: status.to_string(),
+            parent_pid,
+            start_ticks,
+            counters,
+        })
+    })();
+    match parsed {
+        Some(parsed) => LinuxStatParse::Valid(parsed),
+        None => LinuxStatParse::Malformed,
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -1413,7 +1438,11 @@ pub(crate) fn sample_processes(root: &std::path::Path, boot_time_ms: i64, ticks_
             Err(error) if linux_process_vanished(&error) || error.kind() == std::io::ErrorKind::PermissionDenied => continue,
             Err(error) => return Err(RuntimeError::host("linux-sample", &error).with_span(span)),
         };
-        let parsed = parse_linux_stat(&text).ok_or_else(|| RuntimeError::new("linux-sample", format!("malformed stat for pid {pid}")).with_span(span))?;
+        let parsed = match parse_linux_stat(&text) {
+            LinuxStatParse::Exited => continue,
+            LinuxStatParse::Valid(parsed) => parsed,
+            LinuxStatParse::Malformed => return Err(RuntimeError::new("linux-sample", format!("malformed stat for pid {pid}")).with_span(span)),
+        };
         let uid = match entry.metadata() {
             Ok(metadata) => metadata.uid(),
             Err(error) if linux_process_vanished(&error) => continue,
@@ -2281,7 +2310,16 @@ mod linux_sample_process_tests {
     use std::fs::{self, File};
     use std::os::fd::AsRawFd;
     use std::os::unix::fs::symlink;
+    use std::path::Path;
     use std::process::{Child, Command};
+
+    const EXITED_STAT: &str = "28197 (true) X 0 -1 -1 0 -1 4227084 74 0 0 0 0 0 0 0 20 0 0 0 38168742 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 17 13 0 0 0 0 0 0 0 0 0 0 0 0 0\n";
+
+    fn write_stat_fixture(root: &Path, stat: &str) {
+        let process_root = root.join("28197");
+        fs::create_dir(&process_root).expect("create process fixture");
+        fs::write(process_root.join("stat"), stat).expect("write process stat fixture");
+    }
 
     struct ChildGuard(Child);
 
@@ -2316,6 +2354,38 @@ mod linux_sample_process_tests {
         let records = sample_processes(root.path(), 0, 100, Span::new(SourceId::new(0), 0, 0))
             .expect("vanished process is skipped");
         assert!(records.is_empty());
+    }
+
+    #[test]
+    fn sample_processes_skips_exited_stat_with_invalid_process_group_fields() {
+        let root = tempfile::tempdir().expect("create proc fixture");
+        write_stat_fixture(root.path(), EXITED_STAT);
+
+        let records = sample_processes(root.path(), 0, 100, Span::new(SourceId::new(0), 0, 0))
+            .expect("exited process is skipped");
+        assert!(records.is_empty());
+    }
+
+    #[test]
+    fn sample_processes_rejects_invalid_process_group_fields_for_live_stat() {
+        let root = tempfile::tempdir().expect("create proc fixture");
+        let live_stat = EXITED_STAT.replacen(") X ", ") S ", 1);
+        write_stat_fixture(root.path(), &live_stat);
+
+        let error = sample_processes(root.path(), 0, 100, Span::new(SourceId::new(0), 0, 0))
+            .expect_err("live malformed process stat stays an error");
+        assert_eq!(error.kind, "linux-sample");
+    }
+
+    #[test]
+    fn sample_processes_keeps_valid_live_stat() {
+        let root = tempfile::tempdir().expect("create proc fixture");
+        let live_stat = EXITED_STAT.replace(") X 0 -1 -1 ", ") S 0 1 1 ");
+        write_stat_fixture(root.path(), &live_stat);
+
+        let records = sample_processes(root.path(), 0, 100, Span::new(SourceId::new(0), 0, 0))
+            .expect("valid live process stat");
+        assert_eq!(records.len(), 1);
     }
 
     #[test]
