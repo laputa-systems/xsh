@@ -38,12 +38,14 @@ wait-before-lowerer sequence. No inference implementation is on main. Typing
 pipeline `4b` passes fresh builds/check/lint; verifier passes 178/205, lowerer
 34/42 (corpus-120 timeout is not a pass), semantic 19, schemes 5, and body 3.
 Paired native routes pass 3/8. Mixed-`Any`/alias fix `6a` in pipeline `520` is
-unverified. Generic fact `Return` 16 / `value` 15 versus actual body `Return`
-19 / `value` 18 indicates a producer-association bug; verifier remains strict
-and the encoder owner is active. W9 chain `04` corrected capture on source
+unverified. A diagnostic initially suggested a producer-association bug, but
+the next trace established a one-based block-ID lookup error in the verifier.
+The emitted return and its fact agree. The verifier lookup and reversed
+default/rest parameter encoding flags are under repair. W9 chain `04` corrected capture on source
 `74f`/schema 3 passes 6,760 outcomes across 68 ranges; both original exact-owner
-proofs cover 1,690 inputs. Chain-03 rejects controller `a8` against new `aac`;
-historical source qualification repair is underway. No post-repair comparison
+proofs cover 1,690 inputs. Historical source qualification fix `bef85594c`
+passes 71 focused tests and revalidates all chain-03 assignment proofs without
+changing its receipt. One corrected comparison is authorized; no terminal result
 or parity acceptance is claimed. See [the current handoff](HANDOFF.md) for pins,
 per-lane status, and evidence. Lean remains paused.
 

@@ -129,9 +129,11 @@ work is authorized by this resume.
   passes 178/205 tests; lowerer passes 34/42, with the corpus-120 timeout not a
   pass; semantic, schemes, and body suites pass 19, 5, and 3 tests. Paired
   native routes pass 3/8. Follow-on mixed-`Any`/alias fix `6a` in pipeline `520`
-  is unverified. Diagnostics show the generic fact at `Return` 16 / `value` 15
-  while the actual body is `Return` 19 / `value` 18, indicating a producer
-  association bug. The verifier remains strict and the encoder owner is active.
+  is unverified. A diagnostic initially suggested a producer association bug.
+  The next trace established that the verifier indexed a one-based block ID
+  directly, reading the next function's body. The emitted return and its fact
+  agree. The verifier owner is repairing the lookup without loosening the proof;
+  the encoder owner separately found reversed default/rest parameter flags.
   No inference is on main.
   SPEC docs render `0cf` passes only as a static check with old 787 products;
   cohort plan `044` has no 95/85 result.
@@ -159,9 +161,11 @@ work is authorized by this resume.
   tests. Corrected reference source `74f1551ee9e3066b653ae190779e16d511c90293`
   builds successfully. Chain `04` on that source and schema 3 passes the
   corrected capture: 6,760 outcomes across 68 ranges; both original exact-owner
-  proofs cover 1,690 inputs. The chain-03 assignment rejects controller `a8`
-  against the new `aac`; historical source qualification repair is underway.
-  No post-repair comparison has run and no parity is claimed.
+  proofs cover 1,690 inputs. Historical source qualification fix `bef85594c`
+  passes 71 focused tests and revalidates all 1,690 chain-03 assignment proofs
+  without changing the receipt. It checks the ancestor controller's tree and
+  unchanged proof authorities. One corrected comparison is authorized; no
+  terminal result or parity is claimed.
 - The [915 acceptance follow-up](evidence/acceptance-follow-up-915/README.md)
   records the suffix checks and focused head rerun. `xsht check` passes 1,542
   files; `xsht lint` exits zero with 72 findings and 115 notes, so lint is not
