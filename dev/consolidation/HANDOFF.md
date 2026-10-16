@@ -90,6 +90,28 @@ work is authorized by this resume.
 
 ### Latest canonical and solver checkpoints
 
+- The clean `ed90857bd` replay passes 305 process tests and 741 library tests,
+  then stops at the desugar comparison: 115 XSHT tests pass and one fails.
+  The written procps file passes 39 tests; its transformed counterpart fails
+  the iostat mebibyte-header assertion with empty stdout. A separate repair
+  owner is narrowing the cause. [Raw evidence](evidence/canonical-ed908/README.md)
+  preserves the failure. Soundness, privileged checks, and the normal full
+  native suite were not reached. No timing credit is claimed.
+- All 184 mapped expression route probes pass on clean `ed90857bd` with its
+  actual verification products, covering 92 tags in normal and forced modes.
+  Each emits one witness artifact. Independent artifact review is pending;
+  this is not a full native suite or evidence for unsupported non-Expr routes.
+- Isolated scheme checkpoint `121d39242` passes all 41 constraints and nine
+  exact probes, with root-library and XSHT all-target compilation passing.
+  The pre-fix union, Set, and Module probes reproduce their failures. The fix
+  lowers inherited record descendants and shares the recovery predicate.
+  [Evidence and independent source approval](evidence/typing-scheme-checkpoints/README.md)
+  qualify this substrate checkpoint. Function schemes, immutable body facts,
+  and end-to-end inferred capability acceptance remain under implementation.
+- The root-package strict Clippy command and the changed fuzz target with
+  `--no-deps` pass on `ed90857bd`. The initial fuzz command includes existing
+  XSHT dependency diagnostics and fails. [Both scopes and outputs](evidence/clippy-ed908/README.md)
+  are retained; these checks do not establish workspace-wide lint cleanliness.
 - The clean `45b4c1cd8` canonical attempt passes 305 process tests, 741 debug
   unit tests, and all 116 selected XSHT integration tests. The complete
   desugar comparison passes. Soundness then stops at the replacement-label
