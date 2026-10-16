@@ -8,29 +8,21 @@ functional close or performance credit. Lean and Phase F remain paused.
 
 ## Current resume
 
-The owner resumed the typing consolidation campaign after the documentation
-refresh at `bfffd3af5e0002668e685e1711d7e6d9ee90ad51`. Canonical source
-`e89e35f29` includes the accepted `df` repair from `507`. Integrated
-`xsht check` and lint pass on four files. Fake runner lane `5f21` passes 11
-tests and its plan test passes 1/1. Shell syntax check and real workload test
-`2ab` (1/1) pass.
-The canonical batch on `e89e35f29` ended with exit 3 and 13 native failures.
-It left source clean before and after. Cleanup resolved, with no OOM or swap;
-the container is absent. No canonical suffix or performance close was reached.
-Follow-up repairs on main address all 13 failure causes: hostname `63734367c`,
-lifecycle `fff7fed23` and `610a22965`, and OS `14adcd5e6`. Their exact focused
-tests pass (3, 8, and 2 respectively). The integrated `14ad` run passed 15/15
-exact tests and `xsht check`. The corrected four-caller gate passed 45/45. Its
-two earlier `docker.host_link_tools` errors came from missing mold and common
-Git mounts; the corrected runner needed no source patch. Cache fix `f3afacb63`
-is on main as `af7c55374`. Main is now `3bae6555c`; route-runner fixes `36d58`
-and `70192` are integrated. Seven integrated runner tests and 63 route self-tests
-pass. The private `gates` debug-default lint warning is removed without changing
-its `Bool` contract. Source check, lint, and exact plan pass. The
-canonical batch has not rerun and remains held for W9 source-closure tooling
-review. The preceding canonical run at
-`8d0d6362418a6ab1b58582cf5574a7e0f4ac3542` ended with the failure detailed
-below. Historical gate helpers require fresh paths and source qualification.
+The current documentation checkpoint is `21344a566`. The canonical batch on
+`e89e35f29` ended with exit 3 and 13 native failures. Follow-up fixes address
+all 13 causes, and their exact tests pass: three hostname, eight lifecycle, and
+two OS cases. The corrected four-caller gate passes 45/45. Current focused
+check, lint, and exact plan pass. Canonical acceptance has not rerun and remains
+held for W9 source-closure tooling review. It has no functional close or
+performance credit.
+
+Route-runner fixes `36d58` and `70192` pass seven integrated runner tests and
+63 route self-tests. Route-pin refresh `f19` preserves 92 child-byte outputs
+and passes 62 self-tests; its 184 actual outputs remain unrun. Gate map
+`7d087dd` scopes native workflow checks to three callers, four native files,
+and XSH/XSHT products. The cache regression fix `f3afacb63` is integrated as
+`af7c55374`; its root and non-root cases pass. These results grant no
+performance credit.
 
 Acceptance launch, structural/semantic review, loop selection, typing witness
 readiness, and historical AWK evidence were inventoried independently. No Lean
@@ -232,9 +224,9 @@ work is authorized by this resume.
   fix and scalar/list proofs are active. Shape fix `9ad` and module fixture
   `4f1` are integrated but unverified. Checker `85e` remains under review, with
   BlockOwner and rest-parameter proofs in progress. No inference is on main.
-- Review found a config-deletion bypass in the cohort scan. Its 9,194-site
-  count and ten P2 repair units are not accepted while that repair is underway.
-  No annotations have been removed.
+- An earlier cohort review found a config-deletion bypass. A follow-up fixed
+  it. The 9,194-site inventory remains a raw count with no accepted eligibility
+  denominator or annotation removals.
 - Earlier typing results include a fresh compile of the library, `xsh`, `xsht`,
   and helper, with four encoding, five semantic, and one module-ground tests
   passing. Prepared and three forged tests failed on invalid doc/`Result`
@@ -622,70 +614,58 @@ work is authorized by this resume.
 
 ### Current queue
 
-The canonical batch on `e89e35f29` ended at native tests with exit 3, as
-recorded above. All 13 failure causes have targeted fixes, and their exact tests
-pass. The corrected four-caller gate passes 45/45. Its two earlier
-`docker.host_link_tools` errors came from missing mold and common Git mounts;
-the corrected runner needed no source patch. The verified code checkpoint is `3bae6555c`. The
-`df` capacity repair from `507` is integrated. Focused check and lint, fake
-runner 11/11, plan 1/1, `sh -n`, and workload test `2ab` 1/1 pass as detailed
-above. The earlier `8d` canonical failure is historical and remains documented.
+The accepted `df` repair is integrated. Focused check and lint pass on four
+files; fake runner lane `5f21` passes 11 tests, its plan passes 1/1, `sh -n`
+passes, and real workload test `2ab` passes 1/1. The stable copied-artifact
+suffix rerun of `a22` passes check 1,526, lint with zero findings and 113 notes,
+metrics, and docs/tour tests (3 pass). These results do not close canonical
+acceptance.
 
-Route-runner fixes `36d58` and `70192` preserve explicit product attestations
-and use the canonical `xsht` path in the collector. Seven integrated runner
-tests and 63 route self-tests pass. The private `gates` debug-default lint
-warning is removed without changing its `Bool` contract. Source check, lint,
-and exact plan pass. Canonical preflight sees unchanged Rust since `e89`
-and sufficient host headroom. The canonical batch has not rerun and remains
-held for W9 source-closure tooling review, not inference.
+W9 integration `fa4` passes 206 combined Python tests and 53 publication
+tests. Its 1,690 preflight entries use the root `xsht-config.ini` 1,687 times
+and `docs/snippets/tour/project/xsht-config.ini` three times. Caller fix `54a`
+passes 75 Python runner tests. Its schema-4 source receipt has a genuine seal.
+The raw and transformed owner-helper prebuild authority mismatch remains under
+repair. No Cargo build, native run, capture, or parity result is qualified.
 
-Stable copied-artifact suffix rerun of `a22` passes check 1,526, lint zero
-findings/113 notes, metrics, and docs/tour 3. The shared `xsh` drift from
-`a911` to `d058` is handled by immutable copies, not by assuming the products
-are interchangeable. Queue `b6` passes 11 tests and four-file check/lint;
-SGID private-scratch passes `test_repository_tmp.py`,
-`test_profile_cost_selection.py`, and `test_profile_cleanup_signal.py`; `f958`
-passes focused lint with zero findings/notes and three negative preflight cases.
-Replay launcher/bridge `73c`/`334` are integrated. Driver fix `8d` passes 22
-tests as root; the earlier
-`9a` replay failed before Docker and ran no suites. No release, timing result,
-or consolidation close is available.
+Inference pipeline commit `1795679a5` builds against its revision-specific
+target with `fresh=false`. Five of eleven exact selectors pass. Six fail. UInt
+preservation passes, while fixture and proof issues remain active. No inference
+implementation is on main. Capture commit `720cfe40` failed its isolated genuine
+compile with 12 Rust errors. Fix commit `9664a95de` remains uncompiled. Review
+continues on identity erasure, writer bijection, assignment identity, and
+harvest collision. Deep-cloned capture memory is not accepted.
 
-The checker audit's assignment and reader repairs and imported-standard-module
-fact correction are integrated. Requalify the repaired facts and readers on the
-final source. The invariants establish authority failures in
-controlled checker states, not demonstrated user-visible failures. Existing
-nearest-visible-name proof filters retain their identity checks. Changing
-those filters could replace a real shadow and is outside this repair.
+Each source revision and tree needs a separate Cargo target. Kache and the
+registry may be shared. A `fresh=true` run on the shared `720` target selected
+stale harness `ec8f` and is rejected. This cache failure does not invalidate
+earlier inspected builds that used `fresh=false`. The cohort config-deletion
+bypass is fixed; its 9,194 sites are a raw count, with no accepted eligibility
+denominator and no annotation removals.
 
-The diagnostic compiler replay at `d2c842812` finds 35 XSH and 19 XSHT source
-sites requiring explicit decisions for a synthetic expression variant. The
-two earlier classifier survivors now require compiler decisions. This recount
-includes the checker and shared-flow repairs. Its synthetic source must never
-merge and supplies no runtime reachability evidence.
+The canonical batch remains held for W9 source-closure tooling review. Lean and
+Phase F remain paused. The campaign has no functional close or performance
+credit.
 
-The archived W9 corpus is recovered. Its 1,690 file paths, bytes, modes, and
-manifest match the pinned e240 source. The original legacy capture is missing.
-Fresh captures must bind the same source and cohort before exact-owner proof
-and candidate comparison. Historical ownership receipts cannot replace the
-missing outcomes. Five current harness builds qualified on `0d6`; fresh capture then hit the
-reference serialization OOM recorded above. Recovery tools and proofs still
-require complete fresh outcomes. No parity is claimed.
+### Remaining acceptance obligations
 
-The migrated expression children require explicit matrix requalification.
-Keep the scheduler comparison's original default workers and outcome checks.
-
-The [shared flow integration](designs/lint-rules.md#flow-summaries-in-the-shared-walk)
-is integrated with focused parity and an independent static review. Replay the
-feature-touch probe and structural scan on the repaired source. Focused checks
-do not replace the final canonical and full native gates.
-
-Wider, staggered general-inference work is authorized in isolated worktrees
-while consolidation acceptance continues. This supersedes the earlier
-wait-before-lowerer sequence. Keep each lane's source and evidence separate;
-there is no inference implementation on main. Shared integration, convergence,
-and the accepted performance baseline remain gated on consolidation acceptance.
-Lean and Phase F remain paused.
+- Requalify the checker assignment and reader repairs, plus the imported
+  standard-module fact correction, on final source. Existing invariants show
+  authority failures in controlled checker states, not demonstrated
+  user-visible failures. Keep nearest-visible-name proof filters that retain
+  their identity checks.
+- Rerun the diagnostic compiler replay at `d2c842812` and the structural scan
+  on repaired source. The diagnostic counts 35 XSH and 19 XSHT sites for a
+  synthetic expression variant. It supplies no runtime reachability evidence.
+- Capture the archived W9 corpus against the same source and cohort before
+  exact-owner proof and candidate comparison. The 1,690 file paths, bytes,
+  modes, and manifest match pinned e240 source, but the original legacy capture
+  is missing. Historical ownership receipts cannot replace those outcomes.
+- Requalify the migrated expression children through the matrix. Keep the
+  scheduler comparison's original default workers and outcome checks.
+- Replay the feature-touch probe for the integrated shared-flow change and
+  rerun the structural scan. Focused checks do not replace canonical and full
+  native gates.
 
 ## Resume
 

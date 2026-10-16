@@ -5,71 +5,35 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `master` in `/home/josh/d/laputa-systems/xsh`; the owner merged consolidation
 into master on 2026-10-11. Private lanes and original baselines remain preserved. All six design drafts were approved on 2026-10-11.
 
-**Status: active and incomplete, 2026-10-16.** The canonical batch on clean
-source `8d0d6362418a6ab1b58582cf5574a7e0f4ac3542` ended at XSHT with exit 3 on
-the original `df` filesystem-capacity desugar test (192512 instead of 65536);
-its transformed counterpart passed. Earlier stages were integration 223,
-auxiliary 23, symbol 1, PTY 58 passed/3 ignored, debug 747 passed/3 ignored,
-and XSHT 115 passed/1 failed/5 filtered. No later stage, full native suite, or
-canonical suffix ran. Source checks matched before and after. No OOM or swap
-occurred; cleanup resolved and the container is gone. This remains historical.
+**Status: active and incomplete, 2026-10-16.** At checkpoint `21344a566`, the
+canonical batch remains held for W9 source-closure tooling review. The corrected
+four-caller gate passes 45/45, and the current focused check, lint, and plan
+pass. The earlier canonical failures and their focused repairs are recorded in
+the [handoff](HANDOFF.md#latest-canonical-and-solver-checkpoints).
 
-The canonical batch on source `e89e35f29` ended at native tests with exit 3:
-13,891 passed, 13 failed, and 78 skipped out of 13,982 selected. Earlier Rust,
-XSHT, soundness, and privileged stages passed. No suffix or performance close
-ran. Follow-up fixes address all 13 causes, and their exact tests pass (3
-hostname, 8 lifecycle, 2 OS). The integrated `14ad` run passed 15/15 exact tests
-and `xsht check`. A corrected four-caller gate passed 45/45. Two earlier
-`docker.host_link_tools` errors came from missing mold and common Git mounts;
-the corrected run needed no source patch. The verified code checkpoint is `3bae6555c`. Route-runner
-fixes `36d58` and `70192` pass seven integrated runner tests and 63 route
-self-tests. The private `gates` debug-default lint warning is removed; its
-`Bool` contract is unchanged. Source check, lint, and exact plan pass.
-The canonical batch has not rerun and remains held for W9 source-closure tooling
-review. Route-pin refresh `f19` preserves 92 child-byte outputs and passes 62
-self-tests; its 184 actual outputs remain unrun. Gate map `7d087dd` scopes the
-native workflow to three callers, four native files, and XSH/XSHT products.
-Cache fix `f3afacb63` is on main as `af7c55374`; its root and non-root cases,
-check, and lint pass. These checks grant no performance credit. See the [current
-handoff](HANDOFF.md) for the failures and retained replay evidence.
+W9 integration `fa4` passes 206 combined Python tests and 53 publication
+tests. Its 1,690 preflight entries use the root `xsht-config.ini` 1,687 times
+and `docs/snippets/tour/project/xsht-config.ini` three times. Caller fix `54a`
+passes 75 Python runner tests. Its schema-4 source receipt has a genuine seal.
+The raw and transformed owner-helper prebuild authority mismatch remains under
+repair, so no Cargo build, native run, capture, or parity result is qualified.
 
-The accepted `df` repair from `507` replaces the shared-filesystem counter
-comparison with same-output invariants and exact counters on a private 64 MiB
-tmpfs, using a controlled 256 KiB host writer. Cargo runner lock handoff `fcf`
-and selector fix `e89` are integrated. Integrated check and lint pass on four
-files. Fake runner lane `5f21` passes 11 tests, its plan test passes 1/1, and
-`sh -n` passes. Real workload test `2ab` passes 1/1. The stable copied-artifact
-suffix rerun of `a22` passes check 1,526, lint zero findings/113 notes, metrics,
-and docs/tour 3. Queue `b6` passes 11 tests and four-file check/lint; SGID
-private-scratch passes three Python regression scripts; `f958` passes focused
-lint with zero findings/notes and three negative preflight cases. These suffix
-results use immutable copied products after the shared `xsh` hash changed
-`a911`→`d058`.
+Inference pipeline `1795679a5` builds against its revision-specific target
+with `fresh=false`. Five of eleven exact selectors pass and six fail. UInt
+preservation passes while fixture and proof issues remain active. Capture
+commit `720cfe40` failed its isolated genuine compile with 12 Rust errors. Fix
+commit `9664a95de` remains uncompiled. Identity erasure, writer bijection,
+assignment identity, and harvest collision remain under review. Deep-cloned
+capture memory is not accepted.
 
-W9 source repair `b8` passes 213 Python tests and is integrated. The full
-schema-3 comparison at controller `bef` processed 1,690 inputs and 6,760
-outcomes, then exited 1. It found seven exact-owner legacy-projection
-mismatches at indices 885, 887, 889, 897, 899, 1686, and 1688. Investigation
-is active. Later review found all chain 01, 03, and 04 captures unqualified
-because 64 mutable main-import paths crossed 218 source entries; the seven
-mismatches are only the visible subset. The closure builder passes 8 tests as
-root and controller wiring is active on a separate e240 program snapshot. No
-new captures exist and W9 parity is not accepted. Schema-4 controller `d1d5b833f` passed 191 adapter tests and 52 runner tests. Integrated checkpoint `9acd` passes 200 plus 52
-Python tests. Review found config-consumed roots were not compared with
-audit-config bytes; helper closure repair is active. No native build, capture,
-or parity result exists.
+The cohort config-deletion bypass is fixed. Its 9,194 sites are a raw count,
+with no accepted eligibility denominator and no annotation removals. See the
+[handoff](HANDOFF.md) for Cargo target reuse rules and the rejected stale-harness
+run.
 
-Isolated inference pipeline `7ef89df4e` has scalar/list proof commits `6135`
-and `7ef8`. Corrective proof `b65513f0c` is in isolated pipeline `2cf56686c`;
-its focused compile and tests are running. Contextual list cases remain under
-repair. The prior diagnostic passes 206/207 full
-tests and 44/46 lowerer tests outside the corpus. Capture-writer and
-runtime-identity repairs remain source-only with a known red witness. No
-inference is on main. The source-qualified cohort inventory has 9,194 sites
-across 48 files. The config-deletion bypass is fixed. Eligibility review remains
-open, with no frozen denominator or annotation removals. Lean remains paused. Final acceptance and the
-post-consolidation performance baseline remain incomplete. See
-[the current handoff](HANDOFF.md) for per-lane evidence.
+Inference is not on main. Lean remains paused. The campaign has no functional
+close or performance credit. See the [current handoff](HANDOFF.md) for evidence
+and the active queue.
 
 **Earlier checkpoints:** The implementation and focused
 repairs are integrated on `master`. The latest bounded corpus-worker and
