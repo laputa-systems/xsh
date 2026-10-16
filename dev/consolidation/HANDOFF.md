@@ -14,12 +14,13 @@ closeout guard before selecting work. The resume assignments are:
 |---|---|---|
 | Inference ownership | `typing-pipeline-integration` | `e2cf1fec2`; exact generic exports, retained values by binding identity, and required regressions |
 | Acceptance | `resume-acceptance` | `e048b33f2`; approved supplemental and canonical gates |
-| Loop speed | removed after read-only review | `e048b33f2`; completed the selector and repeated-validation audit |
+| Loop speed | `resume-route-replay` | initial audit complete; current driver must admit distinct If/Match probes |
 | W9 parity | `resume-w9` | `e048b33f2`; immutable capture admission and strict comparison |
 | Routes and resources | `resume-routes`, `resume-route-tools` | frozen `e048b33f2` source; separate collector edits and current route matrix |
 | Fallback review | `resume-fallback-review` | remaining expression dispatch inventory in the AST extractor |
 | Operand order | `resume-order-review` | existing assertion map and focused missing order oracles |
 | Route strategy | `resume-route-strategy` | truthful process-command apply witness and dispatch invariant |
+| Process source order | `resume-process-order` | repair run operand evaluation to the user-selected SPEC contract |
 | Semantic review | removed after integration | `e048b33f2`; ten acceptance rows and current-source qualification |
 | Performance preparation | removed after integration | `e048b33f2`; reviewed existing post-functional gate inputs and controls |
 
@@ -109,6 +110,25 @@ Production accounting is one changed schema row, two deleted comment lines,
 and 31 added test lines. The e048 freeze and receipts remain historical; final
 builds and routes must qualify the repaired source. Full acceptance waits for
 that freeze and the missing native order/branch assertions.
+
+`b06f17e56` adds four native assertions for path options, reversed named module
+arguments, pipeline callback sequencing, and recursive named calls. Each passes
+in both modes against the e048 products; final-source receipts remain required.
+`1a5a1ffed` adds a pure If probe. Collector `8a44e1489` retains distinct exact
+proof identities `(tag, mode, route_id, test_id)` and aggregates branch coverage
+by route. Distinct tests may corroborate the same forced route; repeated exact
+claims and contradictory test/mode claims fail. All 69 collector controls pass
+at integration. The replay driver still needs to admit the 94 exact probes.
+
+The order review exposed a contract conflict: run syntax writes options and
+environment operands before the target, but the evaluator runs target,
+arguments, environment, redirections, then options. Existing process-frame tests
+preserve that phase order, contrary to the SPEC's source-order rule. The user
+explicitly chose **follow source order** on 2026-10-16. The process-order lane
+owns the failing regression, shared runtime/lowering repair, and correction of
+the old assertion. Run capture, pipeline, spawn-run, and command-builder order
+credit remains open until repaired. Final source qualification waits for this
+behavior change. Other route and inference work continues independently.
 
 The accepted results remain those recorded below. Starting a gate or repairing
 its iteration loop does not accept the source or close a remaining requirement.
