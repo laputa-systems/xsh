@@ -4,6 +4,43 @@ use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let arguments = env::args().skip(1).collect::<Vec<_>>();
+    if arguments.first().is_some_and(|argument| argument == "--expression-dispatch") {
+        if arguments.len() != 7 {
+            eprintln!("usage: semantic-route-ast-extractor --expression-dispatch SCHEMA INDEXED EXPLICIT SCHEMA_PATH INDEXED_PATH EXPLICIT_PATH");
+            return ExitCode::from(2);
+        }
+        let mut sources = Vec::new();
+        for (path, label) in arguments[1..4].iter().zip([
+            "schema source",
+            "indexed dispatch source",
+            "explicit frame dispatch source",
+        ]) {
+            match fs::read_to_string(path) {
+                Ok(source) => sources.push(source),
+                Err(error) => {
+                    eprintln!("read {label}: {error}");
+                    return ExitCode::from(2);
+                }
+            }
+        }
+        return match semantic_route_ast_extractor::extract_expression_dispatch_inventory(
+            &sources[0],
+            &sources[1],
+            &sources[2],
+            &arguments[4],
+            &arguments[5],
+            &arguments[6],
+        ) {
+            Ok(inventory) => {
+                println!("{}", inventory.to_json());
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("expression dispatch inventory: {error}");
+                ExitCode::from(2)
+            }
+        };
+    }
     if arguments.first().is_some_and(|argument| argument == "--call-frames") {
         if arguments.len() != 7 {
             eprintln!("usage: semantic-route-ast-extractor --call-frames SCHEMA INDEXED EXPLICIT SCHEMA_PATH INDEXED_PATH EXPLICIT_PATH");

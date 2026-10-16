@@ -263,6 +263,93 @@ pub struct FrameConstructorInventory {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpressionSourceRef {
+    pub path: String,
+    pub start_line: usize,
+    pub start_column: usize,
+    pub end_line: usize,
+    pub end_column: usize,
+    pub snippet: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpressionDispatchArm {
+    pub function: String,
+    pub variant: String,
+    pub predicate: String,
+    pub behavior: String,
+    pub arm_index: Option<usize>,
+    pub defensive_unreachable: bool,
+    pub source: ExpressionSourceRef,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpressionExecutorPath {
+    pub path: String,
+    pub predicate: String,
+    pub source: ExpressionSourceRef,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpressionClassifier {
+    pub function: String,
+    pub target: String,
+    pub pattern: String,
+    pub tags: Vec<String>,
+    pub source: ExpressionSourceRef,
+    pub predicate_source: ExpressionSourceRef,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpressionSchemaRow {
+    pub variant: String,
+    pub tag: String,
+    pub ordinal: u16,
+    pub effects: String,
+    pub class: String,
+    pub strategy: String,
+    pub classification: Option<String>,
+    pub line: usize,
+    pub source: ExpressionSourceRef,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpressionDispatchRow {
+    pub schema: ExpressionSchemaRow,
+    pub recursive_dispatch: ExpressionDispatchArm,
+    pub explicit_view_dispatch: ExpressionDispatchArm,
+    pub forced_dispatch: ExpressionDispatchArm,
+    pub indexed_frame_apply_selected: bool,
+    pub frame_strategy_overridden: bool,
+    pub prepared_operands_selected: bool,
+    pub normal_executor: Vec<ExpressionExecutorPath>,
+    pub child_dispatch: Vec<ExpressionDispatchArm>,
+    pub value_dispatch: Vec<ExpressionDispatchArm>,
+    pub host_value_dispatch: Vec<ExpressionDispatchArm>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpressionDispatchBoundary {
+    pub function: String,
+    pub kind: String,
+    pub outcome: String,
+    pub predicate: String,
+    pub source: ExpressionSourceRef,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ExpressionDispatchInventory {
+    pub schema_rows: Vec<ExpressionSchemaRow>,
+    pub normal_selector: ExpressionExecutorPath,
+    pub forced_selector: ExpressionExecutorPath,
+    pub selectors: BTreeMap<String, ExpressionExecutorPath>,
+    pub classifiers: BTreeMap<String, ExpressionClassifier>,
+    pub rows: Vec<ExpressionDispatchRow>,
+    pub boundaries: Vec<ExpressionDispatchBoundary>,
+    pub source_paths: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CollectionDispatchArm {
     pub tag: String,
     pub variant: String,
@@ -893,6 +980,1165 @@ pub fn extract_frame_constructor_inventory(
             ("forced_dispatch".into(), explicit_path.into()),
         ]),
     })
+}
+
+pub fn extract_expression_dispatch_inventory(
+    schema_source: &str,
+    indexed_source: &str,
+    explicit_source: &str,
+    schema_path: &str,
+    indexed_path: &str,
+    explicit_path: &str,
+) -> Result<ExpressionDispatchInventory, String> {
+    let schema = syn::parse_file(schema_source)
+        .map_err(|error| format!("parse instruction schema: {error}"))?;
+    let indexed = syn::parse_file(indexed_source)
+        .map_err(|error| format!("parse indexed dispatch: {error}"))?;
+    let explicit = syn::parse_file(explicit_source)
+        .map_err(|error| format!("parse explicit frame dispatch: {error}"))?;
+    let parsed_rows = expression_schema_rows(&schema)?;
+    let schema_rows = parsed_rows
+        .iter()
+        .map(|row| expression_schema_row(row, schema_source, schema_path))
+        .collect::<Vec<_>>();
+    let variants = parsed_rows
+        .iter()
+        .map(|row| row.variant.clone())
+        .collect::<BTreeSet<_>>();
+    let mut classifiers = BTreeMap::from([
+        (
+            "FrameApply".into(),
+            expression_classifier(
+                &indexed,
+                indexed_source,
+                indexed_path,
+                "indexed_frame_apply_tag",
+                "FrameApply",
+                FRAME_APPLY_TAGS,
+            )?,
+        ),
+        (
+            "prepared_operands".into(),
+            expression_classifier(
+                &indexed,
+                indexed_source,
+                indexed_path,
+                "indexed_frame_apply_prepares_operands",
+                "prepared operands",
+                FRAME_PREPARED_OPERAND_TAGS,
+            )?,
+        ),
+        (
+            "Int".into(),
+            expression_classifier(
+                &indexed,
+                indexed_source,
+                indexed_path,
+                "is_typed_int_tag",
+                "Int",
+                INT_TAGS,
+            )?,
+        ),
+        (
+            "Bool".into(),
+            expression_classifier(
+                &indexed,
+                indexed_source,
+                indexed_path,
+                "is_typed_bool_tag",
+                "Bool",
+                BOOL_TAGS,
+            )?,
+        ),
+    ]);
+    classifiers.extend(expression_schema_classifiers(
+        &schema,
+        schema_source,
+        schema_path,
+        &parsed_rows,
+    )?);
+    let frame_apply_tags = classifiers["FrameApply"]
+        .tags
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let prepared_tags = classifiers["prepared_operands"]
+        .tags
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    for tag in frame_apply_tags.iter().chain(prepared_tags.iter()) {
+        if !parsed_rows.iter().any(|row| row.tag == *tag) {
+            return Err(format!("expression classifier tag {tag} has no schema row"));
+        }
+    }
+    let normal_block = find_function(&indexed, "eval_indexed_expr")?;
+    let (_, normal_entry) = top_level_local_binding_expression(normal_block, "result")?;
+    let Expr::If(normal_entry) = normal_entry else {
+        return Err("normal indexed expression entry has no in-place dispatch".into());
+    };
+    if !is_normal_indexed_entry_condition(&normal_entry.cond)
+        || !indexed_entry_block_call(&normal_entry.then_branch, "eval_indexed_expr_with_frames")
+        || !normal_entry.else_branch.as_ref().is_some_and(|(_, otherwise)| {
+            indexed_entry_expr_call(otherwise, "eval_indexed_expr_inner")
+        })
+    {
+        return Err("normal indexed expression entry changed its frames/in-place split".into());
+    }
+    let normal_selector = ExpressionExecutorPath {
+        path: "eval_indexed_expr".into(),
+        predicate: expression_source_ref(indexed_path, indexed_source, normal_entry.cond.span())
+            .snippet,
+        source: expression_source_ref(indexed_path, indexed_source, normal_entry.span()),
+    };
+    let normal_frame_path = ExpressionExecutorPath {
+        path: "eval_indexed_expr_with_frames".into(),
+        predicate: normal_selector.predicate.clone(),
+        source: expression_source_ref(indexed_path, indexed_source, normal_entry.then_branch.span()),
+    };
+    let normal_recursive_path = ExpressionExecutorPath {
+        path: "eval_indexed_expr_inner".into(),
+        predicate: format!("else branch of {}", normal_selector.predicate),
+        source: expression_source_ref(
+            indexed_path,
+            indexed_source,
+            normal_entry
+                .else_branch
+                .as_ref()
+                .expect("validated normal indexed entry has an else branch")
+                .1
+                .span(),
+        ),
+    };
+    let inner_block = find_function(&indexed, "eval_indexed_expr_inner")?;
+    let direct_dispatch = normal_expr_view_kind_dispatch(&indexed, &variants)?;
+    let direct_view_arms = expression_match_dispatch_arms(
+        direct_dispatch.match_expression,
+        "eval_indexed_expr_inner",
+        "ExprViewKind",
+        &variants,
+        indexed_source,
+        indexed_path,
+    )?;
+    let inner_eager = eager_atom_branch(inner_block, "eval_indexed_expr_inner")?.1;
+    let selection_if = top_level_tag_match_branch(inner_block, "ExprIf", "ExprMatch")?;
+    let selection_match = expression_enum_match(
+        inner_block,
+        "ExprView",
+        "eval_indexed_expr_inner selection",
+    )?;
+    let selection_arms = expression_match_dispatch_arms(
+        selection_match,
+        "eval_indexed_expr_inner",
+        "ExprView",
+        &variants,
+        indexed_source,
+        indexed_path,
+    )?;
+    let explicit_block = find_function(&explicit, "eval_expr")?;
+    let explicit_in_place = top_level_if_condition(explicit_block, |expression| path_is_ident(expression, "in_place"), "in-place entry")?;
+    let explicit_eager = eager_atom_branch(explicit_block, "eval_expr")?.1;
+    let explicit_typed = top_level_typed_scalar_branch(explicit_block)?;
+    let (explicit_apply_index, explicit_apply) = find_frame_apply_branch(explicit_block, true)?;
+    let (explicit_prepared_index, explicit_prepared_branch) = top_level_classifier_branch(
+        &indexed,
+        "indexed_frame_apply_prepares_operands",
+    )?;
+    let (_, explicit_kind) = top_level_local_binding_expression(explicit_block, "view_kind")?;
+    let explicit_kind_call = find_single_method_call(explicit_block, "expr_view_kind")?;
+    if explicit_kind_call.args.len() != 0
+        || !path_is_ident(&explicit_kind_call.receiver, "tag")
+        || !expression_source_ref(explicit_path, explicit_source, explicit_kind.span())
+            .snippet
+            .contains("frame_strategy_error(tag, span)")
+    {
+        return Err("explicit frame evaluator no longer selects ExprViewKind from tag".into());
+    }
+    let forced_selector = ExpressionExecutorPath {
+        path: "ExplicitFrames::eval_expr".into(),
+        predicate: format!("forced path takes the false arm of {}", expression_source_ref(explicit_path, explicit_source, explicit_in_place.cond.span()).snippet),
+        source: expression_source_ref(explicit_path, explicit_source, explicit_in_place.span()),
+    };
+    let explicit_view_block = find_function(&explicit, "eval_expr_view")?;
+    let explicit_view_match = expression_enum_match(
+        explicit_view_block,
+        "ExprViewKind",
+        "eval_expr_view",
+    )?;
+    let explicit_view_arms = expression_match_dispatch_arms(
+        explicit_view_match,
+        "eval_expr_view",
+        "ExprViewKind",
+        &variants,
+        explicit_source,
+        explicit_path,
+    )?;
+    if explicit_view_arms.keys().cloned().collect::<BTreeSet<_>>() != variants {
+        return Err("explicit ExprViewKind dispatch does not cover the Expr schema exactly".into());
+    }
+    let child_arms = expression_view_dispatch_map(
+        &indexed,
+        "indexed_frame_apply_child",
+        &variants,
+        indexed_source,
+        indexed_path,
+    )?;
+    let value_arms = expression_view_dispatch_map(
+        &indexed,
+        "indexed_frame_apply_value",
+        &variants,
+        indexed_source,
+        indexed_path,
+    )?;
+    let host_value_arms = expression_view_dispatch_map(
+        &indexed,
+        "indexed_frame_apply_host_value",
+        &variants,
+        indexed_source,
+        indexed_path,
+    )?;
+    let eager_tags = parsed_rows
+        .iter()
+        .filter(|row| row.classification.as_deref() == Some("EagerAtom"))
+        .map(|row| row.tag.clone())
+        .collect::<BTreeSet<_>>();
+    let normal_view_kind_index = indexed_view_kind_fallback_index(inner_block)?;
+    let normal_view_kind_span = inner_block.stmts[normal_view_kind_index].span();
+    let selectors = BTreeMap::from([
+        ("normal_entry".into(), normal_selector.clone()),
+        ("normal_frame_dispatch".into(), normal_frame_path.clone()),
+        ("normal_recursive_entry".into(), normal_recursive_path.clone()),
+        (
+            "recursive_tag_to_view_kind".into(),
+            ExpressionExecutorPath {
+                path: "FullTag::expr_view_kind".into(),
+                predicate: classifiers["ExprViewKind"].pattern.clone(),
+                source: classifiers["ExprViewKind"].source.clone(),
+            },
+        ),
+        (
+            "recursive_selection".into(),
+            ExpressionExecutorPath {
+                path: "eval_indexed_expr_inner".into(),
+                predicate: expression_source_ref(indexed_path, indexed_source, selection_if.cond.span()).snippet,
+                source: expression_source_ref(indexed_path, indexed_source, selection_if.span()),
+            },
+        ),
+        (
+            "recursive_eager_atom".into(),
+            ExpressionExecutorPath {
+                path: "eval_indexed_expr_inner".into(),
+                predicate: expression_source_ref(indexed_path, indexed_source, inner_eager.cond.span()).snippet,
+                source: expression_source_ref(indexed_path, indexed_source, inner_eager.span()),
+            },
+        ),
+        (
+            "recursive_expr_view_kind".into(),
+            ExpressionExecutorPath {
+                path: "eval_indexed_expr_inner".into(),
+                predicate: expression_source_ref(indexed_path, indexed_source, normal_view_kind_span).snippet,
+                source: expression_source_ref(indexed_path, indexed_source, direct_dispatch.match_expression.span()),
+            },
+        ),
+        ("forced_frame_entry".into(), forced_selector.clone()),
+        (
+            "forced_in_place_bypass".into(),
+            ExpressionExecutorPath {
+                path: "ExplicitFrames::eval_expr".into(),
+                predicate: expression_source_ref(explicit_path, explicit_source, explicit_in_place.cond.span()).snippet,
+                source: expression_source_ref(explicit_path, explicit_source, explicit_in_place.span()),
+            },
+        ),
+        (
+            "forced_eager_atom".into(),
+            ExpressionExecutorPath {
+                path: "ExplicitFrames::eval_expr".into(),
+                predicate: expression_source_ref(explicit_path, explicit_source, explicit_eager.cond.span()).snippet,
+                source: expression_source_ref(explicit_path, explicit_source, explicit_eager.span()),
+            },
+        ),
+        (
+            "forced_typed_scalar".into(),
+            ExpressionExecutorPath {
+                path: "ExplicitFrames::eval_expr".into(),
+                predicate: expression_source_ref(explicit_path, explicit_source, explicit_typed.cond.span()).snippet,
+                source: expression_source_ref(explicit_path, explicit_source, explicit_typed.span()),
+            },
+        ),
+        (
+            "forced_frame_apply".into(),
+            ExpressionExecutorPath {
+                path: "ExplicitFrames::eval_expr".into(),
+                predicate: expression_source_ref(explicit_path, explicit_source, explicit_apply.cond.span()).snippet,
+                source: expression_source_ref(explicit_path, explicit_source, explicit_apply.span()),
+            },
+        ),
+        (
+            "prepared_operand_value".into(),
+            ExpressionExecutorPath {
+                path: "indexed_frame_apply_value".into(),
+                predicate: expression_source_ref(indexed_path, indexed_source, explicit_prepared_branch.cond.span()).snippet,
+                source: expression_source_ref(indexed_path, indexed_source, explicit_prepared_branch.span()),
+            },
+        ),
+        (
+            "forced_expr_view_kind".into(),
+            ExpressionExecutorPath {
+                path: "ExplicitFrames::eval_expr".into(),
+                predicate: expression_source_ref(explicit_path, explicit_source, explicit_kind.span()).snippet,
+                source: expression_source_ref(explicit_path, explicit_source, explicit_view_match.span()),
+            },
+        ),
+    ]);
+    let int_tags = classifiers["Int"].tags.iter().cloned().collect::<BTreeSet<_>>();
+    let bool_tags = classifiers["Bool"].tags.iter().cloned().collect::<BTreeSet<_>>();
+    let mut rows = Vec::with_capacity(parsed_rows.len());
+    for row in &parsed_rows {
+        let schema_row = expression_schema_row(row, schema_source, schema_path);
+        let recursive_dispatch = if int_tags.contains(&row.tag) {
+            expression_if_dispatch_arm(
+                "eval_indexed_expr_inner",
+                &row.variant,
+                &row.tag,
+                "typed_scalar",
+                inner_block,
+                |condition| expression_source_ref(indexed_path, indexed_source, condition.span()).snippet.contains("is_typed_int_tag"),
+                indexed_source,
+                indexed_path,
+            )?
+        } else if bool_tags.contains(&row.tag) {
+            expression_if_dispatch_arm(
+                "eval_indexed_expr_inner",
+                &row.variant,
+                &row.tag,
+                "typed_scalar",
+                inner_block,
+                |condition| expression_source_ref(indexed_path, indexed_source, condition.span()).snippet.contains("is_typed_bool_tag"),
+                indexed_source,
+                indexed_path,
+            )?
+        } else if row.tag == "ExprIf" || row.tag == "ExprMatch" {
+            let view = if row.tag == "ExprIf" { "IfExpr" } else { "MatchExpr" };
+            let mut dispatch = unique_expression_dispatch(&selection_arms, view, "recursive selection")?;
+            dispatch.predicate = format!(
+                "{} then {}",
+                expression_source_ref(indexed_path, indexed_source, selection_if.cond.span()).snippet,
+                dispatch.predicate
+            );
+            dispatch.source = expression_source_ref(indexed_path, indexed_source, selection_if.span());
+            dispatch
+        } else if eager_tags.contains(&row.tag) {
+            ExpressionDispatchArm {
+                function: "eval_indexed_expr_inner".into(),
+                variant: row.variant.clone(),
+                predicate: expression_source_ref(indexed_path, indexed_source, inner_eager.cond.span()).snippet,
+                behavior: "eager_atom_value".into(),
+                arm_index: None,
+                defensive_unreachable: false,
+                source: expression_source_ref(indexed_path, indexed_source, inner_eager.span()),
+            }
+        } else {
+            unique_expression_dispatch(&direct_view_arms, &row.variant, "normal ExprViewKind")?
+        };
+        let explicit_view_dispatch = unique_expression_dispatch(&explicit_view_arms, &row.variant, "explicit ExprViewKind")?;
+        let indexed_frame_apply_selected = frame_apply_tags.contains(&row.tag);
+        let prepared_operands_selected = prepared_tags.contains(&row.tag);
+        let forced_dispatch = if eager_tags.contains(&row.tag) {
+            ExpressionDispatchArm {
+                function: "eval_expr".into(),
+                variant: row.variant.clone(),
+                predicate: expression_source_ref(explicit_path, explicit_source, explicit_eager.cond.span()).snippet,
+                behavior: "eager_atom_value".into(),
+                arm_index: None,
+                defensive_unreachable: false,
+                source: expression_source_ref(explicit_path, explicit_source, explicit_eager.span()),
+            }
+        } else if int_tags.contains(&row.tag) || bool_tags.contains(&row.tag) {
+            let branch = top_level_typed_scalar_branch(explicit_block)?;
+            ExpressionDispatchArm {
+                function: "eval_expr".into(),
+                variant: row.variant.clone(),
+                predicate: expression_source_ref(explicit_path, explicit_source, branch.cond.span()).snippet,
+                behavior: "typed_scalar_frame_apply".into(),
+                arm_index: None,
+                defensive_unreachable: false,
+                source: expression_source_ref(explicit_path, explicit_source, branch.span()),
+            }
+        } else if indexed_frame_apply_selected {
+            ExpressionDispatchArm {
+                function: "eval_expr".into(),
+                variant: row.variant.clone(),
+                predicate: expression_source_ref(explicit_path, explicit_source, explicit_apply.cond.span()).snippet,
+                behavior: "schedule_frame_apply_operands".into(),
+                arm_index: Some(explicit_apply_index),
+                defensive_unreachable: false,
+                source: expression_source_ref(explicit_path, explicit_source, explicit_apply.span()),
+            }
+        } else {
+            explicit_view_dispatch.clone()
+        };
+        let child_dispatch = if indexed_frame_apply_selected {
+            required_expression_view_dispatch(&child_arms, &row.variant, "indexed_frame_apply_child")?
+        } else {
+            Vec::new()
+        };
+        let value_dispatch = if prepared_operands_selected {
+            vec![ExpressionDispatchArm {
+                function: "indexed_frame_apply_value".into(),
+                variant: row.variant.clone(),
+                predicate: expression_source_ref(
+                    indexed_path,
+                    indexed_source,
+                    explicit_prepared_branch.cond.span(),
+                )
+                .snippet,
+                behavior: "delegate_to_prepared_operand_host_value".into(),
+                arm_index: Some(explicit_prepared_index),
+                defensive_unreachable: false,
+                source: expression_source_ref(
+                    indexed_path,
+                    indexed_source,
+                    explicit_prepared_branch.span(),
+                ),
+            }]
+        } else if indexed_frame_apply_selected {
+            required_expression_view_dispatch(&value_arms, &row.variant, "indexed_frame_apply_value")?
+        } else {
+            Vec::new()
+        };
+        let host_value_dispatch = if prepared_operands_selected {
+            required_expression_view_dispatch(&host_value_arms, &row.variant, "indexed_frame_apply_host_value")?
+        } else {
+            Vec::new()
+        };
+        rows.push(ExpressionDispatchRow {
+            schema: schema_row,
+            recursive_dispatch,
+            explicit_view_dispatch,
+            forced_dispatch,
+            indexed_frame_apply_selected,
+            frame_strategy_overridden: indexed_frame_apply_selected && row.strategy != "FrameApply",
+            prepared_operands_selected,
+            normal_executor: vec![normal_frame_path.clone(), normal_recursive_path.clone()],
+            child_dispatch,
+            value_dispatch,
+            host_value_dispatch,
+        });
+    }
+    let boundaries = expression_dispatch_boundaries(
+        &indexed,
+        indexed_source,
+        indexed_path,
+        &explicit,
+        explicit_source,
+        explicit_path,
+        &direct_dispatch,
+        explicit_view_match,
+        &child_arms,
+        &value_arms,
+    )?;
+    Ok(ExpressionDispatchInventory {
+        schema_rows,
+        normal_selector,
+        forced_selector,
+        selectors,
+        classifiers,
+        rows,
+        boundaries,
+        source_paths: BTreeMap::from([
+            ("schema".into(), schema_path.into()),
+            ("normal_dispatch".into(), indexed_path.into()),
+            ("forced_dispatch".into(), explicit_path.into()),
+        ]),
+    })
+}
+
+fn expression_schema_row(
+    row: &ParsedExprSchemaRow,
+    source: &str,
+    path: &str,
+) -> ExpressionSchemaRow {
+    ExpressionSchemaRow {
+        variant: row.variant.clone(),
+        tag: row.tag.clone(),
+        ordinal: row.ordinal,
+        effects: row.effects.clone(),
+        class: row.class.clone(),
+        strategy: row.strategy.clone(),
+        classification: row.classification.clone(),
+        line: row.line,
+        source: expression_source_ref(path, source, row.span),
+    }
+}
+
+fn expression_source_ref(path: &str, source: &str, span: proc_macro2::Span) -> ExpressionSourceRef {
+    let start = span.start();
+    let end = span.end();
+    let lines = source.lines().collect::<Vec<_>>();
+    let snippet = if start.line > 0 && end.line >= start.line && end.line <= lines.len() {
+        if start.line == end.line {
+            let line = lines[start.line - 1];
+            let start_column = start.column.min(line.len());
+            let end_column = end.column.max(start.column).min(line.len());
+            line.get(start_column..end_column).unwrap_or(line).to_string()
+        } else {
+            (start.line..=end.line)
+                .map(|line_number| {
+                    let line = lines[line_number - 1];
+                    if line_number == start.line {
+                        line.get(start.column.min(line.len())..).unwrap_or(line).to_string()
+                    } else if line_number == end.line {
+                        line.get(..end.column.min(line.len())).unwrap_or(line).to_string()
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+    } else {
+        String::new()
+    };
+    ExpressionSourceRef {
+        path: path.into(),
+        start_line: start.line,
+        start_column: start.column,
+        end_line: end.line,
+        end_column: end.column,
+        snippet: if snippet.trim().is_empty() && start.line > 0 {
+            lines.get(start.line - 1).copied().unwrap_or_default().into()
+        } else {
+            snippet
+        },
+    }
+}
+
+fn expression_classifier(
+    file: &File,
+    source: &str,
+    path: &str,
+    function: &str,
+    family: &str,
+    expected_tags: &[&str],
+) -> Result<ExpressionClassifier, String> {
+    let item = find_function_item(file, function)?;
+    let block = &item.block;
+    if block.stmts.len() != 1 {
+        return Err(format!("{function} must contain one matches! expression"));
+    }
+    let expression = match &block.stmts[0] {
+        Stmt::Expr(expression, None) => expression,
+        _ => return Err(format!("{function} must return matches! directly")),
+    };
+    let Expr::Macro(classifier) = expression else {
+        return Err(format!("{function} is not a matches! classifier"));
+    };
+    if !classifier.mac.path.is_ident("matches") {
+        return Err(format!("{function} uses an unexpected classifier macro"));
+    }
+    let parsed = syn::parse2::<MatchesPatternInput>(classifier.mac.tokens.clone())
+        .map_err(|error| format!("parse {function} pattern: {error}"))?;
+    if !path_is_ident(&parsed.target, "tag") {
+        return Err(format!("{function} does not classify tag"));
+    }
+    let mut tags = Vec::new();
+    collect_exact_tag_patterns(&parsed.pattern, &mut tags)?;
+    validate_tag_set(family, &tags, expected_tags)?;
+    let predicate_source = expression_source_ref(path, source, parsed.pattern.span());
+    Ok(ExpressionClassifier {
+        function: function.into(),
+        target: "tag".into(),
+        pattern: predicate_source.snippet.clone(),
+        tags: tags.into_iter().map(|(tag, _)| tag).collect(),
+        source: expression_source_ref(path, source, expression.span()),
+        predicate_source,
+    })
+}
+
+fn expression_schema_classifiers(
+    schema: &File,
+    source: &str,
+    path: &str,
+    rows: &[ParsedExprSchemaRow],
+) -> Result<BTreeMap<String, ExpressionClassifier>, String> {
+    let view_macro = schema
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            syn::Item::Macro(item)
+                if item.ident.as_ref().is_some_and(|ident| ident == "instruction_view_kind") =>
+            {
+                Some(item)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if view_macro.len() != 1 {
+        return Err(format!("expected one instruction_view_kind! macro, found {}", view_macro.len()));
+    }
+    let view_tokens = compact_tokens(&view_macro[0].mac.tokens);
+    let view_pattern = "Self::$tag=>Some(ExprViewKind::$variant)";
+    if !view_tokens.contains(view_pattern) {
+        return Err("instruction_view_kind! no longer maps tags to ExprViewKind variants".into());
+    }
+    let view_source = source_line_containing(path, source, view_pattern)?;
+    let view_tags = rows.iter().map(|row| row.tag.clone()).collect::<Vec<_>>();
+    let view_classifier = ExpressionClassifier {
+        function: "instruction_view_kind! ExprView branch".into(),
+        target: "FullTag::$tag".into(),
+        pattern: view_source.snippet.clone(),
+        tags: view_tags,
+        source: view_source.clone(),
+        predicate_source: view_source,
+    };
+    let eager_macro = schema
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            syn::Item::Macro(item)
+                if item.ident.as_ref().is_some_and(|ident| ident == "instruction_schema") =>
+            {
+                Some(item)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if eager_macro.len() != 1 {
+        return Err(format!("expected one instruction_schema! macro, found {}", eager_macro.len()));
+    }
+    let eager_tokens = compact_tokens(&eager_macro[0].mac.tokens);
+    let eager_pattern = "Self::$tag=>instruction_schema!(@eager_atom$($classification)?)";
+    if !eager_tokens.contains(eager_pattern) {
+        return Err("instruction_schema! no longer expands the EagerAtom classifier".into());
+    }
+    let eager_source = source_line_containing(path, source, eager_pattern)?;
+    let eager_rule = source_line_containing(path, source, "(@eager_atom EagerAtom)")?;
+    let eager_tags = rows
+        .iter()
+        .filter(|row| row.classification.as_deref() == Some("EagerAtom"))
+        .map(|row| row.tag.clone())
+        .collect::<Vec<_>>();
+    Ok(BTreeMap::from([
+        ("ExprViewKind".into(), view_classifier),
+        (
+            "EagerAtom".into(),
+            ExpressionClassifier {
+                function: "FullTag::is_eager_atom".into(),
+                target: "self".into(),
+                pattern: eager_source.snippet.clone(),
+                tags: eager_tags,
+                source: eager_source,
+                predicate_source: eager_rule,
+            },
+        ),
+    ]))
+}
+
+fn source_line_containing(path: &str, source: &str, needle: &str) -> Result<ExpressionSourceRef, String> {
+    let compact_needle = needle.chars().filter(|character| !character.is_whitespace()).collect::<String>();
+    let matches = source
+        .lines()
+        .enumerate()
+        .filter(|(_, line)| line.chars().filter(|character| !character.is_whitespace()).collect::<String>().contains(&compact_needle))
+        .collect::<Vec<_>>();
+    if matches.len() != 1 {
+        return Err(format!("expected one source line containing {needle:?}, found {}", matches.len()));
+    }
+    let (line_index, line) = matches[0];
+    Ok(ExpressionSourceRef {
+        path: path.into(),
+        start_line: line_index + 1,
+        start_column: 0,
+        end_line: line_index + 1,
+        end_column: line.len(),
+        snippet: line.into(),
+    })
+}
+
+fn expression_match_dispatch_arms(
+    match_expression: &syn::ExprMatch,
+    function: &str,
+    family: &str,
+    known_variants: &BTreeSet<String>,
+    source: &str,
+    path: &str,
+) -> Result<BTreeMap<String, Vec<ExpressionDispatchArm>>, String> {
+    let mut output = BTreeMap::<String, Vec<ExpressionDispatchArm>>::new();
+    for (arm_index, arm) in match_expression.arms.iter().enumerate() {
+        if matches!(arm.pat, Pat::Wild(_) | Pat::Ident(_)) {
+            continue;
+        }
+        let mut variants = Vec::new();
+        collect_named_view_variants(&arm.pat, family, &mut variants)?;
+        for variant in variants {
+            if !known_variants.contains(&variant) {
+                return Err(format!("unknown {family} branch {variant} in {function}"));
+            }
+            if arm.guard.is_some() {
+                return Err(format!("guarded {family} branch {variant} in {function}"));
+            }
+            let behavior = if is_unsupported_return(&arm.body) {
+                "unsupported_error"
+            } else if is_frame_strategy_error_return(&arm.body) {
+                "frame_strategy_error"
+            } else if expression_is_unreachable(&arm.body) {
+                "handled_with_unreachable_boundary"
+            } else {
+                "handled"
+            };
+            output.entry(variant.clone()).or_default().push(ExpressionDispatchArm {
+                function: function.into(),
+                variant,
+                predicate: expression_source_ref(path, source, arm.pat.span()).snippet,
+                behavior: behavior.into(),
+                arm_index: Some(arm_index),
+                defensive_unreachable: behavior == "handled_with_unreachable_boundary",
+                source: expression_source_ref(path, source, arm.span()),
+            });
+        }
+    }
+    Ok(output)
+}
+
+fn expression_is_unreachable(expression: &Expr) -> bool {
+    match expression {
+        Expr::Macro(expression) => expression.mac.path.is_ident("unreachable"),
+        Expr::Paren(expression) => expression_is_unreachable(&expression.expr),
+        Expr::Group(expression) => expression_is_unreachable(&expression.expr),
+        Expr::Block(expression) => expression.block.stmts.last().is_some_and(|statement| {
+            matches!(statement, Stmt::Expr(expression, _) if expression_is_unreachable(expression))
+        }),
+        _ => false,
+    }
+}
+
+fn expression_enum_match<'ast>(
+    block: &'ast Block,
+    family: &'ast str,
+    owner: &str,
+) -> Result<&'ast syn::ExprMatch, String> {
+    let mut finder = EnumMatchFinder { family, matches: Vec::new() };
+    finder.visit_block(block);
+    if finder.matches.len() != 1 {
+        return Err(format!(
+            "{owner} must have one {family} match, found {}",
+            finder.matches.len()
+        ));
+    }
+    Ok(finder.matches[0])
+}
+
+fn expression_view_dispatch_map(
+    file: &File,
+    function: &str,
+    known_variants: &BTreeSet<String>,
+    source: &str,
+    path: &str,
+) -> Result<BTreeMap<String, Vec<ExpressionDispatchArm>>, String> {
+    let block = find_function(file, function)?;
+    let mut finder = EnumMatchFinder { family: "ExprView", matches: Vec::new() };
+    finder.visit_block(block);
+    if finder.matches.is_empty() {
+        return Err(format!("{function} has no ExprView dispatch"));
+    }
+    let mut output = BTreeMap::<String, Vec<ExpressionDispatchArm>>::new();
+    for match_expression in finder.matches {
+        for (variant, mut arms) in expression_match_dispatch_arms(
+            match_expression,
+            function,
+            "ExprView",
+            known_variants,
+            source,
+            path,
+        )? {
+            output.entry(variant).or_default().append(&mut arms);
+        }
+    }
+    Ok(output)
+}
+
+fn required_expression_view_dispatch(
+    arms: &BTreeMap<String, Vec<ExpressionDispatchArm>>,
+    variant: &str,
+    helper: &str,
+) -> Result<Vec<ExpressionDispatchArm>, String> {
+    let matches = arms
+        .get(variant)
+        .cloned()
+        .ok_or_else(|| format!("{helper} has no ExprView branch for {variant}"))?;
+    let applicable = matches
+        .into_iter()
+        .filter(|arm| !arm.defensive_unreachable)
+        .collect::<Vec<_>>();
+    if applicable.is_empty() {
+        return Err(format!("{helper} ExprView branch {variant} is empty"));
+    }
+    if applicable.len() != 1 {
+        return Err(format!("{helper} has {} applicable dispatches for ExprView {variant}", applicable.len()));
+    }
+    Ok(applicable)
+}
+
+fn unique_expression_dispatch(
+    arms: &BTreeMap<String, Vec<ExpressionDispatchArm>>,
+    variant: &str,
+    owner: &str,
+) -> Result<ExpressionDispatchArm, String> {
+    match arms.get(variant).map(Vec::as_slice) {
+        Some([arm]) => Ok(arm.clone()),
+        Some(arms) => Err(format!("{owner} has {} branches for {variant}", arms.len())),
+        None => Err(format!("{owner} has no branch for {variant}")),
+    }
+}
+
+fn top_level_if_condition<'ast>(
+    block: &'ast Block,
+    predicate: impl Fn(&Expr) -> bool,
+    name: &str,
+) -> Result<&'ast syn::ExprIf, String> {
+    let matches = block
+        .stmts
+        .iter()
+        .filter_map(|statement| match statement {
+            Stmt::Expr(Expr::If(expression), _) if predicate(&expression.cond) => Some(expression),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if matches.len() != 1 {
+        return Err(format!("expected one {name} branch, found {}", matches.len()));
+    }
+    Ok(matches[0])
+}
+
+fn top_level_tag_match_branch<'ast>(
+    block: &'ast Block,
+    first_tag: &str,
+    second_tag: &str,
+) -> Result<&'ast syn::ExprIf, String> {
+    top_level_if_condition(
+        block,
+        |condition| {
+            let Expr::Macro(expression) = condition else { return false; };
+            if !expression.mac.path.is_ident("matches") {
+                return false;
+            }
+            let Ok(parsed) = syn::parse2::<MatchesPatternInput>(expression.mac.tokens.clone()) else {
+                return false;
+            };
+            if !path_is_ident(&parsed.target, "tag") {
+                return false;
+            }
+            let mut tags = Vec::new();
+            if collect_exact_tag_patterns(&parsed.pattern, &mut tags).is_err() {
+                return false;
+            }
+            tags.iter().any(|(tag, _)| tag == first_tag)
+                && tags.iter().any(|(tag, _)| tag == second_tag)
+        },
+        "FullTag selection",
+    )
+}
+
+fn top_level_classifier_branch<'ast>(
+    file: &'ast File,
+    classifier: &str,
+) -> Result<(usize, &'ast syn::ExprIf), String> {
+    let block = find_function(file, "indexed_frame_apply_value")?;
+    let matches = block
+        .stmts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, statement)| match statement {
+            Stmt::Expr(Expr::If(expression), _)
+                if is_classifier_condition(&expression.cond, &[classifier]) =>
+            {
+                Some((index, expression))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [(index, branch)] => Ok((*index, *branch)),
+        _ => Err(format!("{classifier} must have one value dispatch branch, found {}", matches.len())),
+    }
+}
+
+fn top_level_typed_scalar_branch(block: &Block) -> Result<&syn::ExprIf, String> {
+    top_level_if_condition(block, is_typed_frame_apply_condition, "typed scalar FrameApply")
+}
+
+fn expression_if_dispatch_arm(
+    function: &str,
+    variant: &str,
+    _tag: &str,
+    behavior: &str,
+    block: &Block,
+    predicate: impl Fn(&Expr) -> bool,
+    source: &str,
+    path: &str,
+) -> Result<ExpressionDispatchArm, String> {
+    let branch = top_level_if_condition(block, predicate, behavior)?;
+    Ok(ExpressionDispatchArm {
+        function: function.into(),
+        variant: variant.into(),
+        predicate: expression_source_ref(path, source, branch.cond.span()).snippet,
+        behavior: behavior.into(),
+        arm_index: None,
+        defensive_unreachable: false,
+        source: expression_source_ref(path, source, branch.span()),
+    })
+}
+
+fn expression_dispatch_boundaries(
+    indexed: &File,
+    indexed_source: &str,
+    indexed_path: &str,
+    explicit: &File,
+    explicit_source: &str,
+    explicit_path: &str,
+    normal_dispatch: &NormalExprViewKindDispatch<'_>,
+    explicit_view_match: &syn::ExprMatch,
+    child_arms: &BTreeMap<String, Vec<ExpressionDispatchArm>>,
+    value_arms: &BTreeMap<String, Vec<ExpressionDispatchArm>>,
+) -> Result<Vec<ExpressionDispatchBoundary>, String> {
+    let mut boundaries = Vec::new();
+    let inner = find_function(indexed, "eval_indexed_expr_inner")?;
+    let unmarked = top_level_if_condition(
+        inner,
+        |condition| expression_source_ref(indexed_path, indexed_source, condition.span())
+            .snippet
+            .contains("!execution.is_in_place(instruction)"),
+        "unmarked in-place guard",
+    )?;
+    boundaries.push(ExpressionDispatchBoundary {
+        function: "eval_indexed_expr_inner".into(),
+        kind: "in_place_admission_error".into(),
+        outcome: "indexed-ir error for unmarked instruction".into(),
+        predicate: expression_source_ref(indexed_path, indexed_source, unmarked.cond.span()).snippet,
+        source: expression_source_ref(indexed_path, indexed_source, unmarked.span()),
+    });
+    let unsupported = &normal_dispatch.match_expression.arms[normal_dispatch.unsupported_arm_index];
+    boundaries.push(ExpressionDispatchBoundary {
+        function: "eval_indexed_expr_inner".into(),
+        kind: "direct_view_unsupported_group".into(),
+        outcome: "indexed-ir unsupported-expression error".into(),
+        predicate: expression_source_ref(indexed_path, indexed_source, unsupported.pat.span()).snippet,
+        source: expression_source_ref(indexed_path, indexed_source, unsupported.span()),
+    });
+    let explicit_block = find_function(explicit, "eval_expr")?;
+    let in_place = top_level_if_condition(explicit_block, |condition| path_is_ident(condition, "in_place"), "explicit in-place bypass")?;
+    boundaries.push(ExpressionDispatchBoundary {
+        function: "eval_expr".into(),
+        kind: "normal_in_place_bypass".into(),
+        outcome: "delegates to eval_indexed_expr and returns before frame dispatch".into(),
+        predicate: expression_source_ref(explicit_path, explicit_source, in_place.cond.span()).snippet,
+        source: expression_source_ref(explicit_path, explicit_source, in_place.span()),
+    });
+    let (_, view_kind) = top_level_local_binding_expression(explicit_block, "view_kind")?;
+    boundaries.push(ExpressionDispatchBoundary {
+        function: "eval_expr".into(),
+        kind: "missing_view_kind_error".into(),
+        outcome: "frame_strategy_error(tag, span)".into(),
+        predicate: expression_source_ref(explicit_path, explicit_source, view_kind.span()).snippet,
+        source: expression_source_ref(explicit_path, explicit_source, view_kind.span()),
+    });
+    for (arm_index, arm) in explicit_view_match.arms.iter().enumerate() {
+        if is_frame_strategy_error_return(&arm.body) {
+            boundaries.push(ExpressionDispatchBoundary {
+                function: "eval_expr_view".into(),
+                kind: "defensive_wrong_executor_error_group".into(),
+                outcome: "frame_strategy_error(tag, span)".into(),
+                predicate: expression_source_ref(explicit_path, explicit_source, arm.pat.span()).snippet,
+                source: expression_source_ref(explicit_path, explicit_source, arm.span()),
+            });
+            let _ = arm_index;
+        }
+    }
+    boundaries.extend(expression_helper_boundaries(
+        indexed,
+        "indexed_frame_apply_child",
+        "ExprView",
+        indexed_source,
+        indexed_path,
+        child_arms,
+    )?);
+    boundaries.extend(expression_helper_boundaries(
+        indexed,
+        "indexed_frame_apply_value",
+        "ExprView",
+        indexed_source,
+        indexed_path,
+        value_arms,
+    )?);
+    Ok(boundaries)
+}
+
+fn expression_helper_boundaries(
+    file: &File,
+    function: &str,
+    family: &str,
+    source: &str,
+    path: &str,
+    _arms: &BTreeMap<String, Vec<ExpressionDispatchArm>>,
+) -> Result<Vec<ExpressionDispatchBoundary>, String> {
+    let block = find_function(file, function)?;
+    let mut finder = EnumMatchFinder { family, matches: Vec::new() };
+    finder.visit_block(block);
+    let mut boundaries = Vec::new();
+    for match_expression in finder.matches {
+        for arm in &match_expression.arms {
+            if expression_is_unreachable(&arm.body) {
+                let body = expression_source_ref(path, source, arm.body.span());
+                boundaries.push(ExpressionDispatchBoundary {
+                    function: function.into(),
+                    kind: "typed_view_unreachable_boundary".into(),
+                    outcome: body.snippet.clone(),
+                    predicate: expression_source_ref(path, source, arm.pat.span()).snippet,
+                    source: expression_source_ref(path, source, arm.span()),
+                });
+            }
+        }
+    }
+    Ok(boundaries)
+}
+
+impl ExpressionDispatchInventory {
+    pub fn to_json(&self) -> String {
+        let schema_rows = self
+            .schema_rows
+            .iter()
+            .map(expression_schema_row_json)
+            .collect::<Vec<_>>()
+            .join(",");
+        let classifiers = self
+            .classifiers
+            .iter()
+            .map(|(name, classifier)| {
+                format!("{}:{}", json_string(name), expression_classifier_json(classifier))
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let selectors = self
+            .selectors
+            .iter()
+            .map(|(name, selector)| {
+                format!("{}:{}", json_string(name), expression_executor_json(selector))
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let rows = self
+            .rows
+            .iter()
+            .map(expression_dispatch_row_json)
+            .collect::<Vec<_>>()
+            .join(",");
+        let boundaries = self
+            .boundaries
+            .iter()
+            .map(expression_dispatch_boundary_json)
+            .collect::<Vec<_>>()
+            .join(",");
+        let source_paths = self
+            .source_paths
+            .iter()
+            .map(|(name, path)| format!("{}:{}", json_string(name), json_string(path)))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(
+            "{{\"schema_rows\":[{schema_rows}],\"normal_selector\":{},\"forced_selector\":{},\"selectors\":{{{selectors}}},\"classifiers\":{{{classifiers}}},\"rows\":[{rows}],\"boundaries\":[{boundaries}],\"source_paths\":{{{source_paths}}},\"source_classification_only\":true,\"runtime_behavior_proven\":false}}",
+            expression_executor_json(&self.normal_selector),
+            expression_executor_json(&self.forced_selector),
+        )
+    }
+}
+
+fn expression_source_ref_json(source: &ExpressionSourceRef) -> String {
+    format!(
+        "{{\"path\":{},\"start_line\":{},\"start_column\":{},\"end_line\":{},\"end_column\":{},\"snippet\":{}}}",
+        json_string(&source.path),
+        source.start_line,
+        source.start_column,
+        source.end_line,
+        source.end_column,
+        json_string(&source.snippet),
+    )
+}
+
+fn expression_schema_row_json(row: &ExpressionSchemaRow) -> String {
+    format!(
+        "{{\"variant\":{},\"tag\":{},\"ordinal\":{},\"effects\":{},\"class\":{},\"strategy\":{},\"classification\":{},\"line\":{},\"source\":{}}}",
+        json_string(&row.variant),
+        json_string(&row.tag),
+        row.ordinal,
+        json_string(&row.effects),
+        json_string(&row.class),
+        json_string(&row.strategy),
+        row.classification.as_deref().map(json_string).unwrap_or_else(|| "null".into()),
+        row.line,
+        expression_source_ref_json(&row.source),
+    )
+}
+
+fn expression_dispatch_arm_json(arm: &ExpressionDispatchArm) -> String {
+    format!(
+        "{{\"function\":{},\"variant\":{},\"predicate\":{},\"behavior\":{},\"arm_index\":{},\"defensive_unreachable\":{},\"source\":{}}}",
+        json_string(&arm.function),
+        json_string(&arm.variant),
+        json_string(&arm.predicate),
+        json_string(&arm.behavior),
+        arm.arm_index.map(|index| index.to_string()).unwrap_or_else(|| "null".into()),
+        arm.defensive_unreachable,
+        expression_source_ref_json(&arm.source),
+    )
+}
+
+fn expression_executor_json(executor: &ExpressionExecutorPath) -> String {
+    format!(
+        "{{\"path\":{},\"predicate\":{},\"source\":{}}}",
+        json_string(&executor.path),
+        json_string(&executor.predicate),
+        expression_source_ref_json(&executor.source),
+    )
+}
+
+fn expression_classifier_json(classifier: &ExpressionClassifier) -> String {
+    let tags = classifier.tags.iter().map(|tag| json_string(tag)).collect::<Vec<_>>().join(",");
+    format!(
+        "{{\"function\":{},\"target\":{},\"pattern\":{},\"tags\":[{tags}],\"source\":{},\"predicate_source\":{}}}",
+        json_string(&classifier.function),
+        json_string(&classifier.target),
+        json_string(&classifier.pattern),
+        expression_source_ref_json(&classifier.source),
+        expression_source_ref_json(&classifier.predicate_source),
+    )
+}
+
+fn expression_dispatch_row_json(row: &ExpressionDispatchRow) -> String {
+    let children = row.child_dispatch.iter().map(expression_dispatch_arm_json).collect::<Vec<_>>().join(",");
+    let values = row.value_dispatch.iter().map(expression_dispatch_arm_json).collect::<Vec<_>>().join(",");
+    let host_values = row.host_value_dispatch.iter().map(expression_dispatch_arm_json).collect::<Vec<_>>().join(",");
+    let normal = row.normal_executor.iter().map(expression_executor_json).collect::<Vec<_>>().join(",");
+    format!(
+        "{{\"schema\":{},\"recursive_dispatch\":{},\"explicit_view_dispatch\":{},\"forced_dispatch\":{},\"indexed_frame_apply_selected\":{},\"frame_strategy_overridden\":{},\"prepared_operands_selected\":{},\"normal_executor\":[{normal}],\"child_dispatch\":[{children}],\"value_dispatch\":[{values}],\"host_value_dispatch\":[{host_values}]}}",
+        expression_schema_row_json(&row.schema),
+        expression_dispatch_arm_json(&row.recursive_dispatch),
+        expression_dispatch_arm_json(&row.explicit_view_dispatch),
+        expression_dispatch_arm_json(&row.forced_dispatch),
+        row.indexed_frame_apply_selected,
+        row.frame_strategy_overridden,
+        row.prepared_operands_selected,
+    )
+}
+
+fn expression_dispatch_boundary_json(boundary: &ExpressionDispatchBoundary) -> String {
+    format!(
+        "{{\"function\":{},\"kind\":{},\"outcome\":{},\"predicate\":{},\"source\":{}}}",
+        json_string(&boundary.function),
+        json_string(&boundary.kind),
+        json_string(&boundary.outcome),
+        json_string(&boundary.predicate),
+        expression_source_ref_json(&boundary.source),
+    )
 }
 
 pub fn extract_collection_construction_inventory(
@@ -5907,6 +7153,7 @@ struct ParsedExprSchemaRow {
     classification: Option<String>,
     payload: Option<TokenStream>,
     line: usize,
+    span: proc_macro2::Span,
 }
 
 struct ExprSchemaRows(Vec<ParsedExprSchemaRow>);
@@ -5953,7 +7200,8 @@ impl Parse for ExprSchemaRows {
             let (effects, class, strategy, classification) =
                 parse_expr_schema_metadata(metadata.stream())
                     .map_err(|message| input.error(message))?;
-            let _semicolon: Token![;] = input.parse()?;
+            let semicolon: Token![;] = input.parse()?;
+            let span = variant.span().join(semicolon.span).unwrap_or_else(|| variant.span());
             rows.push(ParsedExprSchemaRow {
                 variant: variant.to_string(),
                 tag: tag.to_string(),
@@ -5966,6 +7214,7 @@ impl Parse for ExprSchemaRows {
                 classification,
                 payload,
                 line,
+                span,
             });
         }
         Ok(Self(rows))
@@ -10530,6 +11779,100 @@ impl StatementInventory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn expression_dispatch_inventory_maps_actual_schema_and_override_paths() {
+        let schema = read("src/runtime/eval/indexed/full/schema.rs");
+        let indexed = read("src/runtime/eval/lowered_run/indexed_run.rs");
+        let explicit = read("src/runtime/eval/lowered_run/indexed_run/explicit_run.rs");
+        let inventory = extract_expression_dispatch_inventory(
+            &schema,
+            &indexed,
+            &explicit,
+            "src/runtime/eval/indexed/full/schema.rs",
+            "src/runtime/eval/lowered_run/indexed_run.rs",
+            "src/runtime/eval/lowered_run/indexed_run/explicit_run.rs",
+        )
+        .unwrap();
+
+        let process = inventory
+            .rows
+            .iter()
+            .find(|row| row.schema.tag == "ExprProcessCommandArgv")
+            .unwrap();
+        assert_eq!(
+            process.frame_strategy_overridden,
+            process.schema.strategy != "FrameApply"
+        );
+        assert!(process.indexed_frame_apply_selected);
+        assert_eq!(process.forced_dispatch.behavior, "schedule_frame_apply_operands");
+        assert_eq!(process.forced_dispatch.variant, "ProcessCommandArgv");
+        assert_eq!(process.forced_dispatch.function, "eval_expr");
+        assert!(process.schema.source.snippet.starts_with("ProcessCommandArgv("));
+        assert_eq!(
+            process.schema.source.end_column - process.schema.source.start_column,
+            process.schema.source.snippet.len()
+        );
+        assert_eq!(process.child_dispatch[0].function, "indexed_frame_apply_child");
+        assert_eq!(process.value_dispatch[0].function, "indexed_frame_apply_value");
+        assert_eq!(process.recursive_dispatch.behavior, "unsupported_error");
+        assert!(process.schema.source.snippet.contains("ProcessCommandArgv"));
+        assert!(inventory.classifiers["FrameApply"].predicate_source.snippet.contains("FullTag::ExprProcessCommandArgv"));
+        assert!(inventory.classifiers["ExprViewKind"].pattern.contains("ExprViewKind::$variant"));
+        assert_eq!(inventory.classifiers["ExprViewKind"].tags.len(), inventory.rows.len());
+        assert!(inventory.selectors["forced_frame_apply"].predicate.contains("indexed_frame_apply_tag(tag)"));
+        assert!(inventory.selectors["normal_frame_dispatch"].predicate.contains("!execution.is_in_place(instruction)"));
+        assert!(inventory.selectors["normal_recursive_entry"].predicate.starts_with("else branch of "));
+        assert_eq!(
+            inventory
+                .boundaries
+                .iter()
+                .filter(|boundary| boundary.kind == "typed_view_unreachable_boundary")
+                .count(),
+            3
+        );
+        assert!(inventory.boundaries.iter().any(|boundary| {
+            boundary.function == "indexed_frame_apply_value"
+                && boundary.predicate.contains("ExprView::Abort { .. }")
+                && boundary.outcome.contains("unreachable!")
+        }));
+        assert!(inventory.boundaries.iter().any(|boundary| {
+            boundary.function == "indexed_frame_apply_value" && boundary.predicate == "_"
+        }));
+        assert!(inventory.rows.iter().all(|row| {
+            row.child_dispatch
+                .iter()
+                .chain(&row.value_dispatch)
+                .all(|arm| !arm.defensive_unreachable)
+        }));
+        let path_exists = inventory
+            .rows
+            .iter()
+            .find(|row| row.schema.tag == "ExprPathExists")
+            .unwrap();
+        assert_eq!(path_exists.value_dispatch[0].behavior, "handled");
+        assert!(path_exists.value_dispatch[0].source.snippet.contains("FullTag::ExprPathExists"));
+        assert!(inventory.rows.iter().any(|row| {
+            row.schema.tag == "ExprIf"
+                && row.recursive_dispatch.function == "eval_indexed_expr_inner"
+                && row.recursive_dispatch.variant == "IfExpr"
+                && row.recursive_dispatch.predicate.contains("FullTag::ExprIf")
+        }));
+        let proc_call_result = inventory
+            .rows
+            .iter()
+            .find(|row| row.schema.tag == "ExprProcCallResult")
+            .unwrap();
+        assert_eq!(proc_call_result.schema.class, "Scheduled");
+        assert_eq!(proc_call_result.recursive_dispatch.function, "eval_indexed_expr_inner");
+        assert_eq!(proc_call_result.forced_dispatch.function, "eval_expr_view");
+        assert_eq!(inventory.rows.len(), inventory.schema_rows.len());
+        assert!(inventory
+            .rows
+            .iter()
+            .all(|row| row.schema.source.path == "src/runtime/eval/indexed/full/schema.rs"));
+        assert!(inventory.to_json().contains("\"runtime_behavior_proven\":false"));
+    }
 
     const SCHEMA: &str = r#"
 instruction_schema! {
