@@ -2581,7 +2581,7 @@
       "child_source": "\nassert (match 2 { 2 => 22, _ => 0 }) == 22\n"
     }
   ],
-  "route_witness_source_commit": "3545a543f576bf21e0d95ae75c276436b0a0b7b9",
+  "route_witness_source_commit": "1a5a1ffeda563bc872586b445bf17901bda0d5f2",
   "runtime_oracles": {
     "BoolAnd": {
       "ids": [
@@ -3962,6 +3962,800 @@
         "tests/xsh/operand-order-simple-statements.xsh::test_run_statement_evaluates_arguments_left_to_right_once"
       ],
       "scope": "Source review candidate for StmtRun: SPEC §1 requires predictable source-order evaluation; tests/xsh/operand-order-simple-statements.xsh::test_run_statement_evaluates_arguments_left_to_right_once asserts the listed operand relationship; candidate evaluator reads were reviewed. This source/test mapping is not execution evidence."
+    },
+    "ExprComparisonChain": {
+      "fields": [
+        "pairs"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_expression_selection_runs_subjects_and_selected_operands_once"
+      ],
+      "scope": "The chained comparison marks left, middle, and right; a false link suppresses the later failing operand. This covers pair traversal and short-circuiting only."
+    },
+    "ExprIf": {
+      "fields": [
+        "branches",
+        "else_value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_expression_selection_runs_subjects_and_selected_operands_once"
+      ],
+      "scope": "The first false condition precedes the second condition and selected body; wrong branches and else are absent from stdout. This is source/test evidence only."
+    },
+    "ExprPatternIf": {
+      "fields": [
+        "branches",
+        "else_value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_expression_selection_runs_subjects_and_selected_operands_once"
+      ],
+      "scope": "The pattern subject marker precedes the selected branch value and the unmatched else is skipped. This covers the one selected pattern branch."
+    },
+    "ExprMatch": {
+      "fields": [
+        "value",
+        "arms"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_expression_selection_runs_subjects_and_selected_operands_once"
+      ],
+      "scope": "The match subject precedes reachable guards and selected body; declined/unselected bodies are absent. This covers the exercised arm sequence."
+    },
+    "ExprStrMatch": {
+      "fields": [
+        "value",
+        "arms",
+        "fallback"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_expression_selection_runs_subjects_and_selected_operands_once"
+      ],
+      "scope": "The string subject precedes the selected arm value; other arm and fallback effects are skipped."
+    },
+    "ExprTagMatch": {
+      "fields": [
+        "value",
+        "arms",
+        "fallback"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_expression_selection_runs_subjects_and_selected_operands_once"
+      ],
+      "scope": "The tag subject precedes the selected arm value; other arm and fallback effects are skipped."
+    },
+    "ExprResultFallback": {
+      "fields": [
+        "left",
+        "right"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_expression_selection_runs_subjects_and_selected_operands_once"
+      ],
+      "scope": "Both left outcomes print first; only the Err outcome evaluates the handler afterward, while the Ok outcome skips it."
+    },
+    "ExprListComp": {
+      "fields": [
+        "qualifiers",
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_comprehensions_and_pipeline_visit_sources_and_items_in_order"
+      ],
+      "scope": "For each list item the iterator and filter precede the accepted projection; a rejected item has no projection."
+    },
+    "ExprMapComp": {
+      "fields": [
+        "qualifiers",
+        "key",
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_comprehensions_and_pipeline_visit_sources_and_items_in_order"
+      ],
+      "scope": "For each accepted map item the iterator/filter precede key then value; a rejected item has neither projection."
+    },
+    "ExprPipeline": {
+      "fields": [
+        "input",
+        "stages"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-resume-oracles.xsh::test_pipeline_callbacks_run_across_stage_boundaries_in_order"
+      ],
+      "scope": "The stream pull precedes both map callbacks for each item, and stage callbacks retain written stage order across pulls."
+    },
+    "ExprMethod": {
+      "fields": [
+        "receiver",
+        "args"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_calls_methods_and_module_operations_preserve_argument_order"
+      ],
+      "scope": "The method receiver marker precedes old and new replacement arguments in authored order."
+    },
+    "ExprSpawnCommand": {
+      "fields": [
+        "command"
+      ],
+      "ids": [
+        "tests/xsh/stdlib/process_frames.xsh::test_spawn_run_command_and_wait_keep_process_lifecycles_on_frames"
+      ],
+      "scope": "The source constructs a command value, spawns it once, then observes its waited exit status; the row has one command child."
+    },
+    "ExprWait": {
+      "fields": [
+        "target"
+      ],
+      "ids": [
+        "tests/xsh/stdlib/process_frames.xsh::test_spawn_run_command_and_wait_keep_process_lifecycles_on_frames"
+      ],
+      "scope": "The wait target is consumed and its exit status is asserted for both a run child and command child; the row has one target child."
+    },
+    "ExprCapture": {
+      "fields": [
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/with-resource.xsh::test_with_enters_left_to_right_and_releases_every_resource"
+      ],
+      "scope": "A managed-resource scope captures ordered release statements; the oracle checks acquisition order and reverse cleanup around the body sequence."
+    },
+    "ExprValueBlock": {
+      "fields": [
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_value_blocks_contexts_loop_retry_try_fail_and_abort_keep_payload_order"
+      ],
+      "scope": "The value-block statement marker precedes its tail expression marker, and the result is observed once."
+    },
+    "ExprErrorContext": {
+      "fields": [
+        "message",
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_value_blocks_contexts_loop_retry_try_fail_and_abort_keep_payload_order"
+      ],
+      "scope": "The context label marker precedes the body effect and appears in the propagated error afterward."
+    },
+    "ExprContextScope": {
+      "fields": [
+        "input",
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_value_blocks_contexts_loop_retry_try_fail_and_abort_keep_payload_order"
+      ],
+      "scope": "The environment input marker precedes the scoped body, which observes the installed value."
+    },
+    "ExprLoop": {
+      "fields": [
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_value_blocks_contexts_loop_retry_try_fail_and_abort_keep_payload_order"
+      ],
+      "scope": "The loop body effect precedes evaluation of its break value."
+    },
+    "ExprRetry": {
+      "fields": [
+        "delays",
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_value_blocks_contexts_loop_retry_try_fail_and_abort_keep_payload_order"
+      ],
+      "scope": "Both delay expressions print in list order before either retry attempt; the optional pattern is absent in this case."
+    },
+    "ExprFsFiles": {
+      "fields": [
+        "root",
+        "hidden",
+        "exts",
+        "stat",
+        "gitignore"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_filesystem_paths_and_walks_evaluate_operands_once"
+      ],
+      "scope": "Marked root path, hidden, extension, stat, and gitignore operands print in source order for fs.files."
+    },
+    "ExprFsWalk": {
+      "fields": [
+        "root",
+        "hidden",
+        "stat",
+        "gitignore"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_filesystem_paths_and_walks_evaluate_operands_once"
+      ],
+      "scope": "Marked root path, hidden, stat, and gitignore operands print in source order for fs.walk."
+    },
+    "ExprFsList": {
+      "fields": [
+        "path",
+        "ordered",
+        "stat"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_filesystem_paths_and_walks_evaluate_operands_once"
+      ],
+      "scope": "The fs.children path, ordered option, and stat option print once in source order."
+    },
+    "ExprFsMkdir": {
+      "fields": [
+        "path"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_tempdir_scope_captures_output_and_tempdir_cleans_up"
+      ],
+      "scope": "The tempdir source path is evaluated once into a slot; lower_tempdir_scope builds ExprFsMkdir from that slot with parents absent. Only the path child is claimed."
+    },
+    "ExprFsRemove": {
+      "fields": [
+        "path"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_tempdir_scope_captures_output_and_tempdir_cleans_up"
+      ],
+      "scope": "The tempdir source path is evaluated once into a slot; lower_tempdir_scope builds ExprFsRemove from that slot with missing_ok as literal true. Only the path child is claimed."
+    },
+    "ExprPathReadText": {
+      "fields": [
+        "path"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_filesystem_paths_and_walks_evaluate_operands_once"
+      ],
+      "scope": "A marked receiver is evaluated once before read_text and the returned payload is asserted."
+    },
+    "ExprPathReadBytes": {
+      "fields": [
+        "path"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_filesystem_paths_and_walks_evaluate_operands_once"
+      ],
+      "scope": "A marked receiver is evaluated once before read_bytes and the returned bytes are asserted."
+    },
+    "ExprPathExists": {
+      "fields": [
+        "path"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_filesystem_paths_and_walks_evaluate_operands_once"
+      ],
+      "scope": "A marked receiver is evaluated once and its existence result is asserted."
+    },
+    "ExprPathExecutable": {
+      "fields": [
+        "path"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_filesystem_paths_and_walks_evaluate_operands_once"
+      ],
+      "scope": "A marked receiver is evaluated once and the executable predicate result is used."
+    },
+    "ExprPathDu": {
+      "fields": [
+        "path"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_filesystem_paths_and_walks_evaluate_operands_once"
+      ],
+      "scope": "A marked receiver is evaluated once and the disk-usage result is consumed."
+    },
+    "ExprPathMetadata": {
+      "fields": [
+        "path"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_filesystem_paths_and_walks_evaluate_operands_once"
+      ],
+      "scope": "A marked receiver is evaluated once before metadata access and its size is asserted."
+    },
+    "ExprPathReadlink": {
+      "fields": [
+        "path"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_filesystem_paths_and_walks_evaluate_operands_once"
+      ],
+      "scope": "A marked receiver is evaluated once before readlink and the link target is asserted."
+    },
+    "ExprPathResolve": {
+      "fields": [
+        "path"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_filesystem_paths_and_walks_evaluate_operands_once"
+      ],
+      "scope": "A marked receiver is evaluated once before resolve and its resulting name is asserted."
+    },
+    "ExprPathWrite": {
+      "fields": [
+        "path",
+        "data"
+      ],
+      "ids": [
+        "tests/xsh/fs-path-frame-oracles.xsh::test_path_write_evaluates_operands_before_host_failure"
+      ],
+      "scope": "The marked path and data operands print path then data before the expected host failure."
+    },
+    "ExprPathMkdir": {
+      "fields": [
+        "path",
+        "parents"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-resume-oracles.xsh::test_path_mkdir_and_remove_evaluate_paths_before_optional_values"
+      ],
+      "scope": "The inline marked receiver prints before the effectful parents option; the test confirms directory creation."
+    },
+    "ExprPathRemove": {
+      "fields": [
+        "path",
+        "missing_ok"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-resume-oracles.xsh::test_path_mkdir_and_remove_evaluate_paths_before_optional_values"
+      ],
+      "scope": "The inline marked receiver prints before the effectful missing_ok option; the test confirms removal."
+    },
+    "ExprArchiveTarCreate": {
+      "fields": [
+        "overwrite",
+        "compression"
+      ],
+      "ids": [
+        "tests/xsh/stdlib/archive.xsh::test_archive_tar_create_evaluates_named_operands_in_written_order"
+      ],
+      "scope": "The only marked operands are the named options; stdout observes overwrite then compression as authored, and invalid compression prevents host creation."
+    },
+    "ExprModuleCall": {
+      "fields": [
+        "args"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-resume-oracles.xsh::test_module_method_named_arguments_keep_written_order"
+      ],
+      "scope": "FsRoot.symlink prints authored path before target, opposite the registered target-before-path parameter order."
+    },
+    "ExprProcessCommandArgv": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/stdlib/process.xsh::test_process_command_argv_evaluates_named_operands_in_written_order"
+      ],
+      "scope": "The nested command_argv call prints authored cpu_max, timeout, cwd before command execution fails; the typed value projection is not used as source-order proof."
+    },
+    "ExprAbort": {
+      "fields": [
+        "status"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_value_blocks_contexts_loop_retry_try_fail_and_abort_keep_payload_order"
+      ],
+      "scope": "The status-producing expression prints once before exit returns status 23."
+    },
+    "ExprFail": {
+      "fields": [
+        "message"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_value_blocks_contexts_loop_retry_try_fail_and_abort_keep_payload_order"
+      ],
+      "scope": "The fail message expression prints before failure capture and the following body expression is not reached."
+    },
+    "ExprOk": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_result_and_error_constructors_evaluate_operands_once"
+      ],
+      "scope": "The Ok payload marker prints once and the successful Result payload is subsequently consumed."
+    },
+    "ExprErr": {
+      "fields": [
+        "cause",
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_result_and_error_constructors_evaluate_operands_once"
+      ],
+      "scope": "The cause constructor's authored fields print before the Err value constructor's fields; each nested field order is asserted."
+    },
+    "ExprError": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-host.xsh::test_result_and_error_constructors_evaluate_operands_once"
+      ],
+      "scope": "The structured error value is constructed once; its authored second-then-first fields are observed in that order."
+    },
+    "ExprTry": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_value_blocks_contexts_loop_retry_try_fail_and_abort_keep_payload_order"
+      ],
+      "scope": "The captured try body evaluates its failing value and suppresses the later expression; this covers the single value child and failure liveness."
+    },
+    "ExprCall": {
+      "fields": [
+        "args"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_calls_methods_and_module_operations_preserve_argument_order"
+      ],
+      "scope": "Direct positional call arguments print first then second before the function body."
+    },
+    "ExprDirectPureCall": {
+      "fields": [
+        "args"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_calls_methods_and_module_operations_preserve_argument_order"
+      ],
+      "scope": "The pure call evaluates its first argument, whose division failure prevents the later invalid-digit argument from running."
+    },
+    "ExprExternalCall": {
+      "fields": [
+        "args"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_external_call_evaluates_each_argument_once"
+      ],
+      "scope": "The external renderer's template argument prints before its variables argument."
+    },
+    "ExprDynamicCall": {
+      "fields": [
+        "args"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_calls_methods_and_module_operations_preserve_argument_order"
+      ],
+      "scope": "Arguments to the aliased dynamic call print first then second; the callee variable is pure and no callee-effect order is claimed."
+    },
+    "ExprSelfCall": {
+      "fields": [
+        "args"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-resume-oracles.xsh::test_self_call_runs_multiple_named_arguments_in_written_order"
+      ],
+      "scope": "The recursive self-call writes total before depth despite parameter order; both named argument effects print in written order."
+    },
+    "ExprTypedCall": {
+      "fields": [
+        "args"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_calls_methods_and_module_operations_preserve_argument_order"
+      ],
+      "scope": "Typed procedure arguments authored right then left print right then left before the body."
+    },
+    "ExprProcCallResult": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_calls_methods_and_module_operations_preserve_argument_order"
+      ],
+      "scope": "The proc-result child evaluates its two marked call arguments once and the returned integer is consumed through require."
+    },
+    "StmtLet": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-simple-statements.xsh::test_simple_statement_expression_payloads_evaluate_once"
+      ],
+      "scope": "The marked string initializer prints once and the bound value is observed after later statements."
+    },
+    "StmtGuard": {
+      "fields": [
+        "value",
+        "else_body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The guard initializer prints before the selected else body; the failed payload appears in that body."
+    },
+    "StmtWith": {
+      "fields": [
+        "bindings",
+        "body",
+        "else_body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once",
+        "tests/xsh/with-resource.xsh::test_with_enters_left_to_right_and_releases_every_resource"
+      ],
+      "scope": "The failing form evaluates bindings left-to-right, skips the third binding/body, then enters else; the successful resource form asserts left-to-right acquisition and reverse release around the body."
+    },
+    "StmtLetInt": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/test-declarations.xsh::frame_routed_typed_scalars_keep_short_circuit_and_error_flow"
+      ],
+      "scope": "The initialized integer is read after an increment and its asserted value proves the initializer/assignment result remains live."
+    },
+    "StmtLetBool": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/test-declarations.xsh::frame_routed_typed_scalars_keep_short_circuit_and_error_flow"
+      ],
+      "scope": "The initialized boolean is used after a typed assignment and its asserted truth proves the source value remains live."
+    },
+    "StmtAssign": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-simple-statements.xsh::test_simple_statement_expression_payloads_evaluate_once"
+      ],
+      "scope": "The marked assignment RHS prints once and its new value is observed afterward."
+    },
+    "StmtAssignField": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-simple-statements.xsh::test_simple_statement_expression_payloads_evaluate_once"
+      ],
+      "scope": "The marked record-field RHS prints once and the assigned field is observed afterward."
+    },
+    "StmtAssignFieldInt": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/test-declarations.xsh::frame_routed_typed_scalars_keep_short_circuit_and_error_flow"
+      ],
+      "scope": "The typed integer record-field assignment updates a value later asserted through its record."
+    },
+    "StmtAssignInt": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/test-declarations.xsh::frame_routed_typed_scalars_keep_short_circuit_and_error_flow"
+      ],
+      "scope": "The typed integer assignment result is used by the condition and the asserted incremented value."
+    },
+    "StmtAssignBool": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/test-declarations.xsh::frame_routed_typed_scalars_keep_short_circuit_and_error_flow"
+      ],
+      "scope": "The typed boolean assignment is followed by an assertion that reads the assigned value."
+    },
+    "StmtValue": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-simple-statements.xsh::test_simple_statement_expression_payloads_evaluate_once"
+      ],
+      "scope": "The marked tail expression prints once and the function result is used in the final output."
+    },
+    "StmtExpr": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-simple-statements.xsh::test_simple_statement_expression_payloads_evaluate_once"
+      ],
+      "scope": "The expression-statement call prints exactly once."
+    },
+    "StmtIf": {
+      "fields": [
+        "branches",
+        "else_body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The dynamic condition prints before the selected body; the alternative body is skipped."
+    },
+    "StmtIfBool": {
+      "fields": [
+        "branches",
+        "else_body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The true boolean condition selects the body once and suppresses the else body."
+    },
+    "StmtWhile": {
+      "fields": [
+        "condition",
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "Each dynamic condition marker precedes its selected loop body, including the final false condition with no body."
+    },
+    "StmtWhileBool": {
+      "fields": [
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The boolean while form executes its body for each reached true condition; the two iterations are asserted in output. No condition/body sibling order is claimed."
+    },
+    "StmtPatternIf": {
+      "fields": [
+        "branches",
+        "else_body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The pattern subject prints before the selected else body when the pattern fails; the binding body is skipped."
+    },
+    "StmtPatternWhile": {
+      "fields": [
+        "condition",
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "Each pattern-condition marker precedes its body result, and the final failed condition has no body."
+    },
+    "StmtMatch": {
+      "fields": [
+        "value",
+        "arms"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The match subject precedes declined and selected guard effects and the selected body; unselected arms are skipped."
+    },
+    "StmtStrMatch": {
+      "fields": [
+        "value",
+        "arms",
+        "fallback"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The string subject precedes its selected arm body; other arm and fallback effects are skipped."
+    },
+    "StmtTagMatch": {
+      "fields": [
+        "value",
+        "arms",
+        "fallback"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The tag subject precedes its selected arm body; other arm and fallback effects are skipped."
+    },
+    "StmtFor": {
+      "fields": [
+        "iter",
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The iterator producer runs before the body for each yielded item, whose values remain in source iteration order."
+    },
+    "StmtLetRecord": {
+      "fields": [
+        "source"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-simple-statements.xsh::test_simple_statement_expression_payloads_evaluate_once"
+      ],
+      "scope": "The marked record source prints once and both destructured fields are observed afterward."
+    },
+    "StmtForRecord": {
+      "fields": [
+        "iter",
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The record-list producer precedes body output for each record in iteration order."
+    },
+    "StmtForStrLines": {
+      "fields": [
+        "text",
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The text producer prints before body output for each line in source order."
+    },
+    "StmtLoop": {
+      "fields": [
+        "body"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The loop body counter prints one then two before break terminates the statement loop."
+    },
+    "StmtReturn": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The marked return payload prints before deferred cleanup and the returned value is observed."
+    },
+    "StmtYield": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The marked yield payload prints before the stream consumer observes the yielded item."
+    },
+    "StmtYieldDelegate": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "The delegated source producer prints once before its items reach the consumer in order."
+    },
+    "StmtBreakValue": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_value_blocks_contexts_loop_retry_try_fail_and_abort_keep_payload_order"
+      ],
+      "scope": "The loop body effect precedes the break-value expression and its resulting value is observed."
+    },
+    "StmtDefer": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_guard_with_and_statement_branches_evaluate_selected_payloads_once"
+      ],
+      "scope": "Two deferred child blocks execute once each after the body in LIFO order."
+    },
+    "StmtDefaultParameter": {
+      "fields": [
+        "value"
+      ],
+      "ids": [
+        "tests/xsh/operand-order-control-oracles.xsh::test_default_parameters_run_only_for_omitted_arguments_in_parameter_order"
+      ],
+      "scope": "The default expression rows run left-to-right for omitted arguments; supplied named argument effects retain authored right-before-left order."
     }
   },
   "source_paths": [
