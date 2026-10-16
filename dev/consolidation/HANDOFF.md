@@ -7,6 +7,16 @@ state, parked branches, retained worktrees and completed stop audit.
 
 ## Active resume
 
+The owner invoked `$accelerate` on 2026-10-16. The source inventory on
+`fe674c14e` has zero source-inventory gaps across 152 rows. All 73 collector
+controls and 15 replay controls pass, including exact native-output admission.
+The final replay selects 214 unique IDs in both modes, for 428 invocations.
+Freeze the integrated source and run supplemental, canonical, W9, route,
+platform, and resource closure as independent lanes with shared build/native
+locks. Fresh W9 receipts may use the current clean controller and its qualified
+comparator optimization. Hold that controller fixed throughout the cohort.
+Historical 56bf receipts remain unchanged. Inference stays isolated.
+
 The integration tree was clean at `e048b33f2`. The integrator cancelled the
 closeout guard before selecting work. The resume assignments are:
 
