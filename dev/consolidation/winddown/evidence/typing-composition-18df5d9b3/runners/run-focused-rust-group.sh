@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly root=/home/josh/d/laputa-systems/xsh
+readonly lane=$root/.work/wt/typing-composition
+readonly scratch=$root/.work/tmp/typing-composition-debug
+readonly target_dir=$root/.work/target-typing-composition
+readonly image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+readonly selectors=(
+  full_verifier_
+  generic_pure_module_exports_reject_payloads
+  callable_body_generalization_rejects_call_only_binders
+  generic_call_resolution_counts_fresh_evidence_separately_from_scheme_instantiation
+  row_evidence_rejects_any_and_call_instantiations_require_valid_evidence
+  call_instantiation_checks_nested_record_row_requirements
+  symbolic_substitution_charges_cloned_type_and_row_evidence
+  full_indexed_layouts_keep_hot_rows_compact
+)
+
+mkdir -p "$scratch/tmp" "$scratch/logs/focused-rust-group"
+flock "$root/.work/consolidation/infra/cargo.lock" docker run --rm --init \
+  --platform linux/amd64 --cpuset-cpus=0-3 --cpus=4 --memory=8g --memory-swap=8g \
+  --network=none --entrypoint /bin/bash \
+  --volume "$lane:/work:ro" \
+  --volume "$target_dir:/target:rw" \
+  --volume "$scratch:/scratch:rw" \
+  --volume xsh-cargo-registry:/root/.cargo/registry \
+  --volume xsh-consolidation-kache:/root/.cache/kache \
+  --volume /home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro \
+  --volume /usr/local/bin/mold:/usr/local/bin/mold:ro \
+  --volume /usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro \
+  --volume "$lane/dev/musl-linker.sh:/usr/local/bin/xsh-mold-linker:ro" \
+  --workdir /work \
+  --env CARGO_HOME=/root/.cargo \
+  --env CARGO_TARGET_DIR=/target \
+  --env TARGET=x86_64-unknown-linux-musl \
+  --env CARGO_BUILD_JOBS=4 \
+  --env CARGO_NET_OFFLINE=true \
+  --env RUSTC_WRAPPER=/usr/local/bin/kache \
+  --env CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker \
+  --env 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol' \
+  --env LD_PRELOAD=/usr/lib/libjemalloc.so.2 \
+  --env TMPDIR=/scratch/tmp \
+  "$image" -c 'set -euo pipefail
+for selector in full_verifier_ generic_pure_module_exports_reject_payloads callable_body_generalization_rejects_call_only_binders generic_call_resolution_counts_fresh_evidence_separately_from_scheme_instantiation row_evidence_rejects_any_and_call_instantiations_require_valid_evidence call_instantiation_checks_nested_record_row_requirements symbolic_substitution_charges_cloned_type_and_row_evidence full_indexed_layouts_keep_hot_rows_compact; do
+  cargo test --locked --offline --target "$TARGET" -p xsh --lib "$selector" -- --nocapture > "/scratch/logs/focused-rust-group/$selector.stdout.log" 2> "/scratch/logs/focused-rust-group/$selector.stderr.log"
+done'

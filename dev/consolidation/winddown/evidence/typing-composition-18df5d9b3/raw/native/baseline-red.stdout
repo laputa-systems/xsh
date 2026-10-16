@@ -1,0 +1,21 @@
+running 1 tests
+tests/xsh/rank1-inference.xsh::rank1_exported_composition_calls_identity_and_projection ... FAILED 27ms
+
+failures:
+
+---- tests/xsh/rank1-inference.xsh::rank1_exported_composition_calls_identity_and_projection ----
+AssertionError.Failed: assertion failed: integer_first.success: err[check.local-inference]: generic call instantiation failed: type argument remains unresolved
+  /scratch/native-tmp/xsh-test-8-1792190229806572576-0-rank1_exported_composition_calls_identity_and_projection/rank1-composition-1/composition.xsh:12:3
+    identity(name_of(value))
+    ^^^^^^^^^^^^^^^^^^^^^^^^ generic call instantiation failed: type argument remains unresolved
+
+err[check.local-inference]: generic call instantiation failed: row argument remains unresolved
+  /scratch/native-tmp/xsh-test-8-1792190229806572576-0-rank1_exported_composition_calls_identity_and_projection/rank1-composition-1/composition.xsh:12:12
+    identity(name_of(value))
+             ^^^^^^^^^^^^^^ generic call instantiation failed: row argument remains unresolved
+
+err[check.missing-module-doc]: exported modules require a preceding ##! module doc comment
+  /scratch/native-tmp/xsh-test-8-1792190229806572576-0-rank1_exported_composition_calls_identity_and_projection/rank1-composition-1/composition-int.xsh:3:1
+  export let value: Int = h…
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped

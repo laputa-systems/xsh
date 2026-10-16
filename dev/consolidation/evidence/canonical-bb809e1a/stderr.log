@@ -1,0 +1,185 @@
+    Finished `verification` profile [optimized] target(s) in 0.05s
+   Compiling xsh v0.0.1 (/work)
+    Finished `verification` profile [optimized] target(s) in 8.82s
+  Executable tests/integration.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/4a9d55a76cf51b08/out/integration-4a9d55a76cf51b08)
+    Finished `verification` profile [optimized] target(s) in 0.07s
+     Running tests/integration.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/4a9d55a76cf51b08/out/integration-4a9d55a76cf51b08)
+   Compiling xsh v0.0.1 (/work)
+    Finished `verification` profile [optimized] target(s) in 2.93s
+  Executable tests/ambient_fs_policy.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/dc5d058a3e44a7eb/out/ambient_fs_policy-dc5d058a3e44a7eb)
+    Finished `verification` profile [optimized] target(s) in 0.05s
+     Running tests/ambient_fs_policy.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/dc5d058a3e44a7eb/out/ambient_fs_policy-dc5d058a3e44a7eb)
+   Compiling xsh v0.0.1 (/work)
+    Finished `verification` profile [optimized] target(s) in 0.58s
+  Executable tests/symbol_plateau.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/0d1af18a8111f93b/out/symbol_plateau-0d1af18a8111f93b)
+    Finished `verification` profile [optimized] target(s) in 0.05s
+     Running tests/symbol_plateau.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/0d1af18a8111f93b/out/symbol_plateau-0d1af18a8111f93b)
+   Compiling xsh v0.0.1 (/work)
+    Finished `verification` profile [optimized] target(s) in 0.68s
+  Executable tests/core_compat_boundaries.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/31455098c0a3c506/out/core_compat_boundaries-31455098c0a3c506)
+    Finished `verification` profile [optimized] target(s) in 0.05s
+     Running tests/core_compat_boundaries.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/31455098c0a3c506/out/core_compat_boundaries-31455098c0a3c506)
+    Finished `verification` profile [optimized] target(s) in 0.03s
+  Executable tests/core_compat_extra.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/409440b2a43657bc/out/core_compat_extra-409440b2a43657bc)
+    Finished `verification` profile [optimized] target(s) in 0.05s
+     Running tests/core_compat_extra.rs (target/x86_64-unknown-linux-musl/verification/build/xsh/409440b2a43657bc/out/core_compat_extra-409440b2a43657bc)
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/alias/up/alias points to an ancestor /work/core/tests/data/grep/fx/dl/alias
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/alias/up/real/up points to an ancestor /work/core/tests/data/grep/fx/dl/alias/up
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/real/up/alias/up points to an ancestor /work/core/tests/data/grep/fx/dl/real/up
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/real/up/real/up points to an ancestor /work/core/tests/data/grep/fx/dl/real/up
+   Compiling libc v0.2.186
+   Compiling cfg-if v1.0.4
+   Compiling pin-project-lite v0.2.17
+   Compiling futures-core v0.3.34
+   Compiling crossbeam-utils v0.8.21
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.9
+   Compiling parking v2.2.1
+   Compiling futures-io v0.3.34
+   Compiling itoa v1.0.18
+   Compiling fastrand v2.4.1
+   Compiling log v0.4.33
+   Compiling typenum v1.20.1
+   Compiling slab v0.4.12
+   Compiling rustix v1.1.4
+   Compiling bytes v1.11.1
+   Compiling zeroize v1.9.0
+   Compiling foldhash v0.2.0
+   Compiling bitflags v2.13.0
+   Compiling atomic-waker v1.1.2
+   Compiling linux-raw-sys v0.12.1
+   Compiling futures-lite v2.6.1
+   Compiling http v1.5.0
+   Compiling hashbrown v0.17.1
+   Compiling rustls-pki-types v1.15.0
+   Compiling memchr v2.8.1
+   Compiling hybrid-array v0.4.12
+   Compiling const-oid v0.10.2
+   Compiling autocfg v1.5.1
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.0
+   Compiling equivalent v1.0.2
+   Compiling event-listener v5.4.2
+   Compiling untrusted v0.9.0
+   Compiling rustls v0.23.43
+   Compiling futures-sink v0.3.33
+   Compiling async-io v2.6.0
+   Compiling indexmap v2.14.0
+   Compiling once_cell v1.21.4
+   Compiling jobserver v0.1.35
+   Compiling digest v0.11.3
+   Compiling pkg-config v0.3.34
+   Compiling getrandom v0.3.4
+   Compiling httparse v1.10.1
+   Compiling concurrent-queue v2.5.0
+   Compiling cc v1.2.66
+   Compiling fnv v1.0.7
+   Compiling proc-macro2 v1.0.106
+   Compiling event-listener-strategy v0.5.4
+   Compiling rustls-webpki v0.103.13
+   Compiling http-body v1.1.0
+   Compiling subtle v2.6.1
+   Compiling async-task v4.7.1
+   Compiling try-lock v0.2.5
+   Compiling quote v1.0.46
+   Compiling zstd-sys v2.1.0+zstd.1.5.7
+   Compiling unicode-ident v1.0.24
+   Compiling laputa-h2-futures v0.4.16-beta.0
+   Compiling aho-corasick v1.1.4
+   Compiling async-channel v2.5.0
+   Compiling want v0.3.1
+   Compiling piper v0.2.5
+   Compiling futures-channel v0.3.34
+   Compiling smallvec v1.15.2
+   Compiling arrayvec v0.7.8
+   Compiling regex-syntax v0.8.11
+   Compiling cpufeatures v0.3.0
+   Compiling blocking v1.6.2
+   Compiling graviola v0.4.1
+   Compiling libmimalloc-sys v0.1.49
+   Compiling zstd-safe v7.3.0
+   Compiling laputa-hyper-futures-lite v1.11.0-beta.0
+   Compiling zmij v1.0.21
+   Compiling getrandom v0.4.2
+   Compiling futures-task v0.3.34
+   Compiling vte v0.15.0
+   Compiling syn v2.0.118
+   Compiling futures-util v0.3.34
+   Compiling blake3 v1.8.7
+   Compiling crossbeam-epoch v0.9.18
+   Compiling polling v3.11.0
+   Compiling webpki-roots v1.0.9
+   Compiling regex-automata v0.4.14
+   Compiling h12tiny-client-normalize v0.1.0
+   Compiling keccak v0.2.2
+   Compiling sponge-cursor v0.1.0
+   Compiling rustc-hash v2.1.3
+   Compiling miniserde v0.1.45
+   Compiling unicode-width v0.2.2
+   Compiling xsh-registry v0.0.1 (/work/crates/xsh-registry)
+   Compiling option-ext v0.2.0
+   Compiling same-file v1.0.6
+   Compiling h12tiny-core v0.1.0
+   Compiling async-net v2.0.0
+   Compiling vt100 v0.16.2
+   Compiling futures-rustls v0.26.0
+   Compiling rustls-graviola v0.4.0
+   Compiling dirs-sys v0.5.0
+   Compiling walkdir v2.5.0
+   Compiling mini-internal v0.1.45
+   Compiling crossbeam-deque v0.8.6
+   Compiling sha2 v0.11.0
+   Compiling async-executor v1.14.0
+   Compiling http-body-util v0.1.4
+   Compiling filetime v0.2.29
+   Compiling crossbeam-channel v0.5.15
+   Compiling rustls-pemfile v2.2.0
+   Compiling h12tiny-client v0.1.1
+   Compiling zlib-rs v0.6.3
+   Compiling libbz2-rs-sys v0.2.5
+   Compiling bstr v1.12.1
+   Compiling constant_time_eq v0.4.2
+   Compiling lzma-rust2 v0.16.5
+   Compiling tempfile v3.27.0
+   Compiling xsh v0.0.1 (/work)
+   Compiling tar v0.4.46
+   Compiling directories v6.0.0
+   Compiling laputa-ptytest v0.1.1
+   Compiling bzip2 v0.6.1
+   Compiling xsh-net v0.0.1 (/work/crates/xsh-net)
+   Compiling mimalloc v0.1.52
+   Compiling flate2 v1.1.9
+   Compiling zstd v0.13.3
+   Compiling shake v0.1.0
+   Compiling globset v0.4.18
+   Compiling sha3 v0.12.0
+   Compiling xsh-applets v0.0.1 (/work/crates/xsh-applets)
+   Compiling sha1 v0.11.0
+   Compiling xsh-root v0.0.1 (/work/crates/xsh-root)
+   Compiling laputa-h2-futures-lite v0.4.16-beta.0
+   Compiling md-5 v0.11.0
+   Compiling sm3 v0.5.0
+   Compiling diffy v0.5.0
+   Compiling rawzip v0.5.1
+   Compiling regex-lite v0.1.9 (/work/third_party/regex-lite)
+   Compiling data-encoding v2.11.0
+   Compiling ignore v0.4.25
+    Finished `test` profile [unoptimized] target(s) in 33.01s
+  Executable unittests src/lib.rs (target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+    Finished `test` profile [unoptimized] target(s) in 0.21s
+     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+error: test failed, to rerun pass `-p xsh --lib`
+err: StageError.Failed
+executable: /work/target/x86_64-unknown-linux-musl/verification/xsh
+at /work/dev/stage.xsh:74:3-75:1
+call path:
+  1. proc main at /work/dev/main.xsh:1:1-1:1
+  2. proc dispatch at /work/dev/main.xsh:372:10-372:40
+  3. proc /work/dev/internal.xsh.gate_batch at /work/dev/main.xsh:355:29-355:63
+  4. proc /work/dev/gates.xsh.batch at /work/dev/internal.xsh:107:3-107:19
+  5. proc /work/dev/test_workflows.xsh.full at /work/dev/gates.xsh:219:3-219:65
+  6. proc /work/dev/test_workflows.xsh.run_commands at /work/dev/test_workflows.xsh:238:3-238:53
+  7. proc /work/dev/cargo_steps.xsh.run_test at /work/dev/test_workflows.xsh:180:7-180:33
+  8. proc /work/dev/cargo_steps.xsh.execute_linux_test at /work/dev/cargo_steps.xsh:355:5-355:70
+  9. proc /work/dev/cargo_steps.xsh.execute_with_cargo_lock at /work/dev/cargo_steps.xsh:310:7-310:47
+  10. proc /work/dev/stage.xsh.execute_with_flock at /work/dev/cargo_steps.xsh:235:5-235:52

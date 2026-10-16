@@ -1,0 +1,9 @@
+   Compiling xsh v0.0.1 (/work)
+    Finished `test` profile [unoptimized] target(s) in 30.76s
+     Running unittests src/lib.rs (.work/target-gate-repair-d5402/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+
+running 1 test
+test runtime::eval::indexed::full::schema::tests::frame_apply_strategy_covers_the_ordered_value_cohorts ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 750 filtered out; finished in 0.00s
+

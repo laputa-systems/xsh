@@ -7,6 +7,45 @@ state, parked branches, retained worktrees and completed stop audit.
 
 ## Active resume
 
+The `bb809e1a6` closure attempt stopped on a stale Rust test expectation.
+The schema correctly marks `ExprProcessCommandArgv` as `FrameApply`.
+The expected cohort omitted it. Repair `21f8848b6` adds the missing row in
+schema order, and the exact pinned musl debug test passes.
+The [failed canonical run](evidence/canonical-bb809e1a/README.md) retains
+747 passes, one failure, and three ignored tests. No canonical close exists.
+
+Gate repairs `3c39d8271` and `6e930ee73` are integrated. The split context now
+receives 0.01 CPU and 1 GiB. The block-device fixture mounts its actual
+`.work/tmp` path as a bounded nodev tmpfs. All 43 launcher controls pass.
+The immutable r6 manifest remains approved. Supplemental attempt
+`correctness-bb809e1a-20261016-r4` passes products, three harness builds,
+workspace warnings-denied Clippy, and all five Linux contexts. Its receipt
+still requires review of three ignored Rust tests and two native skips.
+Its source pin remains `bb809e1a6`.
+
+The three fresh QEMU guests pass all seven required cases on `bb809e1a6`.
+Evidence is preserved on `campaign/qemu-platform-20261016` at `6088167b4`.
+The current-source route replay did not execute. The W9 input-0 probe passed
+all five roles, native hashes, projections, and source audits. Its full capture
+was cancelled gracefully for the corrected freeze. The reference adapter
+completed 68 ranges, and the candidate remained partial. Its status is
+incomplete. All owned workers and locks were released.
+
+Seal a new clean controller and candidate after this handoff commit. Run fresh
+supplemental, canonical, W9, route, and platform receipts for that source.
+Preserve the old receipts without changing their source credit. Keep the next
+controller fixed through functional and resource verification. The resource
+queue contains ten full native suites: correctness canonical, profile cost,
+forced frames, six scheduler runs, and the separate release resource observer.
+The observer requires functional close and a qualified release profile.
+
+The isolated composition checkpoint is accepted at `18df5d9b3`, with evidence
+at [typing composition](winddown/evidence/typing-composition-18df5d9b3/README.md).
+The separate development-module parity repair is committed at `5fade8ca1`
+and awaits integrator acceptance. Inference still has no merge to main.
+Accelerated cross-cutting typing work uses `gpt-6.1-sol` at `medium`.
+Other active lanes retain `gpt-6-luna` at `xhigh`, without nested delegation.
+
 The owner invoked `$accelerate` on 2026-10-16. The source inventory on
 `fe674c14e` has zero source-inventory gaps across 152 rows. All 73 collector
 controls and 15 replay controls pass, including exact native-output admission.

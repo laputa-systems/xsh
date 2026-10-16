@@ -1,0 +1,15 @@
+running 13 tests
+tests/xsh/rank1-inference.xsh::rank1_generic_default_parameters_fail_closed_in_lowering ... ok 14ms
+tests/xsh/rank1-inference.xsh::rank1_explicit_any_and_monomorphic_prefix_body_keep_their_contracts ... ok 23ms
+tests/xsh/rank1-inference.xsh::rank1_generic_function_cannot_be_stored_as_typed_callable ... ok 22ms
+tests/xsh/rank1-inference.xsh::rank1_exported_identity_instantiates_each_import_root ... ok 38ms
+tests/xsh/rank1-inference.xsh::rank1_generic_rest_calls_preserve_prefix_and_splice_shapes ... ok 19ms
+tests/xsh/rank1-inference.xsh::rank1_exported_composition_calls_identity_and_projection ... ok 48ms
+tests/xsh/rank1-inference.xsh::rank1_generic_rest_splice_before_fixed_slot_fails_closed ... ok 13ms
+tests/xsh/rank1-inference.xsh::rank1_immutable_alias_instantiates_independent_direct_calls ... ok 12ms
+tests/xsh/rank1-inference.xsh::rank1_generic_rest_items_reject_wrong_element_types ... ok 18ms
+tests/xsh/rank1-inference.xsh::rank1_nongeneric_unresolved_function_material_still_needs_annotation ... ok 9ms
+tests/xsh/rank1-inference.xsh::rank1_named_required_calls_preserve_source_argument_order ... ok 15ms
+tests/xsh/rank1-inference.xsh::rank1_private_and_exported_projections_accept_different_rows ... ok 27ms
+tests/xsh/rank1-inference.xsh::rank1_quantified_bodies_reject_prefix_returns_and_optional_fields ... ok 34ms
+test result: ok. 13 passed; 0 failed; 0 skipped

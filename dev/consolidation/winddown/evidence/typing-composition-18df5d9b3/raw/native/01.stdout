@@ -1,0 +1,9 @@
+running 7 tests
+tests/xsh/typing-capability-witnesses.xsh::test_typing_dynamic_values_do_not_gain_a_concrete_type ... ok 11ms
+tests/xsh/typing-capability-witnesses.xsh::test_typing_annotated_projection_missing_field_remains_rejected ... ok 11ms
+tests/xsh/typing-capability-witnesses.xsh::test_typing_identity_rejects_a_wrong_context ... ok 11ms
+tests/xsh/typing-capability-witnesses.xsh::test_typing_identity_and_open_record_projection ... ok 17ms
+tests/xsh/typing-capability-witnesses.xsh::test_typing_open_record_projection_requires_the_projected_field ... ok 9ms
+tests/xsh/typing-capability-witnesses.xsh::test_typing_generic_module_pure_is_not_a_value ... ok 40ms
+tests/xsh/typing-capability-witnesses.xsh::test_typing_exported_scheme_is_independent_of_other_importers ... ok 106ms
+test result: ok. 7 passed; 0 failed; 0 skipped

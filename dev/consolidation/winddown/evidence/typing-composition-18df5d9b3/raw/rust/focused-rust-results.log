@@ -1,0 +1,88 @@
+selector=call_instantiation_checks_nested_record_row_requirements
+
+running 1 test
+test sema::schemes::tests::call_instantiation_checks_nested_record_row_requirements ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 878 filtered out; finished in 0.00s
+
+
+selector=callable_body_generalization_rejects_call_only_binders
+
+running 1 test
+test sema::constraints::tests::callable_body_generalization_rejects_call_only_binders ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 878 filtered out; finished in 0.00s
+
+
+selector=full_indexed_layouts_keep_hot_rows_compact
+
+running 1 test
+test runtime::eval::indexed::full::tests::full_indexed_layouts_keep_hot_rows_compact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 878 filtered out; finished in 0.00s
+
+
+selector=full_verifier_
+
+running 27 tests
+test runtime::eval::indexed::full::tests::full_verifier_accepts_direct_let_and_use_writers_before_reads_and_captures ... ok
+test runtime::eval::indexed::full::tests::full_verifier_authenticates_unsigned_runtime_check_evidence ... ok
+test runtime::eval::indexed::full::tests::full_verifier_authenticates_driver_local_generic_arguments ... ok
+test runtime::eval::indexed::full::tests::full_verifier_authenticates_capture_owner_and_defining_writer ... ok
+test runtime::eval::indexed::full::tests::full_verifier_checks_generic_arguments_from_scalar_lets ... ok
+test runtime::eval::indexed::full::tests::full_verifier_checks_generic_list_argument_contents ... ok
+test runtime::eval::indexed::full::tests::full_verifier_bounds_forged_shared_scheme_type_dags ... ok
+test runtime::eval::indexed::full::tests::full_verifier_preserves_unsigned_integer_generic_arguments ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_assignment_before_its_lexical_writer ... ok
+test runtime::eval::indexed::full::tests::full_verifier_checks_generic_rest_call_arguments ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_assignment_without_mutable_driver_slot ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_driver_slot_identity_from_another_program ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_direct_typed_callable_let_with_wrong_function_ref ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_forged_any_root_read_annotation ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_forged_capture_type_as_generic_argument_evidence ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_forged_generic_module_exports ... ok
+test runtime::eval::indexed::full::tests::full_verifier_checks_symbolic_generic_call_scopes_and_facts ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_forged_generic_tail_return_fact ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_forged_generic_call_substitutions ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_future_and_stale_visible_driver_slot_identities ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_forged_generic_rows_and_body_facts ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_loop_control_without_an_owner ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_forged_local_initializer_annotations ... ok
+test runtime::eval::indexed::full::tests::full_verifier_resolves_the_last_driver_writer_location_id ... ok
+test runtime::eval::indexed::full::tests::full_verifier_requires_intrinsic_integer_literal_type_evidence ... ok
+test runtime::eval::indexed::full::tests::full_verifier_requires_exact_generic_type_argument_evidence ... ok
+test runtime::eval::indexed::full::tests::full_verifier_rejects_generic_field_evidence_from_erased_any_locals ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 852 filtered out; finished in 0.04s
+
+
+selector=generic_call_resolution_counts_fresh_evidence_separately_from_scheme_instantiation
+
+running 1 test
+test sema::constraints::tests::generic_call_resolution_counts_fresh_evidence_separately_from_scheme_instantiation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 878 filtered out; finished in 0.00s
+
+
+selector=generic_pure_module_exports_reject_payloads
+
+running 1 test
+test runtime::eval::indexed::semantic::tests::generic_pure_module_exports_reject_payloads ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 878 filtered out; finished in 0.00s
+
+
+selector=row_evidence_rejects_any_and_call_instantiations_require_valid_evidence
+
+running 1 test
+test sema::schemes::tests::row_evidence_rejects_any_and_call_instantiations_require_valid_evidence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 878 filtered out; finished in 0.00s
+
+
+selector=symbolic_substitution_charges_cloned_type_and_row_evidence
+
+running 1 test
+test runtime::eval::indexed::full::verify_schemes::tests::symbolic_substitution_charges_cloned_type_and_row_evidence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 878 filtered out; finished in 0.00s

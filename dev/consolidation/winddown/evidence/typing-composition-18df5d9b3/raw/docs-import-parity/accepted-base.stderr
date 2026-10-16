@@ -1,0 +1,84 @@
+err[check.unknown-method]: unknown method `execute` on Record
+  /work/dev/cargo_steps.xsh:112:5
+      stages.execute(step.spec)
+      ^^^^^^^^^^^^^^^^^^^^^^^^^ `execute` is not defined for Record
+
+err[check.unknown-method]: unknown method `execute` on Record
+  /work/dev/cargo_steps.xsh:115:7
+        stages.execute(step.spec)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^ `execute` is not defined for Record
+
+err[check.unknown-method]: unknown method `host_os_tag` on Record
+  /work/dev/context.xsh:45:17
+    let host_os = target_policy.host_os_tag(uname.sysname)?
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `host_os_tag` is not defined for Record
+
+err[check.unknown-method]: unknown method `host_arch_tag` on Record
+  /work/dev/context.xsh:46:19
+    let host_arch = target_policy.host_arch_tag(uname.machine)?
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `host_arch_tag` is not defined for Record
+
+err[check.unknown-method]: unknown method `host_default_triple` on Record
+  /work/dev/context.xsh:49:5
+      target_policy.host_default_triple(host_os, host_arch)?
+      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `host_default_triple` is not defined for Record
+
+err[check.unknown-method]: unknown method `resolve` on Record
+  /work/dev/context.xsh:53:16
+    let target = target_policy.resolve(target_name)?
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `resolve` is not defined for Record
+
+err[check.unknown-method]: unknown method `execute` on Record
+  /work/dev/docker.xsh:55:5
+      stages.execute(
+      ^^^^^^^^^^^^^^^ `execute` is not defined for Record
+
+err[check.unknown-method]: unknown method `execute` on Record
+  /work/dev/docker.xsh:66:5
+      stages.execute(
+      ^^^^^^^^^^^^^^^ `execute` is not defined for Record
+
+err[check.unknown-method]: unknown method `docker_test_env` on Record
+  /work/dev/docker.xsh:126:22
+    let target_flags = targets.docker_test_env(ctx.target.triple)?
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `docker_test_env` is not defined for Record
+
+err[check.unknown-method]: unknown method `execute` on Record
+  /work/dev/docker.xsh:240:3
+    stages.execute(
+    ^^^^^^^^^^^^^^^ `execute` is not defined for Record
+
+err[check.unknown-method]: unknown method `docker_test_env` on Record
+  /work/dev/test_workflows.xsh:71:10
+    return targets.docker_test_env(ctx.target.triple) when ctx.target.os == "linux"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `docker_test_env` is not defined for Record
+
+err[check.unknown-method]: unknown method `execute` on Record
+  /work/dev/test_workflows.xsh:175:7
+        stages.execute(spec)
+        ^^^^^^^^^^^^^^^^^^^^ `execute` is not defined for Record
+
+err[check.unknown-method]: unknown method `execute` on Record
+  /work/dev/test_workflows.xsh:187:3
+    stages.execute(stages.command("test-xsh", ctx.target.triple, xsht.display(),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `execute` is not defined for Record
+
+err[check.unknown-method]: unknown method `run_internal` on Record
+  /work/dev/test_workflows.xsh:218:3
+    docker.run_internal(selected, if ci { "test-linux-ci" } else { "test-linux" }, true, [])
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `run_internal` is not defined for Record
+
+err[check.unknown-method]: unknown method `run_internal` on Record
+  /work/dev/test_workflows.xsh:219:3
+    docker.run_internal(selected, if ci { "test-linux-ci-split" } else { "test-linux-split" }, true, [])
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `run_internal` is not defined for Record
+
+err[check.unknown-method]: unknown method `execute` on Record
+  /work/dev/docs.xsh:615:3
+    stages.execute(
+    ^^^^^^^^^^^^^^^ `execute` is not defined for Record
+
+err[check.unknown-method]: unknown method `cargo_environment` on Record
+  /work/dev/docs.xsh:636:18
+    let defaults = tests.cargo_environment(ctx)?
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `cargo_environment` is not defined for Record
