@@ -16,12 +16,6 @@ RUNNER_SPEC.loader.exec_module(runner)
 
 
 class CurrentRouteReplayTests(unittest.TestCase):
-    def test_current_route_driver_uses_the_promoted_path(self):
-        self.assertEqual(
-            runner.DRIVER_RELATIVE,
-            pathlib.Path("dev/consolidation/route_replay_driver.py"),
-        )
-
     def test_current_route_inputs_reject_symlinked_repository_paths(self):
         scratch = ROOT / ".work/tmp"
         scratch.mkdir(parents=True, exist_ok=True)
@@ -36,39 +30,39 @@ class CurrentRouteReplayTests(unittest.TestCase):
             with self.assertRaisesRegex(runner.CurrentReplayError, "contains a symlink"):
                 runner.checked_source_file(repository, runner.CONFIG_RELATIVE)
 
-    def test_live_route_config_pins_the_current_oracle_source(self):
+    def test_live_route_config_supplies_a_validated_source_commit(self):
         config = runner.read_route_config(ROOT)
-        driver = SimpleNamespace(PINNED_SOURCE_COMMIT="previous")
+        driver = runner.load_route_driver(ROOT)
 
         self.assertEqual(
-            runner.configure_source_pin(driver, config),
-            config[runner.SOURCE_PIN_KEY],
+            driver.route_source_commit(config),
+            config["route_witness_source_commit"],
         )
 
-    def test_configured_source_pin_replaces_historical_pin(self):
-        driver = SimpleNamespace(PINNED_SOURCE_COMMIT="previous")
+    def test_source_commit_is_taken_from_the_passed_config(self):
+        driver = runner.load_route_driver(ROOT)
         configured = "a" * 40
 
         self.assertEqual(
-            runner.configure_source_pin(driver, {runner.SOURCE_PIN_KEY: configured}),
+            driver.route_source_commit({"route_witness_source_commit": configured}),
             configured,
         )
-        self.assertEqual(driver.PINNED_SOURCE_COMMIT, configured)
 
-    def test_invalid_configured_source_pin_is_rejected(self):
-        driver = SimpleNamespace(PINNED_SOURCE_COMMIT="previous")
+    def test_invalid_configured_source_commit_is_rejected(self):
+        driver = runner.load_route_driver(ROOT)
 
-        with self.assertRaisesRegex(runner.CurrentReplayError, "full lowercase Git commit ID"):
-            runner.configure_source_pin(driver, {runner.SOURCE_PIN_KEY: "not-a-commit"})
+        with self.assertRaisesRegex(driver.ReplayError, "full lowercase Git commit ID"):
+            driver.route_source_commit({"route_witness_source_commit": "not-a-commit"})
 
-    def test_entrypoint_forwards_plan_arguments_after_configuring_source_pin(self):
-        driver = SimpleNamespace(
-            PINNED_SOURCE_COMMIT="previous",
-        )
+    def test_entrypoint_forwards_arguments_and_config_without_mutating_driver(self):
+        config = {"route_witness_source_commit": "b" * 40}
+        driver = SimpleNamespace()
         forwarded_argv = []
+        forwarded_config = []
 
-        def driver_main():
+        def driver_main(received_config):
             forwarded_argv.extend(sys.argv)
+            forwarded_config.append(received_config)
             return 0
 
         driver.main = mock.Mock(side_effect=driver_main)
@@ -88,13 +82,13 @@ class CurrentRouteReplayTests(unittest.TestCase):
         old_argv = sys.argv[:]
 
         with (
-            mock.patch.object(runner, "read_route_config", return_value={runner.SOURCE_PIN_KEY: "b" * 40}),
+            mock.patch.object(runner, "read_route_config", return_value=config),
             mock.patch.object(runner, "load_route_driver", return_value=driver),
         ):
             self.assertEqual(runner.main(arguments), 0)
 
-        self.assertEqual(driver.PINNED_SOURCE_COMMIT, "b" * 40)
-        driver.main.assert_called_once_with()
+        self.assertEqual(forwarded_config, [config])
+        driver.main.assert_called_once_with(config)
         self.assertEqual(forwarded_argv, [str(RUNNER_PATH), *arguments])
         self.assertEqual(sys.argv, old_argv)
 
@@ -126,12 +120,11 @@ class CurrentRouteReplayTests(unittest.TestCase):
         driver = runner.load_route_driver(ROOT)
         helper = driver.load_helper(ROOT)
         config = runner.read_route_config(ROOT)
-        runner.configure_source_pin(driver, config)
         schema_rows = helper.parse_schema((ROOT / driver.SCHEMA_PATH).read_text())
 
         rows = driver.build_case_rows(ROOT, helper, config, schema_rows)
         expected = helper.expected_route_witness_mappings(
-            ROOT, config[runner.SOURCE_PIN_KEY], schema_rows
+            ROOT, config["route_witness_source_commit"], schema_rows
         )
         expression_tags = {
             row["tag"] for row in schema_rows if row["kind"] == "Expr"
@@ -169,7 +162,6 @@ class CurrentRouteReplayTests(unittest.TestCase):
         driver = runner.load_route_driver(ROOT)
         helper = driver.load_helper(ROOT)
         config = runner.read_route_config(ROOT)
-        runner.configure_source_pin(driver, config)
         schema_rows = helper.parse_schema((ROOT / driver.SCHEMA_PATH).read_text())
         incomplete = copy.deepcopy(config)
         incomplete["route_witness_mappings"].remove(
@@ -187,7 +179,6 @@ class CurrentRouteReplayTests(unittest.TestCase):
         driver = runner.load_route_driver(ROOT)
         helper = driver.load_helper(ROOT)
         config = runner.read_route_config(ROOT)
-        runner.configure_source_pin(driver, config)
         schema_rows = helper.parse_schema((ROOT / driver.SCHEMA_PATH).read_text())
         duplicate = copy.deepcopy(config)
         duplicate["route_witness_mappings"].append(
@@ -206,7 +197,7 @@ class CurrentRouteReplayTests(unittest.TestCase):
         with mock.patch.object(runner, "load_route_driver", return_value=driver):
             self.assertEqual(runner.main(["--help"]), 0)
 
-        driver.main.assert_called_once_with()
+        driver.main.assert_called_once_with(None)
 
 
 if __name__ == "__main__":

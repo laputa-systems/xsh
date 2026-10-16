@@ -21,7 +21,6 @@ from typing import Any
 sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
-PINNED_SOURCE_COMMIT = "95488faf20621dd2fd182e840e4ff5fafdb0abfd"
 IMAGE = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
 TARGET = "x86_64-unknown-linux-musl"
 CONFIG_PATH = pathlib.Path("dev/consolidation/winddown/gate-tools/semantic-route-matrix/evidence.json")
@@ -36,6 +35,16 @@ OUTER_TERM_SECONDS = 10
 
 class ReplayError(Exception):
     pass
+
+
+def route_source_commit(config: dict[str, Any]) -> str:
+    source_commit = config.get("route_witness_source_commit")
+    if (
+        not isinstance(source_commit, str)
+        or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None
+    ):
+        raise ReplayError("route-witness source commit must be a full lowercase Git commit ID")
+    return source_commit
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -111,9 +120,7 @@ def build_case_rows(
     expression_by_tag = {
         row["tag"]: row for row in schema_rows if row.get("kind") == "Expr"
     }
-    source_commit = config.get("route_witness_source_commit")
-    if source_commit != PINNED_SOURCE_COMMIT:
-        raise ReplayError("current route-witness source pin differs from the configured commit")
+    source_commit = route_source_commit(config)
 
     source_mappings = {
         test_id: mapping
@@ -180,7 +187,10 @@ def normalized_under(path: pathlib.Path, parent: pathlib.Path, *, strict_parent:
     return normalized
 
 
-def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
+def validate_inputs(
+    args: argparse.Namespace,
+    config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     root = args.repo.resolve(strict=True)
     if not (root / ".git").exists():
         raise ReplayError(f"repository metadata is missing under {root}")
@@ -194,10 +204,11 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
         )
     if (args.product_head, args.product_tree) != (args.head, args.tree):
         raise ReplayError("verification products must be explicitly pinned to the selected source freeze")
-    git_value(root, "cat-file", "-e", f"{PINNED_SOURCE_COMMIT}^{{commit}}")
-
     helper = load_helper(root)
-    config = read_json(root / CONFIG_PATH, helper)
+    if config is None:
+        config = read_json(root / CONFIG_PATH, helper)
+    source_commit = route_source_commit(config)
+    git_value(root, "cat-file", "-e", f"{source_commit}^{{commit}}")
     try:
         schema_rows = helper.parse_schema((root / SCHEMA_PATH).read_text())
         rows = build_case_rows(root, helper, config, schema_rows)
@@ -249,6 +260,7 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
         "tree": actual["tree"],
         "helper": helper,
         "config": config,
+        "source_commit": source_commit,
         "rows": rows,
         "products": products,
         "output_root": output_root,
@@ -261,7 +273,7 @@ def print_plan(validated: dict[str, Any]) -> None:
     print("route_credit=none")
     print(f"head={validated['head']}")
     print(f"tree={validated['tree']}")
-    print(f"pinned_child_source={PINNED_SOURCE_COMMIT}")
+    print(f"pinned_child_source={validated['source_commit']}")
     print(f"xsh={validated['products']['xsh']['path']}")
     print(f"xsh_sha256={validated['products']['xsh']['sha256']}")
     print(f"xsht={validated['products']['xsht']['path']}")
@@ -676,7 +688,7 @@ def add_inputs(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run-name", required=True)
 
 
-def main() -> int:
+def main(config: dict[str, Any] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Replay every source-validated expression route oracle in the current "
@@ -692,7 +704,7 @@ def main() -> int:
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", args.run_name) is None:
         parser.error("--run-name must be a unique path-safe label of at most 64 characters")
     try:
-        validated = validate_inputs(args)
+        validated = validate_inputs(args, config)
         if args.command == "plan":
             print_plan(validated)
             return 0

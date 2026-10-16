@@ -7,7 +7,6 @@ import importlib.util
 import json
 import os
 import pathlib
-import re
 import sys
 from types import ModuleType
 from typing import Any
@@ -18,7 +17,6 @@ os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 DRIVER_RELATIVE = pathlib.Path("dev/consolidation/route_replay_driver.py")
 CONFIG_RELATIVE = pathlib.Path("dev/consolidation/winddown/gate-tools/semantic-route-matrix/evidence.json")
-SOURCE_PIN_KEY = "route_witness_source_commit"
 
 
 class CurrentReplayError(Exception):
@@ -61,17 +59,6 @@ def read_route_config(root: pathlib.Path) -> dict[str, Any]:
     return value
 
 
-def configure_source_pin(driver: ModuleType, config: dict[str, Any]) -> str:
-    source_commit = config.get(SOURCE_PIN_KEY)
-    if (
-        not isinstance(source_commit, str)
-        or re.fullmatch(r"[0-9a-f]{40}", source_commit) is None
-    ):
-        raise CurrentReplayError("configured route source pin must be a full lowercase Git commit ID")
-    driver.PINNED_SOURCE_COMMIT = source_commit
-    return source_commit
-
-
 def load_route_driver(root: pathlib.Path) -> ModuleType:
     driver_path = checked_source_file(root, DRIVER_RELATIVE)
     spec = importlib.util.spec_from_file_location(
@@ -92,11 +79,15 @@ def repository_root(arguments: list[str]) -> pathlib.Path:
     return parsed.repo.resolve(strict=True)
 
 
-def invoke_driver(driver: ModuleType, arguments: list[str]) -> int:
+def invoke_driver(
+    driver: ModuleType,
+    arguments: list[str],
+    config: dict[str, Any] | None,
+) -> int:
     original_argv = sys.argv
     sys.argv = [str(pathlib.Path(__file__).resolve()), *arguments]
     try:
-        return driver.main()
+        return driver.main(config)
     finally:
         sys.argv = original_argv
 
@@ -106,16 +97,16 @@ def main(arguments: list[str] | None = None) -> int:
     help_requested = any(argument in {"-h", "--help"} for argument in forwarded)
     try:
         root = pathlib.Path(__file__).resolve().parents[2]
+        config = None
         if not help_requested:
             root = repository_root(forwarded)
+            config = read_route_config(root)
         driver = load_route_driver(root)
-        if not help_requested:
-            configure_source_pin(driver, read_route_config(root))
     except (CurrentReplayError, OSError, ImportError) as error:
         print(f"current route replay: {error}", file=sys.stderr)
         return 2
 
-    return invoke_driver(driver, forwarded)
+    return invoke_driver(driver, forwarded, config)
 
 
 if __name__ == "__main__":
