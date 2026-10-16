@@ -91,8 +91,22 @@ fn openat2(
     })
 }
 
+const MAX_OPENAT2_RESOLUTION_ATTEMPTS: usize = 8;
+
 fn retry_openat2(mut open: impl FnMut() -> io::Result<libc::c_int>) -> io::Result<libc::c_int> {
-    open()
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        match open() {
+            Err(error)
+                if error.raw_os_error() == Some(libc::EAGAIN)
+                    && attempts < MAX_OPENAT2_RESOLUTION_ATTEMPTS =>
+            {
+                continue;
+            }
+            result => return result,
+        }
+    }
 }
 
 fn file_from_fd(fd: libc::c_int) -> io::Result<File> {
@@ -116,7 +130,7 @@ fn root_from_fd(fd: libc::c_int) -> io::Result<OwnedFd> {
 
 #[cfg(test)]
 mod tests {
-    use super::retry_openat2;
+    use super::{MAX_OPENAT2_RESOLUTION_ATTEMPTS, retry_openat2};
     use std::io;
 
     #[test]
@@ -124,8 +138,10 @@ mod tests {
         let operation = (
             3,
             "sys/bus/pci/devices/0000:00:1f.0",
-            libc::O_PATH | libc::O_DIRECTORY,
+            libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC,
+            0_u64,
             libc::RESOLVE_BENEATH | libc::RESOLVE_NO_MAGICLINKS,
+            std::mem::size_of::<libc::open_how>(),
         );
         let mut attempts = 0;
         let mut observed = Vec::new();
@@ -133,7 +149,7 @@ mod tests {
         let fd = retry_openat2(|| {
             attempts += 1;
             observed.push(operation);
-            if attempts == 1 {
+            if attempts < 3 {
                 Err(io::Error::from_raw_os_error(libc::EAGAIN))
             } else {
                 Ok(37)
@@ -142,7 +158,48 @@ mod tests {
         .expect("transient EAGAIN should retry");
 
         assert_eq!(fd, 37);
-        assert_eq!(attempts, 2);
-        assert_eq!(observed, vec![operation, operation]);
+        assert_eq!(attempts, 3);
+        assert_eq!(observed, vec![operation, operation, operation]);
+    }
+
+    #[test]
+    fn returns_immediate_openat2_success() {
+        let mut attempts = 0;
+        let fd = retry_openat2(|| {
+            attempts += 1;
+            Ok(37)
+        })
+        .expect("openat2 should succeed");
+
+        assert_eq!(fd, 37);
+        assert_eq!(attempts, 1);
+    }
+
+    #[test]
+    fn returns_the_eighth_openat2_eagain() {
+        let mut attempts = 0;
+        let error = retry_openat2(|| {
+            attempts += 1;
+            Err(io::Error::from_raw_os_error(libc::EAGAIN))
+        })
+        .expect_err("openat2 should return the final EAGAIN");
+
+        assert_eq!(attempts, MAX_OPENAT2_RESOLUTION_ATTEMPTS);
+        assert_eq!(error.raw_os_error(), Some(libc::EAGAIN));
+    }
+
+    #[test]
+    fn does_not_retry_other_openat2_errors() {
+        for code in [libc::EACCES, libc::EINVAL] {
+            let mut attempts = 0;
+            let error = retry_openat2(|| {
+                attempts += 1;
+                Err(io::Error::from_raw_os_error(code))
+            })
+            .expect_err("non-EAGAIN errors should not retry");
+
+            assert_eq!(attempts, 1);
+            assert_eq!(error.raw_os_error(), Some(code));
+        }
     }
 }
