@@ -21,7 +21,7 @@ def plan_data() -> dict[str, Any]:
             "runner_term_timeout_seconds": 5,
             "runner_kill_timeout_seconds": 5,
             "cleanup_verification": "docker ps --all must succeed and return no container matching the cidfile ID",
-            "container_cpus": "12",
+            "container_cpus": 12,
             "container_memory": "24g",
             "container_swap": "disabled",
             "cargo_lock_timeout_seconds": 900,
@@ -30,8 +30,8 @@ def plan_data() -> dict[str, Any]:
         "products": [
             [
                 "cargo", "build", "--locked", "--offline", "--profile", "verification",
-                "--target", TARGET, "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht",
-                "-p", "xshi", "--bin", "xshi", "-p", "xsh-fuzz", "--bins", "--message-format=json",
+                "--target", TARGET, "-p", "xsh", "-p", "xsht", "-p", "xshi", "-p", "xsh-fuzz",
+                "--bins", "--message-format=json",
             ],
         ],
         "product_variants": {

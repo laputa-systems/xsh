@@ -1,0 +1,250 @@
+{
+  "cargo_target_dirs": {
+    "harness": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/target/harness",
+    "linux-priv": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/target/linux-priv",
+    "products": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/target/products",
+    "runtime": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/target/runtime"
+  },
+  "environment": {
+    "build_tools": {
+      "/home/josh/.cargo/bin/kache": "b826e99983057974663d6863eafbee4e1b25ca9373071406b15dd02961b2c37d",
+      "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/mold-linker.sh": "49f116f6bd364f682439e87200281a5acccf081d3b5841170a5a5bf34daf5271",
+      "/usr/lib/libjemalloc.so.2": "2db538572b752a3ed5b6b8d9a76cc2966f0670ad481892cb423617c9e4345284",
+      "/usr/local/bin/mold": "78e4b6aec99fa067b81326f4b540893b92ae78e5b4176ab32be0565dcbd049d3"
+    },
+    "cargo_lock_timeout_seconds": 900,
+    "container_cpus": 12,
+    "container_memory": "24g",
+    "container_swap": "disabled",
+    "final_runner_sha256": "cb64f092ad8560f66c874966eaf8a9a6225a7ea3821fc2118cdbef2940c0d44e",
+    "host_gid": 1000,
+    "host_uid": 1000,
+    "image": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+    "launch_sha256": "741a07b88fe1ae940e9240a6714879fbac1a09233442a8cbd6d1964d3486ec3d",
+    "manifest_body_sha256": "99f7035e863b9f4aca8e0b192e0b7597b0a10ef54e1a0aeca913a7fe7c2a2737",
+    "manifest_sha256": "9e560fd594bc48218b9f20f9293f522cf7a48bca6f41fa01b7d0717e45154fbc",
+    "native_cleanup_marker_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.cleanup-unresolved",
+    "native_lock_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock",
+    "native_lock_scope": "acquired before product, harness, Clippy and supplemental context runs",
+    "native_runner_base_sha256": "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15",
+    "no_docker_self_test_sha256": "26ec90a00cf85958d60300e61aab92560805edfde847e65bc7556acb038cd5e1",
+    "runtime_cargo_forwarder_sha256": "a60824f4354a8f6b1b62d34c7c82b9a14e2d49c2c4efd31b7d2b7c52087f4e73",
+    "runtime_rustc_wrapper_sha256": "ad726243b5d92b126b7f457dc0055391b911c1a51f284ec589c25f5354068af4",
+    "target": "x86_64-unknown-linux-musl"
+  },
+  "failure": "build-product-01-xsh-xsht-xshi-xsh-fuzz exited 1; see /home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/logs/002-build-product-01-xsh-xsht-xshi-xsh-fuzz.log",
+  "finished_utc": "2026-10-16T17:35:46+00:00",
+  "harnesses": {},
+  "hashes": {
+    "binaries_before_build": {},
+    "source_before": {
+      "head": "be0b79a48403d74b11186166ba739a81dcbed702",
+      "tree": "cc80212504507d34c7d07413ce33f42ea68b6028"
+    }
+  },
+  "native_lock": {
+    "acquired": true,
+    "held_before_build": true,
+    "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock",
+    "unresolved_cleanup_marker": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.cleanup-unresolved",
+    "wait_policy": "nonblocking"
+  },
+  "product_variants": {
+    "verification": {
+      "binaries": [
+        "xsh",
+        "xsht",
+        "xshi",
+        "xsh-fuzz",
+        "xsh-test-helper"
+      ],
+      "profile": "verification",
+      "target_variant": "products"
+    }
+  },
+  "qualification": [
+    "The complete native suite is owned by the final scheduler and is intentionally absent here.",
+    "Linux privilege cases that early-return for a missing capability require manual skip audit from --nocapture logs.",
+    "Ignored date-clock and BTRFS cases require the disposable QEMU guest described in docs/TESTING.md.",
+    "The interactive parity scenario driver is absent; the retained Linux PTY Rust case is included."
+  ],
+  "schema": 1,
+  "source_checks": [
+    {
+      "clean": true,
+      "head": "be0b79a48403d74b11186166ba739a81dcbed702",
+      "status": "",
+      "tree": "cc80212504507d34c7d07413ce33f42ea68b6028",
+      "where": "before:verify-pinned-image-id"
+    },
+    {
+      "clean": true,
+      "head": "be0b79a48403d74b11186166ba739a81dcbed702",
+      "status": "",
+      "tree": "cc80212504507d34c7d07413ce33f42ea68b6028",
+      "where": "after:verify-pinned-image-id"
+    },
+    {
+      "clean": true,
+      "head": "be0b79a48403d74b11186166ba739a81dcbed702",
+      "status": "",
+      "tree": "cc80212504507d34c7d07413ce33f42ea68b6028",
+      "where": "before-build"
+    },
+    {
+      "clean": true,
+      "head": "be0b79a48403d74b11186166ba739a81dcbed702",
+      "status": "",
+      "tree": "cc80212504507d34c7d07413ce33f42ea68b6028",
+      "where": "before:build-product-01-xsh-xsht-xshi-xsh-fuzz"
+    },
+    {
+      "clean": true,
+      "head": "be0b79a48403d74b11186166ba739a81dcbed702",
+      "status": "",
+      "tree": "cc80212504507d34c7d07413ce33f42ea68b6028",
+      "where": "after:build-product-01-xsh-xsht-xshi-xsh-fuzz"
+    }
+  ],
+  "source_expected": {
+    "commit": "be0b79a48403d74b11186166ba739a81dcbed702",
+    "tree": "cc80212504507d34c7d07413ce33f42ea68b6028"
+  },
+  "started_utc": "2026-10-16T17:35:32+00:00",
+  "status": "failed-or-incomplete",
+  "steps": [
+    {
+      "argv": [
+        "docker",
+        "image",
+        "inspect",
+        "--format",
+        "{{.Id}}",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh",
+      "duration_seconds": 0.032,
+      "env": {},
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T17:35:32+00:00",
+      "id": "verify-pinned-image-id",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/logs/001-verify-pinned-image-id.log",
+      "log_sha256": "83e8c0a76db005b7800725f4a7a3402a706e1561f98971db6a6561da012c0a6f",
+      "started_utc": "2026-10-16T17:35:32+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/logs/001-verify-pinned-image-id.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/logs/001-verify-pinned-image-id.stdout",
+      "stdout_sha256": "36128ab6ec4d91052108020e86d2cbb9277578c5c8944db986340a97d934e9b4",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/run-native-final.sh",
+        "/home/josh/d/laputa-systems/xsh",
+        "build",
+        "cargo",
+        "build",
+        "--locked",
+        "--offline",
+        "--profile",
+        "verification",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "-p",
+        "xsh",
+        "--bins",
+        "-p",
+        "xsht",
+        "--bin",
+        "xsht",
+        "-p",
+        "xshi",
+        "--bin",
+        "xshi",
+        "-p",
+        "xsh-fuzz",
+        "--bins",
+        "--message-format=json"
+      ],
+      "cleanup": {
+        "container": {
+          "cidfile": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/container-ids/002-build-product-01-xsh-xsht-xshi-xsh-fuzz.cid",
+          "commands": [
+            {
+              "argv": [
+                "docker",
+                "stop",
+                "--time",
+                "5",
+                "b679f00d0b8db0ddc50526bf094424b7d55aeee13adf9280941d376375cd272d"
+              ],
+              "exit_code": 1,
+              "resolved": false,
+              "stderr": "Error response from daemon: No such container: b679f00d0b8db0ddc50526bf094424b7d55aeee13adf9280941d376375cd272d\n",
+              "stdout": "Flag --time has been deprecated, use --timeout instead\n",
+              "timed_out": false
+            },
+            {
+              "argv": [
+                "docker",
+                "rm",
+                "--force",
+                "b679f00d0b8db0ddc50526bf094424b7d55aeee13adf9280941d376375cd272d"
+              ],
+              "exit_code": 0,
+              "resolved": true,
+              "stderr": "",
+              "stdout": "",
+              "timed_out": false
+            },
+            {
+              "argv": [
+                "docker",
+                "ps",
+                "--all",
+                "--no-trunc",
+                "--filter",
+                "id=b679f00d0b8db0ddc50526bf094424b7d55aeee13adf9280941d376375cd272d",
+                "--format",
+                "{{.ID}}"
+              ],
+              "exit_code": 0,
+              "resolved": true,
+              "stderr": "",
+              "stdout": "",
+              "timed_out": false
+            }
+          ],
+          "container_id": "b679f00d0b8db0ddc50526bf094424b7d55aeee13adf9280941d376375cd272d",
+          "reason": null,
+          "remaining_container_ids": [],
+          "resolved": true
+        },
+        "process": {
+          "actions": [],
+          "resolved": true
+        },
+        "resolved": true
+      },
+      "cwd": "/home/josh/d/laputa-systems/xsh",
+      "duration_seconds": 14.306,
+      "env": {
+        "XSH_GATE_CARGO_LOCK_TIMEOUT": "900",
+        "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/container-ids/002-build-product-01-xsh-xsht-xshi-xsh-fuzz.cid",
+        "XSH_GATE_NATIVE_LOCK_FD": "3",
+        "XSH_GATE_TARGET_DIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/target/products"
+      },
+      "exit_code": 1,
+      "finished_utc": "2026-10-16T17:35:46+00:00",
+      "id": "build-product-01-xsh-xsht-xshi-xsh-fuzz",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/logs/002-build-product-01-xsh-xsht-xshi-xsh-fuzz.log",
+      "log_sha256": "27d6a73094b1c1d9e5572788441fa655afda53e4fe8c145de9b4f2a5fc0d979a",
+      "started_utc": "2026-10-16T17:35:32+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/logs/002-build-product-01-xsh-xsht-xshi-xsh-fuzz.stderr",
+      "stderr_sha256": "7719c7c4cdde2df27eea20a2e919ad324f30cb9aeb18eb439c20ed2987f106df",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/logs/002-build-product-01-xsh-xsht-xshi-xsh-fuzz.stdout",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    }
+  ]
+}

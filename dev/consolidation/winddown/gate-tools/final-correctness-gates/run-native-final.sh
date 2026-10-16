@@ -31,6 +31,23 @@ case "$TASK_TARGET_DIR" in
   "$TASK_GATE_DIR/"*/target/*) ;;
   *) echo "Cargo target must be isolated under this gate's ignored output directory" >&2; exit 2 ;;
 esac
+TASK_TARGET_SUFFIX=${TASK_TARGET_DIR#"$TASK_GATE_DIR"/}
+TASK_TARGET_RUN=${TASK_TARGET_SUFFIX%%/*}
+TASK_TARGET_REMAINDER=${TASK_TARGET_SUFFIX#*/}
+case "$TASK_TARGET_RUN" in
+  ''|.|..|*[!A-Za-z0-9._-]*) echo 'Cargo target run directory is invalid' >&2; exit 2 ;;
+esac
+case "$TASK_TARGET_REMAINDER" in
+  target/*) TASK_TARGET_NAME=${TASK_TARGET_REMAINDER#target/} ;;
+  *) echo 'Cargo target path is not isolated under a target directory' >&2; exit 2 ;;
+esac
+case "$TASK_TARGET_NAME" in
+  ''|.|..|*/*|*[!A-Za-z0-9._-]*) echo 'Cargo target directory name is invalid' >&2; exit 2 ;;
+esac
+if [ -L "$TASK_ROOT/.work" ] || [ -L "$TASK_ROOT/.work/final-review-evidence" ] || [ -L "$TASK_GATE_DIR" ] || [ -L "$TASK_GATE_DIR/$TASK_TARGET_RUN" ] || [ -L "$TASK_GATE_DIR/$TASK_TARGET_RUN/target" ] || [ -L "$TASK_TARGET_DIR" ]; then
+  echo 'Cargo target path must not contain symlinks' >&2
+  exit 2
+fi
 if [ -e "$TASK_NATIVE_CLEANUP_MARKER" ]; then
   echo "native container cleanup remains unresolved: $TASK_NATIVE_CLEANUP_MARKER" >&2
   cat "$TASK_NATIVE_CLEANUP_MARKER" >&2
@@ -56,10 +73,8 @@ if [ -e "$TASK_NATIVE_CLEANUP_MARKER" ]; then
   cat "$TASK_NATIVE_CLEANUP_MARKER" >&2
   exit 75
 fi
-mkdir -p "$TASK_TARGET_DIR"
-
 TASK_DOCKER_BASE=(docker run --rm --init --cidfile "$TASK_CIDFILE" --platform linux/amd64 --cpus=12 --memory=24g --memory-swap=24g --network=none --tmpfs /tmp:rw,exec,nosuid,mode=1777
-  -v "$TASK_TREE:$TASK_TREE"
+  -v "$TASK_TREE:$TASK_TREE:ro"
   -v "$TASK_ROOT/.git:$TASK_ROOT/.git:ro"
   -v /home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro
   -v /home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro
@@ -88,7 +103,7 @@ task_disk_tmpdir_args() {
     echo 'repository .work exclusion file is missing' >&2
     exit 2
   fi
-  if [ -L "$TASK_TREE/.work" ] || [ -L "$TASK_DISK_TMPDIR" ]; then
+  if [ -L "$TASK_TREE" ] || [ -L "$TASK_TREE/.work" ] || [ -L "$TASK_DISK_TMPDIR" ]; then
     echo 'repository .work and .work/tmp must not be symlinks' >&2
     exit 2
   fi
@@ -107,7 +122,7 @@ task_disk_tmpdir_args() {
     echo 'repository .work/tmp must be a real directory' >&2
     exit 2
   fi
-  TASK_TMP_ARGS=(-v "$TASK_DISK_TMPDIR:$TASK_DISK_TMPDIR" -e "TMPDIR=$TASK_DISK_TMPDIR")
+  TASK_TMP_ARGS=(-v "$TASK_DISK_TMPDIR:$TASK_DISK_TMPDIR:rw" -e "TMPDIR=$TASK_DISK_TMPDIR")
 }
 
 case "$TASK_MODE" in
@@ -121,16 +136,19 @@ case "$TASK_MODE" in
       *) echo 'build mode accepts only cargo build/check/test --no-run/clippy' >&2; exit 2 ;;
     esac
     task_disk_tmpdir_args
+    mkdir -p "$TASK_TARGET_DIR"
     exec 9>"$TASK_INFRA/cargo.lock"
     flock -w "$TASK_CARGO_LOCK_TIMEOUT" 9 || { echo 'cargo build lock timed out' >&2; exit 75; }
-    task_docker "${TASK_DOCKER_BASE[@]}" "${TASK_TMP_ARGS[@]}" -v "$TASK_TARGET_DIR:$TASK_TARGET_DIR" -v xsh-consolidation-kache:/root/.cache/kache -v /usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro -v xsh-cargo-registry:/root/.cargo/registry -e RUSTC_WRAPPER=/usr/local/bin/kache -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c "$@"
+    task_docker "${TASK_DOCKER_BASE[@]}" "${TASK_TMP_ARGS[@]}" -v "$TASK_TARGET_DIR:$TASK_TARGET_DIR:rw" -v xsh-consolidation-kache:/root/.cache/kache -v /usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro -v xsh-cargo-registry:/root/.cargo/registry -e RUSTC_WRAPPER=/usr/local/bin/kache -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c "$@"
     ;;
   run)
     if [ "$#" -eq 0 ]; then echo 'run command is required' >&2; exit 2; fi
     case " $* " in
       *" cargo test "*|*" cargo build "*|*" cargo check "*|*" cargo clippy "*) echo "compile with build/lint mode and --no-run where appropriate" >&2; exit 2;;
     esac
-    task_docker "${TASK_DOCKER_BASE[@]}" -e TMPDIR=/tmp -v "$TASK_TARGET_DIR:$TASK_TARGET_DIR:ro" --user "$TASK_UID:$TASK_GID" -e HOME=/home/compat -e RUSTUP_HOME=/root/.rustup sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c "$@"
+    task_disk_tmpdir_args
+    mkdir -p "$TASK_TARGET_DIR"
+    task_docker "${TASK_DOCKER_BASE[@]}" "${TASK_TMP_ARGS[@]}" -v "$TASK_TARGET_DIR:$TASK_TARGET_DIR:ro" --user "$TASK_UID:$TASK_GID" -e HOME=/home/compat -e RUSTUP_HOME=/root/.rustup sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c "$@"
     ;;
   prepare-cargo)
     if [ "$#" -ne 0 ]; then echo 'prepare-cargo accepts no command' >&2; exit 2; fi
@@ -139,11 +157,12 @@ case "$TASK_MODE" in
     case "$TASK_CARGO_HOME" in "$TASK_GATE_DIR/"*) ;; *) echo 'Cargo home must stay in the ignored gate output' >&2; exit 2;; esac
     case "$TASK_XDG_CACHE_HOME" in "$TASK_GATE_DIR/"*) ;; *) echo 'Kache home must stay in the ignored gate output' >&2; exit 2;; esac
     task_disk_tmpdir_args
+    mkdir -p "$TASK_TARGET_DIR"
     exec 9>"$TASK_INFRA/cargo.lock"
     flock -w "$TASK_CARGO_LOCK_TIMEOUT" 9 || { echo 'cargo cache preparation lock timed out' >&2; exit 75; }
     task_docker "${TASK_DOCKER_BASE[@]}" --user 0:0 \
       "${TASK_TMP_ARGS[@]}" \
-      -v "$TASK_TARGET_DIR:$TASK_TARGET_DIR" \
+      -v "$TASK_TARGET_DIR:$TASK_TARGET_DIR:rw" \
       -v "$TASK_CARGO_HOME:$TASK_CARGO_HOME" \
       -v xsh-cargo-registry:"$TASK_CARGO_HOME/registry" \
       -v "$TASK_XDG_CACHE_HOME:$TASK_XDG_CACHE_HOME" \
@@ -164,11 +183,12 @@ case "$TASK_MODE" in
     case "$XSH_GATE_CARGO_FORWARDER" in "$TASK_GATE_DIR/cargo-forwarder.sh") ;; *) echo 'nested Cargo forwarder is not the reviewed gate helper' >&2; exit 2;; esac
     case "$XSH_GATE_RUSTC_WRAPPER" in "$TASK_GATE_DIR/rustc-jemalloc.sh") ;; *) echo 'Rustc wrapper is not the reviewed gate helper' >&2; exit 2;; esac
     task_disk_tmpdir_args
+    mkdir -p "$TASK_TARGET_DIR"
     exec 9>"$TASK_INFRA/cargo.lock"
     flock -w "$TASK_CARGO_LOCK_TIMEOUT" 9 || { echo 'nested cargo lock timed out' >&2; exit 75; }
     task_docker "${TASK_DOCKER_BASE[@]}" \
       "${TASK_TMP_ARGS[@]}" \
-      -v "$TASK_TARGET_DIR:$TASK_TARGET_DIR" \
+      -v "$TASK_TARGET_DIR:$TASK_TARGET_DIR:rw" \
       -v "$TASK_CARGO_HOME:$TASK_CARGO_HOME" \
       -v xsh-cargo-registry:"$TASK_CARGO_HOME/registry" \
       -v "$TASK_XDG_CACHE_HOME:$TASK_XDG_CACHE_HOME" \

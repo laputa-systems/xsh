@@ -1,0 +1,24 @@
+argv: ["/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/run-native-final.sh", "/home/josh/d/laputa-systems/xsh", "build", "cargo", "build", "--locked", "--offline", "--profile", "verification", "--target", "x86_64-unknown-linux-musl", "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht", "-p", "xshi", "--bin", "xshi", "-p", "xsh-fuzz", "--bins", "--message-format=json"]
+env: {"XSH_GATE_CARGO_LOCK_TIMEOUT": "900", "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/container-ids/002-build-product-01-xsh-xsht-xshi-xsh-fuzz.cid", "XSH_GATE_NATIVE_LOCK_FD": "3", "XSH_GATE_TARGET_DIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/target/products"}
+
+stdout:
+
+stderr:
+inner Docker argv: docker run --rm --init --cidfile /home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/container-ids/002-build-product-01-xsh-xsht-xshi-xsh-fuzz.cid --platform linux/amd64 --cpus=12 --memory=24g --memory-swap=24g --network=none --tmpfs /tmp:rw\,exec\,nosuid\,mode=1777 -v /home/josh/d/laputa-systems/xsh:/home/josh/d/laputa-systems/xsh -v /home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro -v /home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro -v /home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro -v /usr/local/bin/mold:/usr/local/bin/mold:ro -v /home/josh/d/laputa-systems/xsh/.work/consolidation/infra/mold-linker.sh:/usr/local/bin/xsh-mold-linker:ro -w /home/josh/d/laputa-systems/xsh -e LC_ALL=C -e TZ=UTC -e CARGO_TARGET_DIR=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/target/products -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker -e CARGO_BUILD_JOBS=12 -e XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa -e PATH=/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C\ target-feature=+crt-static\ -C\ link-arg=-Wl\,--defsym=__isoc23_sscanf=sscanf\ -C\ link-arg=-Wl\,--defsym=__isoc23_strtol=strtol -v /home/josh/d/laputa-systems/xsh/.work/tmp:/home/josh/d/laputa-systems/xsh/.work/tmp -e TMPDIR=/home/josh/d/laputa-systems/xsh/.work/tmp -v /home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/target/products:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r3/target/products -v xsh-consolidation-kache:/root/.cache/kache -v /usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro -v xsh-cargo-registry:/root/.cargo/registry -e RUSTC_WRAPPER=/usr/local/bin/kache -e LD_PRELOAD=/usr/lib/libjemalloc.so.2 sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c cargo build --locked --offline --profile verification --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi -p xsh-fuzz --bins --message-format=json
+error: the argument '--bins' cannot be used multiple times
+
+Usage: cargo build [OPTIONS]
+
+For more information, try '--help'.
+
+
+cleanup argv: ["docker", "stop", "--time", "5", "b679f00d0b8db0ddc50526bf094424b7d55aeee13adf9280941d376375cd272d"]
+Flag --time has been deprecated, use --timeout instead
+Error response from daemon: No such container: b679f00d0b8db0ddc50526bf094424b7d55aeee13adf9280941d376375cd272d
+cleanup exit: 1
+
+cleanup argv: ["docker", "rm", "--force", "b679f00d0b8db0ddc50526bf094424b7d55aeee13adf9280941d376375cd272d"]
+cleanup exit: 0
+
+cleanup argv: ["docker", "ps", "--all", "--no-trunc", "--filter", "id=b679f00d0b8db0ddc50526bf094424b7d55aeee13adf9280941d376375cd272d", "--format", "{{.ID}}"]
+cleanup exit: 0

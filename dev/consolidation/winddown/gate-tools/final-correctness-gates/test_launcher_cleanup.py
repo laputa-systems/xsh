@@ -23,6 +23,11 @@ assert PLAN_SOURCE_SPEC is not None and PLAN_SOURCE_SPEC.loader is not None
 PLAN_SOURCE = importlib.util.module_from_spec(PLAN_SOURCE_SPEC)
 PLAN_SOURCE_SPEC.loader.exec_module(PLAN_SOURCE)
 plan_data = PLAN_SOURCE.plan_data
+GENERATOR_PATH = SOURCE_DIR / "generate_manifest.py"
+GENERATOR_SPEC = importlib.util.spec_from_file_location("final_correctness_manifest_generator", GENERATOR_PATH)
+assert GENERATOR_SPEC is not None and GENERATOR_SPEC.loader is not None
+MANIFEST_GENERATOR = importlib.util.module_from_spec(GENERATOR_SPEC)
+GENERATOR_SPEC.loader.exec_module(MANIFEST_GENERATOR)
 SPEC = importlib.util.spec_from_file_location("final_correctness_launch", LAUNCHER_PATH)
 assert SPEC is not None and SPEC.loader is not None
 LAUNCHER = importlib.util.module_from_spec(SPEC)
@@ -183,10 +188,18 @@ class CoverageTests(unittest.TestCase):
             self.plan["products"][0],
             [
                 "cargo", "build", "--locked", "--offline", "--profile", "verification",
-                "--target", LAUNCHER.TARGET, "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht",
-                "-p", "xshi", "--bin", "xshi", "-p", "xsh-fuzz", "--bins", "--message-format=json",
+                "--target", LAUNCHER.TARGET, "-p", "xsh", "-p", "xsht", "-p", "xshi", "-p", "xsh-fuzz",
+                "--bins", "--message-format=json",
             ],
         )
+        packages = [
+            self.plan["products"][0][index + 1]
+            for index, value in enumerate(self.plan["products"][0][:-1])
+            if value == "-p"
+        ]
+        self.assertEqual(packages, ["xsh", "xsht", "xshi", "xsh-fuzz"])
+        self.assertEqual(self.plan["products"][0].count("--bins"), 1)
+        self.assertNotIn("--bin", self.plan["products"][0])
         self.assertEqual(len(self.plan["products"]), 1)
         self.assertEqual(
             set(self.plan["product_variants"]["verification"]["binaries"]),
@@ -205,6 +218,31 @@ class CoverageTests(unittest.TestCase):
         copied_test = LAUNCHER.ROOT / ".work/final-review-evidence/final-correctness-gates/test_launcher_cleanup.py"
         self.assertEqual(source_root(copied_test), LAUNCHER.ROOT)
         self.assertEqual(SCRATCH_ROOT, SOURCE_ROOT / ".work/tmp")
+
+
+class PreflightTests(unittest.TestCase):
+    def test_rendered_approved_plan_passes_full_launcher_preflight(self):
+        plan = MANIFEST_GENERATOR.render_manifest()
+        self.assertIs(type(plan["environment"]["container_cpus"]), int)
+        gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        gate.receipt = {"environment": {}}
+        gate.save = mock.Mock()
+        with mock.patch.multiple(
+            LAUNCHER,
+            HERE=SOURCE_DIR,
+            RUNNER=SOURCE_DIR / "run-native-final.sh",
+            PLAN_SOURCE_PATH=PLAN_SOURCE_PATH,
+            MANIFEST_GENERATOR_PATH=GENERATOR_PATH,
+            NATIVE_LOCK=LAUNCHER.ROOT / ".work/consolidation/infra/native-suite.lock",
+            NATIVE_CLEANUP_MARKER=LAUNCHER.ROOT / ".work/consolidation/infra/native-suite.cleanup-unresolved",
+            RUNTIME_CARGO_FORWARDER=SOURCE_DIR / "cargo-forwarder.sh",
+            RUNTIME_RUSTC_WRAPPER=SOURCE_DIR / "rustc-jemalloc.sh",
+        ):
+            with mock.patch.object(LAUNCHER.os, "getuid", return_value=1000):
+                with mock.patch.object(LAUNCHER.os, "getgid", return_value=1000):
+                    gate.verify_toolchain_inputs(plan)
+        gate.save.assert_called_once_with()
+        self.assertEqual(gate.receipt["environment"]["container_cpus"], LAUNCHER.CONTAINER_CPUS)
 
 
 class ArtifactQualificationTests(unittest.TestCase):
@@ -389,6 +427,9 @@ class CleanupTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(dir=SCRATCH_ROOT)
         self.root = pathlib.Path(self.temporary.name)
+        self.previous_infra = LAUNCHER.INFRA
+        self.previous_native_lock = LAUNCHER.NATIVE_LOCK
+        self.previous_cleanup_marker = LAUNCHER.NATIVE_CLEANUP_MARKER
         self.infra = self.root / "infra"
         self.infra.mkdir()
         self.out = self.root / "run"
@@ -406,6 +447,9 @@ class CleanupTests(unittest.TestCase):
         LAUNCHER.NATIVE_CLEANUP_MARKER = self.infra / "native-suite.cleanup-unresolved"
 
     def tearDown(self):
+        LAUNCHER.INFRA = self.previous_infra
+        LAUNCHER.NATIVE_LOCK = self.previous_native_lock
+        LAUNCHER.NATIVE_CLEANUP_MARKER = self.previous_cleanup_marker
         self.temporary.cleanup()
 
     @staticmethod
@@ -493,6 +537,262 @@ class CleanupTests(unittest.TestCase):
         self.assertIn("canonical native-suite lock is held", result.stderr)
         self.assertFalse(target.parent.exists())
         self.assertFalse(cidfile.exists())
+
+
+class CommandOutputTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(dir=SCRATCH_ROOT)
+        self.out = pathlib.Path(self.temporary.name) / "run"
+        self.out.mkdir()
+        self.logs = self.out / "logs"
+        self.logs.mkdir()
+        self.gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        self.gate.out = self.out
+        self.gate.logs = self.logs
+        self.gate.receipt = {"steps": []}
+        self.gate.step_number = 0
+        self.gate.interrupt_started = False
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def test_run_returns_child_streams_separately_from_command_metadata(self):
+        stdout = f"{LAUNCHER.IMAGE}\n"
+        stderr = "diagnostic from child\n"
+        command = [
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.write(" + repr(stdout) + "); sys.stderr.write(" + repr(stderr) + ")",
+        ]
+        step = self.gate.run("stream-contract", command, check_source=False)
+
+        stdout_path = pathlib.Path(step["stdout_log"])
+        stderr_path = pathlib.Path(step["stderr_log"])
+        human_log = pathlib.Path(step["log"]).read_text()
+        self.assertEqual(stdout_path.read_text(), stdout)
+        self.assertEqual(stderr_path.read_text(), stderr)
+        self.assertEqual(step["stdout_sha256"], LAUNCHER.sha256(stdout_path))
+        self.assertEqual(step["stderr_sha256"], LAUNCHER.sha256(stderr_path))
+        self.assertIn("argv: ", human_log)
+        self.assertIn("stdout:\n" + stdout, human_log)
+        self.assertIn("stderr:\n" + stderr, human_log)
+        LAUNCHER.Launch.validate_pinned_image_output(step)
+
+    def test_image_output_requires_success_and_exact_stdout_framing(self):
+        stdout_path = self.logs / "image.stdout"
+        stderr_path = self.logs / "image.stderr"
+        stderr_path.write_text("diagnostic is retained but does not alter stdout identity\n")
+        step = {"exit_code": 0, "stdout_log": str(stdout_path), "stderr_log": str(stderr_path)}
+
+        for output in (
+            f"{LAUNCHER.IMAGE}\nextra\n",
+            f"{LAUNCHER.IMAGE} extra\n",
+            f"{LAUNCHER.IMAGE}",
+            "malformed\n",
+        ):
+            with self.subTest(output=output):
+                stdout_path.write_text(output)
+                with self.assertRaisesRegex(LAUNCHER.GateFailure, "mismatched ID"):
+                    LAUNCHER.Launch.validate_pinned_image_output(step)
+
+        stdout_path.write_text(f"{LAUNCHER.IMAGE}\n")
+        step["exit_code"] = 1
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "mismatched ID"):
+            LAUNCHER.Launch.validate_pinned_image_output(step)
+
+
+class RunnerInvocationTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(dir=LAUNCHER.HERE)
+        self.out = pathlib.Path(self.temporary.name)
+        self.bin_dir = self.out / "bin"
+        self.bin_dir.mkdir()
+        self.argv_path = self.out / "docker-argv.json"
+        docker = self.bin_dir / "docker"
+        docker.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, os, sys\n"
+            "with open(os.environ['XSH_FAKE_DOCKER_ARGS'], 'w') as output:\n"
+            "    json.dump(sys.argv[1:], output)\n"
+        )
+        docker.chmod(0o755)
+        flock = self.bin_dir / "flock"
+        flock.write_text("#!/bin/sh\nexit 0\n")
+        flock.chmod(0o755)
+        self.target_dir = self.out / "target" / "products"
+        self.cargo_home = self.out / "runtime-cargo-home"
+        self.xdg_cache = self.out / "runtime-xdg-cache"
+        self.cargo_home.mkdir()
+        self.xdg_cache.mkdir()
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def invoke(self, mode, command, *, tree=None, target_dir=None, extra_path=None, extra_env=None):
+        self.argv_path.unlink(missing_ok=True)
+        env = dict(os.environ)
+        env["PATH"] = str(self.bin_dir) + os.pathsep + env["PATH"]
+        if extra_path is not None:
+            env["PATH"] = str(extra_path) + os.pathsep + env["PATH"]
+        env["XSH_FAKE_DOCKER_ARGS"] = str(self.argv_path)
+        env["XSH_GATE_CIDFILE"] = str(self.out / "container.cid")
+        env["XSH_GATE_TARGET_DIR"] = str(self.target_dir if target_dir is None else target_dir)
+        env["XSH_GATE_CARGO_HOME"] = str(self.cargo_home)
+        env["XSH_GATE_XDG_CACHE_HOME"] = str(self.xdg_cache)
+        env["XSH_GATE_CARGO_FORWARDER"] = str(LAUNCHER.HERE / "cargo-forwarder.sh")
+        env["XSH_GATE_RUSTC_WRAPPER"] = str(LAUNCHER.HERE / "rustc-jemalloc.sh")
+        env.update(extra_env or {})
+        result = subprocess.run(
+            ["bash", str(NATIVE_RUNNER), str(LAUNCHER.ROOT if tree is None else tree), mode, *command],
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        arguments = json.loads(self.argv_path.read_text()) if self.argv_path.exists() else None
+        return result, arguments
+
+    def test_all_modes_mount_source_read_only_and_scratch_explicitly(self):
+        cases = {
+            "build": ["cargo", "build", "--locked"],
+            "lint": ["cargo", "clippy", "--locked"],
+            "run": ["/bin/true"],
+            "prepare-cargo": [],
+            "run-cargo": ["cargo", "metadata", "--no-deps"],
+        }
+        tree = LAUNCHER.ROOT
+        scratch = tree / ".work/tmp"
+        ordinary_read_only_mounts = {
+            f"{tree}:{tree}:ro",
+            f"{tree / '.git'}:{tree / '.git'}:ro",
+            "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
+            "/home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro",
+            "/usr/local/bin/mold:/usr/local/bin/mold:ro",
+            f"{LAUNCHER.INFRA / 'mold-linker.sh'}:/usr/local/bin/xsh-mold-linker:ro",
+        }
+
+        for mode, command in cases.items():
+            with self.subTest(mode=mode):
+                result, arguments = self.invoke(mode, command)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIsNotNone(arguments)
+                volumes = [
+                    arguments[index + 1]
+                    for index, value in enumerate(arguments[:-1])
+                    if value == "-v"
+                ]
+                environment = {
+                    arguments[index + 1]
+                    for index, value in enumerate(arguments[:-1])
+                    if value == "-e"
+                }
+                self.assertTrue(ordinary_read_only_mounts.issubset(volumes), volumes)
+                expected_tmpdir_mount = f"{scratch}:{scratch}:rw"
+                expected_target_mount = f"{self.target_dir}:{self.target_dir}" + (":ro" if mode == "run" else ":rw")
+                self.assertEqual([item for item in volumes if item.startswith(f"{tree}:{tree}")], [f"{tree}:{tree}:ro"])
+                self.assertEqual([item for item in volumes if item.startswith(f"{scratch}:{scratch}")], [expected_tmpdir_mount])
+                self.assertEqual([item for item in volumes if item.startswith(f"{self.target_dir}:{self.target_dir}")], [expected_target_mount])
+                self.assertEqual({item for item in environment if item.startswith("TMPDIR=")}, {f"TMPDIR={scratch}"})
+                for option, expected in (
+                    ("--platform", "linux/amd64"),
+                    ("--tmpfs", "/tmp:rw,exec,nosuid,mode=1777"),
+                ):
+                    self.assertIn(option, arguments)
+                    self.assertEqual(arguments[arguments.index(option) + 1], expected)
+                self.assertTrue({"--cpus=12", "--memory=24g", "--memory-swap=24g", "--network=none"}.issubset(arguments))
+                self.assertTrue({
+                    "LC_ALL=C",
+                    "TZ=UTC",
+                    f"CARGO_TARGET_DIR={self.target_dir}",
+                    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker",
+                    "CARGO_BUILD_JOBS=12",
+                    "XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa",
+                    "PATH=/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol",
+                }.issubset(environment), environment)
+                self.assertIn("-w", arguments)
+                self.assertEqual(arguments[arguments.index("-w") + 1], str(tree))
+                self.assertIn("sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c", arguments)
+                if mode in {"prepare-cargo", "run-cargo"}:
+                    self.assertIn(f"{self.cargo_home}:{self.cargo_home}", volumes)
+                    self.assertIn(f"{self.xdg_cache}:{self.xdg_cache}", volumes)
+                if mode in {"build", "lint"}:
+                    self.assertTrue({
+                        "RUSTC_WRAPPER=/usr/local/bin/kache",
+                        "LD_PRELOAD=/usr/lib/libjemalloc.so.2",
+                    }.issubset(environment), environment)
+                if mode in {"run", "prepare-cargo", "run-cargo"}:
+                    self.assertTrue({"HOME=/home/compat", "RUSTUP_HOME=/root/.rustup"}.issubset(environment), environment)
+                if mode == "prepare-cargo":
+                    self.assertIn("--user", arguments)
+                    self.assertEqual(arguments[arguments.index("--user") + 1], "0:0")
+                if mode == "run":
+                    self.assertIn("--user", arguments)
+                    self.assertEqual(arguments[arguments.index("--user") + 1], f"{os.getuid()}:{os.getgid()}")
+                if mode == "run-cargo":
+                    self.assertTrue({
+                        f"CARGO_HOME={self.cargo_home}",
+                        f"XDG_CACHE_HOME={self.xdg_cache}",
+                        "XSH_GATE_RUSTC_WRAPPER=/usr/local/bin/xsh-rustc-jemalloc",
+                    }.issubset(environment), environment)
+                    self.assertIn("--user", arguments)
+                    self.assertEqual(arguments[arguments.index("--user") + 1], f"{os.getuid()}:{os.getgid()}")
+
+    def test_runner_rejects_target_symlink_and_disjoint_target_before_docker(self):
+        outside_target = LAUNCHER.ROOT / ".work/tmp/final-runner-outside/target"
+        result, arguments = self.invoke("run", ["/bin/true"], target_dir=outside_target)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("isolated under this gate's ignored output directory", result.stderr)
+        self.assertIsNone(arguments)
+
+        target_parent = self.out / "target"
+        target_parent.symlink_to(self.out / "elsewhere", target_is_directory=True)
+        result, arguments = self.invoke("run", ["/bin/true"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("must not contain symlinks", result.stderr)
+        self.assertIsNone(arguments)
+
+    def test_runner_rejects_a_symlinked_worktree_before_docker(self):
+        tree_link = LAUNCHER.ROOT / ".work/wt/final-runner-tree-symlink"
+        self.assertFalse(tree_link.exists())
+        tree_link.symlink_to(SOURCE_ROOT, target_is_directory=True)
+        try:
+            result, arguments = self.invoke("build", ["cargo", "build", "--locked"], tree=tree_link)
+        finally:
+            tree_link.unlink()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("must not be symlinks", result.stderr)
+        self.assertIsNone(arguments)
+
+    def test_runner_checks_worktree_exclusion_before_creating_target(self):
+        fake_path = self.out / "fake-git"
+        fake_path.mkdir()
+        fake_git = fake_path / "git"
+        fake_git.write_text(
+            "#!/bin/sh\n"
+            "if [ \"$3\" = rev-parse ]; then\n"
+            "    printf '%s\\n' \"$XSH_FAKE_GIT_COMMON_DIR\"\n"
+            "    exit 0\n"
+            "fi\n"
+            "exit 0\n"
+        )
+        fake_git.chmod(0o755)
+        common_dir = self.out / "git-common"
+        exclude = common_dir / "info" / "exclude"
+        exclude.parent.mkdir(parents=True)
+        exclude.write_text("")
+
+        result, arguments = self.invoke(
+            "run",
+            ["/bin/true"],
+            extra_path=fake_path,
+            extra_env={"XSH_FAKE_GIT_COMMON_DIR": str(common_dir)},
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn(".work/tmp must be excluded", result.stderr)
+        self.assertFalse(self.target_dir.exists())
+        self.assertIsNone(arguments)
 
 
 if __name__ == "__main__":

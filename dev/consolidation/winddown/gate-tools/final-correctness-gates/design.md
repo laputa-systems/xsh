@@ -47,6 +47,49 @@ tool. The former belongs to the full-suite runner. The latter owns release
 product verification; this plan builds only the verification products its
 correctness contexts consume.
 
+The product command names the four packages and uses Cargo's single `--bins`
+selector. It builds the same five required executables: `xsh`, `xsht`, `xshi`,
+`xsh-fuzz`, and `xsh-test-helper`.
+
+The final runner mounts the frozen source tree read-only in every mode. Cargo
+targets are mounted separately, explicitly read-write for build, lint, and
+cache preparation and read-only for runtime execution. Each mode gets an
+explicitly read-write host-backed `.work/tmp` mount and sets `TMPDIR` to that
+path. Target paths must stay within the gate's ignored outputs and may not pass
+through symlinks. The runner checks the repository's `.work` exclusion before
+creating the target directory.
+
+## Output streams and attempt records
+
+`Launch.run()` writes each child stream to its own file under the attempt's
+`logs` directory. Each step records `stdout_log`, `stderr_log`,
+`stdout_sha256`, and `stderr_sha256`. The combined `.log` keeps the command
+metadata and labelled copies for human review. It is not an output source.
+Cargo artifact parsers read the stdout file. The pinned-image check requires
+exit code 0 and stdout bytes exactly equal to the pinned image ID followed by
+one newline. Stderr stays available as a diagnostic and does not change the
+image check.
+
+The receipt keeps schema version 1 and adds those four fields to new step
+records. Existing receipts remain unchanged and are not backfilled. Each retry
+uses a new attempt directory, so a failed receipt stays distinct from a later
+attempt.
+
+The `correctness-be0b-20261016` attempt failed preflight because its generated
+`container_cpus` value was the string `"12"`, while the launcher requires the
+integer `12`. The `correctness-be0b-20261016-r2` attempt failed the image check
+after Docker returned the expected image ID. The combined log placed buffered
+command metadata after child output, so the last-line check read metadata
+instead of the ID. Both attempts remain failures. The output-stream repair
+does not change their approved command selection or resource limits: 12 CPUs,
+24 GiB of memory, and no swap.
+
+The `correctness-be0b-20261016-r3` attempt failed Cargo argument parsing before
+compilation because the product command repeated `--bins`. The replacement uses
+one package-wide selector. Pinned Cargo parser probes for the product, all three
+harness, and Clippy commands reached the intentionally missing manifest error
+without invoking compilation.
+
 ## Approval and execution
 
 The owner approved the replacement product and warning-deny matrices and the

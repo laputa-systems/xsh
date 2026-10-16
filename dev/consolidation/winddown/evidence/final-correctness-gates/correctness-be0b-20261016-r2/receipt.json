@@ -1,0 +1,97 @@
+{
+  "cargo_target_dirs": {
+    "harness": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r2/target/harness",
+    "linux-priv": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r2/target/linux-priv",
+    "products": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r2/target/products",
+    "runtime": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r2/target/runtime"
+  },
+  "environment": {
+    "build_tools": {
+      "/home/josh/.cargo/bin/kache": "b826e99983057974663d6863eafbee4e1b25ca9373071406b15dd02961b2c37d",
+      "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/mold-linker.sh": "49f116f6bd364f682439e87200281a5acccf081d3b5841170a5a5bf34daf5271",
+      "/usr/lib/libjemalloc.so.2": "2db538572b752a3ed5b6b8d9a76cc2966f0670ad481892cb423617c9e4345284",
+      "/usr/local/bin/mold": "78e4b6aec99fa067b81326f4b540893b92ae78e5b4176ab32be0565dcbd049d3"
+    },
+    "cargo_lock_timeout_seconds": 900,
+    "container_cpus": 12,
+    "container_memory": "24g",
+    "container_swap": "disabled",
+    "final_runner_sha256": "cb64f092ad8560f66c874966eaf8a9a6225a7ea3821fc2118cdbef2940c0d44e",
+    "host_gid": 1000,
+    "host_uid": 1000,
+    "image": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+    "launch_sha256": "b11396eab94261bef9309612015e5fd6045a8f7c3f004b317bf3995f3b274802",
+    "manifest_body_sha256": "9585d967fe34e53e670c228a4ee284b4a8331c5d036ae67622cb35598c534bf5",
+    "manifest_sha256": "3b1ec3583a0144ec451dfe84d39897eb17406e60f6c5dcbbfeadd9d8d442ef7d",
+    "native_cleanup_marker_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.cleanup-unresolved",
+    "native_lock_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock",
+    "native_lock_scope": "acquired before product, harness, Clippy and supplemental context runs",
+    "native_runner_base_sha256": "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15",
+    "no_docker_self_test_sha256": "0180988b8ed4415ff72e74962537adae4f90c0fc0db45f26431bbf67cef45ccd",
+    "runtime_cargo_forwarder_sha256": "a60824f4354a8f6b1b62d34c7c82b9a14e2d49c2c4efd31b7d2b7c52087f4e73",
+    "runtime_rustc_wrapper_sha256": "ad726243b5d92b126b7f457dc0055391b911c1a51f284ec589c25f5354068af4",
+    "target": "x86_64-unknown-linux-musl"
+  },
+  "failure": "the pinned Docker image is missing or has a mismatched ID; image builds are not part of this launcher",
+  "finished_utc": "2026-10-16T17:26:05+00:00",
+  "harnesses": {},
+  "hashes": {},
+  "native_lock": {
+    "acquired": true,
+    "held_before_build": true,
+    "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock",
+    "unresolved_cleanup_marker": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.cleanup-unresolved",
+    "wait_policy": "nonblocking"
+  },
+  "qualification": [
+    "The complete native suite is owned by the final scheduler and is intentionally absent here.",
+    "Linux privilege cases that early-return for a missing capability require manual skip audit from --nocapture logs.",
+    "Ignored date-clock and BTRFS cases require the disposable QEMU guest described in docs/TESTING.md.",
+    "The interactive parity scenario driver is absent; the retained Linux PTY Rust case is included."
+  ],
+  "schema": 1,
+  "source_checks": [
+    {
+      "clean": true,
+      "head": "be0b79a48403d74b11186166ba739a81dcbed702",
+      "status": "",
+      "tree": "cc80212504507d34c7d07413ce33f42ea68b6028",
+      "where": "before:verify-pinned-image-id"
+    },
+    {
+      "clean": true,
+      "head": "be0b79a48403d74b11186166ba739a81dcbed702",
+      "status": "",
+      "tree": "cc80212504507d34c7d07413ce33f42ea68b6028",
+      "where": "after:verify-pinned-image-id"
+    }
+  ],
+  "source_expected": {
+    "commit": "be0b79a48403d74b11186166ba739a81dcbed702",
+    "tree": "cc80212504507d34c7d07413ce33f42ea68b6028"
+  },
+  "started_utc": "2026-10-16T17:26:05+00:00",
+  "status": "failed-or-incomplete",
+  "steps": [
+    {
+      "argv": [
+        "docker",
+        "image",
+        "inspect",
+        "--format",
+        "{{.Id}}",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh",
+      "duration_seconds": 0.015,
+      "env": {},
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T17:26:05+00:00",
+      "id": "verify-pinned-image-id",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016-r2/logs/001-verify-pinned-image-id.log",
+      "log_sha256": "65b59bc412756770b78734bbacd69d992ea59eca6e4fd9bc6e1a8db193597247",
+      "started_utc": "2026-10-16T17:26:05+00:00",
+      "timed_out": false
+    }
+  ]
+}

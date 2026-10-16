@@ -1,0 +1,37 @@
+{
+  "cargo_target_dirs": {
+    "harness": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016/target/harness",
+    "linux-priv": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016/target/linux-priv",
+    "products": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016/target/products",
+    "runtime": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-be0b-20261016/target/runtime"
+  },
+  "environment": {
+    "image": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+    "target": "x86_64-unknown-linux-musl"
+  },
+  "failure": "the manifest resource limits differ from the bounded runner",
+  "finished_utc": "2026-10-16T17:20:07+00:00",
+  "harnesses": {},
+  "hashes": {},
+  "native_lock": {
+    "acquired": true,
+    "held_before_build": true,
+    "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock",
+    "unresolved_cleanup_marker": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.cleanup-unresolved",
+    "wait_policy": "nonblocking"
+  },
+  "qualification": [
+    "The complete native suite is owned by the final scheduler and is intentionally absent here.",
+    "Linux privilege cases that early-return for a missing capability require manual skip audit from --nocapture logs.",
+    "Ignored date-clock and BTRFS cases require the disposable QEMU guest described in docs/TESTING.md.",
+    "The interactive parity scenario driver is absent; the retained Linux PTY Rust case is included."
+  ],
+  "schema": 1,
+  "source_expected": {
+    "commit": "be0b79a48403d74b11186166ba739a81dcbed702",
+    "tree": "cc80212504507d34c7d07413ce33f42ea68b6028"
+  },
+  "started_utc": "2026-10-16T17:20:07+00:00",
+  "status": "failed-or-incomplete",
+  "steps": []
+}

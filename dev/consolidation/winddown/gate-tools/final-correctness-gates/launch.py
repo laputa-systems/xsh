@@ -12,6 +12,7 @@ import os
 import pathlib
 import re
 import shlex
+import shutil
 import signal
 import stat
 import subprocess
@@ -44,7 +45,7 @@ BASE_RUNNER = INFRA / "run-native.sh"
 NATIVE_LOCK = INFRA / "native-suite.lock"
 NATIVE_CLEANUP_MARKER = INFRA / "native-suite.cleanup-unresolved"
 BASE_RUNNER_SHA256 = "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15"
-APPROVED_MANIFEST_BODY_SHA256 = "4ba5d3172800d1d8d45b63b146fee6ad026a1daa86b0b4d9a00072d504366c7e"
+APPROVED_MANIFEST_BODY_SHA256 = "939f078f7f572c81b0cb188617991c32f0ce23d7acb1e8685170af8ec271e5ad"
 RUNTIME_CARGO_FORWARDER = HERE / "cargo-forwarder.sh"
 RUNTIME_RUSTC_WRAPPER = HERE / "rustc-jemalloc.sh"
 TOOL_HASHES = {
@@ -316,6 +317,8 @@ class Launch:
     ) -> dict[str, Any]:
         self.step_number += 1
         log = self.logs / f"{self.step_number:03d}-{step_id}.log"
+        stdout_log = self.logs / f"{self.step_number:03d}-{step_id}.stdout"
+        stderr_log = self.logs / f"{self.step_number:03d}-{step_id}.stderr"
         env_values = dict(env or {})
         if cidfile is not None:
             if cidfile.exists():
@@ -327,6 +330,8 @@ class Launch:
             "env": env_values,
             "cwd": str(ROOT),
             "log": str(log),
+            "stdout_log": str(stdout_log),
+            "stderr_log": str(stderr_log),
             "started_utc": utc_now(),
         }
         if check_source:
@@ -336,7 +341,7 @@ class Launch:
         process: subprocess.Popen[bytes] | None = None
         process_start_failed = False
         cleanup_result: dict[str, Any] | None = None
-        with log.open("wb") as output:
+        with log.open("wb") as output, stdout_log.open("wb") as stdout, stderr_log.open("wb") as stderr:
             output.write(("argv: " + json.dumps(argv) + "\n").encode())
             output.write(("env: " + json.dumps(env_values, sort_keys=True) + "\n\n").encode())
             try:
@@ -344,8 +349,8 @@ class Launch:
                     argv,
                     cwd=ROOT,
                     env=dict(os.environ, **env_values),
-                    stdout=output,
-                    stderr=subprocess.STDOUT,
+                    stdout=stdout,
+                    stderr=stderr,
                     start_new_session=True,
                     pass_fds=pass_fds,
                 )
@@ -378,10 +383,16 @@ class Launch:
                     exit_code = 130
                     timed_out = False
             except OSError as error:
-                output.write(f"launcher error: {error}\n".encode())
+                stderr.write(f"launcher error: {error}\n".encode())
                 exit_code = 127
                 timed_out = False
                 process_start_failed = True
+        with log.open("ab") as output:
+            for label, stream_path in (("stdout", stdout_log), ("stderr", stderr_log)):
+                output.write(f"{label}:\n".encode())
+                with stream_path.open("rb") as stream:
+                    shutil.copyfileobj(stream, output)
+                output.write(b"\n")
         if cidfile is not None and not process_start_failed and exit_code not in (0, 124, 130):
             self.interrupt_started = True
             container_cleanup = self.stop_owned_container(cidfile, log)
@@ -396,6 +407,8 @@ class Launch:
             step["cleanup"] = cleanup_result
         step["duration_seconds"] = round(time.monotonic() - monotonic_start, 3)
         step["log_sha256"] = sha256(log)
+        step["stdout_sha256"] = sha256(stdout_log)
+        step["stderr_sha256"] = sha256(stderr_log)
         step["finished_utc"] = utc_now()
         self.receipt["steps"].append(step)
         self.save()
@@ -533,6 +546,13 @@ class Launch:
             timeout=timeout,
             extra_env=extra_env,
         )
+
+    @staticmethod
+    def validate_pinned_image_output(step: dict[str, Any]) -> None:
+        if type(step.get("exit_code")) is not int or step["exit_code"] != 0:
+            raise GateFailure("the pinned Docker image is missing or has a mismatched ID; image builds are not part of this launcher")
+        if pathlib.Path(step["stdout_log"]).read_bytes() != f"{IMAGE}\n".encode():
+            raise GateFailure("the pinned Docker image is missing or has a mismatched ID; image builds are not part of this launcher")
 
     def parse_test_artifacts(self, log: pathlib.Path, targets: list[str]) -> dict[str, pathlib.Path]:
         found: dict[str, pathlib.Path] = {}
@@ -768,8 +788,9 @@ class Launch:
                 timeout=7200,
             )
             log = pathlib.Path(step["log"])
-            found = self.parse_test_artifacts(log, harness["targets"])
-            product_artifacts = self.parse_binary_artifacts(log)
+            stdout_log = pathlib.Path(step["stdout_log"])
+            found = self.parse_test_artifacts(stdout_log, harness["targets"])
+            product_artifacts = self.parse_binary_artifacts(stdout_log)
             requested_features = []
             if "--features" in harness["args"]:
                 requested_features = [
@@ -778,7 +799,7 @@ class Launch:
                     if feature.strip()
                 ]
             xsh_variant = self.parse_harness_xsh_variant(
-                log,
+                stdout_log,
                 step=step,
                 target_variant=target_variant,
                 profile=profile,
@@ -1173,9 +1194,7 @@ class Launch:
             ["docker", "image", "inspect", "--format", "{{.Id}}", IMAGE],
             timeout_seconds=30,
         )
-        image_id = pathlib.Path(image_check["log"]).read_text(errors="replace").splitlines()
-        if not image_id or image_id[-1].strip() != IMAGE:
-            raise GateFailure("the pinned Docker image is missing or has a mismatched ID; image builds are not part of this launcher")
+        self.validate_pinned_image_output(image_check)
 
         snapshot = self.verify_source("before-build")
         self.receipt["hashes"]["source_before"] = {"head": snapshot["head"], "tree": snapshot["tree"]}

@@ -1,0 +1,1 @@
+cargo clippy --locked --offline --target x86_64-unknown-linux-musl -p xsh-applets --lib --tests --all-features --quiet -- -D warnings

@@ -1686,7 +1686,7 @@ mod tests {
         let root = temp_root("umask");
         let paths = test_paths(&root);
         fs::create_dir_all(&paths.dev_root).expect("create dev root");
-        fs::create_dir_all(&paths.sysfs_root.join("dev")).expect("create sysfs device root");
+        fs::create_dir_all(paths.sysfs_root.join("dev")).expect("create sysfs device root");
         fs::write(&paths.conf, "").expect("write config");
         fs::set_permissions(&paths.dev_root, fs::Permissions::from_mode(0o700))
             .expect("set existing dev root mode");
