@@ -1,0 +1,7 @@
+candidate source: 24cc0d704209a8c0aa0eb27d5cfea1434929dc20 b6efac064ed074c9ee03d8f183bff9b41d353c91 clean
+reference source: 24cc0d704209a8c0aa0eb27d5cfea1434929dc20 ['crates/xsht/src/commands.rs', 'crates/xsht/src/xsht/test.rs']
+reference patch: /home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/unfinished/475-native-scheduler-reference-2083821edb768d2485479c7386289b82e43b1c7c.patch
+derived reference overlay Git tree: e0df45e193a75774a1f95fb07ee4b41599ff2129
+exact derived/actual diff --binary 11846301dcf551b6c7ec0449a6f90f39d979fddabd11f5095b915e2a0d968605
+exact derived/actual diff --binary --full-index 8b7fac81340e0fe0ed1dbda35de1aa67a01b6d56a134e1f187a6f261fc3fd8d2
+Static qualification only; timing results pending; no build/native suite/performance credit

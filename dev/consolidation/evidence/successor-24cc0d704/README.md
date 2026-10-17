@@ -38,3 +38,11 @@ The receipt records each product hash. The build exited zero and container
 cleanup resolved. No full native suite ran. The receipt records the memory cap,
 not a measured peak. Timing fields are null and discarded, so this run supports
 no timing claim.
+
+## Scheduler reference qualification
+
+The [static qualification](scheduler-static.log) passes for the exact 24cc source.
+The reference overlay modifies only the two approved scheduler files and matches
+the pinned patch in both recorded diff forms. Its derived Git tree is
+`e0df45e193a75774a1f95fb07ee4b41599ff2129`.
+No reference build, native suite, or timing run follows from this static check.
