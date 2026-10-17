@@ -94,7 +94,7 @@ pure long_option_name(argument: Str) -> Str? {
   if matches.len() == 1 { matches[0] } else { null }
 }
 
-pure first_unrecognized_long_option(argv: List[Str], permute: Bool) -> Str? {
+pure first_option_diagnostic(argv: List[Str], permute: Bool) -> Str? {
   var index = 0
   while index < argv.len() {
     let argument = argv[index]
@@ -105,47 +105,15 @@ pure first_unrecognized_long_option(argv: List[Str], permute: Bool) -> Str? {
         let body = argument.byte_slice(2)
         let typed = body.split("=")[0]
         let matches = collect { for option in LONG_OPTIONS { yield option when option.starts_with(typed) } }
-        return null when ! matches.is_empty()
-        return f"unrecognized option: {body}"
+        return f"option is ambiguous: {body}" when matches.len() > 1
+        return f"unrecognized option: {body}" when matches.is_empty()
+        return null
       }
       let has_value = argument.find("=") != null
+      return f"option does not take an argument: {name}" when has_value and name not in ["output", "pid", "filter"]
       return null when ! has_value and name in ["help", "version"]
-      if ! has_value and name in ["output", "pid", "filter"] { index += 2 } else { index += 1 }
-      continue
-    }
-    if argument.starts_with("-") and argument != "-" {
-      let shorts = argument.byte_slice(1)
-      var offset = 0
-      while offset < shorts.byte_len() {
-        let code = shorts.byte_slice(offset, length: 1)
-        return null when code not in SHORT_OPTIONS or code in ["h", "V"]
-        if code in ["o", "p", "Q"] {
-          if offset + 1 == shorts.byte_len() { index += 1 }
-          break
-        }
-        offset += 1
-      }
-      index += 1
-      continue
-    }
-    return null when ! permute
-    index += 1
-  }
-  null
-}
-
-pure first_missing_required_argument(argv: List[Str], permute: Bool) -> Str? {
-  var index = 0
-  while index < argv.len() {
-    let argument = argv[index]
-    if argument == "--" { return null }
-    if argument.starts_with("--") {
-      let name = long_option_name(argument)
-      return null when name == null
-      if argument.find("=") != null { index += 1; continue }
-      if name in ["help", "version"] { return null }
-      if name in ["output", "pid", "filter"] {
-        return name when index + 1 == argv.len()
+      if name in ["output", "pid", "filter"] and ! has_value {
+        return f"option requires an argument: {name}" when index + 1 == argv.len()
         index += 2
       } else {
         index += 1
@@ -157,16 +125,12 @@ pure first_missing_required_argument(argv: List[Str], permute: Bool) -> Str? {
       var offset = 0
       while offset < shorts.byte_len() {
         let code = shorts.byte_slice(offset, length: 1)
-        return null when code not in SHORT_OPTIONS
+        return f"unrecognized option: {code}" when code not in SHORT_OPTIONS
         return null when code in ["h", "V"]
         if code in ["o", "p", "Q"] {
-          let name = match code {
-            "o" => "output"
-            "p" => "pid"
-            else => "filter"
-          }
+          let name = match code { "o" => "output"; "p" => "pid"; else => "filter" }
           if offset + 1 < shorts.byte_len() { break }
-          return name when index + 1 == argv.len()
+          return f"option requires an argument: {name}" when index + 1 == argv.len()
           index += 1
           break
         }
@@ -1031,9 +995,8 @@ pure json_output(locks: List[Lock], columns: List[Str], as_bytes: Bool, mode: St
 ## Runs the lslocks command over Linux procfs state.
 export proc main(argv: List[Str]) [fs, process, env, error, io] {
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
-  if let detail = first_unrecognized_long_option(argv, permute) { gnu.usage_error(detail); return }
-  if let option = first_missing_required_argument(argv, permute) {
-    gnu.usage_error(f"option requires an argument: {option}")
+  if let detail = first_option_diagnostic(argv, permute) {
+    gnu.usage_error(detail)
     return
   }
   let opts: Options = cli.applet(argv, {
