@@ -1,5 +1,6 @@
 from argparse import Namespace
 from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
@@ -118,7 +119,7 @@ class NativeResultTests(unittest.TestCase):
             b"core/tests/test-lsmem.xsh::test_lsmem_rooted_sparse_memory_attributes_and_output_modes ... skipped: unavailable 0ms\n"
             b"test result: ok. 0 passed; 0 failed; 1 skipped\n"
         )
-        with self.assertRaisesRegex(ValueError, "did not pass"):
+        with self.assertRaisesRegex(ValueError, "skipped a mandatory behavior"):
             acceptance._parse_native_group(
                 "lsmem",
                 ("test_lsmem_rooted_sparse_memory_attributes_and_output_modes",),

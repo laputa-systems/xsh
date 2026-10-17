@@ -384,7 +384,7 @@ class MeasurementProtocolTests(unittest.TestCase):
             self.parse(rows)
 
     def test_native_observation_frames_are_exact_and_complete(self):
-        output = b"@@xsh-util-linux:first:3@@\nabc\n@@xsh-util-linux:second:0@@\n"
+        output = b"@@xsh-util-linux:first:3@@\nabc\n@@xsh-util-linux:second:0@@\n\n"
         self.assertEqual(resources._parse_frames(output, ("first", "second")), {
             "first": b"abc",
             "second": b"",
