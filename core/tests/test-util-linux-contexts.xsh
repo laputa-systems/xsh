@@ -162,7 +162,7 @@ test test_util_linux_context_terminal_rooted_memory { |ctx|
   for columns in [24, 120] {
     let reference = contexts.terminal_reference(s, "lsmem", args, columns:)?
     let candidate = contexts.terminal_candidate(s, "lsmem", args, columns:)?
-    assert reference == candidate, f"lsmem terminal columns={columns}"
+    assert reference == candidate, f"lsmem terminal columns={columns} reference_stdout_b64={reference.stdout.base64()} candidate_stdout_b64={candidate.stdout.base64()} reference_stderr_b64={reference.stderr.base64()} candidate_stderr_b64={candidate.stderr.base64()}"
   }
 }
 
