@@ -1,0 +1,237 @@
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_r_symlink_directory_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_r_symlink_directory_log ... FAILED 31ms
+
+failures:
+
+---- core/tests/test-gnu-rm.xsh::test_gnu_rm_r_symlink_directory_log ----
+AssertionError.Failed: assertion failed: r.status == 0: rm -rf d: expected success, status 2, stderr err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:147:15
+                remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:157:9
+          remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.irrefutable-pattern-condition]: pattern condition cannot fail; bind the subject with `let` instead
+  /src/core/rm.xsh:160:10
+        if let failure = result.write_error { if write_error ==…
+left: 2
+right: 0
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
+selector_status=1 core/tests/test-gnu-rm.xsh::test_gnu_rm_r_symlink_directory_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_r_3_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_r_3_log ... FAILED 41ms
+
+failures:
+
+---- core/tests/test-gnu-rm.xsh::test_gnu_rm_r_3_log ----
+AssertionError.Failed: assertion failed: r.status == 0: rm -rf t: expected success, status 2, stderr err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:147:15
+                remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:157:9
+          remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.irrefutable-pattern-condition]: pattern condition cannot fail; bind the subject with `let` instead
+  /src/core/rm.xsh:160:10
+        if let failure = result.write_error { if write_error ==…
+left: 2
+right: 0
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
+selector_status=1 core/tests/test-gnu-rm.xsh::test_gnu_rm_r_3_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_rm2_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_rm2_log ... FAILED 31ms
+
+failures:
+
+---- core/tests/test-gnu-rm.xsh::test_gnu_rm_rm2_log ----
+AssertionError.Failed: assertion failed: r.stderr == b"rm: cannot remove 'a/1': Permission denied\nrm: cannot remove 'b': Permission denied\n" or r.stderr == b"rm: cannot remove 'a/1/2': Permission denied\nrm: cannot remove 'b/3': Permission denied\n"
+comparison failed: <Bytes> == <Bytes>; comparison failed: <Bytes> == <Bytes>
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
+selector_status=1 core/tests/test-gnu-rm.xsh::test_gnu_rm_rm2_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_fail_eacces_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_fail_eacces_log ... FAILED 31ms
+
+failures:
+
+---- core/tests/test-gnu-rm.xsh::test_gnu_rm_fail_eacces_log ----
+AssertionError.Failed: assertion failed: r.stderr == bytes.from_text(expected): rm -rf d/f: stderr err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:147:15
+                remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:157:9
+          remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.irrefutable-pattern-condition]: pattern condition cannot fail; bind the subject with `let` instead
+  /src/core/rm.xsh:160:10
+        if let failure = result.write_error { if write_error == null { write_error = fail…
+left: [101, 114, 114, 91, 99, 104, 101, 99, 107, 46, 116, 121, 112, 101, 45, 109, 105, 115, 109, 97, 116, 99, 104, 93, 58, 32, 116, 121, 112, 101, 32, 109, 105, 115, 109, 97, 116, 99, 104, 10, 32, 32, 47, 115, 114, 99, 47, 99, 111, 114, 101, 47, 114, 109, 46, 120, 115, 104, 58, 49, 52, 55, 58, 49, 53, 10, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 114, 101, 109, 111, 118, 101, 95, 116, 97, 114, 103, 101, 116, 40, 99, 104, 105, 108, 100, 46, 112, 97, 116, 104, 44, 32, 99, 104, 105, 108, 100, 95, 110, 97, 109, 101, 44, 32, 111, 112, 116, 115, 44, 32, 100, 101, 118, 105, 99, 101, 44, 32, 105, 110, 116, 101, 114, 97, 99, 116, 105, 118, 101, 44, 32, 97, 117, 116, 111, 109, 97, 116, 105, 99, 44, 32, 112, 114, 101, 115, 117, 109, 101, 95, 105, 110, 112, 117, 116, 95, 116, 116, 121, 41, 10, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 32, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94, 94]…
+right: [114, 109, 58, 32, 99, 97, 110, 110, 111, 116, 32, 114, 101, 109, 111, 118, 101, 32, 39, 100, 47, 102, 39, 58, 32, 80, 101, 114, 109, 105, 115, 115, 105, 111, 110, 32, 100, 101, 110, 105, 101, 100, 10]
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
+selector_status=1 core/tests/test-gnu-rm.xsh::test_gnu_rm_fail_eacces_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_r_1_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_r_1_log ... FAILED 31ms
+
+failures:
+
+---- core/tests/test-gnu-rm.xsh::test_gnu_rm_r_1_log ----
+AssertionError.Failed: assertion failed: r.status == 0: rm --verbose -r a b: expected success, status 2, stderr err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:147:15
+                remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:157:9
+          remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.irrefutable-pattern-condition]: pattern condition cannot fail; bind the subject with `let` instead
+  /src/core/rm.xsh:160:10
+        if let failure = result.write_error { if wri…
+left: 2
+right: 0
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
+selector_status=1 core/tests/test-gnu-rm.xsh::test_gnu_rm_r_1_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_r_2_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_r_2_log ... FAILED 31ms
+
+failures:
+
+---- core/tests/test-gnu-rm.xsh::test_gnu_rm_r_2_log ----
+AssertionError.Failed: assertion failed: r.status == 0: rm --verbose -r t/a: expected success, status 2, stderr err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:147:15
+                remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:157:9
+          remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.irrefutable-pattern-condition]: pattern condition cannot fail; bind the subject with `let` instead
+  /src/core/rm.xsh:160:10
+        if let failure = result.write_error { if wri…
+left: 2
+right: 0
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
+selector_status=1 core/tests/test-gnu-rm.xsh::test_gnu_rm_r_2_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_one_file_system2_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_one_file_system2_log ... FAILED 31ms
+
+failures:
+
+---- core/tests/test-gnu-rm.xsh::test_gnu_rm_one_file_system2_log ----
+AssertionError.Failed: assertion failed: r.status == 0: rm --one-file-system -rf a: expected success, status 2, stderr err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:147:15
+                remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:157:9
+          remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.irrefutable-pattern-condition]: pattern condition cannot fail; bind the subject with `let` instead
+  /src/core/rm.xsh:160:10
+        if let failure = result.write_error {…
+left: 2
+right: 0
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
+selector_status=1 core/tests/test-gnu-rm.xsh::test_gnu_rm_one_file_system2_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_ir_1_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_ir_1_log ... FAILED 31ms
+
+failures:
+
+---- core/tests/test-gnu-rm.xsh::test_gnu_rm_ir_1_log ----
+AssertionError.Failed: assertion failed: r.status == 0: rm --verbose -i -r t: expected success, status 2, stderr err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:147:15
+                remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:157:9
+          remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.irrefutable-pattern-condition]: pattern condition cannot fail; bind the subject with `let` instead
+  /src/core/rm.xsh:160:10
+        if let failure = result.write_error { if wr…
+left: 2
+right: 0
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
+selector_status=1 core/tests/test-gnu-rm.xsh::test_gnu_rm_ir_1_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_interactive_always_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_interactive_always_log ... FAILED 31ms
+
+failures:
+
+---- core/tests/test-gnu-rm.xsh::test_gnu_rm_interactive_always_log ----
+AssertionError.Failed: assertion failed: r.status == 0: rm -R --interactive file1-1 file1-2: expected success, status 2, stderr err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:147:15
+                remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:157:9
+          remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.irrefutable-pattern-condition]: pattern condition cannot fail; bind the subject with `let` instead
+  /src/core/rm.xsh:160:10
+        if let failure = result.writ…
+left: 2
+right: 0
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
+selector_status=1 core/tests/test-gnu-rm.xsh::test_gnu_rm_interactive_always_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_f_1_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_f_1_log ... FAILED 31ms
+
+failures:
+
+---- core/tests/test-gnu-rm.xsh::test_gnu_rm_f_1_log ----
+AssertionError.Failed: assertion failed: r.status == 0: rm -f d/no-such-file: expected success, status 2, stderr err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:147:15
+                remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.type-mismatch]: type mismatch
+  /src/core/rm.xsh:157:9
+          remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected {ok: Bool, removed: Bool, write_error: Null}, found {ok: Bool, removed: Bool, write_error: Error?}
+
+err[check.irrefutable-pattern-condition]: pattern condition cannot fail; bind the subject with `let` instead
+  /src/core/rm.xsh:160:10
+        if let failure = result.write_error { if wr…
+left: 2
+right: 0
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
+selector_status=1 core/tests/test-gnu-rm.xsh::test_gnu_rm_f_1_log

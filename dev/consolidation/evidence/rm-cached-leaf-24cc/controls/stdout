@@ -1,0 +1,50 @@
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_r_symlink_directory_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_r_symlink_directory_log ... ok 31ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+selector_status=0 core/tests/test-gnu-rm.xsh::test_gnu_rm_r_symlink_directory_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_r_3_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_r_3_log ... ok 59ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+selector_status=0 core/tests/test-gnu-rm.xsh::test_gnu_rm_r_3_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_rm2_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_rm2_log ... ok 32ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+selector_status=0 core/tests/test-gnu-rm.xsh::test_gnu_rm_rm2_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_fail_eacces_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_fail_eacces_log ... ok 62ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+selector_status=0 core/tests/test-gnu-rm.xsh::test_gnu_rm_fail_eacces_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_r_1_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_r_1_log ... ok 31ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+selector_status=0 core/tests/test-gnu-rm.xsh::test_gnu_rm_r_1_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_r_2_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_r_2_log ... ok 31ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+selector_status=0 core/tests/test-gnu-rm.xsh::test_gnu_rm_r_2_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_one_file_system2_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_one_file_system2_log ... ok 31ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+selector_status=0 core/tests/test-gnu-rm.xsh::test_gnu_rm_one_file_system2_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_ir_1_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_ir_1_log ... ok 31ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+selector_status=0 core/tests/test-gnu-rm.xsh::test_gnu_rm_ir_1_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_interactive_always_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_interactive_always_log ... ok 185ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+selector_status=0 core/tests/test-gnu-rm.xsh::test_gnu_rm_interactive_always_log
+=== core/tests/test-gnu-rm.xsh::test_gnu_rm_f_1_log ===
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_f_1_log ... ok 31ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+selector_status=0 core/tests/test-gnu-rm.xsh::test_gnu_rm_f_1_log

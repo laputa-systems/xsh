@@ -1,0 +1,14 @@
+base_commit=24cc0d704209a8c0aa0eb27d5cfea1434929dc20
+candidate_commit=a745248e2a65b683b219c54229e0e7e806f82fec
+source_xsh=3d655a686043960a9e20592dfc97ea88956b271612a17c22c206619223b92df2
+source_tests=fd6accc08b60b98bcc0df01aa9d8899273415dda91517eafce76f22196692a12
+image=sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+lock_inode=62012470
+filesystem_hex=ef53
+free_inodes_before=106595762
+cpuset=28-31
+cpu_quota=4
+memory=8g
+swap_extra=0
+selector=core/tests/test-gnu-rm.xsh::test_gnu_rm_ext3_perf_log
+outer_watchdog=180s

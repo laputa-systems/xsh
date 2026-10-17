@@ -1,0 +1,6 @@
+input_files=10000
+baseline_lstat=20004
+candidate_lstat=10004
+lstat_reduction=10000
+baseline_unlink=10000
+candidate_unlink=10000
