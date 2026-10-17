@@ -90,7 +90,9 @@ The reference rejects more than one output mode from `--json`, `--export`,
 `--list`, `--newline`, and `--raw`. It rejects conflicts among `--name`,
 `--global`, and `--id`; among `--creator`, `--output`, and `--time`; and among
 the six resource selectors. These are source-defined option groups, not
-assumed last-option-wins behavior.
+assumed last-option-wins behavior. GNU long-option parsing accepts a unique
+abbreviation such as `--que` and reports an ambiguous abbreviation such as
+`--posix-m`.
 
 The output-column parser accepts case-insensitive full column names, not
 abbreviations. It rejects a trailing comma as an unknown column (for example,
@@ -132,6 +134,7 @@ tables and query each selected ID.
 | `test_lsipc_help_lists_resource_modes_and_columns` | Help output through `--help` and `-h`, option names, and all documented columns | `lsipc.c:292-360,1381-1421` | Open. Stable input. |
 | `test_lsipc_version_preserves_xsh_provenance` | XSH identity and exact XSH version banner through `--version` and `-V` | `lsipc.c:1557-1562`; campaign `version-provenance` decision | Open. Assert XSH banner independently. |
 | `test_lsipc_short_option_aliases_match_long_options` | Short and long aliases for global mode, IDs, names, output, rendering, and value options | `lsipc.c:1381-1421` | Open. Compare exact output for each spelling. |
+| `test_lsipc_long_option_abbreviations_match_reference` | Unique and ambiguous long-option abbreviations | `lsipc.c:1381-1421`; GNU `getopt_long` behavior | Open. Compare exact diagnostics and status. |
 | `test_lsipc_rejects_unknown_and_inapplicable_columns` | Unknown and inapplicable columns, default-only POSIX columns, global summary range, and empty/leading/repeated output separators | `lsipc.c:223-243,1526-1535` | Open. Stable input. |
 | `test_lsipc_output_column_capacity_matches_reference` | The parser accepts 74 repeated columns and silently rejects the 75th, including capacity consumed by default columns when appending | `lsipc.c:210-221`; `strutils.c:667-737` | Open. Stable input. |
 | `test_lsipc_rejects_unknown_time_format` | Invalid time formats, status, and diagnostics | `lsipc.c:273-290` | Open. Stable input. |

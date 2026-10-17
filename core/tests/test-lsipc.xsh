@@ -380,6 +380,24 @@ test test_lsipc_short_option_aliases_match_long_options { |ctx|
   release_keeper(fixture.handle)?
 }
 
+test test_lsipc_long_option_abbreviations_match_reference { |ctx|
+  let s = uu.scene(ctx)?
+  let fixture = start_keeper(s, ["sysv_queue"])?
+  defer ul.stop_keeper(fixture.handle)
+
+  let unique = run_both(s, ["--que", "--output", "ID"])?
+  ul.compare(unique.reference, unique.candidate)
+  assert unique.candidate.status == 0
+  assert unique.candidate.stdout != b""
+
+  let ambiguous = run_both(s, ["--posix-m"])?
+  ul.compare(ambiguous.reference, ambiguous.candidate)
+  assert ambiguous.candidate.status == 1
+  assert ambiguous.candidate.stdout == b""
+  assert "ambiguous" in (ambiguous.candidate.stderr.utf8() ?? "")
+  release_keeper(fixture.handle)?
+}
+
 test test_lsipc_rejects_unknown_time_format { |ctx|
   let s = uu.scene(ctx)?
   let pair = run_both(s, ["--time-format=invalid"])?
