@@ -632,7 +632,7 @@ pure pad_right(text: Str, width: Int) -> Str {
   text + spaces
 }
 
-proc table_text(inventory: Inventory, columns: List[Str], opts: Options) [error] -> Str {
+proc table_text(inventory: Inventory, columns: List[Str], opts: Options) [process, error] -> Str {
   let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
   let rows = [[block_value(inventory, block, column, opts.bytes) ?? "" for column in shown] for block in inventory.blocks]
   var widths = [if opts.noheadings { 0 } else { column.byte_len() } for column in shown]
@@ -742,7 +742,7 @@ proc summary_text(inventory: Inventory, byte_mode: Bool) [error] -> Str {
 }
 
 ## Renders the requested table format and summary as one output string.
-export proc render(inventory: Inventory, opts: Options, columns: List[Str], modes: Modes) [error] -> Str {
+export proc render(inventory: Inventory, opts: Options, columns: List[Str], modes: Modes) [process, error] -> Str {
   var output = ""
   if modes.table {
     if opts.json { output = json_text(inventory, columns, opts) } else if opts.pairs { output = pairs_text(inventory, columns, opts) } else if opts.raw { output = raw_text(inventory, columns, opts) } else { output = table_text(inventory, columns, opts) }
