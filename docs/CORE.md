@@ -25,5 +25,5 @@ ambient capabilities, parent-death signal, then ptracer.
 | `dircolors` | Accepts a non-UTF-8 database path as raw bytes, but the database contents must be valid UTF-8 or the command fails. Diagnostics quote the original path bytes. |
 | `ls` | Retains entry names as raw bytes and sorts them bytewise. Quoting styles escape malformed UTF-8 bytes; literal output preserves them, while `-q` renders non-printable bytes as `?`. |
 | `lslocks` | Reports locks from `/proc/locks`, resolves held OFD owners through `/proc/PID/fdinfo`, and leaves blocked OFD PIDs at `-1`. |
-| `lsipc` | Reads System V IPC rows from `/proc/sysvipc`, named POSIX objects from `/dev/shm` and `/dev/mqueue`, and global limits from `/proc/sys`. |
+| `lsipc` | Reads System V message queues, shared memory, and semaphore sets from `/proc/sysvipc`. It reads POSIX message queues from `/dev/mqueue`, and POSIX shared memory and semaphores from `/dev/shm`. `--global` reports system-wide limits and usage. |
 | `nl` | `-d` appends `:` when its delimiter argument contains one character. C/POSIX locales count bytes; other locales count UTF-8 characters, with malformed bytes treated as separate units. |
