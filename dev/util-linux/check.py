@@ -237,11 +237,14 @@ def run_docs(source):
 
 
 _review_result = contextvars.ContextVar("util_linux_independent_review", default=None)
+_review_scope_active = contextvars.ContextVar("util_linux_review_scope_active", default=False)
 
 
 @contextlib.contextmanager
 def independent_review(result):
     import acceptance
+    if _review_scope_active.get():
+        raise ValueError("independent review scopes cannot be nested")
     if not isinstance(result, acceptance.GateResult) or result.name != "adversarial-review":
         raise ValueError("independent review requires an actual adversarial-review gate result")
     if (result.status != 0 or result.failed or result.skipped or result.accounted_skips
@@ -250,10 +253,12 @@ def independent_review(result):
     if not result.source.clean or source_identity() != result.source:
         raise ValueError("independent review does not match the current clean source")
     token = _review_result.set(result)
+    scope_token = _review_scope_active.set(True)
     try:
         yield
     finally:
         _review_result.reset(token)
+        _review_scope_active.reset(scope_token)
 
 
 def adversarial_review(source):

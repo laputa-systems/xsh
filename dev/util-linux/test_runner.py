@@ -126,6 +126,19 @@ class IndependentReviewTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "for this invocation"):
             check.adversarial_review(self.source)
 
+    def test_nested_scopes_cannot_revive_a_consumed_review(self):
+        with patch("check.source_identity", return_value=self.source):
+            with check.independent_review(self.result):
+                with self.assertRaisesRegex(ValueError, "cannot be nested"):
+                    with check.independent_review(self.result):
+                        self.fail("nested review admitted")
+                self.assertIs(check.adversarial_review(self.source), self.result)
+                with self.assertRaisesRegex(ValueError, "cannot be nested"):
+                    with check.independent_review(self.result):
+                        self.fail("consumed review revived")
+                with self.assertRaisesRegex(ValueError, "for this invocation"):
+                    check.adversarial_review(self.source)
+
     def test_stale_review_is_rejected_before_and_during_use(self):
         import acceptance
         stale = acceptance.SourceIdentity("different", "tree", True)
