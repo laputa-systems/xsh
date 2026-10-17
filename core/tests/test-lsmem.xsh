@@ -52,6 +52,27 @@ proc compare_lsmem_rooted(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, 
   compare_lsmem(s, args.extend(["--sysroot", s.root.display()]), vars)
 }
 
+pure lsmem_zero_entry_error_matches(reference: uu.Ran, candidate: uu.Ran, args: List[Str], memory_path: Str) -> Bool {
+  let prefix = bytes.from_text(f"lsmem: Failed to read {memory_path}: ")
+  reference.util == "lsmem" and candidate.util == "lsmem" and
+    reference.args == args and candidate.args == args and
+    reference.status == 1 and candidate.status == 1 and
+    reference.stdout == b"" and candidate.stdout == b"" and
+    reference.stderr.starts_with(prefix) and candidate.stderr.starts_with(prefix) and
+    reference.stderr.byte_len() > prefix.byte_len() + 1 and candidate.stderr.byte_len() > prefix.byte_len() + 1 and
+    reference.stderr.ends_with(b"\n") and candidate.stderr.ends_with(b"\n")
+}
+
+proc compare_lsmem_zero_entry_rooted(s: uu.Scene, args: List[Str]) [fs, process, error] -> Result[Unit, Error] {
+  let rooted_args = args.extend(["--sysroot", s.root.display()])
+  let reference = ul.reference(s, "lsmem", rooted_args)?
+  let candidate = uu.invoke(s, "lsmem", rooted_args)?
+  let memory_path = f"{s.root}/sys/devices/system/memory"
+  assert lsmem_zero_entry_error_matches(reference, candidate, rooted_args, memory_path),
+    f"zero-entry error differs: reference={reference.stderr.base64()} candidate={candidate.stderr.base64()}"
+  Ok()
+}
+
 proc compare_lsmem_upstream_dump(ctx: TestContext, name: Str) [fs, process, env, io, error] -> Result[Unit, Error] {
   let s = uu.scene(ctx)?
   let dump_archive = fp"{ctx.core_dir}/tests/fixtures/util-linux/memory/upstream/{name}.tar.bz2"
@@ -291,10 +312,24 @@ test test_lsmem_rooted_missing_block_size_is_an_error { |ctx|
 }
 
 test test_lsmem_rooted_nonnumeric_memory_entries_match_reference { |ctx|
+  let args = ["--sysroot", "/fixture"]
+  let memory_path = "/fixture/sys/devices/system/memory"
+  let prefix = bytes.from_text(f"lsmem: Failed to read {memory_path}: ")
+  let reference: uu.Ran = {util: "lsmem", args: args, status: 1, stdout: b"", stderr: bytes.concat([prefix, b"Not a tty\n"])}
+  let candidate: uu.Ran = {util: "lsmem", args: args, status: 1, stdout: b"", stderr: bytes.concat([prefix, b"No such file or directory\n"])}
+  assert lsmem_zero_entry_error_matches(reference, candidate, args, memory_path)
+  assert ! ul.equal(reference, candidate)
+  assert ! lsmem_zero_entry_error_matches(reference, {...candidate, status: 2}, args, memory_path)
+  assert ! lsmem_zero_entry_error_matches(reference, {...candidate, args: ["--sysroot", "/other"]}, args, memory_path)
+  assert ! lsmem_zero_entry_error_matches(reference, {...candidate, stdout: b"unexpected\n"}, args, memory_path)
+  assert ! lsmem_zero_entry_error_matches(reference, {...candidate, stderr: b"lsmem: cannot read\n"}, args, memory_path)
+  assert ! lsmem_zero_entry_error_matches({...reference, stderr: b"lsmem: cannot read\n"}, candidate, args, memory_path)
+  assert ! lsmem_zero_entry_error_matches(reference, {...candidate, stderr: prefix}, args, memory_path)
+  assert ! lsmem_zero_entry_error_matches(reference, {...candidate, stderr: bytes.concat([prefix, b"No newline"])}, args, memory_path)
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "no-numeric-blocks")?
-  compare_lsmem_rooted(s, [])?
-  compare_lsmem_rooted(s, ["--summary=only"])?
+  compare_lsmem_zero_entry_rooted(s, [])?
+  compare_lsmem_zero_entry_rooted(s, ["--summary=only"])?
 }
 
 test test_lsmem_rooted_nonnumeric_memory_entry_does_not_hide_numeric_block { |ctx|

@@ -75,7 +75,12 @@ The `configured` fixture has system and firmware memory entries, both configured
 and unconfigured blocks, per-block memmap values, node and zone data, and a
 global `force` parameter. The native test changes only the copied scene's global
 parameter to also compare `Y` and `N` summary output. The `no-numeric-blocks`
-fixture contains only a nonnumeric `memory` directory. The `nonnumeric-entry`
+fixture contains only a nonnumeric `memory` directory. For this fixture alone,
+the oracle requires status 1, empty stdout, and the exact diagnostic prefix
+through the rooted memory path; util-linux's zero-entry `scandir` error reports
+stale `errno`, so only the suffix after that prefix may vary. Synthetic controls
+reject status, path, prefix, argument, and stdout changes, while the general
+util-linux comparator remains byte-exact. The `nonnumeric-entry`
 fixture adds a valid numeric block beside a nonnumeric `memory` directory; its
 native case verifies the latter does not hide the block.
 
@@ -98,7 +103,7 @@ native case verifies the latter does not hide the block.
 | `test_lsmem_rooted_firmware_integer_parsing_matches_reference` | Firmware config and memmap parsing with signs, suffixes, and malformed values |
 | `test_lsmem_rooted_leading_zero_block_ids_follow_reference_order` | Numeric IDs with leading zeroes and version ordering |
 | `test_lsmem_rooted_missing_block_size_is_an_error` | Missing required block-size attribute |
-| `test_lsmem_rooted_nonnumeric_memory_entries_match_reference` | Nonnumeric `memory` directory with no numeric entries |
+| `test_lsmem_rooted_nonnumeric_memory_entries_match_reference` | Zero numeric entries with exact status and stable diagnostic prefix; stale `errno` suffix variation is confined to this case |
 | `test_lsmem_rooted_nonnumeric_memory_entry_does_not_hide_numeric_block` | Nonnumeric `memory` directory is ignored alongside a valid numeric block |
 | `test_lsmem_rooted_missing_sysfs_tree_does_not_use_host_memory` | Missing rooted sysfs data fails without host fallback |
 | `test_lsmem_rooted_option_errors_match_reference` | Format conflicts, invalid arguments, unknown columns/options, and positional operands |
