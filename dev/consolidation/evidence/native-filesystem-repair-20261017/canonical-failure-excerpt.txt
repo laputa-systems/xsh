@@ -1,0 +1,16 @@
+---- core/tests/test-gnu-rm.xsh::test_gnu_rm_ext3_perf_log ----
+AssertionError.Failed: assertion failed: r.status == 0: rm -rf d: expected success, status 3, stderr (empty)
+left: 3
+right: 0
+
+---- core/tests/test-uu-factor.xsh::test_uu_factor_parallel ----
+TIMEOUT after 2m
+canceled: process work was canceled by signal 15
+
+---- core/tests/test-uu-sort-1.xsh::test_uu_sort_buffer_sizes ----
+TIMEOUT after 4m
+canceled: process work was canceled by signal 15
+
+---- core/tests/test-gnu-mv.xsh::test_gnu_mv_leak_fd_log ----
+TIMEOUT after 2m
+canceled: process work was canceled by signal 15

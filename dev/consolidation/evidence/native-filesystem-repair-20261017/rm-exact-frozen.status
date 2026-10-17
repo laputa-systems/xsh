@@ -1,0 +1,8 @@
+docker_exit_code=0
+selector_count=1
+selector=core/tests/test-gnu-rm.xsh::test_gnu_rm_ext3_perf_log
+passed=1
+failed=0
+skipped=0
+duration=43.6s
+qualification=qualified against frozen 0dc9 products

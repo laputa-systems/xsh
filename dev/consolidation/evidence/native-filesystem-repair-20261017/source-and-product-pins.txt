@@ -1,0 +1,36 @@
+Source under review
+  commit 0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4
+  tree b4f9db3f8ee2f38a6c62fea876976619db424ed7
+  core/mv.xsh 1b14a8a33cb50e180fe569a86b06faa62e64b695ef95c6ac8f92127fe451bba9
+  core/tests/test-gnu-mv.xsh 6101ba13b19994134b6cbceb413f32300b2db5a050b240fd4c011549e1b9e1c8
+  core/rm.xsh 97077fd6ad131deaa26ef545d7c1a6b18fc7c8dcd5be2d9e7c1668ee5dd8205b
+  core/tests/test-gnu-rm.xsh a66acdf49ba96ea6075bf7757f7b7a2b17da5a6f143a801d4f71a700a84b02d9
+
+Frozen canonical run
+  image sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+  xsh .work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh
+    sha256 c137d1d1ccff63c3ae492af1106aebb1872ae23b3d0e2af1d017968a4aa19a6c
+  xsht .work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht
+    sha256 5dccc9f21f30b4b26e8f96a7815303dd3b7a13c94b132d421ad02cee3fada7e1
+
+Unqualified isolated mv run
+  command mounted /home/josh/d/laputa-systems/xsh/.work/target-final-canonical/x86_64-unknown-linux-musl/verification
+  post-run xsh sha256 1a4b3857c6bd0b989cf0f159a6745ddf6a846b6d6467a282f96e8737d1196a7b
+  post-run xsht sha256 8e9c3f5aa24e5933daf74294ec54772623ab819594244a02646a05c8fbd4429f
+  pre-run hashes were not captured. These post-run hashes do not pin the binaries read by the test.
+
+Qualified exact mv rerun
+  selector core/tests/test-gnu-mv.xsh::test_gnu_mv_leak_fd_log
+  command mv-exact-frozen.command
+  status mv-exact-frozen.status; one selected test passed in 1m10s
+  before/after snapshots mv-exact-frozen.before.txt and mv-exact-frozen.after.txt
+  source and frozen product hashes matched before and after
+
+Qualified exact rm rerun
+  selector core/tests/test-gnu-rm.xsh::test_gnu_rm_ext3_perf_log
+  command rm-exact-frozen.command
+  status rm-exact-frozen.status; one selected test passed in 43.6s
+  before/after snapshots rm-exact-frozen.before.txt and rm-exact-frozen.after.txt
+  source and frozen product hashes matched before and after
+
+Both reruns used the pinned image above, UID/GID 1000, 12 CPUs, 8 GiB memory, no network, and TMPDIR in their own .work/tmp scratch directories.

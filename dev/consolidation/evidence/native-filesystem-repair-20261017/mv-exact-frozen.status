@@ -1,0 +1,8 @@
+docker_exit_code=0
+selector_count=1
+selector=core/tests/test-gnu-mv.xsh::test_gnu_mv_leak_fd_log
+passed=1
+failed=0
+skipped=0
+duration=1m10s
+qualification=qualified against frozen 0dc9 products
