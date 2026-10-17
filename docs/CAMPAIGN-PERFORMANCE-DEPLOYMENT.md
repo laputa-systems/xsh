@@ -1,6 +1,8 @@
 # Make XSH fast to run and dependable in Laputa
 
-Status: preflighted plan, 2026-10-17. Planning grants no execution or commit authority.
+Status: active, 2026-10-17. The owner authorized bounded isolated edits,
+local commits and integration, pinned fetches, and owned Docker/KVM operations.
+Pushing remains forbidden.
 
 Finish the remaining acceptance work, integrate the accepted inference capabilities,
 and improve ordinary invocation and substantial workloads. Qualify complete Laputa
@@ -65,6 +67,7 @@ evidence. Use the cleanup skill for completed worktrees and retain ambiguous wor
 | Decision | Scope |
 |---|---|
 | Pursue performance and deployment after consolidation and inference integration. | Owner direction, 2026-10-17. Improve the existing language; no syntax-feature campaign. |
+| Execute this campaign with local commits and integration. | Owner launch grant, 2026-10-17. Includes the bounded isolated edits, pinned fetches, and owned Docker/KVM operations in this document. No push. |
 | Allow isolated Laputa edits and pinned input fetches. | Owner answer during planning, 2026-10-17. A separate execution grant is still required. No live roots, host installation, publishing, or pushes. |
 | Allow `doas` for KVM access. | Owner direction during planning, 2026-10-17. Limit elevation to required device/container/VM operations using owned paths. Do not run arbitrary recipe code as host root. |
 | Retain the thirteen exact `lsipc` reference-crash exceptions. | Existing owner decision in the util-linux campaign. Independent XSH assertions remain behavior evidence and receive no exact-parity credit. |
@@ -545,14 +548,11 @@ universal obligation or Rust-correspondence claim.
 
 ## Execution boundary
 
-This planning turn authorizes repository inspection, bounded diagnostic probes,
-and this document only. No implementation, commit, fetch, image build, VM launch,
-merge, or publication is authorized by writing or approving it.
-
-A launch grant must cover isolated XSH and Laputa edits, local commits and local
-integration, pinned fetches, owned Docker/VM operations, and bounded `doas` use.
-The owner's deployment-scope and KVM decisions above specify the permitted scope
-of that later grant. Keep test and package writes inside disposable owned roots.
+The owner explicitly launched this campaign on 2026-10-17. That grant covers
+isolated XSH and Laputa edits, local commits and integration, pinned fetches,
+owned Docker/VM operations, and bounded `doas` use within this document.
+The deployment-scope and KVM decisions above further bound the grant.
+Keep test and package writes inside disposable owned roots.
 Do not edit the sibling normal checkout, host packages, live services, devices
 other than required virtual-machine access, boot configuration, or real mounts.
 
@@ -607,10 +607,12 @@ duplicate per-commit copies of controllers solely to record provenance.
 - 2026-10-17: KVM API probe succeeded through `doas`; sandbox visibility is not a platform limitation.
 - 2026-10-17: Keep 95%/85% historical targets visible without changing `{}` semantics or hiding retained restrictions.
 - 2026-10-17: Prepared modules receive a keep/reject experiment; useful shared runtime gains remain a separate deliverable.
+- 2026-10-17: Launch source is `c6d36683872e4d0dc9173a9c2c8ff09e8e6b9d23`, the owner's documentation-only plan commit over `3ed58895c`. No product-source change requires a new planning baseline.
 
 ## Campaign log
 
 - Planning: source survey, seven-sample startup diagnostics, allocation probes, 53 resource-controller tests, two native selectors, and KVM API probe complete. No execution phase started.
+- G0: Reproduced removed-abort failures in all three stream probes. Replaced the stale exit spelling and diagnosed redundant pipeline parentheses. Five exact-output cases, three invalid-mode cases, and both native foundation selectors pass in the pinned container with qualified `7e8881d96` tools. No current-source build or performance credit is claimed.
 
 ## For the owner afterwards
 

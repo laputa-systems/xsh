@@ -21,7 +21,7 @@ proc main(...argv: List[Str]) [io, error] {
   } else if mode == "par-map" {
     value = numbers(size) |> par-map(jobs: 8) { |n| n } |> count()
   } else {
-    abort(2)
+    exit 2
   }
   print f"value={value}"
 }
