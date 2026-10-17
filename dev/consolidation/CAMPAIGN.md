@@ -46,16 +46,23 @@ and sizes matched the old 0deeb9 guest receipts. The seven guest receipts
 remain pinned to 0de; no b235 guest ran. The test-only spelling change at 7eb
 leaves that QEMU scope unchanged, so Phase A reuses those seven guest passes.
 No 7eb product build or guest run is claimed. See [QEMU scope](evidence/linux-qemu-b235a1a4/README.md).
-All 428 normal and forced route runtime invocations completed without
-failures, and source checks stayed clean. The earlier strict matrix exposed a
-direct-IR `ExprIf` proof-admission gap. The accepted collector repair
-`30bebbc44`, strict source-check follow-up `9f5d12725`, and [admission
-contract](winddown/README.md) now support a separate `--direct-ir-receipt` for
-the reviewed Rust proof. This credits only the normal `ExprIf` in-place route
-and does not relabel XSH artifacts or weaken the 188 XSH proofs. The final
-strict matrix result is pending; no 428 runtime rerun is required. Route
-acceptance and functional close remain open until its terminal result is
-reviewed.
+The final strict route matrix is accepted for 7eb: 152 rows, zero gaps, and
+zero unmapped paths. It retains all 188 XSH route-artifact proofs and admits a
+separate normal `ExprIf` direct-IR proof; it does not relabel an XSH artifact.
+The 428 normal/forced invocations, 856 source checks, 120 source-order outcomes,
+and 120 behavior outcomes completed cleanly. No runtime rerun is required. See
+the [strict matrix and admission proof](winddown/evidence/route-replay-7eb62cd99/direct-ir-admission/README.md)
+and [replay archive](winddown/evidence/route-replay-7eb62cd99/README.md).
+Root accepted functional close for the exact 7eb source and tree; the immutable
+receipt is [archived here](evidence/closure-b235a1a43/functional-close-7eb62cd993e578c13bf6befd68a6a6ac15133c78.json).
+Final performance closure is not complete. No timed run has started: although
+`perf-gate-ready` returned zero, shared-host load prevents an exclusive window.
+**perf gate deferred: host busy**. Release resource and binary-size gates have
+not run. The `performance_prep` artifacts-only build/resources-only observer
+split is in progress and unreviewed; it needs distinct artifact-qualified state
+and must discard timing from the resource-only observer. Nine full-native suites
+remain (profile once, forced once, scheduler six times, observer once); the
+artifacts-only build adds no suite.
 
 The root residual has 36 unique passes across 37 executions. The standard
 context passed 34 cases and retained one Unix-socket `sun_path` skip; the exact
@@ -86,7 +93,8 @@ six exact native checks at proof `1edf4ee50c093323accc03f9355bd83795bbfdba`,
 with source/product guards and cleanup passing; see the [host native
 evidence](evidence/typing-host-native6/README.md). Broader
 inference is not accepted or merged. The prior 615-removal checkpoint remains
-historical. The generic-body lane remains unqualified and CPU-paused.
+historical. The generic-body lane remains unqualified; its bounded focused
+checks have resumed at four CPUs and 8 GiB. No inference changes are merged.
 
 ## Stop handoff, 2026-10-16
 
@@ -1072,9 +1080,9 @@ selection or fastest-profile claim is required.
 
 ### Candidate assembled, 2026-10-17
 
-The current source pins, gate outcomes, and open acceptance work are in the
-[active candidate handoff](HANDOFF.md#active-candidate). No full-gate
-acceptance or functional close exists for this candidate.
+The active source pins and remaining gates are in the
+[active candidate handoff](HANDOFF.md#active-candidate). Functional close is
+accepted for 7eb; final resource and performance gates remain open.
 
 ### 2026-10-16 — failed 7b canonical run
 

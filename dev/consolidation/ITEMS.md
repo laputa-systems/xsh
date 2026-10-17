@@ -28,24 +28,20 @@ tail repair passed all eight written/desugared selectors. W9 parity at
 full-corpus result, and the interrupted 3c repeat earns no credit.
 
 Compatibility origins and exclusions reconcile to frozen denominators. No
-new upstream pass is claimed. All 428 route runtime invocations completed
-without failures, with source checks clean. The earlier strict matrix exposed
-a direct-IR `ExprIf` proof-admission gap. The accepted collector repair
-`30bebbc44`, source-check follow-up `9f5d12725`, and [admission contract]
-(winddown/README.md) support a separate `--direct-ir-receipt` for the reviewed
-Rust proof. This credits only the normal `ExprIf` in-place route; XSH artifacts
-and all 188 XSH proofs are unchanged. The final strict matrix result is
-pending; no 428 runtime rerun is required. Route acceptance and functional
-close remain open until the terminal matrix result is reviewed.
+new upstream pass is claimed. All 428 route invocations and 856 source checks
+passed on 7eb. The final strict matrix has 152 rows, zero gaps, zero unmapped
+paths, 188 XSH proofs, and one separate direct-IR `ExprIf` proof. See the
+[accepted matrix](winddown/evidence/route-replay-7eb62cd99/direct-ir-admission/README.md).
+Root accepted functional close for the exact 7eb source/tree; its immutable
+receipt is [archived here](evidence/closure-b235a1a43/functional-close-7eb62cd993e578c13bf6befd68a6a6ac15133c78.json).
 
-The root residual has 36 unique passes across 37 executions. The standard
-context passed 34 cases and retained one Unix-socket `sun_path` skip; the exact
-selector passed through an owned `/t` alias. The namespace case and both positive
-`NET_RAW` cases passed, with the latter run under root with `CAP_NET_RAW`.
-Initial Git-guard attempts selected zero tests and earn no credit. See the
-[root residual evidence](evidence/linux-residual-0deeb9c7/README.md). The
-ten-suite performance sequence is not GO before functional close. Lean and
-Phase F stay paused. Inference remains isolated until consolidation closes.
+The root residual has 36 distinct passes across 37 executions. The Unix-socket
+`sun_path` selector passed through an owned `/t` alias; the namespace case and
+both positive `NET_RAW` cases passed under root with `CAP_NET_RAW`. Initial
+Git-guard attempts selected zero tests and earn no credit. See the [residual
+evidence](evidence/linux-residual-0deeb9c7/README.md). Final resource and
+performance gates remain open. Lean and Phase F stay paused. Inference remains
+isolated until consolidation closes.
 
 Phase D remains isolated at checkpoint `877`, commit
 `338b82238a67ee36dd1b025b7a923f9fc5d2da40`, on pair
@@ -66,9 +62,9 @@ eligible effects remain retained. Host component `5277` has conditional
 acceptance for its six exact native checks at proof
 `1edf4ee50c093323accc03f9355bd83795bbfdba`, with guarded source/product
 identity and cleanup; see [host native evidence](evidence/typing-host-native6/README.md).
-The generic-body lane remains unqualified and CPU-paused. Inference remains
-isolated. See the [active handoff](HANDOFF.md#active-candidate) for the full
-checkpoint details.
+The generic-body lane remains unqualified; bounded focused checks have
+resumed at four CPUs and 8 GiB. Inference remains isolated. See the [active
+handoff](HANDOFF.md#active-candidate) for the full checkpoint details.
 
 The isolated generic module export slice remains accepted at `8475984a9`.
 Its main merge waits for consolidation closure. Broader inference, corpus
