@@ -279,7 +279,7 @@ pure render_raw(selection: Selection, rows: List[Row]) -> Str {
     out += [heading(selection, column) for column in selection.columns].join(" ") + "\n"
   }
   for row in rows {
-    out += [cell.text for cell in row.cells].join(" ") + "\n"
+    out += [escape_cell(cell.text).replace(" ", with: "\\x20") for cell in row.cells].join(" ") + "\n"
   }
   out
 }
