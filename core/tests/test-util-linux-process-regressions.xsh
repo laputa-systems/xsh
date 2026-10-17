@@ -53,3 +53,15 @@ test test_util_linux_rev_reverses_utf8_split_across_read_chunks { |ctx|
   assert result.stderr == "", result.stderr
   assert result.stdout == bytes.concat([b"\xc3\xa9", prefix, b"\n"])
 }
+
+test test_util_linux_chrt_preserves_signal_termination { |ctx|
+  test.expect(
+    ctx,
+    fp"{ctx.core_dir}/chrt.xsh".read_text()?,
+    status: 143,
+    args: ["-o", "0", "/bin/sh", "-c", "kill -TERM $$"],
+    env: {XSH_MODULE_PATH: ctx.core_dir},
+    stdin: b"",
+    name: "chrt",
+  )?
+}
