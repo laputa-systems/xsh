@@ -119,7 +119,7 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
   for columns in [24, 120] {
     let reference = contexts.terminal_reference(s, "lsipc", terminal_args, columns:)?
     let candidate = contexts.terminal_candidate(s, "lsipc", terminal_args, columns:)?
-    assert ul.observed_equal(reference, candidate), "lsipc terminal capture differs"
+    assert reference == candidate, f"lsipc terminal columns={columns}"
   }
   contexts.release_keeper(keeper)
   let released_reference = ul.reference(s, "lsipc", options)?
@@ -148,7 +148,7 @@ test test_util_linux_context_terminal_lock_path_truncation { |ctx|
       for columns in [24, 120] {
         let reference = contexts.terminal_reference(s, "lslocks", args, columns:)?
         let candidate = contexts.terminal_candidate(s, "lslocks", args, columns:)?
-        assert ul.observed_equal(reference, candidate), "lslocks terminal truncation or escaping differs"
+        assert reference == candidate, f"lslocks terminal columns={columns} fixture={request[0]} untruncated={args.len() > selected.len()}"
       }
     }
     contexts.release_keeper(keeper)
@@ -162,7 +162,7 @@ test test_util_linux_context_terminal_rooted_memory { |ctx|
   for columns in [24, 120] {
     let reference = contexts.terminal_reference(s, "lsmem", args, columns:)?
     let candidate = contexts.terminal_candidate(s, "lsmem", args, columns:)?
-    assert ul.observed_equal(reference, candidate), "lsmem terminal capture differs"
+    assert reference == candidate, f"lsmem terminal columns={columns}"
   }
 }
 
