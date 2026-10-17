@@ -86,6 +86,7 @@ proc keeper_snapshot(handle: ul.Keeper) [process, error] -> Result[Bytes, Error]
 
 proc release_keeper(handle: ul.Keeper) [process, error] -> Result[Unit, Error] {
   ul.keeper_send(handle, "release")
+  ul.finish_keeper(handle)
   Ok()
 }
 
