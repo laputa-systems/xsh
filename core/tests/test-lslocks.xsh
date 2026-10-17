@@ -93,7 +93,9 @@ proc upstream_lock_case(s: uu.Scene, method: Str, holders: Bool) [fs, process, e
     assert json.get(typed_document, ["locks", index, "type"])?.require(Str)? == expected_type
   }
   if holders {
-    let observed_holders = compared(s, ["--json", "--pid", pid, "--output", "HOLDERS"])?
+    let holder_args = ["--json", "--pid", pid, "--output", "HOLDERS"]
+    let reference_holders = ul.reference(s, "lslocks", holder_args)?
+    let observed_holders = uu.invoke(s, "lslocks", holder_args)?
     let holder_document = json.decode(observed_holders.stdout.utf8() ?? "")?
     let holder_rows = json.get(holder_document, ["locks"])?.require(List[Any])?
     assert holder_rows.len() == expected_rows
@@ -105,11 +107,14 @@ proc upstream_lock_case(s: uu.Scene, method: Str, holders: Bool) [fs, process, e
       }
       if ! method.starts_with("posix-") {
         assert entries.len() == 2
+        let holder_output = observed_holders.stdout.utf8() ?? ""
+        assert holder_output.find(f"\"{entries[0]}\", \"{entries[1]}\"") != null, holder_output
         for fd in [17, 18] {
           assert [entry for entry in entries if entry.ends_with(f",{fd}")].len() == 1
         }
       }
     }
+    ul.compare(reference_holders, observed_holders)
   }
   let columns = if holders {
     "COMMAND,TYPE,SIZE,MODE,START,END,HOLDERS"

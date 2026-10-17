@@ -45,7 +45,7 @@ The test controls readiness by reading the holder PID before invoking
 | `ofd--w` | OFD write lock; same columns and `PATH`. | `test_lslocks_upstream_ofd_write` |
 | `ofd-rw` | OFD read lock on bytes `[0,1)` and write lock on `[2,3)`; 3-byte file. | `test_lslocks_upstream_ofd_read_write` |
 | `lease-w` | Write lease; same columns and `PATH`. | `test_lslocks_upstream_lease_write` |
-| `flock-sh+HOLDERS` | Duplicated shared `FLOCK`; includes both descriptor holders. | `test_lslocks_upstream_flock_sh_holders` |
+| `flock-sh+HOLDERS` | Duplicated shared `FLOCK`; includes both descriptor holders on one pretty-JSON array line, separated by comma-space. | `test_lslocks_upstream_flock_sh_holders` |
 | `flock-ex+HOLDERS` | Duplicated exclusive `FLOCK`; includes both descriptor holders. | `test_lslocks_upstream_flock_ex_holders` |
 | `ofd-r-+HOLDERS` | Duplicated OFD read lock; includes both descriptor holders. | `test_lslocks_upstream_ofd_read_holders` |
 | `ofd--w+HOLDERS` | Duplicated OFD write lock; includes both descriptor holders. | `test_lslocks_upstream_ofd_write_holders` |
@@ -105,7 +105,7 @@ and `holders`) regardless of the selected column spelling.
 | `END` | Inclusive ending byte; `0` for kernel `EOF`; JSON number. |
 | `PATH` | Full path when found. If path lookup fails, use the matching mountpoint plus `...` when available. JSON string. |
 | `BLOCKER` | PID of the holder that blocks a queued request; JSON number when present and null when absent. |
-| `HOLDERS` | Matching `(PID,COMMAND,FD)` rows separated by newlines in table output; JSON array of strings. |
+| `HOLDERS` | Matching `(PID,COMMAND,FD)` rows separated by newlines in table output; JSON array of strings. Pretty JSON keeps nonempty string-array values on one indented line, separated by comma-space; empty arrays stay `[]`. |
 
 `HOLDERS` groups lock records by device, inode, type, mode, range, mandatory
 state, and blocked state. A single open file description may appear through

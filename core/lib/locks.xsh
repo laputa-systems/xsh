@@ -944,14 +944,16 @@ pure smartcols_json(value: Any, depth: Int) -> Str {
       return "[]" when items.is_empty()
       let inner = smartcols_json_indent(depth + 1)
       let object_rows = items[0] is smart.Object
+      let string_rows = items[0] is Str
       let rows = collect {
         for index in range(items.len()) {
           let item = items[index]
-          let indent = if object_rows and index > 0 { "" } else { inner + (if item is Str { " " } else { "" }) }
+          let indent = if (object_rows or string_rows) and index > 0 { "" } else { inner + (if item is Str { " " } else { "" }) }
           yield indent + smartcols_json(item, depth + 1)
         }
       }
-      "[\n" + rows.join(if object_rows { "," } else { ",\n" }) + "\n" + smartcols_json_indent(depth) + "]"
+      let separator = if object_rows { "," } else if string_rows { ", " } else { ",\n" }
+      "[\n" + rows.join(separator) + "\n" + smartcols_json_indent(depth) + "]"
     }
     node is smart.Object => {
       return "{}" when node.members.is_empty()
