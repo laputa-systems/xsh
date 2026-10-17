@@ -24,4 +24,5 @@ ambient capabilities, parent-death signal, then ptracer.
 | `cat` | With no display transforms, copies input bytes verbatim, including NUL and malformed UTF-8 across chunks. Numbering and show/squeeze options transform only the requested output. |
 | `dircolors` | Accepts a non-UTF-8 database path as raw bytes, but the database contents must be valid UTF-8 or the command fails. Diagnostics quote the original path bytes. |
 | `ls` | Retains entry names as raw bytes and sorts them bytewise. Quoting styles escape malformed UTF-8 bytes; literal output preserves them, while `-q` renders non-printable bytes as `?`. |
+| `lslocks` | Reports locks from `/proc/locks`, resolves held OFD owners through `/proc/PID/fdinfo`, and leaves blocked OFD PIDs at `-1`. |
 | `nl` | `-d` appends `:` when its delimiter argument contains one character. C/POSIX locales count bytes; other locales count UTF-8 characters, with malformed bytes treated as separate units. |
