@@ -21,4 +21,6 @@ Phase A scope reuse qualifies the b235 platform slice. The seven guest receipts 
 
 The proposed seal is `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree `736b4bc16b1bcf07a0250b97e849506c19fb0753`. Its only source diff from b235 is `crates/xsht/src/cli/files.rs`. Two calls inside a `#[cfg(test)]` module change `PermissionsExt::from_mode(0)` to `PermissionsExt::from_mode(0o0)`. Both expressions produce zero. The spelling change affects only test code and leaves the QEMU cases' semantic scope unchanged.
 
-This scope review does not qualify products from the proposed seal. Qualification still requires the fresh R6 artifact capture to report source-clean checks before and after, plus SHA-256 and byte size for XSH, XSHT, the ordinary harness, and the privileged-feature harness. Compare all four hashes with the values above. No hash or size equality is assumed before that capture.
+This test-only spelling change leaves the canonical b235 QEMU product scope unchanged. Phase A permits reusing the seven existing guest passes for the proposed seal. The product identities remain pinned to b235, and the guest receipts remain pinned to 0de. This does not claim a new product build from 7eb.
+
+R6 uses a separate product variant. Its product hashes do not identify the protected canonical artifacts in the table and are not compared with them for this reuse. No new canonical build, product staging, or QEMU guest run was performed for 7eb.
