@@ -24,6 +24,27 @@ proc append(s: uu.Scene, name: Str, data: Str) [fs, process, net, error] {
   append_bytes(s, name, bytes.from_text(data))
 }
 
+proc overwrite_in_place(s: uu.Scene, name: Str, data: Str) [fs, process, net, error] {
+  let target = uu.at(s, name)
+  let contents = bytes.from_text(data)
+  let before = fs.stat(target, follow_symlinks: true)?
+  assert before.kind == "file" and before.size == contents.len()
+  {
+    let fd = unix.open_fd(target, write: true, nonblock: false)?
+    defer unix.close_fd(fd)
+    let _ = unix.seek_fd(fd, 0, whence: "start")?
+    var offset = 0
+    while offset < contents.len() {
+      let count = unix.write_fd(fd, contents[offset..])?
+      assert count > 0
+      offset += count
+    }
+  }
+  let after = fs.stat(target, follow_symlinks: true)?
+  assert after.dev == before.dev and after.ino == before.ino and after.size == before.size and after.mode == before.mode
+  assert target.read_text()? == data
+}
+
 # Every follow run uses its own captures; callers own the handle and cancel it on scope exit.
 proc follow(s: uu.Scene, args: List[Str], input: Union[Bytes, Path] = b"", merged = false) [fs, process, env, error] -> Result[Command, Error] {
   let argv = uu.argv(s, "tail", [fp"{word}" for word in args])?
@@ -956,7 +977,7 @@ test test_uu_tail_follow_when_files_are_pointing_to_same_relative_file_and_file_
   let child = spawn plan ?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   time.sleep(500ms)
-  uu.write(s, "data", "same data")
+  overwrite_in_place(s, "data", "same data")
   time.sleep(500ms)
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
