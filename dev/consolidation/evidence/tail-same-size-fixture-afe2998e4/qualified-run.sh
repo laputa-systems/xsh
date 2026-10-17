@@ -40,7 +40,7 @@ git -C "$lane" check-ignore -q .work/tmp || fail 'lane scratch is not ignored'
 [[ -x $product_dir/xsh && -x $product_dir/xsht ]] || fail 'qualified verification products missing'
 [[ ! -e $output && ! -L $output ]] || fail 'output directory already exists'
 
-mkdir -p "$output/tmp"
+mkdir -p "$output/tmp" "$output/source-tmp"
 source_snapshot "$output/source-before.txt"
 sha256sum "$product_dir/xsh" "$product_dir/xsht" >"$output/products-before.sha256"
 printf '%s  %s\n%s  %s\n' "$expected_xsh" "$product_dir/xsh" "$expected_xsht" "$product_dir/xsht" >"$output/products-expected.sha256"
@@ -61,7 +61,7 @@ printf '%s\n' "$(docker image inspect --format '{{.Id}} {{.Os}} {{.Architecture}
 
 args=(run --rm --init --platform linux/amd64 --cpus=2 --memory=4g --memory-swap=4g --network=none --user=1000:1000 --entrypoint /bin/bash
   --volume "$lane:/work:ro"
-  --volume "$lane/.work/tmp:/work/.work/tmp:rw"
+  --volume "$output/source-tmp:/work/.work/tmp:rw"
   --volume "$product_dir:/target:ro"
   --volume "$output:/scratch:rw"
   --volume "$common_git:$common_git:ro"
