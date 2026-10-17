@@ -108,6 +108,10 @@ proc parse_options(argv: List[Str]) [process, env] -> Options {
 }
 
 proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
+  if process.signal_action("PIPE")? == "default" {
+    process.set_signal_action("PIPE", "default")
+  }
+
   let prepared = gnu.prepare_arguments(argv)
   let opts = parse_options(prepared.text)
 

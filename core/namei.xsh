@@ -351,6 +351,10 @@ proc report_loop(pathname: Bytes) [process, env, io] {
 }
 
 proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
+  if process.signal_action("PIPE")? == "default" {
+    process.set_signal_action("PIPE", "default")
+  }
+
   let prepared = gnu.prepare_arguments(argv)
   let options = parse_options(prepared.text)
 
