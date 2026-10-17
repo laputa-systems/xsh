@@ -50,9 +50,7 @@ proc parity(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, 
 proc compared_with_stdout_dump(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let reference = ul.reference(s, "lslocks", args, timeout: 5s)?
   let candidate = uu.invoke(s, "lslocks", args, timeout: 5s)?
-  if reference.stdout != candidate.stdout and reference.stdout.len() <= 1024 and candidate.stdout.len() <= 1024 {
-    assert reference.stdout == candidate.stdout, f"lslocks stdout differs: reference={reference.stdout.base64()} candidate={candidate.stdout.base64()}"
-  }
+  assert reference.stdout == candidate.stdout, f"lslocks stdout differs: reference={reference.stdout.base64()} candidate={candidate.stdout.base64()}"
   ul.compare(reference, candidate)
   Ok(candidate)
 }
@@ -60,6 +58,7 @@ proc compared_with_stdout_dump(s: uu.Scene, args: List[Str]) [fs, process, env, 
 proc rejected(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[Unit, Error] {
   let reference = ul.reference(s, "lslocks", args, timeout: 5s)?
   let candidate = uu.invoke(s, "lslocks", args, timeout: 5s)?
+  assert reference.stderr == candidate.stderr, f"lslocks stderr differs: reference={reference.stderr.base64()} candidate={candidate.stderr.base64()}"
   ul.compare(reference, candidate)
   assert reference.status != 0 and candidate.status != 0, args.join(" ")
   Ok()
@@ -340,11 +339,7 @@ proc output_lock_modes_case(s: uu.Scene) [fs, process, env, net, time, error] ->
     ["-r", "-p", pid], ["-n", "-p", pid],
     ["-J", "-p", pid], ["-n", "-J", "-p", pid],
   ] {
-    let candidate = if args == ["--raw", "--pid", pid] {
-      compared_with_stdout_dump(s, args)?
-    } else {
-      compared(s, args)?
-    }
+    let candidate = compared_with_stdout_dump(s, args)?
     assert ! candidate.stdout.is_empty(), args.join(" ")
     if "--json" in args or "-J" in args {
       let document = json.decode(candidate.stdout.utf8() ?? "")?
