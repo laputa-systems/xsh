@@ -20,8 +20,8 @@ proc compare_lsmem_rooted(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, 
 
 proc compare_lsmem_upstream_dump(ctx: TestContext, name: Str) [fs, process, env, error] -> Result[Unit, Error] {
   let s = uu.scene(ctx)?
-  let archive = fp"{ctx.core_dir}/tests/fixtures/util-linux/memory/upstream/{name}.tar.bz2"
-  uu.succeeds(uu.invoke(s, "tar", ["-C", s.root.display(), "-jxf", archive.display()])?)
+  let dump_archive = fp"{ctx.core_dir}/tests/fixtures/util-linux/memory/upstream/{name}.tar.bz2"
+  uu.succeeds(uu.invoke(s, "tar", ["-C", s.root.display(), "-jxf", dump_archive.display()])?)
   let dump_root = fp"{s.root}/{name}".display()
   let columns = "RANGE,SIZE,STATE,REMOVABLE,BLOCK,NODE,ZONES"
   let cases = [
