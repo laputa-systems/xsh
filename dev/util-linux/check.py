@@ -190,6 +190,10 @@ def protected_products() -> Path:
 
 def candidate_products():
     import acceptance
+    import release
+    active = release.active_products(sys.modules[__name__])
+    if active is not None:
+        return active
     source = source_identity()
     if not source.clean:
         raise ValueError("resource measurements require committed candidate sources")
@@ -206,14 +210,18 @@ def baseline_products():
 
 
 def measure_resources():
+    import release
     import resources
-    return resources.measure(sys.modules[__name__])
+    runtime = sys.modules[__name__]
+    return release.with_release_products(runtime, source_identity(), lambda: resources.measure(runtime))
 
 
 def measure_timing(source):
     import resources
     require_cargo_lease()
-    return resources.measure_timing(sys.modules[__name__], source)
+    import release
+    runtime = sys.modules[__name__]
+    return release.with_release_products(runtime, source, lambda: resources.measure_timing(runtime, source))
 
 
 def run_full_native(source):
@@ -324,8 +332,10 @@ def owned_cleanup(source):
 
 
 def close_gates():
+    import release
     import resources
-    return resources.close(sys.modules[__name__])
+    runtime = sys.modules[__name__]
+    return release.with_release_products(runtime, source_identity(), lambda: resources.close(runtime))
 
 
 PRIVATE_NAMESPACE = r'''
@@ -346,9 +356,15 @@ exec /usr/bin/python3 /work/core/tests/fixtures/util-linux/contexts/identity_kee
 '''
 
 
+def _execution_products():
+    import release
+    active = release.active_products(sys.modules[__name__])
+    return active[0] if active is not None else protected_products()
+
+
 @contextlib.contextmanager
 def _qualified_products():
-    products = protected_products()
+    products = _execution_products()
     failure = None
     try:
         yield products
@@ -357,7 +373,8 @@ def _qualified_products():
         raise
     finally:
         try:
-            protected_products()
+            if _execution_products() != products:
+                raise ValueError("execution product provider changed during native dispatch")
         except BaseException as error:
             if failure is None:
                 raise
@@ -475,12 +492,11 @@ PY
 
 
 def baseline() -> None:
-    products = protected_products()
-    output = container(BASELINE_SCRIPT, mounts=[
-        f"type=bind,source={ROOT},target=/work,readonly",
-        f"type=bind,source={products},target=/products,readonly",
-    ])
-    protected_products()
+    with _qualified_products() as products:
+        output = container(BASELINE_SCRIPT, mounts=[
+            f"type=bind,source={ROOT},target=/work,readonly",
+            f"type=bind,source={products},target=/products,readonly",
+        ])
     rows = output.decode("ascii").splitlines()
     if len(rows) != 5:
         raise ValueError("baseline did not execute five command pairs")

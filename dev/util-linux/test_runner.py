@@ -143,6 +143,35 @@ class PrivateBatchDispatchTests(unittest.TestCase):
                 check.native_private_batch(())
 
 
+class ReleaseProviderDispatchTests(unittest.TestCase):
+    def test_native_case_uses_active_release_products_and_rechecks_them(self):
+        import acceptance
+        source = acceptance.SourceIdentity("commit", "tree", True)
+        context = acceptance.BuildContext("commit:tree", "release", "target", "image", "mimalloc", "1cpu/1GiB")
+        selector = "core/tests/test-lslocks.xsh::test_wanted"
+        output = f"running 1 tests\n{selector} ... ok 1ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n".encode()
+        with patch("release.active_products", return_value=(Path("/final-release"), context)) as active, patch("check.protected_products") as verification, patch("check.container", return_value=output) as launch:
+            self.assertEqual(check.native_case(selector), output)
+        verification.assert_not_called()
+        self.assertEqual(active.call_count, 2)
+        self.assertIn("source=/final-release,target=/products,readonly", launch.call_args.kwargs["mounts"][1])
+
+    def test_each_resource_entry_uses_the_actual_release_producer(self):
+        import acceptance
+        source = acceptance.SourceIdentity("commit", "tree", True)
+        calls = []
+        def scoped(runtime, observed_source, operation):
+            self.assertIs(runtime, check)
+            self.assertEqual(observed_source, source)
+            calls.append(observed_source)
+            return operation()
+        with patch("check.source_identity", return_value=source), patch("release.with_release_products", side_effect=scoped), patch("resources.measure", return_value="resources"), patch("resources.measure_timing", return_value="timing"), patch("resources.close", return_value="close"), patch("check.require_cargo_lease"):
+            self.assertEqual(check.measure_resources(), "resources")
+            self.assertEqual(check.measure_timing(source), "timing")
+            self.assertEqual(check.close_gates(), "close")
+        self.assertEqual(len(calls), 3)
+
+
 class IndependentReviewTests(unittest.TestCase):
     def setUp(self):
         import acceptance

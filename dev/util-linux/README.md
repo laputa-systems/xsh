@@ -70,7 +70,12 @@ still requires every integrated command comparison and closing gate.
 
 `resources --check` measures binary size, source size, peak RSS, command and
 startup CPU, and build CPU. Baseline and candidate products must use comparable
-release configurations; verification products fail qualification before sampling.
+release configurations. Each resources or close invocation builds an isolated
+release candidate from the current clean source and verifies its executable
+signatures. Nested resource operations reuse that invocation's candidate; the
+products are removed when the outer operation finishes. Ordinary functional
+checks keep the protected verification provider. Verification products cannot
+qualify as release samples.
 Readiness checks bracket every timing pair. Only the readiness helper's busy
 status defers timing; other errors fail. A deferred measurement prevents closure.
 Build execution also requires the original exclusive Cargo guard.
