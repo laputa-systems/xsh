@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_if_pure_selection","source_hash":"e108b92a5e8abee4145d727ed59ea84a4a5741034e6a3a8aa8c71a3f2ea3ebcf","records":[{"tag_name":"ExprIf","tag_ordinal":34,"route":"explicit_frame_control_path","mode":"forced"}]}

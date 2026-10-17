@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_glob","source_hash":"10223d36a980aa5379ca07237888c29215e2e270bc344bb9791de81192a60dab","records":[{"tag_name":"ExprGlob","tag_ordinal":42,"route":"explicit_frame_apply_path","mode":"normal"}]}

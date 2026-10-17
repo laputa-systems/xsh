@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/typed-scalar-route-oracles.xsh::test_expr_int","source_hash":"743d60cb5b84d815b3433b122abd4d0be33cfb70e1e418e47095194c1ac50625","records":[{"tag_name":"ExprInt","tag_ordinal":20,"route":"eager_frame_apply_path","mode":"forced"}]}

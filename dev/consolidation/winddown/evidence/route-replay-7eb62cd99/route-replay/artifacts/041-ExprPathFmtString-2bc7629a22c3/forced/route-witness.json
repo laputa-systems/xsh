@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_path_fmt_string","source_hash":"0f18f55ffbecb4bdf274f6deb16146aa2344d7439052836d5fefcae829576bce","records":[{"tag_name":"ExprPathFmtString","tag_ordinal":41,"route":"explicit_frame_control_path","mode":"forced"}]}

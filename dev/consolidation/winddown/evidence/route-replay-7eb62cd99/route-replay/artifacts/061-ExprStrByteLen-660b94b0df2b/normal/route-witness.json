@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_str_byte_len","source_hash":"f6df3d8ea7c6042e4b976f9423d51f85eca2441c06233cf9343734599667558d","records":[{"tag_name":"ExprStrByteLen","tag_ordinal":61,"route":"explicit_frame_apply_path","mode":"normal"}]}

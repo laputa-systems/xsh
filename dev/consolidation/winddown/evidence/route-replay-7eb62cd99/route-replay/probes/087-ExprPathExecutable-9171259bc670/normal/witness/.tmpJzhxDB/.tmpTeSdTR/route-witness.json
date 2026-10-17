@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_path_executable","source_hash":"82fc1bbd2de1fbd2215e9d8995259dddc55c74ea1fa594c5daa9a34dd5f32c13","records":[{"tag_name":"ExprPathExecutable","tag_ordinal":87,"route":"explicit_frame_apply_path","mode":"normal"}]}

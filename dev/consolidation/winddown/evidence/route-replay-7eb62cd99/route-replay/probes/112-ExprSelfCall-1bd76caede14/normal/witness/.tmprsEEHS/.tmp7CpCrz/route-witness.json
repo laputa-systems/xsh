@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_self_call","source_hash":"14dc4a077282ad84efaf3b95b9b82c6a59027fc3046da3dc7907af765b87630c","records":[{"tag_name":"ExprSelfCall","tag_ordinal":112,"route":"explicit_frame_control_path","mode":"normal"}]}

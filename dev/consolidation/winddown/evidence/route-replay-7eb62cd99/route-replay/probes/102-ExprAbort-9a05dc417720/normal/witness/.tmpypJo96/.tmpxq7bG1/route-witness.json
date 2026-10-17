@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_abort","source_hash":"fb909919356c2ff4fdac9f21727dada66117712029320420e5fbcb6f52f76034","records":[{"tag_name":"ExprAbort","tag_ordinal":102,"route":"explicit_frame_apply_path","mode":"normal"}]}
