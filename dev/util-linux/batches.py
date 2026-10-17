@@ -95,6 +95,49 @@ def _script(selectors: Sequence[str]) -> str:
     return "\n".join(commands)
 
 
+def _private_script(selectors: Sequence[str], private_namespace: str) -> str:
+    if not private_namespace.strip():
+        raise ValueError("private native batches require a namespace command")
+
+    commands = ["set -e", "cd /work"]
+    for selector in selectors:
+        begin = shlex.quote(f"XSH-EXACT-BEGIN:{selector}")
+        end = shlex.quote(f"XSH-EXACT-END:{selector}")
+        native_test = shlex.join(("/products/xsht", "test", "--exact", selector))
+        private_test = shlex.join(
+            (
+                "/bin/sh",
+                "-ec",
+                f"{private_namespace.rstrip()} {native_test}",
+            )
+        )
+        commands.extend(
+            (
+                f"printf '%s\\n' {begin}",
+                "case_output=$(mktemp)",
+                "case_status=0",
+                f'if {private_test} >"$case_output" 2>&1; then '
+                'case_status=0; else case_status=$?; fi',
+                'cat "$case_output"',
+                'test "$case_status" -eq 0',
+                "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/work/dev/util-linux "
+                "/usr/bin/python3 - "
+                + shlex.quote(selector)
+                + ' "$case_output" <<\'PY\'\n'
+                + "from pathlib import Path\n"
+                + "import sys\n"
+                + "from batches import _parse_case\n"
+                + "selector, output_path = sys.argv[1:]\n"
+                + "_parse_case(selector, Path(output_path).read_bytes()"
+                + ".decode('utf-8').splitlines())\n"
+                + "PY",
+                'rm -- "$case_output"',
+                f"printf '%s\\n' {end}",
+            )
+        )
+    return "\n".join(commands)
+
+
 def run_exact_batch(
     selectors: Sequence[str],
     *,
@@ -114,3 +157,35 @@ def run_exact_batch(
         timeout=30,
     )
     return _parse_batch(selected, output)
+
+
+def run_private_exact_batch(
+    selectors: Sequence[str],
+    *,
+    known_selectors: Sequence[str],
+    root: Path,
+    products: Path,
+    private_namespace: str,
+    container: Container,
+) -> tuple[CaseSummary, ...]:
+    selected = _validate_selectors(selectors, known_selectors)
+    script = _private_script(selected, private_namespace)
+    output = container(
+        script,
+        mounts=[
+            f"type=bind,source={root},target=/work,readonly",
+            f"type=bind,source={products},target=/products,readonly",
+        ],
+        capabilities=["SYS_ADMIN"],
+        timeout=30,
+        cpus=1,
+        memory_gib=1,
+    )
+    try:
+        return _parse_batch(selected, output)
+    except ValueError as error:
+        error.add_note(
+            "private native batch transcript: "
+            + output.decode("utf-8", errors="backslashreplace")
+        )
+        raise

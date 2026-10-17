@@ -201,5 +201,132 @@ class ExactBatchTests(unittest.TestCase):
         container.assert_called_once()
 
 
+class PrivateExactBatchTests(unittest.TestCase):
+    def test_dispatches_each_case_inside_a_fresh_private_wrapper(self):
+        container = Mock(return_value=batch_output())
+
+        summaries = batches.run_private_exact_batch(
+            SELECTORS,
+            known_selectors=SELECTORS,
+            root=ROOT,
+            products=PRODUCTS,
+            private_namespace="private-namespace",
+            container=container,
+        )
+
+        self.assertEqual(
+            summaries,
+            tuple(batches.CaseSummary(selector, 1, 0, 0) for selector in SELECTORS),
+        )
+        container.assert_called_once()
+        script = container.call_args.args[0]
+        self.assertEqual(script.count("/bin/sh -ec "), len(SELECTORS))
+        self.assertEqual(script.count("private-namespace"), len(SELECTORS))
+        self.assertEqual(script.count("from batches import _parse_case"), len(SELECTORS))
+        self.assertEqual(script.count("/products/xsht test --exact "), len(SELECTORS))
+        self.assertEqual(script.splitlines()[0], "set -e")
+        mounts = container.call_args.kwargs["mounts"]
+        self.assertEqual(
+            mounts,
+            [
+                "type=bind,source=/repo,target=/work,readonly",
+                "type=bind,source=/products,target=/products,readonly",
+            ],
+        )
+        self.assertEqual(container.call_args.kwargs["capabilities"], ["SYS_ADMIN"])
+        self.assertEqual(container.call_args.kwargs["timeout"], 30)
+        self.assertEqual(container.call_args.kwargs["cpus"], 1)
+        self.assertEqual(container.call_args.kwargs["memory_gib"], 1)
+
+        parse_positions = []
+        cursor = 0
+        for _selector in SELECTORS:
+            cursor = script.index("from batches import _parse_case", cursor)
+            parse_positions.append(cursor)
+            cursor += 1
+        namespace_positions = []
+        cursor = 0
+        for _selector in SELECTORS:
+            cursor = script.index("private-namespace", cursor)
+            namespace_positions.append(cursor)
+            cursor += 1
+        for parsed, next_namespace in zip(parse_positions, namespace_positions[1:]):
+            self.assertLess(parsed, next_namespace)
+
+    def test_invalid_selectors_and_missing_namespace_fail_before_dispatch(self):
+        container = Mock(return_value=batch_output())
+        invalid_batches = (
+            (),
+            (SELECTORS[0], SELECTORS[0]),
+            ("core/tests/test-not-declared.xsh::test_unknown",),
+            (SELECTORS[0] + "; touch /work/owned",),
+            SELECTORS + ("core/tests/test-extra.xsh::test_extra",),
+        )
+        for selectors in invalid_batches:
+            with self.subTest(selectors=selectors), self.assertRaises(ValueError):
+                batches.run_private_exact_batch(
+                    selectors,
+                    known_selectors=SELECTORS,
+                    root=ROOT,
+                    products=PRODUCTS,
+                    private_namespace="private-namespace",
+                    container=container,
+                )
+        with self.assertRaisesRegex(ValueError, "require a namespace command"):
+            batches.run_private_exact_batch(
+                (SELECTORS[0],),
+                known_selectors=SELECTORS,
+                root=ROOT,
+                products=PRODUCTS,
+                private_namespace=" ",
+                container=container,
+            )
+        container.assert_not_called()
+
+    def test_skip_and_malformed_output_fail_with_the_raw_transcript_attached(self):
+        selector = SELECTORS[0]
+        lines = [f"XSH-EXACT-BEGIN:{selector}"]
+        lines.extend(
+            case_lines(
+                selector,
+                case=f"{selector} ... skipped: unavailable 0ms",
+                summary="test result: ok. 0 passed; 0 failed; 1 skipped",
+            )
+        )
+        lines.append(f"XSH-EXACT-END:{selector}")
+        transcript = ("\n".join(lines) + "\n").encode()
+
+        with self.assertRaisesRegex(
+            ValueError, "did not report the exact selected case"
+        ) as caught:
+            batches.run_private_exact_batch(
+                (selector,),
+                known_selectors=SELECTORS,
+                root=ROOT,
+                products=PRODUCTS,
+                private_namespace="private-namespace",
+                container=Mock(return_value=transcript),
+            )
+
+        self.assertIn(transcript.decode(), " ".join(caught.exception.__notes__))
+
+    def test_container_failure_is_propagated_unchanged(self):
+        failure = RuntimeError("private container exited 7: stdout=case stderr=cleanup")
+        container = Mock(side_effect=failure)
+
+        with self.assertRaises(RuntimeError) as caught:
+            batches.run_private_exact_batch(
+                (SELECTORS[0],),
+                known_selectors=SELECTORS,
+                root=ROOT,
+                products=PRODUCTS,
+                private_namespace="private-namespace",
+                container=container,
+            )
+
+        self.assertIs(caught.exception, failure)
+        container.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()
