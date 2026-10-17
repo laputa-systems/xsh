@@ -2,8 +2,8 @@
 
 Status: last broadly qualified production source
 `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
-`736b4bc16b1bcf07a0250b97e849506c19fb0753`; main and the frozen candidate
-remain pinned there. Root accepted a narrow delta-functional close for the
+`736b4bc16b1bcf07a0250b97e849506c19fb0753`. Root accepted a narrow
+delta-functional close for the
 reviewed successor production delta `3160bda38`. A final successor seal and
 fresh full canonical, resource, and timing gates remain pending. Lean and Phase
 F stay paused. Inference remains isolated.
@@ -25,8 +25,8 @@ Root accepted its narrow delta-functional close on the factor parallel,
 non-Unicode, and lifecycle selectors after the isolated quiet factor control
 passed. This is selector-level acceptance only; it does not extend the 7eb
 functional-close receipt or qualify a full successor canonical or resource
-run. The delta changes `core/factor.xsh` and one lifecycle fixture. Rust source
-and selector inputs did not change. Root will bind the successor source to
+run. The delta changes `core/factor.xsh` and one lifecycle fixture. Rust sources, selector names,
+and deadlines did not change. Root will bind the successor source to
 issued gate receipts.
 
 The first fresh R6 attempt on b235 passed five of thirteen stages, then failed
@@ -123,7 +123,7 @@ but that bounded run does not complete Set feature qualification. API fixture
 check-only verifier rejects the output-slot identity; the original `2cb3`
 failure remains preserved. The current Definition-role source patch is
 unqualified. Full removal credit remains 877. The planned `1023`-site candidate adds 37
-sites beyond `986`; compiler build `048`, native component `6bc96`, and all
+sites beyond `986`; compiler build `0481479e7`, six native component selectors on `bc96e556f`, and all
 eleven check/lower roots pass. Its original-view runtime passes 15 of 24
 selectors and fails nine; reduced-view runtime has not run. One failure
 reproduces the pre-existing `5277` issue; the other failure causes remain

@@ -90,8 +90,8 @@ The accepted `877` candidate remains the only one with full paired runtime
 qualification. The source-only `891` plan remains source-validated only. The
 `986` Set candidate has accepted check/lowering and 26 paired witnesses, but
 not full feature acceptance. The planned `1023`-site candidate adds 37 sites;
-compiler build `048`, native component `6bc96`, and all eleven check/lower
-roots pass. Original-view runtime passes 15 of 24 selectors and fails nine;
+compiler build `0481479e7`, six native component selectors on `bc96e556f`,
+and all eleven check/lower roots pass. Original-view runtime passes 15 of 24 selectors and fails nine;
 reduced-view runtime has not run. One failure reproduces the pre-existing
 `5277` issue; the other causes remain unknown while the owner improves
 module-capture diagnosis. No removal count advances. The Definition-role

@@ -2,9 +2,8 @@
 
 Status: resumed on 2026-10-16. The last broadly qualified production source is
 `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
-`736b4bc16b1bcf07a0250b97e849506c19fb0753`; main and the frozen candidate
-remain pinned there. Reviewed successor production delta `3160bda38` has narrow
-delta-functional acceptance. Its fresh full canonical, resource, and timing
+`736b4bc16b1bcf07a0250b97e849506c19fb0753`. Reviewed successor production
+delta `3160bda38` has narrow delta-functional acceptance. Its fresh full canonical, resource, and timing
 gates remain open; root owns the final source seal. See the active
 [handoff](HANDOFF.md#active-candidate). Lean and Phase F remain paused.
 Inference remains isolated from main.
@@ -15,9 +14,8 @@ The last broadly qualified source combines the linked-worktree discovery
 repair, corrected route expectation, batch-only native admission cap, W9
 producer repair, and fixture repairs. The reviewed successor production delta
 `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8` has an accepted narrow
-delta-functional close for three exact selectors. Main and the frozen candidate remain
-pinned to `7eb62cd99`; root will bind the successor source to issued gate
-receipts before promotion.
+delta-functional close for three exact selectors. Root will bind the successor
+source to issued gate receipts before promotion.
 
 The full canonical run on b235 completed with 13,916 passes, 78 skips, and no
 failures across 13,994 selected cases. Root accepted that result and reused it
@@ -71,15 +69,15 @@ full native suite: 13,914 passed, two failed and 78 were skipped. The failures
 were the lifecycle profile expectation and a factor timeout. Cleanup resolved
 with no OOM, but R3 earns no resource credit. See the [R3 archive](evidence/resource-observer-r3-7eb62cd9/README.md).
 Root accepted lifecycle fix
-`f4a9fb92f0976ed8fa6680f4ed8597180cc93f32` and factor repair `587814f274e`;
-neither is integrated into main. The factor repair's separate focused proof is
+`f4a9fb92f0976ed8fa6680f4ed8597180cc93f32` and factor repair `587814f274e`.
+The factor repair's separate focused proof is
 accepted; its first integrated run timed out in `test_uu_factor_parallel` after
 120 seconds while the two other post-integration selectors passed. The exact
 parallel selector later passed in the isolated quiet control. Together with the
 non-Unicode and lifecycle passes, root accepted a narrow delta-functional close
 for the three selectors and reviewed the unchanged factor flush, ordering,
 error, and status paths. The delta changes `core/factor.xsh` and one lifecycle
-fixture; Rust source and selector inputs did not change. See the
+fixture; Rust sources, selector names, and deadlines did not change. See the
 [integrated run](evidence/factor-buffer-7eb/integrated-candidate-3160bda/README.md)
 and [quiet control](evidence/factor-buffer-7eb/quiet-control-3160bda/README.md).
 The integrated timeout overlapped two campaign builds on disjoint CPU sets for
@@ -128,8 +126,8 @@ The accepted `877` candidate remains the only one with full paired runtime
 qualification. The source-only `891` plan remains source-validated only. The
 `986` Set candidate has accepted check/lowering and 26 paired witnesses, but
 not full feature acceptance. The planned `1023`-site candidate adds 37 sites;
-compiler build `048`, native component `6bc96`, and all eleven check/lower
-roots pass. Original-view runtime passes 15 of 24 selectors and fails nine;
+compiler build `0481479e7`, six native component selectors on `bc96e556f`,
+and all eleven check/lower roots pass. Original-view runtime passes 15 of 24 selectors and fails nine;
 reduced-view runtime has not run. One failure reproduces the pre-existing
 `5277` issue; the other causes remain unknown while the owner improves
 module-capture diagnosis. No removal count advances. The Definition-role

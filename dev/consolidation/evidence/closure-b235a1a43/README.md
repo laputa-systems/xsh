@@ -99,7 +99,7 @@ The separate Phase D corpus remains isolated. Candidate `877` retains full
 paired runtime qualification. Candidate `891` has source validation only.
 Candidate `986` has accepted check/lowering and 26 paired witnesses, but not
 full Set acceptance. The planned `1023`-site candidate adds 37 sites; compiler
-build `048`, native component `6bc96`, and all eleven check/lower roots pass.
+build `048`, six native component selectors on `bc96e556f`, and all eleven check/lower roots pass.
 Original-view runtime passes 15 of 24 selectors and fails nine; reduced-view
 runtime has not run. One failure reproduces the pre-existing `5277` issue; the
 other causes remain unknown. No removal count advances. The Definition-role
