@@ -11,10 +11,10 @@ proc print_lsmem_bytes(label: Str, value: Bytes) [io] {
   print $label
   let encoded = value.base64()
   var offset = 0
-  while offset < encoded.len() {
-    let remaining = encoded.len() - offset
+  while offset < encoded.byte_len() {
+    let remaining = encoded.byte_len() - offset
     let length = if remaining > 100 { 100 } else { remaining }
-    let chunk = encoded.slice(offset, length: length)
+    let chunk = encoded.byte_slice(offset, length: length)
     print $chunk
     offset += length
   }
@@ -52,6 +52,16 @@ proc compare_lsmem_rooted(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, 
   compare_lsmem(s, args.extend(["--sysroot", s.root.display()]), vars)
 }
 
+pure lsmem_zero_entry_suffix_is_one_line(stderr: Bytes, prefix_length: Int) -> Bool {
+  if stderr.len() <= prefix_length + 1 or ! stderr.ends_with(b"\n") { return false }
+  var offset = prefix_length
+  while offset < stderr.len() - 1 {
+    if (stderr.byte_at(offset) ?? 10) == 10 { return false }
+    offset += 1
+  }
+  true
+}
+
 pure lsmem_zero_entry_error_matches(reference: uu.Ran, candidate: uu.Ran, args: List[Str], memory_path: Str) -> Bool {
   let prefix = bytes.from_text(f"lsmem: Failed to read {memory_path}: ")
   reference.util == "lsmem" and candidate.util == "lsmem" and
@@ -59,17 +69,16 @@ pure lsmem_zero_entry_error_matches(reference: uu.Ran, candidate: uu.Ran, args: 
     reference.status == 1 and candidate.status == 1 and
     reference.stdout == b"" and candidate.stdout == b"" and
     reference.stderr.starts_with(prefix) and candidate.stderr.starts_with(prefix) and
-    reference.stderr.byte_len() > prefix.byte_len() + 1 and candidate.stderr.byte_len() > prefix.byte_len() + 1 and
-    reference.stderr.ends_with(b"\n") and candidate.stderr.ends_with(b"\n")
+    lsmem_zero_entry_suffix_is_one_line(reference.stderr, prefix.len()) and
+    lsmem_zero_entry_suffix_is_one_line(candidate.stderr, prefix.len())
 }
 
-proc compare_lsmem_zero_entry_rooted(s: uu.Scene, args: List[Str]) [fs, process, error] -> Result[Unit, Error] {
+proc compare_lsmem_zero_entry_rooted(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[Unit, Error] {
   let rooted_args = args.extend(["--sysroot", s.root.display()])
   let reference = ul.reference(s, "lsmem", rooted_args)?
   let candidate = uu.invoke(s, "lsmem", rooted_args)?
   let memory_path = f"{s.root}/sys/devices/system/memory"
-  assert lsmem_zero_entry_error_matches(reference, candidate, rooted_args, memory_path),
-    f"zero-entry error differs: reference={reference.stderr.base64()} candidate={candidate.stderr.base64()}"
+  assert lsmem_zero_entry_error_matches(reference, candidate, rooted_args, memory_path), f"zero-entry error differs: reference={reference.stderr.base64()} candidate={candidate.stderr.base64()}"
   Ok()
 }
 
@@ -326,6 +335,7 @@ test test_lsmem_rooted_nonnumeric_memory_entries_match_reference { |ctx|
   assert ! lsmem_zero_entry_error_matches({...reference, stderr: b"lsmem: cannot read\n"}, candidate, args, memory_path)
   assert ! lsmem_zero_entry_error_matches(reference, {...candidate, stderr: prefix}, args, memory_path)
   assert ! lsmem_zero_entry_error_matches(reference, {...candidate, stderr: bytes.concat([prefix, b"No newline"])}, args, memory_path)
+  assert ! lsmem_zero_entry_error_matches(reference, {...candidate, stderr: bytes.concat([prefix, b"No such file or directory\nextra\n"])}, args, memory_path)
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "no-numeric-blocks")?
   compare_lsmem_zero_entry_rooted(s, [])?
