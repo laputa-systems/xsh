@@ -1,0 +1,13 @@
+# W9 strict parity at 0deeb9
+
+The fresh source cohort completed the strict comparison for all 1,690 inputs and 6,760 profile outcomes. The candidate had zero mismatches against the combined derived reference. Both exact-owner proof receipts cover all 1,690 inputs, and the assignment-facts proof was verified. Root accepted this result for source commit `0deeb9c7fb79e52740c82a264754dbb29d8be693`, tree `ffb7736e1c141bbacde71c7a036ef6bcf1433c34`.
+
+The source-cohort receipt binds the controller and candidate to that commit and tree. The original reference is `e240efad273fe35d66d91f4037b6a8193527da2e`, tree `a1ef04ac7b6f759c272e8f841acee3a3b3a6ff08`. The combined derived reference is `74f1551ee9e3066b653ae190779e16d511c90293`, tree `3162d2f33076a8c9261d0ffb7a89a9952662f03f`. The retained program snapshot is `e240efad273fe35d66d91f4037b6a8193527da2e`, tree `a1ef04ac7b6f759c272e8f841acee3a3b3a6ff08`. The input manifest SHA-256 is `1ec4e8eb67681591d25c69b395387ba4acbb4bfe1e4ab514a858e60ff1a56305`, and its corpus BLAKE3 is `a7b1f70466c4e978222af3d329e9c71b0a15030480e24b8d7f77a5fa4f57f17d`.
+
+The adapter and assignment input-0 probes passed before their full captures. The immutable earlier input map served only to validate all 1,690 input identities; the current input-0 path and BLAKE3 matched the fresh adapter receipt. No earlier outcomes were credited. The full adapter, exact-owner, derived-reference, and assignment captures used the official admissions and receipts.
+
+Both comparison status files report `status=complete`. They record `completed_ranges=0` because the monolithic comparison path passes an empty range list to the status writer. The final status detail and saved stdout report all 1,690 inputs and 6,760 outcomes. The comparison receipt records 6,760 outcomes, and the mismatch file is empty. The pinned `w9_publication_adapter_runner.py` has SHA-256 `3b89efba641c2a7affa2129733c5fceb0093facc365d00fd6818e337facc89c3`.
+
+The original-to-derived correction record first differs at input 36, `bench/stdlib-port/native_control.xsh`, profile `default`, field `publication`. The original hash is `8fd465aec927e88310a38bed756c42b7787e1d728b854fad5333b26af7f201d0`; the derived hash is `5ec34c2984500edeee18dbdaaee1336b24636367e2d7321ea8749bb4ddd8ae86`.
+
+The before- and after-comparison source snapshots are byte-identical. This directory retains the source-cohort receipt, source snapshots, probe logs, capture and proof receipts, comparison command and stdout, terminal statuses, correction receipt and delta, and empty mismatch file. Full raw captures and per-input records remain under `.work/consolidation/w9-current-0deeb9c7fb79`. This result qualifies only the controller and candidate source pin listed above.
