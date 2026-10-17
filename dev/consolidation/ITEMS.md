@@ -33,14 +33,20 @@ These focused results do not change C's failed profile or provide D full-gate
 credit. The accepted tests-only tail fixture repair `8be903577` passes both
 failed selectors and the inotify companion without changing `core/tail.xsh`. Its
 [red/green evidence](evidence/tail-startup-races-c57a0f631/README.md) records
-the bounded correction. The blocked-stdin timeout remains under repair; the
-full gate queue remains open.
+the bounded correction. The accepted timeout test repair `9d7d29498` passes the
+blocked-stdin selector and three cleanup, signal, and forwarding controls. Its
+[focused evidence](evidence/timeout-stdin-ready-cancel/README.md) preserves the
+startup-race reproduction and four passing selectors. Together, the MV, two
+tail, and blocked-stdin selectors cover all four C profile failures with
+focused passes; C's full-profile receipt remains failed. The full gate queue
+remains open, with no D profile, canonical, or resource run yet.
 
-The isolated typing checkpoint
-`b823e52cb94d222de64968154d9ceee5ce580e88` records 1,038 removals: 499 of 693 eligible
-locals and 539 of 2,190 eligible internal annotations. Both targets remain
-unmet. The denominator, all 149 Map annotations on `{}` initializers, and all
-202 eligible private effects remain unchanged. Inference is not merged to main.
+The isolated 1,040 typing checkpoint `15243e97f6fd751016ab28690ada2cadb6fc973a`
+records 499 of 693 eligible local and 541 of 2,190 eligible internal
+annotations removed. The 9,194-site denominator, all 149 Map annotations on
+`{}` initializers, and all 202 eligible private effects remain unchanged. Both
+targets remain unmet. The source-order and `{}` record contracts are unchanged.
+Inference is not merged to main.
 
 **Earlier checkpoints:** the progress and verification entries below are
 historical and source-specific. They are not the current work queue. The

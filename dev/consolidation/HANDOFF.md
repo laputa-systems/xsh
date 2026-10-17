@@ -54,7 +54,12 @@ The two C tail failures were fixture-startup races; accepted tests-only repair
 `8be903577` now passes both selectors and their inotify companion. The
 [tail evidence](evidence/tail-startup-races-c57a0f631/README.md) preserves the
 controlled red runs and final green outputs; `core/tail.xsh` is unchanged. The
-blocked-stdin timeout remains under repair. No D full profile, canonical, or
+accepted timeout test repair `9d7d29498` passes the blocked-stdin selector and
+three cleanup, signal, and forwarding controls. Its [focused evidence](
+evidence/timeout-stdin-ready-cancel/README.md) preserves the startup-race
+reproduction and four passing selectors. Together, the MV, two tail, and
+blocked-stdin selectors cover all four C profile failures with focused passes;
+C's full-profile receipt remains failed. No D full profile, canonical, or
 resource gate has run.
 
 The assembly also includes observer `90c223487`, profile cleanup
@@ -63,19 +68,18 @@ The assembly also includes observer `90c223487`, profile cleanup
 Root owns the next source seal and integrated correctness checks. None of these
 focused results qualifies the remaining full gates.
 
-Root accepted the bounded isolated typing checkpoint at
-`b823e52cb94d222de64968154d9ceee5ce580e88`.
-It removes 1,038 annotations: 499 of 693 eligible locals and 539 of 2,190
-eligible internal annotations. Both campaign targets remain unmet. The
-denominator is unchanged. All 149 Map annotations on `{}` initializers and all
-202 eligible private effect clauses remain. This result does not complete
-inference or authorize a main merge.
+Root accepted the isolated 1,040 typing checkpoint at
+`15243e97f6fd751016ab28690ada2cadb6fc973a`. It removes 499 of 693 eligible
+locals and 541 of 2,190 eligible internal annotations. The 9,194-site
+denominator is unchanged; all 149 Map annotations on `{}` initializers and all
+202 eligible private effect clauses remain. Both targets remain unmet. The
+source-order and `{}` record contracts are unchanged. Inference is not merged
+to main.
 
 ### Current queue
 
-After the `rm`, `sort`, `MV`, tail, and stdin-timeout repairs and accepted tool
-changes are integrated and the source is sealed, the existing full gate queue
-remains open:
+After root seals the current D source, the existing full gate queue remains
+open:
 
 1. Run a fresh normal profile.
 2. Run one timed canonical observer with resource capture. It includes the
