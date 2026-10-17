@@ -1,0 +1,152 @@
+{
+  "cgroup_limits_and_peaks": {
+    "cpu_max": "1200000 100000",
+    "cpu_stat": {
+      "burst_usec": 0,
+      "core_sched.force_idle_usec": 0,
+      "nice_usec": 405657,
+      "nr_bursts": 0,
+      "nr_periods": 40936,
+      "nr_throttled": 2321,
+      "system_usec": 3197620589,
+      "throttled_usec": 1690142204,
+      "usage_usec": 16542569695,
+      "user_usec": 13344949105
+    },
+    "memory_current": "532586496",
+    "memory_events": {
+      "high": 0,
+      "low": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_group_kill": 0,
+      "oom_kill": 0,
+      "sock_throttled": 0
+    },
+    "memory_max": "25769803776",
+    "memory_peak": "5353533440",
+    "memory_swap_current": "0",
+    "memory_swap_events": {
+      "fail": 0,
+      "high": 0,
+      "max": 0
+    },
+    "memory_swap_max": "0",
+    "memory_swap_peak": "0",
+    "pids_current": "2",
+    "pids_max": "max",
+    "pids_peak": "223"
+  },
+  "command": [
+    "/work/target/x86_64-unknown-linux-musl/verification/xsh",
+    "dev/main.xsh",
+    "--",
+    "internal",
+    "gate-batch"
+  ],
+  "duration_seconds": 4097.272,
+  "exit_code": 0,
+  "final": {
+    "cgroup": {
+      "cpu_max": "1200000 100000",
+      "cpu_stat": {
+        "burst_usec": 0,
+        "core_sched.force_idle_usec": 0,
+        "nice_usec": 405657,
+        "nr_bursts": 0,
+        "nr_periods": 40936,
+        "nr_throttled": 2321,
+        "system_usec": 3197620589,
+        "throttled_usec": 1690142204,
+        "usage_usec": 16542569695,
+        "user_usec": 13344949105
+      },
+      "memory_current": "532586496",
+      "memory_events": {
+        "high": 0,
+        "low": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_group_kill": 0,
+        "oom_kill": 0,
+        "sock_throttled": 0
+      },
+      "memory_max": "25769803776",
+      "memory_peak": "5353533440",
+      "memory_swap_current": "0",
+      "memory_swap_events": {
+        "fail": 0,
+        "high": 0,
+        "max": 0
+      },
+      "memory_swap_max": "0",
+      "memory_swap_peak": "0",
+      "pids_current": "2",
+      "pids_max": "max",
+      "pids_peak": "223"
+    },
+    "process_rss_sum_bytes": 16306176,
+    "sampled_utc": "2026-10-17T04:55:59.267+00:00",
+    "visible_process_count": 2
+  },
+  "finished_utc": "2026-10-17T04:55:59+00:00",
+  "initial": {
+    "cgroup": {
+      "cpu_max": "1200000 100000",
+      "cpu_stat": {
+        "burst_usec": 0,
+        "core_sched.force_idle_usec": 0,
+        "nice_usec": 0,
+        "nr_bursts": 0,
+        "nr_periods": 1,
+        "nr_throttled": 0,
+        "system_usec": 20139,
+        "throttled_usec": 0,
+        "usage_usec": 64816,
+        "user_usec": 44676
+      },
+      "memory_current": "28823552",
+      "memory_events": {
+        "high": 0,
+        "low": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_group_kill": 0,
+        "oom_kill": 0,
+        "sock_throttled": 0
+      },
+      "memory_max": "25769803776",
+      "memory_peak": "28856320",
+      "memory_swap_current": "0",
+      "memory_swap_events": {
+        "fail": 0,
+        "high": 0,
+        "max": 0
+      },
+      "memory_swap_max": "0",
+      "memory_swap_peak": "0",
+      "pids_current": "2",
+      "pids_max": "max",
+      "pids_peak": "6"
+    },
+    "process_rss_sum_bytes": 20238336,
+    "sampled_utc": "2026-10-17T03:47:41.995+00:00",
+    "visible_process_count": 2
+  },
+  "oom_events": 0,
+  "oom_kill_events": 0,
+  "process_rss_peak_bytes": 3671044096,
+  "process_rss_peak_method": "sum of resident pages for visible container processes, sampled at 100 ms",
+  "received_signal": null,
+  "resource_sample_interval_ms": 100,
+  "resource_samples": 40512,
+  "schema_version": 1,
+  "spawn_error": null,
+  "started_utc": "2026-10-17T03:47:41+00:00",
+  "swap_events": {
+    "fail": 0,
+    "high": 0,
+    "max": 0
+  },
+  "timing_claim": "none"
+}

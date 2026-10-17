@@ -1,0 +1,36 @@
+core/tests/test-chroot.xsh::test_chroot_exec_status_and_root_working_directory ... skipped: chroot requires root 0ms
+core/tests/test-setpriv.xsh::test_setpriv_ambient_names_must_be_inheritable_while_all_takes_what_it_can ... skipped: changing credentials requires root 0ms
+core/tests/test-uu-chgrp.xsh::test_uu_chgrp_basic_succeeds ... skipped: requires 1 supplementary groups 0ms
+core/tests/test-chroot.xsh::test_chroot_explicit_and_empty_supplementary_groups ... skipped: setting supplementary groups requires root 0ms
+core/tests/test-ls.xsh::test_ls_capability_colors_precede_executables_and_suffixes ... skipped: file capability fixture unavailable: /work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-183558-1792211045867818653-2721-test_ls_capability_colors_precede_executables_and_suffixes/ls-1/work/cap.txt: Operation not permitted (os error 1) 1ms
+core/tests/test-setpriv.xsh::test_setpriv_bounding_set_edits_drop_and_cannot_grow ... skipped: changing credentials requires root 0ms
+dev/tests/test-native-workflows.xsh::test_linux_root_native_tests_fail_when_setpriv_is_unavailable_or_identity_is_missing ... skipped: requires a root Linux test process 0ms
+tests/xsh/stdlib/unix_process.xsh::test_unix_credentials_transition_inside_namespace ... skipped: credential transitions require root inside a Linux namespace 0ms
+core/tests/test-chroot.xsh::test_chroot_inaccessible_command_reports_permission_denied ... skipped: changing credentials requires root 0ms
+dev/tests/test-native-workflows.xsh::test_linux_root_native_tests_use_the_host_identity_and_home ... skipped: requires a root Linux test process 0ms
+core/tests/test-traceroute.xsh::test_traceroute_gateway_adds_a_source_route ... skipped: IPv4 source-route IP_OPTIONS requires CAP_NET_RAW 58ms
+core/tests/test-setpriv.xsh::test_setpriv_gid_options_set_real_effective_and_saved_ids ... skipped: changing credentials requires root 0ms
+core/tests/test-chgrp.xsh::test_chgrp_from_owner_matches_after_group_changes ... skipped: needs a supplementary group 0ms
+core/tests/test-chroot.xsh::test_chroot_numeric_identity_can_use_outer_group_database ... skipped: chroot requires root 0ms
+core/tests/test-chroot.xsh::test_chroot_relative_command_resolves_inside_new_root ... skipped: chroot requires root 0ms
+core/tests/test-chroot.xsh::test_chroot_sets_explicit_user_group_and_supplementary_groups ... skipped: changing credentials requires root 0ms
+core/tests/test-setpriv.xsh::test_setpriv_keeps_capabilities_through_a_uid_change_with_ambient_caps ... skipped: changing credentials requires root 0ms
+core/tests/test-uu-chgrp.xsh::test_uu_chgrp_from_option ... skipped: requires 2 supplementary groups 0ms
+core/tests/test-chroot.xsh::test_chroot_unknown_uid_without_primary_group_fails ... skipped: chroot requires root 0ms
+core/tests/test-chroot.xsh::test_chroot_uses_accounts_inside_the_new_root ... skipped: chroot requires root 0ms
+core/tests/test-uu-chgrp.xsh::test_uu_chgrp_from_with_reference ... skipped: requires 2 supplementary groups 0ms
+core/tests/test-chown.xsh::test_chown_recursive_physical_changes_link_while_logical_changes_referent ... skipped: changing numeric owners requires root 0ms
+core/tests/test-chown.xsh::test_chown_recursive_preserves_non_utf8_child_names ... skipped: changing numeric owners requires root 0ms
+core/tests/test-setpriv.xsh::test_setpriv_securebits_are_edited_from_the_current_flags ... skipped: changing credentials requires root 0ms
+tests/xsh/stdlib/unix_process.xsh::test_unix_identity_does_not_require_a_group_database ... skipped: chroot needs Linux root privileges 0ms
+core/tests/test-uu-chgrp.xsh::test_uu_chgrp_numeric_group_formats ... skipped: requires 2 supplementary groups 0ms
+tests/xsh/stdlib/linux_net.xsh::test_raw_icmp_socket_filters_and_checks_replies ... skipped: raw sockets need CAP_NET_RAW 0ms
+core/tests/test-setpriv.xsh::test_setpriv_supplementary_groups_are_cleared_listed_or_initialized ... skipped: changing credentials requires root 1ms
+core/tests/test-setpriv.xsh::test_setpriv_uid_options_set_real_effective_and_saved_ids ... skipped: changing credentials requires root 0ms
+core/tests/test-traceroute.xsh::test_traceroute_tcp_syn_reaches_open_and_closed_ports ... skipped: TCP probes need a raw ICMP socket 49ms
+core/tests/test-uu-install-2.xsh::test_uu_install_install_root_combined ... skipped: requires root to set arbitrary uid and gid 0ms
+core/tests/test-uu-install-2.xsh::test_uu_install_install_set_owner_nonexistent_uid_and_gid ... skipped: requires root to set unused uid and gid 0ms
+core/tests/test-uu-chgrp.xsh::test_uu_chgrp_traverse_symlinks ... skipped: requires 2 supplementary groups 0ms
+core/tests/test-uu-chgrp.xsh::test_uu_chgrp_verbosity_messages ... skipped: requires 1 supplementary groups 0ms
+core/tests/test-uu-mv-1.xsh::test_uu_mv_mv_cross_device_preserves_ownership ... skipped: no supplementary group available for chgrp 0ms
+core/tests/test-uu-mv-1.xsh::test_uu_mv_mv_cross_device_preserves_ownership_recursive ... skipped: no supplementary group available for chgrp 0ms
