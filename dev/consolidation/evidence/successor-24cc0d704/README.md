@@ -12,10 +12,11 @@ and `7eb` scopes. Three private XSHT lint files preserve checked proofs across
 regressions and controls pass, and the full exact layout invariant passes on the
 qualified `e9ef` inputs. The record binds the exact inputs and products used.
 
-This close is not a fresh full canonical pass. It grants no resource, timing,
-QEMU, W9, or structural recount credit. Inference remains isolated. A fresh
-exact-source artifacts-only build is recorded below. It does not replace the
-fresh canonical, resource, or timing gates.
+This close is an additive functional qualification, not a full canonical pass.
+The close record alone grants no resource, timing, QEMU, W9, or structural
+recount credit. Inference remains isolated. A fresh exact-source artifacts-only
+build is recorded below; the separate R6 canonical/resource run is recorded
+after it. No timing gate has run.
 
 ## Artifacts-only release build
 
@@ -38,6 +39,41 @@ The receipt records each product hash. The build exited zero and container
 cleanup resolved. No full native suite ran. The receipt records the memory cap,
 not a measured peak. Timing fields are null and discarded, so this run supports
 no timing claim.
+
+## R6 canonical and resource run
+
+The [R6 receipt](resources-r6/receipt.json) has SHA-256
+`b7a31410ba6ee2eb828f0b23e6b3966a90d2ef4463dd32b4d364f99c20ce887d`. Both
+stages completed with exit status zero against source
+`24cc0d704209a8c0aa0eb27d5cfea1434929dc20`, tree
+`b6efac064ed074c9ee03d8f183bff9b41d353c91`; the source was clean before and
+after. The canonical `cargo dev gate --batch` stage reported 13,916 passed,
+zero failed, and 78 skipped native tests. Metrics, documentation, and diff
+checks also passed. Its [stdout](resources-r6/canonical-gate-batch/stdout.log)
+and [stderr](resources-r6/canonical-gate-batch/stderr.log) are preserved, as
+is the [container resource capture](resources-r6/canonical-gate-batch/container-resources.json).
+Container cleanup resolved.
+
+The separate repository lint stage exited zero with two findings and 113
+notes, so it is not lint-clean. Its [stderr](resources-r6/isolated-repository-lint/stderr.log)
+and [resource capture](resources-r6/isolated-repository-lint/container-resources.json)
+are preserved.
+
+The canonical container was limited to CPUs 0–11, 24 GiB of memory, and zero
+swap. Its cgroup memory peak was 5,179,297,792 bytes and sampled process RSS
+peak was 4,966,969,344 bytes; OOM and swap events were zero. The observer's
+timing fields are null and discarded. This run supports no timing claim.
+
+The exact [observer artifact manifest](observer-tools/final-artifact-manifest.json)
+and its six referenced files are preserved beside the R6 run. The manifest
+SHA-256 is `de31460e1232ddfcb118f314e59d27109ca204758ba74e9952129576fa1d27f5`.
+Each referenced file matches the hash recorded in that manifest.
+
+R5's stale marker cleanup is preserved in the
+[additive cleanup reconciliation](r5-cleanup-reconciliation/reconciliation.json).
+It records that the owned container and process were absent, cleanup resolved,
+and the native cleanup marker was removed; the original R5 receipt remained
+unchanged. This reconciliation does not change R5's failed status.
 
 ## Scheduler reference qualification
 

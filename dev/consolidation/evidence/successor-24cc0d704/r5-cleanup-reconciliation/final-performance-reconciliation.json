@@ -1,0 +1,18 @@
+{
+  "container_id_absent": true,
+  "helper_result_path": "/home/josh/d/laputa-systems/xsh/.work/tmp/observer-cleanup-reconciliation-r5/final-performance-cleanup-result.json",
+  "installed_cleanup_resolved": true,
+  "lock_inodes": {
+    "cargo.lock": 62044429,
+    "final-performance.lock": 62037547,
+    "native-suite.lock": 62012470
+  },
+  "marker_snapshot_sha256": "11f9455dc0e1711c1335d8300e3d1260ab2a53329b3e1397cddd1526209fd1a1",
+  "matching_final_performance_marker_cleared_in_place": true,
+  "observer_pid_absent": true,
+  "original_r5_receipt_sha256_unchanged": "882fb1f5c7d64b0a8667e13cc4ee390a00bd97d6ea620bec9e653199f5a36f29",
+  "owned_container_label_query_empty": true,
+  "process_group_12002_absent": true,
+  "run_id": "9981705944d7c6cfb6fd138410b0deb9",
+  "stage": "canonical-gate-batch"
+}

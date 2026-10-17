@@ -1,0 +1,37 @@
+{
+  "cidfile": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-b1bc741f-20261017-r5/canonical-gate-batch/container.cid",
+  "cleaned_container_ids": [],
+  "commands": [
+    {
+      "command": [
+        "docker",
+        "ps",
+        "--all",
+        "--quiet",
+        "--no-trunc",
+        "--filter",
+        "label=org.xsh.final-performance.owner=9981705944d7c6cfb6fd138410b0deb9",
+        "--filter",
+        "label=org.xsh.final-performance.stage=canonical-gate-batch"
+      ],
+      "exit_code": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "absent": true,
+      "command": [
+        "docker",
+        "inspect",
+        "de69d3bc33d70521ae5b16dec7b6ed08b1ce74e000df185ae3c21c001bb069eb"
+      ],
+      "exit_code": 1,
+      "stderr": "error: no such object: de69d3bc33d70521ae5b16dec7b6ed08b1ce74e000df185ae3c21c001bb069eb\n",
+      "stdout": "[]\n"
+    }
+  ],
+  "container_ids": [
+    "de69d3bc33d70521ae5b16dec7b6ed08b1ce74e000df185ae3c21c001bb069eb"
+  ],
+  "resolved": true
+}
