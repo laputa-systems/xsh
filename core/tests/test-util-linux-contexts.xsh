@@ -99,9 +99,9 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
 test test_util_linux_context_terminal_lock_path_truncation { |ctx|
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
-  let path = uu.at(s, "long-lock-path-with-tab\tand-a-control-\x1b-character")
+  let operand = uu.at(s, "long-lock-path-with-tab\tand-a-control-\x1b-character")
   let keeper = ul.start_keeper(s, fp"{ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py",
-    ["hold", "flock-ex", path.display(), "none"])?
+    ["hold", "flock-ex", operand.display(), "none"])?
   defer ul.stop_keeper(keeper)
   let pid = json.get(json.decode(keeper.ready)?, ["pid"])?.require(Int)?
   let args = [p"--pid", fp"{pid}", p"--output", p"PID,PATH"]

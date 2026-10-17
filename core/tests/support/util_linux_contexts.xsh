@@ -1,3 +1,4 @@
+##! Real private identities and bounded terminal captures for util-linux parity.
 use uu
 use util_linux as ul
 
@@ -28,6 +29,8 @@ proc terminal_drain(fd: Int, captured: Bytes) [process, net, error] -> Result[By
   Ok(output)
 }
 
+## Captures two distinct fixed-width terminal streams, preserving raw bytes and signal termination.
+## Owns the child until observed completion and cancels it on failure, with a 1 MiB limit per stream.
 export proc terminal_observe(s: uu.Scene, command: Str, args: List[Path], words: List[Path], columns: Int, vars: Record = {}) [fs, process, net, time, error] -> Result[ul.Observed, Error] {
   let output = terminal_pair(columns)?
   defer unix.close_fd(output.master)
@@ -58,26 +61,33 @@ export proc terminal_observe(s: uu.Scene, command: Str, args: List[Path], words:
   Err(error.failure("terminal capture ended without observing child"))
 }
 
+## Runs the qualified reference through the shared launcher with both output streams on terminals.
 export proc terminal_reference(s: uu.Scene, command: Str, args: List[Path], columns: Int = 40, vars: Record = {}) [fs, process, net, time, error] -> Result[ul.Observed, Error] {
   terminal_observe(s, command, args, ul.reference_argv(s, command, args, vars)?, columns, vars)
 }
 
+## Runs the candidate through the shared launcher with identical terminal dimensions and capture bounds.
 export proc terminal_candidate(s: uu.Scene, command: Str, args: List[Path], columns: Int = 40, vars: Record = {}) [fs, process, net, time, error] -> Result[ul.Observed, Error] {
   terminal_observe(s, command, args, uu.argv(s, command, args, vars)?, columns, vars)
 }
 
+## Starts an owned keeper as UID and GID 10002 with empty groups and all capability sets dropped.
+## The caller owns release and completion through the shared keeper protocol.
 export proc start_identity_keeper(s: uu.Scene, script: Path, args: List[Str]) [fs, process, env, net, time, error] -> Result[ul.Keeper, Error] {
   let launcher = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/contexts/as_owner.py"
   ul.start_keeper(s, launcher, [script.display()].extend(args))
 }
 
+## Sends the keeper release request and observes successful completion while its owning scope is live.
 export proc release_keeper(keeper: ul.Keeper, request: Str = "DONE") [fs, process, net, error] {
   ul.keeper_send(keeper, request)
   ul.finish_keeper(keeper)
 }
 
+## The exact live parent-namespace lock identity exported by the owned outer runner.
 export type OutsideHolder = {pid: Int, path: Path, device: Int, inode: Int}
 
+## Verifies the exported outside inode and device remain present but absent from private procfs locks.
 export proc outside_holder() [fs, env, error] -> Result[OutsideHolder, Error] {
   ul.require_private_namespace()
   let holder: OutsideHolder = {
