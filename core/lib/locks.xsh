@@ -1020,7 +1020,10 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     return
   }
   if opts.version { ul_io.version("lslocks"); return }
-  if opts.json and opts.raw { gnu.usage_error("options --json and --raw are mutually exclusive") }
+  if opts.json and opts.raw {
+    gnu.error("option --raw cannot be combined with --json")
+    exit 1
+  }
   if opts.pid != null {
     let value = decimal(opts.pid ?? "")
     if value == null or (value ?? 0) <= 0 or (value ?? 0) > 2147483647 {
