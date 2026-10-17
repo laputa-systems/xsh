@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+import contextlib
 from dataclasses import replace
 from pathlib import Path
 import hashlib
@@ -41,6 +42,7 @@ from acceptance import (
 GitRunner = Callable[..., subprocess.CompletedProcess[str]]
 PRODUCTS = ("xsh", "xsht", "xsh-test-helper")
 LAPUTA_CORPUS = Path("/home/josh/d/laputa-systems/laputa")
+MOLD_PATH = Path("/usr/local/bin/mold")
 POSITIVE_SELECTORS = {
     "lslocks": "test_lslocks_blocker_flock",
     "lsipc": "test_lsipc_visibility_matches_for_owner_and_unprivileged_observer",
@@ -891,8 +893,10 @@ BUILD = ["/root/.cargo/bin/cargo", "build", "--locked", "--offline", "--release"
 
 
 def build(source, side, sample):
-    target = Path(f"/t/targets/{side}-{sample}")
+    target = Path(f"/cargo-target/{side}-{sample}")
     target.mkdir(parents=True)
+    temporary = target / "tmp"
+    temporary.mkdir()
     env = dict(os.environ)
     env.update({
         "CARGO_HOME": "/root/.cargo",
@@ -910,7 +914,7 @@ def build(source, side, sample):
         "CC": "/usr/bin/clang-23",
         "AR": "/usr/local/bin/llvm-ar",
         "LD_PRELOAD": "/usr/lib/libjemalloc.so.2",
-        "TMPDIR": "/t",
+        "TMPDIR": str(temporary),
         "PATH": "/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     })
     with tempfile.TemporaryFile(dir="/t") as stdout, tempfile.TemporaryFile(dir="/t") as stderr:
@@ -968,12 +972,11 @@ def build(source, side, sample):
     return child.returncode, elapsed, valid, out, err
 
 
-baseline_source = Path("/t/baseline-source")
-baseline_source.mkdir()
+baseline_source = Path("/baseline-source")
 subprocess.run(["tar", "-xf", "/baseline.tar", "-C", str(baseline_source)], check=True)
 order = @ORDER@
 sample = @SAMPLE@
-commands = ((baseline_source, "baseline"), (Path("/candidate-src"), "candidate"))
+commands = ((baseline_source, "baseline"), (Path("/work"), "candidate"))
 if order == "candidate-first":
     commands = tuple(reversed(commands))
 results = {}
@@ -984,6 +987,26 @@ print("\t".join(("build", str(baseline[1]), str(candidate[1]), str(baseline[0]),
                  str(candidate[0]), str(int(baseline[2])), str(int(candidate[2])))))
 if baseline[0] or candidate[0] or not baseline[2] or not candidate[2]:
     raise RuntimeError(f"release build or product qualification failed: {baseline[3]!r} {baseline[4]!r} {candidate[3]!r} {candidate[4]!r}")
+'''
+
+
+_BUILD_CLEANUP_DRIVER = r'''import shutil
+import stat
+from pathlib import Path
+
+
+def clear_build_directory(root):
+    if not stat.S_ISDIR(root.lstat().st_mode):
+        raise RuntimeError(f"build scratch root is not a directory: {root}")
+    for child in root.iterdir():
+        if stat.S_ISDIR(child.lstat().st_mode):
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+clear_build_directory(Path("/baseline-source"))
+clear_build_directory(Path("/cargo-target"))
 '''
 
 
@@ -1174,6 +1197,24 @@ def _expected_build_products(products: tuple[Path, BuildContext, ProductSignatur
     }
 
 
+@contextlib.contextmanager
+def _build_source_scratch(scratch: Path):
+    temporary = Path(tempfile.mkdtemp(prefix="util-linux-build-source-", dir=scratch))
+    primary = None
+    try:
+        yield temporary
+    except BaseException as error:
+        primary = error
+        raise
+    finally:
+        try:
+            shutil.rmtree(temporary)
+        except BaseException as cleanup_error:
+            if primary is None:
+                raise
+            primary.add_note(f"build-source scratch retained at {temporary}: {cleanup_error}")
+
+
 def _readied_build_pair(
     runtime: ResourceRuntime,
     program: Path,
@@ -1185,43 +1226,64 @@ def _readied_build_pair(
 ) -> BuildPair | None:
     _require_current(runtime, source, "build-cost sample")
     driver = _build_driver_source(expected, order, sample)
-    kache = shutil.which("kache")
-    mold = shutil.which("mold")
-    if kache is None or mold is None:
-        raise RuntimeError("build-cost measurement requires the installed kache and mold tools")
-    linker = runtime.ROOT / "dev" / "musl-linker.sh"
-    if not linker.is_file() or not os.access(linker, os.X_OK):
-        raise RuntimeError("build-cost measurement requires the repository musl linker adapter")
-    if not LAPUTA_CORPUS.is_dir():
-        raise RuntimeError("build-cost measurement requires the qualified Laputa corpus")
     jemalloc = Path("/usr/lib/libjemalloc.so.2")
     if not jemalloc.is_file():
         raise RuntimeError("build-cost measurement requires the pinned jemalloc preload")
-    result = _readied_container(
-        runtime,
-        program,
-        "cd /candidate-src; python3 -c " + shlex.quote(driver),
-        mounts=[
-            f"type=bind,source={runtime.ROOT},target=/candidate-src,readonly",
+    baseline_source = archive.parent / f"baseline-source-{sample}"
+    target = archive.parent / f"build-target-{sample}"
+    created_roots = []
+    build_started = False
+    primary = None
+    try:
+        baseline_source.mkdir()
+        created_roots.append(baseline_source)
+        target.mkdir()
+        created_roots.append(target)
+        mounts = _cargo_mounts(runtime, target)
+        mounts.extend((
             f"type=bind,source={archive},target=/baseline.tar,readonly",
-            f"type=bind,source={kache},target=/usr/local/bin/kache,readonly",
-            f"type=bind,source={mold},target=/usr/local/bin/mold,readonly",
-            f"type=bind,source={linker},target=/usr/local/bin/xsh-mold-linker,readonly",
-            f"type=bind,source={LAPUTA_CORPUS},target=/home/josh/d/laputa-systems/laputa,readonly",
+            f"type=bind,source={baseline_source},target=/baseline-source",
             f"type=bind,source={jemalloc},target=/usr/lib/libjemalloc.so.2,readonly",
-            "type=volume,source=xsh-cargo-registry,target=/root/.cargo/registry",
-            "type=volume,source=xsh-consolidation-kache,target=/root/.cache/kache",
-        ],
-        capabilities=[],
-        timeout=3600,
-        cpus=2,
-        memory_gib=8,
-    )
-    if result is None:
-        return None
-    output, before, after = result
-    _require_current(runtime, source, "build-cost sample")
-    return _build_result(output, order, before, after)
+        ))
+        build_started = True
+        result = _readied_container(
+            runtime,
+            program,
+            "cd /work; python3 -c " + shlex.quote(driver),
+            mounts=mounts,
+            capabilities=[],
+            timeout=3600,
+            cpus=2,
+            memory_gib=8,
+        )
+        if result is None:
+            return None
+        output, before, after = result
+        _require_current(runtime, source, "build-cost sample")
+        return _build_result(output, order, before, after)
+    except BaseException as error:
+        primary = error
+        raise
+    finally:
+        try:
+            if build_started and (any(baseline_source.iterdir()) or any(target.iterdir())):
+                runtime.container(
+                    "python3 -c " + shlex.quote(_BUILD_CLEANUP_DRIVER),
+                    mounts=[
+                        f"type=bind,source={baseline_source},target=/baseline-source",
+                        f"type=bind,source={target},target=/cargo-target",
+                    ],
+                    capabilities=[],
+                    timeout=30,
+                )
+            for root in created_roots:
+                if any(root.iterdir()):
+                    raise RuntimeError(f"build-cost cleanup left files in {root}")
+                root.rmdir()
+        except BaseException as cleanup_error:
+            if primary is None:
+                raise
+            primary.add_note(f"build-cost scratch cleanup failed: {cleanup_error}")
 
 
 _PAIR_ORDERS = (
@@ -1343,8 +1405,8 @@ def measure_timing(runtime: ResourceRuntime, source: SourceIdentity) -> Measured
 
     scratch = runtime.ROOT / ".work" / "tmp"
     scratch.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=scratch, prefix="util-linux-build-source-") as temporary:
-        archive = _git_archive(runtime.ROOT, runtime.PRODUCT_SOURCE, Path(temporary) / "baseline.tar")
+    with _build_source_scratch(scratch) as temporary:
+        archive = _git_archive(runtime.ROOT, runtime.PRODUCT_SOURCE, temporary / "baseline.tar")
         expected = _expected_build_products(products)
         warmup = _readied_build_pair(
             runtime,
@@ -1944,9 +2006,14 @@ def _rust_gate_script() -> str:
 
 def _cargo_mounts(runtime: ResourceRuntime, target: Path) -> list[str]:
     kache = shutil.which("kache")
-    mold = shutil.which("mold")
     linker = runtime.ROOT / "dev" / "musl-linker.sh"
-    if kache is None or mold is None or not linker.is_file() or not os.access(linker, os.X_OK):
+    if (
+        kache is None
+        or not MOLD_PATH.is_file()
+        or not os.access(MOLD_PATH, os.X_OK)
+        or not linker.is_file()
+        or not os.access(linker, os.X_OK)
+    ):
         raise RuntimeError("host and documentation gates require kache, mold, and the repository musl linker")
     if not LAPUTA_CORPUS.is_dir():
         raise RuntimeError("host and documentation gates require the qualified Laputa corpus")
@@ -1954,7 +2021,7 @@ def _cargo_mounts(runtime: ResourceRuntime, target: Path) -> list[str]:
         f"type=bind,source={runtime.ROOT},target=/work,readonly",
         f"type=bind,source={target},target=/cargo-target",
         f"type=bind,source={kache},target=/usr/local/bin/kache,readonly",
-        f"type=bind,source={mold},target=/usr/local/bin/mold,readonly",
+        f"type=bind,source={MOLD_PATH},target=/usr/local/bin/mold,readonly",
         f"type=bind,source={linker},target=/usr/local/bin/xsh-mold-linker,readonly",
         f"type=bind,source={LAPUTA_CORPUS},target={LAPUTA_CORPUS},readonly",
         "type=volume,source=xsh-cargo-registry,target=/root/.cargo/registry",

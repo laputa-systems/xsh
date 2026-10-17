@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import select
+import shutil
 import signal
 import subprocess
 import sys
@@ -172,6 +173,50 @@ class LsmemFixtureTests(unittest.TestCase):
         self.assertTrue(source_links)
         self.assertEqual(copied_tree, source_tree)
         self.assertEqual(copied_links, source_links)
+
+
+class BuildScratchTests(unittest.TestCase):
+    def test_cleanup_preserves_link_targets_and_removes_only_owned_contents(self):
+        self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-build-cleanup-")
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name) / "owned"
+        root.mkdir()
+        outside = Path(self.temp.name) / "outside"
+        outside.mkdir()
+        sentinel = outside / "sentinel"
+        sentinel.write_text("keep", encoding="utf-8")
+        nested = root / "nested"
+        nested.mkdir()
+        (nested / "artifact").write_text("remove", encoding="utf-8")
+        (root / "outside-link").symlink_to(outside, target_is_directory=True)
+        tree = ast.parse(resources._BUILD_CLEANUP_DRIVER)
+        cleanup = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "clear_build_directory"
+        )
+        namespace = {
+            "Path": Path,
+            "shutil": shutil,
+            "stat": __import__("stat"),
+        }
+        module = ast.fix_missing_locations(ast.Module(body=[cleanup], type_ignores=[]))
+        exec(compile(module, "build-cleanup-control", "exec"), namespace)
+
+        namespace["clear_build_directory"](root)
+
+        self.assertEqual(tuple(root.iterdir()), ())
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
+
+    def test_build_source_scratch_cleanup_does_not_mask_primary_failure(self):
+        self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-build-source-")
+        self.addCleanup(self.temp.cleanup)
+        with patch.object(resources.shutil, "rmtree", side_effect=PermissionError("cleanup failed")):
+            with self.assertRaisesRegex(RuntimeError, "build failed") as raised:
+                with resources._build_source_scratch(Path(self.temp.name)):
+                    raise RuntimeError("build failed")
+
+        self.assertEqual(len(raised.exception.__notes__), 1)
+        self.assertIn("build-source scratch retained at", raised.exception.__notes__[0])
 
 
 class ProductSignatureTests(unittest.TestCase):
@@ -381,6 +426,185 @@ class PrivateHostBoundaryTests(unittest.TestCase):
         runtime.native_case = lambda *_args, **_kwargs: skipped
         with self.assertRaisesRegex(ValueError, "mandatory behavior"):
             resources._run_private_native(runtime, SOURCE, (selector,), monotonic=lambda: 0)
+
+
+class BuildCostAdapterTests(unittest.TestCase):
+    def test_build_driver_uses_release_source_and_mounted_target_paths(self):
+        driver = resources._build_driver_source(
+            {"baseline": (), "candidate": ()},
+            PairOrder.BASELINE_FIRST,
+            0,
+        )
+
+        self.assertIn('Path(f"/cargo-target/{side}-{sample}")', driver)
+        self.assertIn('Path("/baseline-source")', driver)
+        self.assertIn('Path("/work")', driver)
+        self.assertIn('"TMPDIR": str(temporary)', driver)
+        self.assertIn('temporary = target / "tmp"', driver)
+        self.assertNotIn("/t/targets/", driver)
+
+    def test_cargo_mounts_pin_the_mold_binary_used_by_the_container(self):
+        runtime = type("Runtime", (), {"ROOT": ROOT})()
+        calls = []
+
+        def which(tool):
+            calls.append(tool)
+            return {
+                "kache": "/usr/local/bin/kache",
+                "mold": "/home/josh/.local/bin/mold",
+            }[tool]
+
+        with (
+            patch.object(resources.shutil, "which", side_effect=which),
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(Path, "is_dir", return_value=True),
+            patch.object(resources.os, "access", return_value=True),
+        ):
+            mounts = resources._cargo_mounts(runtime, Path("/build-target"))
+
+        self.assertEqual(calls, ["kache"])
+        self.assertIn(
+            f"type=bind,source={resources.MOLD_PATH},target=/usr/local/bin/mold,readonly",
+            mounts,
+        )
+        self.assertNotIn(
+            "type=bind,source=/home/josh/.local/bin/mold,target=/usr/local/bin/mold,readonly",
+            mounts,
+        )
+
+    def test_cancelled_build_cleans_exact_mounted_scratch_and_preserves_primary(self):
+        self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-build-pair-")
+        self.addCleanup(self.temp.cleanup)
+        scratch = Path(self.temp.name)
+        archive = scratch / "baseline.tar"
+        archive.write_bytes(b"archive")
+        outside = scratch / "outside"
+        outside.mkdir()
+        sentinel = outside / "sentinel"
+        sentinel.write_text("keep", encoding="utf-8")
+        tree = ast.parse(resources._BUILD_CLEANUP_DRIVER)
+        cleanup = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "clear_build_directory"
+        )
+        cleanup_namespace = {
+            "Path": Path,
+            "shutil": shutil,
+            "stat": __import__("stat"),
+        }
+        module = ast.fix_missing_locations(ast.Module(body=[cleanup], type_ignores=[]))
+        exec(compile(module, "build-pair-cleanup-control", "exec"), cleanup_namespace)
+        build_calls = []
+        cleanup_calls = []
+
+        class Runtime:
+            ROOT = ROOT
+
+            def source_identity(self):
+                return SOURCE
+
+            def container(self, script, *, mounts, capabilities, timeout, cpus=1, memory_gib=1):
+                cleanup_calls.append((script, mounts, capabilities, timeout, cpus, memory_gib))
+                roots = {
+                    mount.rsplit(",target=", 1)[1]: Path(mount.split("source=", 1)[1].split(",target=", 1)[0])
+                    for mount in mounts
+                }
+                for target in ("/baseline-source", "/cargo-target"):
+                    cleanup_namespace["clear_build_directory"](roots[target])
+                return b""
+
+        def interrupted_build(runtime, program, script, *, mounts, **_kwargs):
+            build_calls.append((script, mounts))
+            roots = {
+                mount.rsplit(",target=", 1)[1]: Path(mount.split("source=", 1)[1].split(",target=", 1)[0])
+                for mount in mounts
+            }
+            self.assertTrue(script.startswith("cd /work; python3 -c "))
+            self.assertIn(
+                f"type=bind,source={resources.MOLD_PATH},target=/usr/local/bin/mold,readonly",
+                mounts,
+            )
+            for target in ("/baseline-source", "/cargo-target"):
+                root = roots[target]
+                (root / "artifact-dir").mkdir()
+                (root / "artifact-dir" / "build-output").write_text("remove", encoding="utf-8")
+                (root / "outside-link").symlink_to(outside, target_is_directory=True)
+            raise TimeoutError("build timed out")
+
+        with (
+            patch.object(resources.shutil, "which", side_effect=lambda tool: "/usr/local/bin/kache"),
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(Path, "is_dir", return_value=True),
+            patch.object(resources.os, "access", return_value=True),
+            patch.object(resources, "_readied_container", side_effect=interrupted_build),
+        ):
+            with self.assertRaisesRegex(TimeoutError, "build timed out"):
+                resources._readied_build_pair(
+                    Runtime(),
+                    Path("/tools/perf-gate-ready"),
+                    SOURCE,
+                    archive,
+                    {"baseline": (), "candidate": ()},
+                    PairOrder.BASELINE_FIRST,
+                    0,
+                )
+
+        self.assertEqual(len(build_calls), 1)
+        self.assertEqual(len(cleanup_calls), 1)
+        cleanup_script, cleanup_mounts, _, _, _, _ = cleanup_calls[0]
+        self.assertEqual(cleanup_script, "python3 -c " + resources.shlex.quote(resources._BUILD_CLEANUP_DRIVER))
+        self.assertEqual(
+            tuple(mount.rsplit(",target=", 1)[1] for mount in cleanup_mounts),
+            ("/baseline-source", "/cargo-target"),
+        )
+        self.assertEqual(set(scratch.iterdir()), {archive, outside})
+        self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
+
+    def test_build_cleanup_error_is_attached_to_the_primary_timeout(self):
+        self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-build-cleanup-error-")
+        self.addCleanup(self.temp.cleanup)
+        scratch = Path(self.temp.name)
+        archive = scratch / "baseline.tar"
+        archive.write_bytes(b"archive")
+
+        class Runtime:
+            ROOT = ROOT
+
+            def source_identity(self):
+                return SOURCE
+
+            def container(self, *_args, **_kwargs):
+                raise PermissionError("cleanup denied")
+
+        def interrupted_build(_runtime, _program, _script, *, mounts, **_kwargs):
+            root = next(
+                Path(mount.split("source=", 1)[1].split(",target=", 1)[0])
+                for mount in mounts
+                if mount.endswith(",target=/baseline-source")
+            )
+            (root / "build-output").write_text("remove", encoding="utf-8")
+            raise TimeoutError("build timed out")
+
+        with (
+            patch.object(resources.shutil, "which", side_effect=lambda _tool: "/usr/local/bin/kache"),
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(Path, "is_dir", return_value=True),
+            patch.object(resources.os, "access", return_value=True),
+            patch.object(resources, "_readied_container", side_effect=interrupted_build),
+        ):
+            with self.assertRaisesRegex(TimeoutError, "build timed out") as raised:
+                resources._readied_build_pair(
+                    Runtime(),
+                    Path("/tools/perf-gate-ready"),
+                    SOURCE,
+                    archive,
+                    {"baseline": (), "candidate": ()},
+                    PairOrder.BASELINE_FIRST,
+                    0,
+                )
+
+        self.assertEqual(len(raised.exception.__notes__), 1)
+        self.assertIn("build-cost scratch cleanup failed", raised.exception.__notes__[0])
 
 
 class MeasurementProtocolTests(unittest.TestCase):
@@ -814,6 +1038,7 @@ class EffectBoundaryTests(unittest.TestCase):
             0,
         )
         compile(build, "build-driver", "exec")
+        compile(resources._BUILD_CLEANUP_DRIVER, "build-cleanup-driver", "exec")
 
     def test_keeper_startup_failure_reaps_child_and_closes_pipes(self):
         tree = ast.parse(resources._driver_source(REGRESSIONS, COHORT))
