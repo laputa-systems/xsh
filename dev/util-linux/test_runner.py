@@ -92,6 +92,12 @@ class OwnedCleanupTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "owned containers remain"):
                 check.owned_cleanup(self.source)
 
+    def test_unrelated_container_name_is_not_owned(self):
+        self.results[0] = b"other-xsh-util-linux-container\n"
+        with patch("check.subprocess.check_output", side_effect=self.results):
+            result = check.owned_cleanup(self.source)
+        self.assertEqual(result.failed, 0)
+
     def test_dangling_quarantine_marker_prevents_cleanup_acceptance(self):
         (self.infra / "native-suite.cleanup-unresolved").symlink_to(self.root / "missing")
         with patch("check.subprocess.check_output", side_effect=self.results):
