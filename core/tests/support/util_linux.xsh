@@ -212,9 +212,9 @@ export proc compare(reference: uu.Ran, candidate: uu.Ran, reference_state = b"",
   assert reference.util == candidate.util
   assert reference.args == candidate.args
   assert reference.status == candidate.status, candidate.stderr.utf8() ?? "candidate stderr is not UTF-8"
-  assert reference.stdout == candidate.stdout, byte_difference("stdout", reference.stdout, candidate.stdout)
-  assert reference.stderr == candidate.stderr, byte_difference("stderr", reference.stderr, candidate.stderr)
-  assert reference_state == candidate_state, byte_difference("fixture state", reference_state, candidate_state)
+  if reference.stdout != candidate.stdout { assert false, byte_difference("stdout", reference.stdout, candidate.stdout) }
+  if reference.stderr != candidate.stderr { assert false, byte_difference("stderr", reference.stderr, candidate.stderr) }
+  if reference_state != candidate_state { assert false, byte_difference("fixture state", reference_state, candidate_state) }
 }
 
 ## Asserts each implementation's exact provenance for the sole version exception.
