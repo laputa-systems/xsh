@@ -186,6 +186,7 @@ pure truncate_cells(text: Str, width: Int) -> Str {
 }
 
 pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> Str {
+  return "" when rows.is_empty()
   var widths: List[Int] = [tui.cell_width(heading(selection, column)) for column in selection.columns]
   for row in rows {
     for index in range(selection.columns.len()) {
@@ -272,6 +273,7 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> S
 }
 
 pure render_raw(selection: Selection, rows: List[Row]) -> Str {
+  return "" when rows.is_empty()
   var out = ""
   if !selection.noheadings {
     out += [heading(selection, column) for column in selection.columns].join(" ") + "\n"
@@ -366,7 +368,7 @@ pure parse_id(value: Str?) -> Result[Int?, OptionError] {
       return Err(OptionError.Invalid(detail: f"failed to parse IPC identifier: '{text}'"))
     }
     if out_of_range {
-      return Err(OptionError.Invalid(detail: f"failed to parse IPC identifier: '{text}': Numerical result out of range"))
+      return Err(OptionError.Invalid(detail: f"failed to parse IPC identifier: '{text}': Result not representable"))
     }
     let parsed = if negative { -number } else { number }
     return Ok(null) when parsed == -1
