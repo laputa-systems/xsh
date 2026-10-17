@@ -106,7 +106,7 @@ def require_pointer(result, operation):
     return result
 
 
-def track(kind, identity, name, lookup_name, owner_uid, owner_gid, creator_uid, creator_gid, mode, size=0):
+def track(kind, identity, name, lookup_name, owner_uid, owner_gid, mode, size=0):
     resource = {
         "kind": kind,
         "id": identity,
@@ -114,8 +114,8 @@ def track(kind, identity, name, lookup_name, owner_uid, owner_gid, creator_uid, 
         "lookup_name": lookup_name,
         "owner_uid": owner_uid,
         "owner_gid": owner_gid,
-        "creator_uid": creator_uid,
-        "creator_gid": creator_gid,
+        "creator_uid": os.geteuid(),
+        "creator_gid": os.getegid(),
         "creator_pid": os.getpid(),
         "mode": mode,
         "size": size,
@@ -178,7 +178,7 @@ def send_posix_messages(descriptor):
 def make_sysv_queue(owner_uid, owner_gid, creator_uid, creator_gid, mode):
     with creator_scope(creator_uid, creator_gid):
         identity = require_id(msgget(IPC_PRIVATE, IPC_CREAT | mode), "msgget")
-        resource = track("sysv_queue", identity, None, None, owner_uid, owner_gid, creator_uid, creator_gid, mode)
+        resource = track("sysv_queue", identity, None, None, owner_uid, owner_gid, mode)
     send_sysv_message(identity, b"xsh-ipc-first")
     send_sysv_message(identity, b"xsh-ipc-second")
     receive_sysv_message(identity)
@@ -189,7 +189,7 @@ def make_sysv_queue(owner_uid, owner_gid, creator_uid, creator_gid, mode):
 def make_sysv_shmem(owner_uid, owner_gid, creator_uid, creator_gid, mode, size):
     with creator_scope(creator_uid, creator_gid):
         identity = require_id(shmget(IPC_PRIVATE, size, IPC_CREAT | mode), "shmget")
-        resource = track("sysv_shmem", identity, None, None, owner_uid, owner_gid, creator_uid, creator_gid, mode, size)
+        resource = track("sysv_shmem", identity, None, None, owner_uid, owner_gid, mode, size)
     pointer = require_pointer(shmat(identity, None, 0), "shmat")
     resource["attachment"] = pointer
     ctypes.memset(pointer, 1, 1)
@@ -204,7 +204,7 @@ def make_sysv_shmem(owner_uid, owner_gid, creator_uid, creator_gid, mode, size):
 def make_sysv_semaphore(owner_uid, owner_gid, creator_uid, creator_gid, mode):
     with creator_scope(creator_uid, creator_gid):
         identity = require_id(semget(IPC_PRIVATE, 2, IPC_CREAT | mode), "semget")
-        resource = track("sysv_semaphore", identity, None, None, owner_uid, owner_gid, creator_uid, creator_gid, mode)
+        resource = track("sysv_semaphore", identity, None, None, owner_uid, owner_gid, mode)
     operation = Sembuf(0, 1, 0)
     require_zero(semop(identity, ctypes.byref(operation), 1), "semop")
     operation = Sembuf(0, -1, 0)
@@ -219,7 +219,7 @@ def create_posix_mqueue(name, owner_uid, owner_gid, creator_uid, creator_gid, mo
         descriptor = mq_open(encoded_name, O_CREAT | O_EXCL | O_RDWR, mode, None)
         if descriptor < 0:
             fail_errno("mq_open")
-        resource = track("posix_mqueue", None, name, name, owner_uid, owner_gid, creator_uid, creator_gid, mode)
+        resource = track("posix_mqueue", None, name, name, owner_uid, owner_gid, mode)
     send_posix_messages(descriptor)
     os.chown(f"/dev/mqueue/{name[1:]}", owner_uid, owner_gid)
     os.chmod(f"/dev/mqueue/{name[1:]}", mode)
@@ -233,7 +233,7 @@ def create_posix_shmem(name, owner_uid, owner_gid, creator_uid, creator_gid, mod
         descriptor = shm_open(encoded_name, O_CREAT | O_EXCL | O_RDWR, mode)
         if descriptor < 0:
             fail_errno("shm_open")
-        resource = track("posix_shmem", None, name, name[1:], owner_uid, owner_gid, creator_uid, creator_gid, mode, size)
+        resource = track("posix_shmem", None, name, name[1:], owner_uid, owner_gid, mode, size)
     os.ftruncate(descriptor, size)
     os.fchown(descriptor, owner_uid, owner_gid)
     os.fchmod(descriptor, mode)
@@ -246,7 +246,7 @@ def create_posix_semaphore(name, owner_uid, owner_gid, creator_uid, creator_gid,
     with creator_scope(creator_uid, creator_gid):
         semaphore = sem_open(encoded_name, O_CREAT | O_EXCL, mode, 0)
         require_pointer(semaphore, "sem_open")
-        resource = track("posix_semaphore", None, name, name[1:], owner_uid, owner_gid, creator_uid, creator_gid, mode)
+        resource = track("posix_semaphore", None, name, name[1:], owner_uid, owner_gid, mode)
     require_zero(sem_post(semaphore), "sem_post")
     os.chown(f"/dev/shm/sem.{name[1:]}", owner_uid, owner_gid)
     os.chmod(f"/dev/shm/sem.{name[1:]}", mode)
