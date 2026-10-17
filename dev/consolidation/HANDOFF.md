@@ -117,14 +117,14 @@ consolidation closes.
 [residual evidence](evidence/linux-residual-0deeb9c7/README.md).
 3. Final resource and performance gates remain open. The timing attempt has not
    started: `perf-gate-ready` returned zero, but shared-host load prevents an
-   exclusive measurement window. **perf gate deferred: host busy**. The
-   `performance_prep` artifacts-only build/resources-only observer split is in
-   progress and unreviewed; it needs distinct artifact-qualified state and must
-   discard timing from the resource-only observer. No release resource or size
-   gate has run. Once available, run the nine remaining
-   full-native suites (profile once, forced once, scheduler six times, observer
-   once); the artifacts-only build adds no suite. Root owns release readiness
-   and main promotion.
+   exclusive measurement window. **perf gate deferred: host busy**. Root
+   accepted the `performance_prep` artifacts-only build/resources-only observer
+   mode, integrated here with its source and tests. Its artifacts-only opt3
+   build is running on the exact 7eb source; no receipt credit is assigned yet.
+   The resource-only observer and binary-size evidence remain pending. Run the
+   nine remaining full-native suites (profile once, forced once, scheduler six
+   times, observer once); the artifacts-only build adds no suite. Root owns
+   release readiness and main promotion.
 
 The b235 canonical gate is accepted and reused for 7eb under Phase A. The fresh
 7eb R6 run is accepted, residual and QEMU scopes are closed, W9 parity is

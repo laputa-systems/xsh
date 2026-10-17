@@ -57,12 +57,13 @@ Root accepted functional close for the exact 7eb source and tree; the immutable
 receipt is [archived here](evidence/closure-b235a1a43/functional-close-7eb62cd993e578c13bf6befd68a6a6ac15133c78.json).
 Final performance closure is not complete. No timed run has started: although
 `perf-gate-ready` returned zero, shared-host load prevents an exclusive window.
-**perf gate deferred: host busy**. Release resource and binary-size gates have
-not run. The `performance_prep` artifacts-only build/resources-only observer
-split is in progress and unreviewed; it needs distinct artifact-qualified state
-and must discard timing from the resource-only observer. Nine full-native suites
-remain (profile once, forced once, scheduler six times, observer once); the
-artifacts-only build adds no suite.
+**perf gate deferred: host busy**. Root accepted the `performance_prep`
+artifacts-only build/resources-only observer mode and both controller commits
+are integrated. Its artifacts-only opt3 build is running on the exact 7eb
+source; no receipt credit is assigned yet. The resource-only observer and
+binary-size evidence remain pending. Nine full-native suites remain (profile
+once, forced once, scheduler six times, observer once); the artifacts-only build
+adds no suite.
 
 The root residual has 36 unique passes across 37 executions. The standard
 context passed 34 cases and retained one Unix-socket `sun_path` skip; the exact

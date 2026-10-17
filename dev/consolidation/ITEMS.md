@@ -39,9 +39,13 @@ The root residual has 36 distinct passes across 37 executions. The Unix-socket
 `sun_path` selector passed through an owned `/t` alias; the namespace case and
 both positive `NET_RAW` cases passed under root with `CAP_NET_RAW`. Initial
 Git-guard attempts selected zero tests and earn no credit. See the [residual
-evidence](evidence/linux-residual-0deeb9c7/README.md). Final resource and
-performance gates remain open. Lean and Phase F stay paused. Inference remains
-isolated until consolidation closes.
+evidence](evidence/linux-residual-0deeb9c7/README.md). Root accepted the
+`profile-cost.py --artifacts-only` and `final-observers.py --resources-only`
+modes. The artifacts-only opt3 build is running for the exact 7eb source and
+earns no receipt credit yet. Resource-only observer and binary-size evidence
+remain pending. No timed run has started. **perf gate deferred: host busy**.
+Lean and Phase F stay paused. Inference remains isolated until consolidation
+closes.
 
 Phase D remains isolated at checkpoint `877`, commit
 `338b82238a67ee36dd1b025b7a923f9fc5d2da40`, on pair
