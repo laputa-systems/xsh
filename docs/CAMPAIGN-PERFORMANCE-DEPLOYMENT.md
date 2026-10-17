@@ -608,11 +608,14 @@ duplicate per-commit copies of controllers solely to record provenance.
 - 2026-10-17: Keep 95%/85% historical targets visible without changing `{}` semantics or hiding retained restrictions.
 - 2026-10-17: Prepared modules receive a keep/reject experiment; useful shared runtime gains remain a separate deliverable.
 - 2026-10-17: Launch source is `c6d36683872e4d0dc9173a9c2c8ff09e8e6b9d23`, the owner's documentation-only plan commit over `3ed58895c`. No product-source change requires a new planning baseline.
+- 2026-10-17: G2 may extend explicit `check-current --review-evidence` to call the existing review verifier. Preserve default checks and strict `final-close` behavior. G1 owns the canonical bootstrap producer seam in existing controllers.
 
 ## Campaign log
 
 - Planning: source survey, seven-sample startup diagnostics, allocation probes, 53 resource-controller tests, two native selectors, and KVM API probe complete. No execution phase started.
 - G0: Reproduced removed-abort failures in all three stream probes. Replaced the stale exit spelling and diagnosed redundant pipeline parentheses. Five exact-output cases, three invalid-mode cases, and both native foundation selectors pass in the pinned container with qualified `7e8881d96` tools. No current-source build or performance credit is claimed.
+- P0 lanes from `b1ebd7fd8`: `.work/wt/perf-acceptance` on `campaign/performance-acceptance-20261017`; `.work/wt/perf-measurement` on `campaign/performance-measurement-20261017`; `.work/wt/perf-inference-audit` on `campaign/performance-inference-audit-20261017`. Root master remains the integration checkout.
+- G4 checkout: `.work/wt/laputa-foundation` on Laputa branch `campaign/xsh-deployment-foundation-20261017`, at `bbe05e4`, the owner's documentation update after the planning survey. Its source remains isolated from the normal sibling checkout.
 
 ## For the owner afterwards
 
