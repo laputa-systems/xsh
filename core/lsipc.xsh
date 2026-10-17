@@ -507,10 +507,85 @@ proc global_rows(selection: report.Selection) [fs, process, time, env, error] ->
   rows
 }
 
-proc report_failure(failure: report.OptionError) [process, env] -> Unit {
+pure prepare_arguments(argv: List[Bytes]) -> Result[gnu.PreparedArguments] {
+  var text: List[Str] = []
+  var raw: List[gnu.RawArgument] = []
+  for index in range(argv.len()) {
+    let argument = argv[index]
+    if let Ok(decoded) = argument.utf8() {
+      text += [decoded]
+      continue
+    }
+    var prefix = ""
+    var offset = 0
+    var marker = f"\0lsipc-argument-{index}\0"
+    var length = argument.len()
+    if argument.starts_with(b"--") {
+      prefix = "--"
+      offset = 2
+      for at in range(2, argument.len()) {
+        if argument.byte_at(at) == 61 {
+          if let Ok(decoded) = argument[0..at + 1].utf8() { prefix = decoded; offset = at + 1 }
+          break
+        }
+      }
+    } else if argument.starts_with(b"-") {
+      for at in range(1, argument.len()) {
+        let byte = argument.byte_at(at) ?? 0
+        if byte >= 128 {
+          prefix = argument[0..at].utf8()?
+          offset = at
+          length = at + 1
+          marker = "\0"
+          break
+        }
+        if byte in [105, 78, 111] {
+          prefix = argument[0..at + 1].utf8()?
+          offset = at + 1
+          break
+        }
+      }
+    }
+    text += [prefix + marker]
+    raw += [{marker: marker, value: argument[offset..length]}]
+  }
+  Ok({text: text, raw: raw})
+}
+
+pure diagnostic_bytes(text: Str, raw: List[gnu.RawArgument]) -> Bytes {
+  var at = 0
+  var parts: List[Bytes] = []
+  while at < text.byte_len() {
+    var next = text.byte_len()
+    var replacement = b""
+    var marker_length = 0
+    for argument in raw {
+      if let offset = text.byte_slice(at).find(argument.marker) {
+        if at + offset < next {
+          next = at + offset
+          replacement = argument.value
+          marker_length = argument.marker.byte_len()
+        }
+      }
+    }
+    parts += [bytes.from_text(text.byte_slice(at, length: next - at)), replacement]
+    at = next + marker_length
+  }
+  bytes.concat(parts)
+}
+
+proc option_diagnostic(detail: Str, raw: List[gnu.RawArgument], usage: Bool) [process, env, io, error] -> Unit {
+  let hint = if usage { f"Try '{gnu.phrase()} --help' for more information.\n" } else { "" }
+  let message = diagnostic_bytes(f"{gnu.prog()}: {detail}\n{hint}", raw)
+  io.write_stderr_bytes(message)?
+  io.flush_stderr()?
+  exit 1
+}
+
+proc report_failure(failure: report.OptionError, raw: List[gnu.RawArgument]) [process, env, io, error] -> Unit {
   match failure {
-    report.OptionError.Invalid {detail} => { gnu.error(detail); exit 1 }
-    report.OptionError.Usage {detail} => { gnu.usage_error(detail) }
+    report.OptionError.Invalid {detail} => { option_diagnostic(detail, raw, false) }
+    report.OptionError.Usage {detail} => { option_diagnostic(detail, raw, true) }
     report.OptionError.EmptyColumn => { exit 1 }
     report.OptionError.TooManyColumns => { exit 1 }
   }
@@ -535,10 +610,12 @@ proc output_width() [env, process] -> Int {
   80
 }
 
-proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
+proc main(...arguments: List[Bytes]) [fs, process, env, time, io, error] {
   if process.signal_action("PIPE")? == "default" { process.set_signal_action("PIPE", "default")? }
+  let prepared = prepare_arguments(arguments)?
+  let argv = prepared.text
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
-  if let Err(failure) = report.validate_cli_options(argv, permute) { report_failure(failure); return }
+  if let Err(failure) = report.validate_cli_options(argv, permute) { report_failure(failure, prepared.raw); return }
   let options: report.Options = cli.applet(argv, {
     gnu: {status: 1},
     shmems: {form: "-m --shmems", default: false},
@@ -572,7 +649,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
   if options.version { ul_io.version("lsipc"); return }
   let selection = match report.resolve(options, argv, permute) {
     Ok(value) => value
-    Err(failure) => { report_failure(failure); return }
+    Err(failure) => { report_failure(failure, prepared.raw); return }
   }
   let rows = if selection.global { global_rows(selection) } else { selected_rows(selection) }
   if rows.is_empty() { missing_resource(selection) }
