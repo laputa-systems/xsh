@@ -64,7 +64,7 @@ type Lock = {
 
 type FilterToken = {kind: Str, value: Str}
 type FilterValue = {kind: Str, value: Str, boolean: Bool}
-enum ColumnSelectionError { UnknownColumn, TooManyColumns }
+enum ColumnSelectionError { UnknownColumn(Str), TooManyColumns }
 type JsonPathReplacement = {marker: Bytes, value: Bytes}
 type Options = {
   bytes: Bool,
@@ -347,19 +347,19 @@ pure columns(output: Str?, output_all: Bool, environment: Str?) -> Result[List[S
   let value = if output != null { output ?? "" } else { environment ?? "" }
   let extend = value.starts_with("+")
   let names = (if extend { value.byte_slice(1) } else { value }).split(",")
-  if names.is_empty() or (names.len() == 1 and names[0] == "") { return Err(UnknownColumn) }
+  if names.is_empty() or (names.len() == 1 and names[0] == "") { return Err(UnknownColumn("")) }
   if ! extend { selected = [] }
   for name in names {
     let column = canonical_column(name)
-    return Err(UnknownColumn) when column == null
+    return Err(UnknownColumn(name)) when column == null
     return Err(TooManyColumns) when selected.len() == 25
     selected += [column ?? ""]
   }
   Ok(selected)
 }
 
-pure column_selection_error(error: ColumnSelectionError) -> Str {
-  if error == TooManyColumns { "too many columns specified, the limit is 25 columns" } else { "unknown column" }
+pure too_many_columns_error() -> Str {
+  "too many columns specified, the limit is 25 columns"
 }
 
 pure column_value(lock: Lock, column: Str) -> FilterValue {
@@ -1049,7 +1049,10 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
   }
   let selection = columns(opts.output, opts.output_all, output_environment)
   if let Err(error) = selection {
-    gnu.usage_error(column_selection_error(error))
+    match error {
+      UnknownColumn(name) => { gnu.error(f"unknown column: {name}"); exit 1 }
+      TooManyColumns => gnu.usage_error(too_many_columns_error())
+    }
     return
   }
   let chosen = selection ?? []
