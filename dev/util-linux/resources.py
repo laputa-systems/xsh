@@ -765,7 +765,13 @@ def close(runtime: ResourceRuntime) -> CloseReport:
         if result.selectors != (name,) or result.passed != 1:
             raise ValueError(f"focused regression did not execute exactly once: {selector}")
         _require_current(runtime, source, "focused-regressions")
-    gates.append(_gate_result("focused-regressions", source, len(regressions), selectors=regressions))
+    gates.append(_gate_result(
+        "focused-regressions",
+        source,
+        len(regressions),
+        selectors=regressions,
+        private=regressions,
+    ))
 
     for callback_name, gate_name in (
         ("run_full_native", "full-native"),
@@ -805,7 +811,7 @@ def close(runtime: ResourceRuntime) -> CloseReport:
 
     _require_current(runtime, source, "cleanup")
     cleanup = runtime.owned_cleanup(source)
-    _validate_returned_gate(cleanup, "cleanup", source)
+    remaining_owned_processes, lost_work = _cleanup_state(cleanup, source)
     _require_current(runtime, source, "cleanup")
     gates.append(cleanup)
 
@@ -816,8 +822,8 @@ def close(runtime: ResourceRuntime) -> CloseReport:
         source=source,
         gates=tuple(gates),
         resources=resource_report,
-        remaining_owned_processes=0,
-        lost_work=False,
+        remaining_owned_processes=remaining_owned_processes,
+        lost_work=lost_work,
     )
 
 
@@ -857,3 +863,23 @@ def _validate_returned_gate(gate: GateResult, name: str, source: SourceIdentity)
     if gate.name != name or gate.source != source:
         raise ValueError(f"{name} producer returned mismatched gate evidence")
     acceptance._validate_gate_result(gate, source)
+
+
+def _cleanup_state(gate: GateResult, source: SourceIdentity) -> tuple[int, bool]:
+    _validate_returned_gate(gate, "cleanup", source)
+    expected = {
+        "remaining-owned-processes:0",
+        "unresolved-markers:0",
+        "lost-work:false",
+    }
+    if len(gate.selectors) != len(expected) or set(gate.selectors) != expected:
+        raise ValueError("cleanup gate omitted current-source process, marker, or handoff observations")
+    if gate.executed != len(expected):
+        raise ValueError("cleanup gate did not execute each required observation exactly once")
+    observations = dict(selector.split(":", 1) for selector in gate.selectors)
+    remaining = int(observations["remaining-owned-processes"])
+    unresolved = int(observations["unresolved-markers"])
+    lost_work = observations["lost-work"] == "true"
+    if remaining or unresolved or lost_work:
+        raise ValueError("cleanup gate found owned processes, unresolved markers, or lost work")
+    return remaining, lost_work

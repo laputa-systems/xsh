@@ -129,9 +129,22 @@ class ProductSignatureTests(unittest.TestCase):
     def test_signature_tracks_only_regular_executable_product_contents(self):
         before = resources._product_signature(self.directory)
         self.assertEqual(tuple(row[0] for row in before), resources.PRODUCTS)
+        self.assertEqual(len(before[0][-1]), 32)
         (self.directory / "xsh").write_bytes(b"different\n")
         after = resources._product_signature(self.directory)
         self.assertNotEqual(before, after)
+
+    def test_product_mutation_while_hashing_is_rejected(self):
+        target = self.directory / "xsh"
+
+        def mutate_during_digest(stream, algorithm):
+            data = stream.read()
+            target.write_bytes(data + b"changed")
+            return resources.hashlib.sha256(data).digest()
+
+        with patch.object(resources.hashlib, "file_digest", side_effect=mutate_during_digest):
+            with self.assertRaisesRegex(ValueError, "changed while hashing"):
+                resources._product_signature(self.directory)
 
     def test_symlink_nonexecutable_and_non_directory_products_fail(self):
         product = self.directory / "xsht"
@@ -251,6 +264,32 @@ class EffectBoundaryTests(unittest.TestCase):
         failed = GateResult("docs", SOURCE, 1, 1, 0, 1, (), (), (), ())
         with self.assertRaisesRegex(ValueError, "did not pass"):
             resources._validate_returned_gate(failed, "docs", SOURCE)
+
+    def test_cleanup_state_requires_actual_zero_process_marker_and_handoff_observations(self):
+        selectors = (
+            "remaining-owned-processes:0",
+            "unresolved-markers:0",
+            "lost-work:false",
+        )
+        gate = GateResult("cleanup", SOURCE, 0, 3, 3, 0, (), (), selectors, ())
+        self.assertEqual(resources._cleanup_state(gate, SOURCE), (0, False))
+
+        invalid = (
+            selectors[:2],
+            ("remaining-owned-processes:1", *selectors[1:]),
+            (selectors[0], "unresolved-markers:1", selectors[2]),
+            (*selectors[:2], "lost-work:true"),
+            (*selectors, "unknown:observation"),
+        )
+        for observations in invalid:
+            with self.subTest(observations=observations):
+                result = GateResult("cleanup", SOURCE, 0, 3, 3, 0, (), (), observations, ())
+                with self.assertRaisesRegex(ValueError, "cleanup gate"):
+                    resources._cleanup_state(result, SOURCE)
+
+        undercounted = GateResult("cleanup", SOURCE, 0, 2, 2, 0, (), (), selectors, ())
+        with self.assertRaisesRegex(ValueError, "exactly once"):
+            resources._cleanup_state(undercounted, SOURCE)
 
 
 if __name__ == "__main__":
