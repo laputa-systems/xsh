@@ -15,12 +15,12 @@ proc rooted_storage_command(ctx: TestContext, source: Str, args: List[Str], name
 proc write_storage_fixture(root: FsRoot) [fs, error] {
   root.mkdir(p"sys/class/block", parents: true)
   for name in ["disk", "disk1"] {
-    let path = if name == "disk" { "sys/devices/disk" } else { "sys/devices/disk/disk1" }
-    root.mkdir(fp"{path}/queue", parents: true)
-    root.write(fp"{path}/dev", if name == "disk" { "8:0\n" } else { "8:1\n" })
-    root.write(fp"{path}/size", if name == "disk" { "100\n" } else { "50\n" })
-    root.write(fp"{path}/ro", "0\n")
-    root.write(fp"{path}/removable", "0\n")
+    let device_path = if name == "disk" { "sys/devices/disk" } else { "sys/devices/disk/disk1" }
+    root.mkdir(fp"{device_path}/queue", parents: true)
+    root.write(fp"{device_path}/dev", if name == "disk" { "8:0\n" } else { "8:1\n" })
+    root.write(fp"{device_path}/size", if name == "disk" { "100\n" } else { "50\n" })
+    root.write(fp"{device_path}/ro", "0\n")
+    root.write(fp"{device_path}/removable", "0\n")
     root.symlink(
       target: if name == "disk" { p"../../devices/disk" } else { p"../../devices/disk/disk1" },
       path: fp"sys/class/block/{name}",
@@ -144,7 +144,7 @@ test test_util_linux_lscpu_json_summary_keeps_field_values_as_strings { |ctx|
   let output = test.run_script(ctx, source, ["--json", "--sysroot", f"{dir}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "lscpu")?
   assert output.success, output.stderr
   let document = json.decode(output.stdout)?.require(CpuSummaryDocument)?
-  assert {field: "Architecture:", data: "x86_64"} in document.lscpu
+  assert {field: "Architecture:", data: system.uname()?.machine} in document.lscpu
   assert {field: "CPU(s):", data: "2"} in document.lscpu
   assert {field: "On-line CPU(s) list:", data: "0"} in document.lscpu
 }
@@ -167,7 +167,8 @@ test test_util_linux_lsns_selects_and_releases_a_live_user_namespace { |ctx|
     return
   }
   assert completed.status.exited_with(0)
-  assert ! (fp"/proc/{holder.pid}/ns/user".exists())
+  let namespace_link_remains = fp"/proc/{holder.pid}/ns/user".exists()?
+  assert ! namespace_link_remains
   let remaining: List[NamespaceRecord] = linux.namespaces(null)?
   assert [entry for entry in remaining if entry.type == "user" and entry.ns == inode].is_empty()
 }
