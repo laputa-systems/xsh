@@ -17,31 +17,30 @@ It writes the replacement bytes through a descriptor opened without truncate,
 then checks the contents, mode, device, inode, and size after closing it. The
 two existing truncation tests remain unchanged.
 
-## Verification
+## Previous run qualification
 
-The checks used the read-only verification products from source `0dc9cff7` in
-the pinned image `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c`.
-The container ran on `linux/amd64` as UID 1000 with two CPUs, 4 GiB memory, no
-network, and the shared native-suite lock. `TMPDIR` pointed inside this lane's
-ignored `.work/tmp` directory.
+The previously saved checker, selector, and three native outputs are preserved,
+but they are not qualified evidence for this repair. The outer Docker invocation
+mounted
+`/home/josh/d/laputa-systems/xsh/.work/target-final-canonical/x86_64-unknown-linux-musl/verification`
+at `/target:ro`, which is the main worktree's products directory. It did not
+mount the designated products under the frozen `consolidation-final-0dc9cff7c`
+worktree. The old outer argv was not saved alongside the inner
+[container command](native-container-command.sh), so its product identity cannot
+be reconstructed from that file. The recorded per-selector statuses and their
+original wrapper status remain unchanged in [the old summary](native-summary.tsv)
+and [status file](container-wrapper.exit-status.txt); no current-source credit
+is assigned to them.
 
-`xsht check core/tests/test-uu-tail-1.xsh` passed. The exact test-list command
-selected one case:
+The qualified verification directory is
+`/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/target-final-canonical/x86_64-unknown-linux-musl/verification`.
+Its products currently match these pins:
 
 ```text
-xsht test --list --exact core/tests/test-uu-tail-1.xsh::test_uu_tail_follow_when_files_are_pointing_to_same_relative_file_and_file_stays_same_size
+c137d1d1ccff63c3ae492af1106aebb1872ae23b3d0e2af1d017968a4aa19a6c  xsh
+5dccc9f21f30b4b26e8f96a7815303dd3b7a13c94b132d421ad02cee3fada7e1  xsht
 ```
 
-Three exact native invocations each selected one test and returned status 0.
-The corrected same-size case passed, as did both truncation controls. Their raw
-outputs are [saved here](corrected-overwrite.stdout),
-[here](uutils-truncation.stdout), and
-[here](descriptor-truncation.stdout). [The selector and status rows](native-summary.tsv)
-show all three results.
-
-The outer shell wrapper returned status 1 after the native tests. Its final
-`awk` predicate inverted the all-pass condition. Each native command returned
-status 0, as recorded in `native-summary.tsv`. The [container command](native-container-command.sh)
-preserves the predicate that returned 1. The recorded wrapper status is in
-[this file](container-wrapper.exit-status.txt). [The corrected summary check](verify-summary.sh)
-was run against the saved rows only. It did not rerun native tests.
+A qualified three-selector replay is still required. Its outer Docker argv,
+source pin, product hashes, raw per-selector outputs, and wrapper status will be
+recorded with that replay.
