@@ -138,9 +138,9 @@ test test_lsmem_rooted_numeric_and_state_parsing_matches_reference { |ctx|
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
   let block_size = "sys/devices/system/memory/block_size_bytes"
-  for value in ["1000\n", "0x1000 trailing\n", "+1000\n", "-1\n", "not-hex\n"] {
+  for value in ["0\n", "1000\n", "0x1000 trailing\n", "+1000\n", "-1\n", "ffffffffffffffff\n", "10000000000000000\n", "not-hex\n"] {
     uu.write(s, block_size, value)?
-    compare_lsmem_rooted(s, ["--bytes", "--summary=only"])?
+    compare_lsmem_rooted(s, ["--bytes", "--output", "BLOCK,SIZE", "--summary=never"])?
   }
   let state = "sys/devices/system/memory/memory0/state"
   for value in ["online\n", " online\n", "online \n", "not-a-kernel-memory-state\n"] {
@@ -158,7 +158,7 @@ test test_lsmem_rooted_zone_tokenization_and_invalid_bytes_match_reference { |ct
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "sparse")?
   let zones = "sys/devices/system/memory/memory0/valid_zones"
-  for value in ["DMA Normal\n", "DMA  Normal\n", "DMA\tNormal\n", "\tDMA\n"] {
+  for value in ["DMA Normal\n", "DMA  Normal\n", "DMA\tNormal\n", "\tDMA\n", "dma Normal\n"] {
     uu.write(s, zones, value)?
     compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,ZONES"])?
   }
@@ -209,6 +209,23 @@ test test_lsmem_rooted_firmware_inventory_can_differ_from_sysfs_blocks { |ctx|
   compare_lsmem_rooted(s, ["--all", "--output-all"])?
   compare_lsmem_rooted(s, ["--json", "--bytes", "--output-all"])?
   compare_lsmem_rooted(s, ["--summary=only"])?
+}
+
+test test_lsmem_rooted_firmware_integer_parsing_matches_reference { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "configured")?
+  let columns = "BLOCK,CONFIGURED,MEMMAP-ON-MEMORY"
+  let config = "sys/firmware/memory/memory0/config"
+  let memmap = "sys/firmware/memory/memory0/memmap_on_memory"
+  for value in ["1\n", "+1\n", "1 trailing\n", "not-a-number\n"] {
+    uu.write(s, config, value)?
+    compare_lsmem_rooted(s, ["--all", "--output", columns])?
+  }
+  uu.write(s, config, "1\n")?
+  for value in ["1\n", "+1\n", "1 trailing\n", "not-a-number\n"] {
+    uu.write(s, memmap, value)?
+    compare_lsmem_rooted(s, ["--all", "--output", columns])?
+  }
 }
 
 test test_lsmem_rooted_leading_zero_block_ids_follow_reference_order { |ctx|

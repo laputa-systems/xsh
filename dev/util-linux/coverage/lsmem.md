@@ -94,6 +94,7 @@ case.
 | `test_lsmem_rooted_dangling_and_cyclic_attribute_symlinks_match_reference` | Unreadable state, removable, and zone symlink targets |
 | `test_lsmem_rooted_required_block_size_wrong_types_match_reference` | Required block-size directory and dangling-symlink errors |
 | `test_lsmem_rooted_firmware_inventory_can_differ_from_sysfs_blocks` | Firmware-only memory entry across table, JSON, and summary output |
+| `test_lsmem_rooted_firmware_integer_parsing_matches_reference` | Firmware config and memmap parsing with signs, suffixes, and malformed values |
 | `test_lsmem_rooted_leading_zero_block_ids_follow_reference_order` | Numeric IDs with leading zeroes and version ordering |
 | `test_lsmem_rooted_missing_block_size_is_an_error` | Missing required block-size attribute |
 | `test_lsmem_rooted_nonnumeric_memory_entries_match_reference` | Nonnumeric `memory` directory with no numeric entries |
