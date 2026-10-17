@@ -189,17 +189,11 @@ def protected_products() -> Path:
 
 
 def candidate_products():
-    import acceptance
     import release
     active = release.active_products(sys.modules[__name__])
-    if active is not None:
-        return active
-    source = source_identity()
-    if not source.clean:
-        raise ValueError("resource measurements require committed candidate sources")
-    directory = protected_products()
-    context = acceptance.BuildContext(source=f"{source.commit}:{source.tree}", profile="verification", target="x86_64-unknown-linux-musl", image=IMAGE, allocator="mimalloc", allocation="1cpu/1GiB")
-    return directory, context
+    if active is None:
+        raise ValueError("resource products require an active release scope")
+    return active
 
 
 def baseline_products():

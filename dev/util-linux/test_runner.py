@@ -144,6 +144,14 @@ class PrivateBatchDispatchTests(unittest.TestCase):
 
 
 class ReleaseProviderDispatchTests(unittest.TestCase):
+    def test_resource_products_require_an_active_release_scope(self):
+        with patch("release.active_products", return_value=None) as active, patch("check.source_identity") as source, patch("check.protected_products") as protected:
+            with self.assertRaisesRegex(ValueError, "active release scope"):
+                check.candidate_products()
+        active.assert_called_once_with(check)
+        source.assert_not_called()
+        protected.assert_not_called()
+
     def test_native_case_uses_active_release_products_and_rechecks_them(self):
         import acceptance
         source = acceptance.SourceIdentity("commit", "tree", True)
