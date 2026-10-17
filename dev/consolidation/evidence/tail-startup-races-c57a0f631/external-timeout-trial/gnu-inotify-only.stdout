@@ -1,0 +1,11 @@
+running 1 tests
+core/tests/test-gnu-tail.xsh::test_gnu_tail_inotify_only_regular_log ... FAILED 121ms
+
+failures:
+
+---- core/tests/test-gnu-tail.xsh::test_gnu_tail_inotify_only_regular_log ----
+AssertionError.Failed: assertion failed: r.status == code: tail -f /dev/null: expected status 124, got 3; stderr 
+left: 3
+right: 124
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped

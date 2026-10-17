@@ -1,0 +1,25 @@
+running 1 tests
+core/tests/test-tail.xsh::test_tail_follow_name_switches_banners_between_files ... FAILED 837ms
+
+failures:
+
+---- core/tests/test-tail.xsh::test_tail_follow_name_switches_banners_between_files ----
+AssertionError.Failed: assertion failed: stdout.read_text()? == "==> log <==\ninitial\n\n==> other <==\nother initial\nother appended\n\n==> log <==\nlog appended\n"
+left: "==> log <==\ninitial\nlog appended\n\n==> other <==\nother initial\nother appended\n"
+right: "==> log <==\ninitial\n\n==> other <==\nother initial\nother appended\n\n==> log <==\nlog appended\n"
+diff:
+--- original
++++ modified
+@@ -1,7 +1,9 @@
+ ==> log <==
+ initial
+-log appended
+
+ ==> other <==
+ other initial
+ other appended
++
++==> log <==
++log appended
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped

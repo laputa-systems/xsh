@@ -1,0 +1,1 @@
+The first runner invocation failed before Docker because run-container.sh lacked execute permission. It started no container and ran no test. The mode was corrected before the controlled-red run.

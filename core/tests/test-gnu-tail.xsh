@@ -290,6 +290,17 @@ proc wrapped(s: uu.Scene, prefix: List[Path], args: List[Str], input: Path? = nu
   let status = process.run(plan)?
   Ok({util: "tail", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
+proc traced_timeout(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
+  let strace = process.which("strace")?
+  let tail = uu.argv(s, "tail", [fp"{arg}" for arg in args])?
+  let timeout = uu.argv(s, "timeout", [p".1"].extend(tail))?
+  let command = [strace, p"-f", p"-e", p"trace=inotify_add_watch", p"-o", p"strace.out"].extend(timeout)
+  let out = uu.at(s, "wrapped-out")
+  let err = uu.at(s, "wrapped-err")
+  let plan = process.command_argv(strace, command, s.root, {}, b"", out, err, timeout: 10s)
+  let status = process.run(plan)?
+  Ok({util: "tail", args: args, status: status.shell_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
+}
 # origin: gnu tail/start-middle.log
 test test_gnu_tail_start_middle_log { |ctx|
   let s = uu.scene(ctx)?
@@ -301,7 +312,7 @@ test test_gnu_tail_start_middle_log { |ctx|
 # origin: gnu tail/inotify-only-regular.log
 test test_gnu_tail_inotify_only_regular_log { |ctx|
   let s = uu.scene(ctx)?
-  let r = wrapped(s, [p"timeout", p".1", p"strace", p"-e", p"trace=inotify_add_watch", p"-o", p"strace.out"], ["-f", "/dev/null"])?
+  let r = traced_timeout(s, ["-f", "/dev/null"])?
   uu.fails_with_code(r, 124)
   assert !("inotify" in uu.read_text(s, "strace.out")?)
 }
@@ -309,7 +320,7 @@ test test_gnu_tail_inotify_only_regular_log { |ctx|
 test test_gnu_tail_debug_log { |ctx|
   let s = uu.scene(ctx)?
   uu.touch(s, "file.debug")
-  let probe = wrapped(s, [p"timeout", p".1", p"strace", p"-e", p"trace=inotify_add_watch", p"-o", p"strace.out"], ["-F", "file.debug"])?
+  let probe = traced_timeout(s, ["-F", "file.debug"])?
   uu.fails_with_code(probe, 124)
   var cases: List[DebugCase] = [
     {args: ["--debug", "-f", "/dev/null"], message: "tail: using blocking mode"},

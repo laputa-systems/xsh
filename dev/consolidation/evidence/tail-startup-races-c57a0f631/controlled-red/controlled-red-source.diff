@@ -1,0 +1,25 @@
+diff --git a/core/tests/test-gnu-tail.xsh b/core/tests/test-gnu-tail.xsh
+index 5e62205b1..bfec59b5c 100644
+--- a/core/tests/test-gnu-tail.xsh
++++ b/core/tests/test-gnu-tail.xsh
+@@ -309,7 +309,7 @@ test test_gnu_tail_inotify_only_regular_log { |ctx|
+ test test_gnu_tail_debug_log { |ctx|
+   let s = uu.scene(ctx)?
+   uu.touch(s, "file.debug")
+-  let probe = wrapped(s, [p"timeout", p".1", p"strace", p"-e", p"trace=inotify_add_watch", p"-o", p"strace.out"], ["-F", "file.debug"])?
++  let probe = wrapped(s, [p"timeout", p".1", p"sh", p"-c", p"sleep .2; exec \"$@\"", p"strace-startup", p"strace", p"-e", p"trace=inotify_add_watch", p"-o", p"strace.out"], ["-F", "file.debug"])?
+   uu.fails_with_code(probe, 124)
+   var cases: List[DebugCase] = [
+     {args: ["--debug", "-f", "/dev/null"], message: "tail: using blocking mode"},
+diff --git a/core/tests/test-tail.xsh b/core/tests/test-tail.xsh
+index b491a2d1d..825b46817 100644
+--- a/core/tests/test-tail.xsh
++++ b/core/tests/test-tail.xsh
+@@ -562,6 +562,7 @@ test test_tail_follow_name_switches_banners_between_files { |ctx|
+   let tail = fp"{ctx.core_dir}/tail.xsh"
+   let writer = spawn run sh -c "sleep 0.1; printf 'other appended\\n' >> \"$2\"; sleep 0.1; printf 'log appended\\n' >> \"$1\"" sh $log $other ?
+   defer writer.cancel(signal: "KILL", kill_after: 0ms)
++  time.sleep(300ms)
+ 
+   let stdout = fp"{root}/stdout"
+   let stderr = fp"{root}/stderr"

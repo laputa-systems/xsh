@@ -1,0 +1,9 @@
+running 1 tests
+core/tests/test-gnu-tail.xsh::test_gnu_tail_debug_log ... FAILED 198ms
+
+failures:
+
+---- core/tests/test-gnu-tail.xsh::test_gnu_tail_debug_log ----
+fs-read: /home/josh/d/laputa-systems/xsh/.work/tmp/tail-debug-profile-repair/lease2-controlled-red/tmp/xsh-test-8-1792247963200134418-0-test_gnu_tail_debug_log/uu-1/strace.out: No such file or directory (os error 2)
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped

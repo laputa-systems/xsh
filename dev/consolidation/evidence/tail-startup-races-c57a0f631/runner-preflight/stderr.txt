@@ -1,0 +1,1 @@
+.work/tmp/tail-debug-profile-repair/lease2-controlled-red/run-lease.sh: line 8: /home/josh/d/laputa-systems/xsh/.work/tmp/tail-debug-profile-repair/lease2-controlled-red/run-container.sh: Permission denied

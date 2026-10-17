@@ -558,18 +558,21 @@ test test_tail_follow_name_switches_banners_between_files { |ctx|
   let other = fp"{root}/other"
   log.write(b"initial\n")
   other.write(b"other initial\n")
-  let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
-  let writer = spawn run sh -c "sleep 0.1; printf 'other appended\\n' >> \"$2\"; sleep 0.1; printf 'log appended\\n' >> \"$1\"" sh $log $other ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)
 
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", ".5", ctx.xsh_bin.display(), tail.display(), "-F", "-s.02", "log", "other"]
+  let argv = [ctx.xsh_bin.display(), tail.display(), "-F", "-s.02", "log", "other"]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
-  let status = process.run(plan)?
+  let follower = spawn plan?
+  defer follower.cancel(signal: "KILL", kill_after: 0ms)
 
-  assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
+  assert tail_wait_for_bytes(stdout, b"==> log <==\ninitial\n\n==> other <==\nother initial\n")?, stdout.read_text()?
+  tail_append(other, b"other appended\n")
+  assert tail_wait_for_bytes(stdout, b"==> log <==\ninitial\n\n==> other <==\nother initial\nother appended\n")?, stdout.read_text()?
+  tail_append(log, b"log appended\n")
+  assert tail_wait_for_bytes(stdout, b"==> log <==\ninitial\n\n==> other <==\nother initial\nother appended\n\n==> log <==\nlog appended\n")?, stdout.read_text()?
+  follower.cancel(signal: "KILL", kill_after: 0ms)
   assert stdout.read_text()? == "==> log <==\ninitial\n\n==> other <==\nother initial\nother appended\n\n==> log <==\nlog appended\n"
   assert stderr.read_text()? == ""
 }
