@@ -57,10 +57,11 @@ exact fixture-owned IDs. Keep any process needed for PID or command columns
 alive through both comparisons.
 
 The keeper runs permission-checked operations, snapshots, and removal with the
-resource owner's effective UID. It reads System V status under the creator UID
-before `IPC_SET`, then changes ownership and mode. This preserves fields such
-as the System V queue byte limit. The keeper blocks handled signals while it
-switches IDs, restores effective root IDs, then restores the prior signal mask.
+resource owner's effective UID. It reads System V status and applies `IPC_SET`
+with the creator's effective UID, changing only ownership and mode. This keeps
+the original creator authorized and preserves fields such as the System V
+queue byte limit. The keeper blocks handled signals while it switches IDs,
+restores effective root IDs, then restores the prior signal mask.
 
 For System V semaphore snapshots, `keeper.py` also records each registered
 element's value, waiter counts, and last-operation PID. It leaves the two

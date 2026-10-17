@@ -199,7 +199,7 @@ API. This lane's `keeper.py` uses Python ctypes to create the six resource
 classes, seed activity, set ownership and modes, hold the creator alive, and
 remove only registered IDs and names. It performs permission-checked
 operations, snapshots, and removal under each resource owner's effective UID.
-It reads each System V status under the creator UID before `IPC_SET`, preserving
-fields such as the queue byte limit while it changes owner and mode. Native
-tests use the shared scene API to run the keeper and reference. Parity cases
+It reads each System V status and applies `IPC_SET` under the creator UID,
+preserving fields such as the queue byte limit while it changes owner and mode.
+Native tests use the shared scene API to run the keeper and reference. Parity cases
 also run the XSH command in that namespace.

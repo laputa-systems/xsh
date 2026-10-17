@@ -610,15 +610,16 @@ test test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them {
   for mode in RESOURCE_MODES {
     let resource = resource_of(fixture.ready, mode.kind)?
     let args = resource_args(mode, resource)
-    let reference = ul.reference(s, "lsipc", args, timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
+    let pair = run_both(s, args)?
+    ul.compare(pair.reference, pair.candidate)
     let identifier = if resource.kind.starts_with("sysv_") {
       f"{resource.id ?? -1}"
     } else {
       resource.lookup_name ?? ""
     }
-    assert reference.status == 0, args.join(" ")
-    assert reference.stderr != b"", args.join(" ")
-    assert identifier not in (reference.stdout.utf8() ?? ""), args.join(" ")
+    assert pair.candidate.status == 0, args.join(" ")
+    assert pair.candidate.stderr != b"", args.join(" ")
+    assert identifier not in (pair.candidate.stdout.utf8() ?? ""), args.join(" ")
   }
 }
 
@@ -639,15 +640,16 @@ test test_lsipc_keeper_cancellation_removes_registered_resources { |ctx|
 
   for entry in selected {
     let args = resource_args(entry.mode, entry.resource)
-    let reference = ul.reference(s, "lsipc", args, timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
+    let pair = run_both(s, args)?
+    ul.compare(pair.reference, pair.candidate)
     let identifier = if entry.resource.kind.starts_with("sysv_") {
       f"{entry.resource.id ?? -1}"
     } else {
       entry.resource.lookup_name ?? ""
     }
-    assert reference.status == 0, args.join(" ")
-    assert reference.stderr != b"", args.join(" ")
-    assert identifier not in (reference.stdout.utf8() ?? ""), args.join(" ")
+    assert pair.candidate.status == 0, args.join(" ")
+    assert pair.candidate.stderr != b"", args.join(" ")
+    assert identifier not in (pair.candidate.stdout.utf8() ?? ""), args.join(" ")
   }
 }
 
