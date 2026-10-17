@@ -18,12 +18,12 @@ native file run. A later canonical attempt on `0deeb9c7` remains unaccepted:
 exited 3. The root cause is corrected in the fixture, but no full canonical
 rerun has qualified this candidate. The seven QEMU cases are accepted for
 `0deeb9c7` only. The historical route replay had two normal `ExprIf` proof
-gaps; a fresh strict replay remains required. The durable W9 parity proof
-covers only `0dc9cff7`; the current `0deeb9c7` attempt is still partial at
-1,650 of 1,690 inputs and is not terminal. This candidate has no full
-canonical, supplemental, route, platform, or resource close. Main and the
-frozen W9 source remain at `0deeb9c7`; root owns the final freeze and
-promotion.
+gaps; a fresh strict replay remains required. W9 parity is accepted for exact
+sources `0dc9cff7` and `0deeb9c7`; the latter completed 1,690 inputs and 6,760
+outcomes with zero mismatches and a verified assignment proof. Neither proof
+qualifies this later candidate. This candidate has no full canonical,
+supplemental, route, platform, or resource close. Main and the frozen W9
+source remain at `0deeb9c7`; root owns the final freeze and promotion.
 
 ## Stop handoff, 2026-10-16
 

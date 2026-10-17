@@ -33,27 +33,27 @@ No full canonical or supplemental gate has passed on this candidate.
 | Tail `a45771ea` | The corrected same-size fixture and both truncation controls pass on frozen 0dc9 products. The earlier unqualified proof is withdrawn. See [tail evidence](evidence/tail-same-size-fixture-afe2998e4/README.md). |
 | W9 producer `283dcdeab` | The accepted source/test change keeps the three-worker cap and reviewed GC/lifecycle fixes. Its 64 focused controls pass; the integrated runner passes 91 tests. These checks do not qualify a full W9 cohort on this source. See [focused controls and width diagnostic](evidence/w9-comparator-width/README.md). |
 | W9 parity `d92ab2aff` | Root accepted strict parity for exact source `0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4` and tree `b4f9db3f8ee2f38a6c62fea876976619db424ed7`: 1,690 inputs, 6,760 outcomes, zero mismatches. This proof does not transfer to the assembled candidate. See [durable W9 proof](evidence/w9-current-0dc9/README.md). |
+| W9 parity `7be37796b` | Root accepted strict parity for exact source `0deeb9c7fb79e52740c82a264754dbb29d8be693` and tree `ffb7736e1c141bbacde71c7a036ef6bcf1433c34`: 1,690 inputs, 6,760 outcomes, zero mismatches, and verified assignment proof. This proof does not transfer to the later candidate. See [durable W9 proof](evidence/w9-current-0deeb9/README.md). |
 | W9 width diagnostic `f63b64baf` | The rejected eight-worker memory diagnostic reached the 16 GiB limit using frozen 0dc9 captures. The original three-worker cap remains. This diagnostic grants no parity or resource acceptance. See [diagnostic record](evidence/w9-comparator-width/README.md). |
 
 After integration, the route mapping suite passed 73 tests. The W9 adapter suite
 passed all 91 tests, including the 64 focused controls recorded by its lane.
-The durable W9 proof records a different, earlier source pin and does not
-qualify the candidate. The current W9 attempt on `0deeb9c7` is at 1,650 of
-1,690 inputs with no observed mismatches; it remains in progress and receives
-no terminal credit.
+The accepted W9 cohorts cover exact sources 0dc9 and 0deeb9. The 0deeb9 run
+completed all 1,690 inputs and 6,760 outcomes with zero mismatches and a
+verified assignment proof. Neither exact pin is the later assembled candidate.
 
 ### Current queue
 
 1. Root seals the post-update candidate and qualifies its products. The existing 0deeb9 products and QEMU receipts remain pinned to that earlier source.
-2. Complete current W9 capture admissions, exact-owner and assignment proofs, derived-reference capture, and strict comparison. The 1,650-input attempt is partial; the accepted 0dc9 proof does not replace the final-source cohort. Keep the three-worker resource diagnostic separate.
+2. W9 parity is accepted for exact source 0deeb9. Because the assembled candidate has a later source pin, obtain fresh W9 admissions, captures, exact-owner and assignment proofs, derived-reference capture, and strict comparison after root seals it. Neither accepted older cohort substitutes for that source-bound qualification. Keep the three-worker resource diagnostic separate.
 3. Retain the failed canonical proof and finish the four non-native checks with the evidence owner. Rerun canonical on the sealed candidate; the fixture-only focus does not close the prior full-run failure.
 4. Run fresh supplemental and strict route/source-order gates on the sealed candidate, using the batch-only four-worker admission change without changing selections or deadlines.
 5. Run the 36-case root residual (35 ordinary and one `SYS_ADMIN`), including the two existing `NET_RAW` loopback positives. It has not run. Then complete the remaining resource queue after functional close. Root owns the final freeze, release performance gates, and main promotion.
 
 The canonical, supplemental, route, platform, and resource evidence remains
-bound to earlier sources. W9 parity is accepted for 0dc9 only; the current
-0deeb9 attempt remains partial. No full-gate acceptance or functional close
-exists for this candidate. Do not merge inference work from typing branches.
+bound to earlier sources. W9 parity is accepted for exact sources 0dc9 and
+0deeb9 only. No full-gate acceptance or functional close exists for this
+candidate. Do not merge inference work from typing branches.
 
 ## Historical resume record (superseded)
 

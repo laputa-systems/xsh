@@ -10,9 +10,9 @@ queue. The candidate is not frozen or accepted. Its latest canonical attempt
 on `0deeb9c7` failed on a native TELNET fixture timeout; a fixture-only repair
 passes its focused checks, but full canonical has not been rerun. Seven QEMU
 cases are accepted on `0deeb9c7` only. W9 parity is accepted on the recorded
-`0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4` pin only; the current `0deeb9c7`
-attempt remains partial. Lean and Phase F remain paused; inference remains
-isolated from main.
+`0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4` and `0deeb9c7` pins only; the
+later assembled candidate needs its own source-bound W9 qualification. Lean
+and Phase F remain paused; inference remains isolated from main.
 
 The isolated generic module export slice remains accepted at `8475984a9`.
 Its main merge waits for consolidation closure. Broader inference, corpus
