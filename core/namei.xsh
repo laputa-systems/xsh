@@ -46,6 +46,7 @@ type Entry = {
 }
 
 type Expansion = {entries: List[Entry], exceeded: Bool}
+type OwnerWidths = {user_width: Int, group_width: Int}
 
 pure has_bit(mode: Int, bit: Int) -> Bool {
   mode.bit_and(bit) != 0
@@ -220,7 +221,7 @@ proc groupname(gid: Int) [fs] -> Str {
   if let group = group.by_gid(gid) { group.name } else { f"{gid}" }
 }
 
-proc update_owner_widths(entries: List[Entry], owners: Bool, user_width: Int, group_width: Int) [fs] -> {user_width: Int, group_width: Int} {
+proc update_owner_widths(entries: List[Entry], owners: Bool, user_width: Int, group_width: Int) [fs] -> OwnerWidths {
   var max_user = user_width
   var max_group = group_width
   if owners {
