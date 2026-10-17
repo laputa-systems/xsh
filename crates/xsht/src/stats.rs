@@ -36,7 +36,10 @@ to REPORT. Script stdout and stderr are preserved; the report is never mixed
 into stdout. Worker peaks are thread-local allocation-pressure evidence, not
 process RSS or an exact concurrent-live total. The report separately attributes
 worker allocation traffic to setup, result buffering, item evaluation, and
-fused reduction.
+fused reduction. The wall_time_ns object records diagnostic monotonic wall time
+for actual preparation and execution boundaries. Combined check/solve/fact-build
+and lower/verify/install phases are not split. Null means a phase was not reached.
+These instrumented durations are not performance samples or first-output latency.
 ";
 
 /// Runs the statistics command the process was started as and returns its exit

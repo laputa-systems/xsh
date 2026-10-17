@@ -2,8 +2,8 @@
 
 `check.py` dispatches to existing measurement and acceptance owners. Python 3.11
 or newer is required. It adds no production dependency. The planned `baseline`, `inference`, `measure`, `optimize`, `deployment`, and
-`close` modes remain unavailable and exit nonzero. Phase attribution is not
-implemented.
+`close` modes remain unavailable and exit nonzero. The existing
+`xsht runtime-stats` diagnostic supplies the phase attribution below.
 
 Run policy controls without Docker:
 
@@ -110,3 +110,39 @@ measurement, phase-observer validation, or final timing gates.
 Unresolved owned-container cleanup retains its cidfile under `scratch` and fails.
 The adapter uses the existing owned-container cleanup implementation. It does not
 create a new container supervisor or benchmark runner.
+
+## Runtime phase diagnostic
+
+`xsht runtime-stats --json REPORT SCRIPT` preserves its existing allocation,
+status, and output-size fields. The additive `wall_time_ns` object uses monotonic
+wall-clock nanoseconds. Instrumented durations include observer overhead and
+supply diagnostic attribution, not performance acceptance samples.
+
+| Field | Observed callable boundary |
+|---|---|
+| `preparation_inclusive` | Entire ordinary runner preparation, including entry-file reads, source decoding, setup, and cleanup |
+| `project_parse_load_exclusive` | Project module-root discovery and `parse_load_entry_source_arena_only` |
+| `check_solve_fact_build_exclusive` | `Checker::check_arena_with_sources_options_and_type_program` |
+| `declaration_publication_exclusive` | `Checker::compact_declarations` transforms checked output into compact declarations |
+| `lower_verify_install_exclusive` | `Evaluator::prepare_checked_compact_indexed_only` |
+| `preparation_other_exclusive` | Inclusive preparation minus the four disjoint observed preparation calls |
+| `execution_finish_exclusive` | Prepared evaluation through `finish_run_attempt`, including execution-thread scheduling and final output processing |
+| `diagnostic_finish_exclusive` | Finishing a preparation failure, including any diagnostic re-preparation |
+
+The four observed preparation calls do not overlap. Their durations plus the
+residual equal `preparation_inclusive`. Execution and diagnostic finishing sit
+outside preparation. Only one finishing field is populated for a run.
+A `null` phase was not reached; zero means an observed zero-length duration.
+
+The checker call combines constraint generation, solving, and fact construction.
+The evaluator preparation call combines lowering, semantic verification,
+installation, and dispatch preparation. These diagnostics do not pretend to
+separate work inside either call. Imported modules participate in the same
+ordinary preparation path.
+
+Ordinary execution supplies no observer, reads no phase clock, and allocates no
+phase records. The diagnostic uses fixed fields and reads the clock at coarse
+call boundaries. It does not instrument statements, instructions, or output.
+Buffered output becomes available after evaluation returns; that boundary is
+completion, not first useful output. M1 must observe the host pipe for first
+output latency.

@@ -6,6 +6,7 @@ use crate::loader::{
 };
 use crate::mem_track::{self, AllocTraffic, WorkerStageTraffic};
 use crate::runtime::eval::Evaluator;
+use crate::runtime_stats::RuntimePhaseWallTimes;
 use crate::runtime::process::path_bytes;
 use crate::sema::check::{CheckOptions, Checker, byte_argument_main};
 use crate::source::SourceMap;
@@ -19,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(test)]
 static COMPACT_RUNNER_SUCCESSES: AtomicUsize = AtomicUsize::new(0);
@@ -48,6 +49,7 @@ pub(crate) struct RuntimeAllocationPhases {
     pub construction: AllocTraffic,
     pub controller: AllocTraffic,
     pub worker_stages: Vec<WorkerStageTraffic>,
+    pub wall_time_ns: RuntimePhaseWallTimes,
 }
 
 impl PreparedRun {
@@ -199,22 +201,33 @@ pub fn run_script_with_test_fakes(
     finish_run_attempt(&options, attempt)
 }
 
-/// Run one script with construction, controller, and explicitly spawned worker
-/// allocation phases. This exists solely for `xsht runtime-stats`; ordinary
-/// script execution stays on [`run_script`].
+/// Run one script with allocation traffic and diagnostic wall-time boundaries.
+/// Ordinary execution through [`run_script`] does not read the phase clock.
 pub(crate) fn run_script_with_allocation_stats(
     options: RunOptions,
 ) -> (ScriptOutput, RuntimeAllocationPhases) {
+    let mut wall_time_ns = RuntimePhaseWallTimes::default();
     mem_track::begin_stage();
-    let prepared = try_prepare_program(&options);
+    let preparation_start = Instant::now();
+    let prepared = try_prepare_program_observed(&options, Some(&mut wall_time_ns));
+    wall_time_ns.preparation_inclusive = preparation_start.elapsed().as_nanos();
     let construction = mem_track::end_stage();
 
     mem_track::begin_worker_collection();
     mem_track::begin_stage();
     let output = match prepared {
-        Ok(Ok(prepared)) => finish_run_attempt(&options, prepared.run()),
-        Ok(Err(attempt)) => finish_run_attempt(&options, attempt),
-        Err(err) => read_error_output(&options, err),
+        Ok(Ok(prepared)) => observe_wall_time(
+            Some(&mut wall_time_ns.execution_finish_exclusive),
+            || finish_run_attempt(&options, prepared.run()),
+        ),
+        Ok(Err(attempt)) => observe_wall_time(
+            Some(&mut wall_time_ns.diagnostic_finish_exclusive),
+            || finish_run_attempt(&options, attempt),
+        ),
+        Err(err) => observe_wall_time(
+            Some(&mut wall_time_ns.diagnostic_finish_exclusive),
+            || read_error_output(&options, err),
+        ),
     };
     let controller = mem_track::end_stage();
     let worker_stages = mem_track::end_worker_collection();
@@ -225,6 +238,7 @@ pub(crate) fn run_script_with_allocation_stats(
             construction,
             controller,
             worker_stages,
+            wall_time_ns,
         },
     )
 }
@@ -374,8 +388,27 @@ fn try_run_program(options: &RunOptions) -> Result<RunAttempt, std::io::Error> {
     })
 }
 
+fn observe_wall_time<T>(duration: Option<&mut Option<u128>>, operation: impl FnOnce() -> T) -> T {
+    match duration {
+        Some(duration) => {
+            let start = Instant::now();
+            let result = operation();
+            *duration = Some(start.elapsed().as_nanos());
+            result
+        }
+        None => operation(),
+    }
+}
+
 fn try_prepare_program(
     options: &RunOptions,
+) -> Result<Result<PreparedRun, RunAttempt>, std::io::Error> {
+    try_prepare_program_observed(options, None)
+}
+
+fn try_prepare_program_observed(
+    options: &RunOptions,
+    wall_time_ns: Option<&mut RuntimePhaseWallTimes>,
 ) -> Result<Result<PreparedRun, RunAttempt>, std::io::Error> {
     let route_witness_context =
         match crate::runtime::eval::route_witness::ChildCaptureContext::from_inherited_descriptor()
@@ -394,7 +427,7 @@ fn try_prepare_program(
         }
     };
     let entry_source = entry_source_from_bytes(&options.script, bytes);
-    Ok(prepare_entry_source(options, entry_source, route_witness))
+    Ok(prepare_entry_source(options, entry_source, route_witness, wall_time_ns))
 }
 
 fn route_witness_error_attempt(message: String) -> RunAttempt {
@@ -424,6 +457,7 @@ fn prepare_entry_source(
     options: &RunOptions,
     entry_source: EntrySource,
     route_witness: Option<crate::runtime::eval::route_witness::ChildCapture>,
+    mut wall_time_ns: Option<&mut RuntimePhaseWallTimes>,
 ) -> Result<PreparedRun, RunAttempt> {
     let source_id = entry_source.source_id;
     if !entry_source.diagnostics.is_empty() {
@@ -436,20 +470,21 @@ fn prepare_entry_source(
             ),
         }));
     }
-    // A project config that cannot be read stops the run: skipping it would
-    // load a different set of modules than the project declares.
-    let module_roots = match crate::project::project_module_roots(Path::new(&options.script)) {
-        Ok(roots) => roots,
-        Err(message) => {
-            return Err(RunAttempt::Output(ScriptOutput {
-                status: 2,
-                stdout: Vec::new(),
-                stderr: text_bytes(format!("xsh: {message}\n")),
-            }));
-        }
-    };
-    let (sources, parsed) =
-        parse_load_entry_source_arena_only(&options.script, entry_source, module_roots.clone());
+    let (sources, parsed, module_roots) = observe_wall_time(
+        wall_time_ns.as_deref_mut().map(|times| &mut times.project_parse_load_exclusive),
+        || {
+            let module_roots = crate::project::project_module_roots(Path::new(&options.script))
+                .map_err(|message| RunAttempt::Output(ScriptOutput {
+                    status: 2,
+                    stdout: Vec::new(),
+                    stderr: text_bytes(format!("xsh: {message}\n")),
+                }))?;
+            let (sources, parsed) = parse_load_entry_source_arena_only(
+                &options.script, entry_source, module_roots.clone(),
+            );
+            Ok::<_, RunAttempt>((sources, parsed, module_roots))
+        },
+    )?;
     if !parsed.diagnostics.is_empty() {
         return Err(diagnostic_attempt(sources, source_id, module_roots));
     }
@@ -461,13 +496,15 @@ fn prepare_entry_source(
     drop(cst);
     let arena = Arc::new(arena);
 
-    // This one check renders the diagnostics and supplies the lowering facts.
-    let check = Checker::check_arena_with_sources_options_and_type_program(
-        &arena,
-        &sources,
-        source_id,
-        CheckOptions::for_execution(),
-        Arc::clone(&arena),
+    let check = observe_wall_time(
+        wall_time_ns.as_deref_mut().map(|times| &mut times.check_solve_fact_build_exclusive),
+        || Checker::check_arena_with_sources_options_and_type_program(
+            &arena,
+            &sources,
+            source_id,
+            CheckOptions::for_execution(),
+            Arc::clone(&arena),
+        ),
     );
     if check
         .diagnostics
@@ -501,8 +538,14 @@ fn prepare_entry_source(
             evaluator.with_env_var(XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir));
     }
     let Ok(plan) = arena.symbol_owner().with_current(|| {
-        let declarations = Checker::compact_declarations(&arena, check);
-        evaluator.prepare_checked_compact_indexed_only(&arena, source_id, false, declarations)
+        let declarations = observe_wall_time(
+            wall_time_ns.as_deref_mut().map(|times| &mut times.declaration_publication_exclusive),
+            || Checker::compact_declarations(&arena, check),
+        );
+        observe_wall_time(
+            wall_time_ns.as_deref_mut().map(|times| &mut times.lower_verify_install_exclusive),
+            || evaluator.prepare_checked_compact_indexed_only(&arena, source_id, false, declarations),
+        )
     }) else {
         return Err(diagnostic_attempt(
             evaluator.into_sources(),
@@ -757,6 +800,38 @@ mod tests {
         let path = dir.join(format!("{name}.xsh"));
         fs::write(&path, source).expect("write temp script");
         path
+    }
+
+    #[test]
+    fn phase_observation_preserves_output_and_failed_preparation_boundaries() {
+        for (name, source, status, stdout, checked) in [
+            ("phase-success", "print \"phase output\"\n", 0, b"phase output\n".as_slice(), true),
+            ("phase-check-error", "let value: Int = \"wrong\"\n", 2, b"".as_slice(), true),
+            ("phase-parse-error", "let =\n", 2, b"".as_slice(), false),
+        ] {
+            let path = temp_script(name, source);
+            let options = RunOptions {
+                script: path.to_string_lossy().into_owned(),
+                args: Vec::new(),
+                coverage_trace_dir: None,
+            };
+            let ordinary = run_script(options.clone());
+            let (observed, phases) = run_script_with_allocation_stats(options);
+            assert_eq!(observed.status, status);
+            assert_eq!(observed.stdout, stdout);
+            assert_eq!(observed.status, ordinary.status);
+            assert_eq!(observed.stdout, ordinary.stdout);
+            assert_eq!(observed.stderr, ordinary.stderr);
+            let times = phases.wall_time_ns;
+            assert!(times.project_parse_load_exclusive.is_some());
+            assert_eq!(times.check_solve_fact_build_exclusive.is_some(), checked);
+            assert_eq!(times.declaration_publication_exclusive.is_some(), status == 0);
+            assert_eq!(times.lower_verify_install_exclusive.is_some(), status == 0);
+            assert_eq!(times.execution_finish_exclusive.is_some(), status == 0);
+            assert_eq!(times.diagnostic_finish_exclusive.is_some(), status != 0);
+            fs::remove_dir_all(path.parent().expect("temporary script parent"))
+                .expect("remove phase fixture");
+        }
     }
 
     #[test]
