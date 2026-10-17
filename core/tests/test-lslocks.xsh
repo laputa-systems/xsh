@@ -466,7 +466,9 @@ proc reference_path_case(s: uu.Scene) [fs, process, env, net, time, error] -> Re
   ])
   let raw = ul.reference(s, "lslocks", ["--raw", "--noheadings", "--pid", escaped_pid, "--output", "PATH"])?
   assert raw.status == 0 and raw.stderr.is_empty()
-  assert raw.stdout == bytes.concat([escaped.bytes(), b"\n"])
+  assert raw.stdout == bytes.concat([
+    s.root.bytes(), b"/space\\x20name\\x09tab\\x0aline\\x5cslash\n",
+  ])
   ul.keeper_send(escaped_keeper, "DONE")
   ul.finish_keeper(escaped_keeper)
 
