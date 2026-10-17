@@ -1,13 +1,13 @@
 ...................................corpus=1690 outcomes=6760 mismatches=0 assignment_facts_proof=verified
-reference_capture=/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/.work/tmp/w9-adapter-reference-reuse-qhz_hxge/.work/wt/candidate/.work/test/reference-capture/capture.receipt
-candidate_capture=/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/.work/tmp/w9-adapter-reference-reuse-qhz_hxge/.work/wt/candidate/.work/test/candidate-capture/capture.receipt
-reference_exact_proof=/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/.work/tmp/w9-adapter-reference-reuse-qhz_hxge/.work/wt/candidate/.work/test/compare/exact-reference
-candidate_exact_proof=/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/.work/tmp/w9-adapter-reference-reuse-qhz_hxge/.work/wt/candidate/.work/test/compare/exact-candidate
-mismatch_file=/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/.work/tmp/w9-adapter-reference-reuse-qhz_hxge/.work/wt/candidate/.work/test/compare/comparison/mismatches.tsv
+reference_capture=/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/.work/tmp/w9-adapter-reference-reuse-fwd0ohph/.work/wt/candidate/.work/test/reference-capture/capture.receipt
+candidate_capture=/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/.work/tmp/w9-adapter-reference-reuse-fwd0ohph/.work/wt/candidate/.work/test/candidate-capture/capture.receipt
+reference_exact_proof=/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/.work/tmp/w9-adapter-reference-reuse-fwd0ohph/.work/wt/candidate/.work/test/compare/exact-reference
+candidate_exact_proof=/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/.work/tmp/w9-adapter-reference-reuse-fwd0ohph/.work/wt/candidate/.work/test/compare/exact-candidate
+mismatch_file=/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/.work/tmp/w9-adapter-reference-reuse-fwd0ohph/.work/wt/candidate/.work/test/compare/comparison/mismatches.tsv
 assignment_facts_proof=verified
-assignment_facts_capture=/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/.work/tmp/w9-adapter-reference-reuse-qhz_hxge/.work/wt/candidate/.work/test/assignment-facts-capture.receipt
+assignment_facts_capture=/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/.work/tmp/w9-adapter-reference-reuse-fwd0ohph/.work/wt/candidate/.work/test/assignment-facts-capture.receipt
 .............................
 ----------------------------------------------------------------------
-Ran 64 tests in 4.397s
+Ran 64 tests in 4.149s
 
 OK

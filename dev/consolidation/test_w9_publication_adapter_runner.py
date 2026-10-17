@@ -4658,13 +4658,13 @@ class AdapterReferenceReuseTests(unittest.TestCase):
 
     def test_parallel_comparison_bounds_active_children_and_emits_every_input_once(self):
         process_context = multiprocessing.get_context("fork")
-        first_batch = process_context.Barrier(8)
+        first_batch = process_context.Barrier(3)
         existing_children = {process.pid for process in multiprocessing.active_children()}
         results = []
         child_counts = []
 
         def compare(index, _context):
-            if index < 8:
+            if index < 3:
                 first_batch.wait(timeout=3)
             return os.getpid(), index
 
@@ -4681,8 +4681,8 @@ class AdapterReferenceReuseTests(unittest.TestCase):
 
         self.assertEqual([index for index, _result in results], list(range(19)))
         self.assertEqual([result[1] for _index, result in results], list(range(19)))
-        self.assertEqual(len({result[0] for _index, result in results}), 8)
-        self.assertEqual(child_counts, [8] * 19)
+        self.assertEqual(len({result[0] for _index, result in results}), 3)
+        self.assertEqual(child_counts, [3] * 19)
         self.assertEqual(
             {process.pid for process in multiprocessing.active_children()}, existing_children
         )
@@ -4735,7 +4735,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
 
     def test_parallel_comparison_bounds_children_by_input_count(self):
         existing_children = {process.pid for process in multiprocessing.active_children()}
-        for count in (0, 1, 7):
+        for count in (0, 1, 2):
             with self.subTest(count=count):
                 results = []
 
@@ -4765,8 +4765,8 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         connections = []
 
         def start(process):
-            if len(started) == 7:
-                raise OSError("eighth worker startup failed")
+            if len(started) == 2:
+                raise OSError("third worker startup failed")
             original_start(process)
             started.append(process)
 
@@ -4780,12 +4780,12 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             patch.object(process_context, "Pipe", side_effect=pipe),
             patch.object(adapter_runner.multiprocessing, "get_context", return_value=process_context),
         ):
-            with self.assertRaisesRegex(OSError, "eighth worker startup failed"):
+            with self.assertRaisesRegex(OSError, "third worker startup failed"):
                 adapter_runner._run_parallel_publication_comparisons(
                     self._parallel_test_context(), 9, lambda _index, _result: None
                 )
 
-        self.assertEqual(len(started), 7)
+        self.assertEqual(len(started), 2)
         self.assertTrue(all(not process.is_alive() for process in started))
         self.assertTrue(all(connection.closed for connection in connections))
         self.assertEqual(gc.isenabled(), original_gc_enabled)

@@ -3169,8 +3169,8 @@ def _run_parallel_publication_comparisons(
     workers: list[tuple[multiprocessing.Process, object, object]] = []
     previous_handlers = {}
     gc_enabled = gc.isenabled()
-    gc.disable()
     try:
+        gc.disable()
         if threading.current_thread() is threading.main_thread():
             for signum in (signal.SIGINT, signal.SIGTERM):
                 previous_handlers[signum] = signal.getsignal(signum)
@@ -3186,13 +3186,14 @@ def _run_parallel_publication_comparisons(
                     raise KeyboardInterrupt("publication comparison interrupted")
 
                 signal.signal(signum, interrupt)
-        for _ in range(min(8, count)):
-            parent_connection, child_connection = process_context.Pipe()
+        for _ in range(min(3, count)):
             previous_mask = signal.pthread_sigmask(
                 signal.SIG_BLOCK, (signal.SIGINT, signal.SIGTERM)
             )
             process = None
+            parent_connection = child_connection = None
             try:
+                parent_connection, child_connection = process_context.Pipe()
                 process = process_context.Process(
                     target=_publication_comparison_worker,
                     args=(child_connection, context, gc_enabled, previous_mask),
@@ -3201,8 +3202,9 @@ def _run_parallel_publication_comparisons(
             except BaseException:
                 if process is not None and process.pid is not None:
                     workers.append((process, parent_connection, child_connection))
-                child_connection.close()
-                if process is None or process.pid is None:
+                if child_connection is not None:
+                    child_connection.close()
+                if parent_connection is not None and (process is None or process.pid is None):
                     parent_connection.close()
                 raise
             else:
