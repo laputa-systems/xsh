@@ -926,18 +926,16 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     }
     return
   }
-  var chosen: List[Str] = []
-  match columns(opts.output, opts.output_all, output_environment) {
-    Ok(value) => chosen = value
-    Err(TooManyColumns) => {
-      gnu.usage_error("too many columns specified, the limit is 25 columns")
-      return
-    }
-    Err(_) => {
-      gnu.usage_error("unknown column")
-      return
-    }
+  let selection = columns(opts.output, opts.output_all, output_environment)
+  if let Err(TooManyColumns) = selection {
+    gnu.usage_error("too many columns specified, the limit is 25 columns")
+    return
   }
+  if let Err(_) = selection {
+    gnu.usage_error("unknown column")
+    return
+  }
+  let chosen = selection ?? []
   let program: List[FilterToken]? = if opts.filter == null {
     null
   } else if let tokens = filter_tokens(opts.filter ?? "") {
