@@ -591,7 +591,8 @@ test test_lslocks_output_column_names_and_errors { |ctx|
   for args in [
     ["--output", ""], ["--output", "PID,"], ["--output", ",PID"],
     ["--output", "PID,,TYPE"], ["--output", "+PID,"], ["--output", "UNKNOWN"],
-    ["-o", "UNKNOWN"], ["-o"],
+    ["--output", "PID,BOGUS,TYPE"], ["--output", "BOGUS,TYPE"],
+    ["--output", "+BOGUS,TYPE"], ["-o", "UNKNOWN"], ["-o"],
   ] {
     rejected(s, args)?
   }

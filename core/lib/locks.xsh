@@ -353,6 +353,7 @@ pure columns(output: Str?, output_all: Bool, environment: Str?) -> Result[List[S
   let names = list.split(",")
   if names.is_empty() or (names.len() == 1 and names[0] == "") { return Err(EmptyColumnList) }
   if ! extend { selected = [] }
+  var offset = 0
   for index in range(names.len()) {
     let name = names[index]
     if name == "" {
@@ -360,9 +361,10 @@ pure columns(output: Str?, output_all: Bool, environment: Str?) -> Result[List[S
       return Err(EmptyColumnName)
     }
     let column = canonical_column(name)
-    return Err(UnknownColumn(name)) when column == null
+    return Err(UnknownColumn(list.byte_slice(offset))) when column == null
     return Err(TooManyColumns) when selected.len() == 25
     selected += [column ?? ""]
+    offset += name.byte_len() + 1
   }
   Ok(selected)
 }
