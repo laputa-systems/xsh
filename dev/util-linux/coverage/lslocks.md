@@ -126,7 +126,7 @@ that field.
 | `test_lslocks_filter_errors` | Invalid filter syntax and unknown filter columns fail with reference status and stderr. |
 | `test_lslocks_default_and_selected_lock_rows` | All rows in a private PID namespace; selected rows in the shared namespace; outside holder stays invisible in both commands. |
 | `test_lslocks_ranges_and_eof` | Finite POSIX/OFD byte ranges, zero-length-to-EOF locks, exact `START` and `END`, and non-overlapping ranges. |
-| `test_lslocks_blocker_and_waiting_mode` | A synchronized queued request has `MODE` suffixed with `*` and the exact `BLOCKER` PID. Releasing the owner lets the waiter finish. |
+| `test_lslocks_blocker_flock`, `test_lslocks_blocker_posix`, `test_lslocks_blocker_ofd` | Synchronized queued requests have `MODE` suffixed with `*`, the exact `BLOCKER` PID, and release cleanly after the owner exits. |
 | `test_lslocks_posix_holders` | `HOLDERS` behavior for POSIX locks, including the process-wide descriptor association. |
 | `test_lslocks_mandatory_flag` | `M` for advisory locks; qualify a mandatory-lock positive case only in a filesystem/kernel setup that enables it. |
 | `test_lslocks_inaccessible_and_noinaccessible` | Cross-UID path/command access, fallback mountpoint text, and `-i` row removal under the qualified permission context. |
@@ -151,9 +151,10 @@ fixture path.
 Cover shared and exclusive `FLOCK`, POSIX read/write locks, OFD read/write
 locks, and a write lease. Keep duplicated descriptors open for the upstream
 `HOLDERS` cases. Use a finite data file for ranged locks. Use a private PID
-namespace with fresh procfs for default and all-row comparisons. Run permission
-cases as distinct real UIDs with capabilities dropped. A conditional positive
-case stays open until it executes in its qualified context.
+namespace with procfs freshly mounted for that namespace for default and
+all-row comparisons. Run permission cases as distinct real UIDs with
+capabilities dropped. A conditional positive case stays open until it executes
+in its qualified context.
 
 The current `linux.open_files()` collector establishes process and descriptor
 identity, path, inode, optional device, and access mode. It does not report
@@ -165,11 +166,15 @@ still open.
 ## Requests for shared test support
 
 `support.util_linux` supplies the reference, exact comparator, version-banner,
-and namespace checks used by the ordinary native cases. The lock cases still
-need an adapter that launches this fixture helper and owns its process handles,
-control input, timeout, and cleanup. It must expose a private PID namespace
-with fresh procfs for isolated row tests and a separate unprivileged UID with
-capabilities dropped for inaccessible-path tests. The current helper API does
-not provide a captured PTY with a selected width; terminal truncation remains
-open until that seam exists. Owner-disappearance-during-collection also needs
-a deterministic synchronization point before it can be a passing parity case.
+and namespace checks used by the ordinary native cases. Its keeper lifecycle
+adapter starts `keeper.py` with owned input/output FIFOs and bounds readiness,
+release, and cleanup. The namespace guard also checks that PID 1 and the test
+process resolve to the same PID namespace through `/proc`, which proves the
+private PID namespace has a matching procfs mount. The default-row case still
+needs a lock owner outside that namespace, with the runner supplying its exact
+identity and path. The inaccessible-path case needs a live fixture owner at
+UID 10002 while running each command as UID 10001 with capabilities dropped.
+The current helper API does not provide a captured PTY with a selected width;
+terminal truncation remains open until that seam exists. Owner-disappearance-
+during-collection also needs a deterministic synchronization point before it
+can be a passing parity case.
