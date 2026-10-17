@@ -146,7 +146,7 @@ that field.
 | `test_util_linux_context_terminal_lock_path_truncation` | Real holder paths containing tab and ESC or an invalid UTF-8 byte are compared at captured terminal widths 24 and 120, including default truncation and `-u`. |
 | Open: owner disappearance during collection | The owned release/wait test covers a later invocation, but no fixture provides a deterministic collection barrier. |
 | `test_lslocks_version_provenance` | Both commands succeed and identify `lslocks`; assert each exact version banner separately. |
-| `test_lslocks_help_and_usage_errors` | Exact help output; missing option values, invalid PID, unknown option, operands, and `-J -r`. |
+| `test_lslocks_help_and_usage_errors` | Exact help output; missing and invalid option values, invalid PID, unknown short and long options, ambiguous long prefixes, stray operands, and `-J -r`. |
 | `test_lslocks_smartcols_json_environment` | `LIBSMARTCOLS_JSON=compact`, `unknown`, and unset values retain the `locks` object; `lines` emits one standalone object per lock row with lowercase keys. |
 
 Every support-scene command starts with `LC_ALL=C`; table ordering and error
