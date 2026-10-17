@@ -219,6 +219,26 @@ proc assert_seeded_activity(ready: KeeperReady, snapshot: Bytes) [error] {
   }
 }
 
+proc first_snapshot_difference(before: Bytes, after: Bytes) [error] -> Result[Str, Error] {
+  let before_document = json.decode(before.utf8() ?? "")?
+  let after_document = json.decode(after.utf8() ?? "")?
+  let before_lines = json.encode(before_document, pretty: true)?.split("\n")
+  let after_lines = json.encode(after_document, pretty: true)?.split("\n")
+  var index = 0
+  while index < before_lines.len() and index < after_lines.len() {
+    if before_lines[index] != after_lines[index] {
+      return Ok(f"JSON line {index + 1}: before={before_lines[index]} after={after_lines[index]}")
+    }
+    index += 1
+  }
+  if before_lines.len() != after_lines.len() {
+    let before_line = if index < before_lines.len() { before_lines[index] } else { "<end>" }
+    let after_line = if index < after_lines.len() { after_lines[index] } else { "<end>" }
+    return Ok(f"JSON line {index + 1}: before={before_line} after={after_line}")
+  }
+  Ok("no JSON line difference")
+}
+
 proc release_keeper(handle: ul.Keeper) [fs, net, process, error] -> Result[Unit, Error] {
   ul.keeper_send(handle, "release")
   ul.finish_keeper(handle)
@@ -994,9 +1014,9 @@ test test_lsipc_collectors_leave_registered_resources_unchanged { |ctx|
     let after_reference = keeper_snapshot(fixture.handle)?
     let candidate = uu.invoke(s, "lsipc", [mode.selector], vars: {LC_ALL: "C", TZ: "UTC"}, timeout: 5s)?
     let after_candidate = keeper_snapshot(fixture.handle)?
+    assert before == after_reference, f"reference changed {mode.kind} fixture state: {first_snapshot_difference(before, after_reference)?}"
+    assert before == after_candidate, f"candidate changed {mode.kind} fixture state: {first_snapshot_difference(before, after_candidate)?}"
     ul.compare(reference, candidate, reference_state: after_reference, candidate_state: after_candidate)
-    assert before == after_reference, f"reference changed {mode.kind} fixture state"
-    assert before == after_candidate, f"candidate changed {mode.kind} fixture state"
   }
   release_keeper(fixture.handle)?
 }
