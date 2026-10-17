@@ -261,10 +261,11 @@ def stop_waiters():
 
 def cleanup():
     global cleaning, cleaned
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
     if cleaned or cleaning:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
         return
     cleaning = True
-    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
     failure = None
     try:
         stop_waiters()
