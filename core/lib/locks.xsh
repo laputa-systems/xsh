@@ -710,7 +710,8 @@ pure table_width(columns: List[Str], rows: List[List[Str]], headings: Bool) -> L
       }
       let minimum = match columns[index] {
         "COMMAND" => 15
-        "PID" | "TYPE" | "INODE" => 5
+        "PID" => 3
+        "TYPE" | "INODE" => 5
         "SIZE" => 4
         "MAJ:MIN" => 6
         "MODE" => 5
