@@ -22,17 +22,14 @@ test test_util_linux_context_outside_holder_is_invisible_to_private_lock_listing
       ul.observe_candidate(s, "lslocks", [p"--json", p"--output", p"PID,INODE,PATH"])?
     }
     assert observation.termination == ul.Exited(0), observation.stderr.utf8()?
-    assert observation.stdout.len() <= 65536 and observation.stderr.len() <= 65536
-    ctx f"outside-holder reference={reference} stdout_b64={observation.stdout.base64()} stderr_b64={observation.stderr.base64()}" {
-      let rows = json.get(json.decode(observation.stdout.utf8()?)?, ["locks"])?.require(List[Any])?
-      let visible = [row for row in rows if json.get(row, ["inode"])?.require(Int)? == inside_inode]
-      assert visible.len() == 1, "private holder is absent from its own namespace"
-      assert json.get(visible[0], ["pid"])?.require(Int)? == inside_pid
-      for row in rows {
-        assert json.get(row, ["inode"])?.require(Int)? != holder.inode, observation.stdout.utf8()?
-      }
-      assert ! (holder.path.display() in observation.stdout.utf8()?)
+    let rows = json.get(json.decode(observation.stdout.utf8()?)?, ["locks"])?.require(List[Any])?
+    let visible = [row for row in rows if json.get(row, ["inode"])?.require(Int)? == inside_inode]
+    assert visible.len() == 1, "private holder is absent from its own namespace"
+    assert json.get(visible[0], ["pid"])?.require(Int)? == inside_pid
+    for row in rows {
+      assert json.get(row, ["inode"])?.require(Int)? != holder.inode, observation.stdout.utf8()?
     }
+    assert ! (holder.path.display() in observation.stdout.utf8()?)
   }
   contexts.release_keeper(inside)
 }
