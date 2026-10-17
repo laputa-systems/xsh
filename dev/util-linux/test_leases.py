@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from leases import acquire, LeaseBusy, _native_descriptor, mark_cleanup_unresolved, original_root
+from leases import _cargo_held, require_cargo_lease, acquire, LeaseBusy, _native_descriptor, mark_cleanup_unresolved, original_root
 
 
 def hold(path, mode, channel):
@@ -95,6 +95,17 @@ class LeaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             with acquire([(self.path, fcntl.LOCK_SH, None)]):
                 self.fail("quarantined lease accepted")
+
+    def test_build_dispatch_requires_held_cargo_guard(self):
+        with self.assertRaisesRegex(RuntimeError, "original cargo lease"):
+            require_cargo_lease()
+        token = _cargo_held.set(True)
+        try:
+            require_cargo_lease()
+        finally:
+            _cargo_held.reset(token)
+        with self.assertRaises(RuntimeError):
+            require_cargo_lease()
 
     def test_worktree_resolves_original_repository(self):
         root = Path(__file__).resolve().parents[2]

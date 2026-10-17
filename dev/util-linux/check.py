@@ -16,7 +16,7 @@ import uuid
 
 sys.dont_write_bytecode = True
 
-from leases import campaign_leases, LeaseBusy, mark_cleanup_unresolved, original_root, require_native_lease
+from leases import campaign_leases, LeaseBusy, mark_cleanup_unresolved, original_root, require_native_lease, require_cargo_lease
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +61,8 @@ def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = 
     require_native_lease()
     if (cpus, memory_gib) not in {(1, 1), (1, 4), (2, 8)}:
         raise ValueError("unsupported campaign container allocation")
+    if (cpus, memory_gib) == (2, 8):
+        require_cargo_lease()
     name = "xsh-util-linux-" + uuid.uuid4().hex
     argv = ["docker", "run", "--rm", "--name", name, "--network=none", f"--cpus={cpus}",
             f"--memory={memory_gib}g", f"--memory-swap={memory_gib}g", "--pids-limit=128", "--user=0:0",
@@ -201,6 +203,22 @@ def baseline_products():
     return verify_product_hashes(directory, PRODUCT_HASHES), context
 
 
+def measure_resources():
+    import resources
+    return resources.measure(sys.modules[__name__])
+
+
+def measure_timing(source):
+    import resources
+    require_cargo_lease()
+    return resources.measure_timing(sys.modules[__name__], source)
+
+
+def close_gates():
+    import resources
+    return resources.close(sys.modules[__name__])
+
+
 PRIVATE_NAMESPACE = r'''
 export XSH_UTIL_LINUX_PARENT_ipc=$(readlink /proc/self/ns/ipc)
 export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt)
@@ -328,17 +346,18 @@ def main() -> int:
     parity_parser.add_argument("--require-positive-boundaries", action="store_true")
     args = parser.parse_args()
     try:
-        if args.mode not in {"inventory", "harness", "baseline", "parity"}:
-            raise ValueError(f"{args.mode}: acceptance is not implemented; no result can pass")
-        with cancellation_scope(), campaign_leases(ROOT, native=True):
+        with cancellation_scope(), campaign_leases(ROOT, native=True, cargo=args.mode in {"resources", "close"}):
             if args.mode == "inventory":
                 inventory()
             elif args.mode == "harness":
                 harness()
             elif args.mode == "baseline":
                 baseline()
-            else:
+            elif args.mode == "parity":
                 parity(args)
+            else:
+                import acceptance
+                getattr(acceptance, args.mode)(sys.modules[__name__])
         return 0
     except Cancelled as error:
         print(str(error), file=sys.stderr)

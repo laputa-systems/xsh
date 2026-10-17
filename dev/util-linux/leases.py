@@ -13,6 +13,7 @@ class LeaseBusy(Exception):
 
 
 _native_descriptor = contextvars.ContextVar("util_linux_native_descriptor", default=None)
+_cargo_held = contextvars.ContextVar("util_linux_cargo_held", default=False)
 
 
 def mark_cleanup_unresolved(detail: str) -> None:
@@ -42,6 +43,11 @@ def mark_cleanup_unresolved(detail: str) -> None:
 def require_native_lease() -> None:
     if _native_descriptor.get() is None:
         raise RuntimeError("container execution requires the original native lease")
+
+
+def require_cargo_lease() -> None:
+    if not _cargo_held.get():
+        raise RuntimeError("build execution requires the original cargo lease")
 
 
 def original_root(root: Path) -> Path:
@@ -95,7 +101,9 @@ def campaign_leases(root: Path, *, native: bool = False, cargo: bool = False):
         paths.append((infra / "cargo.lock", fcntl.LOCK_EX, (66307, 62044429)))
     with acquire(paths) as descriptors:
         token = _native_descriptor.set((descriptors[1], paths[1][0]) if native else None)
+        cargo_token = _cargo_held.set(cargo)
         try:
             yield descriptors
         finally:
+            _cargo_held.reset(cargo_token)
             _native_descriptor.reset(token)
