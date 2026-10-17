@@ -529,6 +529,17 @@ pure allowed_column(column: Str, selection: Selection) -> Bool {
   false
 }
 
+pure ascii_upper(text: Str) -> Str? {
+  let data = bytes.from_text(text)
+  var out = ""
+  for index in range(data.len()) {
+    let byte = data.byte_at(index) ?? 0
+    if byte >= 128 { return null }
+    out += if byte >= 97 and byte <= 122 { "ABCDEFGHIJKLMNOPQRSTUVWXYZ".byte_slice(byte - 97, length: 1) } else { text.byte_slice(index, length: 1) }
+  }
+  out
+}
+
 pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionError] {
   let append = raw.starts_with("+")
   let body = if append { raw.byte_slice(1) } else { raw }
@@ -543,8 +554,10 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
     }
     let remaining = names[index..].join(",")
     var column: Str? = null
-    for candidate in ALL_COLUMNS {
-      if candidate.starts_with(source.upper()) { column = candidate; break }
+    if let prefix = ascii_upper(source) {
+      for candidate in ALL_COLUMNS {
+        if candidate.starts_with(prefix) { column = candidate; break }
+      }
     }
     if let selected = column {
       if !allowed_column(selected, selection) {
