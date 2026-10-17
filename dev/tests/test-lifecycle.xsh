@@ -423,6 +423,7 @@ match internal.linux_ci_test(ctx) {{
     env: {
       PATH: tools,
       XSH_MODULE_PATH: fp"{repository}/dev",
+      DIST_PROFILE: "verification",
       HOST_UID: "501",
       HOST_GID: "20",
     },
