@@ -108,19 +108,22 @@ test test_namei_modes_and_owner_columns_cover_special_bits { |ctx|
   sticky.mkdir()
   sticky.chmod(0o3777)
   owned.write("fixture\n")
-  fs.chown(owned, {uid: 100000, gid: 100001, name: "", home: p"/", shell: p"/"})?
+  fs.chown(owned, {uid: 100000, gid: 100001, name: "", home: p"/", shell: "/"})?
   owned.chmod(0o6755)
   parity(s, ["--modes", "--", setuid.display()])?
   parity(s, ["-m", "--", sticky.display()])?
   parity(s, ["-v", "-o", "--", owned.display()])?
   parity(s, ["-l", "--", owned.display()])?
   let modes = ul.reference(s, "namei", ["-m", "--", setuid.display()], timeout: 5s)?
-  assert modes.stdout.utf8()?.contains("-rwsr-xr-x"), modes.stdout
+  let mode_text = modes.stdout.utf8()?
+  assert "-rwsr-xr-x" in mode_text, mode_text
   let long_modes = ul.reference(s, "namei", ["-m", "--", sticky.display()], timeout: 5s)?
-  assert long_modes.stdout.utf8()?.contains("drwxrwsrwt"), long_modes.stdout
+  let long_mode_text = long_modes.stdout.utf8()?
+  assert "drwxrwsrwt" in long_mode_text, long_mode_text
   let owners = ul.reference(s, "namei", ["-o", "--", owned.display()], timeout: 5s)?
-  assert owners.stdout.utf8()?.contains("root   root")
-  assert owners.stdout.utf8()?.contains("100000 100001")
+  let owner_text = owners.stdout.utf8()?
+  assert "root   root" in owner_text
+  assert "100000 100001" in owner_text
 }
 
 test test_namei_committed_path_fixture_links_and_components { |ctx|
@@ -141,7 +144,8 @@ test test_namei_mountpoint_markers_follow_a_real_mount_boundary { |ctx|
   parity(s, ["--mountpoints", "--", mount.mounted_on.display()])?
   parity(s, ["-x", "--", p"/proc/1".display()])?
   let reference = ul.reference(s, "namei", ["-x", "--", p"/proc/1".display()], timeout: 5s)?
-  assert reference.stdout.utf8()?.contains("D proc\n"), reference.stdout
+  let output = reference.stdout.utf8()?
+  assert "D proc\n" in output, output
 }
 
 test test_namei_private_same_device_bind_mount_matches_reference { |ctx|
@@ -168,7 +172,8 @@ test test_namei_private_same_device_bind_mount_matches_reference { |ctx|
   let args = ["-x", "--", target.display()]
   let reference = ul.reference(s, "namei", args, timeout: 5s)?
   let candidate = uu.invoke(s, "namei", args, timeout: 5s)?
-  assert reference.stdout.utf8()?.ends_with("d target\n"), reference.stdout
+  let output = reference.stdout.utf8()?
+  assert output.ends_with("d target\n"), output
   ul.compare(reference, candidate)
   parity(s, ["-l", "--", fp"{target}/entry".display()])?
   let unmounted = run.capture --text umount -- $target
