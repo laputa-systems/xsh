@@ -173,7 +173,7 @@ exec unshare --mount --ipc --pid --fork --mount-proc sh -ec '
 '''
 
 
-def native_case(selector: str, *, private: bool = False) -> None:
+def native_case(selector: str, *, private: bool = False) -> bytes:
     if not re.fullmatch(r"core/tests/test-[a-z0-9-]+\.xsh::test_[a-zA-Z0-9_]+", selector):
         raise ValueError(f"invalid exact native selector: {selector}")
     products = protected_products()
@@ -185,9 +185,11 @@ def native_case(selector: str, *, private: bool = False) -> None:
     ], capabilities=["SYS_ADMIN"] if private else [])
     text = output.decode("utf-8")
     protected_products()
-    if "1 passed; 0 failed; 0 skipped" not in text:
+    summaries = re.findall(r"^test result: ok\. ([0-9]+) passed; ([0-9]+) failed; ([0-9]+) skipped$", text, re.MULTILINE)
+    if summaries != [("1", "0", "0")]:
         raise ValueError(f"native case did not execute exactly one passing behavior: {text}")
     print(text, end="")
+    return output
 
 
 def harness() -> None:
@@ -286,13 +288,13 @@ def main() -> int:
     modes.add_parser("harness").add_argument("--self-test", action="store_true", required=True)
     for mode in ("baseline", "resources", "close"):
         modes.add_parser(mode).add_argument("--check", action="store_true", required=True)
-    parity = modes.add_parser("parity")
-    selectors = parity.add_mutually_exclusive_group(required=True)
+    parity_parser = modes.add_parser("parity")
+    selectors = parity_parser.add_mutually_exclusive_group(required=True)
     selectors.add_argument("--command", choices=COHORT)
     selectors.add_argument("--commands")
     selectors.add_argument("--all", action="store_true")
-    parity.add_argument("--case")
-    parity.add_argument("--require-positive-boundaries", action="store_true")
+    parity_parser.add_argument("--case")
+    parity_parser.add_argument("--require-positive-boundaries", action="store_true")
     args = parser.parse_args()
     try:
         if args.mode not in {"inventory", "harness", "baseline", "parity"}:
