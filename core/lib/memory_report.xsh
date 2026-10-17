@@ -168,18 +168,22 @@ pure memory_version_digit(byte: Int) -> Bool {
   byte >= 48 and byte <= 57
 }
 
+pure memory_byte_at(value: Bytes, index: Int) -> Int {
+  if index < value.len() { value.byte_at(index) } else { 0 }
+}
+
 pure memory_version_digit_offset(byte: Int) -> Int {
   if byte < 48 { byte + 208 } else { byte - 48 }
 }
 
 pure memory_version_compare(left: Str, right: Str) -> Int {
-  let left_bytes = left.bytes()
-  let right_bytes = right.bytes()
+  let left_bytes = bytes.from_text(left)
+  let right_bytes = bytes.from_text(right)
   var index = 0
   var digit_start = 0
   var zero_prefix = true
-  while (left_bytes.byte_at(index) ?? 0) == (right_bytes.byte_at(index) ?? 0) {
-    let byte = left_bytes.byte_at(index) ?? 0
+  while memory_byte_at(left_bytes, index) == memory_byte_at(right_bytes, index) {
+    let byte = memory_byte_at(left_bytes, index)
     return 0 when byte == 0
     if ! memory_version_digit(byte) {
       digit_start = index + 1
@@ -189,17 +193,17 @@ pure memory_version_compare(left: Str, right: Str) -> Int {
     }
     index += 1
   }
-  let left_byte = left_bytes.byte_at(index) ?? 0
-  let right_byte = right_bytes.byte_at(index) ?? 0
-  let left_start = left_bytes.byte_at(digit_start) ?? 0
-  let right_start = right_bytes.byte_at(digit_start) ?? 0
+  let left_byte = memory_byte_at(left_bytes, index)
+  let right_byte = memory_byte_at(right_bytes, index)
+  let left_start = memory_byte_at(left_bytes, digit_start)
+  let right_start = memory_byte_at(right_bytes, digit_start)
   if left_start != 48 and right_start != 48 {
     var tail = index
-    while memory_version_digit(left_bytes.byte_at(tail) ?? 0) {
-      if ! memory_version_digit(right_bytes.byte_at(tail) ?? 0) { return 1 }
+    while memory_version_digit(memory_byte_at(left_bytes, tail)) {
+      if ! memory_version_digit(memory_byte_at(right_bytes, tail)) { return 1 }
       tail += 1
     }
-    if memory_version_digit(right_bytes.byte_at(tail) ?? 0) { return -1 }
+    if memory_version_digit(memory_byte_at(right_bytes, tail)) { return -1 }
   } else if zero_prefix and digit_start < index and (memory_version_digit(left_byte) or memory_version_digit(right_byte)) {
     return memory_version_digit_offset(left_byte) - memory_version_digit_offset(right_byte)
   }
