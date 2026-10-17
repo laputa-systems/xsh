@@ -754,13 +754,15 @@ test test_lsipc_id_and_name_select_registered_objects { |ctx|
     }
   }
   for mode in [RESOURCE_MODES[0], RESOURCE_MODES[1], RESOURCE_MODES[2]] {
-    let pair = run_both(s, [mode.selector, "--id", "-2", "--raw"])?
-    ul.compare(pair.reference, pair.candidate)
-    assert pair.candidate.status == 0, mode.selector
-    let output = pair.candidate.stdout.utf8() ?? ""
-    for resource in fixture.ready.resources {
-      if resource.kind == mode.kind {
-        assert f"{resource.id ?? -1}" in output, mode.selector
+    for id in ["-1", "-2"] {
+      let pair = run_both(s, [mode.selector, "--id", id, "--raw"])?
+      ul.compare(pair.reference, pair.candidate)
+      assert pair.candidate.status == 0, mode.selector
+      let output = pair.candidate.stdout.utf8() ?? ""
+      for resource in fixture.ready.resources {
+        if resource.kind == mode.kind {
+          assert f"{resource.id ?? -1}" in output, f"{mode.selector} --id {id}"
+        }
       }
     }
   }
