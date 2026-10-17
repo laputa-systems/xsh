@@ -60,8 +60,8 @@ export type Cell = {text: Str, present: Bool}
 ## Holds one System V semaphore element's observable status.
 export type Element = {number: Int, value: Int, waiting_for_increase: Int, waiting_for_zero: Int, pid: Int, command: Str}
 
-## Holds the selected cells and optional semaphore element rows.
-export type Row = {cells: List[Cell], elements: List[Element]}
+## Holds the source resource, selected cells and semaphore element rows.
+export type Row = {resource: Str, cells: List[Cell], elements: List[Element]}
 
 const RESOURCE_OPTIONS = [
   {option: "queues", name: "queues", columns: ["KEY", "ID", "PERMS", "OWNER", "USEDBYTES", "MSGS", "LSPID", "LRPID"]},
@@ -304,7 +304,14 @@ pure render_export(selection: Selection, rows: List[Row]) -> Str {
 }
 
 pure render_json(selection: Selection, rows: List[Row]) -> Str {
-  let table = if selection.global { "ipclimits" } else if rows.is_empty() and selection.resources != ["semaphores"] { "" } else if selection.resources == ["queues"] { "messages" } else if selection.resources == ["posix_mqueues"] { "posix-messages" } else if selection.resources == ["shmems"] { "sharedmemory" } else if selection.resources == ["posix_shmems"] { "posix-sharedmemory" } else if selection.resources == ["semaphores"] { "semaphores" } else if selection.resources == ["posix_semaphores"] { "posix-semaphores" } else { "table" }
+  let resource = if "semaphores" in selection.resources and (rows.is_empty() or rows[-1].resource != "posix_semaphores") {
+    "semaphores"
+  } else if !rows.is_empty() {
+    rows[-1].resource
+  } else {
+    ""
+  }
+  let table = if selection.global { "ipclimits" } else if resource == "queues" { "messages" } else if resource == "posix_mqueues" { "posix-messages" } else if resource == "shmems" { "sharedmemory" } else if resource == "posix_shmems" { "posix-sharedmemory" } else if resource == "semaphores" { "semaphores" } else if resource == "posix_semaphores" { "posix-semaphores" } else { "" }
   var out = f"{{\n   \"{table}\": [\n"
   for row_index in range(rows.len()) {
     let row = rows[row_index]
@@ -490,16 +497,16 @@ pure id_columns(selection: Selection, resource_order: List[Str]) -> List[Str] {
   columns
 }
 
-pure allowed_column(column: Str, selection: Selection) -> Bool {
+pure allowed_column(column: Str, selection: Selection, resource: Str?) -> Bool {
   return true when column in GENERIC_COLUMNS
   if selection.global { return column in GLOBAL_COLUMNS }
   return false when !selection.explicit_resources
-  return true when "posix_mqueues" in selection.resources and column in ["NAME", "MTIME"]
-  return true when "posix_shmems" in selection.resources and column in ["NAME", "MTIME"]
-  return true when "posix_semaphores" in selection.resources and column in ["NAME", "MTIME"]
-  return true when "queues" in selection.resources and column in ["USEDBYTES", "MSGS", "SEND", "RECV", "LSPID", "LRPID"]
-  return true when "shmems" in selection.resources and column in ["SIZE", "NATTCH", "STATUS", "ATTACH", "DETACH", "COMMAND", "CPID", "LPID"]
-  return true when "semaphores" in selection.resources and column in ["NSEMS", "OTIME"]
+  return true when resource == "posix_mqueues" and column in ["NAME", "MTIME"]
+  return true when resource == "posix_shmems" and column in ["NAME", "MTIME"]
+  return true when resource == "posix_semaphores" and column in ["NAME", "MTIME"]
+  return true when resource == "queues" and column in ["USEDBYTES", "MSGS", "SEND", "RECV", "LSPID", "LRPID"]
+  return true when resource == "shmems" and column in ["SIZE", "NATTCH", "STATUS", "ATTACH", "DETACH", "COMMAND", "CPID", "LPID"]
+  return true when resource == "semaphores" and column in ["NSEMS", "OTIME"]
   false
 }
 
@@ -514,7 +521,7 @@ pure ascii_upper(text: Str) -> Str? {
   out
 }
 
-pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionError] {
+pure output_columns(raw: Str, selection: Selection, resource: Str?) -> Result[List[Str], OptionError] {
   let append = raw.starts_with("+")
   let body = if append { raw.byte_slice(1) } else { raw }
   if body.is_empty() { return Err(OptionError.EmptyColumn()) }
@@ -536,7 +543,7 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
       }
     }
     if let selected = column {
-      if !allowed_column(selected, selection) {
+      if !allowed_column(selected, selection, resource) {
         return Err(OptionError.Invalid(detail: f"column {remaining} does not apply to the specified IPC"))
       }
       columns += [selected]
@@ -640,8 +647,9 @@ pure select(options: Options, argv: List[Str], permute: Bool) -> Result[Selectio
   }
   selection = {...selection, columns: id_columns(selection, resource_order)}
   let last_has_argument = !parsed_names.is_empty() and parsed_names[-1] in ARGUMENT_OPTIONS
+  let output_resource: Str? = if resource_order.is_empty() { null } else { resource_order[-1] }
   let columns = if let output = options.output {
-    output_columns(output, selection)?
+    output_columns(output, selection, output_resource)?
   } else if pretty and !options.creator and !options.time and !last_has_argument {
     ALL_COLUMNS
   } else {

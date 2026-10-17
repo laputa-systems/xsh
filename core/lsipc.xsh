@@ -397,7 +397,7 @@ proc posix_entries(kind: Str, selection: report.Selection) [fs, process, time, e
   entries
 }
 
-proc row_for(selection: report.Selection, entry: IpcEntry) -> report.Row {
+proc row_for(selection: report.Selection, entry: IpcEntry, resource: Str) -> report.Row {
   let cells: List[report.Cell] = collect {
     for column in selection.columns {
       match entry.values.get(column) {
@@ -406,7 +406,7 @@ proc row_for(selection: report.Selection, entry: IpcEntry) -> report.Row {
       }
     }
   }
-  {cells: cells, elements: entry.elements}
+  {resource: resource, cells: cells, elements: entry.elements}
 }
 
 proc selected_rows(selection: report.Selection) [fs, process, time, env, error] -> List[report.Row] {
@@ -441,7 +441,7 @@ proc selected_rows(selection: report.Selection) [fs, process, time, env, error] 
           continue when (entry.values.get("NAME") ?? "") != wanted_name
         }
       }
-      rows += [row_for(selection, entry)]
+      rows += [row_for(selection, entry, kind)]
     }
   }
   rows
@@ -462,7 +462,7 @@ proc global_row(selection: report.Selection, resource: Str, description: Str, us
     values = values.set("USED", "-")
     values = values.set("USE%", "-")
   }
-  row_for(selection, {values: values, elements: []})
+  row_for(selection, {values: values, elements: []}, "global")
 }
 
 proc global_rows(selection: report.Selection) [fs, process, time, env, error] -> List[report.Row] {
