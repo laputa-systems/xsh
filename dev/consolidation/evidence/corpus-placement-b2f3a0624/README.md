@@ -70,6 +70,15 @@ products are read-only. Each run uses pinned image
 CPUs 28–31, four CPU quota, 8 GiB, no swap, no network, and a 180-second bound.
 All scratch and `TMPDIR` storage is under the lane's `.work/tmp`.
 
+Run the [archive setup and complete input audit](archive-setup.command) before
+`replay-invariance.command candidate`. It creates the exact pinned archive and
+physical mountpoint under the lane's `.work/tmp`, then checks the helper's
+observable input set and every input's bytes. It refuses an existing archive.
+The command combines the preparation and audit used for the recorded replay;
+this documentation followup does not recreate the archive or rerun the gate.
+The replay guards still require the recorded source checkouts. Keep the command
+copies under `.work/tmp` when selecting those commits.
+
 The candidate mount is a `git archive b2f3a0624` copy with an empty excluded
 `target` mountpoint. All 1,835 tracked `.xsh` and `xsht-config.ini` inputs match
 the candidate before and after execution. A scan using the helper's exact
