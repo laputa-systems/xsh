@@ -127,7 +127,7 @@ pure escape_json(text: Str) -> Str {
     let byte = data.byte_at(index) ?? 0
     if byte < 32 or byte == 34 or byte == 92 {
       out += text.byte_slice(start, length: index - start)
-      out += if byte == 34 { "\\\"" } else if byte == 92 { "\\\\" } else if byte == 8 { "\\b" } else if byte == 12 { "\\f" } else if byte == 10 { "\\n" } else if byte == 13 { "\\r" } else if byte == 9 { "\\t" } else { f"\\u00{(hex_byte(byte)).byte_slice(2)}" }
+      out += if byte == 34 { "\\\"" } else if byte == 92 { "\\\\" } else if byte == 8 { "\\b" } else if byte == 12 { "\\f" } else if byte == 10 { "\\n" } else if byte == 13 { "\\r" } else if byte == 9 { "\\t" } else { f"\\u00{hex_byte(byte).byte_slice(2)}" }
       start = index + 1
     }
   }
@@ -390,7 +390,7 @@ pure parse_id(value: Str?) -> Result[Int?, OptionError] {
 
 pure option_name(argument: Str) -> Str? {
   return null when !argument.starts_with("--")
-  let typed = (argument.byte_slice(2)).split("=")[0]
+  let typed = argument.byte_slice(2).split("=")[0]
   return typed when typed in LONG_OPTIONS
   let matching = [name for name in LONG_OPTIONS if name.starts_with(typed)]
   if matching.len() == 1 { matching[0] } else { null }
