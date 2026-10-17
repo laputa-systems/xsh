@@ -26,6 +26,7 @@ The fresh 13-stage R6 run on 7eb exited zero at all stages and root accepted
 it. The run recorded 23 boundaries, 58 extra cases with three ignored, two
 split checks, two privileged checks, and 18 traceroute cases with two
 `NET_RAW` skips. Three ignored cases are covered by the accepted QEMU reuse.
+Both positive `NET_RAW` probes passed in the root residual.
 The [R6 evidence archive](winddown/evidence/final-correctness-gates/README.md)
 preserves the failed b235 attempt and accepted 7eb run.
 
