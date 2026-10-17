@@ -35,7 +35,8 @@ A fresh strict route replay and the root residual remain open. Root owns final
 freeze and promotion.
 
 Phase D whole-corpus typing work remains isolated in
-`.work/wt/typing-corpus-b235`, at checkpoint `1f7eaf708` on freeze `a8d5bd910`.
+`.work/wt/typing-corpus-b235`, at checkpoint
+`17be3ff8fc8740868612ba94cc0ff0a187ce1e27` on freeze `a8d5bd910`.
 After 615 joint removals, 236 of 693 local annotations (34.05%) and 379 of
 2,190 internal annotations (17.31%) are removed. Eleven root checks and the
 lower checks pass; the targets are not met, and the 26-case paired witness

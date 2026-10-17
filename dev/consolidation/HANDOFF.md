@@ -59,8 +59,9 @@ full-corpus outcomes. The interrupted 3c repeat earns no W9 credit. Fresh
 strict route coverage remains required.
 
 Phase D whole-corpus typing work remains isolated in
-`.work/wt/typing-corpus-b235`, currently at checkpoint `1f7eaf708` on freeze
-`a8d5bd910`. After 615 joint removals, 236 of 693 local annotations
+`.work/wt/typing-corpus-b235`, currently at checkpoint
+`17be3ff8fc8740868612ba94cc0ff0a187ce1e27` on freeze `a8d5bd910`. After 615
+joint removals, 236 of 693 local annotations
 (34.05%) and 379 of 2,190 internal annotations (17.31%) are removed. Eleven
 root checks and the lower checks pass; the Phase D targets are not met. The
 26-case paired witness runner is prepared but awaits the residual slot. Host

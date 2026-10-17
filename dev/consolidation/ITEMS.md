@@ -22,8 +22,9 @@ terminal equality. Compatibility origins and exclusions reconcile to the
 frozen denominators without claiming a new upstream pass. R6, strict routes,
 the 36-case root residual, functional close, and the ten-suite performance
 sequence remain open. Lean and Phase F remain paused; inference stays isolated
-until consolidation closes. Phase D remains isolated at checkpoint `1f7eaf708`
-on freeze `a8d5bd910`: 615 joint removals leave 236/693 local (34.05%) and
+until consolidation closes. Phase D remains isolated at checkpoint
+`17be3ff8fc8740868612ba94cc0ff0a187ce1e27` on freeze `a8d5bd910`: 615 joint
+removals leave 236/693 local (34.05%) and
 379/2,190 internal (17.31%) annotations removed; its targets are not met.
 
 The isolated generic module export slice remains accepted at `8475984a9`.
