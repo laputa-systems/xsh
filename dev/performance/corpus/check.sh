@@ -52,8 +52,12 @@ run_exact() {
     cat "$output" "$error" >&2
     return 1
   fi
+  matches=$(awk -v prefix="$selector ... ok " '
+    index($0, prefix) == 1 && substr($0, length(prefix) + 1) ~ /^[^[:space:]]+s$/ { count++ }
+    END { print count + 0 }
+  ' "$output")
   if [[ $(grep -c '^running 1 tests$' "$output") != 1 ]] || \
-    [[ $(grep -Fc "test $selector ... ok" "$output") != 1 ]] || \
+    [[ $matches != 1 ]] || \
     [[ $(grep -c '^test result: ok\. 1 passed; 0 failed; 0 skipped$' "$output") != 1 ]]; then
     cat "$output" "$error" >&2
     return 1
@@ -77,6 +81,7 @@ run_check() {
 
 (
   cd "$xsh_root"
+  export XSH_BIN=$xsh XSHT_BIN=$xsht
   export PATH="$(dirname "$xsh"):$(dirname "$xsht"):$PATH"
   run_check 12 \
     core/wc.xsh core/sort.xsh core/awk.xsh \
@@ -89,6 +94,7 @@ run_check() {
 
 (
   cd "$laputa_root"
+  export XSH_BIN=$xsh XSHT_BIN=$xsht
   export PATH="$(dirname "$xsh"):$(dirname "$xsht"):$PATH"
   run_check 3 pm/plan_json.xsh pm/generation.xsh pm/generation_adapter.xsh
   run_exact tests/pm/pm_generation.xsh::test_generation_plan_and_receipt_are_deterministic_for_root_order_and_duplicates

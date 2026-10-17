@@ -83,7 +83,8 @@ from the accepted G1 qualification. The adapter checks the checkout revisions,
 both product hashes, required source files, and each check command's file count
 and `check` and `lower` stage summary. Each exact test must select its requested
 name and report `1 passed; 0 failed; 0 skipped` before the adapter returns
-success.
+success. The adapter sets `XSH_BIN` and `XSHT_BIN` to the qualified products
+and prepends their directory to `PATH`.
 
 ## Capability and patch order
 
