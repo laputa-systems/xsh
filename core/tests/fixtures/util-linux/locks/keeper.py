@@ -83,7 +83,7 @@ def lock_rows():
         return [row for line in locks if (row := parse_lock(line)) is not None]
 
 
-def wait_for_row(method, expected_pid, stat, blocked=False, owner_pid=None):
+def wait_for_row(method, expected_pid, stat, blocked=False, owner_pid=None, failures=None):
     lock_class, ranges, _ = METHODS[method]
     device = f"{os.major(stat.st_dev)}:{os.minor(stat.st_dev)}"
     lock_type = ranges[0][0]
@@ -91,6 +91,8 @@ def wait_for_row(method, expected_pid, stat, blocked=False, owner_pid=None):
     expected_mode = "READ" if is_read else "WRITE"
     deadline = time.monotonic_ns() + 5_000_000_000
     while time.monotonic_ns() < deadline:
+        if failures:
+            raise failures[0]
         rows = lock_rows()
         matches = [
             row for row in rows
@@ -129,6 +131,15 @@ def move_to_fixture_fd(fd, duplicate):
     return 17, duplicate_fds
 
 
+def write_all(fd, data):
+    remaining = memoryview(data)
+    while remaining:
+        count = os.write(fd, remaining)
+        if count <= 0:
+            raise OSError("file write made no progress")
+        remaining = remaining[count:]
+
+
 def ready_record(method, path, fd, duplicate_fds, lock_row, stat, owner_pid=None):
     record = {
         "method": method,
@@ -151,9 +162,7 @@ def hold(method, target, duplicate):
     path = os.path.abspath(target)
     fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
     if size:
-        data = memoryview(b"z" * size)
-        while data:
-            data = data[os.write(fd, data):]
+        write_all(fd, b"z" * size)
     fd, duplicate_fds = move_to_fixture_fd(fd, duplicate)
     acquire(fd, method, False)
     stat = os.fstat(fd)
@@ -179,7 +188,7 @@ def wait(method, target, owner_pid):
 
     acquisition = threading.Thread(target=acquire_when_released, daemon=True)
     acquisition.start()
-    lock_row = wait_for_row(method, os.getpid(), stat, blocked=True, owner_pid=owner_pid)
+    lock_row = wait_for_row(method, os.getpid(), stat, blocked=True, owner_pid=owner_pid, failures=failures)
     ready_record(method, path, fd, duplicate_fds, lock_row, stat, owner_pid)
     acquisition.join()
     if failures:
