@@ -3,7 +3,7 @@ use crate::source::Span;
 
 #[cfg(target_os = "linux")]
 mod real {
-    use super::*;
+    use super::{RuntimeError, Span, Value};
     use crate::runtime::value::RecordMap;
     use std::ffi::CString;
     use std::io;
