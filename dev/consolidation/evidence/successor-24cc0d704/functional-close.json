@@ -1,0 +1,50 @@
+{
+  "functional_complete": true,
+  "commit": "24cc0d704209a8c0aa0eb27d5cfea1434929dc20",
+  "tree": "b6efac064ed074c9ee03d8f183bff9b41d353c91",
+  "reviewer": "/root",
+  "scope": {
+    "qualification": "Additive delta-functional close, not a fresh full canonical pass",
+    "parent": "Inherit b1bc narrow close and its explicitly inherited 19c9 and 7eb scopes. Original receipts keep their source and product identities.",
+    "delta": "Three private XSHT lint files preserve checked proofs across CheckRedundantParens only. All semantic diagnostic vetoes remain. Other changes are documentation, archived prior receipts, and reproduction commands.",
+    "affected_checks": "Two new regressions fail before and pass after the repair. Four focused controls and nine affected module tests pass. Unchanged integration harness fails on the 19-input baseline and passes on the repaired product. Full exact layout invariant passes one selected test, 121 filtered, 1675 perturbed files, all1835 XSH/config inputs audited. Integrated Rust/Cargo/core/native-test inputs and every tracked XSH/config blob match the tested e9ef source.",
+    "failed_attempts": "R3, R4, R5 remain failed/interrupted with no resource or timing credit. R4 and R5 started zero full native suites. Earlier240s exact replay timed out before reporting a mismatch; this is not counted as a reproduction.",
+    "limits": "No fresh full canonical, resource, timing, QEMU, W9, or structural recount. Inference remains isolated."
+  },
+  "evidence": {
+    "parent": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/functional-close-b1bc741fcd512d1c71b43116853278a4a3f1521a.json",
+      "sha256": "9f34a6afb09e935231ed928e2ee00effd80b8d3e081595ae405ce50ba7640148"
+    },
+    "full_layout_green": {
+      "path": "/home/josh/d/laputa-systems/xsh/dev/consolidation/evidence/layout-invariance-e9ef913df/full-green/stdout.log",
+      "sha256": "1795cddcf77653b7da7c45febbdc04752a4dec82141c6ff734357f97cf0c098b"
+    },
+    "full_layout_count": {
+      "path": "/home/josh/d/laputa-systems/xsh/dev/consolidation/evidence/layout-invariance-e9ef913df/full-green/stderr.log",
+      "sha256": "87782b8d61e7fc2154fb4c65576176c5238efe6a1ab7e5a068e472467334ed9d"
+    },
+    "unit_green": {
+      "path": "/home/josh/d/laputa-systems/xsh/dev/consolidation/evidence/layout-invariance-e9ef913df/unit-green/stdout.log",
+      "sha256": "c9ea0f6a393a926f3a413bf0fcdfa1f68da742ba0fb5c2f57a326fcdffbcb9af"
+    },
+    "restricted_red": {
+      "path": "/home/josh/d/laputa-systems/xsh/dev/consolidation/evidence/layout-invariance-e9ef913df/restricted-red/stderr.log",
+      "sha256": "b3b3aaee05784509851a7265c1f6ce1485d64022b871f06b19f34d05c1bfc17e"
+    }
+  },
+  "products_used": {
+    "xsh": "e79fd4820b23b840c0bbface75a8b24780eae8fb7aedc34a01d76045f9aeae6b",
+    "xsht": "6e6313ee1ec085a4aa652adb0ba119f1a792746162eba3f0912d9eef30fd082d",
+    "integration": "b1db9ffc2f2c72b0cba144d2991b367d7cf12515dc97903bb334723aa2908abe",
+    "scope": "Exact focused correctness products. Fresh exact-seal artifact qualification required."
+  },
+  "remaining": [
+    "fresh exact-seal artifact qualifier",
+    "fresh R6 canonical/resource attempt",
+    "timed profile and observer",
+    "forced-frame and scheduler pairs",
+    "final metrics bundle"
+  ],
+  "inference": "Isolated1036 accepted removals, original denominators retained, empty braces remain Record, both annotation targets unmet."
+}
