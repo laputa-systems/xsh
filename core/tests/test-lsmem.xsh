@@ -22,7 +22,8 @@ proc compare_lsmem(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process
     let candidate_remaining = candidate.stdout.len() - context_start
     let reference_context_len = if reference_remaining > 48 { 48 } else { reference_remaining }
     let candidate_context_len = if candidate_remaining > 48 { 48 } else { candidate_remaining }
-    assert false, f"lsmem stdout differs for {args.join(" ")} at byte {offset}; reference length {reference.stdout.len()} context {reference.stdout.slice(context_start, length: reference_context_len).base64()}; candidate length {candidate.stdout.len()} context {candidate.stdout.slice(context_start, length: candidate_context_len).base64()}"
+    let complete_streams = if reference.stdout.len() <= 1024 and candidate.stdout.len() <= 1024 { f"; reference_base64 {reference.stdout.base64()}; candidate_base64 {candidate.stdout.base64()}" } else { "" }
+    assert false, f"lsmem stdout differs for {args.join(" ")} at byte {offset}; reference length {reference.stdout.len()} context {reference.stdout.slice(context_start, length: reference_context_len).base64()}; candidate length {candidate.stdout.len()} context {candidate.stdout.slice(context_start, length: candidate_context_len).base64()}{complete_streams}"
   }
   if reference.stderr != candidate.stderr {
     assert false, f"lsmem stderr differs for {args.join(" ")}; reference length {reference.stderr.len()} base64 {reference.stderr.base64()}; candidate length {candidate.stderr.len()} base64 {candidate.stderr.base64()}"
