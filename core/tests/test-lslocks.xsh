@@ -462,7 +462,7 @@ proc reference_path_case(s: uu.Scene) [fs, process, env, net, time, error] -> Re
   let normal = ul.reference(s, "lslocks", ["--noheadings", "--pid", escaped_pid, "--output", "PATH"])?
   assert normal.status == 0 and normal.stderr.is_empty()
   assert normal.stdout == bytes.concat([
-    s.root.bytes(), b"/space name\\x09tab\\x0Aline\\\\slash\n",
+    s.root.bytes(), b"/space name\\x09tab\\x0aline\\slash\n",
   ])
   let raw = ul.reference(s, "lslocks", ["--raw", "--noheadings", "--pid", escaped_pid, "--output", "PATH"])?
   assert raw.status == 0 and raw.stderr.is_empty()
