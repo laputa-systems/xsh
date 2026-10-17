@@ -1,0 +1,7 @@
+source_commit=0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4
+source_tree=b4f9db3f8ee2f38a6c62fea876976619db424ed7
+source_files_clean=yes
+1b14a8a33cb50e180fe569a86b06faa62e64b695ef95c6ac8f92127fe451bba9  /home/josh/d/laputa-systems/xsh/.work/wt/native-filesystem-repair/core/mv.xsh
+6101ba13b19994134b6cbceb413f32300b2db5a050b240fd4c011549e1b9e1c8  /home/josh/d/laputa-systems/xsh/.work/wt/native-filesystem-repair/core/tests/test-gnu-mv.xsh
+c137d1d1ccff63c3ae492af1106aebb1872ae23b3d0e2af1d017968a4aa19a6c  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh
+5dccc9f21f30b4b26e8f96a7815303dd3b7a13c94b132d421ad02cee3fada7e1  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht
