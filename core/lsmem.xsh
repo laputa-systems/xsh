@@ -57,9 +57,9 @@ pure sysroot_equals_at(argument: Bytes) -> Int? {
     if argument.byte_at(index) == 61 { equals = index; break }
   }
   return null when equals == null
-  let at = equals ?? 0
+  let at = equals
   return null when at == 2
-  let name = argument.byte_slice(2, at - 2).utf8() ?? ""
+  let name = argument.slice(2, length: at - 2).utf8() ?? ""
   let matches = [option for option in LONG_OPTIONS if option.starts_with(name)]
   if matches.len() == 1 and matches[0] == "sysroot" { at } else { null }
 }
@@ -80,11 +80,9 @@ pure normalize_sysroot_arguments(argv: List[Bytes]) -> List[Bytes] {
   for argument in argv {
     if let Ok(_) = argument.utf8() { normalized += [argument]; continue }
     if let at = sysroot_equals_at(argument) {
-      let index = at ?? 0
-      normalized += [argument.byte_slice(0, index), argument.byte_slice(index + 1, argument.len() - index - 1)]
+      normalized += [argument.slice(0, length: at), argument.slice(at + 1, length: argument.len() - at - 1)]
     } else if let at = short_sysroot_value_start(argument) {
-      let index = at ?? 0
-      normalized += [argument.byte_slice(0, index), argument.byte_slice(index, argument.len() - index)]
+      normalized += [argument.slice(0, length: at), argument.slice(at, length: argument.len() - at)]
     } else {
       normalized += [argument]
     }
@@ -117,7 +115,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     version: {form: "-V --version", default: false, stop: true},
     operands: {form: "...ARG"},
   })?
-  let sysroot = if parsed.sysroot == null { null } else { Path.parse_bytes(gnu.argument_bytes(parsed.sysroot ?? "", prepared.raw))? }
+  let sysroot: Path? = if parsed.sysroot == null { null } else { Path.parse_bytes(gnu.argument_bytes(parsed.sysroot ?? "", prepared.raw))? }
   let opts: report.Options = {...parsed, sysroot: sysroot}
   if opts.help { ul_io.help(HELP); return }
   if opts.version { ul_io.version("lsmem"); return }
