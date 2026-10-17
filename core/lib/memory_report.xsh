@@ -207,7 +207,7 @@ proc block_size_value(text: Bytes) [process, env, error] -> U64 {
     found = true
     position += 1
   }
-  if ! found { fail("failed to read memory block size"); return {high: 0, low: 0} }
+  if ! found { fail("failed to read memory block size: Invalid argument"); return {high: 0, low: 0} }
   if negative and (number.high != 0 or number.low != 0) {
     number = u64_add_small({high: (WORD_MAX - number.high) as Word32, low: (WORD_MAX - number.low) as Word32}, 1)
   }
