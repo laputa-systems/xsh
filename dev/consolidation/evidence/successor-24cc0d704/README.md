@@ -46,3 +46,22 @@ The reference overlay modifies only the two approved scheduler files and matches
 the pinned patch in both recorded diff forms. Its derived Git tree is
 `e0df45e193a75774a1f95fb07ee4b41599ff2129`.
 No reference build, native suite, or timing run follows from this static check.
+
+## Non-timing review scope
+
+The `src` and `tests` Git trees match 7eb exactly. The prior source reviews for
+rows 1–5 and 8 therefore carry to 24cc. Their execution receipts remain pinned
+to their original sources. Row 5's prior paired lint executions remain historical
+because the lint implementation changed.
+
+The shared lint walker, flow, and sequence files are unchanged. The three
+changed lint files alter diagnostic filtering and tests without adding a descent.
+The module driver and module record files are unchanged. These comparisons
+preserve rows 6 and 7's implementation scope. The prior cache trace remains
+historical. Row 9's TODO, open-defects, and W9 review inputs also match exactly.
+
+The scanner policy is unchanged, and changed XSHT hunks do not affect its
+detectors. The four hard-zero structural counts carry by source comparison.
+The b235 metrics report remains the measurement. No fresh 24cc scan, current
+source-line count, or complete ten-row evidence bundle is claimed. Source-line
+budgets remain advisory. Timing evidence remains required.
