@@ -133,7 +133,7 @@ that field.
 | `test_lslocks_output_column_names_and_errors` | Case-insensitive names, custom ordering, `+LIST`, repeated names, an empty list, unknown-column diagnostics with the remaining comma-list suffix, silent rejection of leading/interior empty columns, and the trailing-delimiter diagnostic. |
 | `test_lslocks_default_and_selected_lock_rows`, `test_lslocks_blocker_flock`, `test_lslocks_blocker_posix`, `test_lslocks_blocker_ofd`, `test_lslocks_filter_errors` | Exact PID filtering for holders and queued waiters; absent PID; OFD negative-PID filter rejection. |
 | `test_lslocks_filter_values_and_hidden_columns` | Symbolic and word aliases for comparisons, decimal float and boolean comparisons, same-precedence left-associative `OR`/`AND`, string equality/inequality, numeric ordering with `K` suffixes, regex match/non-match, `AND`/`&&`, `OR`/`||`, `NOT`, including filter columns absent from output. |
-| `test_lslocks_filter_errors` | Invalid filter syntax and unknown filter columns fail with reference status and stderr. |
+| `test_lslocks_filter_errors` | Missing operands and an incomplete regex retain libsmartcols' exact end-of-file diagnostic; unknown columns retain the two-line initialization error; a private lock makes the reference's valid `PID == -1` comparison and unmatched-minus output observable. |
 | `test_lslocks_default_and_selected_lock_rows` | Two private-namespace locks appear in default output in the `LC_ALL=C` reference order, `LSLOCKS_COLUMNS` and `--output` precedence hold, and `--pid` selects each exact fixture. |
 | `test_util_linux_context_outside_holder_is_invisible_to_private_lock_listing` | A real holder outside the private PID namespace is absent from its freshly mounted procfs and from both exact JSON listings. |
 | `test_lslocks_ranges_and_eof` | Finite POSIX/OFD byte ranges, zero-length-to-EOF locks, exact `START` and `END`, and non-overlapping ranges. |
@@ -147,7 +147,7 @@ that field.
 | Open: owner disappearance during collection | The owned release/wait test covers a later invocation, but no fixture provides a deterministic collection barrier. |
 | `test_lslocks_version_provenance` | Both commands succeed and identify `lslocks`; assert each exact version banner separately. |
 | `test_lslocks_help_and_usage_errors` | Exact help output; missing and invalid option values, invalid PID, unknown short and long options, ambiguous long prefixes, stray operands, and `-J -r`. |
-| `test_lslocks_smartcols_json_environment` | `LIBSMARTCOLS_JSON=compact` retains the `locks` object and emits each compact row on its own line, including an empty array when no lock matches; `unknown` and unset values retain the pretty `locks` object; `lines` emits one standalone object per lock row with lowercase keys. |
+| `test_lslocks_smartcols_json_environment` | `LIBSMARTCOLS_JSON=compact` retains the `locks` object and emits each compact row on its own line, including an empty array when no lock matches; `unknown` and unset values retain the pretty `locks` object and its empty-array whitespace; `lines` emits one standalone object per lock row with lowercase keys. |
 
 Every support-scene command starts with `LC_ALL=C`; table ordering and error
 text are compared byte for byte under that baseline. A second locale is

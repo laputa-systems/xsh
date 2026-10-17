@@ -272,10 +272,14 @@ proc filtered_lock_case(s: uu.Scene) [fs, process, env, net, time, error] -> Res
     let expression = expressions[index]
     let count = counts[index]
     let candidate = compared(s, ["--json", "--filter", expression, "--pid", pid, "--output", "TYPE"])?
-    let document = json.decode(candidate.stdout.utf8() ?? "")?
-    assert json.get(document, ["locks"])?.require(List[Any])?.len() == count, expression
+    if count == 0 {
+      assert candidate.stdout == b"{\n   \"locks\": [\n\n   ]\n}\n", expression
+    } else {
+      let document = json.decode(candidate.stdout.utf8() ?? "")?
+      assert json.get(document, ["locks"])?.require(List[Any])?.len() == count, expression
+    }
   }
-  let short_filter = compared(s, ["-Q", "TYPE == 'POSIX'", "-p", pid, "-o", "TYPE"])?
+  let short_filter = compared(s, ["-J", "-Q", "TYPE == 'POSIX'", "-p", pid, "-o", "TYPE"])?
   let short_document = json.decode(short_filter.stdout.utf8() ?? "")?
   assert json.get(short_document, ["locks"])?.require(List[Any])?.len() == 1
   let hidden_column = compared(s, ["--json", "--filter", f"PID == {pid}", "--pid", pid, "--output", "TYPE"])?
@@ -391,6 +395,10 @@ proc json_environment_case(s: uu.Scene) [fs, process, env, net, time, error] -> 
   let empty = compared(s, ["--json", "--pid", "2147483647"], {LIBSMARTCOLS_JSON: "compact"})?
   let empty_document = json.decode(empty.stdout.utf8() ?? "")?
   assert json.get(empty_document, ["locks"])?.require(List[Any])?.is_empty()
+  let empty_unknown = compared(s, ["--json", "--pid", "2147483647"], {LIBSMARTCOLS_JSON: "unknown"})?
+  assert empty_unknown.stdout == b"{\n   \"locks\": [\n\n   ]\n}\n"
+  let empty_unset = compared(s, ["--json", "--pid", "2147483647"])?
+  assert empty_unset.stdout == b"{\n   \"locks\": [\n\n   ]\n}\n"
   let unset = compared(s, ["--json", "--pid", f"{ready.pid}"])?
   let document = json.decode(unset.stdout.utf8() ?? "")?
   assert json.get(document, ["locks"])?.require(List[Any])?.len() == 1
@@ -647,9 +655,25 @@ test test_lslocks_reference_path_bytes { |ctx|
 test test_lslocks_filter_errors { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  for expression in ["TYPE ==", "UNKNOWN == 'POSIX'", "PID == -1", "TYPE =~ ["] {
-    rejected(s, ["--filter", expression])?
-  }
+  let missing_operand = compared(s, ["--filter", "TYPE =="])?
+  assert missing_operand.status == 1 and missing_operand.stdout.is_empty()
+  assert missing_operand.stderr == b"lslocks: failed to parse \"TYPE ==\": syntax error, unexpected end of file\n"
+  let unknown_column = compared(s, ["--filter", "UNKNOWN == 'POSIX'"])?
+  assert unknown_column.status == 1 and unknown_column.stdout.is_empty()
+  assert unknown_column.stderr == b"lslocks: unknown column: UNKNOWN\nlslocks: failed to initialize filter\n"
+  let incomplete_regex = compared(s, ["--filter", "TYPE =~ ["])?
+  assert incomplete_regex.status == 1 and incomplete_regex.stdout == b"["
+  assert incomplete_regex.stderr == b"lslocks: failed to parse \"TYPE =~ [\": syntax error, unexpected end of file\n"
+
+  let lock_path = uu.at(s, "filter-negative-number")
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let keeper = ul.start_keeper(s, script, ["hold", "posix-r-", lock_path.display(), "none"])?
+  defer ul.stop_keeper(keeper)
+  let ready = json.decode(keeper.ready)?.require(LockReady)?
+  let negative_pid = compared(s, ["--raw", "--noheadings", "--filter", "PID == -1", "--pid", f"{ready.pid}", "--output", "PID"])?
+  assert negative_pid.status == 0 and negative_pid.stdout == b"-" and negative_pid.stderr.is_empty()
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
 }
 
 test test_lslocks_filter_values_and_hidden_columns { |ctx|

@@ -64,6 +64,10 @@ type Lock = {
 
 type FilterToken = {kind: Str, value: Str}
 type FilterValue = {kind: Str, value: Str, boolean: Bool}
+enum FilterParseError { UnexpectedEnd, InvalidExpression, UnknownFilterColumn(Str) }
+type FilterLexed = {tokens: List[FilterToken], echoed: Str}
+type FilterProgram = {tokens: List[FilterToken], echoed: Str}
+type FilterFailure = {reason: FilterParseError, echoed: Str}
 enum ColumnSelectionError { EmptyColumnList, EmptyColumnName, UnknownColumn(Str), TooManyColumns }
 type JsonPathReplacement = {marker: Bytes, value: Bytes}
 type Options = {
@@ -391,8 +395,9 @@ pure column_value(lock: Lock, column: Str) -> FilterValue {
   }
 }
 
-pure filter_tokens(text: Str) -> List[FilterToken]? {
+pure filter_tokens(text: Str) -> Result[FilterLexed, FilterFailure] {
   var output: List[FilterToken] = []
+  var echoed = ""
   var at = 0
   let length = text.byte_len()
   while at < length {
@@ -427,7 +432,7 @@ pure filter_tokens(text: Str) -> List[FilterToken]? {
           at += 1
         }
       }
-      return null when ! closed
+      return Err({reason: InvalidExpression, echoed: echoed}) when ! closed
       output += [{kind: "literal", value: value}]
       continue
     }
@@ -442,13 +447,19 @@ pure filter_tokens(text: Str) -> List[FilterToken]? {
       at += 1
       continue
     }
+    if ! rx"^[A-Za-z0-9]$".matches(current) {
+      echoed += current
+      at += 1
+      continue
+    }
     let start = at
+    let numeric_start = rx"^[0-9]$".matches(current)
     while at < length {
       let part = text.byte_slice(at, length: 1)
-      break when part in [" ", "\t", "\n", "\r", "(", ")", "<", ">", "!", "=", "&", "|", "'", "\""]
+      break when part in [" ", "\t", "\n", "\r", "(", ")", "<", ">", "!", "=", "&", "|", "'", "\"", "[", "]"]
+      break when numeric_start and part == "-"
       at += 1
     }
-    return null when start == at
     let word = text.byte_slice(start, length: at - start)
     let upper = word.upper()
     if upper in ["AND", "OR", "NOT"] {
@@ -459,7 +470,7 @@ pure filter_tokens(text: Str) -> List[FilterToken]? {
       output += [{kind: "word", value: word}]
     }
   }
-  output
+  Ok({tokens: output, echoed: echoed})
 }
 
 pure operator_precedence(operator: Str) -> Int {
@@ -477,21 +488,21 @@ pure filter_number(value: Str) -> Bool {
   filter_integer(value) != null or rx"^[0-9]+\.[0-9]+$".matches(value)
 }
 
-pure filter_program(tokens: List[FilterToken]) -> List[FilterToken]? {
+pure filter_program(tokens: List[FilterToken]) -> Result[List[FilterToken], FilterParseError] {
   var output: List[FilterToken] = []
   var operators: List[FilterToken] = []
   var expects_value = true
   for token in tokens {
     if token.kind in ["word", "literal"] {
-      return null when ! expects_value
+      return Err(InvalidExpression) when ! expects_value
       output += [token]
       expects_value = false
     } else if token.kind == "(" {
-      return null when ! expects_value
+      return Err(InvalidExpression) when ! expects_value
       operators += [token]
       expects_value = true
     } else if token.kind == ")" {
-      return null when expects_value
+      return Err(InvalidExpression) when expects_value
       var found = false
       while ! operators.is_empty() {
         let top = operators[-1]
@@ -499,12 +510,12 @@ pure filter_program(tokens: List[FilterToken]) -> List[FilterToken]? {
         if top.kind == "(" { found = true; break }
         output += [top]
       }
-      return null when ! found
+      return Err(InvalidExpression) when ! found
       expects_value = false
     } else {
       let operator = if token.value == "!" and expects_value { "NOT" } else { token.value }
-      return null when operator in ["AND", "&&", "OR", "||", "==", "!=", ">", "<", ">=", "<=", "=~", "!~"] and expects_value
-      return null when operator in ["NOT", "!"] and ! expects_value
+      return Err(InvalidExpression) when operator in ["AND", "&&", "OR", "||", "==", "!=", ">", "<", ">=", "<=", "=~", "!~"] and expects_value
+      return Err(InvalidExpression) when operator in ["NOT", "!"] and ! expects_value
       let unary = operator in ["NOT", "!"] and expects_value
       while ! unary and ! operators.is_empty() and operators[-1].kind == "operator" and
           operator_precedence(operators[-1].value) >= operator_precedence(operator) {
@@ -515,11 +526,12 @@ pure filter_program(tokens: List[FilterToken]) -> List[FilterToken]? {
       expects_value = true
     }
   }
-  return null when expects_value or output.is_empty()
+  return Err(UnexpectedEnd) when expects_value
+  return Err(InvalidExpression) when output.is_empty()
   while ! operators.is_empty() {
     let top = operators[-1]
     operators = operators[..operators.len() - 1]
-    return null when top.kind == "("
+    return Err(UnexpectedEnd) when top.kind == "("
     output += [top]
   }
   var depth = 0
@@ -527,20 +539,32 @@ pure filter_program(tokens: List[FilterToken]) -> List[FilterToken]? {
     if token.kind == "word" {
       let upper = token.value.upper()
       if canonical_column(token.value) == null and upper not in ["TRUE", "FALSE"] and ! filter_number(token.value) {
-        return null
+        return Err(UnknownFilterColumn(token.value))
       }
     }
     if token.kind in ["word", "literal"] {
       depth += 1
     } else if token.value in ["NOT", "!"] {
-      return null when depth < 1
+      return Err(InvalidExpression) when depth < 1
     } else {
-      return null when depth < 2
+      return Err(InvalidExpression) when depth < 2
       depth -= 1
     }
   }
-  return null when depth != 1
-  output
+  return Err(InvalidExpression) when depth != 1
+  Ok(output)
+}
+
+pure parse_filter(text: Str) -> Result[FilterProgram, FilterFailure] {
+  let lexed = filter_tokens(text)
+  if let Err(failure) = lexed { return Err(failure) }
+  let tokens = lexed ?? {tokens: [], echoed: ""}
+  let parsed = filter_program(tokens.tokens)
+  if let Ok(program) = parsed {
+    return Ok({tokens: program, echoed: tokens.echoed})
+  }
+  if let Err(reason) = parsed { return Err({reason: reason, echoed: tokens.echoed}) }
+  Err({reason: InvalidExpression, echoed: tokens.echoed})
 }
 
 pure filter_literal(token: FilterToken) -> FilterValue {
@@ -897,6 +921,10 @@ pure json_table(rows: List[smart.Object], name: Str, mode: Str) -> Str {
     let compact_array = "[\n" + compact_rows.join(",\n") + (if compact_rows.is_empty() { "" } else { "\n" }) + "]"
     return "{" + (json.encode(name) ?? "\"\"") + ":" + compact_array + "}\n"
   }
+  if rows.is_empty() {
+    let indentation = smartcols_json_indent(1)
+    return "{\n" + indentation + (json.encode(name) ?? "\"\"") + ": [\n\n" + indentation + "]\n}\n"
+  }
   smartcols_json(document, 0) + "\n"
 }
 
@@ -1093,14 +1121,21 @@ export proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
   let chosen = selection ?? []
-  let program: List[FilterToken]? = if opts.filter == null {
-    null
-  } else if let tokens = filter_tokens(opts.filter ?? "") {
-    filter_program(tokens)
-  } else {
-    null
+  var program: List[FilterToken]? = null
+  if let expression = opts.filter {
+    match parse_filter(expression) {
+      Ok(parsed) => { ul_io.write_text(parsed.echoed); program = parsed.tokens }
+      Err(failure) => {
+        ul_io.write_text(failure.echoed)
+        match failure.reason {
+          UnexpectedEnd => gnu.error(f"failed to parse \"{expression}\": syntax error, unexpected end of file")
+          InvalidExpression => gnu.usage_error(f"failed to parse {gnu.quote(expression)}: invalid expression")
+          UnknownFilterColumn(name) => { gnu.error(f"unknown column: {name}"); gnu.error("failed to initialize filter") }
+        }
+        exit 1
+      }
+    }
   }
-  if opts.filter != null and program == null { gnu.usage_error(f"failed to parse {gnu.quote(opts.filter ?? "")}: invalid expression") }
   let all = collect(opts.no_inaccessible)
   return when all.is_empty()
   var rows = all
