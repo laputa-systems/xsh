@@ -8,14 +8,14 @@ const USAGE = """Usage:
 Check whether a directory or file is a mountpoint.
 
 Options:
- -q, --quiet quiet mode - don't print anything
- --nofollow do not follow symlink
- -d, --fs-devno print maj:min device number of the filesystem
- -x, --devno print maj:min device number of the block device
- --show print mountpoint for given path
+ -q, --quiet        quiet mode - don't print anything
+     --nofollow     do not follow symlink
+ -d, --fs-devno     print maj:min device number of the filesystem
+ -x, --devno        print maj:min device number of the block device
+     --show         print mountpoint for given path
 
- -h, --help display this help
- -V, --version display version
+ -h, --help         display this help
+ -V, --version      display version
 
 For more details see mountpoint(1).
 """
@@ -66,21 +66,52 @@ pure device_number(device: Int) -> Str {
   f"{fs.dev_major(device)}:{fs.dev_minor(device)}"
 }
 
+proc parse_options(argv: List[Str]) [process, env] -> Options {
+  var opts: Options = {quiet: false, nofollow: false, fs_devno: false, devno: false, show: false, help: false, version: false, operands: []}
+  var at = 0
+  while at < argv.len() {
+    let word = argv[at]
+    at += 1
+    if word == "--" {
+      return {...opts, operands: opts.operands.extend(argv[at..])}
+    }
+    if ! word.starts_with("-") or word == "-" {
+      opts = {...opts, operands: opts.operands.extend([word])}
+      continue
+    }
+    var flags: List[Str] = []
+    if word.starts_with("--") {
+      let body = word.byte_slice(2)
+      let typed = body.split("=")[0]
+      let matches = [name for name in ["quiet", "nofollow", "fs-devno", "devno", "show", "help", "version"] if name.starts_with(typed)]
+      if matches.is_empty() { gnu.usage_error(f"unrecognized option: {body}") }
+      if matches.len() > 1 { gnu.usage_error(f"option is ambiguous: {body}") }
+      if "=" in body { gnu.usage_error(f"option does not take an argument: {matches[0]}") }
+      flags = matches
+    } else {
+      flags = [flag for flag in word.byte_slice(1)]
+    }
+    for flag in flags {
+      match flag {
+        "q" | "quiet" => opts = {...opts, quiet: true}
+        "nofollow" => opts = {...opts, nofollow: true}
+        "d" | "fs-devno" => opts = {...opts, fs_devno: true}
+        "x" | "devno" => opts = {...opts, devno: true}
+        "show" => opts = {...opts, show: true}
+        "h" | "help" => return {...opts, help: true}
+        "V" | "version" => return {...opts, version: true}
+        else => gnu.usage_error(f"unrecognized option: {flag}")
+      }
+    }
+  }
+  opts
+}
+
 proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let prepared = gnu.prepare_arguments(argv)
-  let opts: Options = cli.applet(prepared.text, {
-    gnu: {status: 1},
-    quiet: {form: "-q --quiet", default: false},
-    nofollow: {form: "--nofollow", default: false},
-    fs_devno: {form: "-d --fs-devno", default: false},
-    devno: {form: "-x --devno", default: false},
-    show: {form: "--show", default: false},
-    help: {form: "-h --help", default: false, stop: true},
-    version: {form: "-V --version", default: false, stop: true},
-    operands: {form: "...FILE"},
-  })?
+  let opts = parse_options(prepared.text)
 
-  if opts.help { gnu.help(USAGE); return }
+  if opts.help { gnu.help(f"\n{USAGE}"); return }
   if opts.version { gnu.version("mountpoint"); return }
   if opts.operands.len() != 1 { bad_usage() }
   if opts.nofollow and opts.devno {

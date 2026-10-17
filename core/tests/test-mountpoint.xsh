@@ -134,6 +134,21 @@ test test_mountpoint_path_arguments_preserve_non_utf8_names { |ctx|
   assert spaced.read_text()? == "quoted path\n"
 }
 
+test test_mountpoint_option_prefixes_clusters_and_argument_errors { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  for arguments in [
+    ["--no", "/"], ["--f", "/"], ["--fs", "/"], ["--s", "/"],
+    ["--d", "/"], ["--dev", "/"], ["--he"], ["-qh"], ["-hqz"],
+    ["-qz", "/"], ["-z", "/"], ["--=x", "/"],
+    ["--quiet=x", "/"], ["--quiet=", "/"], ["--show=1", "/"],
+    ["--d=1", "/"], ["--not-an-option=value", "/"],
+    ["/", "--quiet"], ["-", "--quiet"], ["--", "--quiet"],
+  ] {
+    parity(s, arguments)?
+  }
+}
+
 test test_mountpoint_inaccessible_path_from_unprivileged_runner { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   ul.require_private_namespace()
