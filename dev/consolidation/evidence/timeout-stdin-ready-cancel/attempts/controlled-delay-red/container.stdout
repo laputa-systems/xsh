@@ -1,0 +1,10 @@
+running 1 tests
+timeout_stdin_observation status=124; elapsed=403; ready=false; blocked=false; cleanup=false; stdout=; stderr=
+core/tests/test-timeout.xsh::timeout_stops_an_xsh_child_blocked_in_stdin_read ... FAILED 403ms
+
+failures:
+
+---- core/tests/test-timeout.xsh::timeout_stops_an_xsh_child_blocked_in_stdin_read ----
+fs-read: /home/josh/d/laputa-systems/xsh/.work/tmp/timeout-stdin-profile-repair/controlled-delay/tmp/xsh-test-8-1792247750509902105-0-timeout_stops_an_xsh_child_blocked_in_stdin_read/timeout-xsh-stdin-1/ready: No such file or directory (os error 2)
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped

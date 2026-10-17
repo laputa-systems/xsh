@@ -1,0 +1,4 @@
+running 1 tests
+timeout_stdin_observation status=124; elapsed=81; ready=true; blocked=true; cleanup=true; stdout=; stderr=
+core/tests/test-timeout.xsh::timeout_stops_an_xsh_child_blocked_in_stdin_read ... ok 81ms
+test result: ok. 1 passed; 0 failed; 0 skipped

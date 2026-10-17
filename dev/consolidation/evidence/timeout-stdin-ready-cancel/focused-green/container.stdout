@@ -1,0 +1,12 @@
+running 1 tests
+core/tests/test-timeout.xsh::timeout_stops_a_cpu_bound_xsh_child_and_runs_its_cleanup ... ok 92ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+running 1 tests
+core/tests/test-timeout.xsh::timeout_stops_an_xsh_child_blocked_in_stdin_read ... ok 77ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+running 1 tests
+core/tests/test-timeout.xsh::timeout_sends_selected_signal_and_preserves_status ... ok 213ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+running 1 tests
+core/tests/test-timeout.xsh::timeout_forwards_interrupt_signals_and_reports_shell_status ... ok 153ms
+test result: ok. 1 passed; 0 failed; 0 skipped

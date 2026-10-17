@@ -1,0 +1,1 @@
+inode=62012470 path=/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock

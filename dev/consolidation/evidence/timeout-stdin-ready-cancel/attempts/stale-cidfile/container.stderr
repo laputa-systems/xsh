@@ -1,0 +1,3 @@
+docker: container ID file found, make sure the other container isn't running or delete /home/josh/d/laputa-systems/xsh/.work/tmp/timeout-stdin-profile-repair/ready-fifo-fix/container.cid
+
+Run 'docker run --help' for more information

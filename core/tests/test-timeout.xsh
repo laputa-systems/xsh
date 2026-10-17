@@ -57,6 +57,37 @@ proc interrupt(ctx: TestContext, signal: Str) [fs, process, time, error] -> Resu
   Ok({status, stdout: out.read_text()?, stderr: err.read_text()?})
 }
 
+proc wait_for_marker(marker: Path, handle: ProcessHandle, description: Str, started: Int) [fs, process, time, error] -> Result[Unit] {
+  while ! marker.exists()? {
+    if time.now() - started >= 2000 {
+      handle.cancel(signal: "KILL", kill_after: 0ms)
+      return Err(error.failure(f"{description} marker was not written"))
+    }
+
+    time.sleep(1ms)
+  }
+  Ok()
+}
+
+proc wait_for_process(handle: ProcessHandle, description: Str, started: Int) [process, time, error] -> Result[Status] {
+  while time.now() - started < 2000 {
+    if let finished = process.wait_timeout([handle], 0ms)? {
+      return Ok(finished.status)
+    }
+
+    time.sleep(1ms)
+  }
+
+  handle.cancel(signal: "KILL", kill_after: 0ms)
+  Err(error.failure(f"{description} did not exit within the test safety bound"))
+}
+
+proc terminate_timeout(handle: ProcessHandle, cleanup: Path, started: Int) [fs, process, time, error] -> Result[Int] {
+  process.kill(handle.pid, signal: "TERM")
+  wait_for_marker(cleanup, handle, "deferred cleanup", started)?
+  Ok((wait_for_process(handle, "timeout wrapper", started)?).shell_code()?)
+}
+
 proc alive(pid: Int) [process] -> Bool {
   if let Err(_) = process.kill(pid, signal: "0") {
     return false
@@ -78,51 +109,107 @@ test timeout_sends_selected_signal_and_preserves_status { |ctx|
 test timeout_stops_a_cpu_bound_xsh_child_and_runs_its_cleanup { |ctx|
   let root = test.temp_dir(ctx, name: "timeout-xsh-signal")?
   let marker = fp"{root}/cleanup"
+  let ready = fp"{root}/ready"
   let child = fp"{root}/child.xsh"
-  child.write("let marker = Path(args[0])\ndefer marker.write(\"cleaned\")?\nwhile time.now() >= 0 {}\n")
+  child.write("let marker = Path(args[0])\nlet ready = Path(args[1])\ndefer marker.write(\"cleaned\")?\nready.write(\"ready\")?\nwhile time.now() >= 0 {}\n")
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
   let plan = process.command_argv(
     ctx.xsh_bin,
-    [ctx.xsh_bin, fp"{ctx.core_dir}/timeout.xsh", ".05", ctx.xsh_bin, child, marker],
+    [ctx.xsh_bin, fp"{ctx.core_dir}/timeout.xsh", "10", ctx.xsh_bin, child, marker, ready],
     root,
     {},
     b"",
-    fp"{root}/stdout",
-    fp"{root}/stderr",
+    stdout,
+    stderr,
     timeout: 2s,
   )
-  let status = process.run(plan)?.shell_code()?
-  let stderr = fp"{root}/stderr".read_text()?
-  assert status == 124, stderr
+  let handle = spawn plan?
+  defer handle.cancel(signal: "KILL", kill_after: 0ms)
+  let started = time.now()
+  wait_for_marker(ready, handle, "CPU-bound child readiness", started)?
+  let status = terminate_timeout(handle, marker, started)?
+  assert status == 143
   assert marker.read_text()? == "cleaned"
+  assert stdout.read_bytes()? == b""
+  assert stderr.read_bytes()? == b""
 }
 
 test timeout_stops_an_xsh_child_blocked_in_stdin_read { |ctx|
   let root = test.temp_dir(ctx, name: "timeout-xsh-stdin")?
   let marker = fp"{root}/cleanup"
+  let ready = fp"{root}/ready"
+  let blocked = fp"{root}/blocked"
+  let fifo = fp"{root}/stdin"
+  fs.mkfifo(fifo, 0o600)?
   let child = fp"{root}/child.xsh"
-  child.write("let marker = Path(args[0])\ndefer marker.write(\"cleaned\")?\nlet _ = io.stdin_bytes()?\n")
-  let plan = process.command_argv(
+  child.write("let marker = Path(args[0])\nlet ready = Path(args[1])\nlet blocked = Path(args[2])\ndefer marker.write(\"cleaned\")?\nready.write(\"ready\")?\nlet first = io.stdin_read(1)?\nassert first == b\"x\"\nblocked.write(\"blocked\")?\nlet _ = io.stdin_bytes()?\n")
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let writer_stdout = fp"{root}/writer-stdout"
+  let writer_stderr = fp"{root}/writer-stderr"
+  let writer_plan = process.command_argv(
     p"/bin/sh",
     [
       "sh",
       "-c",
-      "(printf x; while [ ! -e \"$4\" ]; do sleep 0.01; done) | \"$1\" \"$2\" .05 \"$1\" \"$3\" \"$4\"",
-      "timeout-stdin-probe",
-      ctx.xsh_bin,
-      fp"{ctx.core_dir}/timeout.xsh",
-      child,
+      "exec 3> \"$1\"; i=0; while [ ! -e \"$2\" ] && [ \"$i\" -lt 600 ]; do sleep 0.01; i=$((i+1)); done; if [ ! -e \"$2\" ]; then exit 91; fi; printf x >&3; i=0; while [ ! -e \"$3\" ] && [ \"$i\" -lt 600 ]; do sleep 0.01; i=$((i+1)); done; if [ ! -e \"$3\" ]; then exit 92; fi",
+      "timeout-stdin-writer",
+      fifo,
+      ready,
       marker,
     ],
     root,
     {},
     b"",
-    fp"{root}/stdout",
-    fp"{root}/stderr",
+    writer_stdout,
+    writer_stderr,
+  )
+  let writer = spawn writer_plan?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)
+  let target = "exec \"$1\" \"$2\" \"$3\" \"$4\" \"$5\" < \"$6\""
+  let plan = process.command_argv(
+    ctx.xsh_bin,
+    [
+      ctx.xsh_bin,
+      fp"{ctx.core_dir}/timeout.xsh",
+      "10",
+      p"/bin/sh",
+      "-c",
+      target,
+      "timeout-stdin-target",
+      ctx.xsh_bin,
+      child,
+      marker,
+      ready,
+      blocked,
+      fifo,
+    ],
+    root,
+    {},
+    b"",
+    stdout,
+    stderr,
     timeout: 2s,
   )
-  let status = process.run(plan)?.shell_code()?
-  assert status == 124
+  let handle = spawn plan?
+  defer handle.cancel(signal: "KILL", kill_after: 0ms)
+  let started = time.now()
+  wait_for_marker(ready, handle, "stdin child readiness", started)?
+  wait_for_marker(blocked, handle, "stdin blocking read", started)?
+  assert ! marker.exists()?
+  assert process.wait_timeout([writer], 0ms)? == null
+  let status = terminate_timeout(handle, marker, started)?
+  assert status == 143
+  let writer_status = wait_for_process(writer, "stdin producer", started)?
+  assert writer_status.shell_code()? == 0
+  assert ready.read_text()? == "ready"
+  assert blocked.read_text()? == "blocked"
   assert marker.read_text()? == "cleaned"
+  assert stdout.read_bytes()? == b""
+  assert stderr.read_bytes()? == b""
+  assert writer_stdout.read_bytes()? == b""
+  assert writer_stderr.read_bytes()? == b""
 }
 
 test timeout_escalates_when_initial_signal_is_ignored { |ctx|

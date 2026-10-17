@@ -1,0 +1,3 @@
+The first runner guard called `sha256sum --check --status` inside the pinned
+container. BusyBox 1.38 supports `-c[sw]` and rejected `--check` before
+`flock` or Docker started.

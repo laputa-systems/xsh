@@ -1,0 +1,57 @@
+running 1 tests
+core/tests/test-timeout.xsh ... FAILED 0ms
+
+failures:
+
+---- core/tests/test-timeout.xsh ----
+err[check.operator-type]: invalid Duration arithmetic dimensions
+  /home/josh/d/laputa-systems/xsh/.work/wt/timeout-stdin-c-profile/core/tests/test-timeout.xsh:62:8
+      if time.now() - started >= 2s {
+         ^^^^^^^^^^ invalid Duration arithmetic dimensions
+
+err[check.operator-type]: invalid Duration arithmetic dimensions
+  /home/josh/d/laputa-systems/xsh/.work/wt/timeout-stdin-c-profile/core/tests/test-timeout.xsh:75:17
+    let elapsed = time.now() - started
+                  ^^^^^^^^^^ invalid Duration arithmetic dimensions
+
+err[check.operator-type]: invalid Duration arithmetic dimensions
+  /home/josh/d/laputa-systems/xsh/.work/wt/timeout-stdin-c-profile/core/tests/test-timeout.xsh:80:50
+    let completed = process.wait_timeout([handle], 2s - elapsed)?
+                                                   ^^ invalid Duration arithmetic dimensions
+
+err[check.type-mismatch]: type mismatch
+  /home/josh/d/laputa-systems/xsh/.work/wt/timeout-stdin-c-profile/core/tests/test-timeout.xsh:128:63
+    wait_for_marker(ready, handle, "CPU-bound child readiness", started)?
+                                                                ^^^^^^^ expected Duration, found Int
+
+err[check.type-mismatch]: type mismatch
+  /home/josh/d/laputa-systems/xsh/.work/wt/timeout-stdin-c-profile/core/tests/test-timeout.xsh:129:50
+    let status = terminate_timeout(handle, marker, started)?
+                                                   ^^^^^^^ expected Duration, found Int
+
+err[check.type-mismatch]: type mismatch
+  /home/josh/d/laputa-systems/xsh/.work/wt/timeout-stdin-c-profile/core/tests/test-timeout.xsh:196:59
+    wait_for_marker(ready, handle, "stdin child readiness", started)?
+                                                            ^^^^^^^ expected Duration, found Int
+
+err[check.type-mismatch]: type mismatch
+  /home/josh/d/laputa-systems/xsh/.work/wt/timeout-stdin-c-profile/core/tests/test-timeout.xsh:197:59
+    wait_for_marker(blocked, handle, "stdin blocking read", started)?
+                                                            ^^^^^^^ expected Duration, found Int
+
+err[check.type-mismatch]: type mismatch
+  /home/josh/d/laputa-systems/xsh/.work/wt/timeout-stdin-c-profile/core/tests/test-timeout.xsh:200:50
+    let status = terminate_timeout(handle, marker, started)?
+                                                   ^^^^^^^ expected Duration, found Int
+
+err[check.type-mismatch]: type mismatch
+  /home/josh/d/laputa-systems/xsh/.work/wt/timeout-stdin-c-profile/core/tests/test-timeout.xsh:203:20
+    assert elapsed < 2s
+                     ^^ expected Int, found Duration
+
+err[check.operator-type]: invalid Duration arithmetic dimensions
+  /home/josh/d/laputa-systems/xsh/.work/wt/timeout-stdin-c-profile/core/tests/test-timeout.xsh:204:54
+    let writer_result = process.wait_timeout([writer], 2s - elapsed)?
+                                                       ^^ invalid Duration arithmetic dimensions
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped
