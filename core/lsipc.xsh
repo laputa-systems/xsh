@@ -195,10 +195,7 @@ pure number(record: Map[Str, Str], key: Str) -> Int? {
 
 proc command_line(pid: Int) [fs] -> Str {
   return "" when pid <= 0
-  let raw = match fp"/proc/{pid}/cmdline".read_bytes() {
-    Ok(content) => content
-    Err(_) => return ""
-  }
+  let raw = if let Ok(content) = fp"/proc/{pid}/cmdline".read_bytes() { content } else { b"" }
   var at = 0
   var words: List[Str] = []
   for index in range(raw.len()) {
