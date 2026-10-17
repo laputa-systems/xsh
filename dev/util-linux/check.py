@@ -215,6 +215,26 @@ def measure_timing(source):
     return resources.measure_timing(sys.modules[__name__], source)
 
 
+def run_full_native(source):
+    import resources
+    return resources.run_full_native(sys.modules[__name__], source)
+
+
+def run_host_boundaries(source):
+    import resources
+    return resources.run_host_boundaries(sys.modules[__name__], source)
+
+
+def run_repository_contract(source):
+    import resources
+    return resources.run_repository_contract(sys.modules[__name__], source)
+
+
+def run_docs(source):
+    import resources
+    return resources.run_docs(sys.modules[__name__], source)
+
+
 def owned_cleanup(source):
     import acceptance
     require_native_lease()
