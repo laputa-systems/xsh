@@ -1,4 +1,5 @@
 import ast
+import io
 import json
 import os
 from pathlib import Path
@@ -373,14 +374,19 @@ class EffectBoundaryTests(unittest.TestCase):
         ready = resources._readiness(Path("/tools/perf-gate-ready"), ("-1",), run=run)
 
         self.assertTrue(ready.host_quiet)
-        self.assertEqual(calls, [(["/tools/perf-gate-ready", "-1"], {"capture_output": True, "check": False, "timeout": 30})])
+        self.assertEqual(calls[0][0], ["/tools/perf-gate-ready", "-1"])
+        self.assertEqual(calls[0][1]["capture_output"], True)
+        self.assertEqual(calls[0][1]["check"], False)
+        self.assertEqual(calls[0][1]["timeout"], 30)
+        self.assertEqual(calls[0][1]["env"]["PERF_GATE_ATTEMPTS"], "1")
+        self.assertEqual(calls[0][1]["env"]["PERF_GATE_WAIT"], "0")
 
     def test_busy_pre_readiness_skips_child_and_post_readiness(self):
         calls = []
 
         def readiness(program, arguments):
             calls.append([str(program), *arguments])
-            return Readiness(1, b"busy", b"", False)
+            return Readiness(75, b"", b"host busy", False)
 
         class Runtime:
             def container(self, *args, **kwargs):
@@ -398,6 +404,48 @@ class EffectBoundaryTests(unittest.TestCase):
 
         self.assertIsNone(result)
         self.assertEqual(calls, [["/tools/perf-gate-ready"]])
+
+    def test_unreadable_or_malformed_readiness_fails_instead_of_deferring(self):
+        class Runtime:
+            def container(self, *args, **kwargs):
+                raise AssertionError("measurement must not run without a qualified readiness result")
+
+        for readiness in (
+            Readiness(1, b"", b"cannot read load", False),
+            Readiness(0, b"unexpected", b"", False),
+            Readiness(0, b"", b"", False),
+        ):
+            with self.subTest(readiness=readiness), patch.object(
+                resources,
+                "_readiness",
+                return_value=readiness,
+            ), self.assertRaisesRegex(RuntimeError, "perf-gate-ready before measurement failed"):
+                resources._readied_container(
+                    Runtime(),
+                    Path("/tools/perf-gate-ready"),
+                    "measurement",
+                    mounts=[],
+                    capabilities=[],
+                    timeout=1,
+                )
+
+    def test_post_readiness_unreadable_fails_instead_of_defer(self):
+        results = iter((Readiness(0, b"", b"", True), Readiness(1, b"", b"cannot read load", False)))
+
+        class Runtime:
+            def container(self, *args, **kwargs):
+                return b"measured"
+
+        with patch.object(resources, "_readiness", side_effect=lambda *_args: next(results)):
+            with self.assertRaisesRegex(RuntimeError, "perf-gate-ready after measurement failed"):
+                resources._readied_container(
+                    Runtime(),
+                    Path("/tools/perf-gate-ready"),
+                    "measurement",
+                    mounts=[],
+                    capabilities=[],
+                    timeout=1,
+                )
 
     def test_readied_container_checks_the_host_immediately_after_child(self):
         calls = []
@@ -573,6 +621,36 @@ class EffectBoundaryTests(unittest.TestCase):
             for pipe in (child.stdin, child.stdout, child.stderr):
                 if pipe is not None and not pipe.closed:
                     pipe.close()
+
+    def test_keeper_that_exited_without_release_is_not_accepted_as_cleaned(self):
+        tree = ast.parse(resources._driver_source(REGRESSIONS, COHORT))
+        finish_keeper = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "finish_keeper"
+        )
+        namespace = {"os": os, "subprocess": subprocess, "signal": signal}
+        module = ast.fix_missing_locations(ast.Module(body=[finish_keeper], type_ignores=[]))
+        exec(compile(module, "finish-keeper-exit-control", "exec"), namespace)
+
+        class Child:
+            pid = 2_000_000_000
+            returncode = 0
+            stdin = io.BytesIO()
+            stdout = io.BytesIO()
+            stderr = io.BytesIO()
+
+            def poll(self):
+                return self.returncode
+
+            def communicate(self, timeout):
+                return b"", b""
+
+        child = Child()
+        with self.assertRaisesRegex(RuntimeError, "exited before cleanup was requested"):
+            namespace["finish_keeper"](child, "DONE")
+        self.assertTrue(child.stdin.closed)
+        self.assertTrue(child.stdout.closed)
+        self.assertTrue(child.stderr.closed)
 
     def test_dirty_source_stops_resource_and_close_effects(self):
         class Runtime:

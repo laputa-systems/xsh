@@ -394,9 +394,10 @@ def start_keeper(argv):
 def finish_keeper(child, request):
     failure = None
     try:
-        if child.poll() is None:
-            child.stdin.write((request + "\n").encode())
-            child.stdin.flush()
+        if child.poll() is not None:
+            raise RuntimeError("fixture keeper exited before cleanup was requested")
+        child.stdin.write((request + "\n").encode())
+        child.stdin.flush()
     except BaseException as error:
         failure = error
     if failure is None:
@@ -943,9 +944,26 @@ def _integers(values: tuple[str, ...], line: str) -> tuple[int, ...]:
 
 
 def _readiness(program: Path, arguments: tuple[str, ...], run=subprocess.run) -> Readiness:
-    result = run([str(program), *arguments], capture_output=True, check=False, timeout=30)
+    result = run(
+        [str(program), *arguments],
+        capture_output=True,
+        check=False,
+        env={**os.environ, "PERF_GATE_ATTEMPTS": "1", "PERF_GATE_WAIT": "0"},
+        timeout=30,
+    )
     host_quiet = result.returncode == 0 and not result.stdout and not result.stderr
     return Readiness(result.returncode, result.stdout, result.stderr, host_quiet)
+
+
+def _require_readiness_result(readiness: Readiness, phase: str) -> bool:
+    if readiness.status == 75:
+        return False
+    if readiness.status != 0 or readiness.stdout or readiness.stderr or not readiness.host_quiet:
+        raise RuntimeError(
+            f"perf-gate-ready {phase} failed: status={readiness.status} "
+            f"stdout={readiness.stdout!r} stderr={readiness.stderr!r}"
+        )
+    return True
 
 
 def _readied_container(
@@ -960,7 +978,7 @@ def _readied_container(
     memory_gib: int = 1,
 ) -> tuple[bytes, Readiness, Readiness] | None:
     before = _readiness(program, ())
-    if not before.host_quiet:
+    if not _require_readiness_result(before, "before measurement"):
         return None
     failure = None
     output = None
@@ -982,11 +1000,18 @@ def _readied_container(
             raise
         failure.add_note(f"post-measurement readiness failed: {error}")
         raise failure
+    try:
+        after_quiet = _require_readiness_result(after, "after measurement")
+    except BaseException as error:
+        if failure is None:
+            raise
+        failure.add_note(f"post-measurement readiness failed: {error}")
+        raise failure
     if failure is not None:
-        if not after.host_quiet:
+        if not after_quiet:
             failure.add_note("perf gate deferred: host busy after failed measurement")
         raise failure
-    if not after.host_quiet:
+    if not after_quiet:
         return None
     if output is None:
         raise ValueError("timed container returned no output")
