@@ -277,7 +277,9 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
     if mode.bit_and(0o2000) != 0 { status += ["locked"] }
     if mode.bit_and(0o4000) != 0 { status += ["hugetlb"] }
     if mode.bit_and(0o10000) != 0 { status += ["noreserve"] }
-    if !status.is_empty() { values = values.set("STATUS", status.join(",")) }
+    if !status.is_empty() or selection.output_mode == "pretty" {
+      values = values.set("STATUS", status.join(","))
+    }
     if let seconds = number(record, "atime") {
       if let text = display_time(seconds, selection.time_format) { values = values.set("ATTACH", text) }
     }
