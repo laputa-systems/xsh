@@ -344,7 +344,7 @@ proc inventory_blocks(root: FsRoot, entries: List[Entry], config_entries: List[E
     if block.state == "online" { inventory.online_bytes = u64_add(inventory.online_bytes, block_size) } else { inventory.offline_bytes = u64_add(inventory.offline_bytes, block_size) }
     if ! inventory.blocks.is_empty() and mergeable(inventory.blocks[-1], block, inventory, split, all) {
       let previous = inventory.blocks[-1]
-      inventory.blocks[-1] = {...previous, count: previous.count + 1}
+      inventory.blocks[inventory.blocks.len() - 1] = {...previous, count: previous.count + 1}
     } else {
       inventory.blocks += [block]
     }
