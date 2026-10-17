@@ -131,7 +131,7 @@ test test_util_linux_stdout_and_stderr_write_failures_match_reference { |ctx|
     follow_symlinks: false,
   )?
   let commands: List[CommandCase] = [
-    {util: "lslocks", args: [], error_args: [p"--output", p"NO_SUCH_COLUMN"]},
+    {util: "lslocks", args: [p"--list-columns"], error_args: [p"--output", p"NO_SUCH_COLUMN"]},
     {util: "lsipc", args: [p"--global"], error_args: [p"--time-format=invalid"]},
     {util: "lsmem", args: [p"--sysroot", memory_root], error_args: [p"--summary=invalid"]},
     {util: "mountpoint", args: [p"--show", p"/proc"], error_args: [p"--not-an-option"]},
@@ -160,7 +160,7 @@ test test_util_linux_closed_reader_termination_matches_reference { |ctx|
     follow_symlinks: false,
   )?
   let commands: List[CommandCase] = [
-    {util: "lslocks", args: [], error_args: []},
+    {util: "lslocks", args: [p"--list-columns"], error_args: []},
     {util: "lsipc", args: [p"--global"], error_args: []},
     {util: "lsmem", args: [p"--sysroot", memory_root], error_args: []},
     {util: "mountpoint", args: [p"--show", p"/proc"], error_args: []},
@@ -170,6 +170,7 @@ test test_util_linux_closed_reader_termination_matches_reference { |ctx|
   for command in commands {
     let reference = closed_reader(s, command.util, command.args, true)?
     let candidate = closed_reader(s, command.util, command.args, false)?
+    assert reference.termination != ul.Exited(0), command.util
     if reference.termination != candidate.termination {
       mismatches += [f"{command.util}: reference {termination_label(reference.termination)}; candidate {termination_label(candidate.termination)}"]
     }
