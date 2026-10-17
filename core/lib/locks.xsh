@@ -62,6 +62,7 @@ type Lock = {
 type FilterToken = {kind: Str, value: Str}
 type FilterValue = {kind: Str, value: Str, boolean: Bool}
 enum ColumnSelectionError { UnknownColumn, TooManyColumns }
+type JsonPathReplacement = {marker: Bytes, value: Bytes}
 type Options = {
   bytes: Bool,
   no_inaccessible: Bool,
@@ -552,7 +553,7 @@ pure filter_matches(program: List[FilterToken], lock: Lock) -> Bool {
   filter_truth(stack[0], lock)
 }
 
-pure lock_cell(lock: Lock, column: Str, as_bytes: Bool, byte_locale: Bool) -> Any {
+pure lock_cell(lock: Lock, column: Str, as_bytes: Bool, byte_locale: Bool, path_override: Str?) -> Any {
   match column {
     "COMMAND" => lock.command
     "PID" => lock.pid
@@ -564,8 +565,8 @@ pure lock_cell(lock: Lock, column: Str, as_bytes: Bool, byte_locale: Bool) -> An
     "M" => lock.mandatory
     "START" => lock.start
     "END" => lock.end
-    "PATH" => if let path_bytes = lock.path {
-      if let text = path_bytes.utf8() { text } else { safe_table_text(path_bytes, column, byte_locale) }
+    "PATH" => if path_override != null { path_override ?? "" } else if let path_bytes = lock.path {
+      if let Ok(text) = path_bytes.utf8() { text } else { safe_table_text(path_bytes, column, byte_locale) }
     } else { "" }
     "BLOCKER" => lock.blocker
     "HOLDERS" => lock.holders
@@ -782,8 +783,8 @@ pure render_table(columns: List[Str], locks: List[Lock], headings: Bool, raw: Bo
   output
 }
 
-pure json_lock(lock: Lock, columns: List[Str], as_bytes: Bool, byte_locale: Bool) -> smart.Object {
-  smart.object([smart.m(column.lower(), lock_cell(lock, column, as_bytes, byte_locale)) for column in columns])
+pure json_lock(lock: Lock, columns: List[Str], as_bytes: Bool, byte_locale: Bool, path_override: Str?) -> smart.Object {
+  smart.object([smart.m(column.lower(), lock_cell(lock, column, as_bytes, byte_locale, path_override)) for column in columns])
 }
 
 pure json_table(rows: List[smart.Object], name: Str, mode: Str) -> Str {
@@ -795,9 +796,77 @@ pure json_table(rows: List[smart.Object], name: Str, mode: Str) -> Str {
   smart.render(document, compact: mode == "compact") + "\n"
 }
 
-pure json_output(locks: List[Lock], columns: List[Str], as_bytes: Bool, mode: Str, byte_locale: Bool) -> Str {
-  let rows = [json_lock(lock, columns, as_bytes, byte_locale) for lock in locks]
-  json_table(rows, "locks", mode)
+pure json_path_marker(index: Int) -> Str {
+  f"\0xsh-lslocks-path-{index}\0"
+}
+
+pure json_string_bytes(value: Bytes) -> Bytes {
+  let digits = "0123456789abcdef"
+  var output: List[Bytes] = [b"\"",]
+  for index in range(value.len()) {
+    let byte = value.byte_at(index) ?? 0
+    if byte == 34 {
+      output += [b"\\\""]
+    } else if byte == 92 {
+      output += [b"\\\\"]
+    } else if byte == 8 {
+      output += [b"\\b"]
+    } else if byte == 9 {
+      output += [b"\\t"]
+    } else if byte == 10 {
+      output += [b"\\n"]
+    } else if byte == 12 {
+      output += [b"\\f"]
+    } else if byte == 13 {
+      output += [b"\\r"]
+    } else if byte < 32 {
+      output += [bytes.from_text("\\u00" + digits.byte_slice(byte / 16, length: 1) + digits.byte_slice(byte % 16, length: 1))]
+    } else {
+      output += [value[index..index + 1]]
+    }
+  }
+  output += [b"\""]
+  bytes.concat(output)
+}
+
+pure replace_json_paths(rendered: Bytes, replacements: List[JsonPathReplacement]) -> Bytes {
+  var output: List[Bytes] = []
+  var at = 0
+  while at < rendered.len() {
+    var replaced = false
+    for replacement in replacements {
+      let end = at + replacement.marker.len()
+      if end <= rendered.len() and rendered[at..end] == replacement.marker {
+        output += [replacement.value]
+        at = end
+        replaced = true
+        break
+      }
+    }
+    if ! replaced {
+      output += [rendered[at..at + 1]]
+      at += 1
+    }
+  }
+  bytes.concat(output)
+}
+
+pure json_output(locks: List[Lock], columns: List[Str], as_bytes: Bool, mode: Str, byte_locale: Bool) -> Bytes {
+  var rows: List[smart.Object] = []
+  var replacements: List[JsonPathReplacement] = []
+  for index in range(locks.len()) {
+    let lock = locks[index]
+    var path_override: Str? = null
+    if let path = lock.path {
+      if path.utf8() is Err(_) {
+        let marker = json_path_marker(index)
+        path_override = marker
+        replacements += [{marker: bytes.from_text(json.encode(marker) ?? "\"\""), value: json_string_bytes(path)}]
+      }
+    }
+    rows += [json_lock(lock, columns, as_bytes, byte_locale, path_override)]
+  }
+  replace_json_paths(bytes.from_text(json_table(rows, "locks", mode)), replacements)
 }
 
 ## Runs the lslocks command over Linux procfs state.
@@ -888,7 +957,7 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
   }
   let byte_locale = text.byte_columns()
   if opts.json {
-    gnu.write_text(json_output(rows, chosen, opts.bytes, json_mode, byte_locale))
+    gnu.write_bytes(json_output(rows, chosen, opts.bytes, json_mode, byte_locale))
   } else {
     let terminal = unix.isatty(1)
     let terminal_width = if terminal {
