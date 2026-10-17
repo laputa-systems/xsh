@@ -317,11 +317,11 @@ proc known_reference_sigsegv_candidate_success(s: uu.Scene, args: List[Str]) [fs
   let paths = [fp"{word}" for word in args]
   let reference = ul.observe_reference(s, "lsipc", paths, vars:, timeout: 5s)?
   assert reference.args == args
-  assert reference.termination == ul.Signaled(11), f"reference did not retain the SIGSEGV for {args.join(" ")}: {reference.termination}"
+  assert reference.termination == ul.Signaled(11), f"reference did not retain the SIGSEGV for {args.join(" ")}"
   assert reference.stderr == b""
   let candidate = ul.observe_candidate(s, "lsipc", paths, vars:, timeout: 5s)?
   assert candidate.args == args
-  assert candidate.termination == ul.Exited(0), f"candidate failed for {args.join(" ")}: {candidate.termination}"
+  assert candidate.termination == ul.Exited(0), f"candidate failed for {args.join(" ")}"
   assert candidate.stderr == b""
   assert candidate.stdout != b""
   Ok(candidate)
