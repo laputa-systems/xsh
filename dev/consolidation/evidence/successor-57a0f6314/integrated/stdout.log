@@ -1,0 +1,9 @@
+running 1 tests
+core/tests/test-sort.xsh::test_sort_key_option_suffixes_and_blank_boundaries ... ok 800ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+running 1 tests
+core/tests/test-sort.xsh::test_sort_general_numeric_prepares_spilled_and_merge_keys ... ok 5.1s
+test result: ok. 1 passed; 0 failed; 0 skipped
+running 1 tests
+core/tests/test-gnu-rm.xsh::test_gnu_rm_r_symlink_directory_log ... ok 31ms
+test result: ok. 1 passed; 0 failed; 0 skipped

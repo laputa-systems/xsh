@@ -1,0 +1,39 @@
+{
+  "functional_complete": true,
+  "commit": "57a0f63145a4ea3b1db6cfc38b4744a5c7ab02c1",
+  "tree": "42d48a35f740fc99a525c11d8f8da7ff41ffb106",
+  "reviewer": "/root",
+  "scope": {
+    "qualification": "Additive delta-functional close; not a fresh full canonical or resource pass",
+    "parent": "Inherit the 24cc additive close and source-bound R6 canonical result only for unchanged scopes. Original receipts retain original identities.",
+    "delta": "Private sort ordering plan and numeric-prefix identity path; quiet forced rm cached child-kind path; one native symlink-referent regression; gate scratch, cleanup reporting, pins and scheduler launch/derivation repairs. Rust, Cargo and root test inputs match 24cc exactly.",
+    "affected_checks": "Sort:25 focused passes plus original unchanged buffer selector; four direct files279 passed,0 failed,4 unavailable-locale skips. Rm:10 focused passes plus original400k selector. Integrated C:3 exact selectors passed individually1/0/0; source/product/clean-tree guards unchanged, cleanup resolved, OOM false. Integrated observer, repository-temp12, scheduler derivation and actual-child environment tests pass.",
+    "limits": "No C full suite, fresh C release profile, canonical resource, timing, QEMU, W9 or structural recount. Old R2 failure cause remains unresolved. Inference remains isolated at1038 accepted,1042 provisional source-only."
+  },
+  "evidence": {
+    "parent": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/functional-close-24cc0d704209a8c0aa0eb27d5cfea1434929dc20.json",
+      "sha256": "fa53df523e59ef877211d550fb88061aa9e7553c759f8947be14dd0613eb8492"
+    },
+    "sort": "dev/consolidation/evidence/sort-native-r2-b3e94ff/README.md",
+    "rm": "dev/consolidation/evidence/rm-cached-leaf-24cc/README.md",
+    "integrated": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/tmp/integrated-57a0f63145a4ea3b1db6cfc38b4744a5c7ab02c1/stdout.log",
+      "sha256": "3d831cbfd189a2ed023fa4e3774a82e6ebc8d1520c86756f9367c42824c0ffc0"
+    }
+  },
+  "products_used": {
+    "xsh": "e79fd4820b23b840c0bbface75a8b24780eae8fb7aedc34a01d76045f9aeae6b",
+    "xsht": "daa6c47667f65e8a2fe06a04ff179ee99e6286496c6d441b193889b3b9fec7fa",
+    "helper": "cf8005649749a43cc22aa5e40092a8f90365efc370b857fce5de2004adb2e621",
+    "scope": "Protected unchanged evaluator products for focused program checks; fresh C profile required."
+  },
+  "remaining": [
+    "fresh normal C profile",
+    "timed C canonical/resource observer",
+    "forced-frame suite",
+    "comparative gate",
+    "three scheduler pairs",
+    "final metrics close"
+  ]
+}
