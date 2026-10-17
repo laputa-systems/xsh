@@ -86,6 +86,7 @@ proc upstream_lock_case(s: uu.Scene, method: Str, holders: Bool) [fs, process, e
     parity(s, ["--raw", "--noheadings", "--pid", pid, "--output", "PATH"])?
   }
   ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
   Ok()
 }
 
@@ -112,6 +113,8 @@ proc blocked_lock_case(s: uu.Scene, method: Str) [fs, process, error] -> Result[
   assert json.get(document, ["locks", 0, "BLOCKER"])?.require(Int)? == owner_ready.pid
   assert json.get(document, ["locks", 0, "PATH"])?.require(Str)? == path.display()
   ul.keeper_send(owner, "DONE")
+  ul.finish_keeper(owner)
+  ul.finish_keeper(waiter)
   Ok()
 }
 
@@ -142,6 +145,7 @@ proc all_columns_json_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit
   assert entries.len() == 1
   assert entries[0].starts_with(f"{ready.pid},") and entries[0].ends_with(",17")
   ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
   Ok()
 }
 
@@ -159,6 +163,7 @@ proc byte_size_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit, Error
   let byte_document = json.decode(byte_size.stdout.utf8() ?? "")?
   assert json.get(byte_document, ["locks", 0, "SIZE"])?.require(Int)? == 1
   ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
   Ok()
 }
 
@@ -182,6 +187,7 @@ proc ranged_lock_case(s: uu.Scene, method: Str, expected: List[Str]) [fs, proces
   let wanted = expected |> sort() |> collect()
   assert actual_sorted == wanted, f"{method}: expected {wanted}, got {actual_sorted}"
   ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
   Ok()
 }
 
@@ -209,6 +215,7 @@ proc filtered_lock_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit, E
   let hidden_document = json.decode(hidden_column.stdout.utf8() ?? "")?
   assert json.get(hidden_document, ["locks"])?.require(List[Any])?.len() == 1
   ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
   Ok()
 }
 
@@ -252,7 +259,9 @@ proc selected_lock_rows_case(s: uu.Scene) [fs, process, env, error] -> Result[Un
   let absent_document = json.decode(absent.stdout.utf8() ?? "")?
   assert json.get(absent_document, ["locks"])?.require(List[Any])?.is_empty()
   ul.keeper_send(second, "DONE")
+  ul.finish_keeper(second)
   ul.keeper_send(first, "DONE")
+  ul.finish_keeper(first)
   Ok()
 }
 
@@ -280,6 +289,7 @@ proc output_lock_modes_case(s: uu.Scene) [fs, process, env, error] -> Result[Uni
   let conflict = compared(s, ["--json", "--raw", "--pid", pid])?
   assert conflict.status != 0
   ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
   Ok()
 }
 
@@ -299,6 +309,7 @@ proc json_environment_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit
   let document = json.decode(unset.stdout.utf8() ?? "")?
   assert json.get(document, ["locks"])?.require(List[Any])?.len() == 1
   ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
   Ok()
 }
 
@@ -307,8 +318,7 @@ proc deleted_path_and_owner_exit_case(s: uu.Scene) [fs, process, env, error] -> 
   let path = uu.at(s, f"deleted-{method}")
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
   let keeper = ul.start_keeper(s, script, ["hold", method, path.display(), "none"])?
-  var active = true
-  defer { if active { ul.stop_keeper(keeper) } }
+  defer ul.stop_keeper(keeper)
   let ready = json.decode(keeper.ready)?.require(LockReady)?
   path.remove()
   let candidate = compared(s, ["--json", "--pid", f"{ready.pid}", "--output", "PATH"])?
@@ -316,8 +326,7 @@ proc deleted_path_and_owner_exit_case(s: uu.Scene) [fs, process, env, error] -> 
   assert json.get(document, ["locks"])?.require(List[Any])?.len() == 1
   assert json.get(document, ["locks", 0, "PATH"])?.require(Str)? == f"{ready.path} (deleted)"
   ul.keeper_send(keeper, "DONE")
-  ul.stop_keeper(keeper)
-  active = false
+  ul.finish_keeper(keeper)
   let after_exit = compared(s, ["--json", "--pid", f"{ready.pid}"])?
   assert after_exit.status == 0 and after_exit.stdout.is_empty()
   Ok()

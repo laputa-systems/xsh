@@ -158,7 +158,7 @@ def ready_record(method, path, fd, duplicate_fds, lock_row, stat, owner_pid=None
 
 
 def hold(method, target, duplicate):
-    _, _, size = METHODS[method]
+    lock_class, _, size = METHODS[method]
     path = os.path.abspath(target)
     fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
     if size:
@@ -166,7 +166,8 @@ def hold(method, target, duplicate):
     fd, duplicate_fds = move_to_fixture_fd(fd, duplicate)
     acquire(fd, method, False)
     stat = os.fstat(fd)
-    row = wait_for_row(method, os.getpid(), stat)
+    kernel_pid = -1 if lock_class == "OFDLCK" else os.getpid()
+    row = wait_for_row(method, kernel_pid, stat)
     ready_record(method, path, fd, duplicate_fds, row, stat)
     release = sys.stdin.readline()
     if release not in {"DONE\n", ""}:
@@ -174,6 +175,7 @@ def hold(method, target, duplicate):
 
 
 def wait(method, target, owner_pid):
+    lock_class, _, _ = METHODS[method]
     path = os.path.abspath(target)
     fd = os.open(path, os.O_RDWR)
     fd, duplicate_fds = move_to_fixture_fd(fd, False)
@@ -188,7 +190,8 @@ def wait(method, target, owner_pid):
 
     acquisition = threading.Thread(target=acquire_when_released, daemon=True)
     acquisition.start()
-    lock_row = wait_for_row(method, os.getpid(), stat, blocked=True, owner_pid=owner_pid, failures=failures)
+    kernel_pid = -1 if lock_class == "OFDLCK" else os.getpid()
+    lock_row = wait_for_row(method, kernel_pid, stat, blocked=True, owner_pid=owner_pid, failures=failures)
     ready_record(method, path, fd, duplicate_fds, lock_row, stat, owner_pid)
     acquisition.join()
     if failures:
