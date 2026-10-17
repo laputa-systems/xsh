@@ -12,7 +12,7 @@ proc compare_lsmem(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process
   let candidate = uu.invoke(s, "lsmem", args, timeout: 5s, vars: vars)?
   assert reference.util == candidate.util
   assert reference.args == candidate.args
-  assert reference.status == candidate.status, candidate.stderr.utf8() ?? "candidate stderr is not UTF-8"
+  assert reference.status == candidate.status, f"lsmem status differs: reference={reference.status} stderr_b64={reference.stderr.base64()} candidate={candidate.status} stderr_b64={candidate.stderr.base64()}"
   if reference.stdout != candidate.stdout {
     var offset = 0
     let limit = if reference.stdout.len() < candidate.stdout.len() { reference.stdout.len() } else { candidate.stdout.len() }
