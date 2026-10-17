@@ -294,7 +294,7 @@ proc write_stderr_bytes(data: Bytes) [process, env, io] {
   }
 }
 
-proc report_fatal(pathname: Bytes, kind: Str, failure: Error) [process, env, io] {
+proc report_fatal(pathname: Bytes, kind: Str, failure: Error) [process, env, io, error] {
   write_stderr_bytes(bytes.concat([
     bytes.from_text(f"{gnu.prog()}: {kind}"), pathname,
     bytes.from_text(f": {gnu.strerror(failure)}\n"),
