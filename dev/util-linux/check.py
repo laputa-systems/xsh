@@ -223,6 +223,8 @@ def owned_cleanup(source):
     if containers.strip():
         raise ValueError(f"owned containers remain: {containers!r}")
     processes = subprocess.check_output(["ps", "-eo", "pid=,comm=,args="], text=True, timeout=10)
+    if not processes.strip():
+        raise ValueError("process inventory is empty during cleanup")
     for line in processes.splitlines():
         fields = line.split(None, 2)
         if len(fields) != 3:
@@ -247,10 +249,11 @@ def owned_cleanup(source):
         if unresolved or marker.exists() or marker.is_symlink():
             raise ValueError(f"unresolved cleanup remains: {path}")
     listing = subprocess.check_output(["git", "worktree", "list", "--porcelain", "-z"], cwd=ROOT)
-    for field in listing.split(b"\0"):
-        if not field.startswith(b"worktree "):
-            continue
-        worktree = Path(os.fsdecode(field.removeprefix(b"worktree ")))
+    worktrees = tuple(Path(os.fsdecode(field.removeprefix(b"worktree ")))
+                      for field in listing.split(b"\0") if field.startswith(b"worktree "))
+    if ROOT not in worktrees:
+        raise ValueError("worktree inventory omitted the current source")
+    for worktree in worktrees:
         if not worktree.name.startswith("util-linux-"):
             continue
         changes = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=normal"], cwd=worktree)

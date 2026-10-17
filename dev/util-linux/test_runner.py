@@ -64,5 +64,52 @@ class ContainerTests(unittest.TestCase):
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
 
 
+class OwnedCleanupTests(unittest.TestCase):
+    def setUp(self):
+        import acceptance
+        self.source = acceptance.SourceIdentity("commit", "tree", True)
+        self.directory = tempfile.TemporaryDirectory(dir=check.ROOT / ".work/tmp")
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.infra = self.root / ".work/consolidation/infra"
+        self.infra.mkdir(parents=True)
+        for name in ("final-performance.lock", "native-suite.lock", "cargo.lock"):
+            (self.infra / name).write_bytes(b"")
+        for target, value in (("check.require_native_lease", None), ("check.source_identity", self.source), ("check.original_root", self.root)):
+            handle = patch(target, return_value=value)
+            handle.start()
+            self.addCleanup(handle.stop)
+        self.results = [b"", "999999 ps ps -eo pid=,comm=,args=\n", b"worktree " + bytes(check.ROOT) + b"\0\0", b""]
+
+    def test_success_requires_observed_empty_ownership_and_preserved_work(self):
+        with patch("check.subprocess.check_output", side_effect=self.results):
+            result = check.owned_cleanup(self.source)
+        self.assertEqual(result.executed, 3)
+        self.assertEqual(set(result.selectors), {"remaining-owned-processes:0", "unresolved-markers:0", "lost-work:false"})
+
+    def test_owned_container_prevents_cleanup_acceptance(self):
+        with patch("check.subprocess.check_output", return_value=b"owned-container\n"):
+            with self.assertRaisesRegex(ValueError, "owned containers remain"):
+                check.owned_cleanup(self.source)
+
+    def test_dangling_quarantine_marker_prevents_cleanup_acceptance(self):
+        (self.infra / "native-suite.cleanup-unresolved").symlink_to(self.root / "missing")
+        with patch("check.subprocess.check_output", side_effect=self.results):
+            with self.assertRaisesRegex(ValueError, "unresolved cleanup"):
+                check.owned_cleanup(self.source)
+
+    def test_missing_worktree_observation_cannot_mean_no_lost_work(self):
+        self.results[2] = b""
+        with patch("check.subprocess.check_output", side_effect=self.results):
+            with self.assertRaisesRegex(ValueError, "omitted the current source"):
+                check.owned_cleanup(self.source)
+
+    def test_uncommitted_work_prevents_cleanup_acceptance(self):
+        self.results[3] = b" M core/lsipc.xsh\n"
+        with patch("check.subprocess.check_output", side_effect=self.results):
+            with self.assertRaisesRegex(ValueError, "uncommitted campaign work"):
+                check.owned_cleanup(self.source)
+
+
 if __name__ == "__main__":
     unittest.main()
