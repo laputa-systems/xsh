@@ -413,6 +413,41 @@ def native_batch(selectors):
     return summaries
 
 
+@contextlib.contextmanager
+def _frozen_source():
+    source = source_identity()
+    if not source.clean:
+        raise ValueError("private batch requires a clean frozen source")
+    failure = None
+    try:
+        yield source
+    except BaseException as error:
+        failure = error
+        raise
+    finally:
+        try:
+            if source_identity() != source:
+                raise ValueError("source changed during private batch")
+        except BaseException as error:
+            if failure is None:
+                raise
+            failure.add_note(f"source verification also failed: {error}")
+
+
+def native_private_batch(selectors):
+    import acceptance
+    from batches import run_private_exact_batch
+    with _frozen_source(), _qualified_products() as products:
+        known = tuple(acceptance._case_selector(command, name)
+                      for command in COHORT for name in acceptance._case_names(ROOT, command))
+        summaries = run_private_exact_batch(selectors, known_selectors=known, root=ROOT,
+                                            products=products, private_namespace=PRIVATE_NAMESPACE,
+                                            container=container)
+    for summary in summaries:
+        print(f"{summary.selector}: {summary.passed} passed; {summary.failed} failed; {summary.skipped} skipped")
+    return summaries
+
+
 def harness() -> None:
     from controls import term_during_container
     subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "dev/util-linux", "-p", "test_*.py"],

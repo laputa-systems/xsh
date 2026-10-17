@@ -107,6 +107,42 @@ class NativeCaseDispatchTests(unittest.TestCase):
         launch.assert_not_called()
 
 
+class PrivateBatchDispatchTests(unittest.TestCase):
+    def setUp(self):
+        import acceptance
+        self.source = acceptance.SourceIdentity("commit", "tree", True)
+
+    def test_private_batch_binds_declared_cohort_and_rechecks_source_and_products(self):
+        selector = "core/tests/test-lsmem.xsh::test_lsmem_util_linux_2_42_4_version_identity"
+        with patch("check.source_identity", return_value=self.source) as source, patch("check.protected_products", return_value=Path("/qualified")) as products, patch("batches.run_private_exact_batch", return_value=()) as dispatch:
+            self.assertEqual(check.native_private_batch((selector,)), ())
+        arguments = dispatch.call_args.kwargs
+        self.assertIn(selector, arguments["known_selectors"])
+        self.assertEqual(arguments["private_namespace"], check.PRIVATE_NAMESPACE)
+        self.assertTrue(all(name.startswith("core/tests/test-") for name in arguments["known_selectors"]))
+        self.assertEqual(source.call_count, 2)
+        self.assertEqual(products.call_count, 2)
+
+    def test_failed_private_batch_still_checks_product_and_source(self):
+        with patch("check.source_identity", return_value=self.source) as source, patch("check.protected_products", return_value=Path("/qualified")) as products, patch("batches.run_private_exact_batch", side_effect=RuntimeError("batch failure")):
+            with self.assertRaisesRegex(RuntimeError, "batch failure"):
+                check.native_private_batch(("core/tests/test-lsmem.xsh::test_wanted",))
+        self.assertEqual(source.call_count, 2)
+        self.assertEqual(products.call_count, 2)
+
+    def test_dirty_or_changed_private_source_fails(self):
+        import acceptance
+        dirty = acceptance.SourceIdentity("commit", "tree", False)
+        changed = acceptance.SourceIdentity("other", "tree", True)
+        with patch("check.source_identity", return_value=dirty), patch("batches.run_private_exact_batch") as dispatch:
+            with self.assertRaisesRegex(ValueError, "clean frozen source"):
+                check.native_private_batch(())
+        dispatch.assert_not_called()
+        with patch("check.source_identity", side_effect=[self.source, changed]), patch("check.protected_products", return_value=Path("/qualified")), patch("batches.run_private_exact_batch", return_value=()):
+            with self.assertRaisesRegex(ValueError, "source changed"):
+                check.native_private_batch(())
+
+
 class IndependentReviewTests(unittest.TestCase):
     def setUp(self):
         import acceptance

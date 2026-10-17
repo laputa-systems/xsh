@@ -87,3 +87,13 @@ Known fast functional regressions may use `native_batch`: at most four distinct
 exact selectors share one container bounded to 30 seconds. Each framed case must
 report exactly one pass and no skips. Batch results provide functional evidence;
 resource measurements use their own observed process samples.
+
+`native_private_batch` runs one to four declared cohort cases in one container.
+Each case enters fresh IPC, mount, and PID namespaces. Source identity and
+protected product checks bracket the batch, including failed batches. These
+batches provide functional results and do not provide per-case resource samples.
+
+The zero-numeric-memory-entry fixture requires status 1, empty stdout, and the
+exact rooted diagnostic prefix. Only the reference's stale-errno suffix may vary,
+and that suffix must occupy one nonempty line. The candidate reports
+`no numeric memory entries`. Every other memory fixture keeps exact byte parity.
