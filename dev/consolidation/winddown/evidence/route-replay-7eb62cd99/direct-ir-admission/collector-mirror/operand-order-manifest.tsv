@@ -1,0 +1,539 @@
+record	tag	ordinal	kind	variant	field	type	policy	child_paths
+row	IntInt	0	Int	Int
+field	IntInt	0	Int	Int	value	i64	not_applicable
+row	IntSlot	1	Int	Slot
+field	IntSlot	1	Int	Slot	slot	usize	not_applicable
+row	IntBinary	2	Int	Binary
+field	IntBinary	2	Int	Binary	op	BinaryOp	not_applicable
+field	IntBinary	2	Int	Binary	left	BuildIntId	strict	left
+field	IntBinary	2	Int	Binary	right	BuildIntId	strict	right
+row	IntStrByteLenSlot	3	Int	StrByteLenSlot
+field	IntStrByteLenSlot	3	Int	StrByteLenSlot	slot	usize	not_applicable
+field	IntStrByteLenSlot	3	Int	StrByteLenSlot	span	Span	not_applicable
+row	IntStrCountLinesSlot	4	Int	StrCountLinesSlot
+field	IntStrCountLinesSlot	4	Int	StrCountLinesSlot	slot	usize	not_applicable
+field	IntStrCountLinesSlot	4	Int	StrCountLinesSlot	span	Span	not_applicable
+row	IntStrByteAtSlot	5	Int	StrByteAtSlot
+field	IntStrByteAtSlot	5	Int	StrByteAtSlot	slot	usize	not_applicable
+field	IntStrByteAtSlot	5	Int	StrByteAtSlot	index	BuildIntId	strict	index
+field	IntStrByteAtSlot	5	Int	StrByteAtSlot	default	Option<BuildIntId>	strict	default?
+field	IntStrByteAtSlot	5	Int	StrByteAtSlot	span	Span	not_applicable
+row	BoolBool	6	Bool	Bool
+field	BoolBool	6	Bool	Bool	value	bool	not_applicable
+row	BoolSlot	7	Bool	Slot
+field	BoolSlot	7	Bool	Slot	slot	usize	not_applicable
+row	BoolNot	8	Bool	Not
+field	BoolNot	8	Bool	Not	value	BuildBoolId	strict	value
+row	BoolAnd	9	Bool	And
+field	BoolAnd	9	Bool	And	left	BuildBoolId	short_circuit	left
+field	BoolAnd	9	Bool	And	right	BuildBoolId	short_circuit	right
+row	BoolOr	10	Bool	Or
+field	BoolOr	10	Bool	Or	left	BuildBoolId	short_circuit	left
+field	BoolOr	10	Bool	Or	right	BuildBoolId	short_circuit	right
+row	BoolIntCompare	11	Bool	IntCompare
+field	BoolIntCompare	11	Bool	IntCompare	op	BinaryOp	not_applicable
+field	BoolIntCompare	11	Bool	IntCompare	left	BuildIntId	strict	left
+field	BoolIntCompare	11	Bool	IntCompare	right	BuildIntId	strict	right
+row	BoolStrPredicateSlot	12	Bool	StrPredicateSlot
+field	BoolStrPredicateSlot	12	Bool	StrPredicateSlot	slot	usize	not_applicable
+field	BoolStrPredicateSlot	12	Bool	StrPredicateSlot	predicate	LoweredStrPredicate	not_applicable
+field	BoolStrPredicateSlot	12	Bool	StrPredicateSlot	needle	Arc<[u8]>	not_applicable
+field	BoolStrPredicateSlot	12	Bool	StrPredicateSlot	span	Span	not_applicable
+row	BoolContainsSlot	13	Bool	ContainsSlot
+field	BoolContainsSlot	13	Bool	ContainsSlot	slot	usize	not_applicable
+field	BoolContainsSlot	13	Bool	ContainsSlot	needle	LoweredValue	not_applicable
+field	BoolContainsSlot	13	Bool	ContainsSlot	span	Span	not_applicable
+row	BoolStrContainsSlot	14	Bool	StrContainsSlot
+field	BoolStrContainsSlot	14	Bool	StrContainsSlot	slot	usize	not_applicable
+field	BoolStrContainsSlot	14	Bool	StrContainsSlot	needle	Arc<str>	not_applicable
+field	BoolStrContainsSlot	14	Bool	StrContainsSlot	span	Span	not_applicable
+row	BoolTrimEmptySlot	15	Bool	TrimEmptySlot
+field	BoolTrimEmptySlot	15	Bool	TrimEmptySlot	slot	usize	not_applicable
+field	BoolTrimEmptySlot	15	Bool	TrimEmptySlot	span	Span	not_applicable
+row	BoolTrimStrPredicateSlot	16	Bool	TrimStrPredicateSlot
+field	BoolTrimStrPredicateSlot	16	Bool	TrimStrPredicateSlot	slot	usize	not_applicable
+field	BoolTrimStrPredicateSlot	16	Bool	TrimStrPredicateSlot	predicate	LoweredStrPredicate	not_applicable
+field	BoolTrimStrPredicateSlot	16	Bool	TrimStrPredicateSlot	needle	Arc<[u8]>	not_applicable
+field	BoolTrimStrPredicateSlot	16	Bool	TrimStrPredicateSlot	span	Span	not_applicable
+row	BoolLiteralCompareSlot	17	Bool	LiteralCompareSlot
+field	BoolLiteralCompareSlot	17	Bool	LiteralCompareSlot	op	BinaryOp	not_applicable
+field	BoolLiteralCompareSlot	17	Bool	LiteralCompareSlot	slot	usize	not_applicable
+field	BoolLiteralCompareSlot	17	Bool	LiteralCompareSlot	value	LoweredValue	not_applicable
+row	ExprNull	18	Expr	Null
+row	ExprUnit	19	Expr	Unit
+row	ExprInt	20	Expr	Int
+field	ExprInt	20	Expr	Int	value	i64	not_applicable
+row	ExprFloat	21	Expr	Float
+field	ExprFloat	21	Expr	Float	value	FloatValue	not_applicable
+row	ExprDuration	22	Expr	Duration
+field	ExprDuration	22	Expr	Duration	value	DurationValue	not_applicable
+row	ExprBool	23	Expr	Bool
+field	ExprBool	23	Expr	Bool	value	bool	not_applicable
+row	ExprStr	24	Expr	Str
+field	ExprStr	24	Expr	Str	value	Arc<str>	not_applicable
+row	ExprBytes	25	Expr	Bytes
+field	ExprBytes	25	Expr	Bytes	value	Arc<[u8]>	not_applicable
+row	ExprPreparedRegex	26	Expr	PreparedRegex
+field	ExprPreparedRegex	26	Expr	PreparedRegex	value	RegexValue	not_applicable
+row	ExprPreparedConstant	27	Expr	PreparedConstant
+field	ExprPreparedConstant	27	Expr	PreparedConstant	value	PreparedConstantValue	not_applicable
+row	ExprPath	28	Expr	Path
+field	ExprPath	28	Expr	Path	value	PathValue	not_applicable
+row	ExprFunctionRef	29	Expr	FunctionRef
+field	ExprFunctionRef	29	Expr	FunctionRef	function	FunctionName	not_applicable
+field	ExprFunctionRef	29	Expr	FunctionRef	pure	bool	not_applicable
+row	ExprPathFrom	30	Expr	PathFrom
+field	ExprPathFrom	30	Expr	PathFrom	value	BuildExprId	strict	value
+field	ExprPathFrom	30	Expr	PathFrom	span	Span	not_applicable
+row	ExprParam	31	Expr	Param
+field	ExprParam	31	Expr	Param	slot	usize	not_applicable
+row	ExprComparisonChain	32	Expr	ComparisonChain
+field	ExprComparisonChain	32	Expr	ComparisonChain	pairs	Vec<BuildExprId>	short_circuit	pairs[*]
+row	ExprBinary	33	Expr	Binary
+field	ExprBinary	33	Expr	Binary	op	BinaryOp	not_applicable
+field	ExprBinary	33	Expr	Binary	left	BuildExprId	strict	left
+field	ExprBinary	33	Expr	Binary	right	BuildExprId	strict	right
+field	ExprBinary	33	Expr	Binary	span	Span	not_applicable
+row	ExprIf	34	Expr	IfExpr
+field	ExprIf	34	Expr	IfExpr	branches	Vec<(BuildExprId, BuildExprId)>	selected	branches[*][0];branches[*][1]
+field	ExprIf	34	Expr	IfExpr	else_value	BuildExprId	selected	else_value
+field	ExprIf	34	Expr	IfExpr	span	Span	not_applicable
+row	ExprPatternIf	35	Expr	PatternIf
+field	ExprPatternIf	35	Expr	PatternIf	branches	Vec<(BuildExprId, BuildExprId, Vec<usize>)>	selected	branches[*][0];branches[*][1]
+field	ExprPatternIf	35	Expr	PatternIf	else_value	BuildExprId	selected	else_value
+field	ExprPatternIf	35	Expr	PatternIf	span	Span	not_applicable
+row	ExprMatch	36	Expr	MatchExpr
+field	ExprMatch	36	Expr	MatchExpr	value	BuildExprId	strict	value
+field	ExprMatch	36	Expr	MatchExpr	arms	Vec<(BuildPatternId, Option<BuildExprId>, BuildExprId)>	selected	arms[*][0];arms[*][1]?;arms[*][2]
+field	ExprMatch	36	Expr	MatchExpr	span	Span	not_applicable
+row	ExprStrMatch	37	Expr	StrMatchExpr
+field	ExprStrMatch	37	Expr	StrMatchExpr	value	BuildExprId	strict	value
+field	ExprStrMatch	37	Expr	StrMatchExpr	arms	FxHashMap<Arc<str>, BuildExprId>	selected	arms.values[*]
+field	ExprStrMatch	37	Expr	StrMatchExpr	fallback	Option<BuildExprId>	selected	fallback?
+field	ExprStrMatch	37	Expr	StrMatchExpr	span	Span	not_applicable
+row	ExprTagMatch	38	Expr	TagMatchExpr
+field	ExprTagMatch	38	Expr	TagMatchExpr	value	BuildExprId	strict	value
+field	ExprTagMatch	38	Expr	TagMatchExpr	arms	FxHashMap<Arc<str>, BuildExprId>	selected	arms.values[*]
+field	ExprTagMatch	38	Expr	TagMatchExpr	fallback	Option<BuildExprId>	selected	fallback?
+field	ExprTagMatch	38	Expr	TagMatchExpr	span	Span	not_applicable
+row	ExprResultFallback	39	Expr	ResultFallback
+field	ExprResultFallback	39	Expr	ResultFallback	left	BuildExprId	strict	left
+field	ExprResultFallback	39	Expr	ResultFallback	right	BuildExprId	selected	right
+row	ExprFmtString	40	Expr	FmtString
+field	ExprFmtString	40	Expr	FmtString	parts	Vec<LoweredFmtPart>	iterative	parts[*].Expr.value
+row	ExprPathFmtString	41	Expr	PathFmtString
+field	ExprPathFmtString	41	Expr	PathFmtString	parts	Vec<LoweredFmtPart>	iterative	parts[*].Expr.value
+field	ExprPathFmtString	41	Expr	PathFmtString	span	Span	not_applicable
+row	ExprGlob	42	Expr	Glob
+field	ExprGlob	42	Expr	Glob	pattern	Arc<str>	not_applicable
+field	ExprGlob	42	Expr	Glob	span	Span	not_applicable
+row	ExprLastStatus	43	Expr	LastStatus
+field	ExprLastStatus	43	Expr	LastStatus	span	Span	not_applicable
+row	ExprRecord	44	Expr	Record
+field	ExprRecord	44	Expr	Record	entries	Vec<LoweredRecordEntry>	iterative	entries[*].Field.value;entries[*].Spread.value
+row	ExprMapLiteral	45	Expr	MapLiteral
+field	ExprMapLiteral	45	Expr	MapLiteral	entries	Vec<(Option<BuildExprId>, BuildExprId, Span)>	iterative	entries[*][0]?;entries[*][1]
+row	ExprRecordUpdate	46	Expr	RecordUpdate
+field	ExprRecordUpdate	46	Expr	RecordUpdate	base	BuildExprId	strict	base
+field	ExprRecordUpdate	46	Expr	RecordUpdate	updates	LoweredRecordUpdates	iterative	updates[*].value
+field	ExprRecordUpdate	46	Expr	RecordUpdate	span	Span	not_applicable
+row	ExprList	47	Expr	List
+field	ExprList	47	Expr	List	values	Vec<BuildExprId>	iterative	values[*]
+row	ExprListBuild	48	Expr	ListBuild
+field	ExprListBuild	48	Expr	ListBuild	values	Vec<(bool, BuildExprId, Span)>	iterative	values[*][1]
+row	ExprEmptyMap	49	Expr	EmptyMap
+row	ExprRange	51	Expr	Range
+field	ExprRange	51	Expr	Range	start	BuildExprId	strict	start
+field	ExprRange	51	Expr	Range	end	BuildExprId	strict	end
+field	ExprRange	51	Expr	Range	span	Span	not_applicable
+row	ExprTag	52	Expr	Tag
+field	ExprTag	52	Expr	Tag	type_name	Name	not_applicable
+field	ExprTag	52	Expr	Tag	name	Arc<str>	not_applicable
+field	ExprTag	52	Expr	Tag	fields	Vec<BuildExprId>	iterative	fields[*]
+field	ExprTag	52	Expr	Tag	wire	Option<Arc<crate::sema::wire_enums::WireEnumMapping>>	not_applicable
+row	ExprListComp	53	Expr	ListComp
+field	ExprListComp	53	Expr	ListComp	value	BuildExprId	iterative	value
+field	ExprListComp	53	Expr	ListComp	qualifiers	LoweredCompQualifiers	iterative	qualifiers[*].For.iter;qualifiers[*].If.condition
+field	ExprListComp	53	Expr	ListComp	span	Span	not_applicable
+row	ExprMapComp	54	Expr	MapComp
+field	ExprMapComp	54	Expr	MapComp	key	BuildExprId	iterative	key
+field	ExprMapComp	54	Expr	MapComp	value	BuildExprId	iterative	value
+field	ExprMapComp	54	Expr	MapComp	qualifiers	LoweredCompQualifiers	iterative	qualifiers[*].For.iter;qualifiers[*].If.condition
+field	ExprMapComp	54	Expr	MapComp	span	Span	not_applicable
+row	ExprPipeline	55	Expr	ListPipeline
+field	ExprPipeline	55	Expr	ListPipeline	input	BuildExprId	strict	input
+field	ExprPipeline	55	Expr	ListPipeline	stages	Vec<LoweredPipelineStage>	iterative	stages[*].Where.predicate;stages[*].WhereBlock.body[*];stages[*].WhereBlock.value;stages[*].Map.value;stages[*].MapBlock.body[*];stages[*].MapBlock.value;stages[*].FlatMap.value;stages[*].FlatMapBlock.body[*];stages[*].FlatMapBlock.value;stages[*].BytesChunks.size;stages[*].BatchCount.count;stages[*].BatchMaxArgv.max_argv?;stages[*].BatchMaxBytes.max_bytes;stages[*].BatchLimits.configuration;stages[*].Shuffle.seed?;stages[*].Fold.initial;stages[*].Fold.body[*];stages[*].Fold.value;stages[*].ReduceBy.body[*];stages[*].ReduceBy.value;stages[*].ReduceBy.jobs?;stages[*].ReduceByConfigured.body[*];stages[*].ReduceByConfigured.value;stages[*].ReduceByConfigured.configuration;stages[*].ParMap.jobs?;stages[*].ParMap.value;stages[*].ParMapBlock.body[*];stages[*].ParMapBlock.jobs?;stages[*].ParMapBlock.value;stages[*].ParMapFlatMapReduceBy.body?[*];stages[*].ParMapFlatMapReduceBy.jobs?;stages[*].ParMapFlatMapReduceBy.value;stages[*].ParMapFlatMapReduceBy.reduce_body[*];stages[*].ParMapFlatMapReduceBy.reduce_value;stages[*].Tee.body[*];stages[*].Each.body[*];stages[*].TablePrintConfigured.columns;stages[*].Zip.other;stages[*].Sort.descending?;stages[*].SortBy.key;stages[*].SortBy.descending?;stages[*].GroupBy.key;stages[*].CountBy.key;stages[*].Any.predicate;stages[*].AnyBlock.body[*];stages[*].AnyBlock.value;stages[*].All.predicate;stages[*].AllBlock.body[*];stages[*].AllBlock.value;stages[*].UniqueBy.key;stages[*].Take.value;stages[*].Drop.value;stages[*].Repeat.count;stages[*].Range.start;stages[*].Range.end
+field	ExprPipeline	55	Expr	ListPipeline	span	Span	not_applicable
+row	ExprField	56	Expr	Field
+field	ExprField	56	Expr	Field	base	BuildExprId	strict	base
+field	ExprField	56	Expr	Field	name	NameText	not_applicable
+field	ExprField	56	Expr	Field	span	Span	not_applicable
+row	ExprIndex	57	Expr	Index
+field	ExprIndex	57	Expr	Index	base	BuildExprId	strict	base
+field	ExprIndex	57	Expr	Index	index	BuildExprId	strict	index
+field	ExprIndex	57	Expr	Index	span	Span	not_applicable
+row	ExprIndexFromEnd	58	Expr	IndexFromEnd
+field	ExprIndexFromEnd	58	Expr	IndexFromEnd	base	BuildExprId	strict	base
+field	ExprIndexFromEnd	58	Expr	IndexFromEnd	distance	crate::runtime::eval::EndDistance	not_applicable
+field	ExprIndexFromEnd	58	Expr	IndexFromEnd	span	Span	not_applicable
+row	ExprSlice	59	Expr	Slice
+field	ExprSlice	59	Expr	Slice	base	BuildExprId	strict	base
+field	ExprSlice	59	Expr	Slice	start	Option<BuildExprId>	strict	start?
+field	ExprSlice	59	Expr	Slice	end	Option<BuildExprId>	strict	end?
+field	ExprSlice	59	Expr	Slice	span	Span	not_applicable
+row	ExprMethod	60	Expr	Method
+field	ExprMethod	60	Expr	Method	receiver	BuildExprId	strict	receiver
+field	ExprMethod	60	Expr	Method	name	NameText	not_applicable
+field	ExprMethod	60	Expr	Method	args	Vec<BuildExprId>	iterative	args[*]
+field	ExprMethod	60	Expr	Method	span	Span	not_applicable
+row	ExprStrByteLen	61	Expr	StrByteLen
+field	ExprStrByteLen	61	Expr	StrByteLen	receiver	BuildExprId	strict	receiver
+field	ExprStrByteLen	61	Expr	StrByteLen	span	Span	not_applicable
+row	ExprStrByteAt	62	Expr	StrByteAt
+field	ExprStrByteAt	62	Expr	StrByteAt	receiver	BuildExprId	strict	receiver
+field	ExprStrByteAt	62	Expr	StrByteAt	index	BuildExprId	strict	index
+field	ExprStrByteAt	62	Expr	StrByteAt	span	Span	not_applicable
+row	ExprStrPredicate	63	Expr	StrPredicate
+field	ExprStrPredicate	63	Expr	StrPredicate	receiver	BuildExprId	strict	receiver
+field	ExprStrPredicate	63	Expr	StrPredicate	predicate	LoweredStrPredicate	not_applicable
+field	ExprStrPredicate	63	Expr	StrPredicate	needle	BuildExprId	strict	needle
+field	ExprStrPredicate	63	Expr	StrPredicate	span	Span	not_applicable
+row	ExprRequire	65	Expr	Require
+field	ExprRequire	65	Expr	Require	value	BuildExprId	strict	value
+field	ExprRequire	65	Expr	Require	check	LoweredTypeCheck	not_applicable
+field	ExprRequire	65	Expr	Require	span	Span	not_applicable
+row	ExprCheckedValue	66	Expr	CheckedValue
+field	ExprCheckedValue	66	Expr	CheckedValue	value	BuildExprId	strict	value
+field	ExprCheckedValue	66	Expr	CheckedValue	check	LoweredTypeCheck	not_applicable
+field	ExprCheckedValue	66	Expr	CheckedValue	span	Span	not_applicable
+row	ExprRunCapture	67	Expr	RunCapture
+field	ExprRunCapture	67	Expr	RunCapture	value	Box<LoweredRunCapture>	iterative	value.operands.options[*].Timeout.value;value.operands.options[*].CpuMax.value;value.operands.options[*].Accept.value;value.operands.env[*].value.kind.Single.value;value.operands.env[*].value.kind.SingleOrSplice.value;value.operands.env[*].value.kind.Splice.value;value.operands.target.kind.Single.value;value.operands.target.kind.SingleOrSplice.value;value.operands.target.kind.Splice.value;value.operands.tail[*].Argument.value.kind.Single.value;value.operands.tail[*].Argument.value.kind.SingleOrSplice.value;value.operands.tail[*].Argument.value.kind.Splice.value;value.operands.tail[*].Redirection.value.target.kind.Single.value;value.operands.tail[*].Redirection.value.target.kind.SingleOrSplice.value;value.operands.tail[*].Redirection.value.target.kind.Splice.value
+row	ExprRunPipeline	68	Expr	RunPipeline
+field	ExprRunPipeline	68	Expr	RunPipeline	segments	Vec<LoweredRunPipelineSegment>	iterative	segments[*].operands.options[*].Timeout.value;segments[*].operands.options[*].CpuMax.value;segments[*].operands.options[*].Accept.value;segments[*].operands.env[*].value.kind.Single.value;segments[*].operands.env[*].value.kind.SingleOrSplice.value;segments[*].operands.env[*].value.kind.Splice.value;segments[*].operands.target.kind.Single.value;segments[*].operands.target.kind.SingleOrSplice.value;segments[*].operands.target.kind.Splice.value;segments[*].operands.tail[*].Argument.value.kind.Single.value;segments[*].operands.tail[*].Argument.value.kind.SingleOrSplice.value;segments[*].operands.tail[*].Argument.value.kind.Splice.value;segments[*].operands.tail[*].Redirection.value.target.kind.Single.value;segments[*].operands.tail[*].Redirection.value.target.kind.SingleOrSplice.value;segments[*].operands.tail[*].Redirection.value.target.kind.Splice.value
+field	ExprRunPipeline	68	Expr	RunPipeline	propagate	bool	not_applicable
+field	ExprRunPipeline	68	Expr	RunPipeline	span	Span	not_applicable
+row	ExprSpawnRun	69	Expr	SpawnRun
+field	ExprSpawnRun	69	Expr	SpawnRun	value	Box<LoweredSpawnRun>	iterative	value.operands.options[*].Timeout.value;value.operands.options[*].CpuMax.value;value.operands.options[*].Accept.value;value.operands.env[*].value.kind.Single.value;value.operands.env[*].value.kind.SingleOrSplice.value;value.operands.env[*].value.kind.Splice.value;value.operands.target.kind.Single.value;value.operands.target.kind.SingleOrSplice.value;value.operands.target.kind.Splice.value;value.operands.tail[*].Argument.value.kind.Single.value;value.operands.tail[*].Argument.value.kind.SingleOrSplice.value;value.operands.tail[*].Argument.value.kind.Splice.value;value.operands.tail[*].Redirection.value.target.kind.Single.value;value.operands.tail[*].Redirection.value.target.kind.SingleOrSplice.value;value.operands.tail[*].Redirection.value.target.kind.Splice.value
+row	ExprSpawnCommand	70	Expr	SpawnCommand
+field	ExprSpawnCommand	70	Expr	SpawnCommand	command	BuildExprId	strict	command
+field	ExprSpawnCommand	70	Expr	SpawnCommand	span	Span	not_applicable
+row	ExprWait	71	Expr	Wait
+field	ExprWait	71	Expr	Wait	target	BuildExprId	strict	target
+field	ExprWait	71	Expr	Wait	span	Span	not_applicable
+row	ExprCapture	72	Expr	Capture
+field	ExprCapture	72	Expr	Capture	body	Vec<BuildStmtId>	iterative	body[*]
+field	ExprCapture	72	Expr	Capture	span	Span	not_applicable
+row	ExprValueBlock	73	Expr	ValueBlock
+field	ExprValueBlock	73	Expr	ValueBlock	body	Vec<BuildStmtId>	iterative	body[*]
+field	ExprValueBlock	73	Expr	ValueBlock	span	Span	not_applicable
+row	ExprErrorContext	74	Expr	ErrorContext
+field	ExprErrorContext	74	Expr	ErrorContext	message	BuildExprId	strict	message
+field	ExprErrorContext	74	Expr	ErrorContext	body	Vec<BuildStmtId>	iterative	body[*]
+field	ExprErrorContext	74	Expr	ErrorContext	span	Span	not_applicable
+row	ExprContextScope	75	Expr	ContextScope
+field	ExprContextScope	75	Expr	ContextScope	kind	crate::syntax::arena::ContextScopeKind	not_applicable
+field	ExprContextScope	75	Expr	ContextScope	input	BuildExprId	strict	input
+field	ExprContextScope	75	Expr	ContextScope	body	Vec<BuildStmtId>	iterative	body[*]
+field	ExprContextScope	75	Expr	ContextScope	span	Span	not_applicable
+row	ExprLoop	76	Expr	Loop
+field	ExprLoop	76	Expr	Loop	body	Vec<BuildStmtId>	iterative	body[*]
+field	ExprLoop	76	Expr	Loop	span	Span	not_applicable
+row	ExprRetry	77	Expr	Retry
+field	ExprRetry	77	Expr	Retry	delays	Vec<BuildExprId>	iterative	delays[*]
+field	ExprRetry	77	Expr	Retry	pattern	Option<BuildPatternId>	selected	pattern?
+field	ExprRetry	77	Expr	Retry	body	Vec<BuildStmtId>	iterative	body[*]
+field	ExprRetry	77	Expr	Retry	span	Span	not_applicable
+field	ExprRetry	77	Expr	Retry	schedule	crate::syntax::arena::RetrySchedule	not_applicable
+row	ExprFsFiles	78	Expr	FsFiles
+field	ExprFsFiles	78	Expr	FsFiles	root	BuildExprId	strict	root
+field	ExprFsFiles	78	Expr	FsFiles	gitignore	Option<BuildExprId>	strict	gitignore?
+field	ExprFsFiles	78	Expr	FsFiles	stat	Option<BuildExprId>	strict	stat?
+field	ExprFsFiles	78	Expr	FsFiles	hidden	Option<BuildExprId>	strict	hidden?
+field	ExprFsFiles	78	Expr	FsFiles	exts	Option<BuildExprId>	strict	exts?
+field	ExprFsFiles	78	Expr	FsFiles	result_wrapped	bool	not_applicable
+field	ExprFsFiles	78	Expr	FsFiles	span	Span	not_applicable
+row	ExprFsWalk	79	Expr	FsWalk
+field	ExprFsWalk	79	Expr	FsWalk	root	BuildExprId	strict	root
+field	ExprFsWalk	79	Expr	FsWalk	gitignore	Option<BuildExprId>	strict	gitignore?
+field	ExprFsWalk	79	Expr	FsWalk	stat	Option<BuildExprId>	strict	stat?
+field	ExprFsWalk	79	Expr	FsWalk	hidden	Option<BuildExprId>	strict	hidden?
+field	ExprFsWalk	79	Expr	FsWalk	exts	Option<BuildExprId>	strict	exts?
+field	ExprFsWalk	79	Expr	FsWalk	result_wrapped	bool	not_applicable
+field	ExprFsWalk	79	Expr	FsWalk	span	Span	not_applicable
+row	ExprFsList	80	Expr	FsList
+field	ExprFsList	80	Expr	FsList	op	RuntimeOp	not_applicable
+field	ExprFsList	80	Expr	FsList	path	BuildExprId	strict	path
+field	ExprFsList	80	Expr	FsList	stat	Option<BuildExprId>	strict	stat?
+field	ExprFsList	80	Expr	FsList	ordered	Option<BuildExprId>	strict	ordered?
+field	ExprFsList	80	Expr	FsList	span	Span	not_applicable
+row	ExprFsTempDir	81	Expr	FsTempDir
+field	ExprFsTempDir	81	Expr	FsTempDir	span	Span	not_applicable
+row	ExprFsMkdir	82	Expr	FsMkdir
+field	ExprFsMkdir	82	Expr	FsMkdir	path	BuildExprId	strict	path
+field	ExprFsMkdir	82	Expr	FsMkdir	parents	Option<BuildExprId>	strict	parents?
+field	ExprFsMkdir	82	Expr	FsMkdir	span	Span	not_applicable
+row	ExprFsRemove	83	Expr	FsRemove
+field	ExprFsRemove	83	Expr	FsRemove	path	BuildExprId	strict	path
+field	ExprFsRemove	83	Expr	FsRemove	missing_ok	Option<BuildExprId>	strict	missing_ok?
+field	ExprFsRemove	83	Expr	FsRemove	span	Span	not_applicable
+row	ExprPathReadText	84	Expr	PathReadText
+field	ExprPathReadText	84	Expr	PathReadText	path	BuildExprId	strict	path
+field	ExprPathReadText	84	Expr	PathReadText	span	Span	not_applicable
+row	ExprPathReadBytes	85	Expr	PathReadBytes
+field	ExprPathReadBytes	85	Expr	PathReadBytes	path	BuildExprId	strict	path
+field	ExprPathReadBytes	85	Expr	PathReadBytes	span	Span	not_applicable
+row	ExprPathExists	86	Expr	PathExists
+field	ExprPathExists	86	Expr	PathExists	path	BuildExprId	strict	path
+field	ExprPathExists	86	Expr	PathExists	span	Span	not_applicable
+row	ExprPathExecutable	87	Expr	PathExecutable
+field	ExprPathExecutable	87	Expr	PathExecutable	path	BuildExprId	strict	path
+field	ExprPathExecutable	87	Expr	PathExecutable	span	Span	not_applicable
+row	ExprPathDu	88	Expr	PathDu
+field	ExprPathDu	88	Expr	PathDu	path	BuildExprId	strict	path
+field	ExprPathDu	88	Expr	PathDu	span	Span	not_applicable
+row	ExprPathMetadata	89	Expr	PathMetadata
+field	ExprPathMetadata	89	Expr	PathMetadata	path	BuildExprId	strict	path
+field	ExprPathMetadata	89	Expr	PathMetadata	span	Span	not_applicable
+row	ExprPathReadlink	90	Expr	PathReadlink
+field	ExprPathReadlink	90	Expr	PathReadlink	path	BuildExprId	strict	path
+field	ExprPathReadlink	90	Expr	PathReadlink	span	Span	not_applicable
+row	ExprPathResolve	91	Expr	PathResolve
+field	ExprPathResolve	91	Expr	PathResolve	path	BuildExprId	strict	path
+field	ExprPathResolve	91	Expr	PathResolve	span	Span	not_applicable
+row	ExprPathWrite	92	Expr	PathWrite
+field	ExprPathWrite	92	Expr	PathWrite	path	BuildExprId	strict	path
+field	ExprPathWrite	92	Expr	PathWrite	data	BuildExprId	strict	data
+field	ExprPathWrite	92	Expr	PathWrite	atomic	bool	not_applicable
+field	ExprPathWrite	92	Expr	PathWrite	span	Span	not_applicable
+row	ExprPathMkdir	93	Expr	PathMkdir
+field	ExprPathMkdir	93	Expr	PathMkdir	path	BuildExprId	strict	path
+field	ExprPathMkdir	93	Expr	PathMkdir	parents	Option<BuildExprId>	strict	parents?
+field	ExprPathMkdir	93	Expr	PathMkdir	span	Span	not_applicable
+row	ExprPathRemove	94	Expr	PathRemove
+field	ExprPathRemove	94	Expr	PathRemove	path	BuildExprId	strict	path
+field	ExprPathRemove	94	Expr	PathRemove	missing_ok	Option<BuildExprId>	strict	missing_ok?
+field	ExprPathRemove	94	Expr	PathRemove	span	Span	not_applicable
+row	ExprArchiveTarCreate	96	Expr	ArchiveTarCreate
+field	ExprArchiveTarCreate	96	Expr	ArchiveTarCreate	path	BuildExprId	strict	path
+field	ExprArchiveTarCreate	96	Expr	ArchiveTarCreate	root	BuildExprId	strict	root
+field	ExprArchiveTarCreate	96	Expr	ArchiveTarCreate	entries	BuildExprId	strict	entries
+field	ExprArchiveTarCreate	96	Expr	ArchiveTarCreate	compression	Option<BuildExprId>	strict	compression?
+field	ExprArchiveTarCreate	96	Expr	ArchiveTarCreate	overwrite	Option<BuildExprId>	strict	overwrite?
+field	ExprArchiveTarCreate	96	Expr	ArchiveTarCreate	span	Span	not_applicable
+row	ExprModuleCall	99	Expr	ModuleCall
+field	ExprModuleCall	99	Expr	ModuleCall	op	RuntimeOp	not_applicable
+field	ExprModuleCall	99	Expr	ModuleCall	call_plan	Option<Arc<crate::runtime::eval::ModuleCallPlan>>	not_applicable
+field	ExprModuleCall	99	Expr	ModuleCall	args	Vec<Option<BuildExprId>>	iterative	args[*]?
+field	ExprModuleCall	99	Expr	ModuleCall	span	Span	not_applicable
+row	ExprProcessCommandArgv	100	Expr	ProcessCommandArgv
+field	ExprProcessCommandArgv	100	Expr	ProcessCommandArgv	value	Box<LoweredProcessCommandArgv>	strict	value.target;value.argv;value.cwd?;value.env?;value.stdin?;value.stdout?;value.stderr?;value.stdout_append?;value.stderr_append?;value.timeout?;value.detach?;value.new_session?;value.ignore_hup?;value.cpu_max?;value.accept?;value.same_group?
+row	ExprProcessCommandBuilder	101	Expr	ProcessCommandBuilder
+field	ExprProcessCommandBuilder	101	Expr	ProcessCommandBuilder	entries	Vec<LoweredProcessCommandBuilderEntry>	iterative	entries[*].Field.value;entries[*].Run.operands.options[*].Timeout.value;entries[*].Run.operands.options[*].CpuMax.value;entries[*].Run.operands.options[*].Accept.value;entries[*].Run.operands.env[*].value.kind.Single.value;entries[*].Run.operands.env[*].value.kind.SingleOrSplice.value;entries[*].Run.operands.env[*].value.kind.Splice.value;entries[*].Run.operands.target.kind.Single.value;entries[*].Run.operands.target.kind.SingleOrSplice.value;entries[*].Run.operands.target.kind.Splice.value;entries[*].Run.operands.tail[*].Argument.value.kind.Single.value;entries[*].Run.operands.tail[*].Argument.value.kind.SingleOrSplice.value;entries[*].Run.operands.tail[*].Argument.value.kind.Splice.value;entries[*].Run.operands.tail[*].Redirection.value.target.kind.Single.value;entries[*].Run.operands.tail[*].Redirection.value.target.kind.SingleOrSplice.value;entries[*].Run.operands.tail[*].Redirection.value.target.kind.Splice.value
+field	ExprProcessCommandBuilder	101	Expr	ProcessCommandBuilder	span	Span	not_applicable
+row	ExprAbort	102	Expr	Abort
+field	ExprAbort	102	Expr	Abort	status	BuildExprId	strict	status
+field	ExprAbort	102	Expr	Abort	span	Span	not_applicable
+row	ExprFail	103	Expr	Fail
+field	ExprFail	103	Expr	Fail	message	BuildExprId	strict	message
+field	ExprFail	103	Expr	Fail	span	Span	not_applicable
+row	ExprOk	104	Expr	Ok
+field	ExprOk	104	Expr	Ok	value	BuildExprId	strict	value
+row	ExprErr	105	Expr	Err
+field	ExprErr	105	Expr	Err	value	BuildExprId	strict	value
+field	ExprErr	105	Expr	Err	cause	Option<BuildExprId>	strict	cause?
+row	ExprError	106	Expr	Error
+field	ExprError	106	Expr	Error	value	Box<LoweredErrorExpr>	iterative	value.Structured.fields[*].value
+row	ExprTry	107	Expr	Try
+field	ExprTry	107	Expr	Try	value	BuildExprId	strict	value
+field	ExprTry	107	Expr	Try	span	Span	not_applicable
+row	ExprCall	108	Expr	Call
+field	ExprCall	108	Expr	Call	function	LoweredFunctionKey	not_applicable
+field	ExprCall	108	Expr	Call	args	Vec<LoweredCallArg>	iterative	args[*].Single.value;args[*].Splice.value
+field	ExprCall	108	Expr	Call	span	Span	not_applicable
+row	ExprDirectPureCall	109	Expr	DirectPureCall
+field	ExprDirectPureCall	109	Expr	DirectPureCall	function	LoweredFunctionKey	not_applicable
+field	ExprDirectPureCall	109	Expr	DirectPureCall	args	Vec<LoweredCallArg>	iterative	args[*].Single.value;args[*].Splice.value
+field	ExprDirectPureCall	109	Expr	DirectPureCall	span	Span	not_applicable
+row	ExprExternalCall	110	Expr	ExternalCall
+field	ExprExternalCall	110	Expr	ExternalCall	function	QualifiedName	not_applicable
+field	ExprExternalCall	110	Expr	ExternalCall	args	Vec<LoweredCallArg>	iterative	args[*].Single.value;args[*].Splice.value
+field	ExprExternalCall	110	Expr	ExternalCall	span	Span	not_applicable
+row	ExprDynamicCall	111	Expr	DynamicCall
+field	ExprDynamicCall	111	Expr	DynamicCall	callee	BuildExprId	strict	callee
+field	ExprDynamicCall	111	Expr	DynamicCall	args	Vec<LoweredCallArg>	iterative	args[*].Single.value;args[*].Splice.value
+field	ExprDynamicCall	111	Expr	DynamicCall	span	Span	not_applicable
+row	ExprSelfCall	112	Expr	SelfCall
+field	ExprSelfCall	112	Expr	SelfCall	args	Vec<LoweredCallArg>	iterative	args[*].Single.value;args[*].Splice.value
+field	ExprSelfCall	112	Expr	SelfCall	span	Span	not_applicable
+row	ExprTypedCall	113	Expr	TypedCall
+field	ExprTypedCall	113	Expr	TypedCall	callee	BuildExprId	strict	callee
+field	ExprTypedCall	113	Expr	TypedCall	pure	bool	not_applicable
+field	ExprTypedCall	113	Expr	TypedCall	signature	Type	not_applicable
+field	ExprTypedCall	113	Expr	TypedCall	args	Vec<LoweredCallArg>	iterative	args[*].Single.value;args[*].Splice.value
+field	ExprTypedCall	113	Expr	TypedCall	span	Span	not_applicable
+row	ExprProcCallResult	114	Expr	ProcCallResult
+field	ExprProcCallResult	114	Expr	ProcCallResult	value	BuildExprId	strict	value
+row	StmtLet	115	Stmt	Let
+field	StmtLet	115	Stmt	Let	slot	usize	not_applicable
+field	StmtLet	115	Stmt	Let	value	BuildExprId	strict	value
+row	StmtGuard	116	Stmt	Guard
+field	StmtGuard	116	Stmt	Guard	target	LoweredCompTarget	not_applicable
+field	StmtGuard	116	Stmt	Guard	value	BuildExprId	strict	value
+field	StmtGuard	116	Stmt	Guard	else_param_slot	Option<usize>	not_applicable
+field	StmtGuard	116	Stmt	Guard	else_body	Vec<BuildStmtId>	selected	else_body[*]
+field	StmtGuard	116	Stmt	Guard	span	Span	not_applicable
+field	StmtGuard	116	Stmt	Guard	optional	bool	not_applicable
+row	StmtWith	117	Stmt	With
+field	StmtWith	117	Stmt	With	bindings	Vec<(usize, BuildExprId)>	iterative	bindings[*][1]
+field	StmtWith	117	Stmt	With	body	Vec<BuildStmtId>	selected	body[*]
+field	StmtWith	117	Stmt	With	else_param_slot	Option<usize>	not_applicable
+field	StmtWith	117	Stmt	With	else_body	Vec<BuildStmtId>	selected	else_body[*]
+field	StmtWith	117	Stmt	With	captures	Vec<usize>	not_applicable
+field	StmtWith	117	Stmt	With	span	Span	not_applicable
+row	StmtLetInt	118	Stmt	LetInt
+field	StmtLetInt	118	Stmt	LetInt	slot	usize	not_applicable
+field	StmtLetInt	118	Stmt	LetInt	value	BuildIntId	strict	value
+row	StmtLetBool	119	Stmt	LetBool
+field	StmtLetBool	119	Stmt	LetBool	slot	usize	not_applicable
+field	StmtLetBool	119	Stmt	LetBool	value	BuildBoolId	strict	value
+row	StmtAssign	120	Stmt	Assign
+field	StmtAssign	120	Stmt	Assign	slot	usize	not_applicable
+field	StmtAssign	120	Stmt	Assign	op	AssignOp	not_applicable
+field	StmtAssign	120	Stmt	Assign	value	BuildExprId	strict	value
+field	StmtAssign	120	Stmt	Assign	check	Option<LoweredTypeCheck>	not_applicable
+field	StmtAssign	120	Stmt	Assign	span	Span	not_applicable
+row	StmtAssignField	121	Stmt	AssignField
+field	StmtAssignField	121	Stmt	AssignField	slot	usize	not_applicable
+field	StmtAssignField	121	Stmt	AssignField	field	Arc<str>	not_applicable
+field	StmtAssignField	121	Stmt	AssignField	op	AssignOp	not_applicable
+field	StmtAssignField	121	Stmt	AssignField	value	BuildExprId	strict	value
+field	StmtAssignField	121	Stmt	AssignField	span	Span	not_applicable
+row	StmtAssignFieldInt	122	Stmt	AssignFieldInt
+field	StmtAssignFieldInt	122	Stmt	AssignFieldInt	slot	usize	not_applicable
+field	StmtAssignFieldInt	122	Stmt	AssignFieldInt	field	Arc<str>	not_applicable
+field	StmtAssignFieldInt	122	Stmt	AssignFieldInt	op	AssignOp	not_applicable
+field	StmtAssignFieldInt	122	Stmt	AssignFieldInt	value	BuildIntId	strict	value
+field	StmtAssignFieldInt	122	Stmt	AssignFieldInt	span	Span	not_applicable
+row	StmtAssignPath	123	Stmt	AssignPath
+field	StmtAssignPath	123	Stmt	AssignPath	slot	usize	not_applicable
+field	StmtAssignPath	123	Stmt	AssignPath	path	LoweredAssignPath	iterative	path[*].Index.index
+field	StmtAssignPath	123	Stmt	AssignPath	op	AssignOp	not_applicable
+field	StmtAssignPath	123	Stmt	AssignPath	value	BuildExprId	strict	value
+field	StmtAssignPath	123	Stmt	AssignPath	check	Option<LoweredTypeCheck>	not_applicable
+field	StmtAssignPath	123	Stmt	AssignPath	span	Span	not_applicable
+row	StmtAssignInt	124	Stmt	AssignInt
+field	StmtAssignInt	124	Stmt	AssignInt	slot	usize	not_applicable
+field	StmtAssignInt	124	Stmt	AssignInt	op	AssignOp	not_applicable
+field	StmtAssignInt	124	Stmt	AssignInt	value	BuildIntId	strict	value
+field	StmtAssignInt	124	Stmt	AssignInt	span	Span	not_applicable
+row	StmtAssignBool	125	Stmt	AssignBool
+field	StmtAssignBool	125	Stmt	AssignBool	slot	usize	not_applicable
+field	StmtAssignBool	125	Stmt	AssignBool	value	BuildBoolId	strict	value
+row	StmtValue	126	Stmt	Value
+field	StmtValue	126	Stmt	Value	value	BuildExprId	strict	value
+row	StmtAssert	127	Stmt	Assert
+field	StmtAssert	127	Stmt	Assert	value	BuildExprId	strict	value
+field	StmtAssert	127	Stmt	Assert	message	Option<BuildExprId>	selected	message?
+field	StmtAssert	127	Stmt	Assert	span	Span	not_applicable
+row	StmtExpr	128	Stmt	Expr
+field	StmtExpr	128	Stmt	Expr	value	BuildExprId	strict	value
+field	StmtExpr	128	Stmt	Expr	span	Span	not_applicable
+row	StmtIf	129	Stmt	If
+field	StmtIf	129	Stmt	If	branches	Vec<(BuildExprId, Vec<BuildStmtId>)>	selected	branches[*][0];branches[*][1][*]
+field	StmtIf	129	Stmt	If	else_body	Option<Vec<BuildStmtId>>	selected	else_body?[*]
+row	StmtIfBool	130	Stmt	IfBool
+field	StmtIfBool	130	Stmt	IfBool	branches	Vec<(BuildBoolId, Vec<BuildStmtId>)>	selected	branches[*][0];branches[*][1][*]
+field	StmtIfBool	130	Stmt	IfBool	else_body	Option<Vec<BuildStmtId>>	selected	else_body?[*]
+row	StmtWhile	131	Stmt	While
+field	StmtWhile	131	Stmt	While	condition	BuildExprId	strict	condition
+field	StmtWhile	131	Stmt	While	body	Vec<BuildStmtId>	iterative	body[*]
+row	StmtWhileBool	132	Stmt	WhileBool
+field	StmtWhileBool	132	Stmt	WhileBool	condition	BuildBoolId	strict	condition
+field	StmtWhileBool	132	Stmt	WhileBool	body	Vec<BuildStmtId>	iterative	body[*]
+row	StmtPatternIf	133	Stmt	PatternIf
+field	StmtPatternIf	133	Stmt	PatternIf	branches	Vec<(BuildExprId, Vec<BuildStmtId>, Vec<usize>)>	selected	branches[*][0];branches[*][1][*]
+field	StmtPatternIf	133	Stmt	PatternIf	else_body	Option<Vec<BuildStmtId>>	selected	else_body?[*]
+field	StmtPatternIf	133	Stmt	PatternIf	span	Span	not_applicable
+row	StmtPatternWhile	134	Stmt	PatternWhile
+field	StmtPatternWhile	134	Stmt	PatternWhile	condition	BuildExprId	strict	condition
+field	StmtPatternWhile	134	Stmt	PatternWhile	body	Vec<BuildStmtId>	iterative	body[*]
+field	StmtPatternWhile	134	Stmt	PatternWhile	captures	Vec<usize>	not_applicable
+field	StmtPatternWhile	134	Stmt	PatternWhile	span	Span	not_applicable
+row	StmtMatch	135	Stmt	Match
+field	StmtMatch	135	Stmt	Match	value	BuildExprId	strict	value
+field	StmtMatch	135	Stmt	Match	arms	Vec<(BuildPatternId, Option<BuildExprId>, Vec<BuildStmtId>)>	selected	arms[*][0];arms[*][1]?;arms[*][2][*]
+field	StmtMatch	135	Stmt	Match	span	Span	not_applicable
+row	StmtStrMatch	136	Stmt	StrMatch
+field	StmtStrMatch	136	Stmt	StrMatch	value	BuildExprId	strict	value
+field	StmtStrMatch	136	Stmt	StrMatch	arms	FxHashMap<Arc<str>, Vec<BuildStmtId>>	selected	arms.values[*][*]
+field	StmtStrMatch	136	Stmt	StrMatch	fallback	Option<Vec<BuildStmtId>>	selected	fallback?[*]
+field	StmtStrMatch	136	Stmt	StrMatch	span	Span	not_applicable
+row	StmtTagMatch	137	Stmt	TagMatch
+field	StmtTagMatch	137	Stmt	TagMatch	value	BuildExprId	strict	value
+field	StmtTagMatch	137	Stmt	TagMatch	arms	FxHashMap<Arc<str>, Vec<BuildStmtId>>	selected	arms.values[*][*]
+field	StmtTagMatch	137	Stmt	TagMatch	fallback	Option<Vec<BuildStmtId>>	selected	fallback?[*]
+field	StmtTagMatch	137	Stmt	TagMatch	span	Span	not_applicable
+row	StmtFor	138	Stmt	For
+field	StmtFor	138	Stmt	For	slot	usize	not_applicable
+field	StmtFor	138	Stmt	For	iter	BuildExprId	strict	iter
+field	StmtFor	138	Stmt	For	body	Vec<BuildStmtId>	iterative	body[*]
+field	StmtFor	138	Stmt	For	span	Span	not_applicable
+row	StmtLetRecord	139	Stmt	LetRecord
+field	StmtLetRecord	139	Stmt	LetRecord	source	BuildExprId	strict	source
+field	StmtLetRecord	139	Stmt	LetRecord	target	LoweredCompTarget	not_applicable
+field	StmtLetRecord	139	Stmt	LetRecord	span	Span	not_applicable
+row	StmtForRecord	140	Stmt	ForRecord
+field	StmtForRecord	140	Stmt	ForRecord	target	LoweredCompTarget	not_applicable
+field	StmtForRecord	140	Stmt	ForRecord	iter	BuildExprId	strict	iter
+field	StmtForRecord	140	Stmt	ForRecord	body	Vec<BuildStmtId>	iterative	body[*]
+field	StmtForRecord	140	Stmt	ForRecord	span	Span	not_applicable
+row	StmtForStrLines	141	Stmt	ForStrLines
+field	StmtForStrLines	141	Stmt	ForStrLines	slot	usize	not_applicable
+field	StmtForStrLines	141	Stmt	ForStrLines	text	BuildExprId	strict	text
+field	StmtForStrLines	141	Stmt	ForStrLines	body	Vec<BuildStmtId>	iterative	body[*]
+field	StmtForStrLines	141	Stmt	ForStrLines	span	Span	not_applicable
+row	StmtScanLines	142	Stmt	ScanLines
+field	StmtScanLines	142	Stmt	ScanLines	text_slot	usize	not_applicable
+field	StmtScanLines	142	Stmt	ScanLines	line_slot	usize	not_applicable
+field	StmtScanLines	142	Stmt	ScanLines	checks	Vec<ScanCheck>	not_applicable
+field	StmtScanLines	142	Stmt	ScanLines	span	Span	not_applicable
+row	StmtScanBytes	143	Stmt	ScanBytes
+field	StmtScanBytes	143	Stmt	ScanBytes	config	ScanBytes	not_applicable
+row	StmtPrint	144	Stmt	Print
+field	StmtPrint	144	Stmt	Print	args	Vec<BuildExprId>	iterative	args[*]
+field	StmtPrint	144	Stmt	Print	stderr	bool	not_applicable
+field	StmtPrint	144	Stmt	Print	flush	bool	not_applicable
+field	StmtPrint	144	Stmt	Print	propagate_result	bool	not_applicable
+field	StmtPrint	144	Stmt	Print	span	Span	not_applicable
+row	StmtCd	145	Stmt	Cd
+field	StmtCd	145	Stmt	Cd	target	BuildExprId	strict	target
+field	StmtCd	145	Stmt	Cd	body	Vec<BuildStmtId>	iterative	body[*]
+field	StmtCd	145	Stmt	Cd	span	Span	not_applicable
+row	StmtEnv	146	Stmt	Env
+field	StmtEnv	146	Stmt	Env	env	Vec<LoweredRunEnv>	iterative	env[*].value.kind.Single.value;env[*].value.kind.SingleOrSplice.value;env[*].value.kind.Splice.value
+field	StmtEnv	146	Stmt	Env	body	Vec<BuildStmtId>	iterative	body[*]
+row	StmtRun	148	Stmt	Run
+field	StmtRun	148	Stmt	Run	value	BuildExprId	strict	value
+field	StmtRun	148	Stmt	Run	propagate_result	bool	not_applicable
+row	StmtLoop	149	Stmt	Loop
+field	StmtLoop	149	Stmt	Loop	body	Vec<BuildStmtId>	iterative	body[*]
+row	StmtReturn	150	Stmt	Return
+field	StmtReturn	150	Stmt	Return	value	BuildExprId	strict	value
+row	StmtYield	151	Stmt	Yield
+field	StmtYield	151	Stmt	Yield	value	BuildExprId	strict	value
+row	StmtYieldDelegate	152	Stmt	YieldDelegate
+field	StmtYieldDelegate	152	Stmt	YieldDelegate	value	BuildExprId	strict	value
+field	StmtYieldDelegate	152	Stmt	YieldDelegate	span	Span	not_applicable
+row	StmtBreak	153	Stmt	Break
+row	StmtBreakValue	154	Stmt	BreakValue
+field	StmtBreakValue	154	Stmt	BreakValue	value	BuildExprId	strict	value
+row	StmtContinue	155	Stmt	Continue
+row	StmtDefer	156	Stmt	Defer
+field	StmtDefer	156	Stmt	Defer	value	BuildExprId	selected	value
+field	StmtDefer	156	Stmt	Defer	on_error	bool	not_applicable
+row	StmtDefaultParameter	157	Stmt	DefaultParameter
+field	StmtDefaultParameter	157	Stmt	DefaultParameter	slot	usize	not_applicable
+field	StmtDefaultParameter	157	Stmt	DefaultParameter	value	BuildExprId	strict	value
+field	StmtDefaultParameter	157	Stmt	DefaultParameter	kind	LoweredType	not_applicable
+field	StmtDefaultParameter	157	Stmt	DefaultParameter	check	Option<LoweredTypeCheck>	not_applicable
+field	StmtDefaultParameter	157	Stmt	DefaultParameter	span	Span	not_applicable

@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/route-direct-ir-admission/dev/consolidation/winddown/gate-tools/semantic-route-matrix/generate.py", line 7803, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/route-direct-ir-admission/dev/consolidation/winddown/gate-tools/semantic-route-matrix/generate.py", line 7788, in main
+    matrix = build_matrix(root, config, lock, args.direct_ir_receipt)
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/route-direct-ir-admission/dev/consolidation/winddown/gate-tools/semantic-route-matrix/generate.py", line 7583, in build_matrix
+    "manifest": str(OPERAND_MANIFEST.relative_to(root)),
+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/usr/lib/python3.14/pathlib/__init__.py", line 490, in relative_to
+    raise ValueError(f"{str(self)!r} is not in the subpath of {str(other)!r}")
+ValueError: '/home/josh/d/laputa-systems/xsh/.work/wt/route-direct-ir-admission/dev/consolidation/winddown/gate-tools/semantic-route-matrix/operand-order-manifest.tsv' is not in the subpath of '/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-7eb62cd99'
