@@ -228,9 +228,15 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
     if let messages = number(record, "qnum") { values = values.set("MSGS", f"{messages}") }
     if let pid = number(record, "lspid") { values = values.set("LSPID", f"{pid}") }
     if let pid = number(record, "lrpid") { values = values.set("LRPID", f"{pid}") }
-    if let seconds = number(record, "stime"), let text = display_time(seconds, selection.time_format) { values = values.set("SEND", text) }
-    if let seconds = number(record, "rtime"), let text = display_time(seconds, selection.time_format) { values = values.set("RECV", text) }
-    if let seconds = number(record, "ctime"), let text = display_time(seconds, selection.time_format) { values = values.set("CTIME", text) }
+    if let seconds = number(record, "stime") {
+      if let text = display_time(seconds, selection.time_format) { values = values.set("SEND", text) }
+    }
+    if let seconds = number(record, "rtime") {
+      if let text = display_time(seconds, selection.time_format) { values = values.set("RECV", text) }
+    }
+    if let seconds = number(record, "ctime") {
+      if let text = display_time(seconds, selection.time_format) { values = values.set("CTIME", text) }
+    }
   } else if kind == "shmems" {
     if let bytes = number(record, "size") { values = values.set("SIZE", if selection.bytes { f"{bytes}" } else { human_size(bytes) }) }
     if let count = number(record, "nattch") { values = values.set("NATTCH", f"{count}") }
@@ -240,9 +246,15 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
     if mode.bit_and(0o4000) != 0 { status += ["hugetlb"] }
     if mode.bit_and(0o10000) != 0 { status += ["noreserve"] }
     values = values.set("STATUS", status.join(","))
-    if let seconds = number(record, "atime"), let text = display_time(seconds, selection.time_format) { values = values.set("ATTACH", text) }
-    if let seconds = number(record, "dtime"), let text = display_time(seconds, selection.time_format) { values = values.set("DETACH", text) }
-    if let seconds = number(record, "ctime"), let text = display_time(seconds, selection.time_format) { values = values.set("CTIME", text) }
+    if let seconds = number(record, "atime") {
+      if let text = display_time(seconds, selection.time_format) { values = values.set("ATTACH", text) }
+    }
+    if let seconds = number(record, "dtime") {
+      if let text = display_time(seconds, selection.time_format) { values = values.set("DETACH", text) }
+    }
+    if let seconds = number(record, "ctime") {
+      if let text = display_time(seconds, selection.time_format) { values = values.set("CTIME", text) }
+    }
     if let pid = number(record, "cpid") {
       values = values.set("CPID", f"{pid}")
       if selection.columns.contains("COMMAND") { values = values.set("COMMAND", command_line(pid)) }
@@ -250,12 +262,22 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
     if let pid = number(record, "lpid") { values = values.set("LPID", f"{pid}") }
   } else {
     if let count = number(record, "nsems") { values = values.set("NSEMS", f"{count}") }
-    if let seconds = number(record, "otime"), let text = display_time(seconds, selection.time_format) { values = values.set("OTIME", text) }
-    if let seconds = number(record, "ctime"), let text = display_time(seconds, selection.time_format) { values = values.set("CTIME", text) }
-    if let selected_id = selection.id, selected_id >= 0, let identity = id, let count = number(record, "nsems") {
-      for index in range(count) {
-        let observation = linux.system_v_semaphore_element(identity, index)?
-        elements += [{number: index, value: observation.value, waiting_for_increase: observation.waiting_for_increase, waiting_for_zero: observation.waiting_for_zero, pid: observation.pid, command: command_line(observation.pid)}]
+    if let seconds = number(record, "otime") {
+      if let text = display_time(seconds, selection.time_format) { values = values.set("OTIME", text) }
+    }
+    if let seconds = number(record, "ctime") {
+      if let text = display_time(seconds, selection.time_format) { values = values.set("CTIME", text) }
+    }
+    if let selected_id = selection.id {
+      if selected_id >= 0 {
+        if let identity = id {
+          if let count = number(record, "nsems") {
+            for index in range(count) {
+              let observation = linux.system_v_semaphore_element(identity, index)?
+              elements += [{number: index, value: observation.value, waiting_for_increase: observation.waiting_for_increase, waiting_for_zero: observation.waiting_for_zero, pid: observation.pid, command: command_line(observation.pid)}]
+            }
+          }
+        }
       }
     }
   }
@@ -301,9 +323,11 @@ proc posix_entries(kind: Str, selection: report.Selection) [fs, time, env, error
       gnu.error("/dev/mqueue does not seem to be mounted. Use 'mount -t mqueue none /dev/mqueue' to mount it.")
       return []
     }
-    if let name = selection.name, !name.starts_with("/") {
-      gnu.error(f"message queue name must start with '/': {name}")
-      return []
+    if let name = selection.name {
+      if !name.starts_with("/") {
+        gnu.error(f"message queue name must start with '/': {name}")
+        return []
+      }
     }
   }
   let found = fs.children(directory, ordered: false)
@@ -357,9 +381,11 @@ proc selected_rows(selection: report.Selection) [fs, time, env, error] -> List[r
     var entries: List[IpcEntry] = []
     if kind in ["queues", "shmems", "semaphores"] {
       for record in sysv_records(kind)? {
-        if let wanted_id = selection.id, wanted_id >= 0 {
-          let record_id = number(record, if kind == "queues" { "msqid" } else if kind == "shmems" { "shmid" } else { "semid" })
-          continue when record_id != wanted_id
+        if let wanted_id = selection.id {
+          if wanted_id >= 0 {
+            let record_id = number(record, if kind == "queues" { "msqid" } else if kind == "shmems" { "shmid" } else { "semid" })
+            continue when record_id != wanted_id
+          }
         }
         if let entry = make_sysv_entry(kind, record, selection)? { entries += [entry] }
       }
@@ -367,12 +393,18 @@ proc selected_rows(selection: report.Selection) [fs, time, env, error] -> List[r
       entries = posix_entries(kind, selection)?
     }
     for entry in entries {
-      if kind in ["queues", "shmems", "semaphores"], let wanted_id = selection.id, wanted_id >= 0 {
-        let found_id = if let text = entry.values.get("ID"), let Ok(parsed) = text.parse_int() { parsed } else { null }
-        continue when found_id != wanted_id
+      if kind in ["queues", "shmems", "semaphores"] {
+        if let wanted_id = selection.id {
+          if wanted_id >= 0 {
+            let found_id = if let text = entry.values.get("ID") { if let Ok(parsed) = text.parse_int() { parsed } else { null } } else { null }
+            continue when found_id != wanted_id
+          }
+        }
       }
-      if kind.starts_with("posix_"), let wanted_name = selection.name {
-        continue when entry.values.get("NAME") != wanted_name
+      if kind.starts_with("posix_") {
+        if let wanted_name = selection.name {
+          continue when entry.values.get("NAME") != wanted_name
+        }
       }
       rows += [row_for(selection, entry)]
     }
@@ -442,17 +474,27 @@ proc global_rows(selection: report.Selection) [fs, time, env, error] -> List[rep
 
 proc report_failure(failure: report.OptionError) [process, env] {
   match failure {
-    report.OptionError.Invalid(detail) => { gnu.error(detail); exit 1 }
-    report.OptionError.EmptyColumn | report.OptionError.TooManyColumns => exit 1
+    report.Invalid(detail) => { gnu.error(detail); exit 1 }
+    report.EmptyColumn => { exit 1 }
+    report.TooManyColumns => { exit 1 }
   }
 }
 
 proc missing_resource(selection: report.Selection) [process, env] {
-  if selection.resources[0] in ["queues", "shmems", "semaphores"], let id = selection.id, id >= 0 { gnu.error(f"id {id} not found") }
+  if selection.resources[0] in ["queues", "shmems", "semaphores"] {
+    if let id = selection.id {
+      if id >= 0 { gnu.error(f"id {id} not found") }
+    }
+  }
 }
 
 proc output_width() [env] -> Int {
-  if let Ok(text) = env.get("COLUMNS"), let Ok(width) = text.parse_int(), width > 0 { width } else { 80 }
+  if let Ok(text) = env.get("COLUMNS") {
+    if let Ok(width) = text.parse_int() {
+      if width > 0 { return width }
+    }
+  }
+  80
 }
 
 proc main(...argv: List[Str]) [fs, process, env, time, io, error] {

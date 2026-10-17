@@ -592,8 +592,10 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
       if let code = option_code(name) {
         let group = conflict_group(code)
         if group >= 0 {
-          if let previous = first[group], previous != code {
-            return Err(OptionError.Invalid {detail: f"options {option_display(previous)} and {option_display(code)} cannot be combined"})
+          if let previous = first[group] {
+            if previous != code {
+              return Err(OptionError.Invalid {detail: f"options {option_display(previous)} and {option_display(code)} cannot be combined"})
+            }
           }
           first[group] = code
         }
@@ -633,8 +635,10 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
         if let mapped = option_code(name) {
           let group = conflict_group(mapped)
           if group >= 0 {
-            if let previous = first[group], previous != mapped {
-              return Err(OptionError.Invalid {detail: f"options {option_display(previous)} and {option_display(mapped)} cannot be combined"})
+            if let previous = first[group] {
+              if previous != mapped {
+                return Err(OptionError.Invalid {detail: f"options {option_display(previous)} and {option_display(mapped)} cannot be combined"})
+              }
             }
             first[group] = mapped
           }
