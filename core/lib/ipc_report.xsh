@@ -305,14 +305,14 @@ pure render_json(selection: Selection, rows: List[Row]) -> Str {
   var out = f"{{\n   \"{table}\": [\n"
   for row_index in range(rows.len()) {
     let row = rows[row_index]
-    out += "      {\n"
+    out += if row_index == 0 { "      {\n" } else { "{\n" }
     for index in range(selection.columns.len()) {
       let cell = row.cells[index]
       let value = if !cell.present { "null" } else { f"\"{escape_json(cell.text)}\"" }
       let comma = if index == selection.columns.len() - 1 { "" } else { "," }
       out += f"         \"{heading(selection, selection.columns[index]).lower()}\": {value}{comma}\n"
     }
-    let suffix = if row_index == rows.len() - 1 { "      }\n" } else { "      },\n" }
+    let suffix = if row_index == rows.len() - 1 { "      }\n" } else { "      }," }
     out += suffix
   }
   out + "   ]\n}\n"
