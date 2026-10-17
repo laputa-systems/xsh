@@ -668,7 +668,7 @@ mod tests {
         fs::write(root.join("common.git/info/exclude"), "/private/\n").unwrap();
         fs::write(worktree.join("visible.xsh"), "let value = 1\n").unwrap();
         fs::write(excluded.join("hidden.xsh"), "let value = 1\n").unwrap();
-        fs::set_permissions(&excluded, fs::Permissions::from_mode(0)).unwrap();
+        fs::set_permissions(&excluded, fs::Permissions::from_mode(0o0)).unwrap();
 
         let mut files = Vec::new();
         let result = collect_xsh_files(
@@ -761,7 +761,7 @@ mod tests {
         let root = temp_root("unreadable-directory");
         let private = root.join("private");
         fs::create_dir_all(&private).unwrap();
-        fs::set_permissions(&private, fs::Permissions::from_mode(0)).unwrap();
+        fs::set_permissions(&private, fs::Permissions::from_mode(0o0)).unwrap();
         let permission_denied = fs::read_dir(&private).is_err_and(|error| {
             error.kind() == std::io::ErrorKind::PermissionDenied
         });
