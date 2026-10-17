@@ -45,7 +45,7 @@ see the same mount identity. A host mount, disk, or device is never used as a
 fixture.
 
 The mountpoint and namei permission cases make only their owned scene root
-traversable and set the owned child directory to mode 000. The coordinator's
-setpriv helper runs the reference and candidate with UID 10001 and capabilities
+traversable and set the owned child directory to mode 000. The native support
+helper runs the reference and candidate with UID 10001 and capabilities
 dropped, then the tests verify the denied directory mode and its file contents
 are unchanged.
