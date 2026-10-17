@@ -129,8 +129,9 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
   let released_reference = ul.reference(s, "lsipc", options)?
   let released_candidate = uu.invoke(s, "lsipc", options)?
   uu.succeeds(released_reference)
-  assert released_reference.stdout == b"{\n   \"\": [\n\n   ]\n}\n", f"reference_stdout_b64={released_reference.stdout.base64()} candidate_stdout_b64={released_candidate.stdout.base64()}"
-  assert released_reference.stderr == b"", f"reference_stderr_b64={released_reference.stderr.base64()}"
+  let removed = json.decode(released_reference.stdout.utf8()?)?
+  assert json.get(removed, [""])?.require(List[Any])?.is_empty()
+  assert released_reference.stderr == b""
   ul.compare(released_reference, released_candidate)
   for line in p"/proc/sysvipc/shm".read_text()?.lines() {
     let fields = line.fields()
