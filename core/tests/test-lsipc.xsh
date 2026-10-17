@@ -115,7 +115,7 @@ proc assert_seeded_activity(ready: KeeperReady, snapshot: Bytes) [error] {
       assert json.get(document, ["resources", index, "state", "stime"])?.require(Str)?.parse_int()? > 0
       assert json.get(document, ["resources", index, "state", "rtime"])?.require(Str)?.parse_int()? > 0
       assert json.get(document, ["resources", index, "state", "ctime"])?.require(Str)?.parse_int()? > 0
-    } elif resource.kind == "sysv_shmem" {
+    } else if resource.kind == "sysv_shmem" {
       assert json.get(document, ["resources", index, "state", "size"])?.require(Str)? == "4096"
       assert json.get(document, ["resources", index, "state", "nattch"])?.require(Str)? == "1"
       assert json.get(document, ["resources", index, "state", "cpid"])?.require(Str)? == f"{ready.pid}"
@@ -123,26 +123,26 @@ proc assert_seeded_activity(ready: KeeperReady, snapshot: Bytes) [error] {
       assert json.get(document, ["resources", index, "state", "atime"])?.require(Str)?.parse_int()? > 0
       assert json.get(document, ["resources", index, "state", "dtime"])?.require(Str)?.parse_int()? > 0
       assert json.get(document, ["resources", index, "state", "ctime"])?.require(Str)?.parse_int()? > 0
-    } elif resource.kind == "sysv_semaphore" {
+    } else if resource.kind == "sysv_semaphore" {
       assert json.get(document, ["resources", index, "state", "nsems"])?.require(Str)? == "2"
       assert json.get(document, ["resources", index, "state", "values"])?.require(List[Int])? == [0, 0]
       assert json.get(document, ["resources", index, "state", "otime"])?.require(Str)?.parse_int()? > 0
       assert json.get(document, ["resources", index, "state", "ctime"])?.require(Str)?.parse_int()? > 0
-    } elif resource.kind == "posix_mqueue" {
+    } else if resource.kind == "posix_mqueue" {
       assert json.get(document, ["resources", index, "state", "uid"])?.require(Int)? == resource.owner_uid
       assert json.get(document, ["resources", index, "state", "gid"])?.require(Int)? == resource.owner_gid
       assert json.get(document, ["resources", index, "state", "mode"])?.require(Int)? == resource.mode
       assert json.get(document, ["resources", index, "state", "attributes", "curmsgs"])?.require(Int)? == 1
       assert json.get(document, ["resources", index, "state", "mtime_ns"])?.require(Int)? > 0
       assert json.get(document, ["resources", index, "state", "ctime_ns"])?.require(Int)? > 0
-    } elif resource.kind == "posix_shmem" {
+    } else if resource.kind == "posix_shmem" {
       assert json.get(document, ["resources", index, "state", "uid"])?.require(Int)? == resource.owner_uid
       assert json.get(document, ["resources", index, "state", "gid"])?.require(Int)? == resource.owner_gid
       assert json.get(document, ["resources", index, "state", "mode"])?.require(Int)? == resource.mode
       assert json.get(document, ["resources", index, "state", "size"])?.require(Int)? == 4096
       assert json.get(document, ["resources", index, "state", "mtime_ns"])?.require(Int)? > 0
       assert json.get(document, ["resources", index, "state", "ctime_ns"])?.require(Int)? > 0
-    } elif resource.kind == "posix_semaphore" {
+    } else if resource.kind == "posix_semaphore" {
       assert json.get(document, ["resources", index, "state", "uid"])?.require(Int)? == resource.owner_uid
       assert json.get(document, ["resources", index, "state", "gid"])?.require(Int)? == resource.owner_gid
       assert json.get(document, ["resources", index, "state", "mode"])?.require(Int)? == resource.mode
