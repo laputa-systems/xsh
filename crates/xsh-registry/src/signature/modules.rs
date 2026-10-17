@@ -4905,6 +4905,11 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Counters are a point-in-time kernel observation and can change between fields or calls.",
             &["linux", "memory", "host-state"],
         ),
+        "LinuxSystemVSemaphoreElement" => (
+            "Reports one System V semaphore element's value, wait counts, and last-operation PID.",
+            "value is GETVAL, waiting_for_increase is GETNCNT, waiting_for_zero is GETZCNT, and pid is GETPID. Each field is a separate semctl observation of the selected element; concurrent operations can change state between calls.",
+            &["linux", "ipc", "semaphore", "record"],
+        ),
         "LinuxBlkid" => (
             "Describes Linux block-device identification data.",
             "Identification fields come from the device probe and must not be treated as a write authorization.",

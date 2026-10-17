@@ -4541,8 +4541,16 @@ Contracts worth knowing without consulting the reference:
   destructive ones (`halt`, `reboot`, `mount`, `insmod`, link and address
   changes, `write_partition_table`). There is no environment gate or dry-run
   switch; the `process` effect is what makes these calls explicit. On other
-  platforms every entry fails with `linux-unsupported`. Native tests use
-  `test.linux_fake` (§17) instead of the host.
+  platforms entries fail with `linux-unsupported`, except the three IPC
+  observation functions below, which fail with `unsupported-platform`. Native
+  tests can install `test.linux_fake` (§17).
+- `linux.posix_semaphore_value`, `linux.posix_message_queue_messages`, and
+  `linux.system_v_semaphore_element` observe existing IPC objects. POSIX names
+  are exact `Bytes`; embedded NUL bytes are rejected. These functions neither
+  create IPC objects, receive queue messages, nor change semaphore values.
+  The System V element record contains `value`, `waiting_for_increase`,
+  `waiting_for_zero`, and `pid`. Its four fields come from separate `semctl`
+  calls and do not form an atomic snapshot.
 - The `linux` storage transport sends commands to a device descriptor
   (`unix.open_fd`) and returns what the device reported. `sg_io` and
   `sg_io_command` issue SCSI commands through `SG_IO` on SCSI generic, block,
@@ -4911,8 +4919,10 @@ reported as a timeout failure.
 `test.linux_fake(ctx, settings)` replaces the `linux` module with a fixed
 double for the rest of the test and for scripts the test runs through
 `test.run_script` and `test.run_xsh` (not `test.run_xsht_trace`). The fake
-never touches the host: every entry returns fixed data, and each call appends a
-JSON line naming its operation and arguments to the `log` setting. The other
+never touches the host. Supported operations return fixed data and append a
+JSON line naming their operation and arguments when `log` is set. The three
+IPC observation functions in §15 return `linux-ipc-observation` errors without
+writing a log entry. The other
 settings (`root_device`, `sysctl_value`, `file_attrs_flags`, `file_version`,
 `hwclock_epoch_ms`) choose the values some queries report; `storage_fixture`
 and `netlink_fixture` name the recorded device and netlink exchanges that
