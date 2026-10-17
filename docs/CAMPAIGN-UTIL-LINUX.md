@@ -152,6 +152,29 @@ an assertion-based native fixture covering all required lock classes.
 
 ## Sequence
 
+### Workstream ownership
+
+The owner authorized sixteen concurrent source workstreams. Twelve util-linux
+workers share the coordinator, independent reviewer, consolidation gate owner
+and disk owner. Source width does not increase execution width.
+
+The four original workers own command implementations and command documentation.
+Four parity workers own their dedicated command tests, fixtures and coverage maps:
+`lslocks`, `lsipc`, `lsmem`, and the paired `mountpoint` and `namei` corpus.
+The path corpus uses `dev/util-linux/coverage/paths.md`.
+
+Two regression workers own new storage and process regression files and their
+own fixtures. The storage worker covers `lsblk`, `findmnt`, `lscpu` and `lsns`.
+The process worker covers `flock`, `chrt`, `setsid` and `rev`.
+The private-context worker owns `support/util_linux_contexts.xsh`, its dedicated
+test file and context fixtures. The acceptance worker owns `acceptance.py` and
+its unit tests. The coordinator retains the shared native helper, thin CLI,
+host primitives, integration and final verification.
+
+All execution still uses the existing global guards and resource caps.
+The coordinator serializes native checks. Source workers do not launch competing
+containers, builds or native suites. Consolidation timing retains priority.
+
 ### P0: qualify the reference and prove the loop
 
 Width: coordinator plus up to four read-only or corpus-preparation lanes.
@@ -231,7 +254,7 @@ parsing independently, then integrate the host seam after the freeze lease ends.
 
 ### P1: complete the command cohort
 
-Width: four implementation lanes. Begin independent corpus work as soon as
+Width: four implementation lanes and four disjoint parity lanes. Begin independent corpus work as soon as
 U0.2 lands. Begin each lane's feature work after common U0.1 and U0.2 acceptance
 and its required positive U0.3 and baseline U0.4 proofs pass.
 `lslocks` is the first capability the coordinator accepts. Other lanes may
@@ -269,8 +292,9 @@ names. Remove only those objects on every exit path. Never scan-delete objects.
 Run permission cases under a real unprivileged UID and a second owner UID,
 with capabilities dropped. A root-only permission probe cannot qualify them.
 
-Each lane ships native tests and command-specific documentation text with its
-slice. The coordinator applies shared documentation and registry changes.
+Each implementation lane ships command-specific documentation text with its
+slice. Its parity worker ships the dedicated native corpus and fixtures.
+The coordinator applies shared documentation and registry changes.
 The lane report names contract changes, exact checks, remaining behaviors,
 new shared-API needs, and checks integration must run.
 
