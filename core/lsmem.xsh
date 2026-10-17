@@ -5,10 +5,56 @@ use lib.util_linux_io as ul_io
 
 const HELP = "\nUsage:\n lsmem [options]\n\nList the ranges of available memory with their online status.\n\nOptions:\n -J, --json           use JSON output format\n -P, --pairs          use key=\"value\" output format\n -a, --all            list each individual memory block\n -b, --bytes          print SIZE in bytes rather than in human readable format\n -n, --noheadings     don't print headings\n -o, --output <list>  output columns\n     --output-all     output all columns\n -r, --raw            use raw output format\n -S, --split <list>   split ranges by specified columns\n -s, --sysroot <dir>  use the specified directory as system root\n     --summary[=when] print summary information (never,always or only)\n\n -h, --help           display this help\n -V, --version        display version\n\nAvailable output columns:\n      RANGE  start and end address of the memory range\n       SIZE  size of the memory range\n      STATE  online status of the memory range\n  REMOVABLE  memory is removable\n      BLOCK  memory block number or blocks range\n       NODE  numa node of memory\n      ZONES  valid zones for the memory range\n CONFIGURED  configuration status of the memory range\n MEMMAP-ON-MEMORY  memmap-on-memory status of the memory range\n\nFor more details see lsmem(1)."
 
+const LONG_OPTIONS = ["all", "bytes", "json", "noheadings", "output", "output-all", "pairs", "raw", "split", "sysroot", "summary", "help", "version"]
+const SHORT_OPTIONS = ["a", "b", "J", "P", "n", "o", "r", "S", "s", "h", "V"]
+
+proc unknown_long_option(argv: List[Str]) [env] -> Str? {
+  var index = 0
+  while index < argv.len() {
+    let word = argv[index]
+    index += 1
+    if word == "--" { return null }
+    if word.starts_with("--") {
+      let parts = word.byte_slice(2).split("=", maxsplit: 1)
+      let name = parts[0]
+      let matches = [option for option in LONG_OPTIONS if option.starts_with(name)]
+      if matches.is_empty() { return name }
+      if matches.len() != 1 { return null }
+      let option = matches[0]
+      if option in ["help", "version"] { return null }
+      if parts.len() > 1 and option not in ["output", "split", "sysroot", "summary"] { return null }
+      if option in ["output", "split", "sysroot"] and parts.len() == 1 {
+        if index == argv.len() { return null }
+        index += 1
+      }
+      continue
+    }
+    if word.starts_with("-") and word != "-" {
+      let flags = word.byte_slice(1)
+      for position in range(flags.byte_len()) {
+        let flag = flags.byte_slice(position, length: 1)
+        if flag not in SHORT_OPTIONS { return null }
+        if flag == "h" or flag == "V" { return null }
+        if flag in ["o", "S", "s"] {
+          if position + 1 == flags.byte_len() {
+            if index == argv.len() { return null }
+            index += 1
+          }
+          break
+        }
+      }
+      continue
+    }
+    if let Ok(_) = env.get("POSIXLY_CORRECT") { return null }
+  }
+  null
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if process.signal_action("PIPE")? == "default" {
     process.set_signal_action("PIPE", "default")
   }
+  if let option = unknown_long_option(argv) { gnu.usage_error(f"unrecognized option: {option}") }
 
   let opts: report.Options = cli.applet(argv, {
     gnu: {status: 1},
