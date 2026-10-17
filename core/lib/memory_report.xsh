@@ -171,32 +171,42 @@ pure memory_entries(paths: List[Path]) -> List[Entry] {
   entries |> sort-by .index
 }
 
-pure hex_digit(value: Str) -> Int? {
-  let index = "0123456789abcdef".find(value.lower())
-  index
+pure hex_digit_byte(value: Int) -> Int? {
+  if value >= 48 and value <= 57 { return value - 48 }
+  if value >= 65 and value <= 70 { return value - 55 }
+  if value >= 97 and value <= 102 { return value - 87 }
+  null
 }
 
-proc block_size_value(text: Str) [process, env] -> U64 {
-  let value = text.trim().lower()
-  let signed = value.starts_with("+") or value.starts_with("-")
-  let body = if signed { value.byte_slice(1) } else { value }
-  let digits = if body.starts_with("0x") { body.byte_slice(2) } else { body }
+proc block_size_value(text: Bytes) [process, env] -> U64 {
+  var length = if text.len() > 127 { 127 } else { text.len() }
+  for at in range(length) {
+    if (text.byte_at(at) ?? 0) == 0 { length = at; break }
+  }
+  var position = 0
+  while position < length and (text.byte_at(position) ?? 0) in [9, 10, 11, 12, 13, 32] { position += 1 }
+  var negative = false
+  if position < length and (text.byte_at(position) ?? 0) in [43, 45] {
+    negative = (text.byte_at(position) ?? 0) == 45
+    position += 1
+  }
+  if position + 1 < length and (text.byte_at(position) ?? 0) == 48 and (text.byte_at(position + 1) ?? 0) in [88, 120] { position += 2 }
   var number: U64 = {high: 0, low: 0}
   var found = false
-  for digit in digits {
-    if let value = hex_digit(digit) {
-      let low = (number.low as UInt) * 16 + value as UInt
-      let carry = low / WORD_BASE
-      let high = (number.high as UInt) * 16 + carry
-      if high > WORD_MAX { fail("failed to read memory block size"); return {high: 0, low: 0} }
-      number = {high: high as Word32, low: (low % WORD_BASE) as Word32}
-      found = true
-    } else {
-      break
-    }
+  while position < length {
+    let digit = hex_digit_byte(text.byte_at(position) ?? 0)
+    if digit == null { break }
+    let value = (digit ?? 0) as UInt
+    let low = (number.low as UInt) * 16 + value
+    let carry = low / WORD_BASE
+    let high = (number.high as UInt) * 16 + carry
+    if high > WORD_MAX { fail("failed to read memory block size"); return {high: 0, low: 0} }
+    number = {high: high as Word32, low: (low % WORD_BASE) as Word32}
+    found = true
+    position += 1
   }
   return {high: 0, low: 0} when ! found
-  if value.starts_with("-") and (number.high != 0 or number.low != 0) {
+  if negative and (number.high != 0 or number.low != 0) {
     number = u64_add_small({high: (WORD_MAX - (number.high as UInt)) as Word32, low: (WORD_MAX - (number.low as UInt)) as Word32}, 1)
   }
   number
@@ -358,15 +368,15 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
   if directory.kind != "dir" { fail("cannot open /sys/devices/system/memory: Not a directory") }
   let block_size_path = fp"{MEMORY_PATH}/block_size_bytes"
   if ! root.exists(block_size_path)? { fail("This system does not support memory blocks") }
-  let block_size_contents = match root.read_text(block_size_path) {
+  let block_size_contents = match root.read_bytes(block_size_path) {
     Ok(text) => text
     Err(_) => {
       fail("failed to read memory block size")
-      ""
+      b""
     }
   }
-  if block_size_contents == "" { fail("failed to read memory block size") }
-  let block_size = block_size_value(without_final_newline(block_size_contents))
+  if block_size_contents.is_empty() { fail("failed to read memory block size") }
+  let block_size = block_size_value(block_size_contents)
   let memory_paths = children(root, memory_path, "/sys/devices/system/memory")
   let entries = memory_entries(memory_paths)
   if entries.is_empty() { fail("Failed to read /sys/devices/system/memory") }
