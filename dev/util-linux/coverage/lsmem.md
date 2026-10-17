@@ -41,7 +41,7 @@ matrix is only a baseline; it does not cover the complete option surface.
 | `-P`, `--pairs` | Key/value output; sparse-root and configured-root cases |
 | `-r`, `--raw` | Raw output; upstream, sparse-root, and configured-root cases |
 | `-S`, `--split LIST` | Select merge attributes; upstream and state/node/zone/configured-root cases |
-| `-s`, `--sysroot DIR` | Read under an alternate root; every rooted case, including its short form |
+| `-s`, `--sysroot DIR` | Read under an alternate root; rooted cases cover separated arguments, and `test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference` compares raw non-UTF-8 paths attached to `--sysroot=` and `-s`, plus separated raw and ordinary paths |
 | `--summary[=when]` | `when` may be `never`, `always`, or `only`; all modes and the bare form use the sparse fixture |
 | `-V`, `--version` | Print version; both forms use the separate identity assertion |
 
@@ -84,6 +84,13 @@ util-linux comparator remains byte-exact. The `nonnumeric-entry`
 fixture adds a valid numeric block beside a nonnumeric `memory` directory; its
 native case verifies the latter does not hide the block.
 
+`test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference` copies the sparse
+fixture under a path containing an undecodable byte and compares attached long
+and short sysroot arguments plus separated raw and ordinary path arguments.
+Terminal table output at 24 and 120 columns is compared by the shared
+`core/tests/test-util-linux-contexts.xsh::test_util_linux_context_terminal_rooted_memory`
+case.
+
 | Native test | Coverage |
 |---|---|
 | `test_lsmem_util_linux_2_42_4_upstream_s390_zvm_6g` | Nine upstream invocations on the s390 dump |
@@ -93,6 +100,7 @@ native case verifies the latter does not hide the block.
 | `test_lsmem_rooted_sparse_memory_attributes_and_output_modes` | Fixture-backed range discovery, merging, columns, output formats, bytes, headings, and summary modes |
 | `test_lsmem_rooted_columns_environment_and_explicit_output_precedence` | `LSMEM_COLUMNS`, invalid environment columns, explicit `--output`, and `--output-all` |
 | `test_lsmem_rooted_short_option_aliases` | Short aliases for the supported output, byte, split, and sysroot options |
+| `test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference` | Raw non-UTF-8 sysroot values attached to `--sysroot=` and `-s`, with separated raw and ordinary path controls |
 | `test_lsmem_rooted_configured_memory_and_memmap_summary` | Firmware configuration, per-block memmap, and global summary modes |
 | `test_lsmem_rooted_malformed_block_attributes` | Invalid hexadecimal block size and malformed block attributes |
 | `test_lsmem_rooted_numeric_and_state_parsing_matches_reference` | Block-size syntax, exact state matching, and removable-value parsing |
@@ -107,6 +115,7 @@ native case verifies the latter does not hide the block.
 | `test_lsmem_rooted_nonnumeric_memory_entry_does_not_hide_numeric_block` | Nonnumeric `memory` directory is ignored alongside a valid numeric block |
 | `test_lsmem_rooted_missing_sysfs_tree_does_not_use_host_memory` | Missing rooted sysfs data fails without host fallback |
 | `test_lsmem_rooted_option_errors_match_reference` | Format conflicts, invalid arguments, unknown columns/options, and positional operands |
+| `core/tests/test-util-linux-contexts.xsh::test_util_linux_context_terminal_rooted_memory` | Exact reference/candidate table bytes at terminal widths 24 and 120 |
 
 The upstream calls and added rooted cases are differential oracles, not recorded
 expected transcripts. The cases compare each candidate invocation against the

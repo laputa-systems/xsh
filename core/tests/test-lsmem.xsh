@@ -52,6 +52,17 @@ proc compare_lsmem_rooted(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, 
   compare_lsmem(s, args.extend(["--sysroot", s.root.display()]), vars)
 }
 
+proc compare_lsmem_paths(s: uu.Scene, args: List[Path]) [fs, process, env, error] -> Result[Unit, Error] {
+  let reference = ul.reference_paths(s, "lsmem", args, timeout: 5s)?
+  let candidate = uu.invoke_paths(s, "lsmem", args, timeout: 5s)?
+  assert reference.status == 0, reference.stderr.utf8() ?? "reference stderr is not UTF-8"
+  assert candidate.status == 0, candidate.stderr.utf8() ?? "candidate stderr is not UTF-8"
+  assert reference.stderr == b"" and candidate.stderr == b""
+  assert ! reference.stdout.is_empty()
+  ul.compare(reference, candidate)
+  Ok()
+}
+
 pure lsmem_zero_entry_suffix_is_one_line(stderr: Bytes, prefix_length: Int) -> Bool {
   if stderr.len() <= prefix_length + 1 or ! stderr.ends_with(b"\n") { return false }
   var offset = prefix_length
@@ -176,6 +187,24 @@ test test_lsmem_rooted_short_option_aliases { |ctx|
   ]
   for args in cases { compare_lsmem_rooted(s, args)? }
   compare_lsmem(s, ["-s", s.root.display(), "-o", columns])?
+}
+
+test test_lsmem_rooted_non_utf8_sysroot_arguments_match_reference { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  let raw_root = uu.at_bytes(s, b"sysroot-\xff")?
+  raw_root.mkdir()?
+  let source = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/memory/sparse"
+  let _ = fs.copy_tree(source, raw_root, overwrite: true, follow_symlinks: false)?
+  let long_attached = Path.parse_bytes(bytes.concat([b"--sysroot=", raw_root.bytes()]))?
+  let short_attached = Path.parse_bytes(bytes.concat([b"-s", raw_root.bytes()]))?
+  let cases: List[List[Path]] = [
+    [long_attached, p"--summary=only"],
+    [short_attached, p"--summary=only"],
+    [p"--sysroot", raw_root, p"--summary=only"],
+    [p"--sysroot", s.root, p"--summary=only"],
+  ]
+  for args in cases { compare_lsmem_paths(s, args)? }
 }
 
 test test_lsmem_rooted_configured_memory_and_memmap_summary { |ctx|
