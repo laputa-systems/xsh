@@ -23,7 +23,7 @@ export proc write_text(text: Str) [process, io] -> Unit {
   flush_output()
 }
 
-## Writes help text with exactly one required final newline.
+## Writes help text, adding a final newline when absent.
 export proc help(text: Str) [process, io] -> Unit {
   write_text(if text.ends_with("\n") { text } else { f"{text}\n" })
 }

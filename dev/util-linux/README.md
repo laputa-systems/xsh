@@ -43,6 +43,9 @@ hashes and the Rust, Cargo and helper inputs match their source revision.
 Native execution checks that qualification before and after each case.
 The source and product container mounts are read-only. Owned scratch uses `/t`.
 
+`source --check core/lsmem.xsh core/tests/test-lsmem.xsh` checks explicit XSH
+source files with the qualified toolchain and the same shared guards.
+
 `baseline --check` executes all five reference and candidate version paths,
 accounts for missing candidate commands explicitly, and samples candidate peak RSS.
 The selector has a 30-second execution bound. Final timing gates remain separate.
@@ -52,6 +55,12 @@ between a signal and its shell exit-code convention. The exact native control
 distinguishes SIGTERM from ordinary exit 143. The private runner proves changed
 IPC, mount and PID namespaces, fresh procfs, and two unprivileged identities
 with zero effective capabilities.
+
+The five cohort commands report failed stdout writes as `NAME: write error`
+and exit 1. An inherited default SIGPIPE disposition terminates a closed-reader
+write by signal. An inherited ignored disposition remains ignored and uses the
+write-error path. The shared cohort helper leaves other GNU command helpers
+unchanged.
 
 Lane admission requires the common controls and that lane's own positive boundary
 proofs. Rooted memory and private bind proofs pass. Lock and IPC fixture lifetime
