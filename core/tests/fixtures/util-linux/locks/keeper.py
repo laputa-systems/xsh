@@ -199,7 +199,7 @@ def main():
     mode, method, target, *options = sys.argv[1:]
     if method not in METHODS:
         raise ValueError(f"unknown lock method: {method}")
-    if mode == "hold" and len(options) == 1:
+    if mode == "hold" and len(options) == 1 and options[0] in {"none", "duplicate"}:
         hold(method, target, options[0] == "duplicate")
     elif mode == "wait" and len(options) == 1 and method in {"flock-ex", "posix--w", "ofd--w"}:
         wait(method, target, int(options[0]))
