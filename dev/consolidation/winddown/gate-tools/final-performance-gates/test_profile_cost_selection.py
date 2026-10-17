@@ -287,7 +287,7 @@ def test_profile_cost_emits_only_the_selected_release_profile():
 
 def test_artifact_qualification_is_resources_only_input():
     with make_working_tree() as (tree, close_record, commit):
-        output = tree / ".work/consolidation/profile-artifacts-test"
+        output = tree / ".work/consolidation/final-performance-gates/profile-artifacts-test"
         receipt, stages, lock_paths = run_profile_cost(tree, output, close_record, commit, artifacts_only=True)
 
         assert stages == ["release-opt3-build"]
@@ -310,13 +310,40 @@ def test_artifact_qualification_is_resources_only_input():
             try:
                 observer.load_profile_binaries(receipt_path, tree, commit, 3)
             except observer.ObserverFailure as error:
-                assert "complete" in str(error)
+                assert "resources-only observer" in str(error)
             else:
                 raise AssertionError("timed observer accepted an artifact-qualified profile receipt")
             selected = observer.load_profile_binaries(
                 receipt_path, tree, commit, 3, allow_artifact_qualified=True
             )
             assert selected["qualification_tool"] == receipt["qualification_tool"]
+
+            completed_artifact = json.loads(json.dumps(receipt))
+            completed_artifact["state"] = "complete"
+            completed_artifact_path = output / "state-flipped.json"
+            completed_artifact_path.write_text(json.dumps(completed_artifact), encoding="utf-8")
+            for allow_artifacts in (False, True):
+                try:
+                    observer.load_profile_binaries(
+                        completed_artifact_path, tree, commit, 3,
+                        allow_artifact_qualified=allow_artifacts,
+                    )
+                except observer.ObserverFailure as error:
+                    assert "artifacts-only profile receipts" in str(error)
+                else:
+                    raise AssertionError("changing only artifact receipt state made it time-qualified")
+
+            outside_receipt_path = tree / ".work/consolidation-sibling/receipt.json"
+            outside_receipt_path.parent.mkdir(parents=True)
+            outside_receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+            try:
+                observer.load_profile_binaries(
+                    outside_receipt_path, tree, commit, 3, allow_artifact_qualified=True
+                )
+            except observer.ObserverFailure as error:
+                assert "under the source .work/consolidation" in str(error)
+            else:
+                raise AssertionError("resource-only observer accepted an artifact receipt outside its qualified output root")
 
             wrong_source = json.loads(json.dumps(receipt))
             wrong_source["source_commit"] = "b" * 40
@@ -350,6 +377,28 @@ def test_artifact_qualification_is_resources_only_input():
                 assert "tool identity" in str(error)
             else:
                 raise AssertionError("resource-only observer accepted a changed profile tool hash")
+
+            wrong_close = json.loads(json.dumps(receipt))
+            wrong_close["functional_close"]["record"]["commit"] = "d" * 40
+            wrong_close_path = output / "wrong-close-record.json"
+            wrong_close_path.write_text(json.dumps(wrong_close), encoding="utf-8")
+            try:
+                observer.load_profile_binaries(wrong_close_path, tree, commit, 3, allow_artifact_qualified=True)
+            except observer.ObserverFailure as error:
+                assert "functional-close evidence" in str(error)
+            else:
+                raise AssertionError("resource-only observer accepted a mismatched embedded functional-close record")
+
+            boolean_status = json.loads(json.dumps(receipt))
+            boolean_status["results"][0]["build"]["status"] = False
+            boolean_status_path = output / "boolean-build-status.json"
+            boolean_status_path.write_text(json.dumps(boolean_status), encoding="utf-8")
+            try:
+                observer.load_profile_binaries(boolean_status_path, tree, commit, 3, allow_artifact_qualified=True)
+            except observer.ObserverFailure as error:
+                assert "successful source, resource, and cleanup evidence" in str(error)
+            else:
+                raise AssertionError("resource-only observer treated false as a successful integer build status")
 
         try:
             forced.load_profile(receipt_path, tree, commit, receipt["source_identity"])

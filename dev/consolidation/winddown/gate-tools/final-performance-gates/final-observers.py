@@ -250,21 +250,28 @@ def validate_artifact_qualification(receipt_path: Path, receipt: dict[str, Any],
         close_hash = sha256(close_path)
     except OSError as error:
         raise ObserverFailure(f"artifact profile functional-close record is unavailable: {error}") from error
-    expected_profile_dir = receipt_path.parent / "opt3" / "target" / TARGET / "release"
+    validated_close = functional_close(close_path, current["commit"])
+    if close.get("sha256") != close_hash or close["record"] != validated_close:
+        raise ObserverFailure("artifact profile functional-close evidence differs from the validated record")
+    work_root = (Path(receipt["source_tree"]) / ".work/consolidation").resolve()
+    resolved_receipt_path = receipt_path.resolve(strict=True)
+    try:
+        resolved_receipt_path.relative_to(work_root)
+    except ValueError as error:
+        raise ObserverFailure("artifact profile receipt must remain under the source .work/consolidation directory") from error
+    expected_profile_dir = resolved_receipt_path.parent / "opt3" / "target" / TARGET / "release"
     build_timing_gate = build.get("performance_gate") if isinstance(build, dict) else None
     if (
         receipt.get("qualification_mode") != "artifacts-only"
         or receipt.get("native_suite_lock_held_across_gate") is not False
         or receipt.get("source_status") != "clean"
-        or close.get("sha256") != close_hash
-        or close["record"].get("functional_complete") is not True
-        or close["record"].get("commit") != current["commit"]
         or not isinstance(profile_resources, dict)
         or profile_resources.get("cpu_limit") != CPU_LIMIT
         or profile_resources.get("cargo_build_jobs") != CPU_LIMIT
         or profile_resources.get("memory_limit") != MEMORY_LIMIT
         or profile_resources.get("memory_swap_limit") != MEMORY_LIMIT
         or not isinstance(build, dict)
+        or type(build.get("status")) is not int
         or build.get("status") != 0
         or build.get("wall_ns") is not None
         or build.get("timing_accepted") is not False
@@ -284,7 +291,6 @@ def validate_artifact_qualification(receipt_path: Path, receipt: dict[str, Any],
         or receipt.get("target") != TARGET
         or not isinstance(native_image_record, dict)
         or native_image_record.get("image_id") != NATIVE_IMAGE_ID
-        or receipt_path.parent.parent.resolve() != (Path(receipt["source_tree"]) / ".work/consolidation").resolve()
     ):
         raise ObserverFailure("artifact-qualified profile receipt lacks successful source, resource, and cleanup evidence")
     return {
@@ -300,7 +306,10 @@ def load_profile_binaries(
 ) -> dict[str, Any]:
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"), object_pairs_hook=unique_json_object)
     state = receipt.get("state")
-    artifact_qualified = state == "artifact-qualified" and receipt.get("qualification_mode") == "artifacts-only"
+    artifacts_only = receipt.get("qualification_mode") == "artifacts-only"
+    artifact_qualified = state == "artifact-qualified" and artifacts_only
+    if artifacts_only and (not artifact_qualified or not allow_artifact_qualified):
+        raise ObserverFailure("artifacts-only profile receipts are accepted only by the resources-only observer")
     if (state != "complete" and not (allow_artifact_qualified and artifact_qualified)) or receipt.get("source_commit") != commit:
         raise ObserverFailure("profile-cost receipt must be complete and name the exact source commit")
     if Path(receipt.get("source_tree", "")).resolve() != tree.resolve():
