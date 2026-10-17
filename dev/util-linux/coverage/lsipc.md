@@ -99,6 +99,8 @@ Negative IDs below `-1` retain the reference's enumerate-all behavior for
 System V queues, shared memory, and semaphores. ID parsing accepts leading
 whitespace and an optional sign, uses decimal syntax, and rejects prefixes,
 separators, trailing whitespace, and values outside the signed 32-bit range.
+Malformed IDs and time formats fail during option parsing, even when `--help`
+appears later in argv.
 
 The manual says the default table output can change. Native comparisons pin
 the exact 2.42.4 output using the owned fixture. Tests that need a stable schema
@@ -127,7 +129,7 @@ tables and query each selected ID.
 | `test_lsipc_short_option_aliases_match_long_options` | Short and long aliases for global mode, IDs, names, output, rendering, and value options | `lsipc.c:1381-1421` | Open. Compare exact output for each spelling. |
 | `test_lsipc_rejects_unknown_and_inapplicable_columns` | Unknown and inapplicable columns, default-only POSIX columns, global summary range, and empty/leading/repeated output separators | `lsipc.c:223-243,1526-1535` | Open. Stable input. |
 | `test_lsipc_rejects_unknown_time_format` | Invalid time formats, status, and diagnostics | `lsipc.c:273-290` | Open. Stable input. |
-| `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, malformed decimal IDs, and signed 32-bit overflow diagnostics | `lsipc.c:1381-1455`; `strutils.c:311-410` | Open. Compare exact diagnostics and status. |
+| `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, malformed decimal IDs, signed 32-bit overflow diagnostics, and parser errors before later help | `lsipc.c:1381-1455`; `strutils.c:311-410` | Open. Compare exact diagnostics and status. |
 | `test_lsipc_rejects_each_exclusive_option_pair` | Every pair in the four source-defined exclusivity groups | `lsipc.c:1415-1420` | Open. Stable input. |
 | `test_lsipc_visibility_matches_for_owner_and_unprivileged_observer` | Per-class visibility for two real UIDs with capabilities dropped | `ipcutils.c:131-240,249-300,342-510,521-575,633-713` | Open. Requires the positive two-UID fixture. |
 | `test_lsipc_collectors_leave_registered_resources_unchanged` | IDs, names, permissions, sizes, values, counters, and timestamps remain unchanged after each collector | `lsipc.c:1370-1666`; all six collectors | Open. Keeper state snapshots required. |

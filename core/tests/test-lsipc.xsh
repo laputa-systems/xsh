@@ -391,6 +391,8 @@ test test_lsipc_rejects_invalid_options_and_missing_arguments { |ctx|
     ["--queues", "--id", "1 "],
     ["--queues", "--id", "2147483648"],
     ["--queues", "--id", "-2147483649"],
+    ["--id", "not-an-id", "--help"],
+    ["--time-format", "invalid", "--help"],
   ]
   for args in cases {
     let pair = run_both(s, args)?
