@@ -1,0 +1,15 @@
+head=16abfbed3975da8dabb4e955fd182c99dabd22dd
+tree=126ccda5c8b49f47cb20103d87d354f43308929a
+test1_blob=89cf46b56cbfbb499910cba09a87b9b138b7adc5
+test2_blob=568c825245922db27fc9222bb91143254eb8926a
+xsh_sha256=2576641bd019ea1ba46fa555e351668407dbbacabdf4d87cabcf63de32b5b017
+xsht_sha256=5ba0907b1b5222f5dab0efa19496b711bb4036b14c0ab2c344d1d8987f7e8836
+products=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-3c0c01206/.work/target-final-canonical/x86_64-unknown-linux-musl/verification
+image=xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+platform=linux/amd64
+uid=1000:1000
+cpus=2
+memory=4g
+memory_swap=4g
+network=none
+native_lock=/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock
