@@ -410,6 +410,7 @@ proc path_escaping_case(s: uu.Scene) [fs, process, env, net, time, error] -> Res
   assert escaped_ready.path == escaped.display()
   let escaped_pid = f"{escaped_ready.pid}"
   for args in [
+    ["--noheadings", "--pid", escaped_pid, "--output", "PATH"],
     ["--json", "--pid", escaped_pid, "--output", "PATH"],
     ["--raw", "--noheadings", "--pid", escaped_pid, "--output", "PATH"],
   ] {
@@ -429,6 +430,7 @@ proc path_escaping_case(s: uu.Scene) [fs, process, env, net, time, error] -> Res
   assert fs.stat(invalid_utf8)?.ino == invalid_ready.inode
   let invalid_pid = f"{invalid_ready.pid}"
   for args in [
+    ["--noheadings", "--pid", invalid_pid, "--output", "PATH"],
     ["--json", "--pid", invalid_pid, "--output", "PATH"],
     ["--raw", "--noheadings", "--pid", invalid_pid, "--output", "PATH"],
   ] {
@@ -437,6 +439,71 @@ proc path_escaping_case(s: uu.Scene) [fs, process, env, net, time, error] -> Res
   }
   ul.keeper_send(invalid_utf8_keeper, "DONE")
   ul.finish_keeper(invalid_utf8_keeper)
+  Ok()
+}
+
+proc reference_path_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[Unit, Error] {
+  let method = "posix-r-"
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let escaped = uu.at(s, "space name\ttab\nline\\slash")
+  let escaped_keeper = ul.start_keeper(s, script, ["hold", method, escaped.display(), "none"])?
+  defer ul.stop_keeper(escaped_keeper)
+  let escaped_ready = json.decode(escaped_keeper.ready)?.require(LockReady)?
+  assert escaped_ready.path == escaped.display()
+  let escaped_pid = f"{escaped_ready.pid}"
+  let json_result = ul.reference(s, "lslocks", ["--json", "--pid", escaped_pid, "--output", "PID,INODE,PATH"])?
+  assert json_result.status == 0 and json_result.stderr.is_empty()
+  let json_document = json.decode(json_result.stdout.utf8() ?? "")?
+  let json_rows = json.get(json_document, ["locks"])?.require(List[Any])?
+  assert json_rows.len() == 1
+  assert json.get(json_document, ["locks", 0, "pid"])?.require(Int)? == escaped_ready.pid
+  assert json.get(json_document, ["locks", 0, "inode"])?.require(Int)? == escaped_ready.inode
+  assert json.get(json_document, ["locks", 0, "path"])?.require(Str)? == escaped.display()
+  let normal = ul.reference(s, "lslocks", ["--noheadings", "--pid", escaped_pid, "--output", "PATH"])?
+  assert normal.status == 0 and normal.stderr.is_empty()
+  assert normal.stdout == bytes.concat([
+    s.root.bytes(), b"/space name\\x09tab\\x0Aline\\\\slash\n",
+  ])
+  let raw = ul.reference(s, "lslocks", ["--raw", "--noheadings", "--pid", escaped_pid, "--output", "PATH"])?
+  assert raw.status == 0 and raw.stderr.is_empty()
+  assert raw.stdout == bytes.concat([escaped.bytes(), b"\n"])
+  ul.keeper_send(escaped_keeper, "DONE")
+  ul.finish_keeper(escaped_keeper)
+
+  let invalid_utf8 = uu.at_bytes(s, b"lock-\xff")?
+  let invalid_keeper = ul.start_keeper(s, script, [
+    "hold-bytes", method, s.root.display(), "6c6f636b2dff", "none",
+  ])?
+  defer ul.stop_keeper(invalid_keeper)
+  let invalid_ready = json.decode(invalid_keeper.ready)?.require(BytePathReady)?
+  assert invalid_ready.path_bytes_hex.ends_with("2f6c6f636b2dff")
+  assert fs.stat(invalid_utf8)?.ino == invalid_ready.inode
+  let invalid_pid = f"{invalid_ready.pid}"
+  let invalid_raw = ul.reference(s, "lslocks", ["--raw", "--noheadings", "--pid", invalid_pid, "--output", "PATH"])?
+  assert invalid_raw.status == 0 and invalid_raw.stderr.is_empty()
+  assert invalid_raw.stdout == bytes.concat([invalid_utf8.bytes(), b"\n"])
+  let invalid_json = ul.reference(s, "lslocks", ["--json", "--pid", invalid_pid, "--output", "PID,INODE,PATH"])?
+  assert invalid_json.status == 0 and invalid_json.stderr.is_empty()
+  assert ! invalid_json.stdout.is_empty()
+  ul.keeper_send(invalid_keeper, "DONE")
+  ul.finish_keeper(invalid_keeper)
+
+  let duplicate_path = uu.at(s, "posix-duplicate")
+  let duplicate_keeper = ul.start_keeper(s, script, ["hold", method, duplicate_path.display(), "duplicate"])?
+  defer ul.stop_keeper(duplicate_keeper)
+  let duplicate_ready = json.decode(duplicate_keeper.ready)?.require(LockReady)?
+  let holders = ul.reference(s, "lslocks", ["--json", "--pid", f"{duplicate_ready.pid}", "--output", "PID,TYPE,HOLDERS"])?
+  assert holders.status == 0 and holders.stderr.is_empty()
+  let holder_document = json.decode(holders.stdout.utf8() ?? "")?
+  let holder_rows = json.get(holder_document, ["locks"])?.require(List[Any])?
+  assert holder_rows.len() == 1
+  assert json.get(holder_document, ["locks", 0, "pid"])?.require(Int)? == duplicate_ready.pid
+  assert json.get(holder_document, ["locks", 0, "type"])?.require(Str)? == "POSIX"
+  let entries = json.get(holder_document, ["locks", 0, "holders"])?.require(List[Str])?
+  assert ! entries.is_empty()
+  for entry in entries { assert entry.starts_with(f"{duplicate_ready.pid},") }
+  ul.keeper_send(duplicate_keeper, "DONE")
+  ul.finish_keeper(duplicate_keeper)
   Ok()
 }
 
@@ -524,6 +591,12 @@ test test_lslocks_path_escaping_and_non_utf8_names { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
   path_escaping_case(s)?
+}
+
+test test_lslocks_reference_path_bytes { |ctx|
+  let s = uu.scene(ctx)?
+  ul.require_private_namespace()
+  reference_path_case(s)?
 }
 
 test test_lslocks_filter_errors { |ctx|
