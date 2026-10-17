@@ -20,8 +20,12 @@ exits after creation and cannot seed the activity, ownership, and live PID
 values used by these cases. The lane-owned `keeper.py` uses Python ctypes to
 create and mutate the resources in one persistent process. It emits one JSON
 ready line containing each exact ID or name, owner and creator IDs, mode, and
-size. Its stdin accepts `release` or EOF. It removes only registered IDs and
-names on release, EOF, setup failure, and `SIGTERM`, `SIGINT`, or `SIGHUP`.
+size. After readiness, `snapshot` on stdin emits one compact JSON line
+describing the current state of registered objects; `release` or EOF cleans
+up. Snapshots match `/proc/sysvipc` records only by registered IDs and inspect
+only registered POSIX names. Cleanup never uses a scan: it removes only
+registered IDs and names on release, EOF, setup failure, and `SIGTERM`,
+`SIGINT`, or `SIGHUP`.
 Accepted classes are `sysv_queue`, `sysv_shmem`, `sysv_semaphore`,
 `posix_mqueue`, `posix_shmem`, and `posix_semaphore`. Each selected System V
 class has three records: readable and private objects owned by the first UID,

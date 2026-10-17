@@ -35,11 +35,14 @@ reference's default resource set.
 | `--posix-semaphores` | POSIX named semaphores | `NAME,PERMS,OWNER,MTIME,SVAL` |
 | `--global` | Summary rows | `RESOURCE,DESCRIPTION,LIMIT,USED,USE%` |
 
-The default selection includes all six resource modes, but global collectors
-emit rows only for System V queues, shared memory, semaphores, and POSIX message
-queues. POSIX shared memory and POSIX semaphore modes have no global collector.
-Explicit `--global` can be combined with a resource selector; the same four
-collectors determine which rows appear.
+With no resource selector, `lsipc` enables global mode and all six resource
+flags. The global collectors emit summary rows for System V queues, shared
+memory, semaphores, and POSIX message queues; default output does not list the
+registered objects. POSIX shared memory and POSIX semaphores have no global
+collector. The help text documents `--global` with `--shmems`, `--queues`, and
+`--semaphores`; the 2.42.4 implementation also runs the POSIX message-queue
+global collector for `--global --posix-mqueues`. Combining global mode with
+POSIX shared memory or POSIX semaphores emits no resource rows.
 
 The column source defines these complete ranges:
 
@@ -85,7 +88,7 @@ a stable schema use `--output` explicitly.
 
 ## Native case map
 
-`core/tests/test-lsipc.xsh` will use these selectors. The source line ranges
+`core/tests/test-lsipc.xsh` uses these selectors. The source line ranges
 identify the upstream behavior each test covers. `ipcutils.c` lines 241–509
 enumerate POSIX shared-memory and semaphore names and metadata; lines 625–714
 enumerate POSIX message queues. System V collectors read the kernel IPC
@@ -93,33 +96,22 @@ tables and query each selected ID.
 
 | Native selector | Behavior under test | Upstream origin | Disposition |
 |---|---|---|---|
-| `test_lsipc_default_selects_all_six_modes` | Default resource selection and global summary rows | `lsipc.c:1565-1579,1627-1661` | Open. Fixture required. |
-| `test_lsipc_lists_system_v_message_queue_columns` | Queue defaults and every applicable explicit column | `lsipc.c:176-182,785-944` | Open. Fixture required. |
-| `test_lsipc_lists_system_v_shared_memory_columns` | Shared-memory defaults, status, attachment counts, PIDs, command, and every applicable column | `lsipc.c:183-191,1086-1252`; `ipcutils.c:131-240` | Open. Fixture required. |
-| `test_lsipc_lists_system_v_semaphore_columns` | Semaphore defaults, every applicable column, and per-element detail rows | `lsipc.c:192-194,533-700` | Open. Fixture required. |
-| `test_lsipc_lists_posix_message_queue_columns` | Queue names, size, message count, ownership, permissions, and times | `lsipc.c:945-1043`; `ipcutils.c:625-714` | Open. Fixture required. |
-| `test_lsipc_lists_posix_shared_memory_columns` | Shared-memory names, size, ownership, permissions, and modification time | `lsipc.c:1253-1347,ipcutils.c:241-301` | Open. Fixture required. |
-| `test_lsipc_lists_posix_semaphore_columns` | Semaphore names, values, ownership, permissions, and modification time | `lsipc.c:725-814,1526-1534`; `ipcutils.c:445-510` | Open. Fixture required. |
-| `test_lsipc_id_selects_only_the_requested_system_v_object` | Exact ID selection for each System V mode | `lsipc.c:559-563,823-827,1094-1097,1439-1443,1629-1655` | Open. Fixture required. |
-| `test_lsipc_name_selects_only_the_requested_posix_object` | Exact name selection, including the leading slash required for POSIX message queues | `lsipc.c:945-965,1253-1272`; `ipcutils.c:283-289,492-498,645-648,694-700` | Open. Fixture required. |
-| `test_lsipc_missing_id_and_name_report_reference_errors` | Missing IDs and names, status, and diagnostics | `lsipc.c:559-563,738-741,823-827,958-961,1094-1097,1265-1268` | Open. Capture exact oracle output. |
-| `test_lsipc_rejects_id_and_name_without_a_resource_mode` | Selector prerequisites and option conflicts | `lsipc.c:1415-1420,1565-1570` | Open. Capture exact oracle output. |
-| `test_lsipc_global_reports_limits_and_usage` | Global limits, used values, percentages, and output types | `lsipc.c:483-531,703-724,1044-1084,1348-1369,1565-1579,1627-1661` | Open. Fixture and kernel limits required. |
-| `test_lsipc_creator_columns_distinguish_owner_and_creator` | Creator UID/GID and current owner UID/GID for each applicable mode | `lsipc.c:1591-1597` plus the per-mode renderers | Open. Fixture required. |
-| `test_lsipc_time_columns_cover_each_operation` | Creation, message send/receive, shared-memory attach/detach, and semaphore operation times | `lsipc.c:1599-1617` plus the per-mode renderers | Open. Fixture required. |
-| `test_lsipc_time_format_accepts_short_full_and_iso` | Exact date formatting for all three supported values | `lsipc.c:273-290,457-481`; manual `--time-format` | Open. Fixture required. |
-| `test_lsipc_bytes_switches_size_columns_to_integer_bytes` | Byte counts in resource and summary output | `lsipc.c:483-526,906-912,1170-1176,1324-1330` | Open. Fixture required. |
-| `test_lsipc_numeric_permissions_formats_mode_bits` | Numeric `PERMS` output versus symbolic mode output | `lsipc.c:584-591,1299-1306` plus other mode renderers | Open. Fixture required. |
-| `test_lsipc_output_columns_preserve_requested_order` | Column-name matching, custom order, duplicate columns, and mode-specific rejection | `lsipc.c:223-243,1620-1622` | Open. Fixture required. |
-| `test_lsipc_output_formats_preserve_types_and_bytes` | List, raw, export, JSON, and newline formats; exact headers, escaping, nulls, and JSON value types | `lsipc.c:128-147,363-453`; manual output-format sections | Open. Fixture required. |
-| `test_lsipc_noheadings_and_notruncate_change_only_table_shape` | Heading suppression and long-value truncation | `lsipc.c:363-411`; manual output-format sections | Open. Fixture required. |
-| `test_lsipc_shell_names_export_columns` | `--shell` column identifiers with export output | `lsipc.c:139-147,363-391`; manual `--shell` | Open. Fixture required. |
+| `test_lsipc_default_and_global_summary_outputs_match_reference` | Default global-summary selection, summary resource rows, and all explicit global selector combinations | `lsipc.c:703-724,1044-1084,1348-1369,1565-1579,1627-1659` | Open. Fixture required. |
+| `test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes` | Default columns and every applicable explicit column for all resource classes | `lsipc.c:157-203,533-1370`; `ipcutils.c:131-714` | Open. Fixture required. |
+| `test_lsipc_id_and_name_select_registered_objects` | Exact ID and name selection, including POSIX message-queue slash spelling | `lsipc.c:559-563,823-827,958-965,1094-1097,1265-1272`; `ipcutils.c:283-289,492-498,645-700` | Open. Fixture required. |
+| `test_lsipc_missing_ids_and_names_preserve_reference_status_and_diagnostics` | Missing IDs and names, successful exit status, and warning diagnostics for all six resource modes | `lsipc.c:559-563,738-741,823-827,958-961,1094-1097,1265-1268,1661-1666` | Open. Capture exact oracle output. |
+| `test_lsipc_rejects_id_and_name_without_matching_modes` | Selector prerequisites and option conflicts | `lsipc.c:1415-1420,1565-1570` | Open. Capture exact oracle output. |
+| `test_lsipc_creator_and_time_options_report_live_metadata` | Creator/owner identities, operation times, and all supported time formats | `lsipc.c:1591-1617,273-290,457-481` plus the per-mode renderers | Open. Fixture required. |
+| `test_lsipc_bytes_and_numeric_permissions_match_reference` | Byte counts and numeric permission rendering in resource and summary output | `lsipc.c:483-526,584-591,906-912,1170-1176,1299-1306,1324-1330` | Open. Fixture required. |
+| `test_lsipc_output_modes_and_table_controls_match_reference` | Requested column order and duplicates, list/raw/export/JSON/newline modes, shell names, headings, truncation, and summary rendering | `lsipc.c:128-147,223-243,363-453,1620-1622`; manual output-format sections | Open. Fixture required. |
 | `test_lsipc_help_lists_resource_modes_and_columns` | Help output, option names, and all documented columns | `lsipc.c:292-360` | Open. Stable input. |
 | `test_lsipc_version_preserves_xsh_provenance` | XSH identity and exact XSH version banner | `lsipc.c:1557-1562`; campaign `version-provenance` decision | Open. Assert XSH banner independently. |
-| `test_lsipc_rejects_unknown_columns_and_time_formats` | Unknown and inapplicable columns, invalid time formats, statuses, and diagnostics | `lsipc.c:223-243,273-290` | Open. Stable input. |
+| `test_lsipc_rejects_unknown_and_inapplicable_columns` | Unknown and inapplicable columns, statuses, and diagnostics | `lsipc.c:223-243` | Open. Stable input. |
+| `test_lsipc_rejects_unknown_time_format` | Invalid time formats, status, and diagnostics | `lsipc.c:273-290` | Open. Stable input. |
+| `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, and malformed IDs | `lsipc.c:1381-1455` | Open. Compare exact diagnostics and status. |
 | `test_lsipc_rejects_each_exclusive_option_pair` | Every pair in the four source-defined exclusivity groups | `lsipc.c:1415-1420` | Open. Stable input. |
-| `test_lsipc_matches_reference_visibility_for_owner_and_non_owner` | Per-class visibility for two real UIDs with capabilities dropped | `ipcutils.c:131-240,249-300,342-510,521-575,633-713` | Open. Requires the positive two-UID fixture. |
-| `test_lsipc_does_not_change_owned_resources` | Fixture IDs, names, permissions, sizes, values, and timestamps remain unchanged after listing | `lsipc.c:1370-1666`; all six collectors | Open. Fixture snapshot required. |
+| `test_lsipc_visibility_matches_for_owner_and_unprivileged_observer` | Per-class visibility for two real UIDs with capabilities dropped | `ipcutils.c:131-240,249-300,342-510,521-575,633-713` | Open. Requires the positive two-UID fixture. |
+| `test_lsipc_collectors_leave_registered_resources_unchanged` | IDs, names, permissions, sizes, values, and timestamps remain unchanged after each collector | `lsipc.c:1370-1666`; all six collectors | Open. Keeper state snapshots required. |
 
 Permission visibility follows each collector: System V collectors read procfs
 records, POSIX shared memory reads directory metadata, and POSIX semaphore and
@@ -134,7 +126,7 @@ only observed PID or ID variation in the comparison rules.
 
 ## Fixture boundary
 
-The parent-owned fixture must enter private IPC and mount namespaces. It must
+The foundation-owned runner enters private IPC, mount, and PID namespaces. It must
 mount fresh procfs, private `/dev/shm` backing, and a private mqueue filesystem
 before it creates POSIX resources. The pinned util-linux 2.42.4 `ipcmk` can
 create each of the six resource classes, and `ipcrm` can remove an exact
