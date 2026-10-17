@@ -249,36 +249,8 @@ def baseline() -> None:
 
 
 def parity(args) -> None:
-    if args.require_positive_boundaries:
-        raise ValueError("mandatory positive boundary acceptance is not implemented; no result can pass")
-    commands = list(COHORT) if args.all else ([args.command] if args.command else args.commands.split(","))
-    if not commands or len(set(commands)) != len(commands) or not set(commands).issubset(COHORT):
-        raise ValueError("commands must name a nonempty, distinct subset of the cohort")
-    if args.case and len(commands) != 1:
-        raise ValueError("a case selector requires one command")
-    for command in commands:
-        relative = f"core/tests/test-{command}.xsh"
-        source = ROOT / relative
-        cases = re.findall(r"^test (test_[A-Za-z0-9_]+)\s*\{", source.read_text(), re.MULTILINE)
-        if not cases:
-            raise ValueError(f"selector matched no behavior: {command}")
-        if args.case:
-            name = args.case.removeprefix(relative + "::")
-            if name not in cases:
-                raise ValueError(f"selector matched no behavior: {command}::{args.case}")
-            native_case(relative + "::" + name, private=True)
-        else:
-            products = protected_products()
-            script = "cd /work; " + PRIVATE_NAMESPACE.rstrip() + f" /products/xsht test {relative}"
-            output = container(script, mounts=[
-                f"type=bind,source={ROOT},target=/work,readonly",
-                f"type=bind,source={products},target=/products,readonly",
-            ], capabilities=["SYS_ADMIN"], timeout=120)
-            protected_products()
-            result = output.decode("utf-8")
-            if f"{len(cases)} passed; 0 failed; 0 skipped" not in result:
-                raise ValueError(f"command group did not execute every selected behavior: {result}")
-            print(result, end="")
+    import acceptance
+    acceptance.parity(args, sys.modules[__name__])
 
 
 def main() -> int:
