@@ -377,7 +377,11 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
   }
   if directory.kind != "dir" { fail("cannot open /sys/devices/system/memory: Not a directory") }
   let block_size_path = fp"{MEMORY_PATH}/block_size_bytes"
-  if ! root.exists(block_size_path)? { fail("This system does not support memory blocks") }
+  let supports_memory_blocks = match root.exists(block_size_path) {
+    Ok(exists) => exists
+    Err(_) => false
+  }
+  if ! supports_memory_blocks { fail("This system does not support memory blocks") }
   let block_size_contents = match root.read_bytes(block_size_path) {
     Ok(text) => text
     Err(failure) => {
