@@ -1,6 +1,7 @@
 ##! Reads Linux lock state and renders the lslocks command interface.
 use disk_usage as usage
 use gnu
+use lib.util_linux_io as ul_io
 use smart_json as smart
 use text_a2 as text
 use sys_mount as mounts
@@ -1009,10 +1010,10 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     operands: {form: "...ARG"},
   })?
   if opts.help {
-    gnu.help("\nUsage:\n lslocks [options]\n\nList local system locks.\n\nOptions:\n -b, --bytes            print SIZE in bytes rather than in human readable format\n -J, --json             use JSON output format\n -i, --noinaccessible   ignore locks without read permissions\n -n, --noheadings       don't print headings\n -o, --output <list>    output columns (see --list-columns)\n     --output-all       output all columns\n -p, --pid <pid>        display only locks held by this process\n -Q, --filter <expr>    apply display filter\n -r, --raw              use the raw output format\n -u, --notruncate       don't truncate text in columns\n\n -H, --list-columns     list the available columns\n -h, --help             display this help\n -V, --version          display version\n\nFor more details see lslocks(8).\n")
+    ul_io.help("\nUsage:\n lslocks [options]\n\nList local system locks.\n\nOptions:\n -b, --bytes            print SIZE in bytes rather than in human readable format\n -J, --json             use JSON output format\n -i, --noinaccessible   ignore locks without read permissions\n -n, --noheadings       don't print headings\n -o, --output <list>    output columns (see --list-columns)\n     --output-all       output all columns\n -p, --pid <pid>        display only locks held by this process\n -Q, --filter <expr>    apply display filter\n -r, --raw              use the raw output format\n -u, --notruncate       don't truncate text in columns\n\n -H, --list-columns     list the available columns\n -h, --help             display this help\n -V, --version          display version\n\nFor more details see lslocks(8).\n")
     return
   }
-  if opts.version { gnu.version("lslocks"); return }
+  if opts.version { ul_io.version("lslocks"); return }
   if opts.json and opts.raw { gnu.usage_error("options --json and --raw are mutually exclusive") }
   if opts.pid != null {
     let value = decimal(opts.pid ?? "")
@@ -1028,7 +1029,7 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     }
     if opts.json {
       let encoded = [smart.object([smart.m("holder", row[0]), smart.m("type", row[1]), smart.m("description", row[2])]) for row in rows]
-      gnu.write_text(json_table(encoded, "lslocks-columns", json_mode))
+      ul_io.write_text(json_table(encoded, "lslocks-columns", json_mode))
     } else {
       var holder_width = 0
       var type_width = 0
@@ -1042,7 +1043,7 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
             (if opts.raw { row[1] } else { pad_right(row[1], type_width) }) + " " + row[2]
         }
       }
-      gnu.write_text(rendered_rows.join("\n") + "\n")
+      ul_io.write_text(rendered_rows.join("\n") + "\n")
     }
     return
   }
@@ -1072,12 +1073,12 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
   }
   let byte_locale = text.byte_columns()
   if opts.json {
-    gnu.write_bytes(json_output(rows, chosen, opts.bytes, json_mode, byte_locale))
+    ul_io.write_bytes(json_output(rows, chosen, opts.bytes, json_mode, byte_locale))
   } else {
     let terminal = unix.isatty(1)
     let terminal_width = if terminal {
       if let Ok(size) = unix.window_size(1) { if size.cols > 0 { size.cols } else { 80 } } else { 80 }
     } else { 80 }
-    gnu.write_bytes(render_table(chosen, rows, ! opts.noheadings, opts.raw, opts.bytes, opts.notruncate, terminal, terminal_width, byte_locale))
+    ul_io.write_bytes(render_table(chosen, rows, ! opts.noheadings, opts.raw, opts.bytes, opts.notruncate, terminal, terminal_width, byte_locale))
   }
 }
