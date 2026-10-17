@@ -140,7 +140,7 @@ class ProductSignatureTests(unittest.TestCase):
         def mutate_during_digest(stream, algorithm):
             data = stream.read()
             target.write_bytes(data + b"changed")
-            return resources.hashlib.sha256(data).digest()
+            return resources.hashlib.sha256(data)
 
         with patch.object(resources.hashlib, "file_digest", side_effect=mutate_during_digest):
             with self.assertRaisesRegex(ValueError, "changed while hashing"):
