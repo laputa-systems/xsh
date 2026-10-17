@@ -1,0 +1,8 @@
+CASE /scratch/alias-after.xsh
+STATUS 0
+CASE /scratch/alias-before.xsh
+STATUS 1
+CASE /scratch/annotation-after.xsh
+STATUS 0
+CASE /scratch/annotation-before.xsh
+STATUS 1

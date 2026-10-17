@@ -1,0 +1,28 @@
+   Compiling xsh-registry v0.0.1 (/work/crates/xsh-registry)
+   Compiling xsh-net v0.0.1 (/work/crates/xsh-net)
+   Compiling xsh-applets v0.0.1 (/work/crates/xsh-applets)
+   Compiling xsh-root v0.0.1 (/work/crates/xsh-root)
+   Compiling regex-lite v0.1.9 (/work/third_party/regex-lite)
+   Compiling xsh v0.0.1 (/work)
+   Compiling xsht v0.0.1 (/work/crates/xsht)
+    Finished `release` profile [optimized] target(s) in 1m 11s
+     Running unittests src/lib.rs (/target/x86_64-unknown-linux-musl/release/build/xsht/d7c0e3ab4c54a942/out/xsht-d7c0e3ab4c54a942)
+
+thread 'xsht::lint::local_annotation_probe_tests::local_annotation_proofs_preserve_findings_and_fixes_with_redundant_parentheses' (576) panicked at crates/xsht/src/lint.rs:6874:13:
+assertion `left == right` failed: proc show() {
+  var out: List[Str] = []
+  out += [("x") + ("\n")]
+  print (out.join(""))
+}
+: []
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'xsht::lint::lint_callable_alias::tests::callable_aliases_preserve_findings_and_fixes_with_redundant_parentheses' (575) panicked at crates/xsht/src/lint_callable_alias.rs:250:13:
+assertion `left == right` failed: pure target(value: Int) -> Int { (value) + (1) }
+pure wrapper(value: Int) -> Int { target(value) }
+: []
+  left: 0
+ right: 1
+error: test failed, to rerun pass `-p xsht --lib`

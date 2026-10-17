@@ -1,0 +1,7 @@
+   Compiling xsht v0.0.1 (/work/crates/xsht)
+    Finished `release` profile [optimized] target(s) in 40.67s
+     Running unittests src/lib.rs (/target/x86_64-unknown-linux-musl/release/build/xsht/d7c0e3ab4c54a942/out/xsht-d7c0e3ab4c54a942)
+    Finished `release` profile [optimized] target(s) in 0.04s
+     Running unittests src/lib.rs (/target/x86_64-unknown-linux-musl/release/build/xsht/d7c0e3ab4c54a942/out/xsht-d7c0e3ab4c54a942)
+    Finished `release` profile [optimized] target(s) in 0.04s
+     Running unittests src/lib.rs (/target/x86_64-unknown-linux-musl/release/build/xsht/d7c0e3ab4c54a942/out/xsht-d7c0e3ab4c54a942)

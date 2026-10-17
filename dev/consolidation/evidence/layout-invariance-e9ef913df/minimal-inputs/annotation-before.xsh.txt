@@ -1,0 +1,5 @@
+proc show() {
+  var out: List[Str] = []
+  out += ["x" + "\n"]
+  print (out.join(""))
+}

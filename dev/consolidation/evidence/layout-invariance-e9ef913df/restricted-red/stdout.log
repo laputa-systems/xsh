@@ -1,0 +1,11 @@
+
+running 1 test
+test lint_format_invariance::layout_perturbation_preserves_lints_on_the_repository_corpus ... FAILED
+
+failures:
+
+failures:
+    lint_format_invariance::layout_perturbation_preserves_lints_on_the_repository_corpus
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 121 filtered out; finished in 4.75s
+

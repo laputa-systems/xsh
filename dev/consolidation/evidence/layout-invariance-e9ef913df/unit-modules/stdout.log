@@ -1,0 +1,19 @@
+
+running 5 tests
+test xsht::lint::lint_callable_alias::tests::callable_aliases_skip_non_forwarding_candidates_without_baseline_facts ... ok
+test xsht::lint::lint_callable_alias::tests::callable_aliases_reject_semantic_checker_errors ... ok
+test xsht::lint::lint_callable_alias::tests::callable_aliases_need_explicit_original_checked_facts ... ok
+test xsht::lint::lint_callable_alias::tests::callable_aliases_preserve_findings_and_fixes_with_redundant_parentheses ... ok
+test xsht::lint::lint_callable_alias::tests::callable_aliases_use_shared_original_facts_across_forwarding_candidates ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 417 filtered out; finished in 0.01s
+
+
+running 4 tests
+test xsht::lint::local_annotation_probe_tests::exported_nominal_local_annotations_keep_their_declared_domain_without_probes ... ok
+test xsht::lint::local_annotation_probe_tests::standalone_annotation_import_availability_matches_checker_use_errors ... ok
+test xsht::lint::local_annotation_probe_tests::local_annotation_proofs_preserve_findings_and_fixes_with_redundant_parentheses ... ok
+test xsht::lint::local_annotation_probe_tests::local_annotation_probes_cache_original_facts_and_failure ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 418 filtered out; finished in 0.02s
+

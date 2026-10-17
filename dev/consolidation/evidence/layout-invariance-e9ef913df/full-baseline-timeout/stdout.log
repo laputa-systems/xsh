@@ -1,0 +1,3 @@
+
+running 1 test
+test lint_format_invariance::layout_perturbation_preserves_lints_on_the_repository_corpus ... 

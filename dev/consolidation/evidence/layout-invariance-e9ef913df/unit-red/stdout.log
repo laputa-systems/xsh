@@ -1,0 +1,13 @@
+
+running 2 tests
+test xsht::lint::local_annotation_probe_tests::local_annotation_proofs_preserve_findings_and_fixes_with_redundant_parentheses ... FAILED
+test xsht::lint::lint_callable_alias::tests::callable_aliases_preserve_findings_and_fixes_with_redundant_parentheses ... FAILED
+
+failures:
+
+failures:
+    xsht::lint::lint_callable_alias::tests::callable_aliases_preserve_findings_and_fixes_with_redundant_parentheses
+    xsht::lint::local_annotation_probe_tests::local_annotation_proofs_preserve_findings_and_fixes_with_redundant_parentheses
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 420 filtered out; finished in 0.00s
+

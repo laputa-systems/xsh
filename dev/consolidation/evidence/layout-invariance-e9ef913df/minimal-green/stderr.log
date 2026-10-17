@@ -1,0 +1,24 @@
+warn[lint.prefer-callable-alias]: an exact forwarding callable can preserve its signature through an immutable alias
+  /fixtures/alias-after.xsh:2:1
+  pure wrapper(value: Int) -> Int { target(value) }
+  ------------------------------------------------- the alias executes the original callable without a wrapper traceback frame
+help: preserve the original callable signature -> let wrapper = target
+xsht lint: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s, check 0.00s, lint 0.00s)
+warn[lint.prefer-callable-alias]: an exact forwarding callable can preserve its signature through an immutable alias
+  /fixtures/alias-before.xsh:2:1
+  pure wrapper(value: Int) -> Int { target(value) }
+  ------------------------------------------------- the alias executes the original callable without a wrapper traceback frame
+help: preserve the original callable signature -> let wrapper = target
+xsht lint: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s, check 0.00s, lint 0.00s)
+warn[lint.needless-annotation]: local type is determined by consistent checked constraints
+  /fixtures/annotation-after.xsh:2:12
+    var out: List[Str] = []
+             --------- the whole local binding retains this fixed type without the annotation
+help: remove the redundant local annotation
+xsht lint: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s, check 0.00s, lint 0.00s)
+warn[lint.needless-annotation]: local type is determined by consistent checked constraints
+  /fixtures/annotation-before.xsh:2:12
+    var out: List[Str] = []
+             --------- the whole local binding retains this fixed type without the annotation
+help: remove the redundant local annotation
+xsht lint: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s, check 0.00s, lint 0.00s)

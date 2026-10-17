@@ -1,0 +1,6 @@
+
+thread 'lint_format_invariance::layout_perturbation_preserves_lints_on_the_repository_corpus' (8) panicked at crates/xsht/tests/lint_format_invariance.rs:341:5:
+perturbed repository: lint diagnostics depend on layout in 2 file/code group(s):
+warn[lint.needless-annotation]: before ["core/factor.xsh:1172:12 `List`"], after []
+warn[lint.prefer-callable-alias]: before ["dev/internal.xsh:49:1 `export`"], after []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

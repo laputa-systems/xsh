@@ -1,0 +1,66 @@
+diff --git a/crates/xsht/src/lint.rs b/crates/xsht/src/lint.rs
+index 170f2bbea..a1deb3670 100644
+--- a/crates/xsht/src/lint.rs
++++ b/crates/xsht/src/lint.rs
+@@ -6850,6 +6850,32 @@ mod local_annotation_probe_tests {
+         }
+     }
+ 
++    #[test]
++    fn local_annotation_proofs_preserve_findings_and_fixes_with_redundant_parentheses() {
++        for expression in ["\"x\" + \"\\n\"", "(\"x\") + (\"\\n\")"] {
++            let source = format!(
++                "proc show() {{\n  var out: List[Str] = []\n  out += [{expression}]\n  print (out.join(\"\"))\n}}\n"
++            );
++            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
++            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
++            let checked = Checker::check_arena(&parsed.arena, &source);
++            assert!(checked.diagnostics.iter().all(|diagnostic| {
++                diagnostic.code == Some(DiagnosticCode::CheckRedundantParens)
++            }), "{:?}", checked.diagnostics);
++            let output = Linter::lint(
++                &parsed.arena,
++                &source,
++                LintOptions {
++                    checked_output: Some(std::sync::Arc::new(checked)),
++                    only: Some(vec![DiagnosticCode::LintNeedlessAnnotation]),
++                    ..LintOptions::default()
++                },
++            );
++            assert_eq!(output.diagnostics.len(), 1, "{source}: {:?}", output.diagnostics);
++            assert_eq!(output.diagnostics[0].fix_hints.len(), 1, "{source}: {:?}", output.diagnostics);
++        }
++    }
++
+     #[test]
+     fn local_annotation_probes_cache_original_facts_and_failure() {
+         for missing_import in [false, true] {
+diff --git a/crates/xsht/src/lint_callable_alias.rs b/crates/xsht/src/lint_callable_alias.rs
+index 9f5e2a9d9..b73cb4724 100644
+--- a/crates/xsht/src/lint_callable_alias.rs
++++ b/crates/xsht/src/lint_callable_alias.rs
+@@ -240,6 +240,24 @@ mod tests {
+         })
+     }
+ 
++    #[test]
++    fn callable_aliases_preserve_findings_and_fixes_with_redundant_parentheses() {
++        for expression in ["value + 1", "(value) + (1)"] {
++            let source = format!(
++                "pure target(value: Int) -> Int {{ {expression} }}\npure wrapper(value: Int) -> Int {{ target(value) }}\n"
++            );
++            let diagnostics = lint(&source, true);
++            assert_eq!(diagnostics.len(), 1, "{source}: {diagnostics:?}");
++            assert_eq!(diagnostics[0].fix_hints.len(), 1, "{source}: {diagnostics:?}");
++        }
++    }
++
++    #[test]
++    fn callable_aliases_reject_semantic_checker_errors() {
++        let source = "pure target(value: Int) -> Int { value + missing }\npure wrapper(value: Int) -> Int { target(value) }\n";
++        assert!(lint(source, true).is_empty());
++    }
++
+     #[test]
+     fn callable_aliases_need_explicit_original_checked_facts() {
+         let source = "pure render(value: Str) -> Str { value }\npure format(value: Str) -> Str { render(value) }\n";

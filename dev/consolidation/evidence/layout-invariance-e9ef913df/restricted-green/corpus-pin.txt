@@ -1,0 +1,2 @@
+b1bc741fcd512d1c71b43116853278a4a3f1521a
+19 XSH inputs byte-identical to b1bc; unchanged root config
