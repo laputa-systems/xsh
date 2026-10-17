@@ -48,6 +48,51 @@ type Entry = {
 type Expansion = {entries: List[Entry], exceeded: Bool}
 type OwnerWidths = {user_width: Int, group_width: Int}
 
+proc parse_options(argv: List[Str]) [process, env] -> Options {
+  var options: Options = {mounts: false, modes: false, owners: false, long: false, nosymlinks: false, vertical: false, help: false, version: false, paths: []}
+  var at = 0
+  while at < argv.len() {
+    let word = argv[at]
+    at += 1
+    if word == "--" {
+      return {...options, paths: options.paths.extend(argv[at..])}
+    }
+    if ! word.starts_with("-") or word == "-" {
+      options = {...options, paths: options.paths.extend([word])}
+      continue
+    }
+    var flags: List[Str] = []
+    if word.starts_with("--") {
+      let body = word.byte_slice(2)
+      let typed = body.split("=")[0]
+      let names = ["mountpoints", "modes", "owners", "long", "nosymlinks", "vertical", "help", "version"]
+      let exact = [name for name in names if name == typed]
+      let matches = if exact.is_empty() { [name for name in names if name.starts_with(typed)] } else { exact }
+      if matches.is_empty() { gnu.usage_error(f"unrecognized option: {body}") }
+      if matches.len() > 1 { gnu.usage_error(f"option is ambiguous: {body}") }
+      if "=" in body { gnu.usage_error(f"option does not take an argument: {matches[0]}") }
+      flags = matches
+    } else {
+      flags = [flag for flag in word.byte_slice(1)]
+    }
+    for flag in flags {
+      match flag {
+        "x" | "mountpoints" => options = {...options, mounts: true}
+        "m" | "modes" => options = {...options, modes: true}
+        "o" | "owners" => options = {...options, owners: true}
+        "l" | "long" => options = {...options, long: true}
+        "n" | "nosymlinks" => options = {...options, nosymlinks: true}
+        "v" | "vertical" => options = {...options, vertical: true}
+        "h" | "help" => return {...options, help: true}
+        "V" | "version" => return {...options, version: true}
+        "Z" => gnu.usage_error("unrecognized option: Z")
+        else => gnu.usage_error(f"unrecognized option: {flag}")
+      }
+    }
+  }
+  options
+}
+
 pure has_bit(mode: Int, bit: Int) -> Bool {
   mode.bit_and(bit) != 0
 }
@@ -308,18 +353,7 @@ proc report_loop(pathname: Bytes) [process, env, io] {
 
 proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let prepared = gnu.prepare_arguments(argv)
-  let options: Options = cli.applet(prepared.text, {
-    gnu: {status: 1},
-    mounts: {form: "-x --mountpoints", default: false},
-    modes: {form: "-m --modes", default: false},
-    owners: {form: "-o --owners", default: false},
-    long: {form: "-l --long", default: false},
-    nosymlinks: {form: "-n --nosymlinks", default: false},
-    vertical: {form: "-v --vertical", default: false},
-    help: {form: "-h --help", default: false, stop: true},
-    version: {form: "-V --version", default: false, stop: true},
-    paths: {form: "...PATH"},
-  })?
+  let options = parse_options(prepared.text)
 
   if options.help { gnu.help(USAGE); return }
   if options.version { gnu.version("namei"); return }
