@@ -277,9 +277,10 @@ Corpus removals neither replace those tests nor broaden their grammar.
 The initial Set attempt used source `749`. The annotated original checked all
 ten XSH roots and the Laputa root successfully, including ordinary lowering.
 Both reduced batches exited 2 with 102 XSH and seven Laputa empty-Set inference
-diagnostics. The [raw Set attempt](../evidence/typing-corpus-host-obligations/mutable-sets/)
+diagnostics. The [raw Set attempt](../evidence/typing-corpus-host-obligations/mutable-sets/README.md)
 retains the exact runner, original and reduced outputs, statuses, source and
-product guards, view digests and container cleanup. No native test ran.
+product guards, view digests and container cleanup. No native test ran in that
+attempt.
 
 The frozen compiler source is `7491228abdfd77e4be502247675b08682cbf16b8`.
 Its tree and clean status, all three qualified binary hashes and both complete
@@ -318,19 +319,30 @@ The 020f source stays clean throughout the retry. All three qualified physical
 product hashes and both complete source-view digests match before and after.
 The original digest remains `e3429dcf2abe9524754a28458651443bc56523b50130268a1c1ff44c03e36899`.
 The reduced 986 digest is `43ad0beddeb95ef7f695598664156df29605831df3156433a11ea356d39d8c35`.
-Both owned containers are absent. The prepared native runner in that proof is
-shell-validated but not executed. It requires the exact source, three products,
-expected view digests, failure guards, and exact cleanup. Its thirteen selectors
-per view require one pass with no skips under the original nonblocking
-native-suite lock. All 26 selections remain queued for the assigned slot.
+Both owned containers are absent. The [paired behavior archive](../evidence/typing-corpus-host-obligations/mutable-sets/README.md)
+retains the native run and runner guards. All 13 exact selectors passed in each
+view, with no failures or skips. These witnesses do not exercise all 109
+accumulators or complete the Set feature gates.
+
+The Set API fixture at `a4411` passes. The documentation gate fails because its
+slot verifier rejects valid nested destructuring in the `5277` and `020f`
+examples. A driver-slot repair is awaiting an isolated source build. Full
+accepted removal credit remains 877 until the API and documentation gates pass.
+
+The separate 1,065-site collection plan adds 54 List and 25 conditional or
+mutable-null removals to 986. Its reduced check remains red: source `76caa` passes
+the original roots but reports 92 XSH diagnostics in the reduced view. Reduced
+Laputa passes. The plan preserves all 149 Map annotations on `{}` initializers
+and adds no accepted removal credit. See the [collection evidence](../evidence/typing-corpus-host-obligations/mutable-sets/README.md#unqualified-collection-plan).
 
 ## Empty-record contract
 
-Owner decision: keep `{}` as a record unless a `Map` is already expected. This
+Owner decision: keep an unannotated `{}` as a record. This
 follows [SPEC 5.1](../../../docs/SPEC.md#51-inference-and-annotations) and the
 native
 [`unannotated_empty_record_does_not_become_map_from_later_use`](../../../tests/xsh/local-inference.xsh)
-regression. Later use must not make the record a map. The 149 remaining `Map{}`
-annotations stay required. The denominator remains 693 locals. Removing every
-other eligible local would reach at most 544/693 (78.5%), below the 95% target.
+regression. Later use must not make the record a map. The 149 remaining Map
+annotations on `{}` initializers stay required. The denominator remains 693
+locals. Removing every other eligible local would reach at most 544/693
+(78.50%), below the 95% target.
 No waiver or denominator reclassification applies.

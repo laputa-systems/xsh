@@ -1,0 +1,3 @@
+running 1 tests
+core/tests/test-wc.xsh::test_wc_characters_and_invalid_bytes ... ok 127ms
+test result: ok. 1 passed; 0 failed; 0 skipped

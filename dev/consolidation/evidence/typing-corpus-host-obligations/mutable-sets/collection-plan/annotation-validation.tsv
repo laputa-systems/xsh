@@ -1,0 +1,69 @@
+List54	1396,1983,1987,2007,2008,2280,2285,2362,2366,2418,2423,2424,2427,2429,2455,2542,2546,2651,2657,2658,2659,2707,2709,2935,3021,3054,6339,6370,6826,7024,7084,7184,7234,7235,7247,7347,7366,7385,7400,7418,7426,7433,7481,7550,7760,7821,7968,8236,8321,8407,8454,9110,9153,9165
+branch-null25	1929,2288,2332,2446,2538,2543,2544,2963,3020,3052,3406,3407,3476,6286,6338,6371,6372,6373,6374,6375,6436,6564,7427,7822,7823
+required Map{} annotations retained	149
+eligible-internal	2190
+eligible-local	693
+entry-effect	4
+interface	1920
+required	23
+schema	4364
+removed	1065
+checked48loaded sources; all retained sites, schemas and exported interface spans protected
+laputa	pm/catalog.xsh	eligible-internal	2
+laputa	pm/catalog.xsh	eligible-local	5
+laputa	pm/fingerprint.xsh	eligible-internal	9
+laputa	pm/fingerprint.xsh	eligible-local	2
+laputa	pm/graph.xsh	eligible-internal	8
+laputa	pm/graph.xsh	eligible-local	6
+laputa	pm/plan.xsh	eligible-internal	13
+laputa	pm/plan.xsh	eligible-local	9
+laputa	pm/plan_json.xsh	eligible-internal	1
+laputa	pm/plan_json.xsh	eligible-local	6
+laputa	pm/recipe.xsh	eligible-local	12
+laputa	pm/util.xsh	eligible-internal	7
+xsh	core/cut.xsh	eligible-internal	3
+xsh	core/cut.xsh	eligible-local	3
+xsh	core/date.xsh	eligible-internal	26
+xsh	core/date.xsh	eligible-local	6
+xsh	core/lib/date_parse.xsh	eligible-internal	38
+xsh	core/lib/gnu.xsh	eligible-internal	10
+xsh	core/lib/gnu.xsh	eligible-local	1
+xsh	core/lib/sys_block.xsh	eligible-internal	1
+xsh	core/lib/sys_block.xsh	eligible-local	9
+xsh	core/lib/sys_mem.xsh	eligible-internal	5
+xsh	core/lib/sys_mem.xsh	eligible-local	5
+xsh	core/lib/sys_mount.xsh	eligible-internal	5
+xsh	core/lib/sys_mount.xsh	eligible-local	9
+xsh	core/lib/sys_pci.xsh	eligible-internal	6
+xsh	core/lib/sys_pci.xsh	eligible-local	3
+xsh	core/lib/sys_usb.xsh	eligible-internal	7
+xsh	core/lib/sys_usb.xsh	eligible-local	9
+xsh	core/lib/system_report.xsh	eligible-internal	83
+xsh	core/lib/system_report.xsh	eligible-local	20
+xsh	core/lib/system_report_collect.xsh	eligible-local	4
+xsh	core/lib/system_report_live.xsh	eligible-internal	70
+xsh	core/lib/system_report_live.xsh	eligible-local	76
+xsh	core/lib/text_a2.xsh	eligible-internal	2
+xsh	core/lib/textio_a1.xsh	eligible-local	1
+xsh	core/system-report.xsh	eligible-local	1
+xsh	core/tr.xsh	eligible-internal	11
+xsh	core/tr.xsh	eligible-local	5
+xsh	core/wc.xsh	eligible-internal	22
+xsh	core/wc.xsh	eligible-local	7
+xsh	dev/build.xsh	eligible-local	1
+xsh	dev/cargo_steps.xsh	eligible-internal	3
+xsh	dev/cargo_steps.xsh	eligible-local	1
+xsh	dev/docs.xsh	eligible-internal	19
+xsh	dev/docs.xsh	eligible-local	7
+xsh	dev/gates.xsh	eligible-internal	2
+xsh	dev/gates.xsh	eligible-local	1
+xsh	dev/main.xsh	eligible-internal	9
+xsh	dev/main.xsh	eligible-local	2
+xsh	dev/release.xsh	eligible-local	5
+xsh	dev/system_report_check.xsh	eligible-internal	139
+xsh	dev/system_report_check.xsh	eligible-local	316
+xsh	dev/test_workflows.xsh	eligible-internal	3
+xsh	dev/tour_html.xsh	eligible-internal	25
+xsh	dev/tour_html.xsh	eligible-local	4
+total	eligible-internal	529
+total	eligible-local	536

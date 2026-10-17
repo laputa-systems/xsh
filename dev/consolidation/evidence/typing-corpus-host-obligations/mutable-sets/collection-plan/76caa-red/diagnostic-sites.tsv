@@ -1,0 +1,93 @@
+code	source	line	column	function	candidate_sites_in_same_function
+check.type-mismatch	xsh/core/lib/system_report.xsh	976	27	pure clear_process_cgroup_resource_links	1396:var processes
+check.type-mismatch	xsh/core/lib/system_report.xsh	976	3	pure clear_process_cgroup_resource_links	1396:var processes
+check.type-mismatch	xsh/core/lib/system_report.xsh	3353	27	pure redact_pci_section	1983:var functions
+check.type-mismatch	xsh/core/lib/system_report.xsh	3353	3	pure redact_pci_section	1983:var functions
+check.type-mismatch	xsh/core/lib/system_report.xsh	3368	21	pure redact_usb_section	1987:var interfaces
+check.type-mismatch	xsh/core/lib/system_report.xsh	3361	7	pure redact_usb_section	1987:var interfaces
+check.type-mismatch	xsh/core/lib/system_report.xsh	3532	25	pure redact_storage_section	2007:var devices,2008:var mounts
+check.type-mismatch	xsh/core/lib/system_report.xsh	3532	42	pure redact_storage_section	2007:var devices,2008:var mounts
+check.type-mismatch	xsh/core/lib/system_report.xsh	3532	3	pure redact_storage_section	2007:var devices,2008:var mounts
+check.type-mismatch	xsh/core/lib/system_report.xsh	2400	69	pure decode_report_json	1929:let replacement
+check.local-inference	xsh/core/lib/sys_pci.xsh	261	19	proc collect	2707:var functions,2709:let linked_functions
+check.operator-type	xsh/core/lib/sys_pci.xsh	420	5	proc collect	2707:var functions,2709:let linked_functions
+check.index-type	xsh/core/lib/sys_pci.xsh	456	19	proc collect	2707:var functions,2709:let linked_functions
+check.index-type	xsh/core/lib/sys_pci.xsh	476	12	proc collect	2707:var functions,2709:let linked_functions
+check.type-mismatch	xsh/core/lib/sys_pci.xsh	488	16	proc collect	2707:var functions,2709:let linked_functions
+check.type-mismatch	xsh/core/lib/sys_pci.xsh	483	3	proc collect	2707:var functions,2709:let linked_functions
+check.local-inference	xsh/core/lib/sys_block.xsh	123	20	proc collect	2651:var candidates,2657:var linked_devices,2658:let holders,2659:let slaves
+check.type-mismatch	xsh/core/lib/sys_block.xsh	475	96	proc collect	2651:var candidates,2657:var linked_devices,2658:let holders,2659:let slaves
+check.operator-type	xsh/core/lib/sys_block.xsh	466	5	proc collect	2651:var candidates,2657:var linked_devices,2658:let holders,2659:let slaves
+check.index-type	xsh/core/lib/sys_block.xsh	529	16	proc collect	2651:var candidates,2657:var linked_devices,2658:let holders,2659:let slaves
+check.local-inference	xsh/core/lib/sys_block.xsh	535	24	proc collect	2651:var candidates,2657:var linked_devices,2658:let holders,2659:let slaves
+check.for-iterator	xsh/core/lib/sys_block.xsh	536	20	proc collect	2651:var candidates,2657:var linked_devices,2658:let holders,2659:let slaves
+check.index-type	xsh/core/lib/sys_block.xsh	554	7	proc collect	2651:var candidates,2657:var linked_devices,2658:let holders,2659:let slaves
+check.index-type	xsh/core/lib/sys_block.xsh	560	7	proc collect	2651:var candidates,2657:var linked_devices,2658:let holders,2659:let slaves
+check.operator-type	xsh/core/lib/sys_block.xsh	564	5	proc collect	2651:var candidates,2657:var linked_devices,2658:let holders,2659:let slaves
+check.local-inference	xsh/core/lib/sys_block.xsh	535	24	proc collect	2651:var candidates,2657:var linked_devices,2658:let holders,2659:let slaves
+check.local-inference	xsh/core/lib/sys_usb.xsh	141	16	proc parse_alternates	3020:var active,3021:let alternates
+check.spread-not-record	xsh/core/lib/sys_usb.xsh	256	17	proc parse_alternates	3020:var active,3021:let alternates
+check.field-access	xsh/core/lib/sys_usb.xsh	256	40	proc parse_alternates	3020:var active,3021:let alternates
+check.type-mismatch	xsh/core/lib/sys_usb.xsh	453	65	proc collect	3052:let version_value,3054:var interfaces
+check.type-mismatch	xsh/core/lib/sys_usb.xsh	750	21	proc collect	3052:let version_value,3054:var interfaces
+check.type-mismatch	xsh/core/lib/sys_usb.xsh	727	7	proc collect	3052:let version_value,3054:var interfaces
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	2333	23	pure parse_smbios_table	2366:let strings
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	2347	21	pure parse_smbios_table	2366:let strings
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	2380	18	pure parse_smbios_table	2366:let strings
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	2375	7	pure parse_smbios_table	2366:let strings
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	4815	83	pure assemble_network_dump	2538:let address_value,2542:var routes,2543:let default_destination,2544:let destination,2546:var rules
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	4871	106	pure assemble_network_dump	2538:let address_value,2542:var routes,2543:let default_destination,2544:let destination,2546:var rules
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	4951	13	pure assemble_network_dump	2538:let address_value,2542:var routes,2543:let default_destination,2544:let destination,2546:var rules
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	4952	12	pure assemble_network_dump	2538:let address_value,2542:var routes,2543:let default_destination,2544:let destination,2546:var rules
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	4945	3	pure assemble_network_dump	2538:let address_value,2542:var routes,2543:let default_destination,2544:let destination,2546:var rules
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	1155	16	proc collect_sensors	2280:let trips
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	1151	7	proc collect_sensors	2280:let trips
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	1260	67	proc collect_power	2285:var monitor_batteries,2288:let capacity_value
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	1818	56	proc collect_kernel	2332:let users
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	2779	31	proc read_firmware_identity	2418:var compatible
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	2768	15	proc read_firmware_identity	2418:var compatible
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	2767	3	proc read_firmware_identity	2418:var compatible
+check.local-inference	xsh/core/lib/system_report_live.xsh	2850	14	proc collect_cpu	2423:var cpus,2424:var caches,2427:let linked_cpus,2429:var idle_states
+check.operator-type	xsh/core/lib/system_report_live.xsh	2901	5	proc collect_cpu	2423:var cpus,2424:var caches,2427:let linked_cpus,2429:var idle_states
+check.for-iterator	xsh/core/lib/system_report_live.xsh	3070	21	proc collect_cpu	2423:var cpus,2424:var caches,2427:let linked_cpus,2429:var idle_states
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	3267	5	proc collect_cpu	2423:var cpus,2424:var caches,2427:let linked_cpus,2429:var idle_states
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	3270	5	proc collect_cpu	2423:var cpus,2424:var caches,2427:let linked_cpus,2429:var idle_states
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	3568	69	proc read_huge_page_pool	2446:let error_kind
+check.type-mismatch	xsh/core/lib/system_report_live.xsh	3973	5	proc collect_memory	2455:var pressure
+check.type-mismatch	xsh/dev/cargo_steps.xsh	47	83	proc detect_preload	3476:let configured
+check.type-mismatch	xsh/dev/docs.xsh	311	9	proc snippets	3406:let output,3407:let desugared
+check.type-mismatch	xsh/dev/docs.xsh	319	9	proc snippets	3406:let output,3407:let desugared
+check.type-mismatch	xsh/dev/system_report_check.xsh	3558	61	pure compare_usb_topology	6286:let actual_parent
+check.local-inference	xsh/dev/system_report_check.xsh	4072	17	pure parse_usb_interface_descriptors	6338:var current,6339:let settings
+check.spread-not-record	xsh/dev/system_report_check.xsh	4180	20	pure parse_usb_interface_descriptors	6338:var current,6339:let settings
+check.field-access	xsh/dev/system_report_check.xsh	4180	41	pure parse_usb_interface_descriptors	6338:var current,6339:let settings
+check.type-mismatch	xsh/dev/system_report_check.xsh	4458	7	pure compare_usb_interfaces	6370:var candidate_interfaces,6371:var active_setting,6372:let actual_class,6373:let actual_subclass,6374:let actual_protocol,6375:let actual_endpoints
+check.type-mismatch	xsh/dev/system_report_check.xsh	4463	7	pure compare_usb_interfaces	6370:var candidate_interfaces,6371:var active_setting,6372:let actual_class,6373:let actual_subclass,6374:let actual_protocol,6375:let actual_endpoints
+check.type-mismatch	xsh/dev/system_report_check.xsh	4468	7	pure compare_usb_interfaces	6370:var candidate_interfaces,6371:var active_setting,6372:let actual_class,6373:let actual_subclass,6374:let actual_protocol,6375:let actual_endpoints
+check.type-mismatch	xsh/dev/system_report_check.xsh	4473	7	pure compare_usb_interfaces	6370:var candidate_interfaces,6371:var active_setting,6372:let actual_class,6373:let actual_subclass,6374:let actual_protocol,6375:let actual_endpoints
+check.type-mismatch	xsh/dev/system_report_check.xsh	4473	7	pure compare_usb_interfaces	6370:var candidate_interfaces,6371:var active_setting,6372:let actual_class,6373:let actual_subclass,6374:let actual_protocol,6375:let actual_endpoints
+check.type-mismatch	xsh/dev/system_report_check.xsh	6745	73	pure compare_hwmon	6564:let alarm
+check.type-mismatch	xsh/dev/system_report_check.xsh	6745	84	pure compare_hwmon	6564:let alarm
+check.type-mismatch	xsh/dev/system_report_check.xsh	13846	37	pure parse_lsblk_json	7234:var pending,7235:var devices
+check.type-mismatch	xsh/dev/system_report_check.xsh	13853	39	pure parse_lsblk_json	7234:var pending,7235:var devices
+check.type-mismatch	xsh/dev/system_report_check.xsh	13860	46	pure parse_lsblk_json	7234:var pending,7235:var devices
+check.type-mismatch	xsh/dev/system_report_check.xsh	13860	19	pure parse_lsblk_json	7234:var pending,7235:var devices
+check.type-mismatch	xsh/dev/system_report_check.xsh	15610	3	pure parse_mountinfo_raw_reference	7366:var mounts
+check.type-mismatch	xsh/dev/system_report_check.xsh	15789	3	pure parse_findmnt_json	7385:let mounts
+check.type-mismatch	xsh/dev/system_report_check.xsh	16170	54	pure parse_proc_modules_raw_reference	7426:let modules,7427:let users
+check.type-mismatch	xsh/dev/system_report_check.xsh	16176	3	pure parse_proc_modules_raw_reference	7426:let modules,7427:let users
+check.type-mismatch	xsh/dev/system_report_check.xsh	16225	3	pure parse_lsmod_reference	7433:let modules
+check.type-mismatch	xsh/dev/system_report_check.xsh	5160	66	proc reference_powercap_parent	6436:let parent_value
+check.type-mismatch	xsh/dev/system_report_check.xsh	11291	3	proc read_pci_raw_reference	7024:let rows
+check.type-mismatch	xsh/dev/system_report_check.xsh	16688	15	proc kernel_parameter_bundle_reference	7481:let reference
+check.type-mismatch	xsh/dev/system_report_check.xsh	16696	15	proc kernel_parameter_bundle_reference	7481:let reference
+check.type-mismatch	xsh/dev/system_report_check.xsh	16707	3	proc kernel_parameter_bundle_reference	7481:let reference
+check.type-mismatch	xsh/dev/system_report_check.xsh	17496	13	proc validate_device_tree_bundle	7550:let raw_values
+check.type-mismatch	xsh/dev/system_report_check.xsh	19203	56	proc read_cpu_scope_cgroup_reference	7821:let ancestors,7822:let cpus,7823:let quota
+check.type-mismatch	xsh/dev/system_report_check.xsh	19204	56	proc read_cpu_scope_cgroup_reference	7821:let ancestors,7822:let cpus,7823:let quota
+check.type-mismatch	xsh/dev/system_report_check.xsh	19214	15	proc read_cpu_scope_cgroup_reference	7821:let ancestors,7822:let cpus,7823:let quota
+check.type-mismatch	xsh/dev/system_report_check.xsh	19214	3	proc read_cpu_scope_cgroup_reference	7821:let ancestors,7822:let cpus,7823:let quota
+check.type-mismatch	xsh/dev/system_report_check.xsh	24817	15	proc read_kernel_parameter_reference	8236:let values
+check.type-mismatch	xsh/dev/system_report_check.xsh	24819	15	proc read_kernel_parameter_reference	8236:let values
+check.type-mismatch	xsh/dev/system_report_check.xsh	24830	12	proc read_kernel_parameter_reference	8236:let values
+check.type-mismatch	xsh/dev/system_report_check.xsh	24830	3	proc read_kernel_parameter_reference	8236:let values
