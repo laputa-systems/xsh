@@ -30,18 +30,22 @@ full-corpus result, and the interrupted 3c repeat earns no credit.
 Compatibility origins and exclusions reconcile to frozen denominators. No
 new upstream pass is claimed. All 428 route invocations completed without
 failures, with source checks clean. AST-extractor build and admission checks
-remain open. The root residual has a Unix-socket `sun_path` length case under
-rerun after 34 of 35 standard cases and the namespace case passed. Functional close and the
-ten-suite performance sequence remain open. Lean and Phase F stay paused.
+remain open. The root residual has 36 unique passes across 37 executions.
+The standard context passed 34 cases, then the Unix-socket `sun_path` length
+case passed through an owned alias. The namespace case and both positive
+`NET_RAW` cases passed in a separate root context with `CAP_NET_RAW`. The
+owner is archiving this proof. Functional close
+and the ten-suite performance sequence remain open. Lean and Phase F stay paused.
 Inference remains isolated until consolidation closes.
 
 Phase D remains isolated at checkpoint `877`, commit
 `338b82238a67ee36dd1b025b7a923f9fc5d2da40`, on pair
 `a972c8d139ecbb43174271842988eefb2c8638cc`. It removed 348/693 local and
 529/2,190 internal annotations. All eleven annotated and eleven reduced root
-checks pass. The 26-case native runner is pending, targets remain unmet, and
-all 202 eligible effects remain retained. Host component `5277` is
-conditionally accepted pending six native checks. See the [active handoff](HANDOFF.md#active-candidate) for the full checkpoint details.
+checks pass. The 26-case native runner is running after the residual slot
+release. Targets remain unmet, and all 202 eligible effects remain retained.
+Host component `5277` is conditionally accepted, with six native checks next.
+See the [active handoff](HANDOFF.md#active-candidate) for the full checkpoint details.
 
 The isolated generic module export slice remains accepted at `8475984a9`.
 Its main merge waits for consolidation closure. Broader inference, corpus

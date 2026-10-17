@@ -26,8 +26,8 @@ The fresh 13-stage R6 run on 7eb exited zero at all stages and root accepted
 it. The run recorded 23 boundaries, 58 extra cases with three ignored, two
 split checks, two privileged checks, and 18 traceroute cases with two
 `NET_RAW` skips. Three ignored cases are covered by the accepted QEMU reuse.
-The two positive `NET_RAW` probes remain in the root residual. The durable R6
-receipt is being archived separately.
+The [R6 evidence archive](winddown/evidence/final-correctness-gates/README.md)
+preserves the failed b235 attempt and accepted 7eb run.
 
 The source includes the XSHT linked-worktree discovery repair at
 `c30aed3bc`, the same-size tail fixture at `afe2998e4`, the batch admission
@@ -64,7 +64,7 @@ and deadlines remain unchanged.
 | W9 scope check and input-0 probe `342ae4108` | The source-seal receipt binds b235. The input-0 probe passed for reference, derived-reference, and candidate adapters and both exact-owner roles. No b235 full-corpus capture ran because the shared publication lock was held by the 3c comparison. The README records Phase A reuse; the probe is not a full-corpus result. See [b235 W9 scope evidence](evidence/w9-current-b235a1a43/README.md). |
 | W9 width diagnostic `f63b64baf` | The rejected eight-worker memory diagnostic reached the 16 GiB limit using frozen 0dc9 captures. The original three-worker cap remains. This diagnostic grants no parity or resource acceptance. See [diagnostic record](evidence/w9-comparator-width/README.md). |
 | Compatibility inventory `b235a1a43` | Frozen denominators remain 638 BusyBox IDs across 68 utilities, 514 GNU IDs across 61 groups, and 5,653 uutils IDs across 106 utilities. Native-origin counts are 638, 513, and 5,419. Exception entries are 0, 3, and 235. They overlap native-origin counts at 0, 2, and 1 IDs. The union is 6,570 native-origin IDs plus 235 exception-only IDs. The 282 exclusions are disjoint and grouped as 137 `clap-wording`, 89 `gnu-semantics`, 17 `help-text`, 3 `thread-model`, 34 `uutils-extension`, and 2 `uutils-internal`. Origin, exclusion, and offline-inventory assertions passed. Historical upstream reports retain failures; no b235 full upstream pass is claimed. See [compatibility accounting](evidence/compatibility-close-b235a1a43/README.md). |
-| Structural review `097192fd7`, current readiness `6bddfeeca` | The four hard-zero structural counts are zero at b235. Input-mode `check-current` on 7eb reused the saved report and produced an identical report and audit. This does not claim a fresh 7eb scan or final ten-row verification. Routes, the root residual, functional close, and timing remain open. See [closure evidence](evidence/closure-b235a1a43/README.md). |
+| Structural review `097192fd7`, current readiness `6bddfeeca` | The four hard-zero structural counts are zero at b235. Input-mode `check-current` on 7eb reused the saved report and produced an identical report and audit. This does not claim a fresh 7eb scan or final ten-row verification. Route tooling, residual archive, functional close, and timing remain open. See [closure evidence](evidence/closure-b235a1a43/README.md). |
 
 The 73 route mapping tests and 91 W9 adapter tests are earlier focused checks.
 The accepted 0deeb9 W9 cohort remains reusable for b235 under Phase A because
@@ -78,9 +78,10 @@ using the qualified pair `a972c8d139ecbb43174271842988eefb2c8638cc`. All
 eleven annotated and eleven reduced root checks pass. It removes 348 of 693
 local annotations (50.22%) and 529 of 2,190 internal annotations (24.16%);
 the 95% and 85% targets remain unmet. The 26-case native witness runner is
-pending. All 202 eligible effect clauses remain retained because 142
-individual proofs do not establish joint-cycle equality. Host component
-`5277` is conditionally accepted pending six native checks. The earlier
+running after the residual slot release. All 202 eligible effect clauses
+remain retained because 142 individual proofs do not establish joint-cycle
+equality. Host component `5277` is conditionally accepted, with six native
+checks next. The earlier
 615-removal checkpoint `17be3ff8` on freeze `a8d5bd910` remains historical.
 The generic-body lane is not qualified. Do not merge inference to main before
 consolidation closes.
@@ -88,14 +89,14 @@ consolidation closes.
 ### Current queue
 
 1. Finish route qualification. All 428 normal and forced runtime invocations completed without failures, and source checks stayed clean. The AST-extractor build and admission checks still run.
-2. Finish the root residual. The standard context passed 34 of 35 cases and skipped one Unix-socket `sun_path` length case; the namespace context passed its one case. Root is rerunning the skipped case through an owned alias with the same privileges. If it passes, the residual will have 36 unique passes across 37 executions. The initial Git-guard failure ran zero tests and remains excluded. Run both positive `NET_RAW` cases in a separate root context with `CAP_NET_RAW`; `tests.native` drops root and cannot qualify them.
+2. The root residual has 36 unique passes across 37 executions and zero unresolved skips. The standard context passed 34 cases, then the skipped Unix-socket `sun_path` length case passed through an owned alias. The namespace case passed. Both positive `NET_RAW` cases passed in a separate root context with `CAP_NET_RAW`. The initial Git-guard failure ran zero tests and remains excluded. The owner is archiving this proof.
 3. Complete the remaining semantic, structural, documentation, and functional-close review. The accepted b235 canonical result and seven QEMU guest passes are reused for 7eb under Phase A; R6 is independently accepted on 7eb.
 4. After functional close, run the campaign's ten full-suite resource and performance sequence. Root owns release readiness and main promotion.
 
 The b235 canonical gate is accepted and reused for 7eb under Phase A. The
 fresh 7eb R6 run is also accepted. Route runtime invocations have no failures,
-but route-tool checks remain open. The root residual rerun, functional close,
-and performance gates also remain open. QEMU reuse is accepted by scope; no
+but route-tool checks remain open. The root residual passed, but its archive,
+functional close, and performance gates remain open. QEMU reuse is accepted by scope; no
 new 7eb products or guest run are claimed. W9 parity is accepted at 0deeb9 and
 reusable for the unchanged W9 scope under Phase A. No functional close exists.
 Do not merge inference work from typing branches.

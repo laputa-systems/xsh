@@ -48,22 +48,23 @@ leaves that QEMU scope unchanged, so Phase A reuses those seven guest passes.
 No 7eb product build or guest run is claimed. See [QEMU scope](evidence/linux-qemu-b235a1a4/README.md).
 The 428 strict route invocations completed without failures, and source
 checks stayed clean. The matrix's AST-extractor build and admission checks are
-still running, so route acceptance is pending. The root residual has 34 of 35
-standard cases pass, one path-length skip, and its namespace case pass. Root
-is rerunning the skipped case through an owned alias with the same privileges.
-If it passes, the residual will have 36 unique passes across 37 executions.
-The initial Git-guard failure ran zero tests and remains excluded. Root owns
-subsequent freeze and promotion.
+still running, so route acceptance is pending. The 36-case root residual has
+36 unique passes across 37 executions. The standard context passed 34 cases,
+then the skipped Unix-socket `sun_path` case passed through an owned alias.
+The namespace case passed. Both positive `NET_RAW` cases passed in the root
+context with `CAP_NET_RAW`. The initial Git-guard failure ran zero tests and
+remains excluded. The owner is archiving this proof. Root owns subsequent
+freeze and promotion.
 
 Phase D whole-corpus typing work remains isolated. Root accepted checker
 checkpoint `877` at `338b82238a67ee36dd1b025b7a923f9fc5d2da40`, using the
 qualified pair `a972c8d139ecbb43174271842988eefb2c8638cc`. All eleven annotated
 and eleven reduced root checks pass. It removes 348 of 693 local annotations
 (50.22%) and 529 of 2,190 internal annotations (24.16%). The 95% and 85%
-targets remain unmet. The 26-case native witness runner is pending. All 202
-eligible effect clauses remain retained because 142 individual proofs do not
-establish joint-cycle equality. Host component `5277` is conditionally
-accepted pending six native checks. The prior 615-removal checkpoint remains
+targets remain unmet. The 26-case native witness runner is running after the
+residual slot release. All 202 eligible effect clauses remain retained
+because 142 individual proofs do not establish joint-cycle equality. Host
+component `5277` is conditionally accepted, with six native checks next. The prior 615-removal checkpoint remains
 historical. The generic-body lane is unqualified, and inference remains
 isolated from main.
 
