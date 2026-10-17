@@ -352,10 +352,10 @@ pure parse_id(value: Str?) -> Result[Int?, OptionError] {
       offset += 1
     }
     if digits == 0 or offset != data.len() {
-      return Err(OptionError.Invalid {detail: f"failed to parse IPC identifier: '{text}'"})
+      return Err(Invalid(detail: f"failed to parse IPC identifier: '{text}'"))
     }
     if out_of_range {
-      return Err(OptionError.Invalid {detail: f"failed to parse IPC identifier: '{text}': Numerical result out of range"})
+      return Err(Invalid(detail: f"failed to parse IPC identifier: '{text}': Numerical result out of range"))
     }
     let parsed = if negative { -number } else { number }
     return Ok(null) when parsed == -1
@@ -509,11 +509,11 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
     }
     if let selected = column {
       if !allowed_column(selected, selection) {
-        return Err(OptionError.Invalid {detail: f"column {remaining} does not apply to the specified IPC"})
+        return Err(Invalid(detail: f"column {remaining} does not apply to the specified IPC"))
       }
       columns += [selected]
     } else {
-      return Err(OptionError.Invalid {detail: f"unknown column: {remaining}"})
+      return Err(Invalid(detail: f"unknown column: {remaining}"))
     }
   }
   Ok(columns)
@@ -522,7 +522,7 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
 pure select(options: Options) -> Result[Selection, OptionError] {
   if let failure = options.time_format {
     if failure not in ["short", "full", "iso"] {
-      return Err(OptionError.Invalid {detail: f"unknown time format: {failure}"})
+      return Err(Invalid(detail: f"unknown time format: {failure}"))
     }
   }
   let id = parse_id(options.id)?
@@ -541,7 +541,7 @@ pure select(options: Options) -> Result[Selection, OptionError] {
   let explicit_resources = !resources.is_empty()
   let global = options.global or !explicit_resources
   if !explicit_resources and (options.creator or options.time or id != null or options.name != null) {
-    return Err(OptionError.Invalid {detail: "--global is mutually exclusive with --creator, --id, --name and --time"})
+    return Err(Invalid(detail: "--global is mutually exclusive with --creator, --id, --name and --time"))
   }
   if !explicit_resources {
     resources = ["queues", "posix_mqueues", "shmems", "posix_shmems", "semaphores", "posix_semaphores"]
@@ -594,7 +594,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
         if group >= 0 {
           if let previous = first[group] {
             if previous != code {
-              return Err(OptionError.Invalid {detail: f"options {option_display(previous)} and {option_display(code)} cannot be combined"})
+              return Err(Invalid(detail: f"options {option_display(previous)} and {option_display(code)} cannot be combined"))
             }
           }
           first[group] = code
@@ -607,7 +607,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
       } else if name == "time-format" {
         let value = if let offset = equals { argument.byte_slice(offset + 1) } else { index += 1; argv[index] }
         if value not in ["short", "full", "iso"] {
-          return Err(OptionError.Invalid {detail: f"unknown time format: {value}"})
+          return Err(Invalid(detail: f"unknown time format: {value}"))
         }
       } else if name in ["name", "output"] and equals == null {
         index += 1
@@ -626,18 +626,34 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
           break
         }
         let name = match code {
-          "b" => "bytes" "c" => "creator" "e" => "export" "g" => "global" "i" => "id"
-          "J" => "json" "l" => "list" "m" => "shmems" "M" => "posix-shmems" "n" => "newline"
-          "N" => "name" "o" => "output" "P" => "numeric-perms" "Q" => "posix-mqueues"
-          "q" => "queues" "r" => "raw" "S" => "posix-semaphores" "s" => "semaphores"
-          "t" => "time" "y" => "shell" else => ""
+          "b" => "bytes"
+          "c" => "creator"
+          "e" => "export"
+          "g" => "global"
+          "i" => "id"
+          "J" => "json"
+          "l" => "list"
+          "m" => "shmems"
+          "M" => "posix-shmems"
+          "n" => "newline"
+          "N" => "name"
+          "o" => "output"
+          "P" => "numeric-perms"
+          "Q" => "posix-mqueues"
+          "q" => "queues"
+          "r" => "raw"
+          "S" => "posix-semaphores"
+          "s" => "semaphores"
+          "t" => "time"
+          "y" => "shell"
+          else => ""
         }
         if let mapped = option_code(name) {
           let group = conflict_group(mapped)
           if group >= 0 {
             if let previous = first[group] {
               if previous != mapped {
-                return Err(OptionError.Invalid {detail: f"options {option_display(previous)} and {option_display(mapped)} cannot be combined"})
+                return Err(Invalid(detail: f"options {option_display(previous)} and {option_display(mapped)} cannot be combined"))
               }
             }
             first[group] = mapped
@@ -659,7 +675,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
     if !permute { break }
     index += 1
   }
-  Ok(())
+  Ok()
 }
 
 export pure resolve(options: Options, argv: List[Str], permute: Bool) -> Result[Selection, OptionError] {
