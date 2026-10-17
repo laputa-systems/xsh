@@ -2,6 +2,7 @@ use docker
 use fixtures
 use gates
 use test_workflows as tests
+use unix
 
 # Combining owners preserves their required gates without scheduling a second
 # copy for every changed file in the same source family.
@@ -335,6 +336,43 @@ test test_batch_automatic_checks_use_retained_repository_gates {
   let retained = gates.select(["dev/checks/check_inventory.py"])?
   assert retained.areas == [gates.Automation]
   assert retained.native_files.is_empty()
+}
+
+test test_batch_preserves_rust_plan_and_bounds_native_case_admission { |ctx|
+  let fixture_root = test.temp_dir(ctx, name: "batch-native-admission")?
+  fixture_root.chmod(0o777)
+  let work_root = fp"{fixture_root}/.work"
+  work_root.mkdir()
+  work_root.chmod(0o2777)
+  let target_dir = fp"{fixture_root}/target"
+  target_dir.mkdir()
+  let product_dir = fp"{target_dir}/x86_64-unknown-linux-musl/verification"
+  product_dir.parent().mkdir()
+  product_dir.mkdir()
+  let observed = fp"{fixture_root}/native-argv"
+  fp"{product_dir}/xsht".write(
+    f"""#!{ctx.xsh_bin}
+p"{observed}".write(args.join("|"))?
+""",
+    mode: 0o755,
+  )
+  let workflow_context = fixtures.linux_context(fixture_root, "verification")?
+  let rust_plan = tests.rust_plan(workflow_context, tests.Verification, privileged: true)?
+  assert [spec.stage for spec in rust_plan] == [
+    "test-products",
+    "test-rust", "test-rust", "test-rust", "test-rust", "test-rust",
+    "test-debug-assertions", "test-xsht", "test-soundness",
+    "test-linux-priv", "test-linux-priv",
+  ]
+
+  if unix.id()?.euid == 0 {
+    env HOST_UID="1000" HOST_GID="1000" {
+      tests.native(workflow_context, tests.Verification, ["--jobs", "4"])
+    }
+  } else {
+    tests.native(workflow_context, tests.Verification, ["--jobs", "4"])
+  }
+  assert observed.read_text()? == "test|--jobs|4"
 }
 
 test test_docker_gate_evaluates_context_root_path_expression { |ctx|

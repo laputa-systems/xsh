@@ -1,0 +1,5 @@
+available_parallelism=Ok(12)
+cgroup="0::/"
+cpu.max="1200000 100000"
+cpuset.cpus.effective="0-31"
+status.cpus_allowed_list=Some("Cpus_allowed_list:\t0-31")
