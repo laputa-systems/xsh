@@ -705,7 +705,7 @@ test test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes { |ctx
     ul.compare(unknown.reference, unknown.candidate)
     assert unknown.candidate.status == 1
     assert unknown.candidate.stdout == b""
-    assert unknown.candidate.stderr == f"lsipc: unknown column: {columns}\n"
+    assert unknown.candidate.stderr == bytes.from_text(f"lsipc: unknown column: {columns}\n")
   }
 
   let upper_case = run_both(s, ["--queues", "--output", "ID"])?
