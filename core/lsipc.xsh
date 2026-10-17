@@ -488,7 +488,6 @@ proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
   })?
   if options.help { gnu.help(help_text()); return }
   if options.version { gnu.version("lsipc"); return }
-  if !options.operands.is_empty() { gnu.extra_operand(options.operands[0]); exit 1 }
   let selection = match report.resolve(options, argv, env.get("POSIXLY_CORRECT") is Err(_)) {
     Ok(value) => value
     Err(failure) => report_failure(failure)
