@@ -1,6 +1,6 @@
 # XSH Consolidation Campaign
 
-Status: Main and the frozen source are
+Last accepted canonical and resource source:
 `24cc0d704209a8c0aa0eb27d5cfea1434929dc20`, tree
 `b6efac064ed074c9ee03d8f183bff9b41d353c91`. Root accepted the additive
 functional close and exact-source R6 canonical and resource run. Timed
@@ -28,10 +28,15 @@ four minutes and received SIGTERM. Cleanup is resolved, and the failed receipt
 and logs are unchanged. Neither attempt qualifies a profile or timing result.
 See the [profile evidence](evidence/successor-24cc0d704/README.md#failed-timed-profile-attempts).
 
-The `rm` and `sort` owners are repairing those failures in isolated worktrees.
-Their changes are not integrated or qualified. Root accepted observer repair
-`90c223487` and profile cleanup repairs `0b0f485` and `f73d136`. Those tool
-changes await integration. Root owns integration and the next source seal.
+The assembled successor contains sort repair `b3e94ff41` and rm repair
+`a745248e2`. Focused controls pass, including the original sort buffer-size
+case. Direct sort coverage records 279 passes and four unavailable-locale
+skips; the original 400,000-file rm selector also passes. The bounded syscall
+comparison establishes fewer metadata lookups, not
+the cause of R2's rm failure. The assembly also includes observer `90c223487`,
+profile cleanup `0b0f485`/`f73d136`, visible cleanup diagnostics, and scheduler
+derivation `ba6702ad6`/`a14c14188`. Their focused Python checks pass. These
+results do not qualify the assembled source for the remaining full gates.
 
 After the repairs and accepted tool changes are integrated and the source is
 sealed, run a fresh normal profile, one timed canonical observer with resource

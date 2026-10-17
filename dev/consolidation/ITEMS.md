@@ -4,7 +4,7 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `5e66b6b896a47d0c692739135d51200b007a2a67`. The accepted designs and historical
 ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
-**Current status: Main and the frozen source are
+**Last accepted canonical and resource source:
 `24cc0d704209a8c0aa0eb27d5cfea1434929dc20`, tree
 `b6efac064ed074c9ee03d8f183bff9b41d353c91`.** Root accepted an additive
 functional close and the exact-source R6 canonical and resource run: 13,916
@@ -12,8 +12,11 @@ passed, zero failed, and 78 skipped. Timed performance acceptance remains open.
 See the [active handoff](HANDOFF.md#active-candidate).
 
 R1 discarded timing and did not run the native suite. R2 failed two native
-cases, so neither profile attempt qualifies timing. The `rm` and `sort` source
-repairs remain isolated and unqualified. The
+cases, so neither profile attempt qualifies timing. The successor assembly
+contains reviewed `rm` and `sort` repairs and gate-tool fixes. Focused checks
+pass; direct sort coverage records 279 passes and four unavailable-locale skips,
+and the original 400,000-file rm case passes with unchanged deadlines.
+The assembled source still needs its own full gates. The
 [successor archive](evidence/successor-24cc0d704/README.md) preserves R6 and
 both profile attempts.
 

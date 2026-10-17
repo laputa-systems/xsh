@@ -2,7 +2,7 @@
 
 ## Live checkpoint, 2026-10-17
 
-Status: Main and the frozen source are
+Last accepted canonical and resource source:
 `24cc0d704209a8c0aa0eb27d5cfea1434929dc20`, tree
 `b6efac064ed074c9ee03d8f183bff9b41d353c91`. Root accepted an additive
 functional close and the exact-source R6 canonical and resource run. Timed
@@ -29,10 +29,19 @@ and received SIGTERM. Cleanup is resolved, and the original failed receipt
 remains unchanged. Neither attempt qualifies a profile or timing result. See
 [R1 and R2 evidence](evidence/successor-24cc0d704/README.md#failed-timed-profile-attempts).
 
-The `rm` and `sort` fixes remain in isolated, unqualified worktrees. Root
-accepted observer repair `90c223487` and profile cleanup repairs `0b0f485` and
-`f73d136`. These tool changes await integration. Root owns the integration and
-next source seal.
+The assembled successor contains sort repair `b3e94ff41` and rm repair
+`a745248e2`. Sort's 25 focused controls and unchanged buffer-size selector pass.
+Rm's ten controls pass, and a 10,000-file comparison retains 10,000 unlinks
+while reducing lstat calls from 20,004 to 10,004. That result does not establish
+the cause of R2's rm failure. Direct sort applet coverage records 279 passes,
+zero failures, and four unavailable-locale skips. The original 400,000-file rm
+selector passes with its existing deadlines unchanged.
+
+The assembly also includes observer `90c223487`, profile cleanup
+`0b0f485`/`f73d136`, visible cleanup diagnostics, and scheduler derivation
+`ba6702ad6`/`a14c14188`. The focused Python checks pass after integration.
+Root owns the next source seal and integrated correctness checks. None of these
+focused results qualifies the remaining full gates.
 
 Root accepted the bounded isolated typing checkpoint at
 `b823e52cb94d222de64968154d9ceee5ce580e88`.
