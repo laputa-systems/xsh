@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import contextvars
 import hashlib
 import os
 from pathlib import Path
@@ -233,6 +234,36 @@ def run_repository_contract(source):
 def run_docs(source):
     import resources
     return resources.run_docs(sys.modules[__name__], source)
+
+
+_review_result = contextvars.ContextVar("util_linux_independent_review", default=None)
+
+
+@contextlib.contextmanager
+def independent_review(result):
+    import acceptance
+    if not isinstance(result, acceptance.GateResult) or result.name != "adversarial-review":
+        raise ValueError("independent review requires an actual adversarial-review gate result")
+    if (result.status != 0 or result.failed or result.skipped or result.accounted_skips
+            or result.executed <= 0 or result.passed != result.executed or not result.selectors):
+        raise ValueError("independent review did not pass every reviewed item")
+    if not result.source.clean or source_identity() != result.source:
+        raise ValueError("independent review does not match the current clean source")
+    token = _review_result.set(result)
+    try:
+        yield
+    finally:
+        _review_result.reset(token)
+
+
+def adversarial_review(source):
+    result = _review_result.get()
+    if result is None:
+        raise ValueError("close requires an independent review for this invocation")
+    if result.source != source or source_identity() != source or not source.clean:
+        raise ValueError("independent review does not match the current clean source")
+    _review_result.set(None)
+    return result
 
 
 def owned_cleanup(source):

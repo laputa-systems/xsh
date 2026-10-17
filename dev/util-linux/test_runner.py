@@ -107,6 +107,38 @@ class NativeCaseDispatchTests(unittest.TestCase):
         launch.assert_not_called()
 
 
+class IndependentReviewTests(unittest.TestCase):
+    def setUp(self):
+        import acceptance
+        self.source = acceptance.SourceIdentity("commit", "tree", True)
+        self.result = acceptance.GateResult("adversarial-review", self.source, 0, 1, 1, 0, (), (), ("independent-reviewer",), ())
+
+    def test_absent_review_fails_without_fabricating_a_result(self):
+        with self.assertRaisesRegex(ValueError, "for this invocation"):
+            check.adversarial_review(self.source)
+
+    def test_actual_review_is_consumed_once_and_does_not_escape_scope(self):
+        with patch("check.source_identity", return_value=self.source):
+            with check.independent_review(self.result):
+                self.assertIs(check.adversarial_review(self.source), self.result)
+                with self.assertRaisesRegex(ValueError, "for this invocation"):
+                    check.adversarial_review(self.source)
+        with self.assertRaisesRegex(ValueError, "for this invocation"):
+            check.adversarial_review(self.source)
+
+    def test_stale_review_is_rejected_before_and_during_use(self):
+        import acceptance
+        stale = acceptance.SourceIdentity("different", "tree", True)
+        with patch("check.source_identity", return_value=stale):
+            with self.assertRaisesRegex(ValueError, "current clean source"):
+                with check.independent_review(self.result):
+                    self.fail("stale review admitted")
+        with patch("check.source_identity", side_effect=[self.source, stale]):
+            with check.independent_review(self.result):
+                with self.assertRaisesRegex(ValueError, "current clean source"):
+                    check.adversarial_review(self.source)
+
+
 class OwnedCleanupTests(unittest.TestCase):
     def setUp(self):
         import acceptance

@@ -78,7 +78,10 @@ Build execution also requires the original exclusive Cargo guard.
 `close --check` executes the cohort, positive boundaries, focused regressions,
 and resource checks, and requires source-bound results from the full native,
 host, repository, documentation, review, and cleanup callbacks. Missing callbacks
-and changed source fail closure.
+and changed source fail closure. An independent reviewer supplies a result bound
+to the frozen commit and tree through `independent_review(result)` for one close
+invocation. Missing or stale review results fail. The adapter consumes each
+review result once and does not persist a review receipt.
 
 Known fast functional regressions may use `native_batch`: at most four distinct
 exact selectors share one container bounded to 30 seconds. Each framed case must
