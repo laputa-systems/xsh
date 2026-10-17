@@ -13,6 +13,7 @@ import re
 import secrets
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 
@@ -476,6 +477,41 @@ def validate_build_receipt(
     }
 
 
+def derive_reference_overlay(root: Path, base_commit: str) -> bytes:
+    patch_path = ROOT / REFERENCE_AGGREGATE_PATCH_RELATIVE
+    patch_bytes = read_reference_derivation_patch(patch_path)
+    scratch_root = ROOT / ".work/tmp"
+    scratch_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="scheduler-reference-index-", dir=scratch_root) as scratch:
+        objects = Path(scratch) / "objects"
+        objects.mkdir()
+        source_objects = git(root, "rev-parse", "--path-format=absolute", "--git-path", "objects")
+        alternates = [source_objects]
+        if os.environ.get("GIT_ALTERNATE_OBJECT_DIRECTORIES"):
+            alternates.append(os.environ["GIT_ALTERNATE_OBJECT_DIRECTORIES"])
+        env = dict(
+            os.environ,
+            GIT_INDEX_FILE=str(Path(scratch) / "index"),
+            GIT_OBJECT_DIRECTORY=str(objects),
+            GIT_ALTERNATE_OBJECT_DIRECTORIES=os.pathsep.join(alternates),
+        )
+        command = ["git", "-C", str(root)]
+        subprocess.run(command + ["read-tree", base_commit], env=env, check=True)
+        applied = subprocess.run(
+            command + ["apply", "--cached", "--whitespace=nowarn", "-"],
+            input=patch_bytes, env=env, capture_output=True, check=False,
+        )
+        if applied.returncode:
+            raise ValueError(
+                "pinned scheduler reference overlay cannot be applied to sealed source: "
+                + applied.stderr.decode(errors="replace").strip()
+            )
+        return subprocess.check_output(
+            command + ["diff", "--cached", "--binary", "--full-index", base_commit],
+            env=env,
+        )
+
+
 def validate_reference_overlay(
     candidate_source: dict, reference_source: dict, reference_source_root: Path
 ) -> list[str]:
@@ -497,7 +533,8 @@ def validate_reference_overlay(
     reference_diff = subprocess.check_output([
         "git", "-C", str(reference_source_root), "diff", "--binary", "--full-index", "HEAD"
     ])
-    if sha256_bytes(reference_diff) != REFERENCE_AGGREGATE_PATCH_SHA256:
+    expected_diff = derive_reference_overlay(reference_source_root, candidate_source["commit"])
+    if reference_diff != expected_diff:
         raise ValueError("reference source diff does not match the pinned scheduler reference overlay")
     return changed
 
@@ -542,13 +579,18 @@ def verify_timed_stage_inputs(
     return {"source": source_summary(source), "binaries": binaries, "unchanged": True}
 
 
-def capture_reference_derivation_patch(path: Path) -> dict:
+def read_reference_derivation_patch(path: Path) -> bytes:
     if not path.is_file():
         raise ValueError(f"reference derivation patch is missing: {path}")
-    actual_hash = sha256_file(path)
-    if actual_hash != REFERENCE_AGGREGATE_PATCH_SHA256:
+    patch_bytes = path.read_bytes()
+    if sha256_bytes(patch_bytes) != REFERENCE_AGGREGATE_PATCH_SHA256:
         raise ValueError(f"reference derivation patch hash changed: {path}")
-    return {"sha256": actual_hash, "size_bytes": path.stat().st_size}
+    return patch_bytes
+
+
+def capture_reference_derivation_patch(path: Path) -> dict:
+    patch_bytes = read_reference_derivation_patch(path)
+    return {"sha256": sha256_bytes(patch_bytes), "size_bytes": len(patch_bytes)}
 
 
 def validate_reference_scheduler_ancestry(source_root: Path, base_commit: str) -> None:

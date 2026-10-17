@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/scheduler-derivation-repair/dev/consolidation/winddown/gate-tools/native-scheduler-comparison/test_reference_derivation.py", line 148, in <module>
+    test_exact_reference_overlay_and_two_file_control()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/scheduler-derivation-repair/dev/consolidation/winddown/gate-tools/native-scheduler-comparison/test_reference_derivation.py", line 118, in test_exact_reference_overlay_and_two_file_control
+    changed = compare.validate_reference_overlay(
+        candidate_source, reference_source, reference
+    )
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/scheduler-derivation-repair/dev/consolidation/winddown/gate-tools/native-scheduler-comparison/compare.py", line 501, in validate_reference_overlay
+    raise ValueError("reference source diff does not match the pinned scheduler reference overlay")
+ValueError: reference source diff does not match the pinned scheduler reference overlay

@@ -4,7 +4,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-from unittest.mock import patch
 
 repo_root = Path(__file__).resolve().parents[5]
 compare_path = Path(__file__).with_name("compare.py")
@@ -34,6 +33,7 @@ def make_candidate(root):
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(repo_root / relative, destination)
+    (root / "unrelated-source").write_text("sealed unrelated content\n")
     subprocess.run(["git", "-C", str(root), "init", "--quiet"], check=True)
     subprocess.run(["git", "-C", str(root), "add", "."], check=True)
     env = dict(os.environ)
@@ -96,7 +96,7 @@ def test_derivation_patch_pin_and_ancestry():
     )
 
 
-def test_exact_reference_overlay_and_two_file_control():
+def test_exact_derived_overlay_and_rejected_source_mutations():
     aggregate = repo_root / compare.REFERENCE_AGGREGATE_PATCH_RELATIVE
     with tempfile.TemporaryDirectory(dir=repo_root / ".work/tmp") as scratch:
         scratch_path = Path(scratch)
@@ -115,40 +115,78 @@ def test_exact_reference_overlay_and_two_file_control():
         synthetic_diff = subprocess.check_output([
             "git", "-C", str(reference), "diff", "--binary", "--full-index", "HEAD"
         ])
-        with patch.object(
-            compare,
-            "REFERENCE_AGGREGATE_PATCH_SHA256",
-            compare.sha256_bytes(synthetic_diff),
-        ):
-            changed = compare.validate_reference_overlay(
-                candidate_source, reference_source, reference
-            )
-            assert changed == [
-                "crates/xsht/src/commands.rs",
-                "crates/xsht/src/xsht/test.rs",
-            ]
+        assert compare.sha256_bytes(synthetic_diff) != compare.REFERENCE_AGGREGATE_PATCH_SHA256
+        index_before = (reference / ".git/index").read_bytes()
+        objects_before = set((reference / ".git/objects").rglob("*"))
+        changed = compare.validate_reference_overlay(
+            candidate_source, reference_source, reference
+        )
+        assert (reference / ".git/index").read_bytes() == index_before
+        assert set((reference / ".git/objects").rglob("*")) == objects_before
+        assert subprocess.check_output([
+            "git", "-C", str(reference), "diff", "--binary", "--full-index", "HEAD"
+        ]) == synthetic_diff
+        assert changed == [
+            "crates/xsht/src/commands.rs",
+            "crates/xsht/src/xsht/test.rs",
+        ]
 
-            for index, relative in enumerate((
-                "crates/xsht/src/commands.rs",
-                "crates/xsht/src/xsht/test.rs",
-            )):
-                altered = scratch_path / f"altered-{index}"
-                cloned_reference(candidate, altered)
-                subprocess.run(
-                    ["git", "-C", str(altered), "apply", str(aggregate)],
-                    check=True,
-                )
-                path = altered / relative
-                path.write_bytes(path.read_bytes() + b"\n")
-                altered_source = compare.capture_reference_source(altered, base_commit)
-                expect_value_error(
-                    lambda: compare.validate_reference_overlay(
-                        candidate_source, altered_source, altered
-                    ),
-                    "does not match the pinned scheduler reference overlay",
-                )
+        for index, relative in enumerate((
+            "crates/xsht/src/commands.rs",
+            "crates/xsht/src/xsht/test.rs",
+        )):
+            altered = scratch_path / f"altered-{index}"
+            cloned_reference(candidate, altered)
+            subprocess.run(
+                ["git", "-C", str(altered), "apply", str(aggregate)],
+                check=True,
+            )
+            path = altered / relative
+            path.write_bytes(path.read_bytes() + b"\n")
+            altered_source = compare.capture_reference_source(altered, base_commit)
+            expect_value_error(
+                lambda: compare.validate_reference_overlay(
+                    candidate_source, altered_source, altered
+                ),
+                "does not match the pinned scheduler reference overlay",
+            )
+
+        missing = scratch_path / "missing-overlay"
+        cloned_reference(candidate, missing)
+        expect_value_error(
+            lambda: compare.validate_reference_overlay(
+                candidate_source, compare.capture_reference_source(missing, base_commit), missing
+            ),
+            "does not contain the required scheduler/help overlay",
+        )
+        expect_value_error(
+            lambda: compare.capture_reference_source(reference, run_git(repo_root, "rev-parse", "HEAD")),
+            "expected sealed source",
+        )
+        unrelated = reference / "unrelated-source"
+        unrelated.write_text("unapproved source change\n")
+        expect_value_error(
+            lambda: compare.capture_reference_source(reference, base_commit),
+            "outside the scheduler overlay",
+        )
+        unrelated.write_text("sealed unrelated content\n")
+        commands = candidate / "crates/xsht/src/commands.rs"
+        commands.write_text(commands.read_text().replace(
+            "Run N tests concurrently (default: all CPUs capped at 32; max 8 per file)",
+            "unrelated replacement help",
+        ))
+        subprocess.run(["git", "-C", str(candidate), "add", "."], check=True)
+        subprocess.run([
+            "git", "-C", str(candidate), "-c", "user.name=qualification",
+            "-c", "user.email=qualification@example.invalid", "commit", "--quiet",
+            "-m", "test(scheduler): conflict with approved overlay",
+        ], check=True)
+        expect_value_error(
+            lambda: compare.derive_reference_overlay(candidate, run_git(candidate, "rev-parse", "HEAD")),
+            "cannot be applied to sealed source",
+        )
 
 
 test_derivation_patch_pin_and_ancestry()
-test_exact_reference_overlay_and_two_file_control()
+test_exact_derived_overlay_and_rejected_source_mutations()
 print("scheduler reference derivation and source qualification passed")

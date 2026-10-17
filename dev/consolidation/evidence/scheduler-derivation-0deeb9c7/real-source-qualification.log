@@ -1,0 +1,16 @@
+Non-running scheduler launch source qualification; no build, container, suite, or timing run
+sealed_source: /home/josh/d/laputa-systems/xsh
+sealed_commit: 0deeb9c7fb79e52740c82a264754dbb29d8be693
+reference_source: /home/josh/d/laputa-systems/xsh/.work/wt/native-scheduler-reference-0deeb9c7
+controller_tool: /home/josh/d/laputa-systems/xsh/.work/wt/scheduler-derivation-repair/dev/consolidation/winddown/gate-tools/native-scheduler-comparison/compare.py
+controller_tool_sha256: 52b4db0550d8e82f1172852a57bfca5113336f5f93ed0b4229632f65956845dd
+original_patch_sha256: b9b1d14e53bda60cd57523936f0a7a0fcc3c021fad5465edb05d85269076b26c
+candidate_tracked_files: 12486
+candidate_tracked_tree_sha256: fdba32d13587903a0138fd7c16cb6e0ae25183aa44aa2124cd93f19503d0d942
+reference_tracked_tree_sha256: 653d0268785a40eb23a3bd61ea6b6600bd9ee1a1fd238a8aaec5883d728b02e4
+actual_reference_full_index_diff_sha256: 8b7fac81340e0fe0ed1dbda35de1aa67a01b6d56a134e1f187a6f261fc3fd8d2
+RED original comparator: reference source diff does not match the pinned scheduler reference overlay
+GREEN repaired comparator: exact derived overlay accepted: crates/xsht/src/commands.rs, crates/xsht/src/xsht/test.rs
+derived_reference_full_index_diff_sha256: 8b7fac81340e0fe0ed1dbda35de1aa67a01b6d56a134e1f187a6f261fc3fd8d2
+Source and reference manifests unchanged after qualification
+Not qualified here: build receipts, binary identity/size, Docker image/resources, full suites, timing, readiness, shared lock inodes
