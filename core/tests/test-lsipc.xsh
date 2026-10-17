@@ -446,7 +446,7 @@ test test_lsipc_keeper_cancellation_removes_registered_resources { |ctx|
     {mode: RESOURCE_MODES[4], resource: resource_of(fixture.ready, "posix_shmem")?},
     {mode: RESOURCE_MODES[5], resource: resource_of(fixture.ready, "posix_semaphore")?},
   ]
-  ul.stop_keeper(fixture.handle)
+  fixture.handle.child.cancel(signal: "TERM", kill_after: 2s)
 
   for entry in selected {
     let args = resource_args(entry.mode, entry.resource)
