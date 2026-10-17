@@ -74,7 +74,8 @@ campaign after receiving the launch prompt with local commits and no push.
 | Use util-linux 2.42.4 from the pinned image as the executable reference. | Planning verified that version. P0 fails a version mismatch and records enabled features. Never move the denominator to a different installed release. |
 | Complete every behavior available in that reference for each selected command. | Existing partial option support is the starting point, not the target. Do not redefine the target as today's XSH flags. |
 | Preserve XSH identity in `--version`. | Existing `gnu.version` prints `NAME (XSH core) VERSION`. Record this narrow provenance exception. The util-linux 2.42.4 string pins the oracle, never the XSH banner. |
-| Allow only the stale-errno suffix to vary for the zero-numeric-memory-entry fixture. | The owner approved this exception after repeated reference runs and musl `scandir` source confirmed stale errno. Require exact utility, arguments, exit status 1, empty stdout, and rooted diagnostic prefix. The suffix must be one nonempty line. All other comparisons remain exact. |
+| Allow only the stale-errno suffix to vary for the zero-numeric-memory-entry fixture. | The owner approved this exception after repeated reference runs and musl `scandir` source confirmed stale errno. Require exact utility, arguments, exit status 1, empty stdout, and rooted diagnostic prefix. The suffix must be one nonempty line. All other comparisons follow their exact rules. |
+| Exclude two exact `lsipc` invocations from reference-parity credit. | The pinned reference terminates with `SIGSEGV` for `--posix-shmems --posix-mqueues` and `--posix-shmems --output NAME,NAME`. Keep both behavior tests, require the reference signal and independent candidate expectations, and give neither invocation parity credit. The enclosing selector is behavior evidence only. Every other argument vector, including reversed selector order and other output forms, remains an exact comparison. |
 | Implement policy, parsing, selection, and rendering in XSH. | Preserve the project's architecture. Add a host primitive only for an actual missing OS operation. |
 | Keep shared source changes with the coordinator. | Registry, runtime, and gate ownership overlap consolidation. Feature lanes consume a reviewed seam. |
 | Use private fixtures for process, lock, namespace, and device cases. | Observe the same objects in reference and XSH without changing host state. Privilege cases use the existing pinned container isolation. |
@@ -218,15 +219,17 @@ Normalize only identified nondeterminism such as actual PIDs and inode IDs.
 Map aliases by fixture identity. Preserve distinct owners, holders, blockers,
 and inodes. Reject swapped-holder and wrong-inode mutants in U0.2.
 Do not normalize whitespace, JSON types, nulls, ordering, errors, or escaped paths.
-Record one named intentional difference, `version-provenance`, in the behavior
-inventory. For `--version`, compare success status and command identity across
-implementations. Separately assert the exact XSH banner produced by
+Record the named `version-provenance` difference and exact owner-approved
+behavior-only cases in the behavior inventory. For `--version`, compare
+success status and command identity across implementations. Separately assert
+the exact XSH banner produced by
 `gnu.version_text(command)` plus a newline. At this baseline that banner is
 `NAME (XSH core) 0.0.1`. Assert the reference's actual util-linux 2.42.4 banner
 separately. Preserve each implementation's provenance instead of replacing text.
 Do not normalize other help, option, version-option parsing, or diagnostic differences.
-No other intentional difference is preapproved. A newly discovered contract
-difference remains open until resolved inside the stated reference contract.
+The stale-errno suffix and the two exact `lsipc` invocations in the decision
+table above are the only other preapproved exceptions. A newly discovered
+contract difference remains open until resolved inside the stated reference contract.
 Keep raw comparison beside parsed assertions where structured output matters.
 Use fixture synchronization rather than sleeps for lock and process readiness.
 Preserve raw path bytes until rendering. Name each operation's symlink policy.
@@ -396,17 +399,19 @@ python3 dev/util-linux/check.py resources --check
 python3 dev/util-linux/check.py close --check
 ```
 
-The sole provenance difference is the named `version-provenance` exception,
-which requires each implementation's independent identity assertions. The
-zero-numeric-memory-entry fixture also allows its stale-errno suffix to vary
-under the owner-approved rule above. That rule preserves exact utility,
-arguments, status, stdout, and rooted diagnostic prefix, and rejects additional
-diagnostic lines. Zero undecided mismatches requires every other comparison
-to match its exact oracle. Neither exception permits global normalization.
-Every selector fails when no behavior matches. Every parity result requires
-an executed reference and candidate, matching fixture inputs, and exact
-comparison rules. A missing reference, killed child, timeout, stale executable,
-or fixture setup failure fails the case. It cannot produce an empty passing run.
+The `version-provenance` exception requires each implementation's independent
+identity assertions. The zero-numeric-memory-entry fixture also allows its
+stale-errno suffix to vary under the owner-approved rule above. That rule
+preserves exact utility, arguments, status, stdout, and rooted diagnostic
+prefix, and rejects additional diagnostic lines. The two exact `lsipc`
+invocations listed above require reference `SIGSEGV` and independent candidate
+assertions; their enclosing selector is behavior evidence only. Zero undecided
+mismatches requires every other parity comparison to match its exact oracle.
+No exception permits global normalization. Every selector fails when no
+behavior matches. Each parity comparison requires an executed reference and
+candidate, matching fixture inputs, and exact comparison rules. An unexpected
+signal, timeout, stale executable, missing reference, or fixture setup failure
+fails the case. It cannot produce an empty passing run.
 
 Use existing native selectors for iteration, for example:
 

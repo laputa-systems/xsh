@@ -311,6 +311,22 @@ proc run_both_with_vars(s: uu.Scene, args: List[Str], vars: Record) [fs, process
   Ok({reference: reference, candidate: candidate})
 }
 
+proc known_reference_sigsegv_candidate_success(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[ul.Observed, Error] {
+  assert args == ["--posix-shmems", "--posix-mqueues"] or args == ["--posix-shmems", "--output", "NAME,NAME"]
+  let vars = {LC_ALL: "C", TZ: "UTC"}
+  let paths = [fp"{word}" for word in args]
+  let reference = ul.observe_reference(s, "lsipc", paths, vars:, timeout: 5s)?
+  assert reference.args == args
+  assert reference.termination == ul.Signaled(11), f"reference did not retain the SIGSEGV for {args.join(" ")}: {reference.termination}"
+  assert reference.stderr == b""
+  let candidate = ul.observe_candidate(s, "lsipc", paths, vars:, timeout: 5s)?
+  assert candidate.args == args
+  assert candidate.termination == ul.Exited(0), f"candidate failed for {args.join(" ")}: {candidate.termination}"
+  assert candidate.stderr == b""
+  assert candidate.stdout != b""
+  Ok(candidate)
+}
+
 proc run_both_as_user(s: uu.Scene, args: List[Str], uid: Int) [fs, process, env, error] -> Result[LsipcPair, Error] {
   let vars = {LC_ALL: "C", TZ: "UTC"}
   let reference = ul.reference_as_user(s, "lsipc", args, uid:, vars:, timeout: 5s)?
@@ -654,10 +670,37 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
     ["--posix-mqueues", "--posix-semaphores"],
   ]
   for args in accepted_resource_pairs {
-    let accepted = run_both(s, args)?
-    ul.compare(accepted.reference, accepted.candidate)
-    assert accepted.candidate.status == 0, f"rejected reference resource selectors {args.join(" ")}"
-    assert accepted.candidate.stdout != b"", f"omitted selected resource rows {args.join(" ")}"
+    if args == ["--posix-shmems", "--posix-mqueues"] {
+      let accepted = known_reference_sigsegv_candidate_success(s, args)?
+      let output = accepted.stdout.utf8()?
+      let output_lines = output.lines()
+      assert ! output_lines.is_empty()
+      let headings = [field for field in output_lines[0].split(" ") if field != ""]
+      assert headings == ["NAME", "PERMS", "OWNER", "SIZE", "MTIME", "NAME", "PERMS", "OWNER", "MTIME", "USEDBYTES", "MSGS"], output_lines[0]
+      let data_rows = [line for line in output_lines[1..] if !line.trim().is_empty()]
+      var expected_shmem_rows = 0
+      var expected_mqueue_rows = 0
+      for resource in fixture.ready.resources {
+        if resource.kind in ["posix_shmem", "posix_mqueue"] {
+          if let name = resource.lookup_name {
+            let matching = [line for line in data_rows if name in line]
+            assert matching.len() == 1, f"candidate did not report {resource.kind} {name} on exactly one row"
+            assert matching[0].split(name).len() == 3, f"candidate did not render both NAME cells for {resource.kind} {name}"
+            if resource.kind == "posix_shmem" { expected_shmem_rows += 1 } else { expected_mqueue_rows += 1 }
+          } else {
+            assert false, f"fixture omitted the lookup name for {resource.kind}"
+          }
+        }
+      }
+      assert expected_shmem_rows == 2
+      assert expected_mqueue_rows == 2
+      assert data_rows.len() == expected_shmem_rows + expected_mqueue_rows
+    } else {
+      let accepted = run_both(s, args)?
+      ul.compare(accepted.reference, accepted.candidate)
+      assert accepted.candidate.status == 0, f"rejected reference resource selectors {args.join(" ")}"
+      assert accepted.candidate.stdout != b"", f"omitted selected resource rows {args.join(" ")}"
+    }
     let reversed = run_both(s, [args[1], args[0]])?
     ul.compare(reversed.reference, reversed.candidate)
     assert reversed.candidate.status == 0, f"rejected reversed resource selectors {args.join(" ")}"
@@ -671,6 +714,30 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
     assert reversed_json.candidate.status == 0, f"rejected reversed JSON resource selectors {args.join(" ")}"
     let _ = json.decode(reversed_json.candidate.stdout.utf8() ?? "")?
   }
+
+  let duplicate_name = known_reference_sigsegv_candidate_success(s, ["--posix-shmems", "--output", "NAME,NAME"])?
+  let duplicate_output = duplicate_name.stdout.utf8()?
+  let duplicate_lines = duplicate_output.lines()
+  assert ! duplicate_lines.is_empty()
+  let headings = [field for field in duplicate_lines[0].split(" ") if field != ""]
+  assert headings == ["NAME", "NAME"], duplicate_lines[0]
+  let duplicate_rows = [line for line in duplicate_lines[1..] if !line.trim().is_empty()]
+  var expected_rows = 0
+  for resource in fixture.ready.resources {
+    if resource.kind == "posix_shmem" {
+      if let name = resource.lookup_name {
+        let matching = [line for line in duplicate_rows if name in line]
+        assert matching.len() == 1, f"candidate did not report {name} once"
+        let fields = [field for field in matching[0].trim().split(" ") if field != ""]
+        assert fields == [name, name], matching[0]
+        expected_rows += 1
+      } else {
+        assert false, "fixture omitted a POSIX shared-memory lookup name"
+      }
+    }
+  }
+  assert expected_rows == 2
+  assert duplicate_rows.len() == expected_rows
 
   let sysv_columns_last = run_both(s, ["--posix-mqueues", "--queues", "--output", "MSGS"])?
   ul.compare(sysv_columns_last.reference, sysv_columns_last.candidate)
