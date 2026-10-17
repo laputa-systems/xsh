@@ -1021,7 +1021,7 @@ export proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   if opts.version { ul_io.version("lslocks"); return }
   if opts.json and opts.raw {
-    gnu.error("option --raw cannot be combined with --json")
+    gnu.error("options --json and --raw cannot be combined")
     exit 1
   }
   if opts.pid != null {
