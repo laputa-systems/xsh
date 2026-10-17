@@ -1,0 +1,9 @@
+Traceback (most recent call last):
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/profile-resource-split/dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py", line 653, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/profile-resource-split/dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py", line 644, in main
+    return run(args)
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/profile-resource-split/dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py", line 561, in run
+    raise ValueError(f"release opt{level} build timing was discarded: {reason}")
+ValueError: release opt3 build timing was discarded: performance readiness or cleanup validation failed

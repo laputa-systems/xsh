@@ -1,0 +1,36 @@
+Traceback (most recent call last):
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/profile-resource-split/dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py", line 236, in repository_tmp_dir
+    yield path
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/profile-resource-split/dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py", line 601, in run
+    raise ValueError(f"release opt{level} native suite failed; inspect {profile_dir / 'native-suite.log'}")
+ValueError: release opt3 native suite failed; inspect /home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-24cc0d70-20261017-r2/opt3/native-suite.log
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/profile-resource-split/dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py", line 653, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/profile-resource-split/dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py", line 644, in main
+    return run(args)
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/profile-resource-split/dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py", line 500, in run
+    with ownership as ownership_stream, native_suite_lock, repository_tmp_dir(run_id) as repository_tmp:
+                                                           ~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/usr/lib/python3.14/contextlib.py", line 162, in __exit__
+    self.gen.throw(value)
+    ~~~~~~~~~~~~~~^^^^^^^
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/profile-resource-split/dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py", line 238, in repository_tmp_dir
+    shutil.rmtree(path)
+    ~~~~~~~~~~~~~^^^^^^
+  File "/usr/lib/python3.14/shutil.py", line 852, in rmtree
+    _rmtree_impl(path, dir_fd, onexc)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/shutil.py", line 721, in _rmtree_safe_fd
+    _rmtree_safe_fd_step(stack, onexc)
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/shutil.py", line 802, in _rmtree_safe_fd_step
+    onexc(func, path, err)
+    ~~~~~^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/shutil.py", line 765, in _rmtree_safe_fd_step
+    topfd = os.open(name, os.O_RDONLY | os.O_NONBLOCK, dir_fd=dirfd)
+PermissionError: [Errno 13] Permission denied: '/home/josh/d/laputa-systems/xsh/.work/tmp/profile-cost-bbc16b35e7c075721a59cd3d9fc1e4bb/xsh-test-7-1792240778974380081-2300-test_gnu_rm_unread3_log/uu-1/c'

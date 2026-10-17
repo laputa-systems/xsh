@@ -1,0 +1,11 @@
+R2 profile temporary cleanup resolved
+temporary_path=/home/josh/d/laputa-systems/xsh/.work/tmp/profile-cost-bbc16b35e7c075721a59cd3d9fc1e4bb
+owner_uid=1000
+temporary_root_mode=0700
+cleanup=Python tempfile.TemporaryDirectory permission-aware cleanup
+path_absent_after_cleanup=true
+matching_container_absent=true
+original_receipt_and_logs_unchanged=true
+preserved=/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-24cc0d70-20261017-r2/receipt.json sha256=f0d14f0b7eed12e0485c1c9bb6f48dbe2cfc4b76fff990e8877dac671c646376
+preserved=/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-24cc0d70-20261017-r2/opt3/native-suite.log sha256=db99da46c8f4d1ce713911afeb4242ee7ae1085b4085001fc42ee6a8a52b0b26
+preserved=/home/josh/d/laputa-systems/xsh/.work/tmp/final-profile-cost-24cc0d70-20261017-r2/stderr.log sha256=ca8e2d64ab750989d73086043dbccfa519e328b6e3d9ab3acdc0ab5174f8eb39

@@ -1,0 +1,439 @@
+{
+  "cargo_lock_sha256": "7d66943bfdab5931d7053aeda5b3a59d056579cc1f52effa220dca4ed1e86797",
+  "cargo_toml_sha256": "89d035b2b664f68ca1ed4cf5fa5fc1eee986e6f9272066018d61a33d8847c6a0",
+  "error": "release opt3 build timing was discarded: performance readiness or cleanup validation failed",
+  "finished_utc": "2026-10-17T12:36:23+00:00",
+  "functional_close": {
+    "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/functional-close-24cc0d704209a8c0aa0eb27d5cfea1434929dc20.json",
+    "record": {
+      "commit": "24cc0d704209a8c0aa0eb27d5cfea1434929dc20",
+      "evidence": {
+        "full_layout_count": {
+          "path": "/home/josh/d/laputa-systems/xsh/dev/consolidation/evidence/layout-invariance-e9ef913df/full-green/stderr.log",
+          "sha256": "87782b8d61e7fc2154fb4c65576176c5238efe6a1ab7e5a068e472467334ed9d"
+        },
+        "full_layout_green": {
+          "path": "/home/josh/d/laputa-systems/xsh/dev/consolidation/evidence/layout-invariance-e9ef913df/full-green/stdout.log",
+          "sha256": "1795cddcf77653b7da7c45febbdc04752a4dec82141c6ff734357f97cf0c098b"
+        },
+        "parent": {
+          "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/functional-close-b1bc741fcd512d1c71b43116853278a4a3f1521a.json",
+          "sha256": "9f34a6afb09e935231ed928e2ee00effd80b8d3e081595ae405ce50ba7640148"
+        },
+        "restricted_red": {
+          "path": "/home/josh/d/laputa-systems/xsh/dev/consolidation/evidence/layout-invariance-e9ef913df/restricted-red/stderr.log",
+          "sha256": "b3b3aaee05784509851a7265c1f6ce1485d64022b871f06b19f34d05c1bfc17e"
+        },
+        "unit_green": {
+          "path": "/home/josh/d/laputa-systems/xsh/dev/consolidation/evidence/layout-invariance-e9ef913df/unit-green/stdout.log",
+          "sha256": "c9ea0f6a393a926f3a413bf0fcdfa1f68da742ba0fb5c2f57a326fcdffbcb9af"
+        }
+      },
+      "functional_complete": true,
+      "inference": "Isolated1036 accepted removals, original denominators retained, empty braces remain Record, both annotation targets unmet.",
+      "products_used": {
+        "integration": "b1db9ffc2f2c72b0cba144d2991b367d7cf12515dc97903bb334723aa2908abe",
+        "scope": "Exact focused correctness products. Fresh exact-seal artifact qualification required.",
+        "xsh": "e79fd4820b23b840c0bbface75a8b24780eae8fb7aedc34a01d76045f9aeae6b",
+        "xsht": "6e6313ee1ec085a4aa652adb0ba119f1a792746162eba3f0912d9eef30fd082d"
+      },
+      "remaining": [
+        "fresh exact-seal artifact qualifier",
+        "fresh R6 canonical/resource attempt",
+        "timed profile and observer",
+        "forced-frame and scheduler pairs",
+        "final metrics bundle"
+      ],
+      "reviewer": "/root",
+      "scope": {
+        "affected_checks": "Two new regressions fail before and pass after the repair. Four focused controls and nine affected module tests pass. Unchanged integration harness fails on the 19-input baseline and passes on the repaired product. Full exact layout invariant passes one selected test, 121 filtered, 1675 perturbed files, all1835 XSH/config inputs audited. Integrated Rust/Cargo/core/native-test inputs and every tracked XSH/config blob match the tested e9ef source.",
+        "delta": "Three private XSHT lint files preserve checked proofs across CheckRedundantParens only. All semantic diagnostic vetoes remain. Other changes are documentation, archived prior receipts, and reproduction commands.",
+        "failed_attempts": "R3, R4, R5 remain failed/interrupted with no resource or timing credit. R4 and R5 started zero full native suites. Earlier240s exact replay timed out before reporting a mismatch; this is not counted as a reproduction.",
+        "limits": "No fresh full canonical, resource, timing, QEMU, W9, or structural recount. Inference remains isolated.",
+        "parent": "Inherit b1bc narrow close and its explicitly inherited 19c9 and 7eb scopes. Original receipts keep their source and product identities.",
+        "qualification": "Additive delta-functional close, not a fresh full canonical pass"
+      },
+      "tree": "b6efac064ed074c9ee03d8f183bff9b41d353c91"
+    },
+    "sha256": "fa53df523e59ef877211d550fb88061aa9e7553c759f8947be14dd0613eb8492"
+  },
+  "kache_cache_volume": "xsh-consolidation-kache",
+  "native_image": {
+    "architecture": "amd64",
+    "clang_driver": "/usr/bin/clang-23",
+    "image_id": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+    "kache_version": "kache 1.0.0",
+    "mold_version": "mold 3.0.0 (2cb82cad8c423a012c52ff56eea6ace0dad434a2; compatible with GNU ld)",
+    "runner_sha256": "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15",
+    "tool_hashes": {
+      "kache": {
+        "path": "/home/josh/.cargo/bin/kache",
+        "sha256": "b826e99983057974663d6863eafbee4e1b25ca9373071406b15dd02961b2c37d"
+      },
+      "linker": {
+        "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/mold-linker.sh",
+        "sha256": "49f116f6bd364f682439e87200281a5acccf081d3b5841170a5a5bf34daf5271"
+      },
+      "mold": {
+        "path": "/usr/local/bin/mold",
+        "sha256": "78e4b6aec99fa067b81326f4b540893b92ae78e5b4176ab32be0565dcbd049d3"
+      }
+    }
+  },
+  "native_suite_lock": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock",
+  "native_suite_lock_held_across_gate": true,
+  "ownership_lock": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/final-performance.lock",
+  "profile": {
+    "codegen_units": 16,
+    "lto": "thin",
+    "name": "release",
+    "opt_levels": [
+      3
+    ]
+  },
+  "resources": {
+    "cargo_build_jobs": 12,
+    "cpu_limit": 12,
+    "cpuset_cpus": "0,1,2,3,4,5,6,7,8,9,10,11",
+    "host_allowed_cpus": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "memory_limit": "24g",
+    "memory_swap_limit": "24g"
+  },
+  "results": [
+    {
+      "build": {
+        "cidfile": null,
+        "command": [
+          "docker",
+          "run",
+          "--cidfile",
+          "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-24cc0d70-20261017-r1/opt3/build.cid",
+          "--label",
+          "org.xsh.final-performance.owner=534f06c5412bea0e3848507bd7372063",
+          "--label",
+          "org.xsh.final-performance.stage=release-opt3-build",
+          "--rm",
+          "--init",
+          "--platform",
+          "linux/amd64",
+          "--cpuset-cpus",
+          "0,1,2,3,4,5,6,7,8,9,10,11",
+          "--cpus",
+          "12",
+          "--memory",
+          "24g",
+          "--memory-swap",
+          "24g",
+          "--tmpfs",
+          "/tmp:rw,exec,nosuid,mode=1777",
+          "-v",
+          "/home/josh/d/laputa-systems/xsh:/home/josh/d/laputa-systems/xsh",
+          "-v",
+          "/home/josh/d/laputa-systems/xsh/.work/consolidation:/home/josh/d/laputa-systems/xsh/.work/consolidation",
+          "-v",
+          "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro",
+          "-v",
+          "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
+          "-v",
+          "/home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro",
+          "-v",
+          "/usr/local/bin/mold:/usr/local/bin/mold:ro",
+          "-v",
+          "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/mold-linker.sh:/usr/local/bin/xsh-mold-linker:ro",
+          "-v",
+          "xsh-consolidation-kache:/root/.cache/kache",
+          "-w",
+          "/home/josh/d/laputa-systems/xsh",
+          "-e",
+          "LC_ALL=C",
+          "-e",
+          "TZ=UTC",
+          "-e",
+          "TMPDIR=/home/josh/d/laputa-systems/xsh/.work/tmp/profile-cost-534f06c5412bea0e3848507bd7372063",
+          "-e",
+          "CARGO_TARGET_DIR=/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-24cc0d70-20261017-r1/opt3/target",
+          "-e",
+          "CARGO_BUILD_JOBS=12",
+          "-e",
+          "XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa",
+          "-e",
+          "PATH=/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+          "-e",
+          "CC=/usr/bin/clang-23",
+          "-e",
+          "RUSTC_WRAPPER=/usr/local/bin/kache",
+          "-e",
+          "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker",
+          "-e",
+          "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol",
+          "-v",
+          "/usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro",
+          "-v",
+          "xsh-cargo-registry:/root/.cargo/registry",
+          "-e",
+          "TASK_UID=1000",
+          "-e",
+          "TASK_GID=1000",
+          "-e",
+          "CARGO_PROFILE_RELEASE_LTO=thin",
+          "-e",
+          "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16",
+          "-e",
+          "CARGO_PROFILE_RELEASE_OPT_LEVEL=3",
+          "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+          "/bin/bash",
+          "-c",
+          "LD_PRELOAD=/usr/lib/libjemalloc.so.2 \"$@\"",
+          "bash",
+          "cargo",
+          "build",
+          "--locked",
+          "--release",
+          "--target",
+          "x86_64-unknown-linux-musl",
+          "-p",
+          "xsh",
+          "--bins",
+          "-p",
+          "xsht",
+          "--bin",
+          "xsht",
+          "-p",
+          "xsh",
+          "--bin",
+          "xsh-test-helper"
+        ],
+        "container_cleanup": {
+          "cidfile": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-24cc0d70-20261017-r1/opt3/build.cid",
+          "cleaned_container_ids": [],
+          "commands": [
+            {
+              "command": [
+                "docker",
+                "ps",
+                "--all",
+                "--quiet",
+                "--filter",
+                "label=org.xsh.final-performance.owner=534f06c5412bea0e3848507bd7372063",
+                "--filter",
+                "label=org.xsh.final-performance.stage=release-opt3-build"
+              ],
+              "exit_code": 0,
+              "stderr": "",
+              "stdout": ""
+            },
+            {
+              "absent": true,
+              "command": [
+                "docker",
+                "inspect",
+                "5059d00f00de302ab3ea519cc7efdde400fcf3ee513f458973a3ca9520aa14a2"
+              ],
+              "exit_code": 1,
+              "stderr": "error: no such object: 5059d00f00de302ab3ea519cc7efdde400fcf3ee513f458973a3ca9520aa14a2\n",
+              "stdout": "[]\n"
+            }
+          ],
+          "container_ids": [
+            "5059d00f00de302ab3ea519cc7efdde400fcf3ee513f458973a3ca9520aa14a2"
+          ],
+          "resolved": true
+        },
+        "log_sha256": "83920bbbf18a3eee87993f46c53a91103ff64d38b8751ce1b02c080145d1a494",
+        "performance_gate": {
+          "after": {
+            "command": [
+              "perf-gate-ready",
+              "-1"
+            ],
+            "exit_code": 75,
+            "stderr": "host busy: load 12.91 on 12 cores (limit 0.7 per core), check 1 of 1\n",
+            "stdout": ""
+          },
+          "before": {
+            "command": [
+              "perf-gate-ready"
+            ],
+            "exit_code": 0,
+            "stderr": "",
+            "stdout": ""
+          }
+        },
+        "stage_validation": {
+          "binary_hashes": {
+            "xsh": {
+              "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-24cc0d70-20261017-r1/opt3/target/x86_64-unknown-linux-musl/release/xsh",
+              "sha256": "e79fd4820b23b840c0bbface75a8b24780eae8fb7aedc34a01d76045f9aeae6b"
+            },
+            "xsh-test-helper": {
+              "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-24cc0d70-20261017-r1/opt3/target/x86_64-unknown-linux-musl/release/xsh-test-helper",
+              "sha256": "cf8005649749a43cc22aa5e40092a8f90365efc370b857fce5de2004adb2e621"
+            },
+            "xsht": {
+              "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-24cc0d70-20261017-r1/opt3/target/x86_64-unknown-linux-musl/release/xsht",
+              "sha256": "daa6c47667f65e8a2fe06a04ff179ee99e6286496c6d441b193889b3b9fec7fa"
+            }
+          },
+          "source": {
+            "commit": "24cc0d704209a8c0aa0eb27d5cfea1434929dc20",
+            "git_tree": "b6efac064ed074c9ee03d8f183bff9b41d353c91",
+            "status": "clean"
+          }
+        },
+        "stage_validation_error": null,
+        "status": 0,
+        "timing_accepted": false,
+        "timing_claim_eligible": false,
+        "timing_discarded": true,
+        "wall_ns": null
+      },
+      "build_command": [
+        "docker",
+        "run",
+        "--cidfile",
+        "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-24cc0d70-20261017-r1/opt3/build.cid",
+        "--label",
+        "org.xsh.final-performance.owner=534f06c5412bea0e3848507bd7372063",
+        "--label",
+        "org.xsh.final-performance.stage=release-opt3-build",
+        "--rm",
+        "--init",
+        "--platform",
+        "linux/amd64",
+        "--cpuset-cpus",
+        "0,1,2,3,4,5,6,7,8,9,10,11",
+        "--cpus",
+        "12",
+        "--memory",
+        "24g",
+        "--memory-swap",
+        "24g",
+        "--tmpfs",
+        "/tmp:rw,exec,nosuid,mode=1777",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh:/home/josh/d/laputa-systems/xsh",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/consolidation:/home/josh/d/laputa-systems/xsh/.work/consolidation",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
+        "-v",
+        "/home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro",
+        "-v",
+        "/usr/local/bin/mold:/usr/local/bin/mold:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/mold-linker.sh:/usr/local/bin/xsh-mold-linker:ro",
+        "-v",
+        "xsh-consolidation-kache:/root/.cache/kache",
+        "-w",
+        "/home/josh/d/laputa-systems/xsh",
+        "-e",
+        "LC_ALL=C",
+        "-e",
+        "TZ=UTC",
+        "-e",
+        "TMPDIR=/home/josh/d/laputa-systems/xsh/.work/tmp/profile-cost-534f06c5412bea0e3848507bd7372063",
+        "-e",
+        "CARGO_TARGET_DIR=/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-24cc0d70-20261017-r1/opt3/target",
+        "-e",
+        "CARGO_BUILD_JOBS=12",
+        "-e",
+        "XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa",
+        "-e",
+        "PATH=/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "-e",
+        "CC=/usr/bin/clang-23",
+        "-e",
+        "RUSTC_WRAPPER=/usr/local/bin/kache",
+        "-e",
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker",
+        "-e",
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol",
+        "-v",
+        "/usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro",
+        "-v",
+        "xsh-cargo-registry:/root/.cargo/registry",
+        "-e",
+        "TASK_UID=1000",
+        "-e",
+        "TASK_GID=1000",
+        "-e",
+        "CARGO_PROFILE_RELEASE_LTO=thin",
+        "-e",
+        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16",
+        "-e",
+        "CARGO_PROFILE_RELEASE_OPT_LEVEL=3",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "/bin/bash",
+        "-c",
+        "LD_PRELOAD=/usr/lib/libjemalloc.so.2 \"$@\"",
+        "bash",
+        "cargo",
+        "build",
+        "--locked",
+        "--release",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "-p",
+        "xsh",
+        "--bins",
+        "-p",
+        "xsht",
+        "--bin",
+        "xsht",
+        "-p",
+        "xsh",
+        "--bin",
+        "xsh-test-helper"
+      ],
+      "codegen_units": 16,
+      "lto": "thin",
+      "name": "release-opt3",
+      "opt_level": 3,
+      "profile": "release"
+    }
+  ],
+  "run_id": "534f06c5412bea0e3848507bd7372063",
+  "rust_toolchain_sha256": "2552d2bb44ccf78069b225b5a17b4d31a289f31deede15a00ac656f43f3933f2",
+  "schema": 1,
+  "source_commit": "24cc0d704209a8c0aa0eb27d5cfea1434929dc20",
+  "source_identity": {
+    "commit": "24cc0d704209a8c0aa0eb27d5cfea1434929dc20",
+    "git_tree": "b6efac064ed074c9ee03d8f183bff9b41d353c91",
+    "status": "clean"
+  },
+  "source_status": "clean",
+  "source_tree": "/home/josh/d/laputa-systems/xsh",
+  "state": "failed",
+  "target": "x86_64-unknown-linux-musl",
+  "timing_claim_policy": "one-shot profile timings are resource and correctness diagnostics only; they do not support speed comparisons or profile selection",
+  "toolchain": {
+    "clang_driver": "/usr/bin/clang-23",
+    "kache": {
+      "path": "/home/josh/.cargo/bin/kache",
+      "sha256": "b826e99983057974663d6863eafbee4e1b25ca9373071406b15dd02961b2c37d"
+    },
+    "linker": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/mold-linker.sh",
+      "sha256": "49f116f6bd364f682439e87200281a5acccf081d3b5841170a5a5bf34daf5271"
+    },
+    "mold": {
+      "path": "/usr/local/bin/mold",
+      "sha256": "78e4b6aec99fa067b81326f4b540893b92ae78e5b4176ab32be0565dcbd049d3"
+    }
+  }
+}
