@@ -678,6 +678,19 @@ pure safe_table_text(raw: Bytes, column: Str, byte_locale: Bool) -> Str {
   output
 }
 
+pure raw_table_text(raw: Bytes, byte_locale: Bool) -> Bytes {
+  var output: List[Bytes] = []
+  for index in range(raw.len()) {
+    let byte = raw.byte_at(index) ?? 0
+    if byte == 32 or byte == 92 or byte < 32 or (byte >= 127 and byte_locale) {
+      output += [bytes.from_text(hex_byte(byte))]
+    } else {
+      output += [raw[index..index + 1]]
+    }
+  }
+  bytes.concat(output)
+}
+
 pure cell_display_width(value: Str, column: Str) -> Int {
   var width = 0
   for line in if column == "HOLDERS" { value.split("\n") } else { [value] } {
@@ -770,7 +783,7 @@ pure render_table(columns: List[Str], locks: List[Lock], headings: Bool, raw: Bo
           tui.cell_right_pad(shown, widths[index])
         }
         rendered_cells += [padded]
-        raw_cells += [if heading { bytes.from_text(row[index]) } else { byte_rows[row_index][index] }]
+        raw_cells += [if heading { bytes.from_text(row[index]) } else { raw_table_text(byte_rows[row_index][index], byte_locale) }]
       }
       if raw {
         var raw_line: Bytes = b""
