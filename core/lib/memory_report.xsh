@@ -107,12 +107,23 @@ pure block_size_value(text: Str) -> Int {
 
 pure decimal_value(text: Str?) -> Int {
   return 0 when text == null
-  if let Ok(value) = (text ?? "").trim().parse_int() { value } else { 0 }
+  let value = text ?? ""
+  var start = 0
+  while start < value.byte_len() and " \t\n\r\u{000b}\u{000c}".find(value.byte_slice(start, length: 1)) != null { start += 1 }
+  let digits_start = start + (if value.byte_slice(start, length: 1) in ["+", "-"] { 1 } else { 0 })
+  var end = digits_start
+  while end < value.byte_len() and "0123456789".find(value.byte_slice(end, length: 1)) != null { end += 1 }
+  return 0 when end == digits_start
+  if let Ok(parsed) = value.byte_slice(start, length: end - start).parse_int() { parsed } else { 0 }
 }
 
 proc optional_text(root: FsRoot, path: Path) [fs, error] -> Str? {
-  if let Ok(text) = root.read_text(path) { return text.trim() }
+  if let Ok(text) = root.read_text(path) { return without_final_newline(text) }
   null
+}
+
+pure without_final_newline(text: Str) -> Str {
+  if text.ends_with("\n") { text.byte_slice(0, length: text.byte_len() - 1) } else { text }
 }
 
 proc children(root: FsRoot, path: Path, label: Str) [fs, process, env, error] -> List[Path] {
@@ -138,9 +149,10 @@ proc node_id(root: FsRoot, block_path: Path, block_name: Str) [fs, process, env,
 
 proc zone_values(root: FsRoot, block_path: Path) [fs, error] -> List[Str] {
   let path = fp"{block_path}/valid_zones"
-  if let Ok(text) = root.read_text(path) {
+  if let Ok(raw) = root.read_text(path) {
+    let text = without_final_newline(raw)
     var zones = []
-    for token in text.trim().split(" ") {
+    for token in text.split(" ") {
       continue when token == ""
       var zone = "Unknown"
       for known in ZONE_NAMES {
@@ -235,7 +247,7 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
   let block_size_path = fp"{MEMORY_PATH}/block_size_bytes"
   if ! root.exists(block_size_path)? { fail("This system does not support memory blocks") }
   let block_size_text = match root.read_text(block_size_path) {
-    Ok(text) => text
+    Ok(text) => without_final_newline(text)
     Err(_) => {
       fail("failed to read memory block size")
       ""
