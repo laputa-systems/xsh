@@ -13,6 +13,7 @@ METHODS = {
     "posix-r-": ("POSIX", [(fcntl.LOCK_SH, 0, 1)], 1),
     "posix--w": ("POSIX", [(fcntl.LOCK_EX, 0, 1)], 1),
     "posix-rw": ("POSIX", [(fcntl.LOCK_SH, 0, 1), (fcntl.LOCK_EX, 2, 1)], 3),
+    "posix-size": ("POSIX", [(fcntl.LOCK_SH, 0, 1)], 1536),
     "posix-eof-r": ("POSIX", [(fcntl.LOCK_SH, 2, 0)], 3),
     "posix-eof-w": ("POSIX", [(fcntl.LOCK_EX, 2, 0)], 3),
     "ofd-r-": ("OFDLCK", [(fcntl.F_RDLCK, 0, 1)], 1),
@@ -148,18 +149,26 @@ def ready_record(method, path, fd, duplicate_fds, lock_row, stat, owner_pid=None
         "duplicate_fds": duplicate_fds,
         "device": f"{os.major(stat.st_dev)}:{os.minor(stat.st_dev)}",
         "inode": stat.st_ino,
-        "path": path,
         "lock_id": lock_row["lock_id"],
     }
+    if isinstance(path, bytes):
+        record["path_bytes_hex"] = path.hex()
+    else:
+        record["path"] = path
     if owner_pid is not None:
         record["owner_pid"] = owner_pid
     sys.stdout.write(json.dumps(record, separators=(",", ":")) + "\n")
     sys.stdout.flush()
 
 
-def hold(method, target, duplicate):
+def hold(method, target, duplicate, name=None):
     lock_class, _, size = METHODS[method]
-    path = os.path.abspath(target)
+    if name is None:
+        path = os.path.abspath(target)
+    else:
+        if not name or b"/" in name or b"\0" in name:
+            raise ValueError("byte fixture name must be a nonempty basename")
+        path = os.path.join(os.fsencode(os.path.abspath(target)), name)
     fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
     if size:
         write_all(fd, b"z" * size)
@@ -204,6 +213,8 @@ def main():
         raise ValueError(f"unknown lock method: {method}")
     if mode == "hold" and len(options) == 1 and options[0] in {"none", "duplicate"}:
         hold(method, target, options[0] == "duplicate")
+    elif mode == "hold-bytes" and len(options) == 2 and options[1] in {"none", "duplicate"}:
+        hold(method, target, options[1] == "duplicate", bytes.fromhex(options[0]))
     elif mode == "wait" and len(options) == 1 and method in {"flock-ex", "posix--w", "ofd--w"}:
         wait(method, target, int(options[0]))
     else:

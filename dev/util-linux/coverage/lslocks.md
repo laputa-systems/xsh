@@ -13,13 +13,18 @@ project's existing provenance and is the sole approved output difference.
 | Upstream regression test | <https://raw.githubusercontent.com/util-linux/util-linux/v2.42.4/tests/ts/lslocks/lslocks> | The 15 named subcases below. |
 | Upstream fixture helper | <https://raw.githubusercontent.com/util-linux/util-linux/v2.42.4/tests/helpers/test_mkfds.c> | Exact lock ranges, file sizes, descriptor duplication, and lock acquisition. |
 | Filter grammar | <https://raw.githubusercontent.com/util-linux/util-linux/v2.42.4/libsmartcols/scols-filter.5.adoc> | Filter syntax, coercion, and unsigned numeric limits. |
+| Human size rendering | <https://raw.githubusercontent.com/util-linux/util-linux/v2.42.4/lib/strutils.c> | Base-1024 rounding and one-letter suffixes used by `SIZE`. |
 | Size option text | <https://raw.githubusercontent.com/util-linux/util-linux/v2.42.4/man-common/in-bytes.adoc> | Human-readable base-1024 size suffixes. |
 | Help and version text | <https://raw.githubusercontent.com/util-linux/util-linux/v2.42.4/man-common/help-version.adoc> | `-h` and `-V`. |
 | Smartcols environment | <https://raw.githubusercontent.com/util-linux/util-linux/v2.42.4/man-common/env-smartcols.adoc> | `LIBSMARTCOLS_JSON`. |
+| Filter parser grammar | <https://raw.githubusercontent.com/util-linux/util-linux/v2.42.4/libsmartcols/src/filter-parser.y> | Accepted aliases, float tokens, and logical-operator associativity. |
 
 The Git tag is fixed at `v2.42.4`. Do not use the moving `master` manual as the
 oracle. In particular, `--pager`, `--nopager`, `PAGER`, and `PAGER_ENABLE` do
 not exist in this tag's `lslocks.c` or manual.
+
+The pinned parser assigns `OR` and `AND` the same left-associative precedence;
+the corpus exercises that source behavior directly.
 
 ## Upstream cases
 
@@ -51,6 +56,8 @@ The upstream suite does not cover POSIX `HOLDERS`, blocked requests, byte-range
 boundaries, JSON, filters, output selection, permission failures, deleted
 paths, owner disappearance, or concurrent host locks. The added native corpus
 must cover those behaviors. A test that is not run remains open.
+The lane fixture also creates a 1,536-byte POSIX-locked file for `SIZE` suffix
+and `--bytes` JSON-type assertions.
 
 ## Command surface
 
@@ -80,7 +87,9 @@ both sides without terminal normalization.
 ## Columns and values
 
 The default columns are `COMMAND,PID,TYPE,SIZE,MODE,M,START,END,PATH`.
-`--output-all` selects all 13 columns:
+`--output-all` selects all 13 columns. The displayed column names are
+uppercase, but JSON object keys are lowercase (for example, `pid`, `maj:min`,
+and `holders`) regardless of the selected column spelling.
 
 | Column | Reference value and JSON type |
 |---|---|
@@ -105,38 +114,45 @@ holder, so do not infer unique ownership for `FLOCK`, OFD, or lease locks.
 
 ## Behavior case map
 
-Each row is required native coverage with a stable selector. A selector is not
-covered until the test exists and passes in its qualified environment. The
+Each selector row is required native coverage; open rows identify behavior
+without a deterministic fixture. A selector is not covered until the test
+exists and passes in its qualified environment. The
 reference and candidate use the same private fixture. Compare stdout bytes,
 stderr bytes, exit status, and fixture state. Do not normalize output ordering,
 whitespace, JSON types, nulls, or paths. Normalize a PID, inode, or device only
 if the test uses different fixture objects and records an identity mapping for
 that field.
 
-| Native selector | Behavior |
+| Native selector or open behavior | Behavior |
 |---|---|
 | `test_lslocks_defaults_and_lslocks_columns` | Default columns; `LSLOCKS_COLUMNS` override; `-o` replacement and `+` extension; CLI selection precedence over environment. |
-| `test_lslocks_all_columns_types_and_json` | Every column, all-row identity, JSON top-level key, exact JSON types, nulls, and row order. |
-| `test_lslocks_bytes_and_human_size` | Human suffixes, byte output, and JSON `SIZE` type with and without `-b`. |
+| `test_lslocks_all_columns_types_and_json` | Every column, all-row identity, JSON top-level key, lowercase field names, exact JSON types, nulls, and advisory-lock `M=false`. |
+| `test_lslocks_bytes_and_human_size` | Exact `1.5K` suffix for a 1,536-byte file, exact 1,536-byte output, and JSON `SIZE` type with and without `-b`. |
 | `test_lslocks_list_columns_modes` | `-H`, `-H -r`, `-H -J`, and the advertised `SIZE` type. |
 | `test_lslocks_raw_noheadings_and_json` | Raw and heading-free output; JSON/raw conflict status and diagnostics. |
 | `test_lslocks_output_column_names_and_errors` | Case-insensitive names, custom ordering, `+LIST`, repeated names, empty names, and unknown-column failure. |
 | `test_lslocks_default_and_selected_lock_rows`, `test_lslocks_blocker_flock`, `test_lslocks_blocker_posix`, `test_lslocks_blocker_ofd`, `test_lslocks_filter_errors` | Exact PID filtering for holders and queued waiters; absent PID; OFD negative-PID filter rejection. |
-| `test_lslocks_filter_values_and_hidden_columns` | Numeric and string comparisons, regular-expression and logical filters, including filter columns absent from output. |
+| `test_lslocks_filter_values_and_hidden_columns` | Symbolic and word aliases for comparisons, decimal float and boolean comparisons, same-precedence left-associative `OR`/`AND`, string equality/inequality, numeric ordering with `K` suffixes, regex match/non-match, `AND`/`&&`, `OR`/`||`, `NOT`, including filter columns absent from output. |
 | `test_lslocks_filter_errors` | Invalid filter syntax and unknown filter columns fail with reference status and stderr. |
-| `test_lslocks_default_and_selected_lock_rows` | Two private-namespace locks appear in default output, `LSLOCKS_COLUMNS` and `--output` precedence hold, and `--pid` selects each exact fixture. The outside-namespace holder assertion remains open. |
+| `test_lslocks_default_and_selected_lock_rows` | Two private-namespace locks appear in default output in the `LC_ALL=C` reference order, `LSLOCKS_COLUMNS` and `--output` precedence hold, and `--pid` selects each exact fixture. |
+| `test_util_linux_context_outside_holder_is_invisible_to_private_lock_listing` | A real holder outside the private PID namespace is absent from its freshly mounted procfs and from both exact JSON listings. |
 | `test_lslocks_ranges_and_eof` | Finite POSIX/OFD byte ranges, zero-length-to-EOF locks, exact `START` and `END`, and non-overlapping ranges. |
-| `test_lslocks_blocker_flock`, `test_lslocks_blocker_posix`, `test_lslocks_blocker_ofd` | Synchronized queued requests have `MODE` suffixed with `*`, the exact `BLOCKER` PID, and release cleanly after the owner exits. |
-| `test_lslocks_posix_holders` | `HOLDERS` behavior for POSIX locks, including the process-wide descriptor association. |
-| `test_lslocks_mandatory_flag` | `M` for advisory locks; qualify a mandatory-lock positive case only in a filesystem/kernel setup that enables it. |
-| `test_lslocks_inaccessible_and_noinaccessible` | Cross-UID path/command access, fallback mountpoint text, and `-i` row removal under the qualified permission context. |
+| `test_lslocks_blocker_flock`, `test_lslocks_blocker_posix`, `test_lslocks_blocker_ofd` | Synchronized queued requests have `MODE` suffixed with `*`, the exact `BLOCKER` PID, and release cleanly after the owner exits. OFD waiter records retain kernel PID `-1`; select that row by `MODE` and assert its device/inode instead of filtering by the fixture process PID. |
+| `test_lslocks_posix_holders` | POSIX `HOLDERS` rows identify the lock-owning process; the test does not assume a descriptor count absent an upstream POSIX coholder case. |
+| `test_util_linux_context_second_uid_holder_disappears_after_owned_release` | A UID 10002 holder with capabilities dropped appears as one inaccessible fallback row to UID 10001; `--noinaccessible` and `-i` remove it, then owned release and wait remove it from a later listing. |
 | `test_lslocks_deleted_path_and_owner_exit` | A deleted locked file shows the reference path text while the descriptor remains open; owner exit removes its row. |
-| `test_lslocks_disappearing_owner_during_collection` | Process exit during collection does not invent an owner, corrupt another row, or silently turn unexpected I/O failure into success. |
-| `test_lslocks_notruncate_and_terminal_width` | Long UTF-8 and non-UTF-8 paths, normal truncation, `-u`, and matched terminal widths. |
+| `test_lslocks_path_escaping_and_non_utf8_names` | Exact reference comparison for JSON and raw `PATH` output containing whitespace, backslash, newline, and an invalid UTF-8 filename byte. |
+| `test_util_linux_context_terminal_lock_path_truncation` | A real holder path containing tab and ESC is compared at captured terminal widths 24 and 120, including default truncation and `-u`. |
+| Open: owner disappearance during collection | The owned release/wait test covers a later invocation, but no fixture provides a deterministic collection barrier. |
 | `test_lslocks_version_provenance` | Both commands succeed and identify `lslocks`; assert each exact version banner separately. |
 | `test_lslocks_help_and_usage_errors` | Exact help output; missing option values, invalid PID, unknown option, operands, and `-J -r`. |
-| `test_lslocks_smartcols_json_environment` | `LIBSMARTCOLS_JSON=compact`, `lines`, unknown, and unset values. |
-| `test_lslocks_locale_and_table_order` | `LC_ALL=C` is the qualified baseline; compare a second installed locale only when the pinned image has it. Preserve row order and localized diagnostics. |
+| `test_lslocks_smartcols_json_environment` | `LIBSMARTCOLS_JSON=compact`, `unknown`, and unset values retain the `locks` object; `lines` emits one standalone object per lock row with lowercase keys. |
+
+Every support-scene command starts with `LC_ALL=C`; table ordering and error
+text are compared byte for byte under that baseline. A second locale is
+conditional on the pinned image providing one. A positive mandatory-lock `M`
+case is conditional on a qualified filesystem and kernel setup; the advisory
+lock case asserts `false`.
 
 ## Fixture requirements
 
@@ -170,11 +186,9 @@ and namespace checks used by the ordinary native cases. Its keeper lifecycle
 adapter starts `keeper.py` with owned input/output FIFOs and bounds readiness,
 release, and cleanup. The namespace guard also checks that PID 1 and the test
 process resolve to the same PID namespace through `/proc`, which proves the
-private PID namespace has a matching procfs mount. The default-row case still
-needs a lock owner outside that namespace, with the runner supplying its exact
-identity and path. The inaccessible-path case needs a live fixture owner at
-UID 10002 while running each command as UID 10001 with capabilities dropped.
-The current helper API does not provide a captured PTY with a selected width;
-terminal truncation remains open until that seam exists. Owner-disappearance-
-during-collection also needs a deterministic synchronization point before it
-can be a passing parity case.
+private PID namespace has a matching procfs mount. The outside-namespace and
+cross-UID cases use dedicated context fixtures. The cross-UID case runs the
+command as UID 10001 with capabilities dropped while a UID 10002 owner holds
+the lock. Terminal truncation uses a captured PTY with selected widths. Owner
+disappearance during one collection still has no deterministic synchronization
+point; the corpus checks that an exited owner is absent from a later invocation.
