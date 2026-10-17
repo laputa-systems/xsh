@@ -55,16 +55,16 @@ proc rejected(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[
   Ok()
 }
 
-proc upstream_lock_case(s: uu.Scene, method: Str, holders: Bool) [fs, process, error] -> Result[Unit, Error] {
-  let path = uu.at(s, f"lock-{method}")
+proc upstream_lock_case(s: uu.Scene, method: Str, holders: Bool) [fs, process, env, net, time, error] -> Result[Unit, Error] {
+  let lock_path = uu.at(s, f"lock-{method}")
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
   let descriptor_mode = if holders { "duplicate" } else { "none" }
-  let keeper = ul.start_keeper(s, script, ["hold", method, path.display(), descriptor_mode])?
+  let keeper = ul.start_keeper(s, script, ["hold", method, lock_path.display(), descriptor_mode])?
   defer ul.stop_keeper(keeper)
   let ready = json.decode(keeper.ready)?.require(LockReady)?
   assert ready.method == method and ready.pid > 0 and ready.fd == 17
   assert ready.duplicate_fds == (if holders { [18] } else { [] })
-  assert ready.path == path.display() and ready.inode > 0 and ready.lock_id > 0
+  assert ready.path == lock_path.display() and ready.inode > 0 and ready.lock_id > 0
   let pid = f"{ready.pid}"
   let typed = compared(s, ["--json", "--pid", pid, "--output", "PID,TYPE"])?
   let typed_document = json.decode(typed.stdout.utf8() ?? "")?
@@ -109,14 +109,14 @@ proc upstream_lock_case(s: uu.Scene, method: Str, holders: Bool) [fs, process, e
   Ok()
 }
 
-proc blocked_lock_case(s: uu.Scene, method: Str) [fs, process, error] -> Result[Unit, Error] {
-  let path = uu.at(s, f"blocked-{method}")
+proc blocked_lock_case(s: uu.Scene, method: Str) [fs, process, env, net, time, error] -> Result[Unit, Error] {
+  let lock_path = uu.at(s, f"blocked-{method}")
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
-  let owner = ul.start_keeper(s, script, ["hold", method, path.display(), "none"])?
+  let owner = ul.start_keeper(s, script, ["hold", method, lock_path.display(), "none"])?
   defer ul.stop_keeper(owner)
   let owner_ready = json.decode(owner.ready)?.require(LockReady)?
   assert owner_ready.method == method and owner_ready.pid > 0 and owner_ready.inode > 0
-  let waiter = ul.start_keeper(s, script, ["wait", method, path.display(), f"{owner_ready.pid}"])?
+  let waiter = ul.start_keeper(s, script, ["wait", method, lock_path.display(), f"{owner_ready.pid}"])?
   defer ul.stop_keeper(waiter)
   let waiter_ready = json.decode(waiter.ready)?.require(WaiterReady)?
   assert waiter_ready.method == method and waiter_ready.pid > 0
@@ -138,7 +138,7 @@ proc blocked_lock_case(s: uu.Scene, method: Str) [fs, process, error] -> Result[
   assert json.get(document, ["locks", 0, "inode"])?.require(Int)? == owner_ready.inode
   assert json.get(document, ["locks", 0, "maj:min"])?.require(Str)? == owner_ready.device
   if method != "ofd--w" {
-    assert json.get(document, ["locks", 0, "path"])?.require(Str)? == path.display()
+    assert json.get(document, ["locks", 0, "path"])?.require(Str)? == lock_path.display()
   } else {
     let waiter_pid = compared(s, ["--json", "--pid", f"{waiter_ready.pid}", "--output", "PID"])?
     let waiter_document = json.decode(waiter_pid.stdout.utf8() ?? "")?
@@ -150,11 +150,11 @@ proc blocked_lock_case(s: uu.Scene, method: Str) [fs, process, error] -> Result[
   Ok()
 }
 
-proc all_columns_json_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit, Error] {
+proc all_columns_json_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[Unit, Error] {
   let method = "posix-r-"
-  let path = uu.at(s, f"json-{method}")
+  let lock_path = uu.at(s, f"json-{method}")
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
-  let keeper = ul.start_keeper(s, script, ["hold", method, path.display(), "none"])?
+  let keeper = ul.start_keeper(s, script, ["hold", method, lock_path.display(), "none"])?
   defer ul.stop_keeper(keeper)
   let ready = json.decode(keeper.ready)?.require(LockReady)?
   let args = ["--json", "--pid", f"{ready.pid}", "--output-all"]
@@ -172,7 +172,7 @@ proc all_columns_json_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit
   assert json.get(document, ["locks", 0, "m"])?.require(Bool)? == false
   assert json.get(document, ["locks", 0, "start"])?.require(Int)? == 0
   assert json.get(document, ["locks", 0, "end"])?.require(Int)? == 0
-  assert json.get(document, ["locks", 0, "path"])?.require(Str)? == path.display()
+  assert json.get(document, ["locks", 0, "path"])?.require(Str)? == lock_path.display()
   assert json.get(document, ["locks", 0, "blocker"])? == null
   let entries = json.get(document, ["locks", 0, "holders"])?.require(List[Str])?
   assert entries.len() == 1
@@ -182,11 +182,11 @@ proc all_columns_json_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit
   Ok()
 }
 
-proc byte_size_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit, Error] {
+proc byte_size_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[Unit, Error] {
   let method = "posix-size"
-  let path = uu.at(s, f"bytes-{method}")
+  let lock_path = uu.at(s, f"bytes-{method}")
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
-  let keeper = ul.start_keeper(s, script, ["hold", method, path.display(), "none"])?
+  let keeper = ul.start_keeper(s, script, ["hold", method, lock_path.display(), "none"])?
   defer ul.stop_keeper(keeper)
   let ready = json.decode(keeper.ready)?.require(LockReady)?
   let human_size = compared(s, ["--json", "--pid", f"{ready.pid}", "--output", "SIZE"])?
@@ -207,10 +207,10 @@ proc byte_size_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit, Error
   Ok()
 }
 
-proc ranged_lock_case(s: uu.Scene, method: Str, expected: List[Str]) [fs, process, env, error] -> Result[Unit, Error] {
-  let path = uu.at(s, f"ranges-{method}")
+proc ranged_lock_case(s: uu.Scene, method: Str, expected: List[Str]) [fs, process, env, net, time, error] -> Result[Unit, Error] {
+  let lock_path = uu.at(s, f"ranges-{method}")
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
-  let keeper = ul.start_keeper(s, script, ["hold", method, path.display(), "none"])?
+  let keeper = ul.start_keeper(s, script, ["hold", method, lock_path.display(), "none"])?
   defer ul.stop_keeper(keeper)
   let ready = json.decode(keeper.ready)?.require(LockReady)?
   let candidate = compared(s, ["--json", "--pid", f"{ready.pid}", "--output", "MODE,START,END"])?
@@ -225,17 +225,17 @@ proc ranged_lock_case(s: uu.Scene, method: Str, expected: List[Str]) [fs, proces
   }
   let actual_sorted = actual |> sort() |> collect()
   let wanted = expected |> sort() |> collect()
-  assert actual_sorted == wanted, f"{method}: expected {wanted}, got {actual_sorted}"
+  assert actual_sorted == wanted, method
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
   Ok()
 }
 
-proc filtered_lock_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit, Error] {
+proc filtered_lock_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[Unit, Error] {
   let method = "posix-size"
-  let path = uu.at(s, f"filter-{method}")
+  let lock_path = uu.at(s, f"filter-{method}")
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
-  let keeper = ul.start_keeper(s, script, ["hold", method, path.display(), "none"])?
+  let keeper = ul.start_keeper(s, script, ["hold", method, lock_path.display(), "none"])?
   defer ul.stop_keeper(keeper)
   let ready = json.decode(keeper.ready)?.require(LockReady)?
   let pid = f"{ready.pid}"
@@ -271,7 +271,7 @@ proc filtered_lock_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit, E
   Ok()
 }
 
-proc selected_lock_rows_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit, Error] {
+proc selected_lock_rows_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[Unit, Error] {
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
   let first_path = uu.at(s, "rows-first")
   let second_path = uu.at(s, "rows-second")
@@ -317,11 +317,11 @@ proc selected_lock_rows_case(s: uu.Scene) [fs, process, env, error] -> Result[Un
   Ok()
 }
 
-proc output_lock_modes_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit, Error] {
+proc output_lock_modes_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[Unit, Error] {
   let method = "posix-r-"
-  let path = uu.at(s, f"output-{method}")
+  let lock_path = uu.at(s, f"output-{method}")
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
-  let keeper = ul.start_keeper(s, script, ["hold", method, path.display(), "none"])?
+  let keeper = ul.start_keeper(s, script, ["hold", method, lock_path.display(), "none"])?
   defer ul.stop_keeper(keeper)
   let ready = json.decode(keeper.ready)?.require(LockReady)?
   let pid = f"{ready.pid}"
@@ -354,11 +354,11 @@ proc output_lock_modes_case(s: uu.Scene) [fs, process, env, error] -> Result[Uni
   Ok()
 }
 
-proc json_environment_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit, Error] {
+proc json_environment_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[Unit, Error] {
   let method = "posix-r-"
-  let path = uu.at(s, f"json-environment-{method}")
+  let lock_path = uu.at(s, f"json-environment-{method}")
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
-  let keeper = ul.start_keeper(s, script, ["hold", method, path.display(), "none"])?
+  let keeper = ul.start_keeper(s, script, ["hold", method, lock_path.display(), "none"])?
   defer ul.stop_keeper(keeper)
   let ready = json.decode(keeper.ready)?.require(LockReady)?
   for value in ["compact", "lines", "unknown"] {
@@ -381,14 +381,14 @@ proc json_environment_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit
   Ok()
 }
 
-proc deleted_path_and_owner_exit_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit, Error] {
+proc deleted_path_and_owner_exit_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[Unit, Error] {
   let method = "posix-r-"
-  let path = uu.at(s, f"deleted-{method}")
+  let lock_path = uu.at(s, f"deleted-{method}")
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
-  let keeper = ul.start_keeper(s, script, ["hold", method, path.display(), "none"])?
+  let keeper = ul.start_keeper(s, script, ["hold", method, lock_path.display(), "none"])?
   defer ul.stop_keeper(keeper)
   let ready = json.decode(keeper.ready)?.require(LockReady)?
-  path.remove()
+  lock_path.remove()
   let candidate = compared(s, ["--json", "--pid", f"{ready.pid}", "--output", "PATH"])?
   let document = json.decode(candidate.stdout.utf8() ?? "")?
   assert json.get(document, ["locks"])?.require(List[Any])?.len() == 1
@@ -400,7 +400,7 @@ proc deleted_path_and_owner_exit_case(s: uu.Scene) [fs, process, env, error] -> 
   Ok()
 }
 
-proc path_escaping_case(s: uu.Scene) [fs, process, env, error] -> Result[Unit, Error] {
+proc path_escaping_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[Unit, Error] {
   let method = "posix-r-"
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
   let escaped = uu.at(s, "space name\ttab\nline\\slash")
