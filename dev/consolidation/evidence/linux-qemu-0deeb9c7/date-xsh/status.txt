@@ -1,0 +1,16 @@
+label=date-xsh
+source_head=0deeb9c7fb79e52740c82a264754dbb29d8be693
+source_tree_oid=ffb7736e1c141bbacde71c7a036ef6bcf1433c34
+product_disk=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0deeb9c7f/.work/tmp/qemu-current/source-products.ext4
+product_disk_sha256=90a07c74c5373529d9ae3cbe019576331631db20583c6d46f0b56f4fb24d763a
+xsh_sha256=02639f0ee23780371ddc38c0c241d412adc9d79ae32b4cb722c51d74c05fb2c4
+xsht_sha256=5ba0907b1b5222f5dab0efa19496b711bb4036b14c0ab2c344d1d8987f7e8836
+core_extra_path=target/x86_64-unknown-linux-musl/verification/build/xsh/409440b2a43657bc/out/core_compat_extra-409440b2a43657bc
+core_extra_sha256=66b35d1aeece51b28329abaa7cd8e652cbedfa68252a6af296d49842a1de739a
+core_extra_privileged_path=target/x86_64-unknown-linux-musl/verification/build/xsh/a67ed2905136c9b7/out/core_compat_extra-a67ed2905136c9b7
+core_extra_privileged_sha256=bab2830527c40a57a3a498ee11327fe9609c5a98d1f67a8537f7e4e943f96980
+nonce=e2c55fa6cf2c7939c04491bc84b7ef1c7ae6fd365d777b7489e154e4c51be6ae
+root_overlay=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0deeb9c7f/.work/tmp/qemu-current/runs/qemu-final-date-xsh.XXokbMla/guest-root.qcow2
+test_command=/work/target/x86_64-unknown-linux-musl/verification/build/xsh/409440b2a43657bc/out/core_compat_extra-409440b2a43657bc --ignored --test-threads=1 --nocapture date_clock::
+launcher_exit=0
+evidence=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0deeb9c7f/.work/tmp/qemu-current/runs/qemu-final-date-xsh.XXokbMla
