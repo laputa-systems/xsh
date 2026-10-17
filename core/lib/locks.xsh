@@ -849,7 +849,7 @@ pure render_table(columns: List[Str], locks: List[Lock], headings: Bool, raw: Bo
         let shown = if terminal and ! raw and ! notruncate and columns[index] == "PATH" and ! heading {
           tui.cell_clip(value, widths[index])
         } else { value }
-        let padded = if raw or (index == row.len() - 1 and columns[index] not in ["PID", "TYPE", "SIZE", "INODE", "START", "END", "BLOCKER"]) {
+        let padded = if raw or (index == row.len() - 1 and (shown == "" or columns[index] not in ["PID", "TYPE", "SIZE", "INODE", "START", "END", "BLOCKER"])) {
           shown
         } else if columns[index] in ["PID", "TYPE", "SIZE", "INODE", "START", "END", "BLOCKER"] {
           tui.cell_left_pad(shown, widths[index])
