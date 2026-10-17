@@ -1,0 +1,18 @@
+
+running 1 test
+unrelated_wide_records=0 touched=1 previous_clone_cells=1 actual_trial_work=(1, 1, 1, 0, 1)
+unrelated_wide_records=8 touched=1 previous_clone_cells=17 actual_trial_work=(1, 1, 1, 0, 1)
+unrelated_wide_records=32 touched=1 previous_clone_cells=65 actual_trial_work=(1, 1, 1, 0, 1)
+unrelated_wide_records=0 touched=4 previous_clone_cells=4 actual_trial_work=(4, 4, 4, 0, 4)
+unrelated_wide_records=8 touched=4 previous_clone_cells=20 actual_trial_work=(4, 4, 4, 0, 4)
+unrelated_wide_records=32 touched=4 previous_clone_cells=68 actual_trial_work=(4, 4, 4, 0, 4)
+unrelated_wide_records=0 touched=16 previous_clone_cells=16 actual_trial_work=(16, 16, 16, 0, 16)
+unrelated_wide_records=8 touched=16 previous_clone_cells=32 actual_trial_work=(16, 16, 16, 0, 16)
+unrelated_wide_records=32 touched=16 previous_clone_cells=80 actual_trial_work=(16, 16, 16, 0, 16)
+unrelated_wide_records=0 touched=64 previous_clone_cells=64 actual_trial_work=(64, 64, 64, 0, 64)
+unrelated_wide_records=8 touched=64 previous_clone_cells=80 actual_trial_work=(64, 64, 64, 0, 64)
+unrelated_wide_records=32 touched=64 previous_clone_cells=128 actual_trial_work=(64, 64, 64, 0, 64)
+test sema::constraints::tests::constraint_trial_work_follows_touched_cells_instead_of_unrelated_wide_state ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 906 filtered out; finished in 0.01s
+

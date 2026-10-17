@@ -1,0 +1,4 @@
+err[check.local-inference]: registered method receiver needs an annotation
+  /inputs/uninferred-numeric-domain.xsh:1:31
+  pure number(value) -> Float { value.float() }
+                                ^^^^^^^^^^^^^ registered method receiver needs an annotation

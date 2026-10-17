@@ -1,0 +1,13 @@
+err[compact.indexed-build]: this function cannot be compiled yet: call `<field>.split`
+  /views/xsh/core/lib/system_report_live.xsh:683:16
+    let prefix = pieces[0].split(" (", maxsplit: 1)
+                 ^^^^^^^^^^^^^^^ this function cannot be compiled yet: call `<field>.split`
+err[compact.indexed-build]: this function cannot be compiled yet: call `line.split`
+  /views/xsh/core/wc.xsh:195:18
+      for piece in line.split("\t") {
+                   ^^^^^^^^^^ this function cannot be compiled yet: call `line.split`
+err[compact.indexed-build]: this function cannot be compiled yet: call `line.split`
+  /views/xsh/dev/system_report_check.xsh:20805:15
+    let parts = line.split("(", maxsplit: 1)
+                ^^^^^^^^^^ this function cannot be compiled yet: call `line.split`
+xsht check: 10 files in 1.11s (thread time by stage: discover 0.00s, load 0.09s, check 1.29s, lower 0.36s)

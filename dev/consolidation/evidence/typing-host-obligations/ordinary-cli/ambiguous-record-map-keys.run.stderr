@@ -1,0 +1,4 @@
+err[check.ambiguous-overload]: method receiver has no unique registered operation
+  /inputs/ambiguous-record-map-keys.xsh:1:33
+  pure keys(value) -> List[Str] { value.keys() }
+                                  ^^^^^^^^^^^^ method receiver has no unique registered operation

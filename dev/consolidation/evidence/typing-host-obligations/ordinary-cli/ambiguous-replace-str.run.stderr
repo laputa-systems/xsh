@@ -1,0 +1,4 @@
+err[check.ambiguous-overload]: method receiver has no unique registered operation
+  /inputs/ambiguous-replace-str.xsh:3:14
+    let flat = text.replace("\t", with: " ")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ method receiver has no unique registered operation

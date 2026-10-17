@@ -1,0 +1,19 @@
+
+running 1 test
+test sema::check::method::host_obligations::tests::method_dispatch_preserves_receiver_resolution_error_categories ... FAILED
+
+failures:
+
+---- sema::check::method::host_obligations::tests::method_dispatch_preserves_receiver_resolution_error_categories stdout ----
+
+thread 'sema::check::method::host_obligations::tests::method_dispatch_preserves_receiver_resolution_error_categories' (9) panicked at src/sema/check/host_obligations.rs:189:13:
+assertion failed: checker.diagnostics.iter().any(|diagnostic|
+        diagnostic.code == Some(DiagnosticCode::CheckLocalInference))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::check::method::host_obligations::tests::method_dispatch_preserves_receiver_resolution_error_categories
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 902 filtered out; finished in 0.00s
+

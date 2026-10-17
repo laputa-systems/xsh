@@ -1,0 +1,6 @@
+
+running 1 test
+test modules::signature::tests::every_registry_method_effect_is_enforced_by_the_checker ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 906 filtered out; finished in 0.14s
+

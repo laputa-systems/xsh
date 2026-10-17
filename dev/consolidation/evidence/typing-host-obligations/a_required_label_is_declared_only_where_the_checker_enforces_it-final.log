@@ -1,0 +1,6 @@
+
+running 1 test
+test modules::signature::tests::a_required_label_is_declared_only_where_the_checker_enforces_it ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 906 filtered out; finished in 0.02s
+
