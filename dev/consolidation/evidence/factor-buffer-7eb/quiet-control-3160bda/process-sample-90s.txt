@@ -1,0 +1,6 @@
+checkpoint=90 requested_at=2026-10-17T08:29:02. elapsed=90s
+2026-10-17T08:29:02.
+cgroup
+0::/
+processes
+ps: bad -o argument 'pcpu', supported arguments: user,group,comm,args,pid,ppid,pgid,etime,nice,rgroup,ruser,time,tty,vsz,sid,stat,rss

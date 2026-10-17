@@ -1,0 +1,1 @@
+One direct factor child attribution probe; no native harness/suite launched; shared native-suite lock neither acquired nor claimed. CPU14, 1 CPU, 2GiB memory with equal memory-swap, no network. User-only49Hz DWARF16384 for5s; timings are not performance-gate evidence.

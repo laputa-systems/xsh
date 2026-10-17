@@ -1,0 +1,1 @@
+cpuset=0-11 cpus=12000000000 memory=25769803776 memory_swap=25769803776

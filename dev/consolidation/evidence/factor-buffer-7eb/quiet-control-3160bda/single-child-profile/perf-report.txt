@@ -1,0 +1,119 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 245  of event 'cycles:u'
+# Event count (approx.): 21800636474
+#
+# Overhead  Command  Shared Object     Symbol
+# ........  .......  ................  ................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+#
+    35.57%  xsh      xsh               [.] memcpy
+            |
+            |--32.31%--memcpy
+            |
+            |--2.05%--0x7fffffffffffffff
+            |          memcpy
+            |
+             --0.81%--0x7400000007c7f713
+                       memcpy
+
+    10.55%  xsh      xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::eval_expr
+            |
+            |--2.45%--0x8ffffffffffffff
+            |          <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::eval_expr
+            |
+            |--2.45%--0x2
+            |          <xsh::runtime::eval::BuildStmtId as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow
+            |          <xsh::runtime::eval::BuildExprId as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow
+            |          <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::eval_expr
+            |
+            |--0.82%--0x4e
+            |          <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::eval_expr
+            |
+             --0.81%--0x7b
+                       <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::eval_expr
+
+     5.71%  xsh      xsh               [.] xsh::runtime::eval::lowered_ops::lowered_module_from_runtime
+            |
+            |--3.26%--0x878668f4700dc55e
+            |          xsh::runtime::eval::lowered_ops::lowered_module_from_runtime
+            |
+             --2.45%--0x81b308e9af5c4721
+                       xsh::runtime::eval::lowered_ops::lowered_module_from_runtime
+
+     4.50%  xsh      xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step
+            |
+            |--2.45%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step
+            |
+             --2.04%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::run
+                       <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step
+
+     4.49%  xsh      xsh               [.] <xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+            |
+             --2.44%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::eval_expr_view
+                       <xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+
+     4.48%  xsh      xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::continue_value
+            |
+            |--2.03%--0x34f0000034a
+            |          <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::continue_value
+            |
+            |--1.63%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::run
+            |          <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step
+            |          <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::continue_value
+            |
+             --0.82%--0xfffffffffffffffe
+                       <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::continue_value
+
+     3.28%  xsh      xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_statements
+            |
+            |--2.05%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::run
+            |          <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_statements
+            |
+             --1.24%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_statements
+
+     2.86%  xsh      xsh               [.] <xsh::runtime::eval::Evaluator>::eval_indexed_expr_inner
+            |
+            ---<xsh::runtime::eval::Evaluator>::eval_indexed_expr_inner
+
+     2.85%  xsh      xsh               [.] <alloc::collections::btree::map::BTreeMap<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert
+            |
+             --2.03%--<alloc::collections::btree::map::BTreeMap<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert
+
+     2.04%  xsh      xsh               [.] <alloc::collections::btree::map::IntoIter<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue> as core::ops::drop::Drop>::drop
+            |
+            ---<alloc::collections::btree::map::IntoIter<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue> as core::ops::drop::Drop>::drop
+
+     1.63%  xsh      xsh               [.] <xsh::runtime::eval::indexed::full::schema::StmtView>::decode
+            |
+            |--0.82%--0x3
+            |          <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_statements
+            |          <xsh::runtime::eval::indexed::full::schema::StmtView>::decode
+            |
+             --0.81%--xsh::runtime::eval::lowered_run::indexed_run::explicit_run::statement_if_branch
+                       <xsh::runtime::eval::indexed::full::schema::StmtView>::decode
+
+     1.63%  xsh      xsh               [.] <xsh::runtime::eval::indexed::full::decode::ListView<(xsh::runtime::eval::BuildPatternId, core::option::Option<xsh::runtime::eval::BuildExprId>, alloc::vec::Vec<xsh::runtime::eval::BuildStmtId>)>>::from_block
+            |
+             --1.23%--<xsh::runtime::eval::indexed::full::decode::ListView<usize>>::from_block (inlined)
+
+     1.24%  xsh      xsh               [.] xsh::runtime::eval::lowered_run::indexed_run::explicit_run::call_argument_at
+            |
+            ---xsh::runtime::eval::lowered_run::indexed_run::explicit_run::call_argument_at
+
+     1.23%  xsh      xsh               [.] xsh::runtime::eval::type_view::value_matches_static_type
+            |
+             --0.81%--xsh::runtime::eval::type_view::value_matches_static_type
+
+     1.22%  xsh      xsh               [.] <alloc::vec::Vec<xsh::runtime::eval::LoweredValue> as core::clone::Clone>::clone
+     1.22%  xsh      xsh               [.] mi_malloc_aligned
+            |
+            ---mi_malloc_aligned
+
+
+
+#
+# (Cannot load tips.txt file, install linux-tools-doc to see tips!)
+#

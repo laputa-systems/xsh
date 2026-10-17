@@ -1,0 +1,1 @@
+oom=false exit=0 cpuset=14 memory=2147483648 memoryswap=2147483648

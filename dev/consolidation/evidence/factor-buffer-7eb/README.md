@@ -28,6 +28,12 @@ that result alone does not recreate the canonical timeout or establish that
 cross-test contention was absent. The edited test has not been replayed in the
 full canonical suite.
 
+The integrated candidate later timed out during a run that overlapped builds,
+then passed the unchanged exact selector in a bounded single-test control. See
+the [integrated run](integrated-candidate-3160bda/README.md) and [quiet
+control](quiet-control-3160bda/README.md). The isolated pass does not establish
+why the earlier run timed out.
+
 ## Deterministic work accounting
 
 The retained baseline output contains eight identical child outputs, each
