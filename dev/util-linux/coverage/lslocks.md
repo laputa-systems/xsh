@@ -63,7 +63,7 @@ and `--bytes` JSON-type assertions.
 
 | Option | Reference behavior to assert |
 |---|---|
-| `-b`, `--bytes` | Render `SIZE` as bytes. JSON `SIZE` becomes a number. Without it, sizes use powers of 1024 and one-letter suffixes; JSON `SIZE` is a string. |
+| `-b`, `--bytes` | Render `SIZE` as bytes. JSON `SIZE` becomes a number. Without it, sizes use powers of 1024 and one-letter suffixes; values below 1,024 bytes retain the `B` suffix, and JSON `SIZE` is a string. |
 | `-H`, `--list-columns` | List all 13 selectable columns; `--json` and `--raw` select machine-readable list modes. `SIZE` advertises `<string|number>`. |
 | `-i`, `--noinaccessible` | Drop a lock row when the command cannot discover a path for it. |
 | `-J`, `--json` | Emit a smartcols object named `locks`; JSON types follow the column schema below. |
@@ -96,7 +96,7 @@ and `holders`) regardless of the selected column spelling.
 | `COMMAND` | Process command name; JSON string. |
 | `PID` | Holder or waiter PID, with `-1` possible for OFD locks; JSON number. |
 | `TYPE` | `LEASE`, `FLOCK`, `POSIX`, or `OFDLCK`; JSON string. |
-| `SIZE` | File size when a descriptor path is found; absent data is blank in a table and null in JSON. JSON uses a string by default and a number with `--bytes`. |
+| `SIZE` | File size when a descriptor path is found; absent data is blank in a table and null in JSON. JSON uses a string by default, such as `1B`, and a number with `--bytes`. |
 | `INODE` | Inode number; JSON number. |
 | `MAJ:MIN` | Device major and minor number; JSON string. Table output includes smartcols padding. |
 | `MODE` | `READ` or `WRITE`; append `*` for a blocked waiter. JSON string. |

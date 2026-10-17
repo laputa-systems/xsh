@@ -165,7 +165,7 @@ proc all_columns_json_case(s: uu.Scene) [fs, process, env, net, time, error] -> 
   assert json.get(document, ["locks", 0, "pid"])?.require(Int)? == ready.pid
   assert json.get(document, ["locks", 0, "type"])?.require(Str)? == "POSIX"
   assert json.get(document, ["locks", 0, "PID"])? == null
-  assert json.get(document, ["locks", 0, "size"])?.require(Str)? == "1"
+  assert json.get(document, ["locks", 0, "size"])?.require(Str)? == "1B"
   assert json.get(document, ["locks", 0, "inode"])?.require(Int)? == ready.inode
   assert json.get(document, ["locks", 0, "maj:min"])?.require(Str)? == ready.device
   assert json.get(document, ["locks", 0, "mode"])?.require(Str)? == "READ"
