@@ -1,0 +1,49 @@
+{
+  "functional_complete": true,
+  "commit": "19c9aded0ea42c979fbc6be32162320d29ded3b1",
+  "tree": "956ea0056c53b5f006ede4fd980fd7ae364970e2",
+  "reviewer": "/root",
+  "scope": {
+    "qualification": "Additive delta-functional close, not a fresh full canonical pass",
+    "parent": "Reuse the unchanged semantic, route, platform and ownership scope accepted for 7eb62cd993e578c13bf6befd68a6a6ac15133c78. Original receipts retain their own source and product identities.",
+    "delta": "Only core/factor.xsh and dev/tests/test-lifecycle.xsh change outside dev/consolidation. Factor accumulates output chunks in List[Str] and joins at the existing flush points. The lifecycle fixture explicitly selects verification in its child environment. All remaining successor changes are campaign documentation, tools, and archived evidence.",
+    "affected_checks": "Three exact checks pass after integration on 3160bda38f5fb4cdb05e6b279efc57b296d4fcf8: parallel factor 1/0/0, non-Unicode factor 1/0/0, lifecycle cleanup 1/0/0. Their production and test bytes are identical in this successor.",
+    "failed_attempts": "R3 full canonical remains failed with 13914 passes, 2 failures, 78 skips. The first integrated factor retry timed out; the unchanged isolated control passed. Both failures remain archived. Contention is observed but is not proven causal.",
+    "limits": "No fresh canonical, resource, timing, QEMU, W9 full-corpus or structural recount is claimed. No inference changes are integrated."
+  },
+  "evidence": {
+    "parent": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/functional-close-7eb62cd993e578c13bf6befd68a6a6ac15133c78.json",
+      "sha256": "349b90176125d95b2c6a550d079f50918680b0ddde251cfcf918f9e6cb594da4"
+    },
+    "parallel_factor": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-r4-seal/dev/consolidation/evidence/factor-buffer-7eb/quiet-control-3160bda/factor-parallel.stdout.log",
+      "sha256": "5190137537df860808b157ab0682d57e78e8556adedeea9ff8d11ca8ce6fed68"
+    },
+    "nonunicode_factor": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-r4-seal/dev/consolidation/evidence/factor-buffer-7eb/integrated-candidate-3160bda/factor-nonunicode.stdout.log",
+      "sha256": "81ac2e6cd81c5a52aada941b0f16da7161d97b7a5322df3c99569dc19770e322"
+    },
+    "lifecycle_cleanup": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-r4-seal/dev/consolidation/evidence/factor-buffer-7eb/integrated-candidate-3160bda/lifecycle-cleanup.stdout.log",
+      "sha256": "83c343a70b8e418f6b36b3fdb96aab8f5b62b3fadd19ecf91ed6c072d0d64aed"
+    }
+  },
+  "source_hashes": {
+    "core/factor.xsh": "47b0714bc148ea8bef7f2cf345f0cdde6ca23c1ccd67bdabbd2f2ff84288bbd2",
+    "core/tests/test-uu-factor.xsh": "634e01ec92e53df226cf33e56780abd130c3fc418ea4c3df09d434590f050238",
+    "dev/tests/test-lifecycle.xsh": "466cb41d2c4f4b006e117503f64952dd23fcdafb4046bdb2a56808d062638959"
+  },
+  "products_used": {
+    "xsh": "1d7690114501313ffc4706b7f78ab6154ecd668f79d3735700219a00501dbe33",
+    "xsht": "0cd37140bd43ca0ca5104d43d11bc1732084fc2342ee3bb69a73fda38452f1c4",
+    "scope": "Protected R3 release compiler products; Rust and Cargo inputs unchanged. Fresh exact-successor artifact qualification remains required."
+  },
+  "remaining": [
+    "fresh exact-successor artifact qualifier",
+    "R4 full canonical/resource retry",
+    "timing gates when host is ready",
+    "final ten-row metrics evidence bundle"
+  ],
+  "inference": "Isolated and excluded; original denominators retained; empty braces remain a record; annotation targets unmet."
+}
