@@ -33,12 +33,13 @@ docker_shim = load_module("docker_observer_shim", HERE / "docker-observer-shim.p
 def successful_resource_receipt(path: Path) -> None:
     cgroup = {
         "memory_peak": "4096",
-        "memory_max": "8192",
+        "memory_max": str(24 * 1024**3),
         "memory_swap_peak": "0",
         "memory_swap_max": "0",
         "memory_events": {"oom": 0, "oom_kill": 0},
         "memory_swap_events": {"high": 0},
         "cpu_max": "1200000 100000",
+        "cpuset_cpus_effective": "0-11",
     }
     path.write_text(json.dumps({
         "schema_version": 1,
@@ -293,6 +294,22 @@ def assert_gate_target_cli_forwarding() -> None:
     assert run.call_args.args[0].resources_only is True
 
 
+def assert_batch_shim_cpu_affinity() -> None:
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
+        root = Path(temporary)
+        output = root / "output"
+        batch_stage = output / "canonical-gate-batch"
+        output.mkdir()
+        batch_stage.mkdir()
+        environment = {"PATH": "/usr/bin"}
+        cpuset = ",".join(str(cpu) for cpu in range(12))
+        with patch.object(observer, "manifest_relative_output", return_value=".work/test/container-resources.json"):
+            shim_path = observer.prepare_docker_shim(output, environment, "/usr/bin/docker", "synthetic-run", batch_stage, cpuset)
+        assert shim_path.is_file()
+        assert environment["XSH_OBSERVER_CPUSET"] == cpuset
+        assert environment["XSH_OBSERVER_REAL_DOCKER"] == "/usr/bin/docker"
+
+
 def exercise_repeated_signal_cleanup(*, process_exited: bool) -> tuple[dict[str, object], list[str]]:
     with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
         root = Path(temporary)
@@ -365,6 +382,7 @@ def main() -> None:
     assert plan["supplemental_isolated_tests"]["context"].find("nodev /tmp") >= 0
     assert_gate_target_reuse_contract()
     assert_gate_target_cli_forwarding()
+    assert_batch_shim_cpu_affinity()
 
     args = [
         "run", "--rm", "--init", "--platform", "linux/amd64", "-v", "/source:/work",
@@ -376,6 +394,7 @@ def main() -> None:
         owner="synthetic-run",
         container_observer="/work/observer.py",
         container_resource_file="/work/resource.json",
+        cpuset_cpus=",".join(str(cpu) for cpu in range(12)),
     )
     assert transformed is not None
     image_at = transformed.index(docker_shim.NATIVE_IMAGE_ID)
@@ -386,12 +405,43 @@ def main() -> None:
     assert transformed[1:5] == [
         "--cidfile", "/evidence/container.cid", "--label", "org.xsh.final-performance.owner=synthetic-run",
     ]
+    assert transformed[7:17] == [
+        "--cpuset-cpus", ",".join(str(cpu) for cpu in range(12)),
+        "--cpus", "12", "--memory", "24g", "--memory-swap", "24g",
+        "-e", "CARGO_BUILD_JOBS=12",
+    ]
     assert docker_shim.instrument_batch_argv(
         args[:-1] + ["gate-lane"],
         cidfile="/evidence/container.cid",
         owner="synthetic-run",
         container_observer="/work/observer.py",
         container_resource_file="/work/resource.json",
+        cpuset_cpus=",".join(str(cpu) for cpu in range(12)),
+    ) is None
+    for override in (
+        ["--cpus", "2"], ["--cpus=2"], ["--cpu-quota=1200000"], ["--memory", "1g"],
+        ["-m1g"], ["--memory-swap=1g"], ["--cpuset-cpus", "0"], ["--cpuset-cpus=0-11"],
+        ["--env", "CARGO_BUILD_JOBS=2"], ["--env", "CARGO_BUILD_JOBS"],
+        ["--env=CARGO_BUILD_JOBS=2"], ["--env=CARGO_BUILD_JOBS"],
+        ["-e", "CARGO_BUILD_JOBS"], ["-eCARGO_BUILD_JOBS=2"],
+        ["-e=CARGO_BUILD_JOBS=2"], ["--env-file", "/work/container.env"],
+        ["--env-file=/work/container.env"],
+    ):
+        assert docker_shim.instrument_batch_argv(
+            args[:1] + override + args[1:],
+            cidfile="/evidence/container.cid",
+            owner="synthetic-run",
+            container_observer="/work/observer.py",
+            container_resource_file="/work/resource.json",
+            cpuset_cpus=",".join(str(cpu) for cpu in range(12)),
+        ) is None, override
+    assert docker_shim.instrument_batch_argv(
+        args,
+        cidfile="/evidence/container.cid",
+        owner="synthetic-run",
+        container_observer="/work/observer.py",
+        container_resource_file="/work/resource.json",
+        cpuset_cpus="0,1,2",
     ) is None
 
     with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
@@ -412,6 +462,7 @@ def main() -> None:
             "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n",
             "memory.swap.events": "high 0\nmax 0\nfail 0\n",
             "cpu.max": "1200000 100000\n",
+            "cpuset.cpus.effective": "0-11\n",
             "pids.current": "3\n",
             "pids.peak": "5\n",
             "pids.max": "max\n",
@@ -422,6 +473,7 @@ def main() -> None:
         assert sample["process_rss_sum_bytes"] == 4 * os.sysconf("SC_PAGE_SIZE")
         assert sample["cgroup"]["memory_peak"] == "2048"
         assert sample["cgroup"]["memory_events"]["oom_kill"] == 0
+        assert sample["cgroup"]["cpuset_cpus_effective"] == "0-11"
         sample_path = root / "resource.json"
         successful_resource_receipt(sample_path)
         assert observer.resource_receipt(sample_path)["receipt"]["process_rss_peak_bytes"] == 2048
@@ -435,6 +487,40 @@ def main() -> None:
             pass
         else:
             raise AssertionError("unavailable cgroup evidence must reject a resource receipt")
+
+        expected_cpuset = ",".join(str(cpu) for cpu in range(12))
+        limits = observer.validate_gate_batch_resources(sample_path, expected_cpuset)
+        assert limits == {
+            "memory_max_bytes": 24 * 1024**3,
+            "memory_swap_max_bytes": 0,
+            "cpu_quota": 1200000,
+            "cpu_period": 100000,
+            "cpuset_cpus_effective": "0-11",
+        }
+        for field, value in (
+            ("memory_max", "8192"),
+            ("memory_swap_max", "1024"),
+            ("cpu_max", "1100000 100000"),
+            ("cpuset_cpus_effective", "0-10"),
+        ):
+            changed = json.loads(sample_path.read_text(encoding="utf-8"))
+            changed["cgroup_limits_and_peaks"][field] = value
+            unavailable_path.write_text(json.dumps(changed), encoding="utf-8")
+            try:
+                observer.validate_gate_batch_resources(unavailable_path, expected_cpuset)
+            except observer.ObserverFailure:
+                pass
+            else:
+                raise AssertionError(f"canonical gate batch must reject an incorrect {field}")
+        changed = json.loads(sample_path.read_text(encoding="utf-8"))
+        changed["cgroup_limits_and_peaks"]["memory_events"]["oom_kill"] = 1
+        unavailable_path.write_text(json.dumps(changed), encoding="utf-8")
+        try:
+            observer.validate_gate_batch_resources(unavailable_path, expected_cpuset)
+        except observer.ObserverFailure:
+            pass
+        else:
+            raise AssertionError("canonical gate batch must reject an OOM event")
 
         binary_dir = root / "release"
         binary_dir.mkdir()

@@ -452,7 +452,7 @@ def resource_receipt(path: Path) -> dict[str, Any]:
     cgroup = value.get("cgroup_limits_and_peaks")
     if not isinstance(cgroup, dict):
         raise ObserverFailure("container resource receipt lacks cgroup limits and peaks")
-    required = ("memory_peak", "memory_max", "memory_swap_peak", "memory_swap_max", "memory_events", "memory_swap_events", "cpu_max")
+    required = ("memory_peak", "memory_max", "memory_swap_peak", "memory_swap_max", "memory_events", "memory_swap_events", "cpu_max", "cpuset_cpus_effective")
     missing = [name for name in required if name not in cgroup]
     if missing:
         raise ObserverFailure(f"container resource receipt lacks required cgroup fields: {missing}")
@@ -468,6 +468,58 @@ def resource_receipt(path: Path) -> dict[str, Any]:
     if not isinstance(value.get("process_rss_peak_bytes"), int) or value["process_rss_peak_bytes"] <= 0:
         raise ObserverFailure("container resource receipt lacks a sampled RSS peak")
     return {"path": str(path), "sha256": sha256(path), "receipt": value}
+
+
+def parse_cpu_set(value: object) -> list[int]:
+    if not isinstance(value, str) or not value:
+        raise ObserverFailure("container resource receipt lacks effective CPU affinity")
+    cpus: set[int] = set()
+    try:
+        for item in value.split(","):
+            if "-" in item:
+                first_text, last_text = item.split("-", 1)
+                first, last = int(first_text), int(last_text)
+                if first > last or last - first + 1 > CPU_LIMIT:
+                    raise ValueError
+                expanded = set(range(first, last + 1))
+            else:
+                expanded = {int(item)}
+            if cpus.intersection(expanded) or len(cpus) + len(expanded) > CPU_LIMIT:
+                raise ValueError
+            cpus.update(expanded)
+    except ValueError as error:
+        raise ObserverFailure("container resource receipt has invalid effective CPU affinity") from error
+    if len(cpus) != CPU_LIMIT or any(cpu < 0 for cpu in cpus):
+        raise ObserverFailure("container resource receipt has invalid effective CPU affinity")
+    return sorted(cpus)
+
+
+def validate_gate_batch_resources(path: Path, expected_cpuset: str) -> dict[str, Any]:
+    observed = resource_receipt(path)
+    cgroup = observed["receipt"]["cgroup_limits_and_peaks"]
+    try:
+        memory_max = int(cgroup["memory_max"])
+        memory_swap_max = int(cgroup["memory_swap_max"])
+        quota_text, period_text = cgroup["cpu_max"].split()
+        quota, period = int(quota_text), int(period_text)
+    except (TypeError, ValueError) as error:
+        raise ObserverFailure("canonical gate batch cgroup limits are invalid") from error
+    if memory_max != MEMORY_LIMIT_BYTES or memory_swap_max != 0:
+        raise ObserverFailure("canonical gate batch must be limited to 24 GiB memory with no swap")
+    if period <= 0 or quota != CPU_LIMIT * period:
+        raise ObserverFailure("canonical gate batch CPU quota must be exactly 12 CPUs")
+    if parse_cpu_set(cgroup["cpuset_cpus_effective"]) != parse_cpu_set(expected_cpuset):
+        raise ObserverFailure("canonical gate batch effective CPU affinity differs from its pinned CPU set")
+    events = cgroup["memory_events"]
+    if events["oom"] != 0 or events["oom_kill"] != 0:
+        raise ObserverFailure("canonical gate batch exceeded its memory limit")
+    return {
+        "memory_max_bytes": memory_max,
+        "memory_swap_max_bytes": memory_swap_max,
+        "cpu_quota": quota,
+        "cpu_period": period,
+        "cpuset_cpus_effective": cgroup["cpuset_cpus_effective"],
+    }
 
 
 def source_check(tree: Path, expected: dict[str, str]) -> dict[str, str]:
@@ -862,7 +914,7 @@ def gate_target_build_input(requested: Path | None, actual: Path, reused: bool) 
     }
 
 
-def prepare_docker_shim(output: Path, environment: dict[str, str], docker: str, run_id: str, batch_stage: Path) -> Path:
+def prepare_docker_shim(output: Path, environment: dict[str, str], docker: str, run_id: str, batch_stage: Path, cpuset_cpus: str) -> Path:
     shim_dir = output / "host-bin"
     shim_dir.mkdir()
     shim_path = shim_dir / "docker"
@@ -875,6 +927,7 @@ def prepare_docker_shim(output: Path, environment: dict[str, str], docker: str, 
     environment["XSH_OBSERVER_CONTAINER_SCRIPT"] = "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py"
     output_relative = manifest_relative_output(batch_stage / "container-resources.json", ROOT)
     environment["XSH_OBSERVER_CONTAINER_RESOURCE"] = "/work/" + output_relative
+    environment["XSH_OBSERVER_CPUSET"] = cpuset_cpus
     environment["PATH"] = str(shim_dir) + os.pathsep + environment["PATH"]
     return shim_path
 
@@ -951,7 +1004,7 @@ def run(args: argparse.Namespace) -> int:
         "DOCKER_PLATFORM": "linux/amd64",
     })
     host_env = dict(baseline_environment)
-    batch_shim = prepare_docker_shim(output, host_env, docker, run_id, batch_dir)
+    batch_shim = prepare_docker_shim(output, host_env, docker, run_id, batch_dir, lint_cpus)
     batch_env = dict(host_env)
     batch_env["PATH"] = str(batch_shim.parent) + os.pathsep + os.environ.get("PATH", "")
     profile_before = selected["binaries"]
@@ -990,7 +1043,10 @@ def run(args: argparse.Namespace) -> int:
             "isolated_lint_cpu_limit": CPU_LIMIT,
             "isolated_lint_memory_limit": MEMORY_LIMIT,
             "isolated_lint_swap_limit": MEMORY_LIMIT,
-            "gate_batch_limits": "record the pinned Docker command's actual cgroup limits without changing its canonical settings",
+            "gate_batch_cpu_set": lint_cpus,
+            "gate_batch_cpu_limit": CPU_LIMIT,
+            "gate_batch_memory_limit": MEMORY_LIMIT,
+            "gate_batch_swap_limit": MEMORY_LIMIT,
             "rss_method": "container-local sum of resident pages sampled every 100 ms; retain kernel cgroup peak and events independently",
         },
         "execution_mode": "resources-only" if args.resources_only else "timed",
@@ -1065,6 +1121,7 @@ def run(args: argparse.Namespace) -> int:
                     "selected_release_binaries": sealed_binary_set(Path(selected["directory"]), profile_before),
                     "gate_batch_release_binaries": binary_set(gate_target_binaries),
                     "docker_commands": read_docker_observer_log(batch_dir / "docker-commands.jsonl"),
+                    "gate_batch_resource_limits": validate_gate_batch_resources(gate_resource_path, lint_cpus),
                     "profile_qualification_tool": validate_qualification_tool(selected),
                 },
                 resources_only=args.resources_only,

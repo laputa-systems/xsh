@@ -118,7 +118,7 @@ def _owned_ids(owner: str, stage: str, cidfile: Path) -> tuple[list[str], list[d
                 else:
                     ids.append(container_id)
     query = [
-        "docker", "ps", "--all", "--quiet",
+        "docker", "ps", "--all", "--quiet", "--no-trunc",
         "--filter", f"label=org.xsh.final-performance.owner={owner}",
         "--filter", f"label=org.xsh.final-performance.stage={stage}",
     ]

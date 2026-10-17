@@ -118,12 +118,14 @@ output under the source tree's `.work/consolidation`. It takes the final
 performance and Cargo locks, but not the native-suite lock, and makes no timing
 claim. Pass that receipt to `final-observers.py --resources-only` to run the
 existing lint and single canonical gate batch while discarding timing even
-when readiness passes. This mode writes a fresh observer output directly under
-`.work/final-review-evidence/final-performance-gates`; its receipt binds the
-profile tool path and hash as well as the selected binaries. Only this explicit
-observer mode accepts an `artifact-qualified` profile receipt. Timed profile,
-forced-frame, scheduler, comparative, and observer gates still require a
-`complete` profile-cost receipt.
+when readiness passes. Both Docker stages are bounded to the first 12 allowed
+host CPUs, 24 GiB of memory, no swap, and 12 Cargo jobs; the batch receipt
+validates its effective cgroup limits. This mode writes a fresh observer output
+directly under `.work/final-review-evidence/final-performance-gates`; its
+receipt binds the profile tool path and hash as well as the selected binaries.
+Only this explicit observer mode accepts an `artifact-qualified` profile
+receipt. Timed profile, forced-frame, scheduler, comparative, and observer gates
+still require a `complete` profile-cost receipt.
 
 Build products, Cargo caches, disposable test fixtures, process state, and
 unselected historical captures can be regenerated. Their ignored locations are

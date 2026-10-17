@@ -71,6 +71,7 @@ def cgroup_snapshot(cgroup_root: Path = CGROUP_ROOT) -> dict[str, object]:
         "memory_events": events,
         "memory_swap_events": swap_events,
         "cpu_max": read_text(cgroup_root / "cpu.max"),
+        "cpuset_cpus_effective": read_text(cgroup_root / "cpuset.cpus.effective"),
         "pids_current": read_text(cgroup_root / "pids.current"),
         "pids_peak": read_text(cgroup_root / "pids.peak"),
         "pids_max": read_text(cgroup_root / "pids.max"),

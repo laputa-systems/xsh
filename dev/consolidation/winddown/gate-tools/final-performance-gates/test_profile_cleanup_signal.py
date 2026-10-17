@@ -154,3 +154,37 @@ def exercise_absent_container():
 
 exercise_absent_container()
 print("absent containers are resolved; daemon errors remain unresolved")
+
+
+def exercise_autoremoval_race():
+    import owned_containers
+    with tempfile.TemporaryDirectory(dir=root / ".work/tmp") as temporary:
+        cidfile = Path(temporary) / "batch.cid"
+        container_id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        cidfile.write_text(container_id + "\n")
+        present = json.dumps([{
+            "Config": {"Labels": {
+                "org.xsh.final-performance.owner": "self-test-run",
+                "org.xsh.final-performance.stage": "self-test-stage",
+            }},
+        }])
+        absent = {"exit_code": 1, "stdout": "[]\n", "stderr": f"error: no such object: {container_id}\n"}
+        with patch.object(owned_containers, "_command", side_effect=[
+            {"exit_code": 0, "stdout": container_id + "\n", "stderr": ""},
+            {"exit_code": 0, "stdout": present, "stderr": ""},
+            {"exit_code": 1, "stdout": "", "stderr": f"Error: No such container: {container_id}\n"},
+            {"exit_code": 0, "stdout": "", "stderr": ""},
+            absent,
+        ]) as command:
+            result = owned_containers.cleanup_cidfile_container(
+                cidfile, owner="self-test-run", stage="self-test-stage"
+            )
+        assert "--no-trunc" in command.call_args_list[0].args[0]
+        assert result["resolved"] is True
+        assert result["container_ids"] == [container_id]
+        assert result["cleaned_container_ids"] == [container_id]
+        assert command.call_count == 5
+
+
+exercise_autoremoval_race()
+print("owned-container cleanup deduplicates full IDs and accepts verified auto-removal")
