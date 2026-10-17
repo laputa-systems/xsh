@@ -27,10 +27,16 @@ def stop(child):
 
 
 def outer(command):
-    descriptor, path = tempfile.mkstemp(prefix="util-linux-outside-", dir="/t")
+    blocked = {signal.SIGTERM, signal.SIGINT, signal.SIGHUP}
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, blocked)
+    descriptor = None
+    path = None
     child = None
     result = 1
     try:
+        for number in blocked:
+            signal.signal(number, interrupt)
+        descriptor, path = tempfile.mkstemp(prefix="util-linux-outside-", dir="/t")
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         metadata = os.fstat(descriptor)
         environment = dict(os.environ)
@@ -40,15 +46,8 @@ def outer(command):
             "XSH_UTIL_LINUX_OUTSIDE_DEV": str(metadata.st_dev),
             "XSH_UTIL_LINUX_OUTSIDE_INO": str(metadata.st_ino),
         })
-        for number in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP]:
-            signal.signal(number, interrupt)
-        blocked = {signal.SIGTERM, signal.SIGINT, signal.SIGHUP}
-        previous = signal.pthread_sigmask(signal.SIG_BLOCK, blocked)
-        try:
-            child = subprocess.Popen(command, env=environment, start_new_session=True)
-        except BaseException:
-            signal.pthread_sigmask(signal.SIG_SETMASK, previous)
-            raise
+        child = subprocess.Popen(command, env=environment, start_new_session=True,
+                                 preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_SETMASK, previous))
         try:
             signal.pthread_sigmask(signal.SIG_SETMASK, previous)
             result = child.wait(timeout=120)
@@ -57,12 +56,15 @@ def outer(command):
         except Interrupted as interrupted:
             result = 128 + interrupted.number
         finally:
-            for number in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP]:
+            for number in blocked:
                 signal.signal(number, signal.SIG_IGN)
             stop(child)
     finally:
-        os.close(descriptor)
-        os.unlink(path)
+        if descriptor is not None:
+            os.close(descriptor)
+        if path is not None:
+            os.unlink(path)
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
     return result if result >= 0 else 128 - result
 
 
