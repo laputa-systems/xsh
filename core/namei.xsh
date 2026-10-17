@@ -78,16 +78,16 @@ pure mode_string(metadata: FsStat, mountpoint: Bool) -> Str {
   f"{if mountpoint { "D" } else { kind }}{owner}{group_bits}{other}"
 }
 
-pure components(path: Bytes, start: Int) -> List[Bytes] {
+pure components(pathname: Bytes, start: Int) -> List[Bytes] {
   var begin = start
   let parts = collect {
-    for index in range(start, path.len()) {
-      if path.byte_at(index) == 47 {
-        yield path[begin..index] when index > begin
+    for index in range(start, pathname.len()) {
+      if pathname.byte_at(index) == 47 {
+        yield pathname[begin..index] when index > begin
         begin = index + 1
       }
     }
-    yield path[begin..] when path.len() > begin
+    yield pathname[begin..] when pathname.len() > begin
   }
   parts
 }
@@ -98,10 +98,10 @@ pure append_path(prefix: Bytes, component: Bytes) -> Bytes {
   bytes.concat([prefix, b"/", component])
 }
 
-pure last_slash(path: Bytes) -> Int? {
+pure last_slash(pathname: Bytes) -> Int? {
   var found: Int? = null
-  for index in range(path.len()) {
-    if path.byte_at(index) == 47 { found = index }
+  for index in range(pathname.len()) {
+    if pathname.byte_at(index) == 47 { found = index }
   }
   found
 }
@@ -157,19 +157,19 @@ proc inspect(name: Bytes, path_bytes: Bytes, level: Int, parent: Entry?, mounts:
   Ok({name: name, path: path_bytes, level: level, metadata: metadata, stat_error: stat_error, link: link, link_error: link_error, mountpoint: mountpoint, mount_error: mount_error})
 }
 
-proc path_entries(path: Bytes, start: Int, base: Bytes, level: Int, parent: Entry?, mounts: Bool) [fs, error] -> Result[List[Entry], Error] {
+proc path_entries(pathname: Bytes, start: Int, base: Bytes, level: Int, parent: Entry?, mounts: Bool) [fs, error] -> Result[List[Entry], Error] {
   var entries: List[Entry] = []
   var current = base
   var previous = parent
   var offset = start
-  if offset < path.len() and path.byte_at(offset) == 47 {
-    while offset < path.len() and path.byte_at(offset) == 47 { offset += 1 }
+  if offset < pathname.len() and pathname.byte_at(offset) == 47 {
+    while offset < pathname.len() and pathname.byte_at(offset) == 47 { offset += 1 }
     let root = inspect(b"/", b"/", level, parent, mounts)?
     entries += [root]
     previous = root
     current = b"/"
   }
-  for component in components(path, offset) {
+  for component in components(pathname, offset) {
     let full_path = append_path(current, component)
     let item = inspect(component, full_path, level, previous, mounts)?
     entries += [item]
@@ -188,7 +188,7 @@ proc symlink_entries(entry: Entry, mounts: Bool) [fs, error] -> Result[List[Entr
     let prefix = entry.path[0..slash]
     let base = if prefix.is_empty() { b"/" } else { prefix }
     let expanded = bytes.concat([base, if base == b"/" { b"" } else { b"/" }, target])
-    let begin = base.len() + if base == b"/" { 0 } else { 1 }
+    let begin = base.len() + (if base == b"/" { 0 } else { 1 })
     return path_entries(expanded, begin, base, entry.level + 1, entry, mounts)
   }
   path_entries(target, 0, b"", entry.level + 1, entry, mounts)
@@ -214,11 +214,17 @@ proc expand(entries: List[Entry], nosymlinks: Bool, mounts: Bool) [fs, error] ->
 }
 
 proc username(uid: Int) [fs] -> Str {
-  if let account = user.by_uid(uid) { account.name } else { f"{uid}" }
+  match user.by_uid(uid) {
+    Ok(account) => account.name
+    Err(_) => f"{uid}"
+  }
 }
 
 proc groupname(gid: Int) [fs] -> Str {
-  if let group = group.by_gid(gid) { group.name } else { f"{gid}" }
+  match group.by_gid(gid) {
+    Ok(group_entry) => group_entry.name
+    Err(_) => f"{gid}"
+  }
 }
 
 proc update_owner_widths(entries: List[Entry], owners: Bool, user_width: Int, group_width: Int) [fs] -> OwnerWidths {
@@ -227,10 +233,10 @@ proc update_owner_widths(entries: List[Entry], owners: Bool, user_width: Int, gr
   if owners {
     for entry in entries {
       if let metadata = entry.metadata {
-        let user = username(metadata.uid)
-        let group = groupname(metadata.gid)
-        if user.byte_len() > max_user { max_user = user.byte_len() }
-        if group.byte_len() > max_group { max_group = group.byte_len() }
+        let user_name = username(metadata.uid)
+        let group_name = groupname(metadata.gid)
+        if user_name.byte_len() > max_user { max_user = user_name.byte_len() }
+        if group_name.byte_len() > max_group { max_group = group_name.byte_len() }
       }
     }
   }
@@ -257,9 +263,9 @@ proc render(entries: List[Entry], operand: Bytes, options: Options, user_width: 
     if ! options.vertical { gnu.write_bytes(spaces(entry.level * 2)); gnu.write_bytes(b" ") }
     gnu.write_bytes(if options.modes { bytes.from_text(mode) } else { bytes.from_text(mode.byte_slice(0, length: 1)) })
     if options.owners {
-      let user = username(metadata.uid)
-      let group = groupname(metadata.gid)
-      gnu.write_bytes(bytes.from_text(f" {right_pad(user, user_width)} {right_pad(group, group_width)}"))
+      let user_name = username(metadata.uid)
+      let group_name = groupname(metadata.gid)
+      gnu.write_bytes(bytes.from_text(f" {right_pad(user_name, user_width)} {right_pad(group_name, group_width)}"))
     }
     if options.vertical { gnu.write_bytes(spaces(entry.level * 2)) }
     if let target = entry.link {
@@ -277,18 +283,27 @@ pure right_pad(text: Str, width: Int) -> Str {
   result
 }
 
-proc report_fatal(path: Bytes, kind: Str, failure: Error) [process, env, io] {
-  gnu.write_stderr_bytes(bytes.concat([
-    bytes.from_text(f"{gnu.prog()}: {kind}"), path,
+proc write_stderr_bytes(data: Bytes) [process, env, io] {
+  if let Err(failure) = io.write_stderr_bytes(data) {
+    gnu.error(f"write error: {gnu.strerror(failure)}")
+    exit 1
+  }
+  if let Err(failure) = io.flush_stderr() {
+    gnu.error(f"write error: {gnu.strerror(failure)}")
+    exit 1
+  }
+}
+
+proc report_fatal(pathname: Bytes, kind: Str, failure: Error) [process, env, io] {
+  write_stderr_bytes(bytes.concat([
+    bytes.from_text(f"{gnu.prog()}: {kind}"), pathname,
     bytes.from_text(f": {gnu.strerror(failure)}\n"),
   ]))
-  io.flush_stderr()
   exit 1
 }
 
-proc report_loop(path: Bytes) [process, env, io] {
-  gnu.write_stderr_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: "), path, b": exceeded limit of symlinks\n"]))
-  io.flush_stderr()
+proc report_loop(pathname: Bytes) [process, env, io] {
+  write_stderr_bytes(bytes.concat([bytes.from_text(f"{gnu.prog()}: "), pathname, b": exceeded limit of symlinks\n"]))
 }
 
 proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
@@ -315,11 +330,11 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   let long = options.long
-  let options = {...options, modes: options.modes or long, owners: options.owners or long, vertical: options.vertical or long}
+  let normalized_options = {...options, modes: options.modes or long, owners: options.owners or long, vertical: options.vertical or long}
   var failed = false
   var user_width = 0
   var group_width = 0
-  for token in options.paths {
+  for token in normalized_options.paths {
     let operand = gnu.argument_bytes(token, prepared.raw)
     let operand_path = Path.parse_bytes(operand)?
     if fs.stat(operand_path, follow_symlinks: true) is Err(_) { failed = true }
@@ -329,10 +344,10 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       if let failure = entry.link_error { report_fatal(entry.path, "failed to read symlink: ", failure) }
       if let failure = entry.mount_error { report_fatal(bytes.concat([entry.path, b"/.."]), "stat of ", failure) }
     }
-    let widths = update_owner_widths(result.entries, options.owners, user_width, group_width)
+    let widths = update_owner_widths(result.entries, normalized_options.owners, user_width, group_width)
     user_width = widths.user_width
     group_width = widths.group_width
-    failed = render(result.entries, operand, options, user_width, group_width) or failed
+    failed = render(result.entries, operand, normalized_options, user_width, group_width) or failed
     if result.exceeded {
       failed = true
       report_loop(operand)
