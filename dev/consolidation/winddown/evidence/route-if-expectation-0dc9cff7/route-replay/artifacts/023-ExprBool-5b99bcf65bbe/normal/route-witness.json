@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/typed-scalar-route-oracles.xsh::test_expr_bool","source_hash":"6ad11382b4514fd748202bcf712444489cad2961874727d82e8a78789e189ce2","records":[{"tag_name":"ExprBool","tag_ordinal":23,"route":"in_place_evaluator_path","mode":"normal"}]}

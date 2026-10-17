@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_path_metadata","source_hash":"d722ed1b3b40e72721a6660aa53e96528944debbe836101100621ad5bde05f7a","records":[{"tag_name":"ExprPathMetadata","tag_ordinal":89,"route":"generic_operand_apply_path","mode":"forced"}]}

@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/frame-apply-oracles.xsh::test_frame_apply_empty_map","source_hash":"0be56b576a018ec3d3af5e2bb47dd19023ae5cb8c46a0b0f64a78dc3350477c3","records":[{"tag_name":"ExprEmptyMap","tag_ordinal":49,"route":"explicit_frame_apply_path","mode":"normal"}]}

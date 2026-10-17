@@ -1692,7 +1692,7 @@ class SemanticRouteMatrixTests(unittest.TestCase):
         )
         self.assertEqual(
             {mapping["mode_expectations"]["normal"]["route_id"] for mapping in if_mappings},
-            {"explicit_frame_control_path", "in_place_evaluator_path"},
+            {"explicit_frame_control_path"},
         )
         self.assertEqual(
             {mapping["mode_expectations"]["forced"]["route_id"] for mapping in if_mappings},
@@ -3678,7 +3678,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                 set(normal_if),
                 {
                     ("ExprIf", "normal", "explicit_frame_control_path", frame_id),
-                    ("ExprIf", "normal", "in_place_evaluator_path", pure_id),
+                    ("ExprIf", "normal", "explicit_frame_control_path", pure_id),
                 },
             )
             frame_forced = if_receipts[(frame_id, "forced")]
@@ -3715,7 +3715,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
                                 },
                                 {
                                     "test_id": pure_id,
-                                    "route_id": "in_place_evaluator_path",
+                                    "route_id": "explicit_frame_control_path",
                                 },
                             ],
                             "status": "credited",
@@ -3742,7 +3742,7 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             self.assertEqual(path_evidence["normal"]["status"], "route_witness_credited")
             self.assertEqual(
                 set(path_evidence["normal"]["routes"]),
-                {"explicit_frame_control_path", "in_place_evaluator_path"},
+                {"explicit_frame_control_path"},
             )
             self.assertEqual(len(path_evidence["normal"]["witnesses"]), 2)
             self.assertEqual(path_evidence["forced"]["status"], "route_witness_credited")

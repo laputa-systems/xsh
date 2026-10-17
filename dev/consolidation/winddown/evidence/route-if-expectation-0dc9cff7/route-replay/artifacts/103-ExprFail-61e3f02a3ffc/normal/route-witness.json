@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_fail","source_hash":"418e358a3dd1916554ad709e8307c0e06d900669af49e93f450df026def666bc","records":[{"tag_name":"ExprFail","tag_ordinal":103,"route":"explicit_frame_apply_path","mode":"normal"}]}

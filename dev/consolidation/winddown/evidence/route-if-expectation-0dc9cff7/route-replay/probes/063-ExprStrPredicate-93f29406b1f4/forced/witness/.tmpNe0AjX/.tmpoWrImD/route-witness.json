@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_str_predicate","source_hash":"521c306dae42fd2769818d79265de8f4b8679952aed86b1b48086cef2c151b64","records":[{"tag_name":"ExprStrPredicate","tag_ordinal":63,"route":"generic_operand_apply_path","mode":"forced"}]}
