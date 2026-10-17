@@ -1,10 +1,10 @@
-# Sort buffer timeout repair evidence
+# Sort ordering cost reduction
 
 This record covers the `core/sort.xsh` repair for the R2 buffer-size timeout. It does not claim acceptance of the full R2 profile.
 
-## Cause and change
+## Observed work and change
 
-The normal opt3 R2 native profile at base `24cc0d704209a8c0aa0eb27d5cfea1434929dc20` timed out in `core/tests/test-uu-sort-1.xsh::test_uu_sort_buffer_sizes` after four minutes. The test sorts 20,000 rows with nine buffer-size forms. The preserved trace counted 200,012 calls to `selected_sort_mode` for that workload.
+The normal opt3 R2 native profile at base `24cc0d704209a8c0aa0eb27d5cfea1434929dc20` timed out in `core/tests/test-uu-sort-1.xsh::test_uu_sort_buffer_sizes` after four minutes. The test sorts 20,000 rows with nine buffer-size forms. A separate trace of one 20,000-row numeric sort with `-S 10T` counted 200,012 calls to `selected_sort_mode`.
 
 The repair stores invariant sort-mode and raw-byte tie-break decisions in a per-batch record plan. Per-key options still determine key-specific modes. Numeric prefix normalization now returns the parsed prefix directly when `decimal_point == "."` and `thousands_separator.len() != 1`. Under that condition, `numeric_prefix_raw` accepts only an optional minus, ASCII digits, and the dot decimal point. Other locale settings retain the existing normalization path.
 
