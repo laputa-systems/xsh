@@ -47,10 +47,11 @@ proc parity(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, 
   Ok()
 }
 
-proc compared_with_stdout_dump(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
-  let reference = ul.reference(s, "lslocks", args, timeout: 5s)?
-  let candidate = uu.invoke(s, "lslocks", args, timeout: 5s)?
-  let invocation = args.join(" ")
+proc compared_with_stdout_dump(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, error] -> Result[uu.Ran, Error] {
+  let reference = ul.reference(s, "lslocks", args, timeout: 5s, vars: vars)?
+  let candidate = uu.invoke(s, "lslocks", args, vars: vars, timeout: 5s)?
+  let environment = json.encode(vars)?
+  let invocation = args.join(" ") + " env=" + environment
   if reference.stdout.len() <= 1024 and candidate.stdout.len() <= 1024 {
     assert reference.stdout == candidate.stdout, f"lslocks stdout differs for {invocation}: reference={reference.stdout.base64()} candidate={candidate.stdout.base64()}"
   }
@@ -558,12 +559,12 @@ test test_lslocks_defaults_and_lslocks_columns { |ctx|
   defer ul.stop_keeper(keeper)
   let ready = json.decode(keeper.ready)?.require(LockReady)?
   let pid = f"{ready.pid}"
-  parity(s, ["--pid", pid])?
-  parity(s, ["--output-all", "--pid", pid])?
-  parity(s, ["--output-all", "--pid", pid], {LSLOCKS_COLUMNS: "TYPE"})?
-  parity(s, ["--pid", pid], {LSLOCKS_COLUMNS: "TYPE,PID,COMMAND"})?
-  parity(s, ["--pid", pid], {LSLOCKS_COLUMNS: "+BLOCKER"})?
-  parity(s, ["--output", "PATH,TYPE", "--pid", pid], {LSLOCKS_COLUMNS: "PID"})?
+  let _ = compared_with_stdout_dump(s, ["--pid", pid])?
+  let _ = compared_with_stdout_dump(s, ["--output-all", "--pid", pid])?
+  let _ = compared_with_stdout_dump(s, ["--output-all", "--pid", pid], {LSLOCKS_COLUMNS: "TYPE"})?
+  let _ = compared_with_stdout_dump(s, ["--pid", pid], {LSLOCKS_COLUMNS: "TYPE,PID,COMMAND"})?
+  let _ = compared_with_stdout_dump(s, ["--pid", pid], {LSLOCKS_COLUMNS: "+BLOCKER"})?
+  let _ = compared_with_stdout_dump(s, ["--output", "PATH,TYPE", "--pid", pid], {LSLOCKS_COLUMNS: "PID"})?
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
 }
