@@ -1,0 +1,3 @@
+0	core/tests/test-uu-tail-1.xsh::test_uu_tail_follow_when_files_are_pointing_to_same_relative_file_and_file_stays_same_size
+0	core/tests/test-uu-tail-1.xsh::test_uu_tail_follow_detects_file_truncation
+0	core/tests/test-tail.xsh::test_tail_follow_descriptor_reports_truncation_and_reads_from_start
