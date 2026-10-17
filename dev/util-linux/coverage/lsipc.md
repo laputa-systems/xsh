@@ -56,6 +56,12 @@ The column source defines these complete ranges:
 | Summary | `RESOURCE,DESCRIPTION,LIMIT,USED,USE%` |
 | POSIX semaphore | `SVAL` |
 
+For `--posix-semaphores`, the reference includes `SVAL` in its default
+columns, but its `--output SVAL` validation rejects that column: the
+POSIX-specific accepted range stops at `MTIME`. The explicit all-column case
+therefore covers the POSIX common columns, while the error case preserves this
+2.42.4 behavior.
+
 `--creator` adds `CUID,CGID` and, for System V resources, `UID,GID`.
 `--time` adds System V queue send/receive/create times, shared-memory attach
 and detach times, or semaphore operation/create times. `--time-format` accepts
@@ -97,16 +103,17 @@ tables and query each selected ID.
 | Native selector | Behavior under test | Upstream origin | Disposition |
 |---|---|---|---|
 | `test_lsipc_default_and_global_summary_outputs_match_reference` | Default global-summary selection, summary resource rows, and all explicit global selector combinations | `lsipc.c:703-724,1044-1084,1348-1369,1565-1579,1627-1659` | Open. Fixture required. |
-| `test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes` | Default columns and every applicable explicit column for all resource classes | `lsipc.c:157-203,533-1370`; `ipcutils.c:131-714` | Open. Fixture required. |
+| `test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes` | Default columns and every explicitly accepted column for all resource classes, including default-only POSIX semaphore `SVAL` | `lsipc.c:157-203,533-1370`; `ipcutils.c:131-714` | Open. Fixture required. |
 | `test_lsipc_id_and_name_select_registered_objects` | Exact ID and name selection, including POSIX message-queue slash spelling | `lsipc.c:559-563,823-827,958-965,1094-1097,1265-1272`; `ipcutils.c:283-289,492-498,645-700` | Open. Fixture required. |
 | `test_lsipc_missing_ids_and_names_preserve_reference_status_and_diagnostics` | Missing IDs and names, successful exit status, and warning diagnostics for all six resource modes | `lsipc.c:559-563,738-741,823-827,958-961,1094-1097,1265-1268,1661-1666` | Open. Capture exact oracle output. |
 | `test_lsipc_rejects_id_and_name_without_matching_modes` | Selector prerequisites and option conflicts | `lsipc.c:1415-1420,1565-1570` | Open. Capture exact oracle output. |
 | `test_lsipc_creator_and_time_options_report_live_metadata` | Creator/owner identities, operation times, and all supported time formats | `lsipc.c:1591-1617,273-290,457-481` plus the per-mode renderers | Open. Fixture required. |
 | `test_lsipc_bytes_and_numeric_permissions_match_reference` | Byte counts and numeric permission rendering in resource and summary output | `lsipc.c:483-526,584-591,906-912,1170-1176,1299-1306,1324-1330` | Open. Fixture required. |
 | `test_lsipc_output_modes_and_table_controls_match_reference` | Requested column order and duplicates, list/raw/export/JSON/newline modes, shell names, headings, truncation, and summary rendering | `lsipc.c:128-147,223-243,363-453,1620-1622`; manual output-format sections | Open. Fixture required. |
-| `test_lsipc_help_lists_resource_modes_and_columns` | Help output, option names, and all documented columns | `lsipc.c:292-360` | Open. Stable input. |
-| `test_lsipc_version_preserves_xsh_provenance` | XSH identity and exact XSH version banner | `lsipc.c:1557-1562`; campaign `version-provenance` decision | Open. Assert XSH banner independently. |
-| `test_lsipc_rejects_unknown_and_inapplicable_columns` | Unknown and inapplicable columns, statuses, and diagnostics | `lsipc.c:223-243` | Open. Stable input. |
+| `test_lsipc_help_lists_resource_modes_and_columns` | Help output through `--help` and `-h`, option names, and all documented columns | `lsipc.c:292-360,1381-1421` | Open. Stable input. |
+| `test_lsipc_version_preserves_xsh_provenance` | XSH identity and exact XSH version banner through `--version` and `-V` | `lsipc.c:1557-1562`; campaign `version-provenance` decision | Open. Assert XSH banner independently. |
+| `test_lsipc_short_option_aliases_match_long_options` | Short and long aliases for global mode, IDs, names, output, rendering, and value options | `lsipc.c:1381-1421` | Open. Compare exact output for each spelling. |
+| `test_lsipc_rejects_unknown_and_inapplicable_columns` | Unknown columns, inapplicable columns, and POSIX semaphore `SVAL` explicit-selection behavior | `lsipc.c:223-243,1526-1535` | Open. Stable input. |
 | `test_lsipc_rejects_unknown_time_format` | Invalid time formats, status, and diagnostics | `lsipc.c:273-290` | Open. Stable input. |
 | `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, and malformed IDs | `lsipc.c:1381-1455` | Open. Compare exact diagnostics and status. |
 | `test_lsipc_rejects_each_exclusive_option_pair` | Every pair in the four source-defined exclusivity groups | `lsipc.c:1415-1420` | Open. Stable input. |

@@ -20,6 +20,7 @@ type KeeperReady = {pid: Int, owner_uid: Int, observer_uid: Int, resources: List
 type IpcKeeper = {handle: ul.Keeper, ready: KeeperReady}
 type ResourceMode = {kind: Str, selector: Str, short_selector: Str, all_columns: Str}
 type GlobalMode = {args: List[Str], resource: Str?}
+type OptionAlias = {prefix: List[Str], long: List[Str], short: List[Str]}
 
 const RESOURCE_MODES: List[ResourceMode] = [
   {kind: "sysv_queue", selector: "--queues", short_selector: "-q", all_columns: "KEY,ID,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,UID,USER,GID,GROUP,CTIME,USEDBYTES,MSGS,SEND,RECV,LSPID,LRPID"},
@@ -27,7 +28,7 @@ const RESOURCE_MODES: List[ResourceMode] = [
   {kind: "sysv_semaphore", selector: "--semaphores", short_selector: "-s", all_columns: "KEY,ID,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,UID,USER,GID,GROUP,CTIME,NSEMS,OTIME"},
   {kind: "posix_mqueue", selector: "--posix-mqueues", short_selector: "-Q", all_columns: "NAME,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,MTIME,USEDBYTES,MSGS"},
   {kind: "posix_shmem", selector: "--posix-shmems", short_selector: "-M", all_columns: "NAME,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,MTIME,SIZE"},
-  {kind: "posix_semaphore", selector: "--posix-semaphores", short_selector: "-S", all_columns: "NAME,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,MTIME,SVAL"},
+  {kind: "posix_semaphore", selector: "--posix-semaphores", short_selector: "-S", all_columns: "NAME,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,MTIME"},
 ]
 
 const RESOURCE_KINDS: List[Str] = [
@@ -176,6 +177,17 @@ proc run_both_as_user(s: uu.Scene, args: List[Str], uid: Int) [fs, process, env,
   Ok({reference: reference, candidate: candidate})
 }
 
+proc compare_option_alias(s: uu.Scene, prefix: List[Str], long: List[Str], short: List[Str]) [fs, process, env, error] -> Result[Unit, Error] {
+  let long_pair = run_both(s, prefix.extend(long))?
+  let short_pair = run_both(s, prefix.extend(short))?
+  ul.compare(long_pair.reference, long_pair.candidate)
+  ul.compare(short_pair.reference, short_pair.candidate)
+  assert long_pair.candidate.status == short_pair.candidate.status
+  assert long_pair.candidate.stdout == short_pair.candidate.stdout
+  assert long_pair.candidate.stderr == short_pair.candidate.stderr
+  Ok()
+}
+
 test test_lsipc_help_lists_resource_modes_and_columns { |ctx|
   let s = uu.scene(ctx)?
   let pair = run_both(s, ["--help"])?
@@ -250,6 +262,10 @@ test test_lsipc_help_lists_resource_modes_and_columns { |ctx|
   ] {
     assert name in stdout, f"missing {name} from help"
   }
+
+  let short = run_both(s, ["-h"])?
+  ul.compare(short.reference, short.candidate)
+  assert stdout == (short.candidate.stdout.utf8() ?? "")
 }
 
 test test_lsipc_version_preserves_xsh_provenance { |ctx|
@@ -261,6 +277,42 @@ test test_lsipc_version_preserves_xsh_provenance { |ctx|
   let stdout = pair.candidate.stdout.utf8() ?? ""
   let expected = gnu.version_text("lsipc") + "\n"
   assert stdout == expected, stdout
+
+  let short = run_both(s, ["-V"])?
+  ul.version_identity(short.reference, short.candidate)
+  assert short.candidate.stdout == pair.candidate.stdout
+}
+
+test test_lsipc_short_option_aliases_match_long_options { |ctx|
+  let s = uu.scene(ctx)?
+  let fixture = start_keeper(s, RESOURCE_KINDS)?
+  defer ul.stop_keeper(fixture.handle)
+  let queue_mode = RESOURCE_MODES[0]
+  let queue = resource_of(fixture.ready, queue_mode.kind)?
+  let queue_id = f"{queue.id ?? -1}"
+  let mqueue_mode = RESOURCE_MODES[3]
+  let mqueue = resource_of(fixture.ready, mqueue_mode.kind)?
+  let mqueue_name = mqueue.lookup_name ?? ""
+  let aliases: List[OptionAlias] = [
+    {prefix: [], long: ["--global"], short: ["-g"]},
+    {prefix: [queue_mode.selector], long: ["--id", queue_id], short: ["-i", queue_id]},
+    {prefix: [mqueue_mode.selector], long: ["--name", mqueue_name], short: ["-N", mqueue_name]},
+    {prefix: [queue_mode.selector], long: ["--output", queue_mode.all_columns], short: ["-o", queue_mode.all_columns]},
+    {prefix: [queue_mode.selector], long: ["--export"], short: ["-e"]},
+    {prefix: [queue_mode.selector], long: ["--json"], short: ["-J"]},
+    {prefix: [queue_mode.selector], long: ["--list"], short: ["-l"]},
+    {prefix: [queue_mode.selector], long: ["--newline"], short: ["-n"]},
+    {prefix: [queue_mode.selector], long: ["--raw"], short: ["-r"]},
+    {prefix: [queue_mode.selector, "--export"], long: ["--shell"], short: ["-y"]},
+    {prefix: [queue_mode.selector], long: ["--bytes"], short: ["-b"]},
+    {prefix: [queue_mode.selector], long: ["--creator"], short: ["-c"]},
+    {prefix: [queue_mode.selector], long: ["--numeric-perms"], short: ["-P"]},
+    {prefix: [queue_mode.selector], long: ["--time"], short: ["-t"]},
+  ]
+  for alias in aliases {
+    compare_option_alias(s, alias.prefix, alias.long, alias.short)?
+  }
+  release_keeper(fixture.handle)?
 }
 
 test test_lsipc_rejects_unknown_time_format { |ctx|
@@ -285,6 +337,12 @@ test test_lsipc_rejects_unknown_and_inapplicable_columns { |ctx|
   assert inapplicable.candidate.status == 1
   assert inapplicable.candidate.stdout == b""
   assert "column SVAL does not apply to the specified IPC" in (inapplicable.candidate.stderr.utf8() ?? "")
+
+  let posix_semaphore = run_both(s, ["--posix-semaphores", "--output", "SVAL"])?
+  ul.compare(posix_semaphore.reference, posix_semaphore.candidate)
+  assert posix_semaphore.candidate.status == 1
+  assert posix_semaphore.candidate.stdout == b""
+  assert "column SVAL does not apply to the specified IPC" in (posix_semaphore.candidate.stderr.utf8() ?? "")
 }
 
 test test_lsipc_rejects_invalid_options_and_missing_arguments { |ctx|
