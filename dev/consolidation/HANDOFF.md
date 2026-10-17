@@ -4,18 +4,23 @@
 
 Last accepted canonical and resource source:
 `24cc0d704209a8c0aa0eb27d5cfea1434929dc20`, tree
-`b6efac064ed074c9ee03d8f183bff9b41d353c91`. Root accepted an additive
-functional close and the exact-source R6 canonical and resource run. Timed
-performance acceptance remains open. Inference remains isolated. The sections
-below the historical resume record retain earlier source-specific checkpoints.
+`b6efac064ed074c9ee03d8f183bff9b41d353c91`. It remains the last source with
+accepted R6 canonical and resource credit. C, source
+`57a0f63145a4ea3b1db6cfc38b4744a5c7ab02c1`, received an additive functional
+close, but its fresh opt3 normal profile failed. The suite recorded 13,850
+passes, four failures, and 141 skips. The [C profile archive](evidence/successor-57a0f6314/README.md)
+preserves the failed receipt; it grants no C profile, timing, canonical, or
+resource credit. Timed performance acceptance remains open. Inference remains
+isolated. The sections below the historical resume record retain earlier
+source-specific checkpoints.
 
 ## Active candidate
 
-The 24cc source passed R6 canonical with 13,916 passes, zero failures, and 78
-skips across 13,994 selected cases. Metrics, documentation, and diff checks
-passed. The resource observer measured a cgroup peak of 5,179,297,792 bytes
-with zero OOM and swap events. The separate repository lint exited zero with
-two findings and 113 notes. It is not lint-clean. See the
+The accepted 24cc run passed R6 canonical with 13,916 passes, zero failures,
+and 78 skips across 13,994 selected cases. Metrics, documentation, and diff
+checks passed. The resource observer measured a cgroup peak of 5,179,297,792
+bytes with zero OOM and swap events. The separate repository lint exited zero
+with two findings and 113 notes. It is not lint-clean. See the
 [accepted source-bound archive](evidence/successor-24cc0d704/README.md).
 
 The artifacts-only release build passed and produced all three release
@@ -29,13 +34,24 @@ and received SIGTERM. Cleanup is resolved, and the original failed receipt
 remains unchanged. Neither attempt qualifies a profile or timing result. See
 [R1 and R2 evidence](evidence/successor-24cc0d704/README.md#failed-timed-profile-attempts).
 
-The assembled successor contains sort repair `b3e94ff41` and rm repair
+The assembled C successor contains sort repair `b3e94ff41` and rm repair
 `a745248e2`. Sort's 25 focused controls and unchanged buffer-size selector pass.
 Rm's ten controls pass, and a 10,000-file comparison retains 10,000 unlinks
 while reducing lstat calls from 20,004 to 10,004. That result does not establish
 the cause of R2's rm failure. Direct sort applet coverage records 279 passes,
 zero failures, and four unavailable-locale skips. The original 400,000-file rm
-selector passes with its existing deadlines unchanged.
+selector passes with its existing deadlines unchanged. The C full-suite log
+also records its GNU and uu factor selectors as passing.
+
+The current D assembly adds reviewed MV repair `0ff464e5e`. Its four hardlink
+controls and unchanged `test_gnu_mv_leak_fd_log` selector pass on C products;
+the original C profile failure remains preserved. Gate-tool fix `7a3a1710b`
+mounts test scratch at `/t`. Its two formerly path-length-skipped netcat
+selectors pass individually against C products, and the focused Python
+controller modules pass. See the [MV evidence](evidence/mv-nlink-singleton-c3d3f28/README.md)
+and [netcat replay](evidence/successor-57a0f6314/netcat-short-tmp/README.md).
+The C suite's two tail failures and blocked-stdin timeout remain under repair.
+No D full profile or canonical gate has run.
 
 The assembly also includes observer `90c223487`, profile cleanup
 `0b0f485`/`f73d136`, visible cleanup diagnostics, and scheduler derivation
@@ -53,8 +69,9 @@ inference or authorize a main merge.
 
 ### Current queue
 
-After the `rm` and `sort` repairs and accepted tool changes are integrated and
-the source is sealed, run these gates in order:
+After the `rm`, `sort`, `MV`, tail, and stdin-timeout repairs and accepted tool
+changes are integrated and the source is sealed, the existing full gate queue
+remains open:
 
 1. Run a fresh normal profile.
 2. Run one timed canonical observer with resource capture. It includes the

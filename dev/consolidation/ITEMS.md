@@ -20,6 +20,19 @@ The assembled source still needs its own full gates. The
 [successor archive](evidence/successor-24cc0d704/README.md) preserves R6 and
 both profile attempts.
 
+C (`57a0f63145a4ea3b1db6cfc38b4744a5c7ab02c1`) has an additive functional
+close, but its fresh opt3 profile failed: 13,850 passed, four failed, and 141
+skipped. The [C evidence](evidence/successor-57a0f6314/README.md) retains the
+receipt and outputs. Its GNU and uu factor selectors passed. The current D
+assembly adds reviewed MV repair `0ff464e5e` and short `/t` test scratch from
+`7a3a1710b`. Five MV controls and the two previously path-length-skipped
+netcat selectors pass against C products. The focused Python controller
+modules also pass. The netcat proof preserves its source/product guards and
+cleanup at [its evidence archive](evidence/successor-57a0f6314/netcat-short-tmp/README.md).
+These focused results do not change C's failed profile or provide D full-gate
+credit. The two tail failures and blocked-stdin timeout remain under repair;
+the full gate queue remains open.
+
 The isolated typing checkpoint
 `b823e52cb94d222de64968154d9ceee5ce580e88` records 1,038 removals: 499 of 693 eligible
 locals and 539 of 2,190 eligible internal annotations. Both targets remain

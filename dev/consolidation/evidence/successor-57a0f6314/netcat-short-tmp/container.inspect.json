@@ -1,0 +1,263 @@
+[
+    {
+        "Id": "975cd2194e436d44668cf5e0889d8605ff8cc885294da4d7756aecef0afe1b80",
+        "Created": "2026-10-17T14:36:37.298100076Z",
+        "Path": "/bin/sh",
+        "Args": [
+            "-ec",
+            "\ntest \"$TMPDIR\" = /t\ntest -d /t\ntest ! -L /t\nprintf \"container TMPDIR=%s\\n\" \"$TMPDIR\"\nfor selector do\n  /tools/xsht test --jobs 1 --timeout 30s --exact \"$selector\"\ndone\n",
+            "sh",
+            "core/tests/test-nc.xsh::test_nc_unix_datagram_listener_answers_a_client",
+            "core/tests/test-nc.xsh::test_nc_unix_stream_client_and_listener"
+        ],
+        "State": {
+            "Status": "exited",
+            "Running": false,
+            "Paused": false,
+            "Restarting": false,
+            "OOMKilled": false,
+            "Dead": false,
+            "Pid": 0,
+            "ExitCode": 0,
+            "Error": "",
+            "StartedAt": "2026-10-17T14:36:37.416622585Z",
+            "FinishedAt": "2026-10-17T14:36:39.913331072Z"
+        },
+        "Image": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "ResolvConfPath": "/var/lib/docker/containers/975cd2194e436d44668cf5e0889d8605ff8cc885294da4d7756aecef0afe1b80/resolv.conf",
+        "HostnamePath": "/var/lib/docker/containers/975cd2194e436d44668cf5e0889d8605ff8cc885294da4d7756aecef0afe1b80/hostname",
+        "HostsPath": "/var/lib/docker/containers/975cd2194e436d44668cf5e0889d8605ff8cc885294da4d7756aecef0afe1b80/hosts",
+        "LogPath": "/var/lib/docker/containers/975cd2194e436d44668cf5e0889d8605ff8cc885294da4d7756aecef0afe1b80/975cd2194e436d44668cf5e0889d8605ff8cc885294da4d7756aecef0afe1b80-json.log",
+        "Name": "/elegant_curran",
+        "RestartCount": 0,
+        "Driver": "overlayfs",
+        "Platform": "linux",
+        "MountLabel": "",
+        "ProcessLabel": "",
+        "AppArmorProfile": "",
+        "ExecIDs": null,
+        "HostConfig": {
+            "Binds": null,
+            "ContainerIDFile": "/home/josh/d/laputa-systems/xsh/.work/tmp/profile-short-scratch-57a0f63145a4/container.cid",
+            "LogConfig": {
+                "Type": "json-file",
+                "Config": {}
+            },
+            "NetworkMode": "none",
+            "PortBindings": {},
+            "RestartPolicy": {
+                "Name": "no",
+                "MaximumRetryCount": 0
+            },
+            "AutoRemove": false,
+            "VolumeDriver": "",
+            "VolumesFrom": null,
+            "ConsoleSize": [
+                0,
+                0
+            ],
+            "CapAdd": null,
+            "CapDrop": null,
+            "CgroupnsMode": "private",
+            "Dns": null,
+            "DnsOptions": [],
+            "DnsSearch": [],
+            "ExtraHosts": null,
+            "GroupAdd": null,
+            "IpcMode": "private",
+            "Cgroup": "",
+            "Links": null,
+            "OomScoreAdj": 0,
+            "PidMode": "",
+            "Privileged": false,
+            "PublishAllPorts": false,
+            "ReadonlyRootfs": false,
+            "SecurityOpt": null,
+            "UTSMode": "",
+            "UsernsMode": "",
+            "ShmSize": 67108864,
+            "Runtime": "runc",
+            "Isolation": "",
+            "CpuShares": 0,
+            "Memory": 8589934592,
+            "NanoCpus": 4000000000,
+            "CgroupParent": "",
+            "BlkioWeight": 0,
+            "BlkioWeightDevice": [],
+            "BlkioDeviceReadBps": [],
+            "BlkioDeviceWriteBps": [],
+            "BlkioDeviceReadIOps": [],
+            "BlkioDeviceWriteIOps": [],
+            "CpuPeriod": 0,
+            "CpuQuota": 0,
+            "CpuRealtimePeriod": 0,
+            "CpuRealtimeRuntime": 0,
+            "CpusetCpus": "16-19",
+            "CpusetMems": "",
+            "Devices": [],
+            "DeviceCgroupRules": null,
+            "DeviceRequests": null,
+            "MemoryReservation": 0,
+            "MemorySwap": 8589934592,
+            "MemorySwappiness": null,
+            "OomKillDisable": null,
+            "PidsLimit": null,
+            "Ulimits": null,
+            "CpuCount": 0,
+            "CpuPercent": 0,
+            "IOMaximumIOps": 0,
+            "IOMaximumBandwidth": 0,
+            "Mounts": [
+                {
+                    "Type": "bind",
+                    "Source": "/home/josh/d/laputa-systems/xsh",
+                    "Target": "/repo",
+                    "ReadOnly": true
+                },
+                {
+                    "Type": "bind",
+                    "Source": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-57a0f63145a4ea3b1db6cfc38b4744a5c7ab02c1/opt3/target/x86_64-unknown-linux-musl/release",
+                    "Target": "/tools",
+                    "ReadOnly": true
+                },
+                {
+                    "Type": "bind",
+                    "Source": "/home/josh/d/laputa-systems/xsh/.work/tmp/profile-short-scratch-57a0f63145a4",
+                    "Target": "/t"
+                }
+            ],
+            "MaskedPaths": [
+                "/proc/acpi",
+                "/proc/asound",
+                "/proc/interrupts",
+                "/proc/kcore",
+                "/proc/keys",
+                "/proc/latency_stats",
+                "/proc/sched_debug",
+                "/proc/scsi",
+                "/proc/timer_list",
+                "/proc/timer_stats",
+                "/sys/devices/virtual/powercap",
+                "/sys/firmware"
+            ],
+            "ReadonlyPaths": [
+                "/proc/bus",
+                "/proc/fs",
+                "/proc/irq",
+                "/proc/sys",
+                "/proc/sysrq-trigger"
+            ],
+            "Init": true
+        },
+        "Storage": {
+            "RootFS": {
+                "Snapshot": {
+                    "Name": "overlayfs"
+                }
+            }
+        },
+        "Mounts": [
+            {
+                "Type": "bind",
+                "Source": "/home/josh/d/laputa-systems/xsh",
+                "Destination": "/repo",
+                "Mode": "",
+                "RW": false,
+                "Propagation": "rprivate"
+            },
+            {
+                "Type": "bind",
+                "Source": "/home/josh/d/laputa-systems/xsh/.work/tmp/profile-short-scratch-57a0f63145a4",
+                "Destination": "/t",
+                "Mode": "",
+                "RW": true,
+                "Propagation": "rprivate"
+            },
+            {
+                "Type": "bind",
+                "Source": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-cost-57a0f63145a4ea3b1db6cfc38b4744a5c7ab02c1/opt3/target/x86_64-unknown-linux-musl/release",
+                "Destination": "/tools",
+                "Mode": "",
+                "RW": false,
+                "Propagation": "rprivate"
+            }
+        ],
+        "Config": {
+            "Hostname": "975cd2194e43",
+            "Domainname": "",
+            "User": "1000:1000",
+            "AttachStdin": false,
+            "AttachStdout": true,
+            "AttachStderr": true,
+            "Tty": false,
+            "OpenStdin": false,
+            "StdinOnce": false,
+            "Env": [
+                "HOME=/home/compat",
+                "TMPDIR=/t",
+                "XSH_BIN=/tools/xsh",
+                "PATH=/tools:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                "LC_ALL=C",
+                "TZ=UTC",
+                "CC=/usr/bin/clang-23",
+                "AR=/usr/local/bin/llvm-ar",
+                "RANLIB=/usr/bin/ranlib",
+                "LIBCLANG_PATH=/usr/lib/llvm23/lib",
+                "CC_AARCH64_UNKNOWN_LINUX_MUSL=/usr/bin/clang-23",
+                "CC_X86_64_UNKNOWN_LINUX_MUSL=/usr/bin/clang-23",
+                "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld",
+                "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld",
+                "CFLAGS_aarch64_unknown_linux_musl=--target=aarch64-unknown-linux-musl -B/usr/lib/xsh-crt/aarch64-unknown-linux-musl -I/usr/include",
+                "CFLAGS_x86_64_unknown_linux_musl=--target=x86_64-unknown-linux-musl -B/usr/lib/xsh-crt/x86_64-unknown-linux-musl -I/usr/include"
+            ],
+            "Cmd": [
+                "/bin/sh",
+                "-ec",
+                "\ntest \"$TMPDIR\" = /t\ntest -d /t\ntest ! -L /t\nprintf \"container TMPDIR=%s\\n\" \"$TMPDIR\"\nfor selector do\n  /tools/xsht test --jobs 1 --timeout 30s --exact \"$selector\"\ndone\n",
+                "sh",
+                "core/tests/test-nc.xsh::test_nc_unix_datagram_listener_answers_a_client",
+                "core/tests/test-nc.xsh::test_nc_unix_stream_client_and_listener"
+            ],
+            "Image": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+            "Volumes": null,
+            "WorkingDir": "/repo",
+            "Entrypoint": null,
+            "Labels": {
+                "campaign.profile-short-scratch": "57a0f63145a4"
+            }
+        },
+        "NetworkSettings": {
+            "SandboxID": "",
+            "SandboxKey": "",
+            "Ports": {},
+            "Networks": {
+                "none": {
+                    "IPAMConfig": null,
+                    "Links": null,
+                    "Aliases": null,
+                    "DriverOpts": null,
+                    "GwPriority": 0,
+                    "NetworkID": "9a23e87f934845ab8ed254e3c16dd314e85b72924c4f7045020c3c0a6adcebe9",
+                    "EndpointID": "",
+                    "Gateway": "",
+                    "IPAddress": "",
+                    "MacAddress": "",
+                    "IPPrefixLen": 0,
+                    "IPv6Gateway": "",
+                    "GlobalIPv6Address": "",
+                    "GlobalIPv6PrefixLen": 0,
+                    "DNSNames": null
+                }
+            }
+        },
+        "ImageManifestDescriptor": {
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "digest": "sha256:e8459b82618dff6d193055ecb58e9988382beccd4fb8f54f8e6082836f90b6cf",
+            "size": 3150,
+            "platform": {
+                "architecture": "amd64",
+                "os": "linux"
+            }
+        }
+    }
+]

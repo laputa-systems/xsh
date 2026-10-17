@@ -38,12 +38,29 @@ profile cleanup `0b0f485`/`f73d136`, visible cleanup diagnostics, and scheduler
 derivation `ba6702ad6`/`a14c14188`. Their focused Python checks pass. These
 results do not qualify the assembled source for the remaining full gates.
 
-After the repairs and accepted tool changes are integrated and the source is
-sealed, run a fresh normal profile, one timed canonical observer with resource
-capture, the forced profile, a comparative profile, and three scheduler pairs.
-The timed canonical observer includes the full native suite and resource
-capture. Do not add a separate resource-only full run by default. No timed gate
-has completed on 24cc.
+C (`57a0f63145a4ea3b1db6cfc38b4744a5c7ab02c1`) received an additive
+functional close, then its fresh opt3 normal profile failed with 13,850 passes,
+four failures, and 141 skips. The suite's GNU and uu factor selectors passed;
+the [C profile evidence](evidence/successor-57a0f6314/README.md) preserves the
+four failures and does not grant profile, timing, canonical, or resource
+credit. The existing R2 `rm` and `sort` regressions pass their focused repairs.
+
+The current D assembly adds reviewed MV repair `0ff464e5e`; its four hardlink
+controls and the unchanged `test_gnu_mv_leak_fd_log` selector pass on C
+products. Gate-tool fix `7a3a1710b` gives container tests a short `/t` scratch
+path. The two netcat selectors previously skipped for socket-path length now
+pass individually against C products, and both focused controller Python
+modules pass. Their [MV results](evidence/mv-nlink-singleton-c3d3f28/README.md)
+and [netcat results](evidence/successor-57a0f6314/netcat-short-tmp/README.md)
+are archived. The two tail failures and blocked-stdin timeout remain under
+repair. No D full profile, canonical, or resource gate has run.
+
+After the remaining repairs and accepted tool changes are integrated and the
+source is sealed, the full gate queue remains open: fresh normal profile, one
+timed canonical observer with resource capture, forced profile, comparative
+profile, and three scheduler pairs. The timed canonical observer includes the
+full native suite and resource capture. Do not add a separate resource-only
+full run by default. No timed gate has completed on 24cc or its successors.
 
 Root accepted the bounded isolated typing checkpoint recorded at
 `b823e52cb94d222de64968154d9ceee5ce580e88`. It removes 1,038 annotations:
