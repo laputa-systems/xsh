@@ -47,24 +47,11 @@ proc parity(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, 
   Ok()
 }
 
-proc print_lslocks_bytes(label: Str, value: Bytes) [io] {
-  print $label
-  let encoded = value.base64()
-  var offset = 0
-  while offset < encoded.byte_len() {
-    let remaining = encoded.byte_len() - offset
-    let length = if remaining > 100 { 100 } else { remaining }
-    print $encoded.byte_slice(offset, length: length)
-    offset += length
-  }
-}
-
-proc compared_with_stdout_dump(s: uu.Scene, args: List[Str]) [fs, process, env, io, error] -> Result[uu.Ran, Error] {
+proc compared_with_stdout_dump(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let reference = ul.reference(s, "lslocks", args, timeout: 5s)?
   let candidate = uu.invoke(s, "lslocks", args, timeout: 5s)?
   if reference.stdout != candidate.stdout and reference.stdout.len() <= 1024 and candidate.stdout.len() <= 1024 {
-    print_lslocks_bytes("reference stdout base64", reference.stdout)
-    print_lslocks_bytes("candidate stdout base64", candidate.stdout)
+    assert reference.stdout == candidate.stdout, f"lslocks stdout differs: reference={reference.stdout.base64()} candidate={candidate.stdout.base64()}"
   }
   ul.compare(reference, candidate)
   Ok(candidate)
@@ -339,7 +326,7 @@ proc selected_lock_rows_case(s: uu.Scene) [fs, process, env, net, time, error] -
   Ok()
 }
 
-proc output_lock_modes_case(s: uu.Scene) [fs, process, env, io, net, time, error] -> Result[Unit, Error] {
+proc output_lock_modes_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[Unit, Error] {
   let method = "posix-r-"
   let lock_path = uu.at(s, f"output-{method}")
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
@@ -564,25 +551,41 @@ test test_lslocks_raw_noheadings_and_json { |ctx|
 test test_lslocks_defaults_and_lslocks_columns { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
-  parity(s, [])?
-  parity(s, ["--output-all"])?
-  parity(s, ["--output-all"], {LSLOCKS_COLUMNS: "TYPE"})?
-  parity(s, [], {LSLOCKS_COLUMNS: "TYPE,PID,COMMAND"})?
-  parity(s, [], {LSLOCKS_COLUMNS: "+BLOCKER"})?
-  parity(s, ["--output", "PATH,TYPE"], {LSLOCKS_COLUMNS: "PID"})?
+  let lock_path = uu.at(s, "selected-columns")
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let keeper = ul.start_keeper(s, script, ["hold", "posix-r-", lock_path.display(), "none"])?
+  defer ul.stop_keeper(keeper)
+  let ready = json.decode(keeper.ready)?.require(LockReady)?
+  let pid = f"{ready.pid}"
+  parity(s, ["--pid", pid])?
+  parity(s, ["--output-all", "--pid", pid])?
+  parity(s, ["--output-all", "--pid", pid], {LSLOCKS_COLUMNS: "TYPE"})?
+  parity(s, ["--pid", pid], {LSLOCKS_COLUMNS: "TYPE,PID,COMMAND"})?
+  parity(s, ["--pid", pid], {LSLOCKS_COLUMNS: "+BLOCKER"})?
+  parity(s, ["--output", "PATH,TYPE", "--pid", pid], {LSLOCKS_COLUMNS: "PID"})?
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
 }
 
 test test_lslocks_output_column_names_and_errors { |ctx|
   let s = uu.scene(ctx)?
   ul.require_private_namespace()
+  let lock_path = uu.at(s, "output-columns")
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let keeper = ul.start_keeper(s, script, ["hold", "posix-r-", lock_path.display(), "none"])?
+  defer ul.stop_keeper(keeper)
+  let ready = json.decode(keeper.ready)?.require(LockReady)?
+  let pid = f"{ready.pid}"
   for args in [
-    ["--output", "path,type"], ["--output", "+BLOCKER"],
-    ["--output", "PID,PID"], ["--output", "PID", "--output", "TYPE"],
-    ["-o", "path,type"],
+    ["--output", "path,type", "--pid", pid], ["--output", "+BLOCKER", "--pid", pid],
+    ["--output", "PID,PID", "--pid", pid], ["--output", "PID", "--output", "TYPE", "--pid", pid],
+    ["-o", "path,type", "--pid", pid],
   ] {
     let result = compared(s, args)?
     assert result.status == 0 and ! result.stdout.is_empty(), args.join(" ")
   }
+  ul.keeper_send(keeper, "DONE")
+  ul.finish_keeper(keeper)
   for args in [
     ["--output", ""], ["--output", "UNKNOWN"], ["-o", "UNKNOWN"], ["-o"],
   ] {
