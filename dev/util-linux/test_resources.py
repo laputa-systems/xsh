@@ -140,6 +140,40 @@ class RegressionSelectorTests(unittest.TestCase):
                 )
 
 
+class LsmemFixtureTests(unittest.TestCase):
+    def test_copy_preserves_relative_node_links_and_only_fixture_contents(self):
+        source = ROOT / "core/tests/fixtures/util-linux/memory/sparse"
+        self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-lsmem-")
+        self.addCleanup(self.temp.cleanup)
+        root = Path(self.temp.name) / "lsmem"
+        tree = ast.parse(resources._driver_source(REGRESSIONS, COHORT))
+        helper = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "copy_lsmem_fixture"
+        )
+        snapshot = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "fixture_tree"
+        )
+        namespace = {
+            "hashlib": resources.hashlib,
+            "os": os,
+            "Path": Path,
+            "shutil": __import__("shutil"),
+        }
+        module = ast.fix_missing_locations(ast.Module(body=[snapshot, helper], type_ignores=[]))
+        exec(compile(module, "lsmem-copy-control", "exec"), namespace)
+
+        namespace["copy_lsmem_fixture"](source, root)
+        source_tree = namespace["fixture_tree"](source)
+        copied_tree = namespace["fixture_tree"](root)
+        source_links = tuple(row for row in source_tree if row[1] == "link")
+        copied_links = tuple(row for row in copied_tree if row[1] == "link")
+        self.assertTrue(source_links)
+        self.assertEqual(copied_tree, source_tree)
+        self.assertEqual(copied_links, source_links)
+
+
 class ProductSignatureTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-products-")

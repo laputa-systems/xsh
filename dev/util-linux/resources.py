@@ -566,9 +566,13 @@ def ipc_fixture(root):
         finish_keeper(child, "release")
 
 
+def copy_lsmem_fixture(source, root):
+    shutil.copytree(source, root, symlinks=True)
+
+
 @contextlib.contextmanager
 def lsmem_fixture(root):
-    shutil.copytree("/work/core/tests/fixtures/util-linux/memory/sparse", root)
+    copy_lsmem_fixture("/work/core/tests/fixtures/util-linux/memory/sparse", root)
     args = ["--sysroot", str(root)]
     yield args, lambda: fixture_tree(root), None
 
