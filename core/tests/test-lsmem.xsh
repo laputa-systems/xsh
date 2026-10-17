@@ -182,7 +182,7 @@ test test_lsmem_rooted_dangling_and_cyclic_attribute_symlinks_match_reference { 
   state.mkdir()
   compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,STATE"])?
   state.remove()?
-  state.write("online\n")
+  uu.write(s, "sys/devices/system/memory/memory1/state", "online\n")?
   let removable = uu.at(s, "sys/devices/system/memory/memory1/removable")
   removable.remove()?
   removable.symlink(to: removable)?
