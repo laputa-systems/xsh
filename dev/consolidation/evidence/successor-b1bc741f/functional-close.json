@@ -1,0 +1,70 @@
+{
+  "functional_complete": true,
+  "commit": "b1bc741fcd512d1c71b43116853278a4a3f1521a",
+  "tree": "6d2a7d2fc8506ca5de8e312ded27b5548385116e",
+  "reviewer": "/root",
+  "scope": {
+    "qualification": "Additive delta-functional close, not a fresh full canonical pass",
+    "parent": "Reuse the narrow additive functional close for 19c9aded0ea42c979fbc6be32162320d29ded3b1, including its explicitly inherited 7eb scope. Original receipts retain their exact source and product identities.",
+    "delta": "Relative to 19c9, fifteen successor-only capability fixtures move byte-for-byte into the existing excluded evidence tier; two README links/classifications change. The original required typing-cohort inventory is restored unchanged. Other changes are campaign documentation and archived evidence. No Rust, Cargo, core, native-test, configuration or tooling code changes.",
+    "affected_checks": "The exact formatter/lint repository invariant fails on 19c9 at bytes-reduced.xsh:1:17 and passes on b2f3a0624205e68d06f9a439ffe2dea5e7dc4541: one selected, one passed, 121 filtered, identical harness and products. The 1,835 observable XSH/config inputs are audited. Real cohort.inventory reads the restored canonical inventory: 9,194 sites across 48 sources, all frozen category counts and original input digest unchanged. Factor/lifecycle bytes and their accepted 19c9 delta checks remain unchanged.",
+    "failed_attempts": "R3 remains failed with 13914 passes, 2 failures, 78 skips; the first integrated factor timeout remains archived. R4 was interrupted after an actual formatter corpus invariant failure and before any XSH full-native suite started. Later supported cleanup reconciliation resolved owned containers and preserved original lock inodes. R4 earns no canonical, resource or timing credit. Two focused replay Docker setup failures exited125 before test selection and remain archived.",
+    "limits": "No fresh canonical, resource, timing, QEMU, W9 full-corpus or structural recount is claimed. No inference changes are integrated."
+  },
+  "evidence": {
+    "parent": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/functional-close-19c9aded0ea42c979fbc6be32162320d29ded3b1.json",
+      "sha256": "bfbb22f4d81ed0007ae5bb8be2754cfd99545fe6630115483ec55fb321854a50"
+    },
+    "parallel_factor": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-r4-seal/dev/consolidation/evidence/factor-buffer-7eb/quiet-control-3160bda/factor-parallel.stdout.log",
+      "sha256": "5190137537df860808b157ab0682d57e78e8556adedeea9ff8d11ca8ce6fed68"
+    },
+    "nonunicode_factor": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-r4-seal/dev/consolidation/evidence/factor-buffer-7eb/integrated-candidate-3160bda/factor-nonunicode.stdout.log",
+      "sha256": "81ac2e6cd81c5a52aada941b0f16da7161d97b7a5322df3c99569dc19770e322"
+    },
+    "lifecycle_cleanup": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-r4-seal/dev/consolidation/evidence/factor-buffer-7eb/integrated-candidate-3160bda/lifecycle-cleanup.stdout.log",
+      "sha256": "83c343a70b8e418f6b36b3fdb96aab8f5b62b3fadd19ecf91ed6c072d0d64aed"
+    },
+    "corpus_green": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-retry-seal/dev/consolidation/evidence/corpus-placement-b2f3a0624/candidate/stdout.log",
+      "sha256": "d5ec998e3dce3b1450d129de25a5ebaa95c7f8bb47d1a23d3ef37a97c88ecec6"
+    },
+    "corpus_red": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-retry-seal/dev/consolidation/evidence/corpus-placement-b2f3a0624/old/stderr.log",
+      "sha256": "e91f6ee414c39ba2b22f19302debe09bbc417d8890732c8d21c207bb2727be48"
+    },
+    "corpus_input_audit": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-retry-seal/dev/consolidation/evidence/corpus-placement-b2f3a0624/candidate-input-check.txt",
+      "sha256": "ad923fe86449d7dcc0a6510781d8ddc33834b92d1ae764217ff5c425cc554bec"
+    },
+    "inventory_check": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/typing-corpus-b235/.work/tmp/corpus/inventory-restoration-check/stdout.log",
+      "sha256": "6f32cb5cb7c82aaccdd85f24810cd0b9094b6398e919cfdbd30851eca2f44d0c"
+    },
+    "r4_cleanup": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-19c9aded-20261017-r4/cleanup-reconciliation-r1/receipt.json",
+      "sha256": "467c2d55409e6df355fc39a6613f57c9d91779b762efcf8576cbbe8978d60a12"
+    }
+  },
+  "source_hashes": {
+    "core/factor.xsh": "47b0714bc148ea8bef7f2cf345f0cdde6ca23c1ccd67bdabbd2f2ff84288bbd2",
+    "core/tests/test-uu-factor.xsh": "634e01ec92e53df226cf33e56780abd130c3fc418ea4c3df09d434590f050238",
+    "dev/tests/test-lifecycle.xsh": "466cb41d2c4f4b006e117503f64952dd23fcdafb4046bdb2a56808d062638959",
+    "dev/consolidation/evidence/typing-cohort-inventory.tsv": "c143cfc99286945acd557f7662e36ee4e240a61ca86e836861fb1f01a7fce795"
+  },
+  "products_used": {
+    "xsh": "1d7690114501313ffc4706b7f78ab6154ecd668f79d3735700219a00501dbe33",
+    "xsht": "0cd37140bd43ca0ca5104d43d11bc1732084fc2342ee3bb69a73fda38452f1c4",
+    "scope": "Protected R3 release compiler products; Rust and Cargo inputs unchanged. Fresh exact-successor artifact qualification remains required."
+  },
+  "remaining": [
+    "fresh exact-successor artifact qualifier",
+    "R5 full canonical/resource retry",
+    "timing gates when readiness checks pass",
+    "final ten-row metrics evidence bundle"
+  ],
+  "inference": "Isolated and excluded; original denominators retained; empty braces remain a record; annotation targets unmet."
+}

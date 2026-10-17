@@ -1,0 +1,12 @@
+inventory blob e67dd0f609d8fe2384532f7a2cc3273b43feacb6
+site count 9194
+source count 48
+eligible-internal	2190
+eligible-local	693
+entry-effect	4
+interface	1920
+required	23
+schema	4364
+original before	original	14287	e3429dcf2abe9524754a28458651443bc56523b50130268a1c1ff44c03e36899
+original after	original	14287	e3429dcf2abe9524754a28458651443bc56523b50130268a1c1ff44c03e36899
+PASS: actual restored cohort.inventory; frozen categories and original input unchanged
