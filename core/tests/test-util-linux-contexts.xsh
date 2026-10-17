@@ -126,6 +126,10 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
     assert reference == candidate, f"lsipc terminal columns={columns}"
   }
   contexts.release_keeper(keeper)
+  for line in p"/proc/sysvipc/shm".read_text()?.lines() {
+    let fields = line.fields()
+    assert fields.len() < 2 or fields[1] != f"{owner.id}"
+  }
   let released_reference = ul.reference(s, "lsipc", options)?
   let released_candidate = uu.invoke(s, "lsipc", options)?
   uu.succeeds(released_reference)
@@ -133,10 +137,6 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
   assert json.get(removed, [""])?.require(List[Any])?.is_empty()
   assert released_reference.stderr == bytes.from_text(f"lsipc: id {owner.id} not found\n")
   ul.compare(released_reference, released_candidate)
-  for line in p"/proc/sysvipc/shm".read_text()?.lines() {
-    let fields = line.fields()
-    assert fields.len() < 2 or fields[1] != f"{owner.id}"
-  }
 }
 
 test test_util_linux_context_terminal_lock_path_truncation { |ctx|
