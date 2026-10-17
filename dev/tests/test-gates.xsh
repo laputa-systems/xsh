@@ -269,6 +269,30 @@ test test_lane_native_selection_never_requests_a_full_native_suite {
   ]
 }
 
+test test_core_test_files_select_one_file_and_shared_paths_keep_core_coverage {
+  let ctx = fixtures.linux_context(/repo)?
+  for test_file in ["core/tests/test-taskset.xsh", "core/tests/test-lsmem.xsh"] {
+    let leaf = gates.select([test_file])?
+    assert leaf.areas.is_empty()
+    assert leaf.native_files == [test_file]
+
+    let leaf_plan = gates.lane_plan(ctx, tests.Verification, leaf)?
+    assert [spec.stage for spec in leaf_plan] == ["test-products", f"native-{test_file}"]
+    let native = leaf_plan[1]
+    assert native.argv[1..] == ["test", test_file]
+  }
+
+  for changed_path in ["core/lsmem.xsh", "core/tests/support/uu.xsh"] {
+    let shared = gates.select([changed_path])?
+    assert shared.areas == [gates.Core]
+    assert shared.native_files.is_empty()
+
+    let shared_plan = gates.lane_plan(ctx, tests.Verification, shared)?
+    assert [spec.stage for spec in shared_plan] == ["test-products", "native-core/tests"]
+    assert shared_plan[1].argv[1..] == ["test", "core/tests"]
+  }
+}
+
 test test_explicit_unsupported_test_profiles_fail_instead_of_using_a_default {
   for requested in ["dist", "dev", "", "custom"] {
     env DIST_PROFILE=$requested {
