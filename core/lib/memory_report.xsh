@@ -54,29 +54,29 @@ export type U64 = {high: Word32, low: Word32}
 
 type U64Division = {quotient: U64, remainder: UInt}
 
-pure u64_add(left: U64, right: U64) -> U64 {
-  let low = (left.low as UInt) + (right.low as UInt)
-  let high = (left.high as UInt) + (right.high as UInt) + low / WORD_BASE
+proc u64_add(left: U64, right: U64) [error] -> U64 {
+  let low = left.low + right.low
+  let high = left.high + right.high + low / WORD_BASE
   {high: (high % WORD_BASE) as Word32, low: (low % WORD_BASE) as Word32}
 }
 
-pure u64_add_small(value: U64, amount: UInt) -> U64 {
-  let low = (value.low as UInt) + amount
-  let high = (value.high as UInt) + low / WORD_BASE
+proc u64_add_small(value: U64, amount: UInt) [error] -> U64 {
+  let low = value.low + amount
+  let high = value.high + low / WORD_BASE
   {high: (high % WORD_BASE) as Word32, low: (low % WORD_BASE) as Word32}
 }
 
-pure u64_subtract_one(value: U64) -> U64 {
+proc u64_subtract_one(value: U64) [error] -> U64 {
   if value.low != 0 {
-    return {high: value.high, low: ((value.low as UInt) - 1) as Word32}
+    return {high: value.high, low: (value.low - 1) as Word32}
   }
-  let high = if value.high == 0 { WORD_MAX } else { (value.high as UInt) - 1 }
+  let high = if value.high == 0 { WORD_MAX } else { value.high - 1 }
   {high: high as Word32, low: WORD_MAX as Word32}
 }
 
-pure u64_multiply_small(value: U64, factor: UInt) -> U64 {
-  let low = (value.low as UInt) * factor
-  let high = (value.high as UInt) * factor + low / WORD_BASE
+proc u64_multiply_small(value: U64, factor: UInt) [error] -> U64 {
+  let low = value.low * factor
+  let high = value.high * factor + low / WORD_BASE
   {high: (high % WORD_BASE) as Word32, low: (low % WORD_BASE) as Word32}
 }
 
@@ -91,12 +91,12 @@ pure u32_product_low(left: UInt, right: UInt) -> UInt {
   (product0 + (cross % base) * base) % WORD_BASE
 }
 
-pure u64_multiply(left: U64, right: U64) -> U64 {
+proc u64_multiply(left: U64, right: U64) [error] -> U64 {
   let base: UInt = 65536
-  let left_low = left.low as UInt
-  let left_high = left.high as UInt
-  let right_low = right.low as UInt
-  let right_high = right.high as UInt
+  let left_low = left.low
+  let left_high = left.high
+  let right_low = right.low
+  let right_high = right.high
   let left0 = left_low % base
   let left1 = left_low / base
   let right0 = right_low % base
@@ -113,11 +113,11 @@ pure u64_multiply(left: U64, right: U64) -> U64 {
   {high: (high % WORD_BASE) as Word32, low: low as Word32}
 }
 
-pure u64_divide(value: U64, divisor: UInt) -> U64Division {
-  let high = value.high as UInt
+proc u64_divide(value: U64, divisor: UInt) [error] -> U64Division {
+  let high = value.high
   let quotient_high = high / divisor
   let high_remainder = high % divisor
-  let combined = high_remainder * WORD_BASE + (value.low as UInt)
+  let combined = high_remainder * WORD_BASE + value.low
   {
     quotient: {high: quotient_high as Word32, low: (combined / divisor) as Word32},
     remainder: combined % divisor,
@@ -180,7 +180,7 @@ pure hex_digit_byte(value: Int) -> Int? {
   null
 }
 
-proc block_size_value(text: Bytes) [process, env] -> U64 {
+proc block_size_value(text: Bytes) [process, env, error] -> U64 {
   var length = if text.len() > 127 { 127 } else { text.len() }
   for at in range(length) {
     if (text.byte_at(at) ?? 0) == 0 { length = at; break }
@@ -199,9 +199,9 @@ proc block_size_value(text: Bytes) [process, env] -> U64 {
     let digit = hex_digit_byte(text.byte_at(position) ?? 0)
     if digit == null { break }
     let value = (digit ?? 0) as UInt
-    let low = (number.low as UInt) * 16 + value
+    let low = number.low * 16 + value
     let carry = low / WORD_BASE
-    let high = (number.high as UInt) * 16 + carry
+    let high = number.high * 16 + carry
     if high > WORD_MAX { fail("failed to read memory block size"); return {high: 0, low: 0} }
     number = {high: high as Word32, low: (low % WORD_BASE) as Word32}
     found = true
@@ -209,7 +209,7 @@ proc block_size_value(text: Bytes) [process, env] -> U64 {
   }
   return {high: 0, low: 0} when ! found
   if negative and (number.high != 0 or number.low != 0) {
-    number = u64_add_small({high: (WORD_MAX - (number.high as UInt)) as Word32, low: (WORD_MAX - (number.low as UInt)) as Word32}, 1)
+    number = u64_add_small({high: (WORD_MAX - number.high) as Word32, low: (WORD_MAX - number.low) as Word32}, 1)
   }
   number
 }
@@ -549,10 +549,10 @@ pure hex_value(value: UInt, width: Int) -> Str {
 }
 
 pure u64_hex(value: U64) -> Str {
-  hex_value(value.high as UInt, 8) + hex_value(value.low as UInt, 8)
+  hex_value(value.high, 8) + hex_value(value.low, 8)
 }
 
-pure u64_decimal(value: U64) -> Str {
+proc u64_decimal(value: U64) [error] -> Str {
   if value.high == 0 and value.low == 0 { return "0" }
   var number = value
   var text = ""
@@ -565,13 +565,13 @@ pure u64_decimal(value: U64) -> Str {
   text
 }
 
-pure u64_signed_decimal(value: U64) -> Str {
-  if (value.high as UInt) < 2147483648 { return u64_decimal(value) }
-  let magnitude = u64_add_small({high: (WORD_MAX - (value.high as UInt)) as Word32, low: (WORD_MAX - (value.low as UInt)) as Word32}, 1)
+proc u64_signed_decimal(value: U64) [error] -> Str {
+  if value.high < 2147483648 { return u64_decimal(value) }
+  let magnitude = u64_add_small({high: (WORD_MAX - value.high) as Word32, low: (WORD_MAX - value.low) as Word32}, 1)
   "-" + u64_decimal(magnitude)
 }
 
-pure lsmem_size(value: U64) -> Str {
+proc lsmem_size(value: U64) [error] -> Str {
   var whole = value
   var exponent = 0
   var fraction: U64 = {high: 0, low: 0}
@@ -583,11 +583,11 @@ pure lsmem_size(value: U64) -> Str {
     place *= 1024
     exponent += 1
   }
-  var tenths = 0
+  var tenths: UInt = 0
   if exponent > 0 {
     var fractional_digit = fraction
     for _ in range(exponent - 1) { fractional_digit = u64_divide(fractional_digit, 1024).quotient }
-    tenths = ((fractional_digit.low as UInt) + 50) / 100
+    tenths = (fractional_digit.low + 50) / 100
   }
   if tenths == 10 { whole = u64_add_small(whole, 1); tenths = 0 }
   let integer = u64_decimal(whole)
@@ -707,12 +707,12 @@ proc json_text(inventory: Inventory, columns: List[Str], opts: Options) [error] 
   output
 }
 
-pure summary_value(value: U64, byte_mode: Bool) -> Str {
+proc summary_value(value: U64, byte_mode: Bool) [error] -> Str {
   if byte_mode { return u64_signed_decimal(value) }
   lsmem_size(value)
 }
 
-pure summary_text(inventory: Inventory, byte_mode: Bool) -> Str {
+proc summary_text(inventory: Inventory, byte_mode: Bool) [error] -> Str {
   let values = [
     {label: "Memory block size:", value: summary_value(inventory.block_size, byte_mode)},
     {label: "Total online memory:", value: summary_value(inventory.online_bytes, byte_mode)},
