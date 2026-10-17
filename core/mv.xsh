@@ -98,7 +98,11 @@ proc copy_move_node(source: Path, target: Path, copies: List[FileIdentity]) -> R
     }
     let _ = fs.copy_file(source, target, reflink: "auto", sparse: "auto", mode: 0o600)?
     preserve_move_metadata(source, target, metadata)
-    return copies + [{dev: metadata.dev, ino: metadata.ino, path: target}]
+    return if metadata.nlink == 1 {
+      copies
+    } else {
+      copies + [{dev: metadata.dev, ino: metadata.ino, path: target}]
+    }
   }
   fs.mknod(target, metadata.kind, metadata.mode.bit_and(0o600),
     major: fs.dev_major(metadata.rdev), minor: fs.dev_minor(metadata.rdev))

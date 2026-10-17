@@ -1,0 +1,35 @@
+
+=== run-1 ===
+selector=core/tests/test-gnu-mv.xsh::test_gnu_mv_hard_link_1_log status=0
+exited false 0 28-31 8589934592 8589934592
+running 1 tests
+core/tests/test-gnu-mv.xsh::test_gnu_mv_hard_link_1_log ... ok 31ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+
+=== run-2 ===
+selector=core/tests/test-gnu-mv.xsh::test_gnu_mv_part_hardlink_log status=0
+exited false 0 28-31 8589934592 8589934592
+running 1 tests
+core/tests/test-gnu-mv.xsh::test_gnu_mv_part_hardlink_log ... ok 72ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+
+=== run-3 ===
+selector=core/tests/test-uu-mv-1.xsh::test_uu_mv_inter_partition_copying_mv_preserves_complex_hardlinks_across_nested_directories status=0
+exited false 0 28-31 8589934592 8589934592
+running 1 tests
+core/tests/test-uu-mv-1.xsh::test_uu_mv_inter_partition_copying_mv_preserves_complex_hardlinks_across_nested_directories ... ok 42ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+
+=== run-4 ===
+selector=core/tests/test-uu-mv-1.xsh::test_uu_mv_inter_partition_copying_mv_preserves_multiple_hardlink_groups_across_partitions status=0
+exited false 0 28-31 8589934592 8589934592
+running 1 tests
+core/tests/test-uu-mv-1.xsh::test_uu_mv_inter_partition_copying_mv_preserves_multiple_hardlink_groups_across_partitions ... ok 42ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+
+=== run-5 ===
+selector=core/tests/test-gnu-mv.xsh::test_gnu_mv_leak_fd_log status=0
+exited false 0 28-31 8589934592 8589934592
+running 1 tests
+core/tests/test-gnu-mv.xsh::test_gnu_mv_leak_fd_log ... ok 13.5s
+test result: ok. 1 passed; 0 failed; 0 skipped

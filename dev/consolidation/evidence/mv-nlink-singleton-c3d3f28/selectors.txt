@@ -1,0 +1,5 @@
+core/tests/test-gnu-mv.xsh::test_gnu_mv_hard_link_1_log
+core/tests/test-gnu-mv.xsh::test_gnu_mv_part_hardlink_log
+core/tests/test-uu-mv-1.xsh::test_uu_mv_inter_partition_copying_mv_preserves_complex_hardlinks_across_nested_directories
+core/tests/test-uu-mv-1.xsh::test_uu_mv_inter_partition_copying_mv_preserves_multiple_hardlink_groups_across_partitions
+core/tests/test-gnu-mv.xsh::test_gnu_mv_leak_fd_log
