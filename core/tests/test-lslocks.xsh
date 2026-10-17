@@ -483,7 +483,7 @@ proc reference_path_case(s: uu.Scene) [fs, process, env, net, time, error] -> Re
   let invalid_pid = f"{invalid_ready.pid}"
   let invalid_raw = ul.reference(s, "lslocks", ["--raw", "--noheadings", "--pid", invalid_pid, "--output", "PATH"])?
   assert invalid_raw.status == 0 and invalid_raw.stderr.is_empty()
-  assert invalid_raw.stdout == bytes.concat([invalid_utf8.bytes(), b"\n"])
+  assert invalid_raw.stdout == bytes.concat([s.root.bytes(), b"/lock-\\xff\n"])
   let invalid_json = ul.reference(s, "lslocks", ["--json", "--pid", invalid_pid, "--output", "PATH"])?
   assert invalid_json.status == 0 and invalid_json.stderr.is_empty()
   assert invalid_json.stdout == bytes.concat([
