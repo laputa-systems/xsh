@@ -16,6 +16,7 @@ difference is `version-provenance`: each command keeps its own version banner.
 | `mountpoint` `test_mountpoint_show_on_a_real_mount_and_non_mount_path` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c), [manual](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.1.adoc) | `--show` on a discovered mount root, symlink, and ordinary path, with `--quiet`, `--fs-devno`, and `--nofollow` interactions. Reference support depends on the util-linux build's statmount support. |
 | `mountpoint` `test_mountpoint_rejects_bad_operand_counts_and_options` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c), [manual](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.1.adoc) | Missing and extra operands, an unknown option, and `-h` / `--help`, including usage status and diagnostics. |
 | `mountpoint` `test_mountpoint_path_arguments_preserve_non_utf8_names` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c) | Raw path bytes through native `Path` argv transport. |
+| `mountpoint` `test_mountpoint_inaccessible_path_from_unprivileged_runner` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c) | Search-permission errors for a regular path and quiet mode from UID 10001. |
 | `mountpoint` `test_mountpoint_private_same_device_bind_mount` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c), [manual](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.1.adoc) | Same-device bind target is a mountpoint; checks `--fs-devno`, `--show`, and the restored hidden target after unmount in the required private namespace. |
 | `mountpoint` `test_mountpoint_version_provenance` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c) | Asserts the reference's exact `mountpoint from util-linux 2.42.4` banner for `-V` / `--version` and the XSH `gnu.version_text` banner separately. |
 | `namei` `test_namei_upstream_logic_plain_relative_paths` | [upstream `logic`](https://github.com/util-linux/util-linux/blob/v2.42.4/tests/ts/namei/logic#L23-L30) | The two upstream plain relative file paths. |
@@ -27,7 +28,7 @@ difference is `version-provenance`: each command keeps its own version banner.
 | `namei` `test_namei_dangling_missing_and_looping_components` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/misc-utils/namei.c) | Dangling links, missing intermediate components, symlink loops, and `--nosymlinks` on a loop. |
 | `namei` `test_namei_multiple_operands_and_usage_errors` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/misc-utils/namei.c), [manual](https://github.com/util-linux/util-linux/blob/v2.42.4/misc-utils/namei.1.adoc) | No operand, unknown option, multiple operands, `-h` / `--help`, continued reporting, and aggregate failure status. |
 | `namei` `test_namei_path_arguments_preserve_non_utf8_components` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/misc-utils/namei.c) | Undecodable path components through native `Path` argv transport. |
-| `namei` `test_namei_permission_denied_from_unprivileged_runner` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/misc-utils/namei.c) | Search-permission failure when the test process has a real unprivileged identity; the test skips under UID 0. |
+| `namei` `test_namei_permission_denied_from_unprivileged_runner` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/misc-utils/namei.c) | Search-permission failure for long and `--nosymlinks` output from UID 10001. |
 | `namei` `test_namei_version_provenance` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/misc-utils/namei.c) | Asserts the reference's exact `namei from util-linux 2.42.4` banner for `-V` / `--version` and the XSH `gnu.version_text` banner separately. |
 
 The bind fixture is prepared at
@@ -43,6 +44,8 @@ the original target is visible again. The reference and candidate therefore
 see the same mount identity. A host mount, disk, or device is never used as a
 fixture.
 
-Permission-denied coverage is likewise unqualified when the native harness runs
-as UID 0. The corpus does not create another user or change credentials; a
-root-only result cannot stand in for a denied search permission.
+The mountpoint and namei permission cases make only their owned scene root
+traversable and set the owned child directory to mode 000. The coordinator's
+setpriv helper runs the reference and candidate with UID 10001 and capabilities
+dropped, then the tests verify the denied directory mode and its file contents
+are unchanged.

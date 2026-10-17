@@ -151,14 +151,22 @@ test test_namei_path_arguments_preserve_non_utf8_components { |ctx|
 
 test test_namei_permission_denied_from_unprivileged_runner { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
-  if user.current()?.uid == 0 { test.skip("root bypasses directory search permissions"); return }
+  ul.require_private_namespace()
   let s = uu.scene(ctx)?
+  s.root.chmod(0o755)
   uu.mkdir(s, "inaccessible")
   uu.write(s, "inaccessible/secret", "owned path\n")
   let directory = fp"{s.root}/inaccessible"
   defer directory.chmod(0o700)
   directory.chmod(0)
-  parity(s, ["-l", "--", fp"{directory}/secret".display()])?
+  let path = fp"{directory}/secret".display()
+  for args in [["-l", "--", path], ["--nosymlinks", "--", path]] {
+    let reference = ul.reference_as_user(s, "namei", args, uid: 10001, timeout: 5s)?
+    let candidate = ul.candidate_as_user(s, "namei", args, uid: 10001, timeout: 5s)?
+    ul.compare(reference, candidate)
+  }
+  assert directory.stat()?.mode.bit_and(0o777) == 0
+  assert fp"{directory}/secret".read_text()? == "owned path\n"
 }
 
 test test_namei_version_provenance { |ctx|
