@@ -698,7 +698,9 @@ test test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes { |ctx
 
   let trailing_comma = run_both(s, ["--queues", "--output", "ID,"])?
   ul.compare(trailing_comma.reference, trailing_comma.candidate)
-  assert trailing_comma.candidate.status == 0
+  assert trailing_comma.candidate.status == 1
+  assert trailing_comma.candidate.stdout == b""
+  assert trailing_comma.candidate.stderr == b"lsipc: unknown column: ID,\n"
 
   for columns in ["ke,ms", "C"] {
     let unknown = run_both(s, ["--queues", "--output", columns])?
