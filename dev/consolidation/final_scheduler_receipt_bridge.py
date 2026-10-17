@@ -357,12 +357,14 @@ def reference_build(compare) -> None:
     REFERENCE_RUN.mkdir(parents=True, exist_ok=False)
     target_dir = REFERENCE_RUN / "target" / "cargo"
     command = reference_build_command()
-    environment = dict(os.environ)
-    environment.update({
+    runner_environment = {
         "XSH_GATE_TARGET_DIR": str(target_dir),
         "XSH_GATE_CIDFILE": str(REFERENCE_RUN / "build.cid"),
+        "XSH_GATE_TOOL_DIR": str(ROOT / "dev/consolidation/winddown/gate-tools/final-correctness-gates"),
         "TMPDIR": str(ROOT / ".work/tmp"),
-    })
+    }
+    environment = dict(os.environ)
+    environment.update(runner_environment)
     stdout_path = BUILD_ROOT / "reference-build.stdout.log"
     stderr_path = BUILD_ROOT / "reference-build.stderr.log"
     with stdout_path.open("x", encoding="utf-8") as stdout, stderr_path.open("x", encoding="utf-8") as stderr:
@@ -372,11 +374,7 @@ def reference_build(compare) -> None:
     write_json_new(process_record, {
         "argv": command,
         "working_directory": str(ROOT),
-        "runner_environment": {
-            "XSH_GATE_TARGET_DIR": str(target_dir),
-            "XSH_GATE_CIDFILE": str(REFERENCE_RUN / "build.cid"),
-            "TMPDIR": str(ROOT / ".work/tmp"),
-        },
+        "runner_environment": runner_environment,
         "returncode": process.returncode,
         "stdout": str(stdout_path),
         "stderr": str(stderr_path),
