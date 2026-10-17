@@ -502,9 +502,9 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
     }
     let remaining = names[index..].join(",")
     var column: Str? = null
-    if let prefix = ascii_upper(source) {
+    if let normalized = ascii_upper(source) {
       for candidate in ALL_COLUMNS {
-        if candidate.starts_with(prefix) { column = candidate; break }
+        if candidate == normalized { column = candidate; break }
       }
     }
     if let selected = column {
