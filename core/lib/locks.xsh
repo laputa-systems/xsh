@@ -1,6 +1,8 @@
+##! Reads Linux lock state and renders the lslocks command interface.
 use disk_usage as usage
 use gnu
 use smart_json as smart
+use text_a2 as text
 use sys_mount as mounts
 use sys_source as src
 use tui
@@ -37,7 +39,7 @@ type KernelLock = {
   end: Int,
 }
 
-type DescriptorLock = {lock: KernelLock, descriptor: LinuxOpenFile, path: Str, size: Int}
+type DescriptorLock = {lock: KernelLock, descriptor: LinuxOpenFile, path: Bytes, size: Int}
 
 type Lock = {
   command: Str,
@@ -51,7 +53,7 @@ type Lock = {
   mandatory: Bool,
   start: Int,
   end: Int,
-  path: Str?,
+  path: Bytes?,
   blocker: Int?,
   holders: List[Str],
   blocked: Bool,
@@ -149,7 +151,7 @@ proc descriptor_locks(files: List[LinuxOpenFile]) [fs] -> List[DescriptorLock] {
   collect {
     for descriptor in files {
       continue when descriptor.fd < 0
-      let path = descriptor.path.display()
+      let descriptor_path = descriptor.path.bytes()
       let source = fp"/proc/{descriptor.pid}/fdinfo/{descriptor.fd}".read_text()
       if let Ok(text) = source {
         for line in text.lines() {
@@ -157,7 +159,7 @@ proc descriptor_locks(files: List[LinuxOpenFile]) [fs] -> List[DescriptorLock] {
           if let lock = parse_kernel_lock(line.byte_slice(6)) {
             let stat = fs.stat(fp"/proc/{descriptor.pid}/fd/{descriptor.fd}", follow_symlinks: true)
             let size = if let Ok(metadata) = stat { metadata.size } else { 0 }
-            yield {lock: lock, descriptor: descriptor, path: path, size: size}
+            yield {lock: lock, descriptor: descriptor, path: descriptor_path, size: size}
           }
         }
       }
@@ -189,7 +191,7 @@ pure holders_for_lock(fallback: List[DescriptorLock], lock: KernelLock) -> List[
   }
 }
 
-proc mount_fallback(lock: KernelLock) [fs] -> Str? {
+proc mount_fallback(lock: KernelLock) [fs] -> Bytes? {
   let text = fp"/proc/self/mountinfo".read_text() ?? ""
   let device = f"{lock.major}:{lock.minor}"
   var target: Str? = null
@@ -199,7 +201,7 @@ proc mount_fallback(lock: KernelLock) [fs] -> Str? {
       target = mounts.decode_mount_field(fields[4]) + "..."
     }
   }
-  target
+  if let value = target { bytes.from_text(value) } else { null }
 }
 
 proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
@@ -224,14 +226,14 @@ proc collect(no_inaccessible: Bool) [fs, process, error] -> List[Lock] {
         if name == "" { "(unknown)" } else { name }
       }
       let path_file = file_path(files, pid, lock.inode)
-      let path = if resolved != null and ! lock.blocked { resolved.path } else if path_file != null { path_file.path.display() } else { null }
+      let lock_path: Bytes? = if resolved != null and ! lock.blocked { resolved.path } else if path_file != null { path_file.path.bytes() } else { null }
       let size = if resolved != null and ! lock.blocked {
         resolved.size
       } else if path_file != null {
         let metadata = fs.stat(fp"/proc/{pid}/fd/{path_file.fd}", follow_symlinks: true)
         if let Ok(value) = metadata { value.size } else { 0 }
       } else { 0 }
-      let visible_path = if path != null { path } else if no_inaccessible { null } else { mount_fallback(lock) }
+      let visible_path: Bytes? = if lock_path != null { lock_path } else if no_inaccessible { null } else { mount_fallback(lock) }
       continue when no_inaccessible and visible_path == null
       var blocker: Int? = null
       if lock.blocked {
@@ -278,9 +280,8 @@ pure canonical_column(name: Str) -> Str? {
 
 pure columns(output: Str?, output_all: Bool, environment: Str?) -> List[Str]? {
   var selected = if output_all { COLUMNS } else { DEFAULT_COLUMNS }
-  let spec = output ?? environment
-  if spec == null { return selected }
-  let value = spec ?? ""
+  if output == null and environment == null { return selected }
+  let value = if output != null { output ?? "" } else { environment ?? "" }
   let extend = value.starts_with("+")
   let names = (if extend { value.byte_slice(1) } else { value }).split(",")
   if names.is_empty() or (names.len() == 1 and names[0] == "") { return null }
@@ -305,7 +306,7 @@ pure column_value(lock: Lock, column: Str) -> FilterValue {
     "M" => {kind: "boolean", value: "", boolean: lock.mandatory}
     "START" => {kind: "number", value: f"{lock.start}", boolean: false}
     "END" => {kind: "number", value: f"{lock.end}", boolean: false}
-    "PATH" => {kind: "string", value: lock.path ?? "", boolean: false}
+    "PATH" => {kind: "string", value: if let path = lock.path { path.utf8() ?? "" } else { "" }, boolean: false}
     "BLOCKER" => {kind: "number", value: f"{lock.blocker ?? 0}", boolean: false}
     "HOLDERS" => {kind: "string", value: lock.holders.join("\n"), boolean: false}
     else => {kind: "string", value: lock.command, boolean: false}
@@ -550,59 +551,152 @@ pure filter_matches(program: List[FilterToken], lock: Lock) -> Bool {
   filter_truth(stack[0], lock)
 }
 
-pure lock_cell(lock: Lock, column: Str, bytes: Bool) -> Any {
+pure lock_cell(lock: Lock, column: Str, as_bytes: Bool, byte_locale: Bool) -> Any {
   match column {
     "COMMAND" => lock.command
     "PID" => lock.pid
     "TYPE" => lock.kind
-    "SIZE" => if lock.size == 0 { null } else if bytes { lock.size } else { human_size(lock.size) }
+    "SIZE" => if lock.size == 0 { null } else if as_bytes { lock.size } else { human_size(lock.size) }
     "INODE" => lock.inode
     "MAJ:MIN" => f"{lock.major}:{lock.minor}"
     "MODE" => lock.mode + (if lock.blocked { "*" } else { "" })
     "M" => lock.mandatory
     "START" => lock.start
     "END" => lock.end
-    "PATH" => lock.path ?? ""
+    "PATH" => if let path = lock.path { safe_table_text(path, column, byte_locale) } else { "" }
     "BLOCKER" => lock.blocker
     "HOLDERS" => lock.holders
     else => null
   }
 }
 
-pure table_value(lock: Lock, column: Str, bytes: Bool, raw: Bool) -> Str {
-  match column {
+pure table_value(lock: Lock, column: Str, as_bytes: Bool, raw: Bool) -> Bytes {
+  if column == "PATH" { return lock.path ?? b"" }
+  let value = match column {
     "COMMAND" => lock.command
     "PID" => f"{lock.pid}"
     "TYPE" => lock.kind
-    "SIZE" => if lock.size == 0 { "" } else if bytes { f"{lock.size}" } else { human_size(lock.size) }
+    "SIZE" => if lock.size == 0 { "" } else if as_bytes { f"{lock.size}" } else { human_size(lock.size) }
     "INODE" => f"{lock.inode}"
     "MAJ:MIN" => if raw { f"{lock.major}:{lock.minor}" } else { f"{lock.major:>3}:{lock.minor:<3}" }
     "MODE" => lock.mode + (if lock.blocked { "*" } else { "" })
     "M" => if lock.mandatory { "1" } else { "0" }
     "START" => f"{lock.start}"
     "END" => f"{lock.end}"
-    "PATH" => lock.path ?? ""
-    "BLOCKER" => f"{lock.blocker ?? ""}"
+    "BLOCKER" => if let blocker = lock.blocker { f"{blocker}" } else { "" }
     "HOLDERS" => lock.holders.join("\n")
     else => ""
   }
+  bytes.from_text(value)
+}
+
+pure hex_byte(value: Int) -> Str {
+  let digits = "0123456789abcdef"
+  "\\x" + digits.byte_slice(value / 16, length: 1) + digits.byte_slice(value % 16, length: 1)
+}
+
+pure codepoint_value(value: Str) -> Int {
+  let raw = bytes.from_text(value)
+  let first = raw.byte_at(0) ?? 0
+  return first when first < 128
+  let second = (raw.byte_at(1) ?? 128) - 128
+  return (first - 192) * 64 + second when raw.len() == 2
+  let third = (raw.byte_at(2) ?? 128) - 128
+  return (first - 224) * 4096 + second * 64 + third when raw.len() == 3
+  let third = (raw.byte_at(2) ?? 128) - 128
+  let fourth = (raw.byte_at(3) ?? 128) - 128
+  (first - 240) * 262144 + second * 4096 + third * 64 + fourth
+}
+
+pure utf8_size(first: Int) -> Int {
+  return 1 when first < 128
+  return 2 when first in range(194, 224)
+  return 3 when first in range(224, 240)
+  return 4 when first in range(240, 245)
+  0
+}
+
+pure safe_table_text(raw: Bytes, column: Str, byte_locale: Bool) -> Str {
+  if byte_locale {
+    var output = ""
+    var at = 0
+    while at < raw.len() {
+      let byte = raw.byte_at(at) ?? 0
+      if column == "HOLDERS" and byte == 10 {
+        output += "\n"
+        at += 1
+      } else if byte == 92 and at + 1 < raw.len() and raw.byte_at(at + 1) == 120 {
+        output += hex_byte(byte)
+        at += 1
+      } else if byte >= 32 and byte < 127 {
+        output += raw[at..at + 1].utf8() ?? ""
+        at += 1
+      } else {
+        output += hex_byte(byte)
+        at += 1
+      }
+    }
+    return output
+  }
+  var output = ""
+  var at = 0
+  while at < raw.len() {
+    let byte = raw.byte_at(at) ?? 0
+    if byte == 92 and at + 1 < raw.len() and raw.byte_at(at + 1) == 120 {
+      output += hex_byte(byte)
+      at += 1
+      continue
+    }
+    let size = utf8_size(byte)
+    if size > 0 and at + size <= raw.len() {
+      if let Ok(character) = raw[at..at + size].utf8() {
+        let codepoint = codepoint_value(character)
+        if column == "HOLDERS" and codepoint == 10 {
+          output += "\n"
+        } else if codepoint <= 31 or codepoint in [127, 8232, 8233] or codepoint in range(128, 160) or
+            codepoint in range(8203, 8208) or codepoint in range(8234, 8239) or codepoint in range(8287, 8304) or codepoint == 65279 {
+          for byte_index in range(size) { output += hex_byte(raw.byte_at(at + byte_index) ?? 0) }
+        } else {
+          output += character
+        }
+        at += size
+        continue
+      }
+    }
+    output += hex_byte(byte)
+    at += 1
+  }
+  output
+}
+
+pure cell_display_width(value: Str, column: Str) -> Int {
+  var width = 0
+  for line in if column == "HOLDERS" { value.split("\n") } else { [value] } {
+    let measured = tui.cell_width(line)
+    if measured > width { width = measured }
+  }
+  width
 }
 
 pure table_width(columns: List[Str], rows: List[List[Str]], headings: Bool) -> List[Int] {
   collect {
     for index in range(columns.len()) {
-      var width = if headings { columns[index].count_chars() } else { 0 }
-      for row in rows { if row[index].count_chars() > width { width = row[index].count_chars() } }
+      var width = if headings { tui.cell_width(columns[index]) } else { 0 }
+      for row in rows {
+        let measured = cell_display_width(row[index], columns[index])
+        if measured > width { width = measured }
+      }
       let minimum = match columns[index] {
         "COMMAND" => 15
         "PID" | "TYPE" | "INODE" => 5
         "SIZE" => 4
-        "MAJ:MIN" | "MODE" => 5
+        "MAJ:MIN" => 6
+        "MODE" => 5
         "M" => 1
         "START" | "END" => 10
         else => 0
       }
-      yield if headings and minimum > width { minimum } else { width }
+      yield if minimum > width { minimum } else { width }
     }
   }
 }
@@ -615,32 +709,77 @@ pure pad_right(value: Str, width: Int) -> Str {
   tui.right_pad(value, width)
 }
 
-pure render_table(columns: List[Str], locks: List[Lock], headings: Bool, raw: Bool, bytes: Bool) -> Str {
-  let data: List[List[Str]] = [[table_value(lock, column, bytes, raw) for column in columns] for lock in locks]
-  let widths = table_width(columns, data, headings)
-  let rows: List[List[Str]] = if headings { [columns, @data] } else { data }
-  let lines = collect {
-    for row in rows {
-      let cells = collect {
-        for index in range(row.len()) {
-          let value = row[index]
-          if raw {
-            yield value
-          } else if index == row.len() - 1 {
-            yield if columns[index] in ["PID", "TYPE", "SIZE", "INODE", "START", "END", "BLOCKER"] { pad_left(value, widths[index]) } else { value }
-          } else {
-            yield if columns[index] in ["PID", "TYPE", "SIZE", "INODE", "START", "END", "BLOCKER"] { pad_left(value, widths[index]) } else { pad_right(value, widths[index]) }
-          }
-        }
-      }
-      yield cells.join(" ")
+pure render_table(columns: List[Str], locks: List[Lock], headings: Bool, raw: Bool, as_bytes: Bool, notruncate: Bool, terminal: Bool, terminal_width: Int, byte_locale: Bool) -> Bytes {
+  let values: List[List[Bytes]] = [[table_value(lock, column, as_bytes, raw) for column in columns] for lock in locks]
+  let data: List[List[Str]] = [[safe_table_text(values[row_index][index], columns[index], byte_locale) for index in range(columns.len())] for row_index in range(values.len())]
+  var widths = table_width(columns, data, headings)
+  var output_width = columns.len() - 1
+  for width in widths { output_width += width }
+  if terminal and ! raw and ! notruncate and "PATH" in columns and output_width > terminal_width {
+    var path_column = -1
+    for index in range(columns.len()) {
+      if columns[index] == "PATH" { path_column = index; break }
+    }
+    if path_column >= 0 {
+      let excess = output_width - terminal_width
+      widths[path_column] = if excess >= widths[path_column] { 0 } else { widths[path_column] - excess }
     }
   }
-  lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })
+  let rows: List[List[Str]] = if headings { [columns, @data] } else { data }
+  let byte_rows: List[List[Bytes]] = if headings {
+    [[bytes.from_text(column) for column in columns], @values]
+  } else { values }
+  var output: Bytes = b""
+  for row_index in range(rows.len()) {
+    let row = rows[row_index]
+    let heading = headings and row_index == 0
+    var line_count = 1
+    if ! raw and ! heading {
+      for index in range(row.len()) {
+        let count = row[index].split("\n").len()
+        if count > line_count { line_count = count }
+      }
+    }
+    for line_index in range(line_count) {
+      var rendered_cells: List[Str] = []
+      var raw_cells: List[Bytes] = []
+      for index in range(row.len()) {
+        let value = if heading {
+          row[index]
+        } else {
+          let pieces = row[index].split("\n")
+          if line_index < pieces.len() { pieces[line_index] } else { "" }
+        }
+        let shown = if terminal and ! raw and ! notruncate and columns[index] == "PATH" and ! heading {
+          tui.cell_clip(value, widths[index])
+        } else { value }
+        let padded = if raw or (index == row.len() - 1 and columns[index] not in ["PID", "TYPE", "SIZE", "INODE", "START", "END", "BLOCKER"]) {
+          shown
+        } else if columns[index] in ["PID", "TYPE", "SIZE", "INODE", "START", "END", "BLOCKER"] {
+          tui.cell_left_pad(shown, widths[index])
+        } else {
+          tui.cell_right_pad(shown, widths[index])
+        }
+        rendered_cells += [padded]
+        raw_cells += [if heading { bytes.from_text(row[index]) } else { byte_rows[row_index][index] }]
+      }
+      if raw {
+        var raw_line: Bytes = b""
+        for index in range(raw_cells.len()) {
+          if index > 0 { raw_line = bytes.concat([raw_line, b" "]) }
+          raw_line = bytes.concat([raw_line, raw_cells[index]])
+        }
+        output = bytes.concat([output, raw_line, b"\n"])
+      } else {
+        output = bytes.concat([output, bytes.from_text(rendered_cells.join(" ")), b"\n"])
+      }
+    }
+  }
+  output
 }
 
-pure json_lock(lock: Lock, columns: List[Str], bytes: Bool) -> smart.Object {
-  smart.object([smart.m(column.lower(), lock_cell(lock, column, bytes)) for column in columns])
+pure json_lock(lock: Lock, columns: List[Str], as_bytes: Bool, byte_locale: Bool) -> smart.Object {
+  smart.object([smart.m(column.lower(), lock_cell(lock, column, as_bytes, byte_locale)) for column in columns])
 }
 
 pure json_table(rows: List[smart.Object], name: Str, mode: Str) -> Str {
@@ -652,11 +791,12 @@ pure json_table(rows: List[smart.Object], name: Str, mode: Str) -> Str {
   smart.render(document, compact: mode == "compact") + "\n"
 }
 
-pure json_output(locks: List[Lock], columns: List[Str], bytes: Bool, mode: Str) -> Str {
-  let rows = [json_lock(lock, columns, bytes) for lock in locks]
+pure json_output(locks: List[Lock], columns: List[Str], as_bytes: Bool, mode: Str, byte_locale: Bool) -> Str {
+  let rows = [json_lock(lock, columns, as_bytes, byte_locale) for lock in locks]
   json_table(rows, "locks", mode)
 }
 
+## Runs the lslocks command over Linux procfs state.
 export proc main(argv: List[Str]) [fs, process, env, error, io] {
   let opts: Options = cli.applet(argv, {
     gnu: {status: 1},
@@ -685,7 +825,7 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     let value = decimal(opts.pid ?? "")
     if value == null or (value ?? 0) <= 0 { gnu.usage_error(f"invalid PID argument: {gnu.quote(opts.pid ?? "")}") }
   }
-  let output_environment = if let Ok(value) = env.get("LSLOCKS_COLUMNS") { value } else { null }
+  let output_environment: Str? = if let Ok(value) = env.get("LSLOCKS_COLUMNS") { value } else { null }
   let json_mode = if let Ok(value) = env.get("LIBSMARTCOLS_JSON") { value } else { "" }
   if opts.list_columns {
     let names = COLUMNS
@@ -724,7 +864,7 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     null
   }
   if opts.filter != null and program == null { gnu.usage_error(f"failed to parse {gnu.quote(opts.filter ?? "")}: invalid expression") }
-  let all = collect(opts.no_inaccessible)?
+  let all = collect(opts.no_inaccessible)
   var rows = all
   if opts.pid != null {
     let selected_pid = decimal(opts.pid ?? "") ?? 0
@@ -733,9 +873,14 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
   if program != null {
     rows = rows |> where filter_matches(program ?? [], .) |> collect
   }
+  let byte_locale = text.byte_columns()
   if opts.json {
-    gnu.write_text(json_output(rows, chosen, opts.bytes, json_mode))
+    gnu.write_text(json_output(rows, chosen, opts.bytes, json_mode, byte_locale))
   } else {
-    gnu.write_text(render_table(chosen, rows, ! opts.noheadings, opts.raw, opts.bytes))
+    let terminal = unix.isatty(1)
+    let terminal_width = if terminal {
+      if let Ok(size) = unix.window_size(1) { if size.cols > 0 { size.cols } else { 80 } } else { 80 }
+    } else { 80 }
+    gnu.write_bytes(render_table(chosen, rows, ! opts.noheadings, opts.raw, opts.bytes, opts.notruncate, terminal, terminal_width, byte_locale))
   }
 }
