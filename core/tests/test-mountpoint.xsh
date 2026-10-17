@@ -104,6 +104,13 @@ test test_mountpoint_show_on_a_real_mount_and_non_mount_path { |ctx|
   parity(s, ["--show", "--", fp"{mount.mounted_on}//.".display()])?
   parity(s, ["--show", "--", fp"{s.root}//.".display()])?
   parity(s, ["--show", "--", s.root.display()])?
+  let proc_mount = fs.mount_for(p"/proc/1")?
+  assert proc_mount.mounted_on == p"/proc"
+  let proc_show = ul.reference(s, "mountpoint", ["--show", "--", proc_mount.mounted_on.display()], timeout: 5s)?
+  assert proc_show.status == 0
+  assert proc_show.stdout == b"/proc\n"
+  assert proc_show.stderr == b""
+  parity(s, ["--show", "--", proc_mount.mounted_on.display()])?
   assert uu.at(s, "mount-link").readlink()? == mount.mounted_on
 }
 
