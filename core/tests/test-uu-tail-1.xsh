@@ -645,7 +645,13 @@ test test_uu_tail_follow_name_hash_table_stress { |ctx|
   defer child.cancel(signal: "KILL", kill_after: 0ms)
     time.sleep(row.delay)
     alive(child)
-    uu.write(s, "9", "x\n")
+    let current9 = uu.at(s, "9").read_text()?
+    if current9 == "" {
+      uu.write(s, "9", "x\n")
+    } else {
+      assert current9 == "x\n"
+      overwrite_in_place(s, "9", "x\n")
+    }
     time.sleep(row.delay)
     uu.rename(s, "1", "moved")
     time.sleep(row.delay)
@@ -821,7 +827,7 @@ test test_uu_tail_follow_name_truncate4 { |ctx|
   defer child.cancel(signal: "KILL", kill_after: 0ms)
   time.sleep(row.delay)
   alive(child)
-  uu.write(s, "file", "foobar\n")
+  overwrite_in_place(s, "file", "foobar\n")
   time.sleep(row.delay)
   alive(child)
   child.cancel(signal: "KILL", kill_after: 0ms)
