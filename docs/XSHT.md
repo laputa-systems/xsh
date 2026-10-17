@@ -39,6 +39,14 @@ outer project, but starting discovery inside the nested project does not apply
 configs above its root. Files named directly on the command line bypass
 discovery exclusions.
 
+Directory discovery respects `.fdignore`, `.ignore`, `.gitignore`, Git's
+`info/exclude`, and global Git ignore rules, in that order of precedence.
+`.gitignore` rules also apply outside Git repositories. Linked worktrees use
+the shared repository's `info/exclude`, including when discovery reaches a
+worktree nested below a directory outside Git. Ignored directories are pruned
+before their contents are read. Unexcluded unreadable directories fail discovery.
+Directory symlinks encountered during traversal are not followed.
+
 `include`, `test_roots`, and `[coverage] exclude` describe the project from
 which the command runs, so they come only from the current directory's config.
 `include` adds roots to no-argument source discovery; `xsht test` searches
