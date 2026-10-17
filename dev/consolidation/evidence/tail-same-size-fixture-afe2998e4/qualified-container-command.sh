@@ -12,7 +12,7 @@ readonly selectors=(
 
 sha256sum "$product_dir/xsh" "$product_dir/xsht" >"$output/products-container-before.sha256"
 printf '%s  %s\n' "$expected_xsh" "$product_dir/xsh" "$expected_xsht" "$product_dir/xsht" >"$output/products-container-expected.sha256"
-sha256sum --check "$output/products-container-expected.sha256"
+sha256sum -c "$output/products-container-expected.sha256"
 unset LD_PRELOAD || true
 export PATH="$product_dir:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 : >"$output/selectors.txt"

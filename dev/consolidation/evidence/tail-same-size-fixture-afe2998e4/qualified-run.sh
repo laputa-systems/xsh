@@ -44,7 +44,7 @@ mkdir -p "$output/tmp" "$output/source-tmp"
 source_snapshot "$output/source-before.txt"
 sha256sum "$product_dir/xsh" "$product_dir/xsht" >"$output/products-before.sha256"
 printf '%s  %s\n%s  %s\n' "$expected_xsh" "$product_dir/xsh" "$expected_xsht" "$product_dir/xsht" >"$output/products-expected.sha256"
-sha256sum --check "$output/products-expected.sha256"
+sha256sum -c "$output/products-expected.sha256"
 printf '%s\n' "$(docker image inspect --format '{{.Id}} {{.Os}} {{.Architecture}}' "$image")" >"$output/image-identity.txt"
 [[ $(cat "$output/image-identity.txt") == 'sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c linux amd64' ]] || fail 'pinned image identity mismatch'
 {
