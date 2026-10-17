@@ -95,6 +95,7 @@ test test_lsmem_rooted_columns_environment_and_explicit_output_precedence { |ctx
   compare_lsmem_rooted(s, [], {LSMEM_COLUMNS: "RANGE,SIZE,STATE"})?
   compare_lsmem_rooted(s, ["--output", "RANGE,BLOCK"], {LSMEM_COLUMNS: "NODE,ZONES"})?
   compare_lsmem_rooted(s, ["--output-all"], {LSMEM_COLUMNS: "NODE"})?
+  compare_lsmem_rooted(s, [], {LSMEM_COLUMNS: "NOT-A-COLUMN"})?
 }
 
 test test_lsmem_rooted_short_option_aliases { |ctx|
@@ -261,6 +262,10 @@ test test_lsmem_rooted_option_errors_match_reference { |ctx|
   let cases = [
     ["--all", "--split=STATE"],
     ["--json", "--pairs"],
+    ["--json", "--raw"],
+    ["--pairs", "--raw"],
+    ["--json", "--summary=only"],
+    ["--pairs", "--summary=only"],
     ["--raw", "--summary=only"],
     ["--summary=invalid"],
     ["--output", "NOT-A-COLUMN"],
