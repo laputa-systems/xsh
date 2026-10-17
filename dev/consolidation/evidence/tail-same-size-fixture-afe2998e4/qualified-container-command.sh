@@ -17,6 +17,7 @@ unset LD_PRELOAD || true
 export PATH="$product_dir:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 : >"$output/selectors.txt"
 : >"$output/summary.tsv"
+: >"$output/selection-counts.tsv"
 index=0
 for selector in "${selectors[@]}"; do
   index=$((index + 1))
@@ -24,7 +25,10 @@ for selector in "${selectors[@]}"; do
   printf '%s\n' "$selector" >>"$output/selectors.txt"
   if "$xsht" test --exact "$selector" >"$output/$test_log.stdout" 2>"$output/$test_log.stderr"; then status=0; else status=$?; fi
   printf '%s\t%s\n' "$status" "$selector" >>"$output/summary.tsv"
+  selected=$(sed -n 's/^running \([0-9][0-9]*\) tests$/\1/p' "$output/$test_log.stdout")
+  printf '%s\t%s\n' "${selected:-0}" "$selector" >>"$output/selection-counts.tsv"
 done
 sha256sum "$product_dir/xsh" "$product_dir/xsht" >"$output/products-container-after.sha256"
 cmp -s "$output/products-container-before.sha256" "$output/products-container-after.sha256" || exit 3
 awk -F '\t' 'NF != 2 || $1 != 0 { bad=1 } END { if (NR != 3) bad=1; exit bad }' "$output/summary.tsv"
+awk -F '\t' 'NF != 2 || $1 != 1 { bad=1 } END { if (NR != 3) bad=1; exit bad }' "$output/selection-counts.tsv"
