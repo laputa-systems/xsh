@@ -88,7 +88,8 @@ pure u32_product_low(left: UInt, right: UInt) -> UInt {
   let right1 = right / base
   let product0 = left0 * right0
   let cross = left0 * right1 + left1 * right0
-  (product0 + (cross % base) * base) % WORD_BASE
+  let cross_low = cross % base
+  (product0 + cross_low * base) % WORD_BASE
 }
 
 proc u64_multiply(left: U64, right: U64) [error] -> U64 {
@@ -109,7 +110,9 @@ proc u64_multiply(left: U64, right: U64) [error] -> U64 {
   let carry1 = product1 / base
   let product2 = left1 * right1 + carry1
   let low = word0 + word1 * base
-  let high = (product2 % base) + (product2 / base) * base + u32_product_low(left_low, right_high) + u32_product_low(left_high, right_low)
+  let product2_low = product2 % base
+  let product2_high = product2 / base
+  let high = product2_low + product2_high * base + u32_product_low(left_low, right_high) + u32_product_low(left_high, right_low)
   {high: (high % WORD_BASE) as Word32, low: low as Word32}
 }
 
@@ -169,7 +172,7 @@ pure memory_version_digit(byte: Int) -> Bool {
 }
 
 pure memory_byte_at(value: Bytes, index: Int) -> Int {
-  if index < value.len() { value.byte_at(index) } else { 0 }
+  if index < value.len() { value.byte_at(index) ?? 0 } else { 0 }
 }
 
 pure memory_version_digit_offset(byte: Int) -> Int {
