@@ -1,10 +1,14 @@
 import argparse
 import importlib.util
 import json
+import os
 import pathlib
+import signal
 import shutil
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -437,6 +441,73 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         self.assertIn("runner poll failed", lock_record)
         self.assertEqual(marker_path.read_text(encoding="utf-8"), lock_record)
         self.assertFalse((self.scratch_dir / "canonical-bootstrap" / "bootstrap-receipt.json").exists())
+
+    def test_run_bootstrap_reaps_runner_after_oserror_and_preserves_child_stderr(self):
+        with self.with_mocked_tools():
+            validated = runner.validate_bootstrap_inputs(self.bootstrap_arguments())
+        real_popen = subprocess.Popen
+        child_holder = {}
+        stderr_path = self.scratch_dir / "canonical-bootstrap" / "cargo-build.stderr.log"
+
+        class PollFailure:
+            def __init__(self, child):
+                self.child = child
+                self.pid = child.pid
+
+            @property
+            def returncode(self):
+                return self.child.returncode
+
+            def poll(self):
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    if stderr_path.is_file() and "child diagnostic" in stderr_path.read_text(encoding="utf-8"):
+                        raise OSError("runner poll failed after launch")
+                    time.sleep(0.01)
+                raise AssertionError("child did not write its diagnostic")
+
+            def wait(self, timeout=None):
+                return self.child.wait(timeout=timeout)
+
+        def start_process(_command, **kwargs):
+            child = real_popen(
+                [sys.executable, "-c", "import sys,time; print('child diagnostic', file=sys.stderr, flush=True); time.sleep(60)"],
+                cwd=kwargs["cwd"],
+                env=kwargs["env"],
+                stdin=kwargs["stdin"],
+                stdout=kwargs["stdout"],
+                stderr=kwargs["stderr"],
+                start_new_session=kwargs["start_new_session"],
+            )
+            child_holder["child"] = child
+            return PollFailure(child)
+
+        try:
+            with (
+                self.with_mocked_tools(),
+                mock.patch.object(runner, "run_text", return_value=runner.IMAGE),
+                mock.patch.object(runner, "source_check", return_value=runner.git_snapshot(self.repo)),
+                mock.patch.object(runner, "stop_container", return_value={"resolved": True}) as stop_container,
+                mock.patch.object(runner.subprocess, "Popen", side_effect=start_process),
+                mock.patch.object(runner, "TERM_GRACE_SECONDS", 0.01),
+                mock.patch("builtins.print"),
+            ):
+                with self.assertRaisesRegex(OSError, "runner poll failed after launch"):
+                    runner.run_bootstrap(validated)
+
+            stop_container.assert_called_once()
+            self.assertEqual(child_holder["child"].returncode, -signal.SIGKILL)
+            stderr_log = stderr_path.read_text(encoding="utf-8")
+            self.assertIn("child diagnostic", stderr_log)
+            self.assertNotIn("bootstrap launcher error", stderr_log)
+        finally:
+            child = child_holder.get("child")
+            if child is not None and child.returncode is None:
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                child.wait()
 
     def test_run_batch_creates_validated_target_mount_before_docker_launch(self):
         target_mount = self.repo / "target"

@@ -997,6 +997,17 @@ def stop_container(cid_file: pathlib.Path, container_name: str | None = None) ->
     return {"resolved": resolved, "container_id": container_id, "commands": results}
 
 
+def wait_for_runner_process(process: subprocess.Popen[bytes]) -> int:
+    try:
+        return process.wait(timeout=TERM_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        return process.wait()
+
+
 def prepare_bootstrap_target(target_dir: pathlib.Path) -> None:
     for path in (target_dir, target_dir / TARGET, target_dir / TARGET / PROFILE):
         if path.is_symlink():
@@ -1110,31 +1121,35 @@ def run_bootstrap(validated: dict[str, Any]) -> int:
                 while process.poll() is None:
                     if interrupted is not None:
                         earlier_cleanup = stop_container(cid_file, container_name)
-                        try:
-                            process.wait(timeout=TERM_GRACE_SECONDS)
-                        except subprocess.TimeoutExpired:
-                            os.killpg(process.pid, signal.SIGKILL)
-                            process.wait()
+                        wait_for_runner_process(process)
                         break
                     if time.monotonic() - started > args.timeout_seconds:
                         timed_out = True
                         earlier_cleanup = stop_container(cid_file, container_name)
-                        try:
-                            process.wait(timeout=TERM_GRACE_SECONDS)
-                        except subprocess.TimeoutExpired:
-                            os.killpg(process.pid, signal.SIGKILL)
-                            process.wait()
+                        wait_for_runner_process(process)
                         break
                     time.sleep(0.2)
                 exit_code = process.returncode if process.returncode is not None else 124
         except OSError as error:
-            exit_code = 127
-            stderr_path.write_text(f"bootstrap launcher error: {error}\n", encoding="utf-8")
+            run_error = error
+            if process is None:
+                exit_code = 127
+                try:
+                    with stderr_path.open("ab") as stderr_log:
+                        stderr_log.write(f"bootstrap launcher error: {error}\n".encode("utf-8"))
+                except OSError as log_error:
+                    error.add_note(f"could not append bootstrap launcher error to stderr log: {log_error}")
         except BaseException as error:
             run_error = error
         finally:
             for signum, handler in previous_handlers.items():
-                signal.signal(signum, handler)
+                try:
+                    signal.signal(signum, handler)
+                except BaseException as error:
+                    if run_error is None:
+                        run_error = error
+                    else:
+                        run_error.add_note(f"could not restore {signal.Signals(signum).name} handler: {error}")
 
         try:
             cleanup = stop_container(cid_file, container_name)
@@ -1144,6 +1159,14 @@ def run_bootstrap(validated: dict[str, Any]) -> int:
                 run_error = error
         if earlier_cleanup is not None:
             cleanup["before_process_exit"] = earlier_cleanup
+        if process is not None:
+            try:
+                wait_for_runner_process(process)
+            except BaseException as error:
+                cleanup["resolved"] = False
+                cleanup["runner_process_cleanup"] = {"resolved": False, "pid": process.pid, "error": str(error)}
+                if run_error is None:
+                    run_error = error
         if cleanup.get("resolved") is not True:
             if run_error is not None:
                 cleanup["run_error"] = str(run_error)
