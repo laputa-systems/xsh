@@ -15,20 +15,29 @@ expected_xsht_sha256=$6
 xsh_root=$(cd "$7" && pwd)
 laputa_root=$(cd "$8" && pwd)
 repo=$(git rev-parse --show-toplevel)
+exclude=$(git -C "$repo" rev-parse --git-path info/exclude)
+if ! awk '$0 == ".work/" || $0 == "/.work/" { found = 1 } END { exit !found }' "$exclude" || \
+  ! git -C "$repo" check-ignore -q --no-index .work/tmp/performance-corpus; then
+  printf '.work/ must be ignored through %s before the adapter creates scratch\n' "$exclude" >&2
+  exit 1
+fi
 scratch=$repo/.work/tmp/performance-corpus
 mkdir -p "$scratch"
 export TMPDIR=$scratch
 
-for product in "$xsh" "$xsht"; do
-  [[ -f $product && -x $product ]]
-done
+verify_qualification() {
+  for product in "$xsh" "$xsht"; do
+    [[ -f $product && -x $product ]]
+  done
+  [[ $(git -C "$xsh_root" rev-parse --verify HEAD^{commit}) = "$expected_xsh_source" ]]
+  [[ $(git -C "$laputa_root" rev-parse --verify HEAD^{commit}) = "$expected_laputa_source" ]]
+  [[ -z $(git -C "$xsh_root" status --porcelain) ]]
+  [[ -z $(git -C "$laputa_root" status --porcelain) ]]
+  [[ $(sha256sum "$xsh" | cut -d ' ' -f 1) = "$expected_xsh_sha256" ]]
+  [[ $(sha256sum "$xsht" | cut -d ' ' -f 1) = "$expected_xsht_sha256" ]]
+}
 
-[[ $(git -C "$xsh_root" rev-parse --verify HEAD^{commit}) = "$expected_xsh_source" ]]
-[[ $(git -C "$laputa_root" rev-parse --verify HEAD^{commit}) = "$expected_laputa_source" ]]
-[[ -z $(git -C "$xsh_root" status --porcelain) ]]
-[[ -z $(git -C "$laputa_root" status --porcelain) ]]
-[[ $(sha256sum "$xsh" | cut -d ' ' -f 1) = "$expected_xsh_sha256" ]]
-[[ $(sha256sum "$xsht" | cut -d ' ' -f 1) = "$expected_xsht_sha256" ]]
+verify_qualification
 
 for path in \
   "$xsh_root/core/wc.xsh" "$xsh_root/core/sort.xsh" "$xsh_root/core/awk.xsh" \
@@ -100,3 +109,5 @@ run_check() {
   run_exact tests/pm/pm_generation.xsh::test_generation_plan_and_receipt_are_deterministic_for_root_order_and_duplicates
   run_exact tests/pm/pm_generation.xsh::test_generation_plan_json_round_trips_and_rejects_changed_identity
 )
+
+verify_qualification

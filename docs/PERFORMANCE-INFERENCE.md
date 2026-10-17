@@ -81,10 +81,13 @@ Run it as `bash dev/performance/corpus/check.sh "$XSH_SOURCE" "$LAPUTA_SOURCE" \
   "$XSH_ROOT" "$LAPUTA_ROOT"`. Set the source revisions and product digests
 from the accepted G1 qualification. The adapter checks the checkout revisions,
 both product hashes, required source files, and each check command's file count
-and `check` and `lower` stage summary. Each exact test must select its requested
-name and report `1 passed; 0 failed; 0 skipped` before the adapter returns
-success. The adapter sets `XSH_BIN` and `XSHT_BIN` to the qualified products
-and prepends their directory to `PATH`.
+and `check` and `lower` stage summary. It confirms `.work/` is ignored through
+the checkout's `.git/info/exclude` before creating scratch. It rechecks the
+source revisions, clean trees, and product hashes after all commands finish.
+Each exact test must select its requested name and report
+`1 passed; 0 failed; 0 skipped` before the adapter returns success. The adapter
+sets `XSH_BIN` and `XSHT_BIN` to the qualified products and prepends their
+directory to `PATH`.
 
 ## Capability and patch order
 
