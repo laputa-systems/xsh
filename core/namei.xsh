@@ -220,7 +220,7 @@ proc groupname(gid: Int) [fs] -> Str {
   if let group = group.by_gid(gid) { group.name } else { f"{gid}" }
 }
 
-proc update_owner_widths(entries: List[Entry], owners: Bool, user_width: Int, group_width: Int) [fs] -> {user: Int, group: Int} {
+proc update_owner_widths(entries: List[Entry], owners: Bool, user_width: Int, group_width: Int) [fs] -> {user_width: Int, group_width: Int} {
   var max_user = user_width
   var max_group = group_width
   if owners {
@@ -233,7 +233,7 @@ proc update_owner_widths(entries: List[Entry], owners: Bool, user_width: Int, gr
       }
     }
   }
-  {user: max_user, group: max_group}
+  {user_width: max_user, group_width: max_group}
 }
 
 pure spaces(count: Int) -> Bytes {
@@ -329,8 +329,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       if let failure = entry.mount_error { report_fatal(bytes.concat([entry.path, b"/.."]), "stat of ", failure) }
     }
     let widths = update_owner_widths(result.entries, options.owners, user_width, group_width)
-    user_width = widths.user
-    group_width = widths.group
+    user_width = widths.user_width
+    group_width = widths.group_width
     failed = render(result.entries, operand, options, user_width, group_width) or failed
     if result.exceeded {
       failed = true
