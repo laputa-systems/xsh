@@ -39,6 +39,7 @@ HOST_BOUNDARY_FILES = (
     "core/tests/test-util-linux-ipc-waiters.xsh",
     "core/tests/test-util-linux-contexts.xsh",
     "core/tests/test-util-linux-io-boundaries.xsh",
+    "core/tests/test-util-linux-race-boundaries.xsh",
 )
 
 _CASE_DECLARATION = re.compile(r"^test (test_[A-Za-z0-9_]+)\s*\{", re.MULTILINE)
