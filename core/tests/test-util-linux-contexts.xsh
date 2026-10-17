@@ -2,11 +2,19 @@ use support.uu
 use support.util_linux as ul
 use support.util_linux_contexts as contexts
 
-type IdentityReady = {pid: Int, inode: Int, uid: Int, status: Map[Str, Str]}
+type IdentityStatus = {Uid: Str, Gid: Str, CapEff: Str, CapPrm: Str, CapInh: Str, CapAmb: Str, CapBnd: Str}
+type IdentityReady = {pid: Int, inode: Int, uid: Int, status: IdentityStatus}
 
 test test_util_linux_context_outside_holder_is_invisible_to_private_lock_listing { |ctx|
   let s = uu.scene(ctx)?
   let holder = contexts.outside_holder()?
+  let inside = ul.start_keeper(s, fp"{ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py",
+    ["hold", "flock-ex", uu.at(s, "inside-holder").display(), "none"])?
+  defer ul.stop_keeper(inside)
+  let ready = json.decode(inside.ready)?
+  let inside_inode = json.get(ready, ["inode"])?.require(Int)?
+  let inside_pid = json.get(ready, ["pid"])?.require(Int)?
+  assert inside_inode != holder.inode
   for reference in [true, false] {
     let observation = if reference {
       ul.observe_reference(s, "lslocks", [p"--json", p"--output", p"PID,INODE,PATH"])?
@@ -17,12 +25,16 @@ test test_util_linux_context_outside_holder_is_invisible_to_private_lock_listing
     assert observation.stdout.len() <= 65536 and observation.stderr.len() <= 65536
     ctx f"outside-holder reference={reference} stdout_b64={observation.stdout.base64()} stderr_b64={observation.stderr.base64()}" {
       let rows = json.get(json.decode(observation.stdout.utf8()?)?, ["locks"])?.require(List[Any])?
+      let visible = [row for row in rows if json.get(row, ["inode"])?.require(Int)? == inside_inode]
+      assert visible.len() == 1, "private holder is absent from its own namespace"
+      assert json.get(visible[0], ["pid"])?.require(Int)? == inside_pid
       for row in rows {
         assert json.get(row, ["inode"])?.require(Int)? != holder.inode, observation.stdout.utf8()?
       }
       assert ! (holder.path.display() in observation.stdout.utf8()?)
     }
   }
+  contexts.release_keeper(inside)
 }
 
 test test_util_linux_context_second_uid_holder_disappears_after_owned_release { |ctx|
@@ -34,7 +46,7 @@ test test_util_linux_context_second_uid_holder_disappears_after_owned_release { 
     fp"{ctx.core_dir}/tests/fixtures/util-linux/contexts/identity_lock.py", [target.display()])?
   defer ul.stop_keeper(keeper)
   let owner = json.decode(keeper.ready)?.require(IdentityReady)?
-  assert owner.uid == 10002 and owner.status["CapEff"] == "0000000000000000"
+  assert owner.uid == 10002 and owner.status.CapEff == "0000000000000000"
   assert fs.stat(target)?.ino == owner.inode
   let options = ["--json", "--pid", f"{owner.pid}", "--output", "PID,INODE,PATH"]
   let before = ul.reference(s, "lslocks", options)?
@@ -82,7 +94,8 @@ test test_util_linux_context_terminal_reference_width_and_escaping { |ctx|
   }
 }
 
-type IpcIdentityReady = {pid: Int, id: Int, uid: Int, capabilities: Map[Str, Str]}
+type Capabilities = {CapEff: Str, CapPrm: Str, CapInh: Str, CapAmb: Str, CapBnd: Str}
+type IpcIdentityReady = {pid: Int, id: Int, uid: Int, capabilities: Capabilities}
 
 test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
   ul.require_private_namespace()
@@ -92,7 +105,7 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
     fp"{ctx.core_dir}/tests/fixtures/util-linux/contexts/identity_ipc.py", [])?
   defer ul.stop_keeper(keeper)
   let owner = json.decode(keeper.ready)?.require(IpcIdentityReady)?
-  assert owner.uid == 10002 and owner.capabilities["CapEff"] == "0000000000000000"
+  assert owner.uid == 10002 and owner.capabilities.CapEff == "0000000000000000"
   let entries = [line.fields() for line in p"/proc/sysvipc/shm".read_text()?.lines()]
   let owned = [fields for fields in entries if fields.len() > 9 and fields[1] == f"{owner.id}"]
   assert owned.len() == 1
