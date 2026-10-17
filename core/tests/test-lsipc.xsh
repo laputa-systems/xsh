@@ -26,6 +26,7 @@ type ApiObservation = {
   pid: Int?,
 }
 type ApiReport = {before: Int, after: Int, observations: List[ApiObservation]}
+type PosixMqueueAttributes = {maxmsg: Int, msgsize: Int, curmsgs: Int}
 type PosixMqueueSnapshot = {
   uid: Int,
   gid: Int,
@@ -33,7 +34,7 @@ type PosixMqueueSnapshot = {
   size: Int,
   mtime_ns: Int,
   ctime_ns: Int,
-  attributes: {maxmsg: Int, msgsize: Int, curmsgs: Int},
+  attributes: PosixMqueueAttributes,
 }
 type IpcKeeper = {handle: ul.Keeper, ready: KeeperReady}
 type ResourceMode = {kind: Str, selector: Str, short_selector: Str, all_columns: Str}
