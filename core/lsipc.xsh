@@ -122,7 +122,7 @@ pure human_size(value: Int) -> Str {
   var whole = value / divisor
   let fraction = value % divisor
   let thousandths = if fraction >= 18446744073709551 {
-    (fraction / 1024) * 1000 / (divisor / 1024)
+    fraction / 1024 * 1000 / (divisor / 1024)
   } else {
     fraction * 1000 / divisor
   }
@@ -148,18 +148,18 @@ proc display_time(seconds: Int, format: Str) [time, env, error] -> Str? {
 
 proc add_user_fields(values0: Map[Str, Str], owner_uid: Int, owner_gid: Int, creator_uid: Int, creator_gid: Int, mode: Int, numeric_perms: Bool, system_v: Bool) [fs] -> Map[Str, Str] {
   var values = values0
-  let owner = if let account = user.by_uid(owner_uid) { account.name } else { f"{owner_uid}" }
+  let owner = if let Ok(account) = user.by_uid(owner_uid) { account.name } else { f"{owner_uid}" }
   values = values.set("OWNER", owner)
   values = values.set("PERMS", if numeric_perms { octal_text(mode.bit_and(0o777)) } else { permission_text(mode.bit_and(0o777)) })
   values = values.set("CUID", f"{creator_uid}")
   values = values.set("CGID", f"{creator_gid}")
-  if let account = user.by_uid(creator_uid) { values = values.set("CUSER", account.name) }
-  if let account = group.by_gid(creator_gid) { values = values.set("CGROUP", account.name) }
+  if let Ok(account) = user.by_uid(creator_uid) { values = values.set("CUSER", account.name) }
+  if let Ok(account) = group.by_gid(creator_gid) { values = values.set("CGROUP", account.name) }
   if system_v {
     values = values.set("UID", f"{owner_uid}")
     values = values.set("GID", f"{owner_gid}")
-    if let account = user.by_uid(owner_uid) { values = values.set("USER", account.name) }
-    if let account = group.by_gid(owner_gid) { values = values.set("GROUP", account.name) }
+    if let Ok(account) = user.by_uid(owner_uid) { values = values.set("USER", account.name) }
+    if let Ok(account) = group.by_gid(owner_gid) { values = values.set("GROUP", account.name) }
   }
   values
 }
@@ -188,33 +188,36 @@ proc sysv_records(kind: Str) [fs, error] -> List[Map[Str, Str]] {
 }
 
 pure number(record: Map[Str, Str], key: Str) -> Int? {
-  record.get(key)?.parse_int()
+  let text = record.get(key) ?? ""
+  if let Ok(value) = text.parse_int() { return value }
+  null
 }
 
 proc command_line(pid: Int) [fs] -> Str {
   return "" when pid <= 0
-  let content = fp"/proc/{pid}/cmdline".read_bytes()
-  if let Err(_) = content { return "" }
-  let raw = content?
+  let raw = match fp"/proc/{pid}/cmdline".read_bytes() {
+    Ok(content) => content
+    Err(_) => return ""
+  }
   var at = 0
   var words: List[Str] = []
   for index in range(raw.len()) {
     if raw.byte_at(index) == 0 {
       if index > at {
         let argument = raw[at..index]
-        words += [if let Ok(text) = argument.utf8() { text } else if let Ok(path) = Path.parse_bytes(argument) { path.display() } else { "?" }]
+        words += [if let Ok(text) = argument.utf8() { text } else if let Ok(parsed_path) = Path.parse_bytes(argument) { parsed_path.display() } else { "?" }]
       }
       at = index + 1
     }
   }
   if at < raw.len() {
     let argument = raw[at..raw.len()]
-    words += [if let Ok(text) = argument.utf8() { text } else if let Ok(path) = Path.parse_bytes(argument) { path.display() } else { "?" }]
+    words += [if let Ok(text) = argument.utf8() { text } else if let Ok(parsed_path) = Path.parse_bytes(argument) { parsed_path.display() } else { "?" }]
   }
   words.join(" ")
 }
 
-proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selection) [fs, time, env, error] -> IpcEntry? {
+proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selection) [fs, process, time, env, error] -> IpcEntry? {
   let id = number(record, if kind == "queues" { "msqid" } else if kind == "shmems" { "shmid" } else { "semid" })
   let key = number(record, "key")
   let mode = parse_octal(record.get("perms") ?? "")
@@ -230,7 +233,7 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
   if kind == "shmems" { values = values.set("CGID", f"{cuid}") }
   var elements: List[report.Element] = []
   if kind == "queues" {
-    if let bytes = number(record, "cbytes") { values = values.set("USEDBYTES", if selection.bytes { f"{bytes}" } else { human_size(bytes) }) }
+    if let byte_count = number(record, "cbytes") { values = values.set("USEDBYTES", if selection.bytes { f"{byte_count}" } else { human_size(byte_count) }) }
     if let messages = number(record, "qnum") { values = values.set("MSGS", f"{messages}") }
     if let pid = number(record, "lspid") { values = values.set("LSPID", f"{pid}") }
     if let pid = number(record, "lrpid") { values = values.set("LRPID", f"{pid}") }
@@ -244,7 +247,7 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
       if let text = display_time(seconds, selection.time_format) { values = values.set("CTIME", text) }
     }
   } else if kind == "shmems" {
-    if let bytes = number(record, "size") { values = values.set("SIZE", if selection.bytes { f"{bytes}" } else { human_size(bytes) }) }
+    if let byte_count = number(record, "size") { values = values.set("SIZE", if selection.bytes { f"{byte_count}" } else { human_size(byte_count) }) }
     if let count = number(record, "nattch") { values = values.set("NATTCH", f"{count}") }
     var status: List[Str] = []
     if mode.bit_and(0o1000) != 0 { status += ["dest"] }
@@ -263,7 +266,7 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
     }
     if let pid = number(record, "cpid") {
       values = values.set("CPID", f"{pid}")
-      if selection.columns.contains("COMMAND") { values = values.set("COMMAND", command_line(pid)) }
+      if "COMMAND" in selection.columns { values = values.set("COMMAND", command_line(pid)) }
     }
     if let pid = number(record, "lpid") { values = values.set("LPID", f"{pid}") }
   } else {
@@ -290,15 +293,15 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
   {values: values, elements: elements}
 }
 
-proc posix_metadata(path: Path, display_name: Str, native_name: Bytes, selection: report.Selection, posix_kind: Str) [fs, time, env, error] -> IpcEntry? {
-  let metadata = fs.stat(path)
+proc posix_metadata(entry_path: Path, display_name: Str, native_name: Bytes, selection: report.Selection, posix_kind: Str) [fs, process, time, env, error] -> IpcEntry? {
+  let metadata = fs.stat(entry_path)
   if let Err(_) = metadata { return null }
   let info = metadata?
   var values: Map[Str, Str] = {}
   values = values.set("NAME", display_name)
   values = add_user_fields(values, info.uid, info.gid, info.uid, info.gid, info.mode, selection.numeric_perms, false)
   if posix_kind == "posix_mqueues" {
-    let content = path.read_text()
+    let content = entry_path.read_text()
     if let Err(_) = content { return null }
     let status = proc_words(content?)
     if status.is_empty() or !status[0].starts_with("QSIZE:") { return null }
@@ -321,7 +324,7 @@ proc posix_metadata(path: Path, display_name: Str, native_name: Bytes, selection
   {values: values, elements: []}
 }
 
-proc posix_entries(kind: Str, selection: report.Selection) [fs, time, env, error] -> List[IpcEntry] {
+proc posix_entries(kind: Str, selection: report.Selection) [fs, process, time, env, error] -> List[IpcEntry] {
   let directory = if kind == "posix_mqueues" { p"/dev/mqueue" } else { p"/dev/shm" }
   if kind == "posix_mqueues" {
     let available = fs.stat(directory)
@@ -347,21 +350,23 @@ proc posix_entries(kind: Str, selection: report.Selection) [fs, time, env, error
     if kind == "posix_mqueues" {
       let display_name = f"/{child.name}"
       let native_name = bytes.concat([b"/", raw_name])
-      if let entry = posix_metadata(child.path, display_name, native_name, selection, kind)? { entries += [entry] }
+      if let entry = posix_metadata(child.path, display_name, native_name, selection, kind) { entries += [entry] }
     } else if kind == "posix_shmems" {
       continue when raw_name.starts_with(b"sem.")
-      if let entry = posix_metadata(child.path, child.name, raw_name, selection, kind)? { entries += [entry] }
+      if let entry = posix_metadata(child.path, child.name, raw_name, selection, kind) { entries += [entry] }
     } else {
       continue when ! raw_name.starts_with(b"sem.")
       let display_name = child.name.byte_slice(4)
       let native_name = raw_name[4..]
-      if let entry = posix_metadata(child.path, display_name, native_name, selection, kind)? { entries += [entry] }
+      if let entry = posix_metadata(child.path, display_name, native_name, selection, kind) { entries += [entry] }
     }
   }
   if let wanted = selection.name {
     var found_name = false
     for entry in entries {
-      if entry.values.get("NAME") == wanted { found_name = true; break }
+      if let Ok(name) = entry.values.get("NAME") {
+        if name == wanted { found_name = true; break }
+      }
     }
     if !found_name {
       if kind == "posix_shmems" { gnu.error(f"shared memory segment {wanted} not found") } else { gnu.error(f"message queue {wanted} not found") }
@@ -373,43 +378,45 @@ proc posix_entries(kind: Str, selection: report.Selection) [fs, time, env, error
 proc row_for(selection: report.Selection, entry: IpcEntry) -> report.Row {
   let cells: List[report.Cell] = collect {
     for column in selection.columns {
-      let text = entry.values.get(column)
-      yield {text: text ?? "", present: text != null}
+      match entry.values.get(column) {
+        Ok(text) => yield {text: text, present: true}
+        Err(_) => yield {text: "", present: false}
+      }
     }
   }
   {cells: cells, elements: entry.elements}
 }
 
-proc selected_rows(selection: report.Selection) [fs, time, env, error] -> List[report.Row] {
+proc selected_rows(selection: report.Selection) [fs, process, time, env, error] -> List[report.Row] {
   var rows: List[report.Row] = []
   for kind in selection.resources {
     continue when selection.global
     var entries: List[IpcEntry] = []
     if kind in ["queues", "shmems", "semaphores"] {
-      for record in sysv_records(kind)? {
+      for record in sysv_records(kind) {
         if let wanted_id = selection.id {
           if wanted_id >= 0 {
             let record_id = number(record, if kind == "queues" { "msqid" } else if kind == "shmems" { "shmid" } else { "semid" })
             continue when record_id != wanted_id
           }
         }
-        if let entry = make_sysv_entry(kind, record, selection)? { entries += [entry] }
+        if let entry = make_sysv_entry(kind, record, selection) { entries += [entry] }
       }
     } else {
-      entries = posix_entries(kind, selection)?
+      entries = posix_entries(kind, selection)
     }
     for entry in entries {
       if kind in ["queues", "shmems", "semaphores"] {
         if let wanted_id = selection.id {
           if wanted_id >= 0 {
-            let found_id = if let text = entry.values.get("ID") { if let Ok(parsed) = text.parse_int() { parsed } else { null } } else { null }
+            let found_id = (entry.values.get("ID") ?? "").parse_int() ?? null
             continue when found_id != wanted_id
           }
         }
       }
       if kind.starts_with("posix_") {
         if let wanted_name = selection.name {
-          continue when entry.values.get("NAME") != wanted_name
+          continue when (entry.values.get("NAME") ?? "") != wanted_name
         }
       }
       rows += [row_for(selection, entry)]
@@ -418,8 +425,8 @@ proc selected_rows(selection: report.Selection) [fs, time, env, error] -> List[r
   rows
 }
 
-proc read_integer(path: Path) [fs, error] -> Int {
-  path.read_text()?.trim().parse_int()?
+proc read_integer(file_path: Path) [fs, error] -> Int {
+  file_path.read_text()?.trim().parse_int()?
 }
 
 proc global_row(selection: report.Selection, resource: Str, description: Str, used: Int, limit: Int, usage: Bool, byte_unit: Bool) -> report.Row {
@@ -436,32 +443,32 @@ proc global_row(selection: report.Selection, resource: Str, description: Str, us
   row_for(selection, {values: values, elements: []})
 }
 
-proc global_rows(selection: report.Selection) [fs, time, env, error] -> List[report.Row] {
+proc global_rows(selection: report.Selection) [fs, process, time, env, error] -> List[report.Row] {
   var rows: List[report.Row] = []
-  if selection.resources.contains("queues") {
-    let records = sysv_records("queues")?
-    rows += [global_row(selection, "MSGMNI", "Number of System V message queues", records.len(), read_integer(p"/proc/sys/kernel/msgmni")?, true, false)]
-    rows += [global_row(selection, "MSGMAX", "Max size of System V message (bytes)", 0, read_integer(p"/proc/sys/kernel/msgmax")?, false, true)]
-    rows += [global_row(selection, "MSGMNB", "Default max size of System V queue (bytes)", 0, read_integer(p"/proc/sys/kernel/msgmnb")?, false, true)]
+  if "queues" in selection.resources {
+    let records = sysv_records("queues")
+    rows += [global_row(selection, "MSGMNI", "Number of System V message queues", records.len(), read_integer(p"/proc/sys/kernel/msgmni"), true, false)]
+    rows += [global_row(selection, "MSGMAX", "Max size of System V message (bytes)", 0, read_integer(p"/proc/sys/kernel/msgmax"), false, true)]
+    rows += [global_row(selection, "MSGMNB", "Default max size of System V queue (bytes)", 0, read_integer(p"/proc/sys/kernel/msgmnb"), false, true)]
   }
-  if selection.resources.contains("posix_mqueues") {
-    let posix = posix_entries("posix_mqueues", selection)?
-    rows += [global_row(selection, "MQUMNI", "Number of POSIX message queues", posix.len(), read_integer(p"/proc/sys/fs/mqueue/queues_max")?, true, false)]
-    rows += [global_row(selection, "MQUMAX", "Max size of POSIX message (bytes)", 0, read_integer(p"/proc/sys/fs/mqueue/msgsize_max")?, false, true)]
-    rows += [global_row(selection, "MQUMNB", "Number of messages in POSIX message queue", 0, read_integer(p"/proc/sys/fs/mqueue/msg_max")?, false, false)]
+  if "posix_mqueues" in selection.resources {
+    let posix = posix_entries("posix_mqueues", selection)
+    rows += [global_row(selection, "MQUMNI", "Number of POSIX message queues", posix.len(), read_integer(p"/proc/sys/fs/mqueue/queues_max"), true, false)]
+    rows += [global_row(selection, "MQUMAX", "Max size of POSIX message (bytes)", 0, read_integer(p"/proc/sys/fs/mqueue/msgsize_max"), false, true)]
+    rows += [global_row(selection, "MQUMNB", "Number of messages in POSIX message queue", 0, read_integer(p"/proc/sys/fs/mqueue/msg_max"), false, false)]
   }
-  if selection.resources.contains("shmems") {
-    let records = sysv_records("shmems")?
+  if "shmems" in selection.resources {
+    let records = sysv_records("shmems")
     var bytes_used = 0
     for record in records { bytes_used += number(record, "size") ?? 0 }
     let page_size = system.execution_units()?.page_size_bytes
-    rows += [global_row(selection, "SHMMNI", "Shared memory segments", records.len(), read_integer(p"/proc/sys/kernel/shmmni")?, true, false)]
-    rows += [global_row(selection, "SHMALL", "Shared memory pages", bytes_used / page_size, read_integer(p"/proc/sys/kernel/shmall")?, true, false)]
-    rows += [global_row(selection, "SHMMAX", "Max size of shared memory segment (bytes)", 0, read_integer(p"/proc/sys/kernel/shmmax")?, false, true)]
+    rows += [global_row(selection, "SHMMNI", "Shared memory segments", records.len(), read_integer(p"/proc/sys/kernel/shmmni"), true, false)]
+    rows += [global_row(selection, "SHMALL", "Shared memory pages", bytes_used / page_size, read_integer(p"/proc/sys/kernel/shmall"), true, false)]
+    rows += [global_row(selection, "SHMMAX", "Max size of shared memory segment (bytes)", 0, read_integer(p"/proc/sys/kernel/shmmax"), false, true)]
     rows += [global_row(selection, "SHMMIN", "Min size of shared memory segment (bytes)", 0, 1, false, true)]
   }
-  if selection.resources.contains("semaphores") {
-    let records = sysv_records("semaphores")?
+  if "semaphores" in selection.resources {
+    let records = sysv_records("semaphores")
     var elements_used = 0
     for record in records { elements_used += number(record, "nsems") ?? 0 }
     let limits = proc_words(fp"/proc/sys/kernel/sem".read_text()?)
@@ -478,11 +485,11 @@ proc global_rows(selection: report.Selection) [fs, time, env, error] -> List[rep
   rows
 }
 
-proc report_failure(failure: report.OptionError) [process, env] {
+proc report_failure(failure: report.OptionError) [process, env] -> Unit {
   match failure {
-    report.Invalid(detail) => { gnu.error(detail); exit 1 }
-    report.EmptyColumn => { exit 1 }
-    report.TooManyColumns => { exit 1 }
+    report.OptionError.Invalid {detail} => { gnu.error(detail); exit 1 }
+    report.OptionError.EmptyColumn => { exit 1 }
+    report.OptionError.TooManyColumns => { exit 1 }
   }
 }
 
@@ -534,14 +541,14 @@ proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
     operands: {form: "...ARG"},
   })?
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
-  if let Err(failure) = report.validate_cli_options(argv, permute) { report_failure(failure) }
+  if let Err(failure) = report.validate_cli_options(argv, permute) { report_failure(failure); return }
   if options.help { gnu.help(help_text()); return }
   if options.version { gnu.version("lsipc"); return }
   let selection = match report.resolve(options, argv, permute) {
     Ok(value) => value
-    Err(failure) => report_failure(failure)
+    Err(failure) => { report_failure(failure); return }
   }
-  let rows = if selection.global { global_rows(selection)? } else { selected_rows(selection)? }
+  let rows = if selection.global { global_rows(selection) } else { selected_rows(selection) }
   if rows.is_empty() { missing_resource(selection) }
   gnu.write_text(report.render(selection, rows, output_width()))
 }

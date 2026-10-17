@@ -1,5 +1,9 @@
+##! Validates lsipc options, resolves source-backed columns and renders report rows.
+
+## Reports invalid lsipc values, empty columns or excess output columns.
 export error OptionError = Invalid(detail: Str) | EmptyColumn | TooManyColumns
 
+## Holds the options accepted by the lsipc command parser.
 export type Options = {
   shmems: Bool,
   posix_shmems: Bool,
@@ -29,6 +33,7 @@ export type Options = {
   operands: List[Str],
 }
 
+## Holds the selected resources, columns and output behavior for one report.
 export type Selection = {
   resources: List[Str],
   explicit_resources: Bool,
@@ -49,8 +54,13 @@ export type Selection = {
   time_format: Str,
 }
 
+## Holds one rendered field and whether the source supplied its value.
 export type Cell = {text: Str, present: Bool}
+
+## Holds one System V semaphore element's observable status.
 export type Element = {number: Int, value: Int, waiting_for_increase: Int, waiting_for_zero: Int, pid: Int, command: Str}
+
+## Holds the selected cells and optional semaphore element rows.
 export type Row = {cells: List[Cell], elements: List[Element]}
 
 const RESOURCE_OPTIONS = [
@@ -306,6 +316,7 @@ pure render_json(selection: Selection, rows: List[Row]) -> Str {
   out + "   ]\n}\n"
 }
 
+## Renders rows in the selected lsipc output mode.
 export pure render(selection: Selection, rows: List[Row], output_width: Int) -> Str {
   match selection.output_mode {
     "json" => render_json(selection, rows)
@@ -352,10 +363,10 @@ pure parse_id(value: Str?) -> Result[Int?, OptionError] {
       offset += 1
     }
     if digits == 0 or offset != data.len() {
-      return Err(Invalid(detail: f"failed to parse IPC identifier: '{text}'"))
+      return Err(OptionError.Invalid(detail: f"failed to parse IPC identifier: '{text}'"))
     }
     if out_of_range {
-      return Err(Invalid(detail: f"failed to parse IPC identifier: '{text}': Numerical result out of range"))
+      return Err(OptionError.Invalid(detail: f"failed to parse IPC identifier: '{text}': Numerical result out of range"))
     }
     let parsed = if negative { -number } else { number }
     return Ok(null) when parsed == -1
@@ -448,14 +459,14 @@ pure id_columns(selection: Selection) -> List[Str] {
   if selection.global { columns = columns.extend(GLOBAL_COLUMNS) }
   if selection.creator {
     columns = columns.extend(["CUID", "CGID"])
-    if !selection.resources.contains("posix_mqueues") and !selection.resources.contains("posix_shmems") and !selection.resources.contains("posix_semaphores") {
+    if "posix_mqueues" not in selection.resources and "posix_shmems" not in selection.resources and "posix_semaphores" not in selection.resources {
       columns = columns.extend(["UID", "GID"])
     }
   }
   if selection.time {
-    if selection.resources.contains("queues") { columns = columns.extend(["SEND", "RECV", "CTIME"]) }
-    if selection.global and selection.resources.contains("shmems") { columns = columns.extend(["ATTACH", "DETACH"]) }
-    if selection.resources.contains("semaphores") { columns = columns.extend(["OTIME", "CTIME"]) }
+    if "queues" in selection.resources { columns = columns.extend(["SEND", "RECV", "CTIME"]) }
+    if selection.global and "shmems" in selection.resources { columns = columns.extend(["ATTACH", "DETACH"]) }
+    if "semaphores" in selection.resources { columns = columns.extend(["OTIME", "CTIME"]) }
   }
   columns
 }
@@ -464,12 +475,12 @@ pure allowed_column(column: Str, selection: Selection) -> Bool {
   return true when column in GENERIC_COLUMNS
   if selection.global { return column in GLOBAL_COLUMNS }
   return false when !selection.explicit_resources
-  return true when selection.resources.contains("posix_mqueues") and column in ["NAME", "MTIME"]
-  return true when selection.resources.contains("posix_shmems") and column in ["NAME", "MTIME"]
-  return true when selection.resources.contains("posix_semaphores") and column in ["NAME", "MTIME"]
-  return true when selection.resources.contains("queues") and column in ["USEDBYTES", "MSGS", "SEND", "RECV", "LSPID", "LRPID"]
-  return true when selection.resources.contains("shmems") and column in ["SIZE", "NATTCH", "STATUS", "ATTACH", "DETACH", "COMMAND", "CPID", "LPID"]
-  return true when selection.resources.contains("semaphores") and column in ["NSEMS", "OTIME"]
+  return true when "posix_mqueues" in selection.resources and column in ["NAME", "MTIME"]
+  return true when "posix_shmems" in selection.resources and column in ["NAME", "MTIME"]
+  return true when "posix_semaphores" in selection.resources and column in ["NAME", "MTIME"]
+  return true when "queues" in selection.resources and column in ["USEDBYTES", "MSGS", "SEND", "RECV", "LSPID", "LRPID"]
+  return true when "shmems" in selection.resources and column in ["SIZE", "NATTCH", "STATUS", "ATTACH", "DETACH", "COMMAND", "CPID", "LPID"]
+  return true when "semaphores" in selection.resources and column in ["NSEMS", "OTIME"]
   false
 }
 
@@ -487,18 +498,18 @@ pure ascii_upper(text: Str) -> Str? {
 pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionError] {
   let append = raw.starts_with("+")
   let body = if append { raw.byte_slice(1) } else { raw }
-  if body.is_empty() { return Err(OptionError.EmptyColumn) }
+  if body.is_empty() { return Err(OptionError.EmptyColumn()) }
   let names = body.split(",")
   var columns: List[Str] = if append { id_columns(selection) } else { [] }
   for index in range(names.len()) {
     let source = names[index]
     let trailing_empty = source.is_empty() and index + 1 == names.len() and body.ends_with(",")
     if columns.len() >= ALL_COLUMNS.len() * 2 and !trailing_empty {
-      return Err(OptionError.TooManyColumns)
+      return Err(OptionError.TooManyColumns())
     }
     if source.is_empty() {
       if trailing_empty { continue }
-      return Err(OptionError.EmptyColumn)
+      return Err(OptionError.EmptyColumn())
     }
     let remaining = names[index..].join(",")
     var column: Str? = null
@@ -509,11 +520,11 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
     }
     if let selected = column {
       if !allowed_column(selected, selection) {
-        return Err(Invalid(detail: f"column {remaining} does not apply to the specified IPC"))
+        return Err(OptionError.Invalid(detail: f"column {remaining} does not apply to the specified IPC"))
       }
       columns += [selected]
     } else {
-      return Err(Invalid(detail: f"unknown column: {remaining}"))
+      return Err(OptionError.Invalid(detail: f"unknown column: {remaining}"))
     }
   }
   Ok(columns)
@@ -522,7 +533,7 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
 pure select(options: Options) -> Result[Selection, OptionError] {
   if let failure = options.time_format {
     if failure not in ["short", "full", "iso"] {
-      return Err(Invalid(detail: f"unknown time format: {failure}"))
+      return Err(OptionError.Invalid(detail: f"unknown time format: {failure}"))
     }
   }
   let id = parse_id(options.id)?
@@ -541,7 +552,7 @@ pure select(options: Options) -> Result[Selection, OptionError] {
   let explicit_resources = !resources.is_empty()
   let global = options.global or !explicit_resources
   if !explicit_resources and (options.creator or options.time or id != null or options.name != null) {
-    return Err(Invalid(detail: "--global is mutually exclusive with --creator, --id, --name and --time"))
+    return Err(OptionError.Invalid(detail: "--global is mutually exclusive with --creator, --id, --name and --time"))
   }
   if !explicit_resources {
     resources = ["queues", "posix_mqueues", "shmems", "posix_shmems", "semaphores", "posix_semaphores"]
@@ -581,6 +592,7 @@ pure select(options: Options) -> Result[Selection, OptionError] {
   Ok(selection)
 }
 
+## Validates option ordering, exclusivity, identifier values and time formats.
 export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit, OptionError] {
   var first: List[Str?] = [null, null, null, null]
   var index = 0
@@ -590,14 +602,14 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
     if let name = option_name(argument) {
       if name == "help" or name == "version" { break }
       if let code = option_code(name) {
-        let group = conflict_group(code)
-        if group >= 0 {
-          if let previous = first[group] {
+        let group_index = conflict_group(code)
+        if group_index >= 0 {
+          if let previous = first[group_index] {
             if previous != code {
-              return Err(Invalid(detail: f"options {option_display(previous)} and {option_display(code)} cannot be combined"))
+              return Err(OptionError.Invalid(detail: f"options {option_display(previous)} and {option_display(code)} cannot be combined"))
             }
           }
-          first[group] = code
+          first[group_index] = code
         }
       }
       let equals = argument.find("=")
@@ -607,7 +619,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
       } else if name == "time-format" {
         let value = if let offset = equals { argument.byte_slice(offset + 1) } else { index += 1; argv[index] }
         if value not in ["short", "full", "iso"] {
-          return Err(Invalid(detail: f"unknown time format: {value}"))
+          return Err(OptionError.Invalid(detail: f"unknown time format: {value}"))
         }
       } else if name in ["name", "output"] and equals == null {
         index += 1
@@ -649,14 +661,14 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
           else => ""
         }
         if let mapped = option_code(name) {
-          let group = conflict_group(mapped)
-          if group >= 0 {
-            if let previous = first[group] {
+          let group_index = conflict_group(mapped)
+          if group_index >= 0 {
+            if let previous = first[group_index] {
               if previous != mapped {
-                return Err(Invalid(detail: f"options {option_display(previous)} and {option_display(mapped)} cannot be combined"))
+                return Err(OptionError.Invalid(detail: f"options {option_display(previous)} and {option_display(mapped)} cannot be combined"))
               }
             }
-            first[group] = mapped
+            first[group_index] = mapped
           }
         }
         if code in ["i", "N", "o"] {
@@ -678,6 +690,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
   Ok()
 }
 
+## Resolves parsed options into the resource, column and output selection.
 export pure resolve(options: Options, argv: List[Str], permute: Bool) -> Result[Selection, OptionError] {
   validate_cli_options(argv, permute)?
   select(options)
