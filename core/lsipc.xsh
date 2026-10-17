@@ -255,6 +255,7 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
   if kind == "shmems" { values = values.set("CGID", f"{cuid}") }
   var elements: List[report.Element] = []
   if kind == "queues" {
+    if selection.numeric_perms { values = values.remove("PERMS") }
     if let byte_count = number(record, "cbytes") { values = values.set("USEDBYTES", if selection.bytes { f"{byte_count}" } else { human_size(byte_count) }) }
     if let messages = number(record, "qnum") { values = values.set("MSGS", f"{messages}") }
     if let pid = number(record, "lspid") { values = values.set("LSPID", f"{pid}") }
@@ -321,6 +322,7 @@ proc posix_metadata(entry_path: Path, display_name: Str, native_name: Bytes, sel
   values = values.set("NAME", display_name)
   values = add_user_fields(values, info.uid, info.gid, info.uid, info.gid, info.mode, selection.numeric_perms, false)
   if posix_kind == "posix_mqueues" {
+    if selection.numeric_perms { values = values.remove("PERMS") }
     let content = entry_path.read_text()
     if let Err(_) = content { return null }
     let status = proc_words(content?)
