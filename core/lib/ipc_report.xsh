@@ -425,62 +425,6 @@ pure option_display(code: Str) -> Str {
   }
 }
 
-pure option_events(argv: List[Str], permute: Bool) -> List[Str] {
-  var events: List[Str] = []
-  var index = 0
-  while index < argv.len() {
-    let argument = argv[index]
-    if argument == "--" { break }
-    if let name = option_name(argument) {
-      if name == "help" or name == "version" { break }
-      if let code = option_code(name) { events += [code] }
-      if name in ["id", "name", "output", "time-format"] and argument.find("=") == null { index += 1 }
-      index += 1
-      continue
-    }
-    if argument.starts_with("-") and argument != "-" {
-      let shorts = argument.byte_slice(1)
-      var offset = 0
-      var stop_options = false
-      while offset < shorts.byte_len() {
-        let code = shorts.byte_slice(offset, length: 1)
-        if code in ["h", "V"] {
-          stop_options = true
-          break
-        }
-        if code in ["i", "N", "o"] {
-          if let mapped = option_code(match code { "i" => "id" "N" => "name" else => "output" }) { events += [mapped] }
-          if offset + 1 == shorts.byte_len() { index += 1 }
-          break
-        }
-        if let mapped = option_code(match code { "b" => "bytes" "c" => "creator" "e" => "export" "g" => "global" "J" => "json" "l" => "list" "m" => "shmems" "M" => "posix-shmems" "n" => "newline" "P" => "numeric-perms" "Q" => "posix-mqueues" "q" => "queues" "r" => "raw" "S" => "posix-semaphores" "s" => "semaphores" "t" => "time" "y" => "shell" else => "" }) {
-          events += [mapped]
-        }
-        offset += 1
-      }
-      if stop_options { break }
-      index += 1
-      continue
-    }
-    if !permute { break }
-    index += 1
-  }
-  events
-}
-
-pure option_conflict(argv: List[Str], permute: Bool) -> Str? {
-  var first: List[Str?] = [null, null, null, null]
-  for code in option_events(argv, permute) {
-    let group = conflict_group(code)
-    continue when group < 0
-    if let previous = first[group] {
-      return f"options {option_display(previous)} and {option_display(code)} cannot be combined" when previous != code
-    }
-    first[group] = code
-  }
-  null
-}
-
 pure id_columns(selection: Selection) -> List[Str] {
   if selection.output_mode == "pretty" and !selection.explicit_columns and !selection.creator and !selection.time {
     return ALL_COLUMNS
@@ -633,14 +577,84 @@ pure select(options: Options) -> Result[Selection, OptionError] {
   Ok(selection)
 }
 
-export pure check_conflicts(argv: List[Str], permute: Bool) -> Result[Unit, OptionError] {
-  if let detail = option_conflict(argv, permute) {
-    return Err(OptionError.Invalid {detail: detail})
+export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit, OptionError] {
+  var first: List[Str?] = [null, null, null, null]
+  var index = 0
+  while index < argv.len() {
+    let argument = argv[index]
+    if argument == "--" { break }
+    if let name = option_name(argument) {
+      if name == "help" or name == "version" { break }
+      if let code = option_code(name) {
+        let group = conflict_group(code)
+        if group >= 0 {
+          if let previous = first[group], previous != code {
+            return Err(OptionError.Invalid {detail: f"options {option_display(previous)} and {option_display(code)} cannot be combined"})
+          }
+          first[group] = code
+        }
+      }
+      let equals = argument.find("=")
+      if name == "id" {
+        let value = if let offset = equals { argument.byte_slice(offset + 1) } else { index += 1; argv[index] }
+        let _ = parse_id(value)?
+      } else if name == "time-format" {
+        let value = if let offset = equals { argument.byte_slice(offset + 1) } else { index += 1; argv[index] }
+        if value not in ["short", "full", "iso"] {
+          return Err(OptionError.Invalid {detail: f"unknown time format: {value}"})
+        }
+      } else if name in ["name", "output"] and equals == null {
+        index += 1
+      }
+      index += 1
+      continue
+    }
+    if argument.starts_with("-") and argument != "-" {
+      let shorts = argument.byte_slice(1)
+      var offset = 0
+      var stop_options = false
+      while offset < shorts.byte_len() {
+        let code = shorts.byte_slice(offset, length: 1)
+        if code in ["h", "V"] {
+          stop_options = true
+          break
+        }
+        let name = match code {
+          "b" => "bytes" "c" => "creator" "e" => "export" "g" => "global" "i" => "id"
+          "J" => "json" "l" => "list" "m" => "shmems" "M" => "posix-shmems" "n" => "newline"
+          "N" => "name" "o" => "output" "P" => "numeric-perms" "Q" => "posix-mqueues"
+          "q" => "queues" "r" => "raw" "S" => "posix-semaphores" "s" => "semaphores"
+          "t" => "time" "y" => "shell" else => ""
+        }
+        if let mapped = option_code(name) {
+          let group = conflict_group(mapped)
+          if group >= 0 {
+            if let previous = first[group], previous != mapped {
+              return Err(OptionError.Invalid {detail: f"options {option_display(previous)} and {option_display(mapped)} cannot be combined"})
+            }
+            first[group] = mapped
+          }
+        }
+        if code in ["i", "N", "o"] {
+          let value = if offset + 1 < shorts.byte_len() { shorts.byte_slice(offset + 1) } else { index += 1; argv[index] }
+          if code == "i" {
+            let _ = parse_id(value)?
+          }
+          break
+        }
+        offset += 1
+      }
+      if stop_options { break }
+      index += 1
+      continue
+    }
+    if !permute { break }
+    index += 1
   }
   Ok(())
 }
 
 export pure resolve(options: Options, argv: List[Str], permute: Bool) -> Result[Selection, OptionError] {
-  check_conflicts(argv, permute)?
+  validate_cli_options(argv, permute)?
   select(options)
 }

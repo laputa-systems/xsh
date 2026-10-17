@@ -486,7 +486,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
     operands: {form: "...ARG"},
   })?
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
-  if let Err(failure) = report.check_conflicts(argv, permute) { report_failure(failure) }
+  if let Err(failure) = report.validate_cli_options(argv, permute) { report_failure(failure) }
   if options.help { gnu.help(help_text()); return }
   if options.version { gnu.version("lsipc"); return }
   let selection = match report.resolve(options, argv, permute) {
