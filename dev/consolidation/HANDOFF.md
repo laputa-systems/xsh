@@ -6,15 +6,17 @@ Inference remains isolated. The 2026-10-16 stop handoff below is historical.
 
 ## Active candidate
 
-Root must seal the post-update candidate before building products.
+Root may bind products to this candidate while the focused tail checks finish.
 
 The candidate includes the XSHT linked-worktree discovery repair at
 `c30aed3bc`, the same-size tail fixture at `afe2998e4`, the batch admission
 change at `2d882cf6`, the W9 producer repair at `283dcdeab`, and a native
-`nc` test fixture repair at `94b772ac0`. No production Rust or XSHT source
-changed after the `0deeb9c7` source pin. The default scheduler, native case
-selection, Rust and privileged plans, and test deadlines remain unchanged.
-No full canonical or supplemental gate has passed on this candidate.
+`nc` test fixture repair at `94b772ac0`. Root also accepted the fixture-only
+tail repair at `16abfbed3`; it preserves same-size stress-test writes and the
+truncation controls. The W9 producer repair is campaign tooling. No production
+Rust or XSHT source changed after source pin `0deeb9c7`. The default scheduler,
+native case selection, Rust and privileged plans, and test deadlines remain
+unchanged. No full canonical or supplemental gate has passed on this candidate.
 
 ### Integrated evidence
 
@@ -25,6 +27,7 @@ No full canonical or supplemental gate has passed on this candidate.
 | Failed canonical `9080e505f` | The 0dc9 run reports 13,906 passes, 9 failures, and 78 skips. Four coverage failures and one tail-fixture failure are reproduced and repaired. Four timeout/rm causes remain unproven. See [canonical evidence](evidence/canonical-0dc9/README.md). |
 | Canonical `0deeb9c7` | The complete attempt reports 13,915 passes, one failed `nc` TELNET fixture test, 78 skips, and exit status 3. The root-reviewed fixture repair is `94b772ac0`; its exact selector and focused file run pass, but the full canonical gate has not been rerun or accepted. The terminal receipt and logs are preserved in [QEMU evidence](evidence/linux-qemu-0deeb9c7/README.md). See also [fixture repair evidence](evidence/native-nc-repair/README.md). |
 | Failed canonical `3c0c01206` | XSHT integration passed 116 cases, then failed the desugared `test_uu_tail_follow_name_hash_table_stress` after 1,854.26 seconds. The written file passed 79 tests; the desugared file passed 78 and emitted an extra `tail : stderr tail: 9: file truncated` line. Exit status 3 stopped the gate before the full native suite, privileged harness, four batch checks, and docs gate. Source was clean; no acceptance credit. See [failed 3c canonical evidence](evidence/canonical-3c0c01206/README.md). |
+| Tail fixture repair `16abfbed3` | Root accepted the test-only change that preserves same-size writes in the hash-table stress fixture and keeps both truncation controls. The failed `3c0c01206` run predates this repair. The focused deterministic probe and written/desugared checks remain pending with the tail owner; acceptance depends on their results. |
 | `nc` fixture `94b772ac0` | The empty-stdin case could half-close before TELNET negotiation, leaving the old fixture spinning on empty reads. The test now keeps its write side open through negotiation and fails on early EOF. The exact selector and 27-case focused file pass. No production Rust or XSHT source changed. See [native fixture evidence](evidence/native-nc-repair/README.md). |
 | Supplemental `957405a4` | All 13 commands exited zero on 0dc9. Root reviewed two traceroute skips. This record does not qualify the assembled source. See [supplemental evidence](winddown/evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/README.md). |
 | QEMU `5bdd8dd43` | Seven platform cases passed on 0dc9. This historical result does not qualify a later source. See [QEMU evidence](evidence/linux-qemu-0dc9cff7/README.md). |
@@ -45,8 +48,8 @@ verified assignment proof. Neither exact pin is the later assembled candidate.
 
 ### Current queue
 
-1. The tail lane is isolating the written/desugared stress-test mismatch with an exact repro and bounded related fixtures. No production change is authorized without an established cause and root acceptance. Integrate its accepted repair and proof before sealing the next source.
-2. Keep main and the frozen W9 source at `3c0c01206` until its strict comparison ends. The detached candidate can advance independently once the tail repair is accepted; its completion need not wait for W9 archival.
+1. The accepted tail fixture repair is integrated. The tail owner still owes the focused deterministic probe and written/desugared checks. Final acceptance depends on those checks passing. Root may bind builds to this candidate while they finish.
+2. Keep main and the frozen W9 source at `3c0c01206` until its strict comparison ends. The detached candidate advances independently; its completion need not wait for W9 archival.
 3. After root seals the repaired candidate, rerun canonical. The `3c0c01206` XSHT failure received no acceptance credit and prevented the native suite, privileged harness, batch checks, and docs gate from running.
 4. Obtain fresh W9 admissions, captures, exact-owner and assignment proofs, derived-reference capture, and strict comparison for the sealed candidate. The accepted 0dc9 and 0deeb9 cohorts do not qualify this later source. Keep the separate three-worker resource diagnostic.
 5. Run fresh supplemental and strict route/source-order gates on the sealed candidate, using the batch-only four-worker admission change without changing selections or deadlines. Run the 36-case root residual (35 ordinary and one `SYS_ADMIN`), including the two existing `NET_RAW` loopback positives; that residual has not run. Root owns final freeze, release performance gates, and main promotion.

@@ -6,12 +6,13 @@ ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
 **Current status: candidate assembled on 2026-10-17.** The
 [active handoff](HANDOFF.md#active-candidate) owns the exact pins and live
-queue. The candidate is not frozen or accepted. Its latest canonical attempt
-on `3c0c01206` failed during XSHT integration on a desugared tail stress
-fixture, before the full native suite or privileged harness. The tail lane is
-isolating the fixture behavior; no production change is accepted. Seven QEMU
-cases are accepted for exact source `0deeb9c7`; W9 parity is accepted for
-exact sources `0deeb9c7` and
+queue. The candidate is not frozen or accepted. Its canonical attempt on
+`3c0c01206` failed during XSHT integration on a desugared tail stress fixture,
+before the full native suite or privileged harness. Root accepted the
+fixture-only repair at `16abfbed3`; the focused deterministic probe and
+written/desugared checks remain pending with the tail owner. Seven QEMU cases
+are accepted for exact source `0deeb9c7`; W9 parity is accepted for exact
+sources `0deeb9c7` and
 `0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4`. The later assembled candidate
 needs its own source-bound W9 qualification. Lean and Phase F remain paused;
 inference remains isolated from main.

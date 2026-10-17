@@ -8,19 +8,20 @@ remain paused. Inference remains isolated from main.
 ## Current candidate, 2026-10-17
 
 The candidate combines the linked-worktree discovery repair, corrected route
-expectation, batch-only native admission cap, corrected tail fixture, W9
-producer repair, and source-pinned acceptance records. Root must seal the
-post-update candidate before building products.
+expectation, batch-only native admission cap, W9 producer repair, and fixture
+repairs. Root may bind products to this candidate while focused tail checks
+finish; final acceptance still depends on those checks and the campaign gates.
 
 The fixture-only `nc` repair passes its exact selector and a 27-case focused
-native file run. The latest canonical attempt on `3c0c01206` failed during
-XSHT integration after 1,854 seconds: 116 tests passed and the desugared
+native file run. The canonical attempt on `3c0c01206` failed during XSHT
+integration after 1,854 seconds: 116 tests passed and the desugared
 `test_uu_tail_follow_name_hash_table_stress` failed with an extra truncation
 diagnostic. The run exited 3 before the full native suite, privileged harness,
-batch checks, or docs gate. The tail lane is isolating the written/desugared
-fixture behavior; no production change is accepted. Seven QEMU cases are
-accepted for exact source `0deeb9c7`; W9 parity is accepted for exact sources
-`0dc9cff7` and `0deeb9c7`. The historical route
+batch checks, or docs gate. Root accepted fixture-only repair `16abfbed3` for
+integration. The focused deterministic probe and written/desugared checks are
+pending with the tail owner; the failed run predates this repair and earns no
+acceptance. Seven QEMU cases are accepted for exact source `0deeb9c7`; W9
+parity is accepted for exact sources `0dc9cff7` and `0deeb9c7`. The historical route
 replay had two normal `ExprIf` proof gaps; a fresh strict replay remains
 required. This candidate has no full canonical, supplemental, route,
 platform, or resource close. Main and the frozen W9 source remain at
