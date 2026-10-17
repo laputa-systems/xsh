@@ -1,0 +1,1 @@
+status=exited exit=1 oom_killed=true nano_cpus=8000000000 memory=17179869184 memory_swap=17179869184
