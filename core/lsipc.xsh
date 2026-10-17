@@ -600,12 +600,12 @@ proc missing_resource(selection: report.Selection) [process, env] {
 }
 
 proc output_width() [env, process] -> Int {
+  if !unix.isatty(1) { return 0 }
   if let Ok(text) = env.get("COLUMNS") {
     if let Ok(width) = text.parse_int() {
       if width > 0 { return width }
     }
   }
-  if !unix.isatty(1) { return 0 }
   if let Ok(size) = unix.window_size(1) { if size.cols > 0 { return size.cols } }
   80
 }
