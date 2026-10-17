@@ -23,8 +23,7 @@ import check, leases
 leases._native_descriptor.set((int(sys.argv[1]), pathlib.Path(sys.argv[2])))
 check.uuid.uuid4 = lambda: types.SimpleNamespace(hex=sys.argv[4])
 try:
-    with check.cancellation_scope():
-        check.container("printf ready >/probe/ready; cat /probe/release", mounts=[f"type=bind,source={sys.argv[3]},target=/probe"])
+    check.container("printf ready >/probe/ready; cat /probe/release", mounts=[f"type=bind,source={sys.argv[3]},target=/probe"])
 except check.Cancelled as error:
     for note in getattr(error, "__notes__", ()):
         print(note, file=sys.stderr)

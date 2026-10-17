@@ -49,6 +49,7 @@ def cancellation_scope():
             signal.signal(number, handler)
 
 
+@cancellation_scope()
 def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = (), timeout: int = 30) -> bytes:
     require_native_lease()
     name = "xsh-util-linux-" + uuid.uuid4().hex
