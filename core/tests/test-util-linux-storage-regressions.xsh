@@ -96,7 +96,7 @@ proc hold_user_namespace(ctx: TestContext) [fs, process, time, error] -> Result[
     handle.cancel(signal: "KILL", kill_after: 0ms)
     return Err(error.failure("the namespace holder is not running"))
   }
-  Ok({pid:, release:, handle:})
+  Ok({pid: pid, release: release, handle: handle})
 }
 
 test test_util_linux_rooted_storage_commands_join_block_and_mount_identity { |ctx|
