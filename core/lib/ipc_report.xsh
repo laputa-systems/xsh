@@ -259,7 +259,9 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> S
       for index in range(selection.columns.len()) {
         let escaped = escape_cell(row.cells[index].text)
         let shown = if !selection.notruncate and selection.columns[index] == "COMMAND" and tui.cell_width(escaped) > widths[index] { truncate_cells(escaped, widths[index]) } else { escaped }
-        if selection.columns[index] in RIGHT_COLUMNS {
+        if index + 1 == selection.columns.len() and shown.is_empty() {
+          yield ""
+        } else if selection.columns[index] in RIGHT_COLUMNS {
           yield tui.left_pad(shown, widths[index])
         } else if index == selection.columns.len() - 1 {
           yield shown
