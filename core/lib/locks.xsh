@@ -1017,7 +1017,7 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
   if opts.json and opts.raw { gnu.usage_error("options --json and --raw are mutually exclusive") }
   if opts.pid != null {
     let value = decimal(opts.pid ?? "")
-    if value == null or (value ?? 0) <= 0 { gnu.usage_error(f"invalid PID argument: {gnu.quote(opts.pid ?? "")}") }
+    if value == null or (value ?? 0) <= 0 { gnu.error(f"invalid PID argument: {gnu.quote(opts.pid ?? "")}"); exit 1 }
   }
   let output_environment: Str? = if let Ok(value) = env.get("LSLOCKS_COLUMNS") { value } else { null }
   let json_mode = if let Ok(value) = env.get("LIBSMARTCOLS_JSON") { value } else { "" }
@@ -1039,8 +1039,9 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
       }
       let rendered_rows = collect {
         for row in rows {
+          let description = if opts.raw { raw_table_text(bytes.from_text(row[2]), false).utf8() ?? "" } else { row[2] }
           yield (if opts.raw { row[0] } else { pad_left(row[0], holder_width) }) + " " +
-            (if opts.raw { row[1] } else { pad_right(row[1], type_width) }) + " " + row[2]
+            (if opts.raw { row[1] } else { pad_right(row[1], type_width) }) + " " + description
         }
       }
       ul_io.write_text(rendered_rows.join("\n") + "\n")
