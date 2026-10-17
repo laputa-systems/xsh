@@ -37,11 +37,11 @@ proc output_failure(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool
 }
 
 proc closed_reader(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool) [fs, process, env, net, error] -> Result[OutputFailure, Error] {
-  let run = if is_reference { "reference" } else { "candidate" }
-  let stdout = uu.at(s, f".{util}-{run}-stdout-fifo")
-  let ready = uu.at(s, f".{util}-{run}-ready-fifo")
-  let release = uu.at(s, f".{util}-{run}-release-fifo")
-  let stderr = uu.at(s, f".{util}-{run}-pipe-stderr")
+  let invocation = if is_reference { "reference" } else { "candidate" }
+  let stdout = uu.at(s, f".{util}-{invocation}-stdout-fifo")
+  let ready = uu.at(s, f".{util}-{invocation}-ready-fifo")
+  let release = uu.at(s, f".{util}-{invocation}-release-fifo")
+  let stderr = uu.at(s, f".{util}-{invocation}-pipe-stderr")
   fs.mkfifo(stdout, 0o600)
   fs.mkfifo(ready, 0o600)
   fs.mkfifo(release, 0o600)
