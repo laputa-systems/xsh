@@ -47,6 +47,29 @@ proc parity(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, 
   Ok()
 }
 
+proc print_lslocks_bytes(label: Str, value: Bytes) [io] {
+  print $label
+  let encoded = value.base64()
+  var offset = 0
+  while offset < encoded.len() {
+    let remaining = encoded.len() - offset
+    let length = if remaining > 100 { 100 } else { remaining }
+    print $encoded.slice(offset, length: length)
+    offset += length
+  }
+}
+
+proc compared_with_stdout_dump(s: uu.Scene, args: List[Str]) [fs, process, env, io, error] -> Result[uu.Ran, Error] {
+  let reference = ul.reference(s, "lslocks", args, timeout: 5s)?
+  let candidate = uu.invoke(s, "lslocks", args, timeout: 5s)?
+  if reference.stdout != candidate.stdout and reference.stdout.len() <= 1024 and candidate.stdout.len() <= 1024 {
+    print_lslocks_bytes("reference stdout base64", reference.stdout)
+    print_lslocks_bytes("candidate stdout base64", candidate.stdout)
+  }
+  ul.compare(reference, candidate)
+  Ok(candidate)
+}
+
 proc rejected(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[Unit, Error] {
   let reference = ul.reference(s, "lslocks", args, timeout: 5s)?
   let candidate = uu.invoke(s, "lslocks", args, timeout: 5s)?
@@ -316,7 +339,7 @@ proc selected_lock_rows_case(s: uu.Scene) [fs, process, env, net, time, error] -
   Ok()
 }
 
-proc output_lock_modes_case(s: uu.Scene) [fs, process, env, net, time, error] -> Result[Unit, Error] {
+proc output_lock_modes_case(s: uu.Scene) [fs, process, env, io, net, time, error] -> Result[Unit, Error] {
   let method = "posix-r-"
   let lock_path = uu.at(s, f"output-{method}")
   let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
@@ -330,7 +353,11 @@ proc output_lock_modes_case(s: uu.Scene) [fs, process, env, net, time, error] ->
     ["-r", "-p", pid], ["-n", "-p", pid],
     ["-J", "-p", pid], ["-n", "-J", "-p", pid],
   ] {
-    let candidate = compared(s, args)?
+    let candidate = if args == ["--raw", "--pid", pid] {
+      compared_with_stdout_dump(s, args)?
+    } else {
+      compared(s, args)?
+    }
     assert ! candidate.stdout.is_empty(), args.join(" ")
     if "--json" in args or "-J" in args {
       let document = json.decode(candidate.stdout.utf8() ?? "")?
