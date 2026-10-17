@@ -785,6 +785,32 @@ mod tests {
     }
 
     #[test]
+    fn discovery_stops_gitignore_at_repository_boundaries_and_keeps_parent_ignore_rules() {
+        let root = temp_root("repository-ignore-boundary");
+        let repository = root.join("nested");
+        fs::create_dir_all(repository.join(".git")).unwrap();
+        fs::write(root.join(".gitignore"), "*.outside.xsh\n").unwrap();
+        fs::write(root.join(".ignore"), "parent-hidden.xsh\nrestored.xsh\n").unwrap();
+        fs::write(root.join(".fdignore"), "parent-fd-hidden.xsh\n!restored.xsh\n").unwrap();
+        for file in [
+            root.join("hidden.outside.xsh"),
+            repository.join("visible.outside.xsh"),
+            repository.join("parent-hidden.xsh"),
+            repository.join("parent-fd-hidden.xsh"),
+            repository.join("restored.xsh"),
+        ] {
+            fs::write(file, "let value = 1\n").unwrap();
+        }
+
+        let files = discover(&root, &[]);
+
+        assert_eq!(relative_paths(&root, &files), vec![
+            "nested/restored.xsh", "nested/visible.outside.xsh",
+        ]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn discovery_applies_config_excludes_after_gitignore() {
         let root = temp_root("excludes");
         fs::create_dir_all(root.join("nested")).expect("create nested dir");

@@ -41,7 +41,10 @@ discovery exclusions.
 
 Directory discovery respects `.fdignore`, `.ignore`, `.gitignore`, Git's
 `info/exclude`, and global Git ignore rules, in that order of precedence.
-`.gitignore` rules also apply outside Git repositories. Linked worktrees use
+`.gitignore` rules also apply outside Git repositories, up to a nested repository
+boundary. Inside a repository, Git ignore rules stop at its root. Parent
+`.ignore` and `.fdignore` rules still apply across repository boundaries.
+Linked worktrees use
 the shared repository's `info/exclude`, including when discovery reaches a
 worktree nested below a directory outside Git. Ignored directories are pruned
 before their contents are read. Unexcluded unreadable directories fail discovery.
