@@ -301,7 +301,7 @@ pure render_export(selection: Selection, rows: List[Row]) -> Str {
 }
 
 pure render_json(selection: Selection, rows: List[Row]) -> Str {
-  let table = if selection.global { "ipclimits" } else if selection.resources == ["queues"] { "messages" } else if selection.resources == ["posix_mqueues"] { "posix-messages" } else if selection.resources == ["shmems"] { "sharedmemory" } else if selection.resources == ["posix_shmems"] { "posix-sharedmemory" } else if selection.resources == ["semaphores"] { "semaphores" } else if selection.resources == ["posix_semaphores"] { "posix-semaphores" } else { "table" }
+  let table = if selection.global { "ipclimits" } else if rows.is_empty() and selection.resources != ["semaphores"] { "" } else if selection.resources == ["queues"] { "messages" } else if selection.resources == ["posix_mqueues"] { "posix-messages" } else if selection.resources == ["shmems"] { "sharedmemory" } else if selection.resources == ["posix_shmems"] { "posix-sharedmemory" } else if selection.resources == ["semaphores"] { "semaphores" } else if selection.resources == ["posix_semaphores"] { "posix-semaphores" } else { "table" }
   var out = f"{{\n   \"{table}\": [\n"
   for row_index in range(rows.len()) {
     let row = rows[row_index]
@@ -315,6 +315,7 @@ pure render_json(selection: Selection, rows: List[Row]) -> Str {
     let suffix = if row_index == rows.len() - 1 { "      }\n" } else { "      }," }
     out += suffix
   }
+  if rows.is_empty() { out += "\n" }
   out + "   ]\n}\n"
 }
 
