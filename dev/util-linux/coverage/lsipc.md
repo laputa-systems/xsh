@@ -90,9 +90,9 @@ The reference rejects more than one output mode from `--json`, `--export`,
 `--list`, `--newline`, and `--raw`. It rejects conflicts among `--name`,
 `--global`, and `--id`; among `--creator`, `--output`, and `--time`; and among
 the six resource selectors. These are source-defined option groups, not
-assumed last-option-wins behavior. GNU long-option parsing accepts a unique
-abbreviation such as `--que` and reports an ambiguous abbreviation such as
-`--posix-m`.
+assumed last-option-wins behavior. GNU long-option parsing accepts unique
+abbreviations such as `--que` and `--posix-m`, and reports an ambiguous
+abbreviation such as `--posix`.
 
 The output-column parser accepts case-insensitive full column names, not
 abbreviations. It rejects a trailing comma as an unknown column (for example,

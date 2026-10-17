@@ -390,7 +390,11 @@ test test_lsipc_long_option_abbreviations_match_reference { |ctx|
   assert unique.candidate.status == 0
   assert unique.candidate.stdout != b""
 
-  let ambiguous = run_both(s, ["--posix-m"])?
+  let unique_posix = run_both(s, ["--posix-m"])?
+  ul.compare(unique_posix.reference, unique_posix.candidate)
+  assert unique_posix.candidate.status == 0
+
+  let ambiguous = run_both(s, ["--posix"])?
   ul.compare(ambiguous.reference, ambiguous.candidate)
   assert ambiguous.candidate.status == 1
   assert ambiguous.candidate.stdout == b""
