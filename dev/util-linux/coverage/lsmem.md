@@ -85,7 +85,7 @@ case.
 | `test_lsmem_util_linux_2_42_4_version_identity` | Independent exact version identities for `--version` and `-V` |
 | `test_lsmem_util_linux_2_42_4_help_matches_reference` | Help output for `--help` and `-h` |
 | `test_lsmem_rooted_sparse_memory_attributes_and_output_modes` | Fixture-backed range discovery, merging, columns, output formats, bytes, headings, and summary modes |
-| `test_lsmem_rooted_columns_environment_and_explicit_output_precedence` | `LSMEM_COLUMNS`, explicit `--output`, and `--output-all` |
+| `test_lsmem_rooted_columns_environment_and_explicit_output_precedence` | `LSMEM_COLUMNS`, invalid environment columns, explicit `--output`, and `--output-all` |
 | `test_lsmem_rooted_short_option_aliases` | Short aliases for the supported output, byte, split, and sysroot options |
 | `test_lsmem_rooted_configured_memory_and_memmap_summary` | Firmware configuration, per-block memmap, and global summary modes |
 | `test_lsmem_rooted_malformed_block_attributes` | Invalid hexadecimal block size and malformed block attributes |
@@ -99,7 +99,7 @@ case.
 | `test_lsmem_rooted_missing_block_size_is_an_error` | Missing required block-size attribute |
 | `test_lsmem_rooted_nonnumeric_memory_entries_match_reference` | Nonnumeric `memory` directory with no numeric entries |
 | `test_lsmem_rooted_missing_sysfs_tree_does_not_use_host_memory` | Missing rooted sysfs data fails without host fallback |
-| `test_lsmem_rooted_option_errors_match_reference` | Option conflicts, invalid arguments, unknown columns/options, and positional operands |
+| `test_lsmem_rooted_option_errors_match_reference` | Format conflicts, invalid arguments, unknown columns/options, and positional operands |
 
 The upstream calls and added rooted cases are differential oracles, not recorded
 expected transcripts. The cases compare each candidate invocation against the
