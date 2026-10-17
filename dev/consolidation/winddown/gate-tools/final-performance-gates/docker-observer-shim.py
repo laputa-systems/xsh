@@ -4,6 +4,9 @@
 import json
 import os
 from pathlib import Path
+import posixpath
+import re
+import stat
 import sys
 from datetime import datetime, timezone
 
@@ -12,6 +15,8 @@ NATIVE_IMAGE_ID = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf3
 IMAGE_REFERENCES = {NATIVE_IMAGE_ID, "xsh-test", "xsh-test:consolidation-native"}
 CPU_LIMIT = 12
 MEMORY_LIMIT = "24g"
+SCRATCH_CONTAINER_PATH = "/t"
+SCRATCH_PATH_SUFFIX = (".work", "final-review-evidence", "final-performance-gates")
 RESOURCE_FLAGS = {
     "-c", "-m", "--cpus", "--cpu-period", "--cpu-quota", "--cpu-rt-period",
     "--cpu-rt-runtime", "--cpu-shares", "--cpuset-cpus", "--cpuset-mems",
@@ -25,6 +30,44 @@ GATE_BATCH_TAIL = [
 ]
 
 
+def has_scratch_mount(specification: str) -> bool:
+    if "target=" in specification or "destination=" in specification or "dst=" in specification:
+        target = next((
+            field.split("=", 1)[1]
+            for field in specification.split(",")
+            if field.startswith(("target=", "destination=", "dst="))
+        ), "")
+    else:
+        fields = specification.rsplit(":", 2)
+        target = fields[-2] if len(fields) == 3 else fields[-1] if len(fields) == 2 else ""
+    target = posixpath.normpath(target)
+    return target == "/" or target == SCRATCH_CONTAINER_PATH or target.startswith(SCRATCH_CONTAINER_PATH + "/")
+
+
+def valid_scratch_directory(value: str) -> bool:
+    path = Path(value)
+    try:
+        info = path.lstat()
+        resolved = path.resolve(strict=True)
+    except OSError:
+        return False
+    parts = path.parts
+    if (
+        not path.is_absolute()
+        or str(resolved) != value
+        or not stat.S_ISDIR(info.st_mode)
+        or stat.S_ISLNK(info.st_mode)
+        or len(parts) < 5
+        or parts[-5:-2] != SCRATCH_PATH_SUFFIX
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", parts[-2])
+        or parts[-1] != "tmp"
+        or ":" in value
+        or "," in value
+    ):
+        return False
+    return True
+
+
 def has_resource_override(arguments: list[str]) -> bool:
     index = 0
     while index < len(arguments):
@@ -35,15 +78,25 @@ def has_resource_override(arguments: list[str]) -> bool:
             return True
         if value == "--env-file" or value.startswith("--env-file="):
             return True
+        if value in ("-v", "--volume", "--mount"):
+            index += 1
+            if index >= len(arguments) or has_scratch_mount(arguments[index]):
+                return True
+        elif value.startswith("--volume=") or value.startswith("--mount="):
+            if has_scratch_mount(value.split("=", 1)[1]):
+                return True
+        elif value.startswith("-v") and not value.startswith("--"):
+            if has_scratch_mount(value[2:].lstrip("=")):
+                return True
         if value in ("-e", "--env"):
             index += 1
-            if index >= len(arguments) or arguments[index].split("=", 1)[0] == "CARGO_BUILD_JOBS":
+            if index >= len(arguments) or arguments[index].split("=", 1)[0] in ("CARGO_BUILD_JOBS", "TMPDIR"):
                 return True
         elif value.startswith("--env="):
-            if value[len("--env="):].split("=", 1)[0] == "CARGO_BUILD_JOBS":
+            if value[len("--env="):].split("=", 1)[0] in ("CARGO_BUILD_JOBS", "TMPDIR"):
                 return True
         elif value.startswith("-e") and not value.startswith("--"):
-            if value[2:].lstrip("=").split("=", 1)[0] == "CARGO_BUILD_JOBS":
+            if value[2:].lstrip("=").split("=", 1)[0] in ("CARGO_BUILD_JOBS", "TMPDIR"):
                 return True
         index += 1
     return False
@@ -73,6 +126,7 @@ def instrument_batch_argv(
     container_observer: str,
     container_resource_file: str,
     cpuset_cpus: str,
+    scratch_directory: str,
     resources_only: bool = False,
 ) -> list[str] | None:
     if not arguments or arguments[0] != "run":
@@ -80,7 +134,11 @@ def instrument_batch_argv(
     image_at = image_index(arguments)
     if image_at is None or arguments[image_at + 1:] != GATE_BATCH_TAIL:
         return None
-    if has_resource_override(arguments[1:image_at]) or not valid_cpuset(cpuset_cpus):
+    if (
+        has_resource_override(arguments[1:image_at])
+        or not valid_cpuset(cpuset_cpus)
+        or not valid_scratch_directory(scratch_directory)
+    ):
         return None
     ownership_options = [
         "--cidfile", cidfile,
@@ -93,6 +151,8 @@ def instrument_batch_argv(
         "--memory", MEMORY_LIMIT,
         "--memory-swap", MEMORY_LIMIT,
         "-e", f"CARGO_BUILD_JOBS={CPU_LIMIT}",
+        "-v", f"{scratch_directory}:{SCRATCH_CONTAINER_PATH}:rw",
+        "-e", f"TMPDIR={SCRATCH_CONTAINER_PATH}",
     ]
     command = [
         "/usr/bin/python3", container_observer,
@@ -119,9 +179,10 @@ def main() -> int:
     observer = os.environ.get("XSH_OBSERVER_CONTAINER_SCRIPT")
     resource_file = os.environ.get("XSH_OBSERVER_CONTAINER_RESOURCE")
     cpuset_cpus = os.environ.get("XSH_OBSERVER_CPUSET")
+    scratch_directory = os.environ.get("XSH_OBSERVER_SCRATCH_DIR")
     resources_only_value = os.environ.get("XSH_OBSERVER_RESOURCES_ONLY")
     if (
-        not all((real_docker, log_path, owner, cidfile, observer, resource_file, cpuset_cpus))
+        not all((real_docker, log_path, owner, cidfile, observer, resource_file, cpuset_cpus, scratch_directory))
         or resources_only_value not in ("0", "1")
     ):
         print("Docker observer configuration is incomplete", file=sys.stderr)
@@ -135,6 +196,7 @@ def main() -> int:
         container_observer=observer,
         container_resource_file=resource_file,
         cpuset_cpus=cpuset_cpus,
+        scratch_directory=scratch_directory,
         resources_only=resources_only_value == "1",
     )
     if original[:1] == ["run"] and instrumented is None:

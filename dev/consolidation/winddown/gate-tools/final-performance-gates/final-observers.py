@@ -824,10 +824,12 @@ def lint_command(
     tree: Path,
     profile_dir: Path,
     output_dir: Path,
+    scratch_dir: Path,
     cpus: str,
     run_id: str,
     resources_only: bool = False,
 ) -> list[str]:
+    scratch_path = owned_scratch_directory(scratch_dir, output_dir.parent, tree)
     observer = "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py"
     cidfile = output_dir / "container.cid"
     resource_file = output_dir / "container-resources.json"
@@ -843,14 +845,14 @@ def lint_command(
         "--memory", MEMORY_LIMIT,
         "--memory-swap", MEMORY_LIMIT,
         "--network", "none",
-        "--tmpfs", "/tmp:rw,exec,nosuid,mode=1777",
         "-v", f"{tree}:/work:ro",
         "-v", f"{profile_dir}:/release:ro",
         "-v", f"{output_dir}:/observer:rw",
+        "-v", f"{scratch_path}:/t:rw",
         "-w", "/work",
         "-e", "LC_ALL=C",
         "-e", "TZ=UTC",
-        "-e", "TMPDIR=/tmp",
+        "-e", "TMPDIR=/t",
         "-e", "XSH_BIN=/release/xsh",
         "-e", "PATH=/release:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         NATIVE_IMAGE_ID,
@@ -874,6 +876,31 @@ def manifest_relative_output(output: Path, tree: Path) -> str:
         return output.resolve().relative_to(tree.resolve()).as_posix()
     except ValueError as error:
         raise ObserverFailure("observer output must be inside the sealed source tree") from error
+
+
+def owned_scratch_directory(scratch_dir: Path, run_output: Path, tree: Path) -> Path:
+    if scratch_dir != run_output / "tmp":
+        raise ObserverFailure("observer scratch must be the per-run tmp directory")
+    try:
+        scratch_info = scratch_dir.lstat()
+        resolved_scratch = scratch_dir.resolve(strict=True)
+        resolved_output = run_output.resolve(strict=True)
+        relative_output = resolved_output.relative_to(tree.resolve())
+    except (OSError, ValueError) as error:
+        raise ObserverFailure("observer scratch must resolve below the source tree") from error
+    if (
+        not stat.S_ISDIR(scratch_info.st_mode)
+        or stat.S_ISLNK(scratch_info.st_mode)
+        or resolved_scratch != scratch_dir.absolute()
+        or resolved_output != run_output.absolute()
+        or relative_output.parts[:3] != (".work", "final-review-evidence", "final-performance-gates")
+        or len(relative_output.parts) != 4
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", relative_output.parts[3])
+        or ":" in str(resolved_scratch)
+        or "," in str(resolved_scratch)
+    ):
+        raise ObserverFailure("observer scratch must be a real per-run directory under the ignored artifact root")
+    return resolved_scratch
 
 
 def paths_overlap(first: Path, second: Path) -> bool:
@@ -950,9 +977,11 @@ def prepare_docker_shim(
     run_id: str,
     batch_stage: Path,
     cpuset_cpus: str,
+    scratch_dir: Path,
     *,
     resources_only: bool = False,
 ) -> Path:
+    scratch_path = owned_scratch_directory(scratch_dir, output, ROOT)
     shim_dir = output / "host-bin"
     shim_dir.mkdir()
     shim_path = shim_dir / "docker"
@@ -966,6 +995,7 @@ def prepare_docker_shim(
     output_relative = manifest_relative_output(batch_stage / "container-resources.json", ROOT)
     environment["XSH_OBSERVER_CONTAINER_RESOURCE"] = "/work/" + output_relative
     environment["XSH_OBSERVER_CPUSET"] = cpuset_cpus
+    environment["XSH_OBSERVER_SCRATCH_DIR"] = str(scratch_path)
     environment["XSH_OBSERVER_RESOURCES_ONLY"] = "1" if resources_only else "0"
     environment["PATH"] = str(shim_dir) + os.pathsep + environment["PATH"]
     return shim_path
@@ -1026,6 +1056,7 @@ def run(args: argparse.Namespace) -> int:
     scratch_dir = output / "tmp"
     for directory in (lint_dir, batch_dir, scratch_dir):
         directory.mkdir()
+    owned_scratch_directory(scratch_dir, output, tree)
     if not reused_target:
         target_dir.mkdir()
     run_id = secrets.token_hex(16)
@@ -1044,13 +1075,15 @@ def run(args: argparse.Namespace) -> int:
     })
     host_env = dict(baseline_environment)
     batch_shim = prepare_docker_shim(
-        output, host_env, docker, run_id, batch_dir, lint_cpus, resources_only=args.resources_only,
+        output, host_env, docker, run_id, batch_dir, lint_cpus, scratch_dir,
+        resources_only=args.resources_only,
     )
     batch_env = dict(host_env)
     batch_env["PATH"] = str(batch_shim.parent) + os.pathsep + os.environ.get("PATH", "")
     profile_before = selected["binaries"]
     lint_command_argv = lint_command(
-        docker, tree, Path(selected["directory"]), lint_dir, lint_cpus, run_id, resources_only=args.resources_only,
+        docker, tree, Path(selected["directory"]), lint_dir, scratch_dir, lint_cpus, run_id,
+        resources_only=args.resources_only,
     )
     batch_command_argv = gate_batch_command()
     receipt_path = output / "receipt.json"

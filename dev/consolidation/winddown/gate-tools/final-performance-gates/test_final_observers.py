@@ -361,31 +361,168 @@ def assert_gate_target_cli_forwarding() -> None:
     assert run.call_args.args[0].resources_only is True
 
 
-def assert_batch_shim_cpu_affinity() -> None:
-    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
-        root = Path(temporary)
-        output = root / "output"
-        batch_stage = output / "canonical-gate-batch"
-        output.mkdir()
-        batch_stage.mkdir()
-        environment = {"PATH": "/usr/bin"}
-        cpuset = ",".join(str(cpu) for cpu in range(12))
-        with patch.object(observer, "manifest_relative_output", return_value=".work/test/container-resources.json"):
-            shim_path = observer.prepare_docker_shim(
-                output, environment, "/usr/bin/docker", "synthetic-run", batch_stage, cpuset, resources_only=True,
-            )
+def assert_observer_scratch_bindings(scratch_dir: Path) -> None:
+    repo = scratch_dir.parents[4]
+    output = scratch_dir.parent
+    batch_stage = output / "canonical-gate-batch"
+    lint_stage = output / "isolated-repository-lint"
+    batch_stage.mkdir()
+    lint_stage.mkdir()
+    environment = {"PATH": "/usr/bin"}
+    cpuset = ",".join(str(cpu) for cpu in range(12))
+    with patch.object(observer, "ROOT", repo):
+        shim_path = observer.prepare_docker_shim(
+            output, environment, "/usr/bin/docker", "synthetic-run", batch_stage, cpuset,
+            scratch_dir=scratch_dir, resources_only=True,
+        )
         assert shim_path.is_file()
         assert environment["XSH_OBSERVER_CPUSET"] == cpuset
         assert environment["XSH_OBSERVER_REAL_DOCKER"] == "/usr/bin/docker"
         assert environment["XSH_OBSERVER_RESOURCES_ONLY"] == "1"
-        lint = observer.lint_command(
-            "/usr/bin/docker", observer.ROOT, Path("/release"), output, cpuset, "synthetic-run", resources_only=True,
-        )
-        image_at = lint.index(observer.NATIVE_IMAGE_ID)
-        assert lint[image_at + 1:] == [
-            "/usr/bin/python3", "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py",
-            "--resources-only", "/observer/container-resources.json", "--", "/release/xsht", "lint",
+        assert environment["XSH_OBSERVER_SCRATCH_DIR"] == str(scratch_dir)
+        docker_args = [
+            "run", "--rm", "--init", "--platform", "linux/amd64", "-v", f"{repo}:/work:rw",
+            docker_shim.NATIVE_IMAGE_ID, *docker_shim.GATE_BATCH_TAIL,
         ]
+        for resources_only in (False, True):
+            shim_environment = dict(environment)
+            shim_environment["XSH_OBSERVER_RESOURCES_ONLY"] = "1" if resources_only else "0"
+            with (
+                patch.dict(docker_shim.os.environ, shim_environment, clear=True),
+                patch.object(docker_shim.sys, "argv", ["docker", *docker_args]),
+                patch.object(docker_shim, "append_json_line"),
+                patch.object(docker_shim.os, "execv") as execv,
+            ):
+                assert docker_shim.main() == 127
+            effective = execv.call_args.args[1]
+            volumes = [effective[index + 1] for index, value in enumerate(effective[:-1]) if value == "-v"]
+            assert volumes == [f"{scratch_dir}:/t:rw", f"{repo}:/work:rw"]
+            assert [value for value in effective if value.startswith("TMPDIR=")] == ["TMPDIR=/t"]
+            assert ("--resources-only" in effective) is resources_only
+
+        for resources_only in (False, True):
+            lint = observer.lint_command(
+                "/usr/bin/docker", repo, Path("/release"), lint_stage, scratch_dir, cpuset,
+                "synthetic-run", resources_only=resources_only,
+            )
+            image_at = lint.index(observer.NATIVE_IMAGE_ID)
+            assert lint[image_at + 1:] == [
+                "/usr/bin/python3", "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py",
+                *( ["--resources-only"] if resources_only else [] ),
+                "/observer/container-resources.json", "--", "/release/xsht", "lint",
+            ]
+            assert "--tmpfs" not in lint
+            volumes = [lint[index + 1] for index, value in enumerate(lint[:-1]) if value == "-v"]
+            assert volumes == [
+                f"{repo}:/work:ro", "/release:/release:ro",
+                f"{lint_stage}:/observer:rw", f"{scratch_dir}:/t:rw",
+            ]
+            assert [value for value in lint if value.startswith("TMPDIR=")] == ["TMPDIR=/t"]
+
+    symlink_run = output.parent / "symlink-run"
+    symlink_run.mkdir()
+    symlink_scratch = symlink_run / "tmp"
+    symlink_scratch.symlink_to(scratch_dir, target_is_directory=True)
+    try:
+        observer.owned_scratch_directory(symlink_scratch, symlink_run, repo)
+    except observer.ObserverFailure:
+        pass
+    else:
+        raise AssertionError("per-run observer scratch must reject symlinks")
+    assert not docker_shim.valid_scratch_directory(str(symlink_scratch))
+
+    outside_run = repo / "outside-run"
+    outside_run.mkdir()
+    outside_scratch = outside_run / "tmp"
+    outside_scratch.mkdir()
+    try:
+        observer.owned_scratch_directory(outside_scratch, outside_run, repo)
+    except observer.ObserverFailure:
+        pass
+    else:
+        raise AssertionError("observer scratch must stay in the per-run artifact directory")
+
+
+def assert_docker_shim_argv(scratch_dir: Path) -> None:
+    args = [
+        "run", "--rm", "--init", "--platform", "linux/amd64", "-v", "/source:/work",
+        docker_shim.NATIVE_IMAGE_ID, *docker_shim.GATE_BATCH_TAIL,
+    ]
+    common = {
+        "cidfile": "/evidence/container.cid",
+        "owner": "synthetic-run",
+        "container_observer": "/work/observer.py",
+        "container_resource_file": "/work/resource.json",
+        "cpuset_cpus": ",".join(str(cpu) for cpu in range(12)),
+        "scratch_directory": str(scratch_dir),
+    }
+    transformed = docker_shim.instrument_batch_argv(args, **common)
+    assert transformed is not None
+    image_at = transformed.index(docker_shim.NATIVE_IMAGE_ID)
+    assert transformed[image_at + 1:] == [
+        "/usr/bin/python3", "/work/observer.py", "/work/resource.json", "--",
+        "/root/.cargo/bin/cargo", *docker_shim.GATE_BATCH_TAIL[1:],
+    ]
+    assert transformed[1:5] == [
+        "--cidfile", "/evidence/container.cid", "--label", "org.xsh.final-performance.owner=synthetic-run",
+    ]
+    assert transformed[7:17] == [
+        "--cpuset-cpus", ",".join(str(cpu) for cpu in range(12)),
+        "--cpus", "12", "--memory", "24g", "--memory-swap", "24g",
+        "-e", "CARGO_BUILD_JOBS=12",
+    ]
+    volumes = [transformed[index + 1] for index, value in enumerate(transformed[:-1]) if value == "-v"]
+    assert volumes == [f"{scratch_dir}:/t:rw", "/source:/work"]
+    assert "-e" in transformed
+    assert [value for value in transformed if value.startswith("TMPDIR=")] == ["TMPDIR=/t"]
+
+    resource_only_transformed = docker_shim.instrument_batch_argv(
+        args, **common, resources_only=True,
+    )
+    assert resource_only_transformed is not None
+    resource_image_at = resource_only_transformed.index(docker_shim.NATIVE_IMAGE_ID)
+    assert resource_only_transformed[resource_image_at + 1:resource_image_at + 5] == [
+        "/usr/bin/python3", "/work/observer.py", "--resources-only", "/work/resource.json",
+    ]
+    resource_only_volumes = [
+        resource_only_transformed[index + 1]
+        for index, value in enumerate(resource_only_transformed[:-1])
+        if value == "-v"
+    ]
+    assert resource_only_volumes == [f"{scratch_dir}:/t:rw", "/source:/work"]
+    assert [value for value in resource_only_transformed if value.startswith("TMPDIR=")] == ["TMPDIR=/t"]
+
+    assert docker_shim.instrument_batch_argv(
+        args[:-1] + ["gate-lane"], **common,
+    ) is None
+    for override in (
+        ["--cpus", "2"], ["--cpus=2"], ["--cpu-quota=1200000"], ["--memory", "1g"],
+        ["-m1g"], ["--memory-swap=1g"], ["--cpuset-cpus", "0"], ["--cpuset-cpus=0-11"],
+        ["--env", "CARGO_BUILD_JOBS=2"], ["--env", "CARGO_BUILD_JOBS"],
+        ["--env=CARGO_BUILD_JOBS=2"], ["--env=CARGO_BUILD_JOBS"],
+        ["-e", "CARGO_BUILD_JOBS"], ["-eCARGO_BUILD_JOBS=2"],
+        ["-e", "TMPDIR=/tmp"], ["--env=TMPDIR=/tmp"],
+        ["-v", "/host:/t:ro"], ["--volume=/host:/t:ro"],
+        ["--mount", "type=bind,source=/host,target=/t"],
+        ["--mount=type=bind,source=/host,destination=/t"],
+        ["-e=CARGO_BUILD_JOBS=2"], ["--env-file", "/work/container.env"],
+        ["--env-file=/work/container.env"],
+    ):
+        assert docker_shim.instrument_batch_argv(
+            args[:1] + override + args[1:], **common,
+        ) is None, override
+
+    assert docker_shim.instrument_batch_argv(
+        args, **{**common, "cpuset_cpus": "0,1,2"},
+    ) is None
+    for unsafe_scratch in (
+        "/tmp",
+        "/work/.work/final-review-evidence/final-performance-gates/run/../tmp",
+        str(scratch_dir.parent),
+    ):
+        assert docker_shim.instrument_batch_argv(
+            args, **{**common, "scratch_directory": unsafe_scratch},
+        ) is None, unsafe_scratch
 
 
 def assert_batch_child_owns_cargo_lock() -> None:
@@ -502,83 +639,13 @@ def main() -> None:
     assert plan["supplemental_isolated_tests"]["context"].find("nodev /tmp") >= 0
     assert_gate_target_reuse_contract()
     assert_gate_target_cli_forwarding()
-    assert_batch_shim_cpu_affinity()
     assert_batch_child_owns_cargo_lock()
     assert_container_resource_timing_modes()
-
-    args = [
-        "run", "--rm", "--init", "--platform", "linux/amd64", "-v", "/source:/work",
-        docker_shim.NATIVE_IMAGE_ID, *docker_shim.GATE_BATCH_TAIL,
-    ]
-    transformed = docker_shim.instrument_batch_argv(
-        args,
-        cidfile="/evidence/container.cid",
-        owner="synthetic-run",
-        container_observer="/work/observer.py",
-        container_resource_file="/work/resource.json",
-        cpuset_cpus=",".join(str(cpu) for cpu in range(12)),
-    )
-    assert transformed is not None
-    image_at = transformed.index(docker_shim.NATIVE_IMAGE_ID)
-    assert transformed[image_at + 1:] == [
-        "/usr/bin/python3", "/work/observer.py", "/work/resource.json", "--",
-        "/root/.cargo/bin/cargo", *docker_shim.GATE_BATCH_TAIL[1:],
-    ]
-    resource_only_transformed = docker_shim.instrument_batch_argv(
-        args,
-        cidfile="/evidence/container.cid",
-        owner="synthetic-run",
-        container_observer="/work/observer.py",
-        container_resource_file="/work/resource.json",
-        cpuset_cpus=",".join(str(cpu) for cpu in range(12)),
-        resources_only=True,
-    )
-    assert resource_only_transformed is not None
-    resource_image_at = resource_only_transformed.index(docker_shim.NATIVE_IMAGE_ID)
-    assert resource_only_transformed[resource_image_at + 1:resource_image_at + 5] == [
-        "/usr/bin/python3", "/work/observer.py", "--resources-only", "/work/resource.json",
-    ]
-    assert transformed[1:5] == [
-        "--cidfile", "/evidence/container.cid", "--label", "org.xsh.final-performance.owner=synthetic-run",
-    ]
-    assert transformed[7:17] == [
-        "--cpuset-cpus", ",".join(str(cpu) for cpu in range(12)),
-        "--cpus", "12", "--memory", "24g", "--memory-swap", "24g",
-        "-e", "CARGO_BUILD_JOBS=12",
-    ]
-    assert docker_shim.instrument_batch_argv(
-        args[:-1] + ["gate-lane"],
-        cidfile="/evidence/container.cid",
-        owner="synthetic-run",
-        container_observer="/work/observer.py",
-        container_resource_file="/work/resource.json",
-        cpuset_cpus=",".join(str(cpu) for cpu in range(12)),
-    ) is None
-    for override in (
-        ["--cpus", "2"], ["--cpus=2"], ["--cpu-quota=1200000"], ["--memory", "1g"],
-        ["-m1g"], ["--memory-swap=1g"], ["--cpuset-cpus", "0"], ["--cpuset-cpus=0-11"],
-        ["--env", "CARGO_BUILD_JOBS=2"], ["--env", "CARGO_BUILD_JOBS"],
-        ["--env=CARGO_BUILD_JOBS=2"], ["--env=CARGO_BUILD_JOBS"],
-        ["-e", "CARGO_BUILD_JOBS"], ["-eCARGO_BUILD_JOBS=2"],
-        ["-e=CARGO_BUILD_JOBS=2"], ["--env-file", "/work/container.env"],
-        ["--env-file=/work/container.env"],
-    ):
-        assert docker_shim.instrument_batch_argv(
-            args[:1] + override + args[1:],
-            cidfile="/evidence/container.cid",
-            owner="synthetic-run",
-            container_observer="/work/observer.py",
-            container_resource_file="/work/resource.json",
-            cpuset_cpus=",".join(str(cpu) for cpu in range(12)),
-        ) is None, override
-    assert docker_shim.instrument_batch_argv(
-        args,
-        cidfile="/evidence/container.cid",
-        owner="synthetic-run",
-        container_observer="/work/observer.py",
-        container_resource_file="/work/resource.json",
-        cpuset_cpus="0,1,2",
-    ) is None
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
+        scratch_dir = Path(temporary) / "repo/.work/final-review-evidence/final-performance-gates/run/tmp"
+        scratch_dir.mkdir(parents=True)
+        assert_observer_scratch_bindings(scratch_dir)
+        assert_docker_shim_argv(scratch_dir)
 
     with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
         root = Path(temporary)
