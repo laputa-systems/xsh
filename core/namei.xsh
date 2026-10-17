@@ -8,15 +8,14 @@ const USAGE = """Usage:
 Follow a pathname until a terminal point is found.
 
 Options:
- -x, --mountpoints show mount point directories with a 'D'
- -m, --modes show the mode bits of each file
- -o, --owners show owner and group name of each file
- -l, --long use a long listing format (-m -o -v)
- -n, --nosymlinks don't follow symlinks
- -v, --vertical vertical align of modes and owners
-
- -h, --help display this help
- -V, --version display version
+ -x, --mountpoints   show mount point directories with a 'D'
+ -m, --modes         show the mode bits of each file
+ -o, --owners        show owner and group name of each file
+ -l, --long          use a long listing format (-m -o -v)\x20
+ -n, --nosymlinks    don't follow symlinks
+ -v, --vertical      vertical align of modes and owners
+ -h, --help          display this help
+ -V, --version       display version
 
 For more details see namei(1).
 """
@@ -355,7 +354,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let prepared = gnu.prepare_arguments(argv)
   let options = parse_options(prepared.text)
 
-  if options.help { gnu.help(USAGE); return }
+  if options.help { gnu.help(f"\n{USAGE}"); return }
   if options.version { gnu.version("namei"); return }
   if options.paths.is_empty() {
     gnu.error("pathname argument is missing")
