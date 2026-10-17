@@ -128,9 +128,8 @@ pure first_option_diagnostic(argv: List[Str], permute: Bool) -> Str? {
         return f"unrecognized option: {code}" when code not in SHORT_OPTIONS
         return null when code in ["h", "V"]
         if code in ["o", "p", "Q"] {
-          let name = match code { "o" => "output"; "p" => "pid"; else => "filter" }
           if offset + 1 < shorts.byte_len() { break }
-          return f"option requires an argument: {name}" when index + 1 == argv.len()
+          return f"option requires an argument: {code}" when index + 1 == argv.len()
           index += 1
           break
         }
