@@ -1,0 +1,3 @@
+running 1 tests
+core/tests/test-uu-factor.xsh::test_uu_factor_handles_non_unicode_data ... ok 51ms
+test result: ok. 1 passed; 0 failed; 0 skipped

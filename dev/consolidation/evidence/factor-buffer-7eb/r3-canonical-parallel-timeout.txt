@@ -1,0 +1,5 @@
+---- core/tests/test-uu-factor.xsh::test_uu_factor_parallel ----
+TIMEOUT after 2m
+canceled: process work was canceled by signal 15
+
+test result: FAILED. 13914 passed; 2 failed; 78 skipped
