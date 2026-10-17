@@ -299,3 +299,28 @@ container-shaped ordinary result instead. The Set owner has the failure and
 this trace. An initializer seed must carry correct binding, shadowing and element
 domain authority before constructor checking. Restoring the 109 annotations
 would hide this defect. The 986 count remains planned and unqualified.
+
+
+The unchanged 986 candidate passes the fresh retry with the pre-initializer fix
+at source `020f9c0c799a0e17c2b0006ced779e416a3a8052`, tree
+`1f67a4262727c8779e3135bf0fa49132ef9f7c12`. Both annotated and reduced views check
+all ten XSH roots and the Laputa root, with ordinary lowering in all four actual
+summaries and zero diagnostics. All four compiler statuses and the wrapper status
+are zero. The [020f check proof](../evidence/typing-corpus-host-obligations/mutable-sets/020f-check/)
+retains the fresh runner and complete outputs. The prior 749 rejection remains
+unchanged alongside it. The singular summary matcher is corrected in the retry.
+
+All 109 new Set annotations are therefore jointly removable for checking and
+lowering: 457 of 693 locals and the unchanged 529 of 2,190 internal annotations.
+These are checker results. Runtime parity for the new source and candidate is
+pending the assigned native slot. No previous native result is relabeled.
+
+The 020f source stays clean throughout the retry. All three qualified physical
+product hashes and both complete source-view digests match before and after.
+The original digest remains `e3429dcf2abe9524754a28458651443bc56523b50130268a1c1ff44c03e36899`.
+The reduced 986 digest is `43ad0beddeb95ef7f695598664156df29605831df3156433a11ea356d39d8c35`.
+Both owned containers are absent. The prepared native runner in that proof is
+shell-validated but not executed. It requires the exact same source, three
+products and expected view digests, preserves failure guards and exact cleanup,
+and requires thirteen actual one-pass/no-skip selections per view under the
+original nonblocking native-suite lock. It starts only in the assigned slot.
