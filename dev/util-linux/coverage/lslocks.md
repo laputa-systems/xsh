@@ -63,7 +63,7 @@ must cover those behaviors. A test that is not run remains open.
 | `-n`, `--noheadings` | Omit headings in table output. |
 | `-o`, `--output LIST` | Select a comma-separated, case-insensitive column list. `+LIST` extends the default columns. Unknown and repeated columns need exact status and diagnostic assertions. |
 | `--output-all` | Select all 13 columns in their declared order. |
-| `-p`, `--pid PID` | Keep rows whose reported PID equals `PID`, including blocked rows whose PID is the waiter. OFD PID `-1` is not selectable by the filter engine. |
+| `-p`, `--pid PID` | Keep rows whose reported PID equals `PID`, including blocked rows whose PID is the waiter. Under `-Q`, OFD PID `-1` cannot be selected because filter numbers are unsigned. |
 | `-Q`, `--filter EXPR` | Apply an experimental libsmartcols filter. Cover string and numeric comparisons, regex, logical, unknown-column, malformed-expression, and unselected-column cases. Numeric filter values are non-negative; OFD PID `-1` is not filterable. |
 | `-r`, `--raw` | Emit raw table output. `-r` and `-J` are mutually exclusive and must fail together. |
 | `-u`, `--notruncate` | Disable text-column truncation, especially for `PATH`. |
@@ -127,7 +127,8 @@ that field.
 | `test_lslocks_default_and_selected_lock_rows` | All rows in a private PID namespace; selected rows in the shared namespace; outside holder stays invisible in both commands. |
 | `test_lslocks_ranges_and_eof` | Finite POSIX/OFD byte ranges, zero-length-to-EOF locks, exact `START` and `END`, and non-overlapping ranges. |
 | `test_lslocks_blocker_and_waiting_mode` | A synchronized queued request has `MODE` suffixed with `*` and the exact `BLOCKER` PID. Releasing the owner lets the waiter finish. |
-| `test_lslocks_posix_holders_and_mandatory_flag` | `HOLDERS` behavior for POSIX locks and `M` for advisory locks; qualify a mandatory-lock positive case only in a filesystem/kernel setup that enables it. |
+| `test_lslocks_posix_holders` | `HOLDERS` behavior for POSIX locks, including the process-wide descriptor association. |
+| `test_lslocks_mandatory_flag` | `M` for advisory locks; qualify a mandatory-lock positive case only in a filesystem/kernel setup that enables it. |
 | `test_lslocks_inaccessible_and_noinaccessible` | Cross-UID path/command access, fallback mountpoint text, and `-i` row removal under the qualified permission context. |
 | `test_lslocks_deleted_path_and_owner_exit` | A deleted locked file shows the reference path text while the descriptor remains open; owner exit removes its row. |
 | `test_lslocks_disappearing_owner_during_collection` | Process exit during collection does not invent an owner, corrupt another row, or silently turn unexpected I/O failure into success. |

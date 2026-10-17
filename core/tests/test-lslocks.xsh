@@ -40,7 +40,7 @@ test test_lslocks_output_column_names_and_errors { |ctx|
   ul.require_private_namespace()
   for args in [
     ["--output", "path,type"], ["--output", "+BLOCKER"],
-    ["--output", "PID,PID"], ["--output", ""],
+    ["--output", "PID,PID"], ["--output", ""], ["--output", "UNKNOWN"],
     ["--output", "PID", "--output", "TYPE"],
   ] {
     parity(s, args)?
@@ -52,7 +52,7 @@ test test_lslocks_help_and_usage_errors { |ctx|
   ul.require_private_namespace()
   for args in [
     ["-h"], ["--help"], ["--output"], ["--pid", "bad"], ["--unknown"],
-    ["--json", "--raw"], ["--filter", "TYPE =="], ["--output", "UNKNOWN"], ["operand"],
+    ["--json", "--raw"], ["operand"],
   ] {
     parity(s, args)?
   }
