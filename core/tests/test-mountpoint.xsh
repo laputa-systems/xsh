@@ -1,6 +1,6 @@
-use core.lib.gnu as gnu
-use core.tests.support.uu as uu
-use core.tests.support.util_linux as ul
+use lib.gnu as gnu
+use support.uu
+use support.util_linux as ul
 
 proc parity(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[Unit, Error] {
   let reference = ul.reference(s, "mountpoint", args, timeout: 5s)?
@@ -22,8 +22,11 @@ test test_mountpoint_upstream_default_follows_mountpoint_symlink { |ctx|
   uu.write(s, "file", "owned file fixture\n")
   uu.mkdir(s, "directory")
   let mount = fs.mount_for(s.root)?
+  let link = uu.at(s, "mount-link")
   uu.symlink(s, mount.mounted_on.display(), "mount-link")
   parity(s, ["--", fp"{s.root}/mount-link".display()])?
+  assert fs.stat(link, follow_symlinks: false)?.kind == "symlink"
+  assert link.readlink()? == mount.mounted_on
 }
 
 test test_mountpoint_upstream_nofollow_does_not_follow_mountpoint_symlink { |ctx|
@@ -32,6 +35,7 @@ test test_mountpoint_upstream_nofollow_does_not_follow_mountpoint_symlink { |ctx
   let mount = fs.mount_for(s.root)?
   uu.symlink(s, mount.mounted_on.display(), "mount-link")
   parity(s, ["--nofollow", "--", fp"{s.root}/mount-link".display()])?
+  assert uu.at(s, "mount-link").readlink()? == mount.mounted_on
 }
 
 test test_mountpoint_upstream_mutually_exclusive_devno_nofollow { |ctx|
@@ -54,6 +58,9 @@ test test_mountpoint_quiet_for_files_directories_and_dangling_symlinks { |ctx|
   }
   parity(s, ["--nofollow", "--", fp"{s.root}/file-link".display()])?
   parity(s, ["--nofollow", "--", fp"{s.root}/dangling-link".display()])?
+  assert uu.read_text(s, "regular")? == "regular path\n"
+  assert uu.at(s, "file-link").readlink()? == p"regular"
+  assert uu.at(s, "dangling-link").readlink()? == p"missing"
 }
 
 test test_mountpoint_filesystem_device_numbers_cover_mount_and_regular_paths { |ctx|
@@ -63,6 +70,7 @@ test test_mountpoint_filesystem_device_numbers_cover_mount_and_regular_paths { |
   let mount = fs.mount_for(s.root)?
   parity(s, ["--fs-devno", "--", mount.mounted_on.display()])?
   parity(s, ["-d", "--", fp"{s.root}/regular".display()])?
+  assert uu.read_text(s, "regular")? == "regular path\n"
 }
 
 test test_mountpoint_device_number_requires_a_block_device { |ctx|
@@ -84,6 +92,7 @@ test test_mountpoint_show_on_a_real_mount_and_non_mount_path { |ctx|
   parity(s, ["--show", "--fs-devno", "--", mount.mounted_on.display()])?
   parity(s, ["--show", "--nofollow", "--", fp"{s.root}/mount-link".display()])?
   parity(s, ["--show", "--", s.root.display()])?
+  assert uu.at(s, "mount-link").readlink()? == mount.mounted_on
 }
 
 test test_mountpoint_rejects_bad_operand_counts_and_options { |ctx|
@@ -106,6 +115,8 @@ test test_mountpoint_path_arguments_preserve_non_utf8_names { |ctx|
   let spaced = fp"{s.root}/space and quote'"
   spaced.write("quoted path\n")
   parity_paths(s, [p"--", spaced])?
+  assert name.read_text()? == "owned raw path\n"
+  assert spaced.read_text()? == "quoted path\n"
 }
 
 test test_mountpoint_private_same_device_bind_mount { |ctx|
@@ -113,8 +124,12 @@ test test_mountpoint_private_same_device_bind_mount { |ctx|
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let fixture = fp"{ctx.core_dir}/tests/fixtures/util-linux/paths/bind"
-  let source = fp"{fixture}/source"
-  let target = fp"{fixture}/target"
+  uu.mkdir(s, "bind/source")
+  uu.mkdir(s, "bind/target")
+  uu.write(s, "bind/source/entry", fp"{fixture}/source/entry".read_text()?)
+  uu.write(s, "bind/target/sentinel", fp"{fixture}/target/sentinel".read_text()?)
+  let source = fp"{s.root}/bind/source"
+  let target = fp"{s.root}/bind/target"
   assert fs.stat(source)?.dev == fs.stat(target)?.dev
   var mounted = false
   defer {

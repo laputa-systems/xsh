@@ -1,6 +1,6 @@
-use core.lib.gnu as gnu
-use core.tests.support.uu as uu
-use core.tests.support.util_linux as ul
+use lib.gnu as gnu
+use support.uu
+use support.util_linux as ul
 
 proc parity(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[Unit, Error] {
   let reference = ul.reference(s, "namei", args, timeout: 5s)?
@@ -24,6 +24,8 @@ test test_namei_upstream_logic_plain_relative_paths { |ctx|
   uu.write(s, "namei1/namei2/b", "b\n")
   parity(s, ["namei1/namei2/a"])?
   parity(s, ["namei1/namei2/b"])?
+  assert uu.read_text(s, "namei1/namei2/a")? == "a\n"
+  assert uu.read_text(s, "namei1/namei2/b")? == "b\n"
 }
 
 test test_namei_each_output_option_and_long_combination { |ctx|
@@ -57,6 +59,10 @@ test test_namei_component_walk_follows_relative_and_absolute_symlinks { |ctx|
   let quoted = fp"{s.root}/tree/space and quote'"
   quoted.write("quoted path\n")
   parity_paths(s, [p"--", quoted])?
+  assert uu.read_text(s, "tree/inner/file")? == "file\n"
+  assert uu.at(s, "tree/relative").readlink()? == p"inner/file"
+  assert uu.at(s, "tree/absolute").readlink()? == fp"{s.root}/tree/inner/file"
+  assert quoted.read_text()? == "quoted path\n"
 }
 
 test test_namei_committed_path_fixture_links_and_components { |ctx|
@@ -81,8 +87,12 @@ test test_namei_private_same_device_bind_mount_marker { |ctx|
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let fixture = fp"{ctx.core_dir}/tests/fixtures/util-linux/paths/bind"
-  let source = fp"{fixture}/source"
-  let target = fp"{fixture}/target"
+  uu.mkdir(s, "bind/source")
+  uu.mkdir(s, "bind/target")
+  uu.write(s, "bind/source/entry", fp"{fixture}/source/entry".read_text()?)
+  uu.write(s, "bind/target/sentinel", fp"{fixture}/target/sentinel".read_text()?)
+  let source = fp"{s.root}/bind/source"
+  let target = fp"{s.root}/bind/target"
   assert fs.stat(source)?.dev == fs.stat(target)?.dev
   var mounted = false
   defer {
@@ -136,6 +146,7 @@ test test_namei_path_arguments_preserve_non_utf8_components { |ctx|
   name.write("owned raw path\n")
   parity_paths(s, [p"--", name])?
   parity_paths(s, [p"-m", p"--", name])?
+  assert name.read_text()? == "owned raw path\n"
 }
 
 test test_namei_permission_denied_from_unprivileged_runner { |ctx|

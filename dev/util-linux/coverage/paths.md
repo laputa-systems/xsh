@@ -13,7 +13,7 @@ difference is `version-provenance`: each command keeps its own version banner.
 | `mountpoint` `test_mountpoint_quiet_for_files_directories_and_dangling_symlinks` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c), [manual](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.1.adoc) | `-q` / `--quiet` for regular files, directories, file symlinks, dangling symlinks, and missing paths. |
 | `mountpoint` `test_mountpoint_filesystem_device_numbers_cover_mount_and_regular_paths` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c) | `-d` / `--fs-devno` for a mount root and a regular path that is not itself a mountpoint. |
 | `mountpoint` `test_mountpoint_device_number_requires_a_block_device` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c), [manual](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.1.adoc) | `-x` / `--devno` on a character device and a directory; no block device is created or changed. |
-| `mountpoint` `test_mountpoint_show_on_a_real_mount_and_non_mount_path` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c), [manual](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.1.adoc) | `--show` on a discovered mount root and an ordinary path. Reference support depends on the util-linux build's statmount support. |
+| `mountpoint` `test_mountpoint_show_on_a_real_mount_and_non_mount_path` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c), [manual](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.1.adoc) | `--show` on a discovered mount root, symlink, and ordinary path, with `--quiet`, `--fs-devno`, and `--nofollow` interactions. Reference support depends on the util-linux build's statmount support. |
 | `mountpoint` `test_mountpoint_rejects_bad_operand_counts_and_options` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c), [manual](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.1.adoc) | Missing and extra operands, an unknown option, and `-h` / `--help`, including usage status and diagnostics. |
 | `mountpoint` `test_mountpoint_path_arguments_preserve_non_utf8_names` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c) | Raw path bytes through native `Path` argv transport. |
 | `mountpoint` `test_mountpoint_private_same_device_bind_mount` | [source](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.c), [manual](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/mountpoint.1.adoc) | Same-device bind target is a mountpoint; checks `--fs-devno`, `--show`, and the restored hidden target after unmount in the required private namespace. |
@@ -34,7 +34,8 @@ The bind fixture is prepared at
 [`core/tests/fixtures/util-linux/paths/bind`](../../../core/tests/fixtures/util-linux/paths/bind).
 Its source and target are ordinary directories on the same checked-out
 filesystem; `source/entry` and `target/sentinel` distinguish the visible trees.
-No mount is active in the repository. Same-device bind coverage requires the
+The native tests copy those bytes to an owned writable scene; no mount is active
+in the repository. Same-device bind coverage requires the
 coordinator's capability-qualified private mount namespace runner. The native
 tests call `ul.require_private_namespace()`, bind the fixture only inside that
 namespace, compare reference and candidate there, and unmount before asserting
