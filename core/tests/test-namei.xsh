@@ -131,9 +131,13 @@ test test_namei_committed_path_fixture_links_and_components { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
   let tree = fp"{ctx.core_dir}/tests/fixtures/util-linux/paths/tree"
-  for name in ["regular", "inner/entry", "relative", "dangling", "loop-a", "root-link"] {
+  for name in ["regular", "inner/entry", "relative", "dangling", "loop-a"] {
     parity(s, ["-l", "--", fp"{tree}/{name}".display()])?
   }
+  uu.symlink(s, "/", "root-link")?
+  let root_link = uu.at(s, "root-link")
+  assert root_link.readlink()? == p"/"
+  parity(s, ["-l", "--", root_link.display()])?
 }
 
 test test_namei_mountpoint_markers_follow_a_real_mount_boundary { |ctx|
