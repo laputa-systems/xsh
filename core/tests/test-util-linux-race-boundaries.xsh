@@ -38,10 +38,10 @@ test test_util_linux_lslocks_owner_exit_after_both_kernel_snapshots { |ctx|
   defer ul.stop_keeper(observer)
   let barrier = reply(observer.ready)?.require(Barrier)?
   assert barrier.holder_pid == held.pid and barrier.inode == held.inode
-  assert (f" {held.pid} " in barrier.reference_row) and (f" {held.pid} " in barrier.candidate_row)
+  assert f" {held.pid} " in barrier.reference_row and f" {held.pid} " in barrier.candidate_row
   ul.keeper_send(owner, "DONE")
   ul.finish_keeper(owner)
-  assert ! fp"/proc/{held.pid}".exists()
+  assert ! fp"/proc/{held.pid}".exists()?
   for line in p"/proc/locks".read_text()?.lines() {
     let fields = line.fields()
     assert fields.len() < 6 or fields[4] != f"{held.pid}" or ! fields[5].ends_with(f":{held.inode}")
