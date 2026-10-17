@@ -187,7 +187,7 @@ pure truncate_cells(text: Str, width: Int) -> Str {
 
 pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> Str {
   return "" when rows.is_empty()
-  var widths: List[Int] = [tui.cell_width(heading(selection, column)) for column in selection.columns]
+  var widths: List[Int] = [if selection.noheadings { 0 } else { tui.cell_width(heading(selection, column)) } for column in selection.columns]
   for row in rows {
     for index in range(selection.columns.len()) {
       let shown = tui.cell_width(escape_cell(row.cells[index].text))
@@ -204,7 +204,7 @@ pure render_table(selection: Selection, rows: List[Row], output_width: Int) -> S
       let reduction = total_width - output_width
       for index in range(selection.columns.len()) {
         if selection.columns[index] == "COMMAND" {
-          let minimum = tui.cell_width(heading(selection, selection.columns[index]))
+          let minimum = if selection.noheadings { 0 } else { tui.cell_width(heading(selection, selection.columns[index])) }
           widths[index] = if widths[index] - minimum > reduction { widths[index] - reduction } else { minimum }
           break
         }
