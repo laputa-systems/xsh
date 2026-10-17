@@ -625,7 +625,7 @@ test test_lsipc_id_and_name_select_registered_objects { |ctx|
       assert pair.candidate.stdout != b"", mode.kind
     }
   }
-  for mode in [RESOURCE_MODES[0], RESOURCE_MODES[2]] {
+  for mode in [RESOURCE_MODES[0], RESOURCE_MODES[1], RESOURCE_MODES[2]] {
     let pair = run_both(s, [mode.selector, "--id", "-2", "--raw"])?
     ul.compare(pair.reference, pair.candidate)
     assert pair.candidate.status == 0, mode.selector
