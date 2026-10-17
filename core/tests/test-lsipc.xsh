@@ -269,20 +269,20 @@ proc assert_snapshot_read_preserves_state(ready: KeeperReady, before: Bytes, aft
     if resource.kind == "posix_mqueue" {
       let old = before_state.require(PosixMqueueSnapshot)?
       let new = after_state.require(PosixMqueueSnapshot)?
-      assert old.uid == new.uid, f"{label} changed {resource.name} uid"
-      assert old.gid == new.gid, f"{label} changed {resource.name} gid"
-      assert old.mode == new.mode, f"{label} changed {resource.name} mode"
-      assert old.size == new.size, f"{label} changed {resource.name} size"
-      assert old.mtime_ns == new.mtime_ns, f"{label} changed {resource.name} mtime"
-      assert old.attributes == new.attributes, f"{label} changed {resource.name} attributes"
+      assert old.uid == new.uid, f"{label} changed mqueue {index} uid"
+      assert old.gid == new.gid, f"{label} changed mqueue {index} gid"
+      assert old.mode == new.mode, f"{label} changed mqueue {index} mode"
+      assert old.size == new.size, f"{label} changed mqueue {index} size"
+      assert old.mtime_ns == new.mtime_ns, f"{label} changed mqueue {index} mtime"
+      assert old.attributes == new.attributes, f"{label} changed mqueue {index} attributes"
       if mqueue_read {
-        assert new.ctime_ns >= old.ctime_ns, f"{label} moved {resource.name} ctime backward: {old.ctime_ns} -> {new.ctime_ns}"
+        assert new.ctime_ns >= old.ctime_ns, f"{label} moved mqueue {index} ctime backward: {old.ctime_ns} -> {new.ctime_ns}"
         let earliest_read_ns = (read_started_ms - 1000) * 1000000
         let latest_read_ns = (read_finished_ms + 1000) * 1000000
-        assert new.ctime_ns >= earliest_read_ns, f"{label} {resource.name} ctime predates read interval: {new.ctime_ns} < {earliest_read_ns}"
-        assert new.ctime_ns <= latest_read_ns, f"{label} {resource.name} ctime exceeds read interval: {new.ctime_ns} > {latest_read_ns}"
+        assert new.ctime_ns >= earliest_read_ns, f"{label} mqueue {index} ctime predates read interval: {new.ctime_ns} < {earliest_read_ns}"
+        assert new.ctime_ns <= latest_read_ns, f"{label} mqueue {index} ctime exceeds read interval: {new.ctime_ns} > {latest_read_ns}"
       } else {
-        assert old.ctime_ns == new.ctime_ns, f"{label} changed {resource.name} ctime without reading its queue status: {old.ctime_ns} -> {new.ctime_ns}"
+        assert old.ctime_ns == new.ctime_ns, f"{label} changed mqueue {index} ctime without reading its queue status: {old.ctime_ns} -> {new.ctime_ns}"
       }
     } else {
       assert before_state == after_state, f"{label} changed {resource.kind} state: {first_snapshot_difference(before, after)?}"
