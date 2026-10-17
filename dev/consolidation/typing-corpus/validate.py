@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import collections
 import csv
 import pathlib
@@ -8,9 +9,15 @@ sys.dont_write_bytecode = True
 
 from cohort import inventory
 
-original, reduced = map(pathlib.Path, sys.argv[1:])
 repo = pathlib.Path(__file__).resolve().parents[3]
-with (repo / 'dev/consolidation/typing-corpus/retained.tsv').open() as stream:
+parser = argparse.ArgumentParser()
+parser.add_argument('original', type=pathlib.Path)
+parser.add_argument('reduced', type=pathlib.Path)
+parser.add_argument('--retain', type=pathlib.Path,
+                    default=repo / 'dev/consolidation/typing-corpus/retained.tsv')
+args = parser.parse_args()
+original, reduced = args.original, args.reduced
+with args.retain.open() as stream:
     retained = {int(row[0]) for row in csv.reader(stream, delimiter='\t') if row[0].isdigit()}
 sites = list(inventory(repo, original))
 removed = collections.defaultdict(list)
