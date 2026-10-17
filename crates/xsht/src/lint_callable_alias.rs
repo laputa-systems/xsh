@@ -93,9 +93,9 @@ fn lint_callable_aliases_with_check(
             };
             matches!(program.arena.expr(expression).kind, ArenaExprKind::Ident(name) if name == parameter.name)
         }) { continue; }
-        // Prepared constants are relevant only after an exact local forwarding
-        // wrapper has been found.
-        if !before.diagnostics.is_empty() {
+        if before.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code != Some(DiagnosticCode::CheckRedundantParens)
+        }) {
             return Vec::new();
         }
         if !same_signature(
@@ -163,7 +163,9 @@ fn lint_callable_aliases_with_check(
                                 == shape
                         })
                     });
-                if checked.diagnostics.is_empty() && equivalent {
+                if checked.diagnostics.iter().all(|diagnostic| {
+                    diagnostic.code == Some(DiagnosticCode::CheckRedundantParens)
+                }) && equivalent {
                     diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
                         outer.span,
                         "preserve the original callable signature",
@@ -238,6 +240,24 @@ mod tests {
                 .then(|| std::sync::Arc::new(Checker::check_arena(&parsed.arena, source)));
             lint_callable_aliases_with_check(&view, source, checked)
         })
+    }
+
+    #[test]
+    fn callable_aliases_preserve_findings_and_fixes_with_redundant_parentheses() {
+        for expression in ["value + 1", "(value) + (1)"] {
+            let source = format!(
+                "pure target(value: Int) -> Int {{ {expression} }}\npure wrapper(value: Int) -> Int {{ target(value) }}\n"
+            );
+            let diagnostics = lint(&source, true);
+            assert_eq!(diagnostics.len(), 1, "{source}: {diagnostics:?}");
+            assert_eq!(diagnostics[0].fix_hints.len(), 1, "{source}: {diagnostics:?}");
+        }
+    }
+
+    #[test]
+    fn callable_aliases_reject_semantic_checker_errors() {
+        let source = "pure target(value: Int) -> Int { value + missing }\npure wrapper(value: Int) -> Int { target(value) }\n";
+        assert!(lint(source, true).is_empty());
     }
 
     #[test]

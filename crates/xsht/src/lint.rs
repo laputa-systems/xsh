@@ -6851,6 +6851,32 @@ mod local_annotation_probe_tests {
     }
 
     #[test]
+    fn local_annotation_proofs_preserve_findings_and_fixes_with_redundant_parentheses() {
+        for expression in ["\"x\" + \"\\n\"", "(\"x\") + (\"\\n\")"] {
+            let source = format!(
+                "proc show() {{\n  var out: List[Str] = []\n  out += [{expression}]\n  print (out.join(\"\"))\n}}\n"
+            );
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert!(checked.diagnostics.iter().all(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::CheckRedundantParens)
+            }), "{:?}", checked.diagnostics);
+            let output = Linter::lint(
+                &parsed.arena,
+                &source,
+                LintOptions {
+                    checked_output: Some(std::sync::Arc::new(checked)),
+                    only: Some(vec![DiagnosticCode::LintNeedlessAnnotation]),
+                    ..LintOptions::default()
+                },
+            );
+            assert_eq!(output.diagnostics.len(), 1, "{source}: {:?}", output.diagnostics);
+            assert_eq!(output.diagnostics[0].fix_hints.len(), 1, "{source}: {:?}", output.diagnostics);
+        }
+    }
+
+    #[test]
     fn local_annotation_probes_cache_original_facts_and_failure() {
         for missing_import in [false, true] {
             let mut source = if missing_import {

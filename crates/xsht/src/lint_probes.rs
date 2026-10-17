@@ -113,7 +113,10 @@ pub(super) fn checked_local_annotation_facts_from_output(
     if checked
         .diagnostics
         .iter()
-        .any(|diagnostic| diagnostic.severity == Severity::Error)
+        .any(|diagnostic| {
+            diagnostic.severity == Severity::Error
+                && diagnostic.code != Some(xsh::diagnostic::DiagnosticCode::CheckRedundantParens)
+        })
     {
         return None;
     }
