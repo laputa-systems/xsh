@@ -1,5 +1,35 @@
 # TODO
 
+Prefix: XSH
+Next: 4
+
+### XSH-1 · P2 · Qualify util-linux resource acceptance after the staging repair
+
+- **Area:** Performance
+- **Where:** `dev/util-linux/resources.py:1560`, `dev/util-linux/acceptance.py:845`
+- **Problem:** The final resource gate is unproven. Its last run reached both release builds but rejected product hashes because baseline and candidate sources used different absolute paths. Commit `64e016328` stages both sources at `/work` and passes 146 controller checks, but the container resource gate and source-bound close gate have not run on that repair.
+- **Recommendation:** On an idle qualifying host, run `python3 -B dev/util-linux/check.py resources --check`, confirm readiness immediately before and after timing, then run `python3 -B dev/util-linux/check.py close --check` against the same clean source.
+- **Fix with:** benchmark-checklist
+- **Effort:** S
+
+### XSH-2 · P3 · Remove the timeout interrupt forwarding race
+
+- **Area:** Concurrency
+- **Where:** `core/tests/test-timeout.xsh:228`
+- **Problem:** The final observer suite recorded one empty `stdout` result from `timeout_forwards_interrupt_signals_and_reports_shell_status`. The selector then passed five focused repetitions and has passed earlier profiles, so the failure is intermittent and its cause is not established.
+- **Recommendation:** Preserve a bounded reproducer under suite concurrency, identify whether child readiness or output collection races signal delivery, and make the synchronization invariant explicit before rerunning the observer.
+- **Fix with:** root-cause
+- **Effort:** S
+
+### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
+
+- **Area:** Tests
+- **Where:** `dev/consolidation/CAMPAIGN.md:1`, `dev/consolidation/HANDOFF.md:71`
+- **Problem:** The clean normal profile passed with 13,857 tests, zero failures, and 138 skips, but the final observer attempt failed on XSH-2. The supplemental correctness, forced profile, comparative profile, three scheduler pairs, and final metrics remain unrun on the retained source.
+- **Recommendation:** Resolve XSH-2, rerun the final observer once, then execute the remaining source-bound acceptance rows and update the handoff from their receipts.
+- **Fix with:** xsh-consolidation-campaign
+- **Effort:** M
+
 What is left after the hardening and ergonomics work: items that are designed
 and not built, known defects, and ideas that were turned down. `docs/SPEC.md`
 is the contract for everything that is built; nothing here describes it.

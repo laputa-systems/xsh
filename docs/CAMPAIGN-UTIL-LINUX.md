@@ -1,6 +1,7 @@
 # Extend core compatibility to util-linux
 
-Status: active, 2026-10-17. The owner authorized execution alongside consolidation.
+Status: closed, 2026-10-17. The five-command cohort and exact parity corpus are
+integrated. The resource acceptance rerun is deferred as XSH-1 in `TODO.md`.
 
 Deliver the first complete Linux util-linux cohort: `lslocks`, `lsipc`, `lsmem`, `mountpoint`, and `namei`.
 Implement commands in native XSH. Reuse the existing collectors and host APIs.
