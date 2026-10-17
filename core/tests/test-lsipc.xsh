@@ -676,16 +676,23 @@ test test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes { |ctx
   ul.compare(trailing_comma.reference, trailing_comma.candidate)
   assert trailing_comma.candidate.status == 0
 
-  let abbreviated_columns = run_both(s, ["--queues", "--output", "ke,ms"])?
-  ul.compare(abbreviated_columns.reference, abbreviated_columns.candidate)
-  assert abbreviated_columns.candidate.status == 0
+  for columns in ["ke,ms", "C"] {
+    let unknown = run_both(s, ["--queues", "--output", columns])?
+    ul.compare(unknown.reference, unknown.candidate)
+    assert unknown.candidate.status == 1
+    assert unknown.candidate.stdout == b""
+    assert unknown.candidate.stderr == f"lsipc: unknown column: {columns}\n"
+  }
 
-  let ambiguous_prefix = run_both(s, ["--queues", "--output", "C"])?
-  let first_matching_column = run_both(s, ["--queues", "--output", "CUID"])?
-  ul.compare(ambiguous_prefix.reference, ambiguous_prefix.candidate)
-  ul.compare(first_matching_column.reference, first_matching_column.candidate)
-  assert ambiguous_prefix.candidate.status == 0
-  assert ambiguous_prefix.candidate.stdout == first_matching_column.candidate.stdout
+  let upper_case = run_both(s, ["--queues", "--output", "ID"])?
+  let lower_case = run_both(s, ["--queues", "--output", "id"])?
+  let full_name = run_both(s, ["--queues", "--output", "CUID"])?
+  ul.compare(upper_case.reference, upper_case.candidate)
+  ul.compare(lower_case.reference, lower_case.candidate)
+  ul.compare(full_name.reference, full_name.candidate)
+  assert upper_case.candidate.status == 0
+  assert lower_case.candidate.stdout == upper_case.candidate.stdout
+  assert full_name.candidate.status == 0
   release_keeper(fixture.handle)?
 }
 
