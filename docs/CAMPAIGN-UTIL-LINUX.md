@@ -74,6 +74,7 @@ campaign after receiving the launch prompt with local commits and no push.
 | Use util-linux 2.42.4 from the pinned image as the executable reference. | Planning verified that version. P0 fails a version mismatch and records enabled features. Never move the denominator to a different installed release. |
 | Complete every behavior available in that reference for each selected command. | Existing partial option support is the starting point, not the target. Do not redefine the target as today's XSH flags. |
 | Preserve XSH identity in `--version`. | Existing `gnu.version` prints `NAME (XSH core) VERSION`. Record this narrow provenance exception. The util-linux 2.42.4 string pins the oracle, never the XSH banner. |
+| Allow only the stale-errno suffix to vary for the zero-numeric-memory-entry fixture. | The owner approved this exception after repeated reference runs and musl `scandir` source confirmed stale errno. Require exact utility, arguments, exit status 1, empty stdout, and rooted diagnostic prefix. The suffix must be one nonempty line. All other comparisons remain exact. |
 | Implement policy, parsing, selection, and rendering in XSH. | Preserve the project's architecture. Add a host primitive only for an actual missing OS operation. |
 | Keep shared source changes with the coordinator. | Registry, runtime, and gate ownership overlap consolidation. Feature lanes consume a reviewed seam. |
 | Use private fixtures for process, lock, namespace, and device cases. | Observe the same objects in reference and XSH without changing host state. Privilege cases use the existing pinned container isolation. |
@@ -395,9 +396,13 @@ python3 dev/util-linux/check.py resources --check
 python3 dev/util-linux/check.py close --check
 ```
 
-Acceptance permits only the named `version-provenance` difference above.
-Zero undecided mismatches means all other comparisons match exactly and that
-exception passes both implementations' independent identity assertions.
+The sole provenance difference is the named `version-provenance` exception,
+which requires each implementation's independent identity assertions. The
+zero-numeric-memory-entry fixture also allows its stale-errno suffix to vary
+under the owner-approved rule above. That rule preserves exact utility,
+arguments, status, stdout, and rooted diagnostic prefix, and rejects additional
+diagnostic lines. Zero undecided mismatches requires every other comparison
+to match its exact oracle. Neither exception permits global normalization.
 Every selector fails when no behavior matches. Every parity result requires
 an executed reference and candidate, matching fixture inputs, and exact
 comparison rules. A missing reference, killed child, timeout, stale executable,
