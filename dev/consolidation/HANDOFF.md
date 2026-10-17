@@ -8,11 +8,13 @@ Inference remains isolated. The 2026-10-16 stop handoff below is historical.
 
 Root must seal the post-update candidate before building products.
 
-The candidate adds the XSHT linked-worktree discovery repair at `c30aed3bc`,
-the same-size tail fixture at `afe2998e4`, the batch admission change at
-`2d882cf6`, and the W9 producer repair at `283dcdeab`. The default scheduler,
-native case selection, Rust and privileged plans, and test deadlines remain
-unchanged. No full canonical or supplemental gate has run on this source.
+The candidate includes the XSHT linked-worktree discovery repair at
+`c30aed3bc`, the same-size tail fixture at `afe2998e4`, the batch admission
+change at `2d882cf6`, the W9 producer repair at `283dcdeab`, and a native
+`nc` test fixture repair at `94b772ac0`. No production Rust or XSHT source
+changed after the `0deeb9c7` source pin. The default scheduler, native case
+selection, Rust and privileged plans, and test deadlines remain unchanged.
+No full canonical or supplemental gate has passed on this candidate.
 
 ### Integrated evidence
 
@@ -21,8 +23,11 @@ unchanged. No full canonical or supplemental gate has run on this source.
 | Coverage discovery `fd008a789` | On its lane pin, 18 Rust tests, four native cases, Clippy, and product builds pass. These results do not qualify the assembled source. See [coverage discovery](evidence/coverage-discovery/README.md). |
 | Route expectation `1c0187f40` | The 0dc9 replay completed 428 invocations before the expectation correction. It admitted 187 of 188 route proofs and left two normal `ExprIf` gaps. A fresh strict replay is required. See [route evidence](winddown/evidence/route-if-expectation-0dc9cff7/README.md). |
 | Failed canonical `9080e505f` | The 0dc9 run reports 13,906 passes, 9 failures, and 78 skips. Four coverage failures and one tail-fixture failure are reproduced and repaired. Four timeout/rm causes remain unproven. See [canonical evidence](evidence/canonical-0dc9/README.md). |
+| Canonical `0deeb9c7` | The complete attempt reports 13,915 passes, one failed `nc` TELNET fixture test, 78 skips, and exit status 3. The root-reviewed fixture repair is `94b772ac0`; its exact selector and focused file run pass, but the full canonical gate has not been rerun or accepted. The durable failure proof and four non-native checks are still with their owner. See [fixture repair evidence](evidence/native-nc-repair/README.md). |
+| `nc` fixture `94b772ac0` | The empty-stdin case could half-close before TELNET negotiation, leaving the old fixture spinning on empty reads. The test now keeps its write side open through negotiation and fails on early EOF. The exact selector and 27-case focused file pass. No production Rust or XSHT source changed. See [native fixture evidence](evidence/native-nc-repair/README.md). |
 | Supplemental `957405a4` | All 13 commands exited zero on 0dc9. Root reviewed two traceroute skips. This record does not qualify the assembled source. See [supplemental evidence](winddown/evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/README.md). |
-| QEMU `5bdd8dd43` | Seven platform cases passed on 0dc9. The assembled source still needs its platform run. See [QEMU evidence](evidence/linux-qemu-0dc9cff7/README.md). |
+| QEMU `5bdd8dd43` | Seven platform cases passed on 0dc9. This historical result does not qualify a later source. See [QEMU evidence](evidence/linux-qemu-0dc9cff7/README.md). |
+| QEMU `b94c8ce1e` | Root accepted all seven platform cases and terminal product hashes for exact source `0deeb9c7`. The candidate adds only a native test fixture afterward, so this remains evidence for 0deeb9, not a source qualification of the candidate. See [0deeb9 QEMU evidence](evidence/linux-qemu-0deeb9c7/README.md). |
 | Batch admission `2d882cf6` | Its focused regression passes. The batch gate caps its outer native workers at four. This change does not establish the cause of the earlier timeouts. See [admission evidence](evidence/canonical-admission-0dc9/README.md). |
 | Compute `39175cc7` and filesystem `56e2f137` | Factor, sort, rm, and mv exact selectors pass individually on frozen 0dc9 products. These results do not explain the full-run failures. See [compute evidence](evidence/native-compute-0dc9/README.md) and [filesystem evidence](evidence/native-filesystem-repair-20261017/README.md). |
 | Tail `a45771ea` | The corrected same-size fixture and both truncation controls pass on frozen 0dc9 products. The earlier unqualified proof is withdrawn. See [tail evidence](evidence/tail-same-size-fixture-afe2998e4/README.md). |
@@ -33,20 +38,22 @@ unchanged. No full canonical or supplemental gate has run on this source.
 After integration, the route mapping suite passed 73 tests. The W9 adapter suite
 passed all 91 tests, including the 64 focused controls recorded by its lane.
 The durable W9 proof records a different, earlier source pin and does not
-qualify the candidate.
+qualify the candidate. The current W9 attempt on `0deeb9c7` is at 1,650 of
+1,690 inputs with no observed mismatches; it remains in progress and receives
+no terminal credit.
 
 ### Current queue
 
-1. Root seals the post-update candidate, then builds products from that exact commit and tree.
-2. Run fresh W9 captures, source admissions, exact-owner and assignment proofs, derived-reference capture, and strict comparison on the sealed source. The accepted 0dc9 proof and rejected width-eight diagnostic do not replace this cohort. The separate three-worker resource diagnostic remains pending.
-3. Run fresh supplemental and canonical gates, using the batch-only four-worker admission change without changing selections or deadlines.
-4. Run the strict route matrix and source-order cases, then the QEMU platform cases, on the sealed source.
-5. Complete the required resource queue after functional close. Root owns the final freeze, release performance gates, and main promotion.
+1. Root seals the post-update candidate and qualifies its products. The existing 0deeb9 products and QEMU receipts remain pinned to that earlier source.
+2. Complete current W9 capture admissions, exact-owner and assignment proofs, derived-reference capture, and strict comparison. The 1,650-input attempt is partial; the accepted 0dc9 proof does not replace the final-source cohort. Keep the three-worker resource diagnostic separate.
+3. Retain the failed canonical proof and finish the four non-native checks with the evidence owner. Rerun canonical on the sealed candidate; the fixture-only focus does not close the prior full-run failure.
+4. Run fresh supplemental and strict route/source-order gates on the sealed candidate, using the batch-only four-worker admission change without changing selections or deadlines.
+5. Run the 36-case root residual (35 ordinary and one `SYS_ADMIN`), including the two existing `NET_RAW` loopback positives. It has not run. Then complete the remaining resource queue after functional close. Root owns the final freeze, release performance gates, and main promotion.
 
 The canonical, supplemental, route, platform, and resource evidence remains
-bound to older sources. W9 parity is accepted for 0dc9 only. No full-gate
-acceptance or functional close exists for this candidate. Do not merge
-inference work from typing branches.
+bound to earlier sources. W9 parity is accepted for 0dc9 only; the current
+0deeb9 attempt remains partial. No full-gate acceptance or functional close
+exists for this candidate. Do not merge inference work from typing branches.
 
 ## Historical resume record (superseded)
 

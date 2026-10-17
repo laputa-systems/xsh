@@ -393,10 +393,12 @@ isolated nodev context is its sole final-gate owner.
 
 `core/tests/test-traceroute.xsh` checks the exact `EPERM` result for IPv4
 source-route `IP_OPTIONS` as UID 1000 in a network-isolated container, and
-still runs gateway argument validation. The privileged root full-native run in
-`cargo dev gate --batch` covers the positive loopback source-route path; it
-does not need a second root-only native run because every probe stays on
-loopback. Setting source-routing IP options requires `CAP_NET_RAW`.
+still runs gateway argument validation. The `tests.native` phase in
+`cargo dev gate --batch` drops root to `HOST_UID` and `HOST_GID`, so it does
+not cover positive cases that require `CAP_NET_RAW`. The queued root residual
+contains 36 cases: 35 ordinary cases and one `SYS_ADMIN` case. It includes
+the two existing `NET_RAW` loopback-positive cases, but that residual has not
+been run. Setting source-routing IP options requires `CAP_NET_RAW`.
 
 Successful `date --set` tests require a disposable QEMU guest: Linux time
 namespaces isolate monotonic and boot clocks, but not the realtime clock. Run

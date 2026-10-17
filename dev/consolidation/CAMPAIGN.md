@@ -12,14 +12,18 @@ expectation, batch-only native admission cap, corrected tail fixture, W9
 producer repair, and source-pinned acceptance records. Root must seal the
 post-update candidate before building products.
 
-The focused discovery, tail, and W9 checks pass on their recorded source and
-product pins. The historical route replay had two normal `ExprIf` proof gaps;
-a fresh strict replay remains required. The last canonical run remains red,
-and its focused filesystem and compute selectors do not explain the full-run
-failures. The durable W9 parity proof covers only source `0dc9cff7`; it does
-not qualify this later candidate. The candidate has no full canonical,
-supplemental, route, platform, or resource close. Main stays at `0dc9cff7`;
-root owns the final freeze and promotion.
+The fixture-only `nc` repair passes its exact selector and a 27-case focused
+native file run. A later canonical attempt on `0deeb9c7` remains unaccepted:
+13,915 passed, the TELNET fixture test timed out, 78 skipped, and the command
+exited 3. The root cause is corrected in the fixture, but no full canonical
+rerun has qualified this candidate. The seven QEMU cases are accepted for
+`0deeb9c7` only. The historical route replay had two normal `ExprIf` proof
+gaps; a fresh strict replay remains required. The durable W9 parity proof
+covers only `0dc9cff7`; the current `0deeb9c7` attempt is still partial at
+1,650 of 1,690 inputs and is not terminal. This candidate has no full
+canonical, supplemental, route, platform, or resource close. Main and the
+frozen W9 source remain at `0deeb9c7`; root owns the final freeze and
+promotion.
 
 ## Stop handoff, 2026-10-16
 
