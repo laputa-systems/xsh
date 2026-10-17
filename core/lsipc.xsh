@@ -120,7 +120,13 @@ pure human_size(value: Int) -> Str {
   let unit = LETTERS.byte_slice(exponent / 10, length: 1)
   if exponent == 0 { return f"{value}B" }
   var whole = value / divisor
-  var tenth = ((value % divisor) * 1000 / divisor + 50) / 100
+  let fraction = value % divisor
+  let thousandths = if fraction >= 18446744073709551 {
+    (fraction / 1024) * 1000 / (divisor / 1024)
+  } else {
+    fraction * 1000 / divisor
+  }
+  var tenth = (thousandths + 50) / 100
   if tenth == 10 { whole += 1; tenth = 0 }
   if tenth == 0 { f"{whole}{unit}" } else { f"{whole}.{tenth}{unit}" }
 }
