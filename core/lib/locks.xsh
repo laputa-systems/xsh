@@ -64,7 +64,7 @@ type Lock = {
 
 type FilterToken = {kind: Str, value: Str}
 type FilterValue = {kind: Str, value: Str, boolean: Bool}
-enum ColumnSelectionError { UnknownColumn(Str), TooManyColumns }
+enum ColumnSelectionError { EmptyColumnName, UnknownColumn(Str), TooManyColumns }
 type JsonPathReplacement = {marker: Bytes, value: Bytes}
 type Options = {
   bytes: Bool,
@@ -350,9 +350,14 @@ pure columns(output: Str?, output_all: Bool, environment: Str?) -> Result[List[S
   let value = if output != null { output ?? "" } else { environment ?? "" }
   let extend = value.starts_with("+")
   let names = (if extend { value.byte_slice(1) } else { value }).split(",")
-  if names.is_empty() or (names.len() == 1 and names[0] == "") { return Err(UnknownColumn("")) }
+  if names.is_empty() { return Err(EmptyColumnName) }
   if ! extend { selected = [] }
-  for name in names {
+  for index in range(names.len()) {
+    let name = names[index]
+    if name == "" {
+      if index == names.len() - 1 and index > 0 { continue }
+      return Err(EmptyColumnName)
+    }
     let column = canonical_column(name)
     return Err(UnknownColumn(name)) when column == null
     return Err(TooManyColumns) when selected.len() == 25
@@ -1073,6 +1078,7 @@ export proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let selection = columns(opts.output, opts.output_all, output_environment)
   if let Err(error) = selection {
     match error {
+      EmptyColumnName => exit 1
       UnknownColumn(name) => { gnu.error(f"unknown column: {name}"); exit 1 }
       TooManyColumns => gnu.usage_error(too_many_columns_error())
     }
