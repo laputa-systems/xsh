@@ -484,7 +484,7 @@ pure pad_right(text: Str, width: Int) -> Str {
 pure table_text(inventory: Inventory, columns: List[Str], opts: Options) -> Str {
   let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
   let rows = [[block_value(inventory, block, column, opts.bytes) ?? "" for column in shown] for block in inventory.blocks]
-  var widths = [column.byte_len() for column in shown]
+  var widths = [if column == "SIZE" { wider(column.byte_len(), 5) } else { column.byte_len()} for column in shown]
   for row in rows {
     for index in range(shown.len()) { widths[index] = wider(widths[index], row[index].byte_len()) }
   }
@@ -511,6 +511,7 @@ pure table_text(inventory: Inventory, columns: List[Str], opts: Options) -> Str 
 pure raw_text(inventory: Inventory, columns: List[Str], opts: Options) -> Str {
   let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
   var output = ""
+  if ! opts.noheadings { output += shown.join(" ") + "\n" }
   for block in inventory.blocks {
     output += [block_value(inventory, block, column, opts.bytes) ?? "" for column in shown].join(" ") + "\n"
   }
