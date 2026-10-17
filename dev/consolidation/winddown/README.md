@@ -92,6 +92,25 @@ resumed source. Use the repository's current [testing owner](../../../docs/TESTI
 and the campaign's existing gate requirements. Do not reuse old binaries or
 launch scripts as qualification for a changed source tree.
 
+To admit the direct-IR selection proof, pass its receipt explicitly:
+
+```sh
+python3 -B dev/consolidation/winddown/gate-tools/semantic-route-matrix/generate.py \
+  --root "$FROZEN" \
+  --direct-ir-receipt "$FROZEN/.work/tmp/direct-if-route-7eb62/receipt.json" \
+  --output "$FROZEN/.work/tmp/semantic-route-matrix.json"
+```
+
+Set `FROZEN` to the clean `7eb62cd99` checkout. The receipt keeps the harness
+build source `b235a1a43` distinct from the current source `7eb62cd99`.
+The collector checks the passed canonical library-harness build, unchanged
+executable digest, and clean source before and after the exact Rust test.
+It requires the reviewed fixture and assertions in
+`runtime::eval::indexed::full::tests::direct_if_children_are_marked_and_selected`.
+Build inputs must match, apart from the equivalent XSHT `from_mode(0)` to
+`from_mode(0o0)` spelling. This separate Rust proof credits only the normal
+`ExprIf` in-place route. It neither credits nor relabels XSH artifacts.
+
 Build products, Cargo caches, disposable test fixtures, process state, and
 unselected historical captures can be regenerated. Their ignored locations are
 not needed to recover the committed source or these unfinished overlays.
