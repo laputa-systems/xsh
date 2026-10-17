@@ -15,8 +15,8 @@ The command contract is in [`sys-utils/lsipc.1.adoc`](https://github.com/util-li
 
 The oracle build must report util-linux 2.42.4 and the same enabled POSIX IPC
 features as the pinned image. No command comparison has run from this lane.
-Every case remains open until the reference and XSH command run on the same
-owned fixture and their bytes, statuses, and fixture state are compared.
+Every parity case remains open until the reference and XSH command run on the
+same owned fixture and their bytes, statuses, and fixture state are compared.
 
 ## Resource modes and default columns
 
@@ -111,7 +111,9 @@ tables and query each selected ID.
 | `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, and malformed IDs | `lsipc.c:1381-1455` | Open. Compare exact diagnostics and status. |
 | `test_lsipc_rejects_each_exclusive_option_pair` | Every pair in the four source-defined exclusivity groups | `lsipc.c:1415-1420` | Open. Stable input. |
 | `test_lsipc_visibility_matches_for_owner_and_unprivileged_observer` | Per-class visibility for two real UIDs with capabilities dropped | `ipcutils.c:131-240,249-300,342-510,521-575,633-713` | Open. Requires the positive two-UID fixture. |
-| `test_lsipc_collectors_leave_registered_resources_unchanged` | IDs, names, permissions, sizes, values, and timestamps remain unchanged after each collector | `lsipc.c:1370-1666`; all six collectors | Open. Keeper state snapshots required. |
+| `test_lsipc_collectors_leave_registered_resources_unchanged` | IDs, names, permissions, sizes, values, counters, and timestamps remain unchanged after each collector | `lsipc.c:1370-1666`; all six collectors | Open. Keeper state snapshots required. |
+| `test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them` | The reference sees each registered ID or name, leaves every seeded state unchanged, and sees no record after successful release | `lsipc.c:559-563,823-827,958-965,1094-1097,1265-1272,1661-1666`; all six collectors | Open. Reference-only fixture proof. |
+| `test_lsipc_keeper_cancellation_removes_registered_resources` | `SIGTERM` cleanup removes only the keeper's six registered resource classes | fixture cleanup handlers; `ipcutils.c:131-714` | Open. Reference-only cancellation proof. |
 
 Permission visibility follows each collector: System V collectors read procfs
 records, POSIX shared memory reads directory metadata, and POSIX semaphore and
@@ -124,14 +126,20 @@ bytes. Keep JSON structural assertions beside raw comparisons. Do not sort
 rows or normalize spacing, nulls, numbers, escaping, or diagnostics. Record
 only observed PID or ID variation in the comparison rules.
 
+The fixture snapshot also checks the seeded kernel state before any parity
+case: queue message counts, byte use, sender and receiver PIDs and times;
+shared-memory size, attachment count, creator and last-operation PIDs and
+times; semaphore count, values and operation time; POSIX queue count and times;
+POSIX shared-memory owner, mode, size and times; and POSIX semaphore owner,
+mode, value and times. The shared-memory command-column case checks the live
+keeper PID and path.
+
 ## Fixture boundary
 
-The foundation-owned runner enters private IPC, mount, and PID namespaces. It must
-mount fresh procfs, private `/dev/shm` backing, and a private mqueue filesystem
-before it creates POSIX resources. The pinned util-linux 2.42.4 `ipcmk` can
-create each of the six resource classes, and `ipcrm` can remove an exact
-recorded ID or name. Each comparison runs the reference and candidate against
-the same fixture and namespace.
+The foundation-owned runner enters private IPC, mount, and PID namespaces. It
+mounts fresh procfs, private `/dev/shm` backing, and a private mqueue filesystem
+before it creates POSIX resources. Each comparison runs the reference and
+candidate against the same fixture and namespace.
 
 The fixture must keep a registry of returned System V IDs and exact POSIX
 names. It must never find resources by scanning a host table or path. Give one
@@ -140,14 +148,17 @@ only registered IDs and names after success, setup failure, assertion failure,
 timeout, and cancellation.
 
 Keep at most 16 objects per resource class and at most 1 MiB per object. Track
-the exact System V ID returned by `ipcmk`; its source creates those objects
-with generated keys. Give each POSIX object a unique run-scoped name. The
-permission cases need two actual non-root UIDs, no
-capabilities, and objects with distinct owners and modes. Running only as root
-does not execute these cases.
+each exact System V ID returned by the keeper and each unique run-scoped POSIX
+name. The permission cases need two actual non-root UIDs, no capabilities, and
+objects with distinct owners and modes. Running only as root does not execute
+these cases.
 
-Foundation owns private namespaces, mount setup, and keeper lifecycle. This
-lane's `keeper.py` uses Python ctypes in the pinned test image to create the
-six classes, seed stats and ownership, hold the creator alive, and remove only
-registered IDs and names. Native tests use the shared scene API to run the
-keeper, reference, and candidate in the same namespace.
+The coordinator owns private namespaces, mounts, and the shared keeper process
+API. This lane's `keeper.py` uses Python ctypes to create the six resource
+classes, seed activity, set ownership and modes, hold the creator alive, and
+remove only registered IDs and names. It performs permission-checked
+operations, snapshots, and removal under each resource owner's effective UID.
+It reads each System V status under the creator UID before `IPC_SET`, preserving
+fields such as the queue byte limit while it changes owner and mode. Native
+tests use the shared scene API to run the keeper and reference. Parity cases
+also run the XSH command in that namespace.

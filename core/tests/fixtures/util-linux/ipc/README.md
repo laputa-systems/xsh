@@ -12,20 +12,18 @@ The fixture owner must:
 3. Keep each class below 16 objects and each object at or below 1 MiB.
 4. Run reference and candidate against the same fixture state. Do not change
    ownership, permissions, values, or timestamps between those calls.
-5. Remove only the recorded IDs and names when the fixture owner closes. Close
+5. Remove only the recorded IDs and names when the keeper closes. Remove them
    on success, partial setup, assertion failure, timeout, and cancellation.
 
-The pinned util-linux `ipcmk` 2.42.4 creates all six resource classes, but it
-exits after creation and cannot seed the activity, ownership, and live PID
-values used by these cases. The lane-owned `keeper.py` uses Python ctypes to
-create and mutate the resources in one persistent process. It emits one JSON
-ready line containing each exact ID or name, owner and creator IDs, mode, and
-size. After readiness, `snapshot` on stdin emits one compact JSON line
-describing the current state of registered objects; `release` or EOF cleans
-up. Snapshots match `/proc/sysvipc` records only by registered IDs and inspect
-only registered POSIX names. Cleanup never uses a scan: it removes only
-registered IDs and names on release, EOF, setup failure, and `SIGTERM`,
-`SIGINT`, or `SIGHUP`.
+`ipcmk` exits after creation and cannot seed activity or keep the creator PID
+alive. `keeper.py` uses Python ctypes to create and mutate resources in one
+persistent process. It emits one JSON ready line with each exact ID or name,
+owner and creator IDs, mode, and size. After readiness, `snapshot` emits one
+JSON line with current kernel state. `release` or EOF removes the registered
+objects. Snapshots match `/proc/sysvipc` records only by registered IDs and
+inspect only registered POSIX names. Cleanup never scans a host table or path.
+It removes registered IDs and names on release, EOF, setup failure, `SIGTERM`,
+`SIGINT`, and `SIGHUP`.
 Accepted classes are `sysv_queue`, `sysv_shmem`, `sysv_semaphore`,
 `posix_mqueue`, `posix_shmem`, and `posix_semaphore`. Each selected System V
 class has three records: readable and private objects owned by the first UID,
@@ -58,8 +56,14 @@ attach and detach times, and semaphore values and operation times only through
 exact fixture-owned IDs. Keep any process needed for PID or command columns
 alive through both comparisons.
 
-The foundation lane owns private namespaces, mount setup, and process
-lifecycle. This lane owns the keeper's resource-specific setup, identity
-capture, and exact cleanup. Native tests will use the shared scene wrapper to
-run the keeper, reference, and candidate in that namespace. The case map is in
+The keeper runs permission-checked operations, snapshots, and removal with the
+resource owner's effective UID. It reads System V status under the creator UID
+before `IPC_SET`, then changes ownership and mode. This preserves fields such
+as the System V queue byte limit. The keeper blocks handled signals while it
+switches IDs, restores effective root IDs, then restores the prior signal mask.
+
+The foundation lane owns private namespaces, mount setup, and the shared keeper
+process API. This lane owns resource setup, identity capture, and cleanup of
+registered IPC objects. Native tests use the shared scene wrapper to run the
+keeper, reference, and candidate in that namespace. The case map is in
 [`dev/util-linux/coverage/lsipc.md`](../../../../../dev/util-linux/coverage/lsipc.md).

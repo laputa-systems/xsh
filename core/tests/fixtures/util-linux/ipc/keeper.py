@@ -16,6 +16,7 @@ IPC_PRIVATE = 0
 IPC_CREAT = 0o1000
 IPC_RMID = 0
 IPC_SET = 1
+IPC_STAT = 2
 O_CREAT = 0o100
 O_EXCL = 0o200
 O_RDWR = 2
@@ -29,6 +30,7 @@ MESSAGE_TYPE_SIZE = ctypes.sizeof(ctypes.c_long)
 libc = ctypes.CDLL(None, use_errno=True)
 resources = []
 cleaning = False
+HANDLED_SIGNALS = {signal.SIGTERM, signal.SIGINT, signal.SIGHUP}
 
 
 def bind(name, result, arguments):
@@ -124,8 +126,10 @@ def track(kind, identity, name, lookup_name, owner_uid, owner_gid, mode, size=0)
     return resource
 
 
-def set_sysv_owner(function, identity, owner_uid, owner_gid, mode):
+def set_sysv_owner(function, identity, owner_uid, owner_gid, mode, creator_uid, creator_gid):
     data = ctypes.create_string_buffer(256)
+    with identity_scope(creator_uid, creator_gid):
+        require_zero(function(identity, IPC_STAT, ctypes.byref(data)), "IPC_STAT")
     struct.pack_into("=I", data, OWNER_FIELD, owner_uid)
     struct.pack_into("=I", data, GROUP_FIELD, owner_gid)
     struct.pack_into("=I", data, MODE_FIELD, mode & 0o777)
@@ -143,14 +147,16 @@ def creator_ids(creator_uid, creator_gid):
 
 
 @contextmanager
-def creator_scope(creator_uid, creator_gid):
-    blocked = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGTERM, signal.SIGINT, signal.SIGHUP})
+def identity_scope(uid, gid):
+    blocked = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
     try:
-        creator_ids(creator_uid, creator_gid)
+        creator_ids(uid, gid)
         yield
     finally:
-        privileged_ids()
-        signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
+        try:
+            privileged_ids()
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
 
 
 def send_sysv_message(identity, message):
@@ -176,65 +182,70 @@ def send_posix_messages(descriptor):
 
 
 def make_sysv_queue(owner_uid, owner_gid, creator_uid, creator_gid, mode):
-    with creator_scope(creator_uid, creator_gid):
+    with identity_scope(creator_uid, creator_gid):
         identity = require_id(msgget(IPC_PRIVATE, IPC_CREAT | mode), "msgget")
         resource = track("sysv_queue", identity, None, None, owner_uid, owner_gid, mode)
-    send_sysv_message(identity, b"xsh-ipc-first")
-    send_sysv_message(identity, b"xsh-ipc-second")
-    receive_sysv_message(identity)
-    set_sysv_owner(msgctl, identity, owner_uid, owner_gid, mode)
+    set_sysv_owner(msgctl, identity, owner_uid, owner_gid, mode, creator_uid, creator_gid)
+    with identity_scope(owner_uid, owner_gid):
+        send_sysv_message(identity, b"xsh-ipc-first")
+        send_sysv_message(identity, b"xsh-ipc-second")
+        receive_sysv_message(identity)
     return resource
 
 
 def make_sysv_shmem(owner_uid, owner_gid, creator_uid, creator_gid, mode, size):
-    with creator_scope(creator_uid, creator_gid):
+    with identity_scope(creator_uid, creator_gid):
         identity = require_id(shmget(IPC_PRIVATE, size, IPC_CREAT | mode), "shmget")
         resource = track("sysv_shmem", identity, None, None, owner_uid, owner_gid, mode, size)
-    pointer = require_pointer(shmat(identity, None, 0), "shmat")
-    resource["attachment"] = pointer
-    ctypes.memset(pointer, 1, 1)
-    require_zero(shmdt(pointer), "shmdt")
-    resource["attachment"] = None
-    pointer = require_pointer(shmat(identity, None, 0), "shmat")
-    resource["attachment"] = pointer
-    set_sysv_owner(shmctl, identity, owner_uid, owner_gid, mode)
+    set_sysv_owner(shmctl, identity, owner_uid, owner_gid, mode, creator_uid, creator_gid)
+    with identity_scope(owner_uid, owner_gid):
+        pointer = require_pointer(shmat(identity, None, 0), "shmat")
+        resource["attachment"] = pointer
+        ctypes.memset(pointer, 1, 1)
+        require_zero(shmdt(pointer), "shmdt")
+        resource["attachment"] = None
+        pointer = require_pointer(shmat(identity, None, 0), "shmat")
+        resource["attachment"] = pointer
     return resource
 
 
 def make_sysv_semaphore(owner_uid, owner_gid, creator_uid, creator_gid, mode):
-    with creator_scope(creator_uid, creator_gid):
+    with identity_scope(creator_uid, creator_gid):
         identity = require_id(semget(IPC_PRIVATE, 2, IPC_CREAT | mode), "semget")
         resource = track("sysv_semaphore", identity, None, None, owner_uid, owner_gid, mode)
-    operation = Sembuf(0, 1, 0)
-    require_zero(semop(identity, ctypes.byref(operation), 1), "semop")
-    operation = Sembuf(0, -1, 0)
-    require_zero(semop(identity, ctypes.byref(operation), 1), "semop")
-    set_sysv_owner(lambda identity, command, data: semctl(identity, 0, command, data), identity, owner_uid, owner_gid, mode)
+    set_sysv_owner(lambda identity, command, data: semctl(identity, 0, command, data), identity, owner_uid, owner_gid, mode, creator_uid, creator_gid)
+    with identity_scope(owner_uid, owner_gid):
+        operation = Sembuf(0, 1, 0)
+        require_zero(semop(identity, ctypes.byref(operation), 1), "semop")
+        operation = Sembuf(0, -1, 0)
+        require_zero(semop(identity, ctypes.byref(operation), 1), "semop")
     return resource
 
 
 def create_posix_mqueue(name, owner_uid, owner_gid, creator_uid, creator_gid, mode):
     encoded_name = name.encode()
-    with creator_scope(creator_uid, creator_gid):
+    with identity_scope(creator_uid, creator_gid):
         descriptor = mq_open(encoded_name, O_CREAT | O_EXCL | O_RDWR, mode, None)
         if descriptor < 0:
             fail_errno("mq_open")
         resource = track("posix_mqueue", None, name, name, owner_uid, owner_gid, mode)
-    send_posix_messages(descriptor)
+    with identity_scope(owner_uid, owner_gid):
+        send_posix_messages(descriptor)
+        require_zero(mq_close(descriptor), "mq_close")
     os.chown(f"/dev/mqueue/{name[1:]}", owner_uid, owner_gid)
     os.chmod(f"/dev/mqueue/{name[1:]}", mode)
-    require_zero(mq_close(descriptor), "mq_close")
     return resource
 
 
 def create_posix_shmem(name, owner_uid, owner_gid, creator_uid, creator_gid, mode, size):
     encoded_name = name.encode()
-    with creator_scope(creator_uid, creator_gid):
+    with identity_scope(creator_uid, creator_gid):
         descriptor = shm_open(encoded_name, O_CREAT | O_EXCL | O_RDWR, mode)
         if descriptor < 0:
             fail_errno("shm_open")
         resource = track("posix_shmem", None, name, name[1:], owner_uid, owner_gid, mode, size)
-    os.ftruncate(descriptor, size)
+    with identity_scope(owner_uid, owner_gid):
+        os.ftruncate(descriptor, size)
     os.fchown(descriptor, owner_uid, owner_gid)
     os.fchmod(descriptor, mode)
     os.close(descriptor)
@@ -243,14 +254,15 @@ def create_posix_shmem(name, owner_uid, owner_gid, creator_uid, creator_gid, mod
 
 def create_posix_semaphore(name, owner_uid, owner_gid, creator_uid, creator_gid, mode):
     encoded_name = name.encode()
-    with creator_scope(creator_uid, creator_gid):
+    with identity_scope(creator_uid, creator_gid):
         semaphore = sem_open(encoded_name, O_CREAT | O_EXCL, mode, 0)
         require_pointer(semaphore, "sem_open")
         resource = track("posix_semaphore", None, name, name[1:], owner_uid, owner_gid, mode)
-    require_zero(sem_post(semaphore), "sem_post")
+    with identity_scope(owner_uid, owner_gid):
+        require_zero(sem_post(semaphore), "sem_post")
+        require_zero(sem_close(semaphore), "sem_close")
     os.chown(f"/dev/shm/sem.{name[1:]}", owner_uid, owner_gid)
     os.chmod(f"/dev/shm/sem.{name[1:]}", mode)
-    require_zero(sem_close(semaphore), "sem_close")
     return resource
 
 
@@ -361,7 +373,8 @@ def posix_snapshot(resource):
 def snapshot():
     states = []
     for resource in resources:
-        state = sysv_snapshot(resource) if resource["kind"].startswith("sysv_") else posix_snapshot(resource)
+        with identity_scope(resource["owner_uid"], resource["owner_gid"]):
+            state = sysv_snapshot(resource) if resource["kind"].startswith("sysv_") else posix_snapshot(resource)
         states.append({"kind": resource["kind"], "id": resource["id"], "name": resource["name"], "state": state})
     return {"resources": states}
 
@@ -370,24 +383,25 @@ def remove_resource(resource):
     kind = resource["kind"]
     identity = resource["id"]
     name = resource["name"]
-    if kind == "sysv_queue":
-        result = msgctl(identity, IPC_RMID, None)
-    elif kind == "sysv_shmem":
-        pointer = resource.get("attachment")
-        if pointer is not None:
-            require_zero(shmdt(pointer), "shmdt")
-            resource["attachment"] = None
-        result = shmctl(identity, IPC_RMID, None)
-    elif kind == "sysv_semaphore":
-        result = semctl(identity, 0, IPC_RMID)
-    elif kind == "posix_mqueue":
-        result = mq_unlink(name.encode())
-    elif kind == "posix_shmem":
-        result = shm_unlink(name.encode())
-    elif kind == "posix_semaphore":
-        result = sem_unlink(name.encode())
-    else:
-        raise RuntimeError(f"unknown IPC resource kind: {kind}")
+    with identity_scope(resource["owner_uid"], resource["owner_gid"]):
+        if kind == "sysv_queue":
+            result = msgctl(identity, IPC_RMID, None)
+        elif kind == "sysv_shmem":
+            pointer = resource.get("attachment")
+            if pointer is not None:
+                require_zero(shmdt(pointer), "shmdt")
+                resource["attachment"] = None
+            result = shmctl(identity, IPC_RMID, None)
+        elif kind == "sysv_semaphore":
+            result = semctl(identity, 0, IPC_RMID)
+        elif kind == "posix_mqueue":
+            result = mq_unlink(name.encode())
+        elif kind == "posix_shmem":
+            result = shm_unlink(name.encode())
+        elif kind == "posix_semaphore":
+            result = sem_unlink(name.encode())
+        else:
+            raise RuntimeError(f"unknown IPC resource kind: {kind}")
     if result != 0:
         code = ctypes.get_errno()
         error = OSError(code, os.strerror(code))
@@ -399,22 +413,26 @@ def cleanup():
     global cleaning
     if cleaning:
         return
+    blocked = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
     cleaning = True
-    privileged_ids()
-    failures = []
-    remaining = []
-    for resource in reversed(resources):
-        try:
-            remove_resource(resource)
-        except Exception as failure:
-            identity = resource["id"] if resource["id"] is not None else resource["name"]
-            failures.append(f"{resource['kind']} {identity}: {failure}")
-            remaining.append(resource)
-    if failures:
-        resources[:] = reversed(remaining)
+    try:
+        privileged_ids()
+        failures = []
+        remaining = []
+        for resource in reversed(resources):
+            try:
+                remove_resource(resource)
+            except Exception as failure:
+                identity = resource["id"] if resource["id"] is not None else resource["name"]
+                failures.append(f"{resource['kind']} {identity}: {failure}")
+                remaining.append(resource)
+        if failures:
+            resources[:] = reversed(remaining)
+            raise RuntimeError("IPC fixture cleanup failed: " + "; ".join(failures))
+        resources.clear()
+    finally:
         cleaning = False
-        raise RuntimeError("IPC fixture cleanup failed: " + "; ".join(failures))
-    resources.clear()
+        signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
 
 
 def stop(signum, frame):
@@ -430,9 +448,8 @@ def run(arguments):
     if arguments.owner_uid == arguments.observer_uid:
         raise ValueError("owner and observer UIDs must differ")
 
-    signal.signal(signal.SIGTERM, stop)
-    signal.signal(signal.SIGINT, stop)
-    signal.signal(signal.SIGHUP, stop)
+    for signum in HANDLED_SIGNALS:
+        signal.signal(signum, stop)
     atexit.register(cleanup)
 
     token = secrets.token_hex(4)

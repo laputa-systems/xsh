@@ -39,7 +39,16 @@ const RESOURCE_KINDS: List[Str] = [
   "posix_semaphore",
 ]
 
-proc start_keeper(s: uu.Scene, kinds: List[Str]) [fs, process, env, error] -> Result[IpcKeeper, Error] {
+const GLOBAL_MODES: List[GlobalMode] = [
+  {args: ["--global", "--queues"], resource: "MSGMNI"},
+  {args: ["--global", "--posix-mqueues"], resource: "MQUMNI"},
+  {args: ["--global", "--shmems"], resource: "SHMMNI"},
+  {args: ["--global", "--semaphores"], resource: "SEMMNI"},
+  {args: ["--global", "--posix-shmems"], resource: null},
+  {args: ["--global", "--posix-semaphores"], resource: null},
+]
+
+proc start_keeper(s: uu.Scene, kinds: List[Str]) [fs, process, env, net, time, error] -> Result[IpcKeeper, Error] {
   ul.require_private_namespace()
   var args = [
     "--owner-uid", "10001",
@@ -79,12 +88,72 @@ proc resource_of(ready: KeeperReady, kind: Str) [error] -> Result[IpcResource, E
   Err(error.failure(f"fixture did not create {kind}"))
 }
 
-proc keeper_snapshot(handle: ul.Keeper) [process, error] -> Result[Bytes, Error] {
+proc resource_args(mode: ResourceMode, resource: IpcResource) -> List[Str] {
+  if resource.kind.starts_with("sysv_") {
+    [mode.selector, "--id", f"{resource.id ?? -1}", "--output", "ID"]
+  } else {
+    [mode.selector, "--name", resource.lookup_name ?? "", "--output", "NAME"]
+  }
+}
+
+proc keeper_snapshot(handle: ul.Keeper) [net, process, time, error] -> Result[Bytes, Error] {
   ul.keeper_send(handle, "snapshot")
   Ok(bytes.from_text(ul.keeper_receive(handle)?))
 }
 
-proc release_keeper(handle: ul.Keeper) [process, error] -> Result[Unit, Error] {
+proc assert_seeded_activity(ready: KeeperReady, snapshot: Bytes) [error] {
+  let document = json.decode(snapshot.utf8() ?? "")?
+  var index = 0
+  for resource in ready.resources {
+    assert json.get(document, ["resources", index, "kind"])?.require(Str)? == resource.kind
+    if resource.kind == "sysv_queue" {
+      assert json.get(document, ["resources", index, "state", "qnum"])?.require(Str)? == "1"
+      assert json.get(document, ["resources", index, "state", "cbytes"])?.require(Str)? == "14"
+      assert json.get(document, ["resources", index, "state", "lspid"])?.require(Str)? == f"{ready.pid}"
+      assert json.get(document, ["resources", index, "state", "lrpid"])?.require(Str)? == f"{ready.pid}"
+      assert json.get(document, ["resources", index, "state", "stime"])?.require(Str)?.parse_int()? > 0
+      assert json.get(document, ["resources", index, "state", "rtime"])?.require(Str)?.parse_int()? > 0
+      assert json.get(document, ["resources", index, "state", "ctime"])?.require(Str)?.parse_int()? > 0
+    } elif resource.kind == "sysv_shmem" {
+      assert json.get(document, ["resources", index, "state", "bytes"])?.require(Str)? == "4096"
+      assert json.get(document, ["resources", index, "state", "nattch"])?.require(Str)? == "1"
+      assert json.get(document, ["resources", index, "state", "cpid"])?.require(Str)? == f"{ready.pid}"
+      assert json.get(document, ["resources", index, "state", "lpid"])?.require(Str)? == f"{ready.pid}"
+      assert json.get(document, ["resources", index, "state", "atime"])?.require(Str)?.parse_int()? > 0
+      assert json.get(document, ["resources", index, "state", "dtime"])?.require(Str)?.parse_int()? > 0
+      assert json.get(document, ["resources", index, "state", "ctime"])?.require(Str)?.parse_int()? > 0
+    } elif resource.kind == "sysv_semaphore" {
+      assert json.get(document, ["resources", index, "state", "nsems"])?.require(Str)? == "2"
+      assert json.get(document, ["resources", index, "state", "values"])?.require(List[Int])? == [0, 0]
+      assert json.get(document, ["resources", index, "state", "otime"])?.require(Str)?.parse_int()? > 0
+      assert json.get(document, ["resources", index, "state", "ctime"])?.require(Str)?.parse_int()? > 0
+    } elif resource.kind == "posix_mqueue" {
+      assert json.get(document, ["resources", index, "state", "uid"])?.require(Int)? == resource.owner_uid
+      assert json.get(document, ["resources", index, "state", "gid"])?.require(Int)? == resource.owner_gid
+      assert json.get(document, ["resources", index, "state", "mode"])?.require(Int)? == resource.mode
+      assert json.get(document, ["resources", index, "state", "attributes", "curmsgs"])?.require(Int)? == 1
+      assert json.get(document, ["resources", index, "state", "mtime_ns"])?.require(Int)? > 0
+      assert json.get(document, ["resources", index, "state", "ctime_ns"])?.require(Int)? > 0
+    } elif resource.kind == "posix_shmem" {
+      assert json.get(document, ["resources", index, "state", "uid"])?.require(Int)? == resource.owner_uid
+      assert json.get(document, ["resources", index, "state", "gid"])?.require(Int)? == resource.owner_gid
+      assert json.get(document, ["resources", index, "state", "mode"])?.require(Int)? == resource.mode
+      assert json.get(document, ["resources", index, "state", "size"])?.require(Int)? == 4096
+      assert json.get(document, ["resources", index, "state", "mtime_ns"])?.require(Int)? > 0
+      assert json.get(document, ["resources", index, "state", "ctime_ns"])?.require(Int)? > 0
+    } elif resource.kind == "posix_semaphore" {
+      assert json.get(document, ["resources", index, "state", "uid"])?.require(Int)? == resource.owner_uid
+      assert json.get(document, ["resources", index, "state", "gid"])?.require(Int)? == resource.owner_gid
+      assert json.get(document, ["resources", index, "state", "mode"])?.require(Int)? == resource.mode
+      assert json.get(document, ["resources", index, "state", "value"])?.require(Int)? == 1
+      assert json.get(document, ["resources", index, "state", "mtime_ns"])?.require(Int)? > 0
+      assert json.get(document, ["resources", index, "state", "ctime_ns"])?.require(Int)? > 0
+    }
+    index += 1
+  }
+}
+
+proc release_keeper(handle: ul.Keeper) [fs, net, process, error] -> Result[Unit, Error] {
   ul.keeper_send(handle, "release")
   ul.finish_keeper(handle)
   Ok()
@@ -100,7 +169,7 @@ proc run_both_with_vars(s: uu.Scene, args: List[Str], vars: Record) [fs, process
   Ok({reference: reference, candidate: candidate})
 }
 
-proc run_both_as_user(s: uu.Scene, args: List[Str], uid: Int) [fs, process, error] -> Result[LsipcPair, Error] {
+proc run_both_as_user(s: uu.Scene, args: List[Str], uid: Int) [fs, process, env, error] -> Result[LsipcPair, Error] {
   let vars = {LC_ALL: "C", TZ: "UTC"}
   let reference = ul.reference_as_user(s, "lsipc", args, uid:, vars:, timeout: 5s)?
   let candidate = ul.candidate_as_user(s, "lsipc", args, uid:, vars:, timeout: 5s)?
@@ -314,14 +383,7 @@ test test_lsipc_default_and_global_summary_outputs_match_reference { |ctx|
   ul.compare(explicit_global.reference, explicit_global.candidate)
   assert explicit_global.candidate.stdout == default.candidate.stdout
 
-  for mode in [
-    {args: ["--global", "--queues"], resource: "MSGMNI"},
-    {args: ["--global", "--posix-mqueues"], resource: "MQUMNI"},
-    {args: ["--global", "--shmems"], resource: "SHMMNI"},
-    {args: ["--global", "--semaphores"], resource: "SEMMNI"},
-    {args: ["--global", "--posix-shmems"], resource: null},
-    {args: ["--global", "--posix-semaphores"], resource: null},
-  ] {
+  for mode in GLOBAL_MODES {
     let pair = run_both(s, mode.args)?
     ul.compare(pair.reference, pair.candidate)
     assert pair.candidate.status == 0, mode.args.join(" ")
@@ -330,6 +392,74 @@ test test_lsipc_default_and_global_summary_outputs_match_reference { |ctx|
     }
   }
   release_keeper(fixture.handle)?
+}
+
+test test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them { |ctx|
+  let s = uu.scene(ctx)?
+  let fixture = start_keeper(s, RESOURCE_KINDS)?
+  defer ul.stop_keeper(fixture.handle)
+
+  let before = keeper_snapshot(fixture.handle)?
+  assert_seeded_activity(fixture.ready, before)
+  for mode in RESOURCE_MODES {
+    let resource = resource_of(fixture.ready, mode.kind)?
+    let args = resource_args(mode, resource)
+    let reference = ul.reference(s, "lsipc", args, timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
+    let identifier = if resource.kind.starts_with("sysv_") {
+      f"{resource.id ?? -1}"
+    } else {
+      resource.name ?? ""
+    }
+    assert reference.status == 0, args.join(" ")
+    assert reference.stderr == b"", args.join(" ")
+    assert identifier in (reference.stdout.utf8() ?? ""), args.join(" ")
+  }
+  let after = keeper_snapshot(fixture.handle)?
+  assert before == after, "reference collection changed registered IPC state"
+
+  release_keeper(fixture.handle)?
+  for mode in RESOURCE_MODES {
+    let resource = resource_of(fixture.ready, mode.kind)?
+    let args = resource_args(mode, resource)
+    let reference = ul.reference(s, "lsipc", args, timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
+    let identifier = if resource.kind.starts_with("sysv_") {
+      f"{resource.id ?? -1}"
+    } else {
+      resource.name ?? ""
+    }
+    assert reference.status == 0, args.join(" ")
+    assert reference.stderr != b"", args.join(" ")
+    assert identifier not in (reference.stdout.utf8() ?? ""), args.join(" ")
+  }
+}
+
+test test_lsipc_keeper_cancellation_removes_registered_resources { |ctx|
+  let s = uu.scene(ctx)?
+  let fixture = start_keeper(s, RESOURCE_KINDS)?
+  defer ul.stop_keeper(fixture.handle)
+
+  let selected = [
+    {mode: RESOURCE_MODES[0], resource: resource_of(fixture.ready, "sysv_queue")?},
+    {mode: RESOURCE_MODES[1], resource: resource_of(fixture.ready, "sysv_shmem")?},
+    {mode: RESOURCE_MODES[2], resource: resource_of(fixture.ready, "sysv_semaphore")?},
+    {mode: RESOURCE_MODES[3], resource: resource_of(fixture.ready, "posix_mqueue")?},
+    {mode: RESOURCE_MODES[4], resource: resource_of(fixture.ready, "posix_shmem")?},
+    {mode: RESOURCE_MODES[5], resource: resource_of(fixture.ready, "posix_semaphore")?},
+  ]
+  ul.stop_keeper(fixture.handle)
+
+  for entry in selected {
+    let args = resource_args(entry.mode, entry.resource)
+    let reference = ul.reference(s, "lsipc", args, timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
+    let identifier = if entry.resource.kind.starts_with("sysv_") {
+      f"{entry.resource.id ?? -1}"
+    } else {
+      entry.resource.name ?? ""
+    }
+    assert reference.status == 0, args.join(" ")
+    assert reference.stderr != b"", args.join(" ")
+    assert identifier not in (reference.stdout.utf8() ?? ""), args.join(" ")
+  }
 }
 
 test test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes { |ctx|
@@ -420,6 +550,15 @@ test test_lsipc_creator_and_time_options_report_live_metadata { |ctx|
     ul.compare(pair.reference, pair.candidate)
     assert pair.candidate.status == 0, mode.selector
     assert pair.candidate.stdout != b"", mode.selector
+
+    let raw = run_both(s, [mode.selector, "--creator", "--raw"])?
+    ul.compare(raw.reference, raw.candidate)
+    assert raw.candidate.status == 0, mode.selector
+    if mode.kind.starts_with("sysv_") {
+      let output = raw.candidate.stdout.utf8() ?? ""
+      assert "10001" in output, mode.selector
+      assert "10002" in output, mode.selector
+    }
   }
 
   for mode in RESOURCE_MODES[0..3] {
@@ -488,6 +627,13 @@ test test_lsipc_output_modes_and_table_controls_match_reference { |ctx|
   assert truncated.candidate.stdout != notruncated.candidate.stdout
   assert keeper_path in (notruncated.candidate.stdout.utf8() ?? "")
   assert keeper_path not in (truncated.candidate.stdout.utf8() ?? "")
+
+  let process_columns = run_both(s, ["--shmems", "--notruncate", "--output", "CPID,LPID,COMMAND"])?
+  ul.compare(process_columns.reference, process_columns.candidate)
+  assert process_columns.candidate.status == 0
+  let process_output = process_columns.candidate.stdout.utf8() ?? ""
+  assert f"{fixture.ready.pid}" in process_output
+  assert keeper_path in process_output
 
   let ordered = run_both(s, ["--queues", "--output", "LRPID,ID,KEY,LRPID"])?
   ul.compare(ordered.reference, ordered.candidate)
