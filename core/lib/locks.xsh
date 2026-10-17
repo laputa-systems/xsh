@@ -785,13 +785,14 @@ pure table_width(columns: List[Str], rows: List[List[Str]], headings: Bool) -> L
         "START" | "END" => 10
         else => 0
       }
-      yield if width <= minimum {
+      let selected = if width <= minimum {
         minimum
       } else if hint > 0 and width < hint and minimum < hint {
         hint
       } else {
         width
       }
+      yield if ! headings and width == 0 { 0 } else { selected }
     }
   }
 }
