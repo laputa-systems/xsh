@@ -994,6 +994,7 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
   }
   if opts.filter != null and program == null { gnu.usage_error(f"failed to parse {gnu.quote(opts.filter ?? "")}: invalid expression") }
   let all = collect(opts.no_inaccessible)
+  return when all.is_empty()
   var rows = all
   if opts.pid != null {
     let selected_pid = decimal(opts.pid ?? "") ?? 0
