@@ -1,0 +1,4 @@
+err[check.required-return]: recursive pure `cycle_from` requires an explicit return annotation
+  /views/laputa/pm/graph.xsh:96:1
+  pure cycle_from(
+  ^^^^^^^^^^^^^^^^ recursive pure `cycle_from` requires an explicit return annotation

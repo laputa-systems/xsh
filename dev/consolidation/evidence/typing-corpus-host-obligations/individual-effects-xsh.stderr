@@ -1,0 +1,711 @@
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/date.xsh:8:73
+  proc parse_date(text: Str, utc: Bool, base: date_parse.Instant? = null) [time, error] -> Result[date_parse.Instant, Error] {
+                                                                          ------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/date.xsh:44:94
+  proc format_nanoseconds(instant: date_parse.Instant, flags: Str, width_text: Str, utc: Bool) [time, error] -> Result[Str] {
+                                                                                               ------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/date.xsh:100:91
+  proc format_date(instant: date_parse.Instant, format: Bytes, utc: Bool, style: DateStyle) [time, error, process, env] -> Result[Bytes] {
+                                                                                            --------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/date.xsh:123:39
+  proc reject_extra_operand(raw: Bytes) [process, env] -> Unit {
+                                        -------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/date.xsh:218:20
+  proc locale_name() [env] -> Str {
+                     ----- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/date.xsh:282:92
+  proc format_directive(instant: date_parse.Instant, spec: Str, utc: Bool, style: DateStyle) [time, error, process, env] -> Result[Str] {
+                                                                                             --------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/date.xsh:338:89
+  proc format_text(instant: date_parse.Instant, format: Str, utc: Bool, style: DateStyle) [time, error, process, env] -> Result[Str] {
+                                                                                          --------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/date.xsh:406:94
+  proc debug_date(text: Str, instant: date_parse.Instant, base: date_parse.Instant, utc: Bool) [time, env, error, process] {
+                                                                                               --------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/date.xsh:483:85
+  proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool, style: DateStyle) [time, process, env, io, error] -> Bool {
+                                                                                      ------------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/gnu.xsh:218:20
+  proc utf8_locale() [env] -> Bool {
+                     ----- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/sys_pci.xsh:154:3
+  ) [fs, error] -> NumericRead {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/sys_pci.xsh:218:58
+  proc optional_link_name(root: FsRoot, source_path: Path) [fs, error] -> src.SourceRead {
+                                                           ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:200:74
+  proc read_value(root: FsRoot, source_path: Path, max_bytes: Int = 65536) [fs, error] -> collectors.SourceRead {
+                                                                           ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:211:3
+  ) [fs, error] -> DeviceTreeStringRead {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:332:34
+  proc read_cpu_info(root: FsRoot) [fs, error] -> CpuInfoRead {
+                                   ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:405:49
+  proc read_effective_cgroup_cpuset(root: FsRoot) [fs, error] -> CpuSetRead {
+                                                  ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:833:3
+  ) [fs, error] -> StorageCollection {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:934:3
+  ) [fs, error] -> SensorCollection {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:1179:34
+  proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
+                                   ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:1523:85
+  proc read_process(root: FsRoot, process_path: Path, pid: Int, page_size_bytes: Int) [fs, error] -> ProcessRead {
+                                                                                      ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:1719:60
+  proc collect_processes(root: FsRoot, page_size_bytes: Int) [fs, error] -> ProcessCollection {
+                                                             ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:1768:35
+  proc collect_kernel(root: FsRoot) [fs, error] -> KernelCollection {
+                                    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:1916:3
+  ) [fs, error] -> DeviceCollection {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:2054:37
+  proc collect_firmware(root: FsRoot) [fs, error] -> FirmwareCollection {
+                                      ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:2481:73
+  proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, error] -> UsbCollection {
+                                                                          ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:2507:64
+  proc collect_identity(root: FsRoot, base: report.SystemReport) [fs, error] -> report.SystemReport {
+                                                                 ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:2675:61
+  proc namespace_observation(root: FsRoot, source_path: Path) [fs, error] -> Result[collectors.SourceRead] {
+                                                              ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:2696:43
+  proc read_firmware_identity(root: FsRoot) [fs, error] -> FirmwareIdentityRead {
+                                            ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:2785:59
+  proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.SystemReport {
+                                                            ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:3279:85
+  proc collect_frequency_policies(root: FsRoot, issues: List[report.CollectionIssue]) [fs, error] -> PolicyCollection {
+                                                                                      ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:3536:84
+  proc read_huge_page_pool(root: FsRoot, huge_path: Path, node_id: Int?, field: Str) [fs, error] -> HugePageRead {
+                                                                                     ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:3592:62
+  proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> report.SystemReport {
+                                                               ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/system_report_live.xsh:4075:36
+  proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
+                                     ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/lib/textio_a1.xsh:113:23
+  proc fd_info(fd: Int) [fs, error] -> Result[Fd] {
+                        ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/wc.xsh:330:19
+  proc posix_mode() [env] -> Bool {
+                    ----- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/wc.xsh:340:28
+  proc read_file(file: Path) [fs, error] -> Result[Bytes, Error] {
+                             ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/wc.xsh:358:71
+  proc files0_input(name: Str, list: Str, index: Int, from_stdin: Bool) [env] -> Input {
+                                                                        ----- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/core/wc.xsh:496:3
+  ) [fs, process, env, error, io] -> WcState {
+    ----------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/cargo_steps.xsh:84:51
+  proc ensure_cargo_lock_directory(lock_file: Path) [fs, error] {
+                                                    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/cargo_steps.xsh:132:26
+  proc execute(step: Step) [process, env, error, io] -> Result[Unit, Error] {
+                           ------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/cargo_steps.xsh:144:59
+  proc execute_with_cargo_lock(step: Step, lock_file: Path) [process, env, error, io] -> Result[Unit, Error] {
+                                                            ------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docker.xsh:9:44
+  proc host_link_tools(ctx: context.Context) [env, fs, error] -> Result[HostLinkTools?, Error] {
+                                             ---------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:250:59
+  proc run_snippet(xsh: Path, file: Path, search_path: Str) [fs, process, error] -> Result[Str] {
+                                                            -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:266:54
+  proc desugared_source(xsht: Path, file: SnippetFile) [process, error] -> Result[Str] {
+                                                       ---------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:275:31
+  proc snippet_files(dir: Path) [fs, error] -> Result[List[SnippetFile]] {
+                                ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:298:3
+  ) [fs, process, env, error] -> Result[Map[Str, Snippet]] {
+    ------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:385:55
+  proc check_snippet_diagnostics(dir: Path, xsht: Path) [fs, process, error] {
+                                                        -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:412:26
+  proc project(root: Path) [fs, error] -> Result[Map[Str, ProjectFile]] {
+                           ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:430:25
+  proc stdlib(xsht: Path) [process, error] -> Result[Record] {
+                          ---------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:493:37
+  proc cli_reference(tools: DocTools) [process, error] -> Result[Record] {
+                                      ---------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:517:24
+  proc lints(xsht: Path) [process, error] -> Result[List[LintCode]] {
+                         ---------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:523:25
+  proc facets(xsht: Path) [process, error] -> Result[List[FacetRow]] {
+                          ---------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:528:36
+  proc grammar_reference(xsht: Path) [process, error] -> Result[GrammarReference] {
+                                     ---------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:533:42
+  proc render(root: Path, tools: DocTools) [fs, process, env, error] -> Result[List[Rendered]] {
+                                           ------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/docs.xsh:635:48
+  proc release_environment(ctx: context.Context) [env, error] -> Result[Record, Error] {
+                                                 ------------ checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/gates.xsh:159:66
+  proc docs_gate(ctx: context.Context, profile: tests.TestProfile) [fs, process, env, error, io] {
+                                                                   ----------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/internal.xsh:89:47
+  proc gate_git_directory(ctx: context.Context) [process, error, io] {
+                                                -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/main.xsh:197:46
+  proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io] {
+                                               ----------------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:10:66
+  proc capture_metadata_bytes(bundle: FsRoot, max_bytes = 2097152) [fs, error] -> Result[Bytes] {
+                                                                   ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:2546:65
+  proc encode_replayed_report(candidate: Record, sensitive: Bool) [fs, error] -> Result[Str] {
+                                                                  ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:3082:3
+  ) [fs, error] -> Result[Str?] {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:3097:71
+  proc reference_cache_optional_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+                                                                        ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:3658:58
+  proc reference_usb_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
+                                                           ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:3674:60
+  proc reference_usb_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+                                                             ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:3923:63
+  proc reference_usb_attribute(root: FsRoot, source_path: Path) [fs, error] -> Result[UsbTextReference] {
+                                                                ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:3943:3
+  ) [fs, error] -> Result[UsbNumberReference] {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:4026:3
+  ) [fs, error] -> Result[UsbNumberReference] {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:4219:73
+  proc reference_usb_interface_driver(root: FsRoot, interface_path: Path) [fs, error] -> Result[UsbTextReference] {
+                                                                          ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:4565:60
+  proc reference_power_text(root: FsRoot, source_path: Path) [fs, error] -> Result[PowerTextReference] {
+                                                             ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:4586:3
+  ) [fs, error] -> Result[PowerNumberReference] {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:4659:47
+  proc power_supply_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerSupplyBundleLayout] {
+                                                ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:5281:43
+  proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLayout] {
+                                            ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:5773:3
+  ) [fs, error] -> Result[DeviceClassTextRead] {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:6147:60
+  proc reference_hwmon_text(root: FsRoot, source_path: Path) [fs, error] -> Result[HwmonTextReference] {
+                                                             ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:6167:3
+  ) [fs, error] -> Result[HwmonNumberReference] {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:6276:40
+  proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] {
+                                         ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:7143:3
+  ) [fs, error] -> Result[Str?] {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:7158:64
+  proc reference_cpuidle_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+                                                                 ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:7287:78
+  proc reference_cpufreq_text(root: FsRoot, source_path: Path, required: Bool) [fs, error] -> Result[Str?] {
+                                                                               ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:7302:64
+  proc reference_cpufreq_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+                                                                 ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:7315:63
+  proc reference_cpufreq_gauge(root: FsRoot, source_path: Path) [fs, error] -> Result[CpuFreqGaugeReference] {
+                                                                ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:7423:53
+  proc captured_cpu_set_text(root: FsRoot, name: Str) [fs, error] -> Result[Str] {
+                                                      ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:7436:47
+  proc captured_cpu_set_reference(root: FsRoot) [fs, error] -> Result[CpuSetReference] {
+                                                ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:7621:42
+  proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayout] {
+                                           ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:7879:47
+  proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyBundleLayout] {
+                                                ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:7938:79
+  proc cpu_topology_reference_text(root: FsRoot, relative: Str, required: Bool) [fs, error] -> Result[Str?] {
+                                                                                ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:7952:81
+  proc cpu_topology_reference_number(root: FsRoot, relative: Str, required: Bool) [fs, error] -> Result[Int?] {
+                                                                                  ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:8277:68
+  proc memory_bundle_text(bundle: FsRoot, relative: Str, bound: Int) [fs, error] -> Result[Str] {
+                                                                     ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:8290:46
+  proc memory_bundle_reference(bundle: FsRoot) [fs, error] -> Result[MemoryBundleReference] {
+                                               ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:9512:48
+  proc pressure_bundle_reference(bundle: FsRoot) [fs, error] -> Result[List[PsiReferenceRow]] {
+                                                 ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:10780:62
+  proc reference_thermal_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
+                                                               ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:10795:64
+  proc reference_thermal_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+                                                                 ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:10907:42
+  proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayout] {
+                                           ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:11121:78
+  proc reference_pci_link_name(root: FsRoot, source_path: Path, present: Bool) [fs, error] -> Result[Str?] {
+                                                                               ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:11134:63
+  proc reference_pci_numa_node(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+                                                                ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:11195:63
+  proc reference_pci_link_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
+                                                                ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:11210:64
+  proc reference_pci_link_width(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+                                                                 ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:11253:63
+  proc pci_raw_hex(root: FsRoot, source_path: Path, width: Int) [fs, error] -> Result[Int] {
+                                                                ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:11315:38
+  proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
+                                       ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:11616:38
+  proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
+                                       ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:12177:3
+  ) [fs, error] -> Result[NetworkRawNumber] {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:14321:68
+  proc bounded_block_reference_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
+                                                                     ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:14413:40
+  proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] {
+                                         ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:16666:56
+  proc kernel_parameter_bundle_reference(bundle: FsRoot) [fs, error] -> Result[List[KernelParameterReference]] {
+                                                         ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:17522:58
+  proc reference_dmi_text(root: FsRoot, source_path: Path) [fs, error] -> Result[DmiTextReference] {
+                                                           ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:18595:3
+  ) [fs, error] -> Result[Str?] {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:18643:52
+  proc visible_cgroup2_reference_paths(root: FsRoot) [fs, error] -> Result[List[VisibleCgroup2Ancestor]] {
+                                                     ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:18800:42
+  proc cgroup2_bundle_layout(root: FsRoot) [fs, error] -> Result[Cgroup2BundleLayout] {
+                                           ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:19313:78
+  proc process_reference_text(root: FsRoot, source_path: Path, max_bytes: Int) [fs, error] -> Result[Str?] {
+                                                                               ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:20615:86
+  proc validate_fixture_test_definitions(root: Path, fixture_cases: List[FixtureCase]) [fs, error] {
+                                                                                       ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:21403:3
+  ) [fs, process, error] {
+    -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:21566:32
+  proc read_reference_cpu_sets() [fs, error] -> Result[CpuSetReference] {
+                                 ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:21579:3
+  ) [fs, process, time, error] -> Result[UnameObservation] {
+    -------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:21609:3
+  ) [fs, process, time, error] -> Result[UptimeReferenceObservation] {
+    -------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:21635:3
+  ) [fs, process, time, error] -> Result[UnameObservation] {
+    -------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:21707:3
+  ) [fs, process, time, error] -> Result[NamespaceLinkObservation] {
+    -------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:21741:3
+  ) [fs, process, error] -> Result[Str] {
+    -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:22111:57
+  proc read_meminfo_reference(scratch: FsRoot, name: Str) [fs, process, time, error] -> Result[MeminfoObservation] {
+                                                          -------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:22200:54
+  proc read_thp_reference(scratch: FsRoot, label: Str) [fs, process, time, error] -> Result[ThpObservation] {
+                                                       -------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:22351:88
+  proc read_huge_page_counter_reference(root: FsRoot, source_path: Path, required: Bool) [fs, error] -> Result[Int?] {
+                                                                                         ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:22373:3
+  ) [fs, error] -> Result[HugePageReferencePool] {
+    ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:22502:54
+  proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] -> Result[PsiObservation] {
+                                                       -------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:22631:3
+  ) [fs, process, time, error] -> Result[VulnerabilityObservation] {
+    -------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:22856:31
+  proc lspci_reference_binary() [fs, error] -> Result[Str] {
+                                ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:22873:62
+  proc read_lspci_reference(scratch: FsRoot, output_name: Str) [fs, error] -> Result[Str] {
+                                                               ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:23539:64
+  proc read_ip_json_reference(scratch: FsRoot, output_name: Str) [fs, error] -> Result[Str] {
+                                                                 ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:23554:28
+  proc ip_reference_binary() [fs, error] -> Result[Str] {
+                             ----------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:23573:57
+  proc ip_reference_version(binary: Str, scratch: FsRoot) [fs, process, error] -> Result[Str] {
+                                                          -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:23810:3
+  ) [fs, process, error] -> Result[List[IpRuleReference]] {
+    -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:23900:3
+  ) [fs, process, error] -> Result[List[IpRouteReference]] {
+    -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:24353:3
+  ) [fs, process, error] -> Result[List[MountUsageReference]] {
+    -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:24521:3
+  ) [fs, process, time, error] -> Result[KernelModuleObservation] {
+    -------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:24633:3
+  ) [fs, process, time, error] -> Result[KernelCommandLineObservation] {
+    -------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:24782:3
+  ) [fs, process, time, error] -> Result[KernelParameterObservation] {
+    -------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:24896:3
+  ) [fs, process, time, error] -> Result[ProcStatusAffinityObservation] {
+    -------------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/system_report_check.xsh:25335:55
+  proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error, io] {
+                                                        ------------------------------ checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/tour_html.xsh:756:45
+  proc xsh_html(hl: Highlighter, source: Str) [fs, process, error] -> Result[Str] {
+                                              -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/tour_html.xsh:770:51
+  proc code_html(hl: Highlighter, block: CodeBlock) [fs, process, error] -> Result[Str] {
+                                                    -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/tour_html.xsh:797:52
+  proc item_html(hl: Highlighter, item: List[Block]) [fs, process, error] -> Result[Str] {
+                                                     -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/tour_html.xsh:807:48
+  proc block_html(hl: Highlighter, block: Block) [fs, process, error] -> Result[Str] {
+                                                 -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/tour_html.xsh:821:56
+  proc blocks_html(hl: Highlighter, blocks: List[Block]) [fs, process, error] -> Result[Str] {
+                                                         -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+warn[lint.prefer-inferred-private-effects]: private effect clause names exactly the inferred effects
+  /views/xsh/dev/tour_html.xsh:880:54
+  proc page_html(hl: Highlighter, blocks: List[Block]) [fs, process, error] -> Result[Str] {
+                                                       -------------------- checked body, caller contracts, and statement purposes remain equivalent
+help: infer the private effects
+xsht lint: 16 files in 72.28s (thread time by stage: discover 0.00s, load 0.09s, check 1.74s, lint 135.84s)

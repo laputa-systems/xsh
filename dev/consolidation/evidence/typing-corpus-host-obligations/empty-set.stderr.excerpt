@@ -1,0 +1,5 @@
+err[check.local-inference]: the empty set needs an element type
+  /views/laputa/pm/recipe.xsh:55:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+

@@ -1,0 +1,7 @@
+excerpt	source-log	trial
+ambiguous-method.stderr.excerpt	obligations-all/xsh.stderr	joint candidate before restoration
+generic-body-boundary.stderr.excerpt	obligations-all/xsh.stderr	joint candidate before restoration
+empty-set.stderr.excerpt	obligations-all/laputa.stderr	joint candidate before restoration
+variant-target.stderr.excerpt	obligations-parameters/xsh.stderr	joint candidate before restoration
+recursive-return.stderr.excerpt	obligations-locals/laputa.stderr	joint candidate before restoration
+erased-map.stderr.excerpt	obligations-refined/xsh.stderr	joint candidate before restoration

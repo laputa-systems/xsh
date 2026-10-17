@@ -1,0 +1,5 @@
+err[check.ambiguous-overload]: method receiver has no unique registered operation
+  /views/xsh/core/lib/gnu.xsh:119:16
+      let byte = raw.byte_at(at) ?? 0
+                 ^^^^^^^^^^^^^^^ method receiver has no unique registered operation
+
