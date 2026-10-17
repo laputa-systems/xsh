@@ -106,7 +106,7 @@ pure last_slash(path: Bytes) -> Int? {
 }
 
 proc inspect(name: Bytes, path_bytes: Bytes, level: Int, parent: Entry?, mounts: Bool) [fs, error] -> Result[Entry, Error] {
-  let path = Path.parse_bytes(path_bytes)?
+  let path_value = Path.parse_bytes(path_bytes)?
   var metadata: FsStat? = null
   var stat_error: Error? = null
   var link: Bytes? = null
@@ -114,14 +114,14 @@ proc inspect(name: Bytes, path_bytes: Bytes, level: Int, parent: Entry?, mounts:
   var mountpoint = false
   var mount_error: Error? = null
 
-  match fs.stat(path, follow_symlinks: false) {
+  match fs.stat(path_value, follow_symlinks: false) {
     Ok(value) => metadata = value
     Err(failure) => stat_error = failure
   }
 
   if let value = metadata {
     if value.kind == "symlink" {
-      match path.readlink() {
+      match path_value.readlink() {
         Ok(target) => link = target.bytes()
         Err(failure) => link_error = failure
       }
@@ -320,8 +320,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   var group_width = 0
   for token in options.paths {
     let operand = gnu.argument_bytes(token, prepared.raw)
-    let path = Path.parse_bytes(operand)?
-    if fs.stat(path, follow_symlinks: true) is Err(_) { failed = true }
+    let operand_path = Path.parse_bytes(operand)?
+    if fs.stat(operand_path, follow_symlinks: true) is Err(_) { failed = true }
     let components = path_entries(operand, 0, b"", 0, null, options.mounts)?
     let result = expand(components, options.nosymlinks, options.mounts)?
     for entry in result.entries {
