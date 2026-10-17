@@ -575,9 +575,14 @@ pure select(options: Options) -> Result[Selection, OptionError] {
   Ok(selection)
 }
 
-export pure resolve(options: Options, argv: List[Str], permute: Bool) -> Result[Selection, OptionError] {
+export pure check_conflicts(argv: List[Str], permute: Bool) -> Result[Unit, OptionError] {
   if let detail = option_conflict(argv, permute) {
     return Err(OptionError.Invalid {detail: detail})
   }
+  Ok(())
+}
+
+export pure resolve(options: Options, argv: List[Str], permute: Bool) -> Result[Selection, OptionError] {
+  check_conflicts(argv, permute)?
   select(options)
 }
