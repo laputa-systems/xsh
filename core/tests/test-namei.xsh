@@ -58,7 +58,7 @@ test test_namei_each_output_option_and_long_combination { |ctx|
     let option = if args[0] == "-Z" { "Z" } else { "context" }
     assert reference.status == 1
     assert reference.stdout == b""
-    assert reference.stderr == bytes.from_text(f"/usr/bin/namei: unrecognized option: {option}\nTry 'namei --help' for more information.\n")
+    assert reference.stderr == bytes.from_text(f"namei: unrecognized option: {option}\nTry 'namei --help' for more information.\n")
   }
 }
 
