@@ -652,17 +652,25 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
   let output_environment = if let Ok(value) = env.get("LSLOCKS_COLUMNS") { value } else { null }
   if opts.list_columns {
     let names = COLUMNS
-    let json_types = ["string", "number", "string", if opts.bytes { "number" } else { "<string|number>" }, "number", "string", "string", "boolean", "number", "number", "string", "number", "array(string)"]
+    let json_types = ["<string>", "<integer>", "<string>", if opts.bytes { "<integer>" } else { "<string|number>" }, "<integer>", "<string>", "<string>", "<boolean>", "<integer>", "<integer>", "<string>", "<integer>", "<string>"]
     let rows = collect {
       for index in range(names.len()) { yield [names[index], json_types[index], COLUMN_DESCRIPTIONS[index]] }
     }
-    let listing_columns = ["NAME", "JSON", "DESCRIPTION"]
     if opts.json {
-      let encoded = [smart.object([smart.m("name", row[0]), smart.m("json", row[1]), smart.m("description", row[2])]) for row in rows]
-      gnu.write_text(smart.render(smart.object([smart.m("columns", encoded)]), compact: false) + "\n")
+      let encoded = [smart.object([smart.m("holder", row[0]), smart.m("type", row[1]), smart.m("description", row[2])]) for row in rows]
+      gnu.write_text(smart.render(smart.object([smart.m("lslocks-columns", encoded)]), compact: false) + "\n")
     } else {
+      var holder_width = 0
+      var type_width = 0
+      for row in rows {
+        if row[0].count_chars() > holder_width { holder_width = row[0].count_chars() }
+        if row[1].count_chars() > type_width { type_width = row[1].count_chars() }
+      }
       let rendered_rows = collect {
-        for row in if opts.noheadings { rows } else { [listing_columns, @rows] } { yield row.join(" ") }
+        for row in rows {
+          yield (if opts.raw { row[0] } else { pad_left(row[0], holder_width) }) + " " +
+            (if opts.raw { row[1] } else { pad_right(row[1], type_width) }) + " " + row[2]
+        }
       }
       gnu.write_text(rendered_rows.join("\n") + "\n")
     }
