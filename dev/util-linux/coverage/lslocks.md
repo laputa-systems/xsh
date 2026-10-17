@@ -141,8 +141,9 @@ that field.
 | `test_lslocks_posix_holders` | POSIX `HOLDERS` rows identify the lock-owning process; the test does not assume a descriptor count absent an upstream POSIX coholder case. |
 | `test_util_linux_context_second_uid_holder_disappears_after_owned_release` | A UID 10002 holder with capabilities dropped appears as one inaccessible fallback row to UID 10001; `--noinaccessible` and `-i` remove it, then owned release and wait remove it from a later listing. |
 | `test_lslocks_deleted_path_and_owner_exit` | A deleted locked file shows the reference path text while the descriptor remains open; owner exit removes its row. |
-| `test_lslocks_path_escaping_and_non_utf8_names` | Exact reference comparison for JSON and raw `PATH` output containing whitespace, backslash, newline, and an invalid UTF-8 filename byte. |
-| `test_util_linux_context_terminal_lock_path_truncation` | A real holder path containing tab and ESC is compared at captured terminal widths 24 and 120, including default truncation and `-u`. |
+| `test_lslocks_path_escaping_and_non_utf8_names` | Exact reference comparison for normal, JSON, and raw `PATH` output containing whitespace, backslash, newline, and an invalid UTF-8 filename byte. |
+| `test_lslocks_reference_path_bytes` | Reference-only path control pins the decoded JSON path, escaped normal table path, and byte-preserving raw path for the control and invalid-UTF-8 fixtures; observes POSIX `HOLDERS` with duplicate descriptors without assuming descriptor multiplicity. |
+| `test_util_linux_context_terminal_lock_path_truncation` | Real holder paths containing tab and ESC or an invalid UTF-8 byte are compared at captured terminal widths 24 and 120, including default truncation and `-u`. |
 | Open: owner disappearance during collection | The owned release/wait test covers a later invocation, but no fixture provides a deterministic collection barrier. |
 | `test_lslocks_version_provenance` | Both commands succeed and identify `lslocks`; assert each exact version banner separately. |
 | `test_lslocks_help_and_usage_errors` | Exact help output; missing option values, invalid PID, unknown option, operands, and `-J -r`. |
