@@ -13,17 +13,18 @@ producer repair, and source-pinned acceptance records. Root must seal the
 post-update candidate before building products.
 
 The fixture-only `nc` repair passes its exact selector and a 27-case focused
-native file run. A later canonical attempt on `0deeb9c7` remains unaccepted:
-13,915 passed, the TELNET fixture test timed out, 78 skipped, and the command
-exited 3. The root cause is corrected in the fixture, but no full canonical
-rerun has qualified this candidate. The seven QEMU cases are accepted for
-`0deeb9c7` only. The historical route replay had two normal `ExprIf` proof
-gaps; a fresh strict replay remains required. W9 parity is accepted for exact
-sources `0dc9cff7` and `0deeb9c7`; the latter completed 1,690 inputs and 6,760
-outcomes with zero mismatches and a verified assignment proof. Neither proof
-qualifies this later candidate. This candidate has no full canonical,
-supplemental, route, platform, or resource close. Main and the frozen W9
-source remain at `0deeb9c7`; root owns the final freeze and promotion.
+native file run. The latest canonical attempt on `3c0c01206` failed during
+XSHT integration after 1,854 seconds: 116 tests passed and the desugared
+`test_uu_tail_follow_name_hash_table_stress` failed with an extra truncation
+diagnostic. The run exited 3 before the full native suite, privileged harness,
+batch checks, or docs gate. The tail lane is isolating the written/desugared
+fixture behavior; no production change is accepted. Seven QEMU cases are
+accepted for exact source `0deeb9c7`; W9 parity is accepted for exact sources
+`0dc9cff7` and `0deeb9c7`. The historical route
+replay had two normal `ExprIf` proof gaps; a fresh strict replay remains
+required. This candidate has no full canonical, supplemental, route,
+platform, or resource close. Main and the frozen W9 source remain at
+`3c0c01206`; root owns the final freeze and promotion.
 
 ## Stop handoff, 2026-10-16
 

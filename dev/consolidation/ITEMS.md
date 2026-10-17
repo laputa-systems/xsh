@@ -7,12 +7,14 @@ ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 **Current status: candidate assembled on 2026-10-17.** The
 [active handoff](HANDOFF.md#active-candidate) owns the exact pins and live
 queue. The candidate is not frozen or accepted. Its latest canonical attempt
-on `0deeb9c7` failed on a native TELNET fixture timeout; a fixture-only repair
-passes its focused checks, but full canonical has not been rerun. Seven QEMU
-cases are accepted on `0deeb9c7` only. W9 parity is accepted on the recorded
-`0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4` and `0deeb9c7` pins only; the
-later assembled candidate needs its own source-bound W9 qualification. Lean
-and Phase F remain paused; inference remains isolated from main.
+on `3c0c01206` failed during XSHT integration on a desugared tail stress
+fixture, before the full native suite or privileged harness. The tail lane is
+isolating the fixture behavior; no production change is accepted. Seven QEMU
+cases are accepted for exact source `0deeb9c7`; W9 parity is accepted for
+exact sources `0deeb9c7` and
+`0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4`. The later assembled candidate
+needs its own source-bound W9 qualification. Lean and Phase F remain paused;
+inference remains isolated from main.
 
 The isolated generic module export slice remains accepted at `8475984a9`.
 Its main merge waits for consolidation closure. Broader inference, corpus
