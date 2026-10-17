@@ -258,11 +258,22 @@ def create_posix_semaphore(name, owner_uid, owner_gid, creator_uid, creator_gid,
         semaphore = sem_open(encoded_name, O_CREAT | O_EXCL, mode, 0)
         require_pointer(semaphore, "sem_open")
         resource = track("posix_semaphore", None, name, name[1:], owner_uid, owner_gid, mode)
+    path = f"/dev/shm/{name[1:]}"
+    discovery_path = f"/dev/shm/sem.{name[1:]}"
+    if os.path.exists(path):
+        resource["_path"] = path
+        resource["_discovery_path"] = discovery_path
+        os.link(path, discovery_path)
+    elif os.path.exists(discovery_path):
+        resource["_path"] = discovery_path
+        resource["_discovery_path"] = None
+    else:
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), path)
     with identity_scope(owner_uid, owner_gid):
         require_zero(sem_post(semaphore), "sem_post")
         require_zero(sem_close(semaphore), "sem_close")
-    os.chown(f"/dev/shm/sem.{name[1:]}", owner_uid, owner_gid)
-    os.chmod(f"/dev/shm/sem.{name[1:]}", mode)
+    os.chown(resource["_path"], owner_uid, owner_gid)
+    os.chmod(resource["_path"], mode)
     return resource
 
 
@@ -342,7 +353,7 @@ def posix_snapshot(resource):
     if resource["kind"] == "posix_shmem":
         return stat_snapshot(f"/dev/shm/{name[1:]}")
     if resource["kind"] == "posix_semaphore":
-        state = stat_snapshot(f"/dev/shm/sem.{name[1:]}")
+        state = stat_snapshot(resource["_path"])
         semaphore = require_pointer(sem_open(name.encode(), 0, 0, 0), "sem_open")
         try:
             value = ctypes.c_int()
@@ -400,6 +411,12 @@ def remove_resource(resource):
             result = shm_unlink(name.encode())
         elif kind == "posix_semaphore":
             result = sem_unlink(name.encode())
+            discovery_path = resource.get("_discovery_path")
+            if discovery_path is not None:
+                try:
+                    os.unlink(discovery_path)
+                except FileNotFoundError:
+                    pass
         else:
             raise RuntimeError(f"unknown IPC resource kind: {kind}")
     if result != 0:
@@ -465,7 +482,7 @@ def run(arguments):
         "owner_uid": owner_uid,
         "observer_uid": observer_uid,
         "resources": [
-            {key: value for key, value in resource.items() if key != "attachment"}
+            {key: value for key, value in resource.items() if key != "attachment" and not key.startswith("_")}
             for resource in resources
         ],
     }

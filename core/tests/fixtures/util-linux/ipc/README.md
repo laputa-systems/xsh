@@ -62,6 +62,13 @@ before `IPC_SET`, then changes ownership and mode. This preserves fields such
 as the System V queue byte limit. The keeper blocks handled signals while it
 switches IDs, restores effective root IDs, then restores the prior signal mask.
 
+The pinned Alpine musl `sem_open` stores a named semaphore at
+`/dev/shm/<name>`, while util-linux discovers named semaphores by scanning for
+`sem.*` and opens the suffix. For each registered semaphore, the keeper adds a
+hard link at the exact `sem.<name>` discovery path. Both paths refer to the same
+semaphore inode. The keeper records that alias and removes it after unlinking
+the POSIX name; it never scans the directory for cleanup.
+
 The foundation lane owns private namespaces, mount setup, and the shared keeper
 process API. This lane owns resource setup, identity capture, and cleanup of
 registered IPC objects. Native tests use the shared scene wrapper to run the
