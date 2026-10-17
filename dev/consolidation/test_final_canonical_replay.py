@@ -358,6 +358,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
             )
 
     def test_run_bootstrap_captures_cargo_json_and_writes_the_validated_receipt(self):
+        shutil.rmtree(self.target_dir)
         source = runner.git_snapshot(self.repo)
         records = self.build_records()
         encoded_records = "".join(json.dumps(record) + "\n" for record in records)
@@ -374,6 +375,11 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         def start_process(command, **kwargs):
             kwargs["stdout"].write(encoded_records.encode())
             kwargs["stdout"].flush()
+            self.assertTrue(self.target_dir.is_dir())
+            self.assertTrue((self.target_dir / runner.TARGET).is_dir())
+            self.assertTrue(self.bootstrap.parent.is_dir())
+            self.bootstrap.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            self.bootstrap.chmod(0o755)
             self.assertEqual(command[-len(runner.BOOTSTRAP_CARGO_ARGV):], runner.BOOTSTRAP_CARGO_ARGV)
             self.assertEqual(kwargs["cwd"], self.repo)
             self.assertEqual(kwargs["env"]["TMPDIR"], str(self.scratch_dir / "canonical-bootstrap" / "tmp"))
@@ -404,6 +410,33 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
                 self.bootstrap,
             )
         self.assertEqual(receipt["record"]["cargo_argv"], runner.BOOTSTRAP_CARGO_ARGV)
+
+    def test_run_bootstrap_quarantines_unresolved_cleanup_after_runner_exception(self):
+        with self.with_mocked_tools():
+            validated = runner.validate_bootstrap_inputs(self.bootstrap_arguments())
+        process = mock.MagicMock()
+        process.poll.side_effect = RuntimeError("runner poll failed")
+        with (
+            self.with_mocked_tools(),
+            mock.patch.object(runner, "run_text", return_value=runner.IMAGE),
+            mock.patch.object(runner, "source_check", return_value=runner.git_snapshot(self.repo)),
+            mock.patch.object(runner, "stop_container", return_value={"resolved": False, "container_id": "a" * 64}) as stop_container,
+            mock.patch.object(runner.subprocess, "Popen", return_value=process) as popen,
+            mock.patch("builtins.print"),
+        ):
+            with self.assertRaisesRegex(runner.ReplayError, "cleanup is unresolved"):
+                runner.run_bootstrap(validated)
+            with self.assertRaisesRegex(runner.ReplayError, "cleanup remains unresolved"):
+                runner.run_bootstrap(validated)
+
+        stop_container.assert_called_once()
+        popen.assert_called_once()
+        marker_path = self.native_lock.with_suffix(".cleanup-unresolved")
+        lock_record = self.native_lock.read_text(encoding="utf-8")
+        self.assertTrue(lock_record.startswith("cleanup-unresolved:"))
+        self.assertIn("runner poll failed", lock_record)
+        self.assertEqual(marker_path.read_text(encoding="utf-8"), lock_record)
+        self.assertFalse((self.scratch_dir / "canonical-bootstrap" / "bootstrap-receipt.json").exists())
 
     def test_run_batch_creates_validated_target_mount_before_docker_launch(self):
         target_mount = self.repo / "target"

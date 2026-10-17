@@ -997,6 +997,56 @@ def stop_container(cid_file: pathlib.Path, container_name: str | None = None) ->
     return {"resolved": resolved, "container_id": container_id, "commands": results}
 
 
+def prepare_bootstrap_target(target_dir: pathlib.Path) -> None:
+    for path in (target_dir, target_dir / TARGET, target_dir / TARGET / PROFILE):
+        if path.is_symlink():
+            raise ReplayError(f"bootstrap target path must contain only real directories: {path}")
+        try:
+            path.mkdir()
+        except FileExistsError:
+            pass
+        if path.is_symlink() or not path.is_dir():
+            raise ReplayError(f"bootstrap target path must contain only real directories: {path}")
+
+
+def retain_unresolved_cleanup(
+    lock: Any,
+    lock_path: pathlib.Path,
+    run_name: str,
+    cleanup: dict[str, Any],
+) -> None:
+    message = "cleanup-unresolved: " + json.dumps(
+        {"run_name": run_name, "cleanup": cleanup}, sort_keys=True
+    ) + "\n"
+    lock.seek(0)
+    lock.truncate()
+    lock.write(message)
+    lock.flush()
+    os.fsync(lock.fileno())
+
+    marker_path = lock_path.with_suffix(".cleanup-unresolved")
+    marker_fd = os.open(
+        marker_path,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+        0o600,
+    )
+    try:
+        remaining = message.encode("utf-8")
+        while remaining:
+            written = os.write(marker_fd, remaining)
+            if written == 0:
+                raise OSError("short write while retaining native cleanup marker")
+            remaining = remaining[written:]
+        os.fsync(marker_fd)
+    finally:
+        os.close(marker_fd)
+    directory_fd = os.open(marker_path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
 def run_bootstrap(validated: dict[str, Any]) -> int:
     root = validated["root"]
     output_root = validated["output_root"]
@@ -1021,10 +1071,7 @@ def run_bootstrap(validated: dict[str, Any]) -> int:
         output_root.mkdir()
         tmpdir = output_root / "tmp"
         tmpdir.mkdir()
-        validated["target_dir"].mkdir(exist_ok=True)
-        for path in (validated["target_dir"], validated["target_dir"] / TARGET, validated["target_dir"] / TARGET / PROFILE):
-            if path.is_symlink() or not path.is_dir():
-                raise ReplayError(f"bootstrap target path must contain only real directories: {path}")
+        prepare_bootstrap_target(validated["target_dir"])
         stdout_path = output_root / "cargo-build.jsonl"
         stderr_path = output_root / "cargo-build.stderr.log"
         cid_file = output_root / "container.cid"
@@ -1040,14 +1087,16 @@ def run_bootstrap(validated: dict[str, Any]) -> int:
         timed_out = False
         interrupted: int | None = None
         earlier_cleanup: dict[str, Any] | None = None
+        run_error: BaseException | None = None
         previous_handlers: dict[int, Any] = {}
 
         def note_signal(signum: int, _frame: Any) -> None:
             nonlocal interrupted
             interrupted = signum
 
-        previous_handlers = {signum: signal.signal(signum, note_signal) for signum in (signal.SIGINT, signal.SIGTERM)}
         try:
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                previous_handlers[signum] = signal.signal(signum, note_signal)
             with stdout_path.open("wb") as stdout_log, stderr_path.open("wb") as stderr_log:
                 process = subprocess.Popen(
                     command,
@@ -1081,15 +1130,30 @@ def run_bootstrap(validated: dict[str, Any]) -> int:
         except OSError as error:
             exit_code = 127
             stderr_path.write_text(f"bootstrap launcher error: {error}\n", encoding="utf-8")
+        except BaseException as error:
+            run_error = error
         finally:
             for signum, handler in previous_handlers.items():
                 signal.signal(signum, handler)
 
-        cleanup = stop_container(cid_file, container_name)
+        try:
+            cleanup = stop_container(cid_file, container_name)
+        except BaseException as error:
+            cleanup = {"resolved": False, "error": str(error)}
+            if run_error is None:
+                run_error = error
         if earlier_cleanup is not None:
             cleanup["before_process_exit"] = earlier_cleanup
         if cleanup.get("resolved") is not True:
-            raise ReplayError(f"canonical bootstrap container cleanup is unresolved: {cleanup}")
+            if run_error is not None:
+                cleanup["run_error"] = str(run_error)
+            retain_unresolved_cleanup(lock, validated["lock_path"], args.run_name, cleanup)
+            error = ReplayError(f"canonical bootstrap container cleanup is unresolved: {cleanup}")
+            if run_error is not None:
+                raise error from run_error
+            raise error
+        if run_error is not None:
+            raise run_error
         after = source_check(validated, "after-bootstrap")
         if timed_out:
             raise ReplayError(f"canonical bootstrap build timed out; logs are in {output_root}")
