@@ -1,21 +1,28 @@
 # XSH Consolidation Campaign
 
-Status: resumed on 2026-10-16. The last broadly qualified production source is
-`7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
-`736b4bc16b1bcf07a0250b97e849506c19fb0753`. Reviewed successor production
-delta `3160bda38` has narrow delta-functional acceptance. Its fresh full canonical, resource, and timing
-gates remain open; root owns the final source seal. See the active
-[handoff](HANDOFF.md#active-candidate). Lean and Phase F remain paused.
+Status: resumed on 2026-10-16. Root promoted successor source
+`19c9aded0ea42c979fbc6be32162320d29ded3b1`, tree
+`956ea0056c53b5f006ede4fd980fd7ae364970e2`, to main. The last broadly
+qualified production source remains `7eb62cd993e578c13bf6befd68a6a6ac15133c78`,
+tree `736b4bc16b1bcf07a0250b97e849506c19fb0753`. Root accepted a narrow
+delta-functional close and exact-source artifacts-only release build for
+`19c9aded`. R4 stopped at an actual `fmt` corpus failure before its full native
+suite; it earns no canonical or resource credit. A focused b2f3 fixture
+relocation replay passed, but the full successor canonical and resource gates
+remain open. Timing gates have not run and await correctness, resources, and
+fresh readiness checks. See the
+active [handoff](HANDOFF.md#active-candidate). Lean and Phase F remain paused.
 Inference remains isolated from main.
 
 ## Current candidate, 2026-10-17
 
-The last broadly qualified source combines the linked-worktree discovery
+The last broadly qualified 7eb source combines the linked-worktree discovery
 repair, corrected route expectation, batch-only native admission cap, W9
-producer repair, and fixture repairs. The reviewed successor production delta
+producer repair, and fixture repairs. The reviewed successor delta
 `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8` has an accepted narrow
-delta-functional close for three exact selectors. Root will bind the successor
-source to issued gate receipts before promotion.
+delta-functional close for three exact selectors. Source `19c9aded` is now
+promoted; its successor full canonical and resource gates remain open. The
+active handoff records the current source and exact gate sequence.
 
 The full canonical run on b235 completed with 13,916 passes, 78 skips, and no
 failures across 13,994 selected cases. Root accepted that result and reused it
@@ -60,9 +67,10 @@ the [strict matrix and admission proof](winddown/evidence/route-replay-7eb62cd99
 and [replay archive](winddown/evidence/route-replay-7eb62cd99/README.md).
 Root accepted functional close for the exact 7eb source and tree; the immutable
 receipt is [archived here](evidence/closure-b235a1a43/functional-close-7eb62cd993e578c13bf6befd68a6a6ac15133c78.json).
-Final performance closure is not complete. No timed run has started: although
-`perf-gate-ready` returned zero, shared-host load prevents an exclusive window.
-**perf gate deferred: host busy**. Root accepted the `performance_prep`
+Final performance closure is not complete. Timing gates have not run; they
+await successor correctness and resource completion followed by fresh
+readiness checks. Earlier readiness and host-busy observations are historical
+and do not establish a current deferral. Root accepted the `performance_prep`
 artifacts-only build/resources-only observer modes, and the accepted controller
 changes are integrated. R3's resources-only observer failed after starting one
 full native suite: 13,914 passed, two failed and 78 were skipped. The failures
@@ -1124,9 +1132,15 @@ selection or fastest-profile claim is required.
 
 ### Candidate assembled, 2026-10-17
 
-The active source pins and remaining gates are in the
-[active candidate handoff](HANDOFF.md#active-candidate). Functional close is
-accepted for 7eb; final resource and performance gates remain open.
+Root promoted source `19c9aded0ea42c979fbc6be32162320d29ded3b1` to main.
+Its narrow delta-functional close and exact-source artifacts-only release
+build are accepted; the last broadly qualified source remains `7eb62cd99`.
+The R4 attempt stopped at the actual `fmt` corpus failure before its full
+native suite; it earns no canonical or resource credit. The focused b2f3
+fixture relocation replay is green, but does not close the successor full
+canonical or resource gate. Timing gates remain unrun pending correctness,
+resources, and fresh readiness. See the
+[active candidate handoff](HANDOFF.md#active-candidate) for exact pins.
 
 ### 2026-10-16 — failed 7b canonical run
 

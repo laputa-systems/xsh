@@ -4,11 +4,15 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `5e66b6b896a47d0c692739135d51200b007a2a67`. The accepted designs and historical
 ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
-**Current status: last broadly qualified production source `7eb62cd99`.** Main
-and the frozen candidate use tree `736b4bc16b1bcf07a0250b97e849506c19fb0753`.
-Root accepted a narrow delta-functional close for successor production delta
-`3160bda38`; its final source seal and full canonical, resource, and timing
-gates are pending. The
+**Current status: `7eb62cd99` remains the last broadly qualified production
+source.** Root promoted `19c9aded0ea42c979fbc6be32162320d29ded3b1`, tree
+`956ea0056c53b5f006ede4fd980fd7ae364970e2`, to main. Root accepted its narrow
+delta-functional close and exact-source artifacts-only release build. The R4
+attempt stopped at an actual `fmt` corpus failure before its full native suite
+started, so it earns no resource credit. Its diagnostic resource capture
+peaked at 3,429,998,592 bytes with zero OOM events. Successor full canonical
+and resource gates remain open. Timing gates have not run and await correctness
+and resource completion followed by fresh readiness checks. The
 [active handoff](HANDOFF.md#active-candidate) owns exact pins and the live
 queue.
 
@@ -62,9 +66,10 @@ The first timeout overlapped builds on disjoint CPU sets for 51 seconds and
 then three seconds; this does not establish causation. The quiet control ran
 after campaign builds were held, but external host jobs remained active, so it
 is not timing evidence. The successor has no full canonical or resource
-acceptance yet. No timed run has started.
-**perf gate deferred: host busy**. Binary-size remains pending. Lean and Phase F
-stay paused. Inference remains isolated until consolidation closes.
+acceptance yet. No timed run has started; timing waits for successor correctness
+and resource completion followed by fresh readiness checks. Binary-size remains
+pending. Lean and Phase F stay paused. Inference remains isolated until
+consolidation closes.
 
 Phase D remains isolated at checkpoint `877`, commit
 `338b82238a67ee36dd1b025b7a923f9fc5d2da40`, on pair
@@ -96,9 +101,10 @@ reduced-view runtime has not run. One failure reproduces the pre-existing
 `5277` issue; the other causes remain unknown while the owner improves
 module-capture diagnosis. No removal count advances. The Definition-role
 source patch is unqualified, and the original `2cb3` failure remains
-preserved. All 149 Map annotations on `{}` initializers remain required, and
-the 95% local target remains unmet. The original `749` rejection remains
-preserved.
+preserved. The owner decided to keep `{}` as a record. All 149 Map annotations
+on `{}` initializers remain required. The frozen denominator is 693; the
+current contract ceiling is 544/693 (78.50%), below the 95% local target. The
+original `749` rejection remains preserved.
 See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
 [Set qualification](typing-corpus/README.md#independent-mutable-set-candidate),
 [Set evidence](evidence/typing-corpus-host-obligations/mutable-sets/README.md), and

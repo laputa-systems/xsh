@@ -1,12 +1,16 @@
 # Consolidation handoff
 
-Status: last broadly qualified production source
-`7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
+Root promoted successor source `19c9aded0ea42c979fbc6be32162320d29ded3b1` to main,
+tree `956ea0056c53b5f006ede4fd980fd7ae364970e2`. The last broadly qualified
+production source remains `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
 `736b4bc16b1bcf07a0250b97e849506c19fb0753`. Root accepted a narrow
-delta-functional close for the
-reviewed successor production delta `3160bda38`. A final successor seal and
-fresh full canonical, resource, and timing gates remain pending. Lean and Phase
-F stay paused. Inference remains isolated.
+delta-functional close and an exact-source artifacts-only release build for
+`19c9aded`. Full successor canonical and resource acceptance remain open. R4
+stopped at an actual `fmt` corpus failure before its full native suite started.
+It earns no resource credit. Its diagnostic resource capture peaked at
+3,429,998,592 bytes with zero OOM events. Timing gates have not run. They wait
+for successor correctness and resource gates, then fresh readiness checks.
+Lean and Phase F stay paused. Inference remains isolated.
 The 2026-10-16 stop handoff below is historical.
 
 ## Active candidate
@@ -19,15 +23,29 @@ selection completed with 13,916 passes, 78 skips, and zero failures across
 source change is two test-only `PermissionsExt::from_mode(0)` spellings changed
 to `from_mode(0o0)`; no production behavior changed.
 
-The reviewed successor production delta is
-`3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`.
-Root accepted its narrow delta-functional close on the factor parallel,
-non-Unicode, and lifecycle selectors after the isolated quiet factor control
-passed. This is selector-level acceptance only; it does not extend the 7eb
-functional-close receipt or qualify a full successor canonical or resource
-run. The delta changes `core/factor.xsh` and one lifecycle fixture. Rust sources, selector names,
-and deadlines did not change. Root will bind the successor source to
-issued gate receipts.
+Root promoted successor source
+`19c9aded0ea42c979fbc6be32162320d29ded3b1`, tree
+`956ea0056c53b5f006ede4fd980fd7ae364970e2`. Root accepted a narrow additive
+delta-functional close for that exact source. The close reuses the accepted
+7eb scope and covers factor parallel, non-Unicode factor, and lifecycle checks
+on `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`. It remains selector-level
+acceptance. It does not qualify the successor full canonical or resource run.
+See the [successor evidence](evidence/successor-19c9aded/README.md).
+
+The artifacts-only release build qualifies the `19c9` xsh, xsht, and
+xsh-test-helper products. It provides no canonical or timing result. R4
+stopped at the `fmt` corpus failure before starting its full native suite. Its
+resource capture is diagnostic only and earns no resource credit. The exact
+successor resource retry remains open.
+
+Fifteen capability fixtures moved byte-for-byte in
+`b2f3a0624205e68d06f9a439ffe2dea5e7dc4541`. The exact old-source invariant
+replay fails its selected test at `bytes-reduced.xsh:1:17`. Two earlier
+Docker setup attempts exited 125 before test selection and remain preserved.
+The exact candidate replay on `b2f3a0624` passed one selected test, with 121
+filtered and 115 diagnostics. Root verified source and product guards, the
+1,835-input audit, and cleanup. This is narrow red-to-green evidence, not a
+full canonical result. See the [focused corpus proof](evidence/corpus-placement-b2f3a0624/README.md).
 
 The first fresh R6 attempt on b235 passed five of thirteen stages, then failed
 at stage six on all-target, all-feature Clippy diagnostics for those two
@@ -128,12 +146,32 @@ eleven check/lower roots pass. Its original-view runtime passes 15 of 24
 selectors and fails nine; reduced-view runtime has not run. One failure
 reproduces the pre-existing `5277` issue; the other failure causes remain
 unknown while the owner improves module-capture diagnosis. No removal count
-advances. All 149 Map annotations on `{}` initializers remain required, and the
-95% local target remains unmet. The original `749` rejection remains preserved.
+advances. The owner decided to keep `{}` as a record. All 149 `Map`
+annotations on `{}` initializers remain required. The frozen local denominator
+remains 693; the current contract ceiling is 544/693 (78.50%), below the 95%
+target. Only checkpoint `877` has full paired runtime acceptance. The original
+`749` rejection remains preserved.
 See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
 [Set qualification](typing-corpus/README.md#independent-mutable-set-candidate),
 [Set evidence](evidence/typing-corpus-host-obligations/mutable-sets/README.md), and
 [empty-record decision](typing-corpus/README.md#empty-record-contract).
+
+The frozen typing inventory was restored byte-for-byte from its canonical Git
+blob. `cohort.inventory()` passed against the retained originals: 9,194 indexed
+sites across 48 sources, including 693 local, 2,190 internal, 4,364 schema,
+1,920 interface, 23 required, and four entry-effect sites. The original
+14,287-entry input digest is unchanged. No denominator changed.
+
+The isolated combined host run at `a122367bf6a45c80d1977ed97b3c3ab85b2d49b4`
+passed 171 selected tests: 107 producer selectors, two Set mutations, and 62
+constraint tests. It built the verification `xsh`, `xsht`, and
+`xsh-test-helper` products and the xsh library test harness. Only the explicit
+production `xsh --lib` check used `-D warnings`; the product and test commands
+did not use global warning denial. The container exited zero. The outer
+validator exited one because it expected an 8 GiB swap limit, while the
+no-swap cgroup reported zero. Root reconciled the resource check. These focused
+results do not qualify inference acceptance or a full native run. The constant
+record proof patch remains under review.
 
 ### Current queue
 
@@ -165,14 +203,17 @@ See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidat
    51 seconds and then three seconds, which does not prove causation. Campaign
    builds were held for the quiet control, but external host jobs remained
    active; it is not timing evidence. The prior failed run's memory and cleanup
-   observations remain in the linked archive. This delta acceptance does not
-   qualify a full successor canonical or resource run. Root will bind the final source to issued gate
-   receipts. The fresh artifacts-only qualifier, full canonical, R4, and
-   binary-size run have not started. No timed run has started; `perf-gate-ready`
-   returned zero, but shared-host load prevents an exclusive measurement
-   window. **perf gate deferred: host busy**. Nine serial correctness suites
-   remain (canonical normal 1, opt3 correctness 1, forced 1, scheduler pairs 6)
-   plus R4: ten native runs total. Root owns release readiness and promotion.
+   observations remain in the linked archive. Root accepted the additive
+   functional close for exact successor `19c9aded` and its artifacts-only
+   release build. Neither acceptance closes the full successor canonical or
+   resource gate. R4 stopped at the actual `fmt` corpus failure before its full
+   native suite started. Its 3,429,998,592-byte resource peak with zero OOM
+   events is diagnostic only and earns no resource credit. The resource retry
+   remains open. No successor full canonical has completed. Timing gates have
+   not run. They remain pending successor correctness and resource completion,
+   followed by fresh readiness checks. Earlier host-busy observations are
+   historical and do not establish a current deferral. Root owns the next gate
+   sequence and promotion.
 
 The b235 canonical gate is accepted and reused for 7eb under Phase A. The fresh
 7eb R6 run is accepted, residual and QEMU scopes are closed, W9 parity is
