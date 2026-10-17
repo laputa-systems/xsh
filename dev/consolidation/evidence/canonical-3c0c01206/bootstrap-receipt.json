@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "status": "passed",
+  "source": {
+    "commit": "3c0c01206db71443662242167ac5f0a4bfafc62b",
+    "tree": "ddfc7e60f70f0de26b618b3c0eabefd8a2b36122",
+    "clean": true
+  },
+  "image": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+  "target": "x86_64-unknown-linux-musl",
+  "profile": "verification",
+  "rustflags": "-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol",
+  "cargo_argv": [
+    "cargo",
+    "build",
+    "--locked",
+    "--profile",
+    "verification",
+    "--target",
+    "x86_64-unknown-linux-musl",
+    "-p",
+    "xsh",
+    "--bin",
+    "xsh",
+    "--message-format=json-render-diagnostics"
+  ],
+  "cargo_target_dir": "/work/target",
+  "build_json": {
+    "exit_code": 0,
+    "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-3c0c01206/.work/tmp/canonical-bootstrap-3c0c01206-20261017/cargo-build.jsonl",
+    "sha256": "97d86673f9a6877b43e2ccc161164092fcfeb9dfe18b2516a12c85aa98a67218"
+  },
+  "artifact": {
+    "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-3c0c01206/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh",
+    "size_bytes": 31552464,
+    "sha256": "c493d0324bcd66f15ace3f71be690248b832fecffb795a10f29ec223fad32b02"
+  }
+}
