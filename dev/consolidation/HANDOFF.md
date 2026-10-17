@@ -101,14 +101,20 @@ unqualified. Do not merge inference to main before consolidation closes.
 
 The accepted `877` candidate remains the only one with full paired runtime
 qualification. The source-only `891` plan remains source-validated only. The
-`986` Set candidate has accepted check/lowering results on source `020f` for 457
-of 693 local removals, including 109 added mutable `Set[Str]` annotations, and
-the unchanged 529 of 2,190 internal removals. The original `749` rejection and
-its source/product snapshots remain preserved; they do not replace the accepted
-`020f` result. The 26 paired runtime selections for `986` remain queued, so no
-`986` runtime result is claimed. See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
-[current Set result](typing-corpus/README.md#check-and-lowering-qualification),
-[retained failed proof](evidence/typing-corpus-host-obligations/mutable-sets/), and
+`986` Set candidate passes accepted check/lowering on source `020f` for 457 of
+693 local removals, including 109 added mutable `Set[Str]` annotations, and 529
+of 2,190 internal removals. Its 26 exact behavior witnesses pass, 13 per view.
+That bounded run does not complete Set feature qualification. API fixture
+`a4411` passes, but the documentation slot verifier rejects valid nested
+destructuring for `5277` and `020f`. Repair source
+`2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has qualified source-bound products;
+focused check-only probes remain pending. The original wrapper cleanup-check
+failure is preserved separately. Full removal credit remains 877. The
+1,065-site collection plan remains red with 92 reduced-XSH diagnostics on
+`76caa` and earns no count. The original `749` rejection remains preserved.
+See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
+[Set qualification](typing-corpus/README.md#independent-mutable-set-candidate),
+[Set evidence](evidence/typing-corpus-host-obligations/mutable-sets/README.md), and
 [empty-record decision](typing-corpus/README.md#empty-record-contract).
 
 ### Current queue
@@ -126,14 +132,20 @@ its source/product snapshots remain preserved; they do not replace the accepted
    case, the namespace case, and both root `CAP_NET_RAW` positives. Initial
    Git-guard attempts selected zero tests and earn no credit. See the
 [residual evidence](evidence/linux-residual-0deeb9c7/README.md).
-3. Final resource and performance gates remain open. The timing attempt has not
-   started: `perf-gate-ready` returned zero, but shared-host load prevents an
-   exclusive measurement window. **perf gate deferred: host busy**. Root
-   accepted the `performance_prep` artifacts-only build/resources-only observer
-   modes, and the accepted controller changes are integrated. The resource-only
-   observer and binary-size evidence remain pending. No final resource-observer
-   result has been accepted. Run the nine remaining full-native suites
-   (profile once, forced once, scheduler six times, observer once). Root owns
+3. Final resource and performance gates remain open. No timed run has started:
+   `perf-gate-ready` returned zero, but shared-host load prevents an exclusive
+   measurement window. **perf gate deferred: host busy**. R3's resources-only
+   observer failed after starting one full native suite: 13,914 passed, two
+   failed and 78 were skipped. The failures were the lifecycle profile
+   expectation and a factor timeout. Cleanup resolved with no OOM, but R3 earns
+   no resource credit. See the [R3 archive](evidence/resource-observer-r3-7eb62cd9/README.md).
+   Root accepted lifecycle fix
+   `f4a9fb92f0976ed8fa6680f4ed8597180cc93f32` and factor repair `587814f274e`;
+   they remain in isolated candidate
+   `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`, outside main. The lifecycle
+   reproduction is archived [here](evidence/lifecycle-profile-r3/README.md).
+   Three post-integration selectors, memory capture, a new seal and R4 remain
+   pending. Binary-size and final resource evidence remain pending. Root owns
    release readiness and main promotion.
 
 The b235 canonical gate is accepted and reused for 7eb under Phase A. The fresh

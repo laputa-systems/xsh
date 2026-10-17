@@ -41,11 +41,19 @@ both positive `NET_RAW` cases passed under root with `CAP_NET_RAW`. Initial
 Git-guard attempts selected zero tests and earn no credit. See the [residual
 evidence](evidence/linux-residual-0deeb9c7/README.md). Root accepted the
 `profile-cost.py --artifacts-only` and `final-observers.py --resources-only`
-modes, and the accepted controller changes are integrated. Resource-only
-observer and binary-size evidence remain pending. No final resource-observer
-result has been accepted. No timed run has started. **perf gate deferred: host
-busy**. Lean and Phase F stay paused. Inference remains isolated until
-consolidation closes.
+modes, and the accepted controller changes are integrated. R3's resources-only
+observer failed after starting one full native suite: 13,914 passed, two failed
+and 78 were skipped. Cleanup resolved with no OOM, but R3 earns no resource
+credit. See the [R3 archive](evidence/resource-observer-r3-7eb62cd9/README.md).
+Root accepted lifecycle fix
+`f4a9fb92f0976ed8fa6680f4ed8597180cc93f32` and factor repair `587814f274e` in
+isolated candidate `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`. The lifecycle
+reproduction is archived [here](evidence/lifecycle-profile-r3/README.md). The
+candidate is outside main. Three post-integration selectors, memory capture, a
+new seal and R4 remain pending.
+No timed run has started. **perf gate deferred: host
+busy**. Binary-size and final resource evidence remain pending. Lean and Phase F
+stay paused. Inference remains isolated until consolidation closes.
 
 Phase D remains isolated at checkpoint `877`, commit
 `338b82238a67ee36dd1b025b7a923f9fc5d2da40`, on pair
@@ -69,14 +77,20 @@ identity and cleanup; see [host native evidence](evidence/typing-host-native6/RE
 The generic-body lane remains unqualified.
 The accepted `877` candidate remains the only one with full paired runtime
 qualification. The source-only `891` plan remains source-validated only. The
-`986` Set candidate has accepted check/lowering results on source `020f` for 457
-of 693 local removals, including 109 added mutable `Set[Str]` annotations, and
-the unchanged 529 of 2,190 internal removals. The original `749` rejection and
-its source/product snapshots remain preserved; they do not replace the accepted
-`020f` result. The 26 paired runtime selections for `986` remain queued, so no
-`986` runtime result is claimed. See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
-[current Set result](typing-corpus/README.md#check-and-lowering-qualification),
-[retained failed proof](evidence/typing-corpus-host-obligations/mutable-sets/), and
+`986` Set candidate passes accepted check/lowering on source `020f` for 457 of
+693 local removals, including 109 added mutable `Set[Str]` annotations, and 529
+of 2,190 internal removals. Its 26 exact behavior witnesses pass, 13 per view.
+That bounded run does not complete Set feature qualification. API fixture
+`a4411` passes, but the documentation slot verifier rejects valid nested
+destructuring for `5277` and `020f`. Repair source
+`2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has qualified source-bound products;
+focused check-only probes remain pending. The original wrapper cleanup-check
+failure is preserved separately. Full removal credit remains 877. The
+1,065-site collection plan remains red with 92 reduced-XSH diagnostics on
+`76caa` and earns no count. The original `749` rejection remains preserved.
+See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
+[Set qualification](typing-corpus/README.md#independent-mutable-set-candidate),
+[Set evidence](evidence/typing-corpus-host-obligations/mutable-sets/README.md), and
 [empty-record decision](typing-corpus/README.md#empty-record-contract).
 Inference remains isolated. See the [active handoff](HANDOFF.md#active-candidate)
 for the full checkpoint details.

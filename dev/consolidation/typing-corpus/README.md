@@ -326,8 +326,11 @@ accumulators or complete the Set feature gates.
 
 The Set API fixture at `a4411` passes. The documentation gate fails because its
 slot verifier rejects valid nested destructuring in the `5277` and `020f`
-examples. A driver-slot repair is awaiting an isolated source build. Full
-accepted removal credit remains 877 until the API and documentation gates pass.
+examples. Repair source `2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has
+qualified source-bound products; focused check-only probes remain pending. The
+original wrapper cleanup-check failure is preserved separately and is not a
+source-build failure. Full accepted removal credit remains 877 until the API
+and documentation gates pass.
 
 The separate 1,065-site collection plan adds 54 List and 25 conditional or
 mutable-null removals to 986. Its reduced check remains red: source `76caa` passes
