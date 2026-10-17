@@ -60,10 +60,25 @@ run_exact() {
   fi
 }
 
+run_check() {
+  expected_files=$1
+  shift
+  output=$scratch/check.$expected_files.stdout
+  error=$scratch/check.$expected_files.stderr
+  if ! "$xsht" check "$@" >"$output" 2>"$error"; then
+    cat "$output" "$error" >&2
+    return 1
+  fi
+  if ! grep -Eq "^xsht check: $expected_files files? .*check [^,]+, lower " "$error"; then
+    cat "$output" "$error" >&2
+    return 1
+  fi
+}
+
 (
   cd "$xsh_root"
   export PATH="$(dirname "$xsh"):$(dirname "$xsht"):$PATH"
-  "$xsht" check \
+  run_check 12 \
     core/wc.xsh core/sort.xsh core/awk.xsh \
     core/cut.xsh core/tr.xsh core/date.xsh core/lib/date_parse.xsh \
     core/system-report.xsh dev/gates.xsh dev/internal.xsh dev/docker.xsh dev/main.xsh
@@ -75,7 +90,7 @@ run_exact() {
 (
   cd "$laputa_root"
   export PATH="$(dirname "$xsh"):$(dirname "$xsht"):$PATH"
-  "$xsht" check pm/plan_json.xsh pm/generation.xsh pm/generation_adapter.xsh
+  run_check 3 pm/plan_json.xsh pm/generation.xsh pm/generation_adapter.xsh
   run_exact tests/pm/pm_generation.xsh::test_generation_plan_and_receipt_are_deterministic_for_root_order_and_duplicates
   run_exact tests/pm/pm_generation.xsh::test_generation_plan_json_round_trips_and_rejects_changed_identity
 )

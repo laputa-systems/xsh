@@ -80,8 +80,10 @@ Run it as `bash dev/performance/corpus/check.sh "$XSH_SOURCE" "$LAPUTA_SOURCE" \
   "$XSH_PRODUCT" "$XSHT_PRODUCT" "$XSH_SHA256" "$XSHT_SHA256" \
   "$XSH_ROOT" "$LAPUTA_ROOT"`. Set the source revisions and product digests
 from the accepted G1 qualification. The adapter checks the checkout revisions,
-both product hashes, required source files, and each exact test's selected name
-and `1 passed; 0 failed; 0 skipped` summary before returning success.
+both product hashes, required source files, and each check command's file count
+and `check` and `lower` stage summary. Each exact test must select its requested
+name and report `1 passed; 0 failed; 0 skipped` before the adapter returns
+success.
 
 ## Capability and patch order
 
