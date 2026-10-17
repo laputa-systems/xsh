@@ -149,3 +149,30 @@ test test_util_linux_context_terminal_rooted_memory { |ctx|
     assert ul.observed_equal(reference, candidate), "lsmem terminal capture differs"
   }
 }
+
+test test_util_linux_context_owned_cancellation_releases_lock_and_ipc { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  s.root.chmod(0o777)
+  let target = uu.at(s, "cancelled-owner")
+  let holder = contexts.start_identity_keeper(s,
+    fp"{ctx.core_dir}/tests/fixtures/util-linux/contexts/identity_lock.py", [target.display()])?
+  defer ul.stop_keeper(holder)
+  let lock = json.decode(holder.ready)?.require(IdentityReady)?
+  let creator = contexts.start_identity_keeper(s,
+    fp"{ctx.core_dir}/tests/fixtures/util-linux/contexts/identity_ipc.py", [])?
+  defer ul.stop_keeper(creator)
+  let segment = json.decode(creator.ready)?.require(IpcIdentityReady)?
+  assert fs.stat(target)?.ino == lock.inode
+  assert lock.pid != segment.pid
+  holder.child.cancel(signal: "TERM", kill_after: 2s)
+  creator.child.cancel(signal: "TERM", kill_after: 2s)
+  for line in p"/proc/locks".read_text()?.lines() {
+    let fields = line.fields()
+    assert fields.len() < 6 or ! fields[5].ends_with(f":{lock.inode}")
+  }
+  for line in p"/proc/sysvipc/shm".read_text()?.lines() {
+    let fields = line.fields()
+    assert fields.len() < 2 or fields[1] != f"{segment.id}"
+  }
+}
