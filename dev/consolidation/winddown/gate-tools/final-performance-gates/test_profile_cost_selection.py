@@ -134,9 +134,11 @@ def test_profile_runtime_context_uses_only_the_candidate_xsh():
             raise AssertionError("runtime profile container accepted a symlink candidate")
 
 
-def run_profile_cost(tree, output, close_record, commit):
+def run_profile_cost(tree, output, close_record, commit, *, artifacts_only=False):
     source_identity = {"commit": commit, "git_tree": "1" * 40, "status": "clean"}
     stages = []
+    lock_paths = []
+    close_record.write_text(json.dumps({"functional_complete": True, "commit": commit}) + "\n", encoding="utf-8")
 
     def docker_base(_tree, target_dir, _cpus, image, repository_tmp, user=False, candidate_xsh=None):
         path_prefix = f"{candidate_xsh.parent}:" if candidate_xsh is not None else ""
@@ -155,8 +157,9 @@ def run_profile_cost(tree, output, close_record, commit):
             command[-1:-1] = ["-e", f"XSH_BIN={candidate_xsh}"]
         return command
 
-    def run_stage(command, log, *, run_id, stage, verify_after):
+    def run_stage(command, log, *, run_id, stage, verify_after, measure_timing=True):
         stages.append(stage)
+        assert measure_timing is (not artifacts_only)
         if stage.endswith("-build"):
             target_dir = Path(next(argument.split("=", 1)[1] for argument in command if argument.startswith("CARGO_TARGET_DIR=")))
             binary_dir = target_dir / profile.TARGET / "release"
@@ -166,29 +169,41 @@ def run_profile_cost(tree, output, close_record, commit):
                 binary.write_bytes(name.encode())
                 binary.chmod(0o755)
         log.write_text(f"{stage}\n")
-        return {
+        result = {
             "command": command,
             "status": 0,
-            "wall_ns": 1,
-            "timing_accepted": True,
+            "wall_ns": 1 if measure_timing else None,
+            "timing_claim_eligible": False,
+            "timing_accepted": measure_timing,
+            "timing_discarded": not measure_timing,
             "container_cleanup": {"resolved": True, "commands": []},
             "log_sha256": profile.digest(log),
             "stage_validation": verify_after(),
         }
+        if not measure_timing:
+            result["performance_gate"] = {"before": None, "after": None}
+            result["timing_discard_reason"] = "artifacts-only mode"
+        return result
 
     args = SimpleNamespace(
         tree=tree,
         commit=commit,
         functional_close=close_record,
         output=output,
+        artifacts_only=artifacts_only,
     )
+
+    def exclusive_lock(path, **_kwargs):
+        lock_paths.append(path)
+        return nullcontext()
+
     with (
         patch.object(profile, "ROOT", tree),
         patch.object(profile, "check_source", return_value=source_identity),
         patch.object(profile, "check_close", return_value={"functional_complete": True, "commit": commit}),
-        patch.object(profile, "image_identity", return_value={"image_id": "sha256:test", "clang_driver": "/clang", "tool_hashes": {}}),
-        patch.object(profile, "cpu_list", return_value="0-11"),
-        patch.object(profile, "exclusive_lock", side_effect=lambda *args, **kwargs: nullcontext()),
+        patch.object(profile, "image_identity", return_value={"image_id": profile.NATIVE_IMAGE_ID, "clang_driver": "/clang", "tool_hashes": {}}),
+        patch.object(profile, "cpu_list", return_value=",".join(str(cpu) for cpu in range(12))),
+        patch.object(profile, "exclusive_lock", side_effect=exclusive_lock),
         patch.object(profile, "no_active_native_containers"),
         patch.object(profile, "docker_base", side_effect=docker_base),
         patch.object(profile, "run_stage", side_effect=run_stage),
@@ -197,13 +212,13 @@ def run_profile_cost(tree, output, close_record, commit):
         with redirect_stdout(StringIO()):
             profile.run(args)
 
-    return json.loads((output / "receipt.json").read_text()), stages
+    return json.loads((output / "receipt.json").read_text()), stages, lock_paths
 
 
 def test_profile_cost_emits_only_the_selected_release_profile():
     with make_working_tree() as (tree, close_record, commit):
         output = tree / ".work/consolidation/profile-cost-test"
-        receipt, stages = run_profile_cost(tree, output, close_record, commit)
+        receipt, stages, _lock_paths = run_profile_cost(tree, output, close_record, commit)
 
         assert stages == ["release-opt3-build", "release-opt3-native-suite"]
         assert receipt["profile"] == {
@@ -270,9 +285,102 @@ def test_profile_cost_emits_only_the_selected_release_profile():
                     raise AssertionError(f"comparative validation accepted invalid receipt {filename}")
 
 
+def test_artifact_qualification_is_resources_only_input():
+    with make_working_tree() as (tree, close_record, commit):
+        output = tree / ".work/consolidation/profile-artifacts-test"
+        receipt, stages, lock_paths = run_profile_cost(tree, output, close_record, commit, artifacts_only=True)
+
+        assert stages == ["release-opt3-build"]
+        assert lock_paths == [profile.PROFILE_LOCK, profile.INFRA / "cargo.lock"]
+        assert receipt["state"] == "artifact-qualified"
+        assert receipt["qualification_mode"] == "artifacts-only"
+        assert receipt["native_suite_lock_held_across_gate"] is False
+        assert "native_suite" not in receipt["results"][0]
+        build = receipt["results"][0]["build"]
+        assert build["status"] == 0
+        assert build["wall_ns"] is None
+        assert build["timing_accepted"] is False
+        assert build["timing_discarded"] is True
+        assert build["performance_gate"] == {"before": None, "after": None}
+        assert receipt["qualification_tool"]["path"].endswith("/profile-cost.py")
+        assert receipt["qualification_tool"]["sha256"] == profile.digest(Path(receipt["qualification_tool"]["path"]))
+
+        receipt_path = output / "receipt.json"
+        with patch.object(observer, "source_identity", return_value=receipt["source_identity"]):
+            try:
+                observer.load_profile_binaries(receipt_path, tree, commit, 3)
+            except observer.ObserverFailure as error:
+                assert "complete" in str(error)
+            else:
+                raise AssertionError("timed observer accepted an artifact-qualified profile receipt")
+            selected = observer.load_profile_binaries(
+                receipt_path, tree, commit, 3, allow_artifact_qualified=True
+            )
+            assert selected["qualification_tool"] == receipt["qualification_tool"]
+
+            wrong_source = json.loads(json.dumps(receipt))
+            wrong_source["source_commit"] = "b" * 40
+            wrong_source_path = output / "wrong-source.json"
+            wrong_source_path.write_text(json.dumps(wrong_source), encoding="utf-8")
+            try:
+                observer.load_profile_binaries(wrong_source_path, tree, commit, 3, allow_artifact_qualified=True)
+            except observer.ObserverFailure as error:
+                assert "exact source commit" in str(error)
+            else:
+                raise AssertionError("resource-only observer accepted an artifact receipt for a different source")
+
+            wrong_tree = json.loads(json.dumps(receipt))
+            wrong_tree["source_identity"]["git_tree"] = "c" * 40
+            wrong_tree_path = output / "wrong-source-tree.json"
+            wrong_tree_path.write_text(json.dumps(wrong_tree), encoding="utf-8")
+            try:
+                observer.load_profile_binaries(wrong_tree_path, tree, commit, 3, allow_artifact_qualified=True)
+            except observer.ObserverFailure as error:
+                assert "source identity" in str(error)
+            else:
+                raise AssertionError("resource-only observer accepted an artifact receipt for a different source tree")
+
+            wrong_tool = json.loads(json.dumps(receipt))
+            wrong_tool["qualification_tool"]["sha256"] = "0" * 64
+            wrong_tool_path = output / "wrong-tool-hash.json"
+            wrong_tool_path.write_text(json.dumps(wrong_tool), encoding="utf-8")
+            try:
+                observer.load_profile_binaries(wrong_tool_path, tree, commit, 3, allow_artifact_qualified=True)
+            except observer.ObserverFailure as error:
+                assert "tool identity" in str(error)
+            else:
+                raise AssertionError("resource-only observer accepted a changed profile tool hash")
+
+        try:
+            forced.load_profile(receipt_path, tree, commit, receipt["source_identity"])
+        except forced.GateFailure as error:
+            assert "complete" in str(error)
+        else:
+            raise AssertionError("forced-frame gate accepted an artifact-qualified profile receipt")
+
+        selected_binary = Path(receipt["results"][0]["binaries"]["xsh"]["path"])
+        with patch.object(comparative, "source_state", return_value=receipt["source_identity"]):
+            try:
+                comparative.profile_cost_receipt_binding(receipt_path, tree, commit, selected_binary)
+            except ValueError as error:
+                assert "complete" in str(error)
+            else:
+                raise AssertionError("comparative gate accepted an artifact-qualified profile receipt")
+
+        selected_binary.write_bytes(b"changed after artifact qualification")
+        with patch.object(observer, "source_identity", return_value=receipt["source_identity"]):
+            try:
+                observer.load_profile_binaries(receipt_path, tree, commit, 3, allow_artifact_qualified=True)
+            except observer.ObserverFailure as error:
+                assert "selected release binary differs" in str(error)
+            else:
+                raise AssertionError("resource-only observer accepted a changed artifact binary hash")
+
+
 if __name__ == "__main__":
     test_profile_build_context_has_no_baseline_xsh_dependency()
     test_profile_runtime_context_requires_explicit_candidate_xsh()
     test_profile_runtime_context_uses_only_the_candidate_xsh()
     test_profile_cost_emits_only_the_selected_release_profile()
-    print("selected release opt3 profile receipt passed")
+    test_artifact_qualification_is_resources_only_input()
+    print("selected release opt3 and artifact-qualified profile receipts passed")

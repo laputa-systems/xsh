@@ -49,7 +49,7 @@ def successful_resource_receipt(path: Path) -> None:
     }) + "\n", encoding="utf-8")
 
 
-def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0)) -> dict[str, object]:
+def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0), resources_only: bool = False) -> dict[str, object]:
     with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
         root = Path(temporary)
         stage_dir = root / "stage"
@@ -80,6 +80,7 @@ def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0)) ->
                 resource_file=resource_path,
                 ownership_stream=ownership_stream,
                 validate_after=lambda: {"source": "sealed"},
+                resources_only=resources_only,
             )
         return {
             "stage": stage,
@@ -280,6 +281,16 @@ def assert_gate_target_cli_forwarding() -> None:
         assert observer.main() == 0
     assert run.call_args.args[0].gate_target_dir == cache
     restore.assert_called_once_with(sentinel)
+
+    arguments[1] = "--resources-only"
+    with (
+        patch.object(sys, "argv", arguments),
+        patch.object(observer, "install_signal_handlers", return_value=sentinel),
+        patch.object(observer, "restore_signal_handlers"),
+        patch.object(observer, "run", return_value=0) as run,
+    ):
+        assert observer.main() == 0
+    assert run.call_args.args[0].resources_only is True
 
 
 def exercise_repeated_signal_cleanup(*, process_exited: bool) -> tuple[dict[str, object], list[str]]:
@@ -488,6 +499,20 @@ def main() -> None:
     assert rejected_after["stage"]["wall_ns_discarded"] > 0
     assert rejected_after["receipt"]["state"] == "complete"
 
+    resource_only = exercise_stage(ready_codes=(0, 0), resources_only=True)
+    assert resource_only["stage"]["observation_accepted"] is True
+    assert resource_only["stage"]["timing_accepted"] is False
+    assert resource_only["stage"]["timing_discarded"] is True
+    assert resource_only["stage"]["wall_ns"] is None
+    assert "wall_ns_discarded" not in resource_only["stage"]
+    assert resource_only["stage"]["timing_discard_reason"] == "resources-only mode"
+    assert resource_only["stage"]["performance_gate"]["before"]["exit_code"] == 0
+    assert resource_only["stage"]["performance_gate"]["after"] is None
+    assert resource_only["perf"].call_count == 1
+    assert resource_only["clock"].call_count == 0
+    assert resource_only["popen"].call_count == 1
+    assert resource_only["stage"]["container_resources"] is not None
+
     failed_command = exercise_stage(status=7)
     assert failed_command["stage"]["status"] == 7
     assert failed_command["stage"]["observation_accepted"] is False
@@ -502,7 +527,7 @@ def main() -> None:
     assert exited_signal["stage"]["signal"] == "SIGTERM"
     assert exited_events == ["before", "cleanup", "after"]
 
-    print("final observer pin, supplemental handoff, cgroup, sealing, readiness, discard, and repeated-signal cleanup self-tests passed")
+    print("final observer pin, supplemental handoff, cgroup, sealing, readiness, resource-only discard, and repeated-signal cleanup self-tests passed")
 
 
 if __name__ == "__main__":
