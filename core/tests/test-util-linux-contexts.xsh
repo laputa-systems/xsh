@@ -62,9 +62,11 @@ test test_util_linux_context_terminal_reference_width_and_escaping { |ctx|
   target.write("fixture")
   for command in ["mountpoint", "namei"] {
     let args = [target]
-    let reference = contexts.terminal_reference(s, command, args, columns: 32)?
-    let candidate = contexts.terminal_candidate(s, command, args, columns: 32)?
-    assert ul.observed_equal(reference, candidate), f"{command}: terminal bytes differ"
+    for columns in [32, 120] {
+      let reference = contexts.terminal_reference(s, command, args, columns:)?
+      let candidate = contexts.terminal_candidate(s, command, args, columns:)?
+      assert ul.observed_equal(reference, candidate), f"{command}: terminal bytes differ"
+    }
   }
 }
 
