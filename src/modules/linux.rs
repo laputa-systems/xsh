@@ -164,6 +164,8 @@ use unsupported as imp;
 
 mod block_control;
 mod capabilities;
+mod ipc;
+pub(crate) use ipc::{posix_message_queue_messages, posix_semaphore_value, system_v_semaphore_element};
 pub(crate) use capabilities::{call as prim_call, handles as is_prim};
 mod namespace;
 mod net_prims;

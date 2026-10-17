@@ -76,6 +76,7 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("LinuxLoopDevice", linux_loop_device_type()),
         ("LinuxNamespace", linux_namespace_type()),
         ("LinuxMemInfo", linux_meminfo_type()),
+        ("LinuxSystemVSemaphoreElement", linux_system_v_semaphore_element_type()),
         ("LinuxSample", linux_sample_type()),
         ("LinuxCpuSample", linux_cpu_sample_type()),
         ("LinuxDiskSample", linux_disk_sample_type()),
@@ -679,6 +680,15 @@ pub fn linux_disk_usage_type() -> Type {
         ("total".to_string(), Type::Int),
         ("used".to_string(), Type::Int),
         ("available".to_string(), Type::Int),
+    ]))
+}
+
+pub fn linux_system_v_semaphore_element_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("value".to_string(), Type::Int),
+        ("waiting_for_increase".to_string(), Type::Int),
+        ("waiting_for_zero".to_string(), Type::Int),
+        ("pid".to_string(), Type::Int),
     ]))
 }
 

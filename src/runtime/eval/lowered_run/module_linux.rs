@@ -6,6 +6,7 @@ use super::{
     lowered_path_arg, lowered_path_list, lowered_record_arg, lowered_result_ok,
     lowered_runtime_result, lowered_runtime_value, lowered_str_arg_owned,
     lowered_stream_from_values, lowered_value_from_runtime_any, module_error, module_io_error,
+    lowered_bytes_arg_or_empty,
     path_value_from_pathbuf, process_module, unix_require_arg, validate_linux_file_attrs_flags,
     validate_linux_file_version, validate_linux_sysctl_key, validate_mknod_args,
 };
@@ -77,6 +78,22 @@ macro_rules! with_linux_call_rows {
                 callable; RuntimeOp::LinuxMemInfo => linux_module::meminfo($span),
                 callable; RuntimeOp::LinuxModules => linux_module::modules($span),
                 callable; RuntimeOp::LinuxDmesg => linux_module::dmesg($span),
+                callable; RuntimeOp::LinuxPosixSemaphoreValue | RuntimeOp::LinuxPosixMessageQueueMessages => {
+                    let name = lowered_bytes_arg_or_empty(
+                        Some(unix_require_arg($values.first().cloned(), "linux IPC name", $span)?),
+                        "linux IPC name", $span,
+                    )?;
+                    if $op == RuntimeOp::LinuxPosixSemaphoreValue {
+                        linux_module::posix_semaphore_value(&name, $span)
+                    } else {
+                        linux_module::posix_message_queue_messages(&name, $span)
+                    }
+                }
+                callable; RuntimeOp::LinuxSystemVSemaphoreElement => {
+                    let id = lowered_int_arg($values.first().cloned(), "linux.system_v_semaphore_element", $span)?;
+                    let index = lowered_int_arg($values.get(1).cloned(), "linux.system_v_semaphore_element", $span)?;
+                    linux_module::system_v_semaphore_element(id, index, $span)
+                }
                 callable; RuntimeOp::LinuxIsMountpoint => {
                     let path = lowered_path_arg(
                         unix_require_arg($values.first().cloned(), "linux.is_mountpoint", $span)?,
@@ -492,6 +509,9 @@ macro_rules! with_linux_call_rows {
                     "new linux RuntimeOp routed to eval_linux_call_value must be handled"
                 ),                }
                 fake_rows {
+            RuntimeOp::LinuxPosixSemaphoreValue | RuntimeOp::LinuxPosixMessageQueueMessages | RuntimeOp::LinuxSystemVSemaphoreElement => {
+                Ok(Value::err(Value::Error(Box::new(RuntimeError::new("linux-ipc-observation", "IPC observation requires a real Linux IPC namespace").with_span($span)))))
+            }
             RuntimeOp::LinuxUeventStream => {
                 $this.linux_fake_log("uevent_stream", &[], $span)?;
                 Ok(Value::ok(Value::stream(StreamValue::from_live(

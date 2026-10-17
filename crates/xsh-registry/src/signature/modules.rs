@@ -1,5 +1,6 @@
 #![allow(clippy::single_call_fn)]
 use crate::records::{linux_sample_type, linux_module_plan_type, linux_blockdev_info_type, linux_privileges_type, linux_namespace_type};
+use crate::records::linux_system_v_semaphore_element_type;
 
 use super::methods::{bytes_copy_type, cli_token_type};
 use super::streams::fs_entry_stream;
@@ -2589,6 +2590,18 @@ fn linux_module() -> ModuleSig {
                 false,
                 RuntimeOp::LinuxIsMountpoint,
             ),
+        ),
+        (
+            "posix_semaphore_value",
+            sig(vec![param("name", Type::Bytes)], result(Type::Int), false, RuntimeOp::LinuxPosixSemaphoreValue),
+        ),
+        (
+            "posix_message_queue_messages",
+            sig(vec![param("name", Type::Bytes)], result(Type::Int), false, RuntimeOp::LinuxPosixMessageQueueMessages),
+        ),
+        (
+            "system_v_semaphore_element",
+            sig(vec![param("id", Type::Int), param("index", Type::Int)], result(linux_system_v_semaphore_element_type()), false, RuntimeOp::LinuxSystemVSemaphoreElement),
         ),
         (
             "disk_usage",
