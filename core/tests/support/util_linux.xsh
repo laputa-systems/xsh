@@ -195,14 +195,26 @@ export pure equal(reference: uu.Ran, candidate: uu.Ran, reference_state = b"", c
     reference.stderr == candidate.stderr and reference_state == candidate_state
 }
 
+pure byte_difference(label: Str, reference: Bytes, candidate: Bytes) -> Str {
+  var offset = 0
+  let limit = if reference.len() < candidate.len() { reference.len() } else { candidate.len() }
+  while offset < limit and reference.slice(offset, length: 1) == candidate.slice(offset, length: 1) { offset += 1 }
+  let start = if offset > 8 { offset - 8 } else { 0 }
+  let reference_remaining = reference.len() - start
+  let candidate_remaining = candidate.len() - start
+  let reference_length = if reference_remaining > 24 { 24 } else { reference_remaining }
+  let candidate_length = if candidate_remaining > 24 { 24 } else { candidate_remaining }
+  f"{label} byte={offset} ref_len={reference.len()} candidate_len={candidate.len()} start={start} ref_b64={reference.slice(start, length: reference_length).base64()} candidate_b64={candidate.slice(start, length: candidate_length).base64()}"
+}
+
 ## Asserts exact equality without normalizing identifiers, ordering or whitespace.
 export proc compare(reference: uu.Ran, candidate: uu.Ran, reference_state = b"", candidate_state = b"") {
   assert reference.util == candidate.util
   assert reference.args == candidate.args
   assert reference.status == candidate.status, candidate.stderr.utf8() ?? "candidate stderr is not UTF-8"
-  assert reference.stdout == candidate.stdout
-  assert reference.stderr == candidate.stderr
-  assert reference_state == candidate_state
+  assert reference.stdout == candidate.stdout, byte_difference("stdout", reference.stdout, candidate.stdout)
+  assert reference.stderr == candidate.stderr, byte_difference("stderr", reference.stderr, candidate.stderr)
+  assert reference_state == candidate_state, byte_difference("fixture state", reference_state, candidate_state)
 }
 
 ## Asserts each implementation's exact provenance for the sole version exception.
