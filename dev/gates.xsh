@@ -216,7 +216,8 @@ export pure batch_checks(ctx: context.Context, profile: tests.TestProfile) -> Li
 ## formatters or autofixers.
 export proc batch(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   let profile = tests.execution_profile()?
-  tests.full(ctx, profile, privileged: ctx.target.os == "linux")
+  tests.run_commands(tests.rust_plan(ctx, profile, privileged: ctx.target.os == "linux")?)
+  tests.native(ctx, profile, ["--jobs", "4"])
   tests.run_commands(batch_checks(ctx, profile))
   docs_gate(ctx, profile)
 }

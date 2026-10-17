@@ -1,0 +1,1 @@
+TMPDIR=/home/josh/d/laputa-systems/xsh/.work/tmp /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht test --exact dev/tests/test-gates.xsh::test_batch_preserves_rust_plan_and_bounds_native_case_admission

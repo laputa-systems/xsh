@@ -133,7 +133,9 @@ checks. With no paths it uses tracked and untracked Git changes. Unmapped paths
 fail before verification starts. `cargo dev gate --batch` runs the complete
 process, debug, tooling, fixed-seed soundness, one full native suite, repository
 checks, and docs checks. Linux also runs the privileged test plan. Neither
-command invokes source-tree formatters or autofixers.
+command invokes source-tree formatters or autofixers. The batch native suite
+uses `xsht test --jobs 4` to bound concurrent test cases; individual tests keep
+their own child-process behavior.
 
 The serial batch ratchet runs `dev/consolidation/metrics.xsh check-current`.
 It checks zero lowering type resolvers and the 46-stage schema's evidence in
