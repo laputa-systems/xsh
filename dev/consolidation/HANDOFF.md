@@ -1,5 +1,30 @@
 # Consolidation handoff
 
+## Live checkpoint, 2026-10-17
+
+Main includes the accepted narrow functional close and artifact receipt for
+`b1bc741fcd512d1c71b43116853278a4a3f1521a`. The last broadly qualified
+production source remains `7eb62cd99`. The R4 and R5 observer attempts are
+archived with their failures and resolved cleanup. Neither started its full
+native suite or earned resource or timing credit. R5 passed the formatter
+invariant and failed the layout-perturbation invariant.
+
+Repair `e9ef913df9ec83cd1bffb4f93fddfbad71031c8c` remains isolated pending
+the full layout invariant. Redundant-parentheses diagnostics suppressed local
+annotation and callable-alias warnings. Both regression tests fail before the
+repair and pass afterward. The unchanged 19-input replay also passes with
+the repaired XSHT product. Semantic checker errors still veto both proofs.
+
+Root accepted the isolated inference checkpoint of 1,036 annotation removals:
+498 of 693 local sites and 538 of 2,190 internal sites. The original 9,194-site
+inventory, 149 Map annotations, and 202 private effects remain unchanged.
+Both percentage targets remain unmet. The combined compiler passes 56 paired
+runtime controls and 46 additional named host controls. Inference remains
+outside main, with production compiler source `b045485b8` and corpus proof
+`2bb20b774`. No full-suite or timing acceptance follows from these controls.
+
+The earlier source promotions and gate descriptions below are historical.
+
 Root promoted successor source `19c9aded0ea42c979fbc6be32162320d29ded3b1` to main,
 tree `956ea0056c53b5f006ede4fd980fd7ae364970e2`. The last broadly qualified
 production source remains `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree

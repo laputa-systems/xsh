@@ -1,5 +1,13 @@
 # XSH Consolidation Campaign
 
+Live checkpoint, 2026-10-17: main retains the accepted b1bc narrow close and
+artifact receipt. R4 and R5 failed before their full native suites and earn
+no resource or timing credit. The isolated linter repair passes its regression
+tests and reduced replay. Its full layout invariant is running. Root accepted
+1,036 isolated inference removals against the original denominators. Both
+percentage targets remain unmet. The [live handoff](HANDOFF.md#live-checkpoint-2026-10-17)
+owns the current queue. The status paragraphs below retain historical pins.
+
 Status: resumed on 2026-10-16. Root promoted successor source
 `19c9aded0ea42c979fbc6be32162320d29ded3b1`, tree
 `956ea0056c53b5f006ede4fd980fd7ae364970e2`, to main. The last broadly
