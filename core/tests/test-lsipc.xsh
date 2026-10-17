@@ -382,7 +382,7 @@ test test_lsipc_short_option_aliases_match_long_options { |ctx|
 
 test test_lsipc_long_option_abbreviations_match_reference { |ctx|
   let s = uu.scene(ctx)?
-  let fixture = start_keeper(s, ["sysv_queue"])?
+  let fixture = start_keeper(s, ["sysv_queue", "posix_mqueue"])?
   defer ul.stop_keeper(fixture.handle)
 
   let unique = run_both(s, ["--que", "--output", "ID"])?
@@ -390,9 +390,10 @@ test test_lsipc_long_option_abbreviations_match_reference { |ctx|
   assert unique.candidate.status == 0
   assert unique.candidate.stdout != b""
 
-  let unique_posix = run_both(s, ["--posix-m"])?
+  let unique_posix = run_both(s, ["--posix-m", "--raw"])?
   ul.compare(unique_posix.reference, unique_posix.candidate)
   assert unique_posix.candidate.status == 0
+  assert unique_posix.candidate.stdout != b""
 
   let ambiguous = run_both(s, ["--posix"])?
   ul.compare(ambiguous.reference, ambiguous.candidate)
