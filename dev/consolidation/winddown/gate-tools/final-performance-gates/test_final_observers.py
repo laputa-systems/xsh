@@ -310,6 +310,48 @@ def assert_batch_shim_cpu_affinity() -> None:
         assert environment["XSH_OBSERVER_REAL_DOCKER"] == "/usr/bin/docker"
 
 
+def assert_batch_child_owns_cargo_lock() -> None:
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
+        root = Path(temporary)
+        performance_lock = root / "final-performance.lock"
+        native_lock = root / "native-suite.lock"
+        cargo_lock = root / "cargo.lock"
+        container_cargo_lock = root / "container" / "cargo.lock"
+        container_cargo_lock.parent.mkdir()
+        cargo_lock.touch()
+        container_cargo_lock.hardlink_to(cargo_lock)
+        assert cargo_lock.stat().st_ino == container_cargo_lock.stat().st_ino
+        probe = "\n".join([
+            "import fcntl,sys",
+            "def acquired(path):",
+            "    stream = open(path, 'a+')",
+            "    try:",
+            "        fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)",
+            "    except BlockingIOError:",
+            "        return False",
+            "    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)",
+            "    return True",
+            "cargo, performance, native = sys.argv[1:]",
+            "assert acquired(cargo)",
+            "assert not acquired(performance)",
+            "assert not acquired(native)",
+        ])
+        with (
+            patch.object(observer, "PROFILE_LOCK", performance_lock),
+            patch.object(observer, "NATIVE_SUITE_LOCK", native_lock),
+            patch.object(observer, "CARGO_LOCK", cargo_lock),
+            observer.observer_locks(),
+        ):
+            child = observer.subprocess.run(
+                [sys.executable, "-B", "-c", probe, str(container_cargo_lock), str(performance_lock), str(native_lock)],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+        assert child.returncode == 0, child.stderr
+
+
 def exercise_repeated_signal_cleanup(*, process_exited: bool) -> tuple[dict[str, object], list[str]]:
     with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
         root = Path(temporary)
@@ -383,6 +425,7 @@ def main() -> None:
     assert_gate_target_reuse_contract()
     assert_gate_target_cli_forwarding()
     assert_batch_shim_cpu_affinity()
+    assert_batch_child_owns_cargo_lock()
 
     args = [
         "run", "--rm", "--init", "--platform", "linux/amd64", "-v", "/source:/work",

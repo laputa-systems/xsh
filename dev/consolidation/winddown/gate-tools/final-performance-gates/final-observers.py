@@ -419,6 +419,15 @@ def exclusive_lock(path: Path, *, reject_unresolved: bool = False):
         stream.close()
 
 
+@contextmanager
+def observer_locks():
+    with (
+        exclusive_lock(PROFILE_LOCK, reject_unresolved=True) as ownership_stream,
+        exclusive_lock(NATIVE_SUITE_LOCK),
+    ):
+        yield ownership_stream
+
+
 def retain_unresolved_lock(stream: Any, run_id: str, cleanup: dict[str, Any], stage: str) -> None:
     stream.seek(0)
     stream.truncate()
@@ -1036,7 +1045,9 @@ def run(args: argparse.Namespace) -> int:
             "performance": str(PROFILE_LOCK),
             "native_suite": str(NATIVE_SUITE_LOCK),
             "cargo": str(CARGO_LOCK),
-            "held_for_both_stages": True,
+            "observer_holds_performance_and_native_suite_across_both_stages": True,
+            "observer_holds_cargo": False,
+            "canonical_batch_cargo_lock_owner": "canonical gate batch devtool",
         },
         "resource_policy": {
             "isolated_lint_cpuset": lint_cpus,
@@ -1063,10 +1074,7 @@ def run(args: argparse.Namespace) -> int:
     }
     json_write(receipt_path, receipt)
 
-    ownership = exclusive_lock(PROFILE_LOCK, reject_unresolved=True)
-    native_lock = exclusive_lock(NATIVE_SUITE_LOCK)
-    cargo_lock = exclusive_lock(CARGO_LOCK)
-    with ownership as ownership_stream, native_lock, cargo_lock:
+    with observer_locks() as ownership_stream:
         try:
             ensure_native_marker_clear()
             no_active_native_containers(docker, native["image_id"])

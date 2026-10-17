@@ -120,7 +120,9 @@ claim. Pass that receipt to `final-observers.py --resources-only` to run the
 existing lint and single canonical gate batch while discarding timing even
 when readiness passes. Both Docker stages are bounded to the first 12 allowed
 host CPUs, 24 GiB of memory, no swap, and 12 Cargo jobs; the batch receipt
-validates its effective cgroup limits. This mode writes a fresh observer output
+validates its effective cgroup limits. The observer holds the performance and
+native-suite locks across both stages; the canonical gate batch acquires the
+Cargo lock itself. This mode writes a fresh observer output
 directly under `.work/final-review-evidence/final-performance-gates`; its
 receipt binds the profile tool path and hash as well as the selected binaries.
 Only this explicit observer mode accepts an `artifact-qualified` profile
