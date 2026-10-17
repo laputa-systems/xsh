@@ -1,0 +1,3 @@
+docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: error mounting "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-corpus-repair/.work/tmp/corpus-repair/target-mount" to rootfs at "/work/target": create mountpoint for /work/target mount: make mountpoint "/work/target": create next directory component failed: mkdirat([13]<"/var/lib/docker/rootfs/overlayfs/c36cbfede27a690e6a87951bcd6ae155550223a325635f8c545a1e2e1e60b932/work">, "target", 0o755): Read-only file system (os error 30)
+
+Run 'docker run --help' for more information

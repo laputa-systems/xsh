@@ -1,0 +1,5 @@
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /source/dev/consolidation/typing-corpus/capability-witnesses/bytes-reduced.xsh:1:17
+  pure first_byte(raw) -> Int {
+                  ^^^ parameters declare their types: write `raw: Type`
+xsht check: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s)

@@ -1,0 +1,37 @@
+
+thread 'lint_format_invariance::formatting_preserves_lints_on_the_repository_corpus' (8) panicked at crates/xsht/tests/lint_format_invariance.rs:406:9:
+xsht fmt failed for repository:
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/tmp/.tmpfs8R8C/formatted/dev/consolidation/typing-corpus/capability-witnesses/bytes-reduced.xsh:1:17
+  pure first_byte(raw) -> Int {
+                  ^^^ parameters declare their types: write `raw: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/tmp/.tmpfs8R8C/formatted/dev/consolidation/typing-corpus/capability-witnesses/indirect-anchor-reduced.xsh:2:21
+  pure split_indirect(text) -> Int {
+                      ^^^^ parameters declare their types: write `text: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/tmp/.tmpfs8R8C/formatted/dev/consolidation/typing-corpus/capability-witnesses/issue-reduced.xsh:3:31
+  pure append(items: List[Int], row) -> List[Int] {
+                                ^^^ parameters declare their types: write `row: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/tmp/.tmpfs8R8C/formatted/dev/consolidation/typing-corpus/capability-witnesses/record-reduced.xsh:2:13
+  pure select(box) -> List[Int] {
+              ^^^ parameters declare their types: write `box: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/tmp/.tmpfs8R8C/formatted/dev/consolidation/typing-corpus/capability-witnesses/replace-reduced.xsh:2:28
+  pure replace_before_anchor(text) -> Str {
+                             ^^^^ parameters declare their types: write `text: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/tmp/.tmpfs8R8C/formatted/dev/consolidation/typing-corpus/capability-witnesses/slice-reduced.xsh:1:13
+  pure prefix(key) -> Str {
+              ^^^ parameters declare their types: write `key: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/tmp/.tmpfs8R8C/formatted/dev/consolidation/typing-corpus/capability-witnesses/split-joint-reduced.xsh:2:26
+  pure split_before_anchor(text) {
+                           ^^^^ parameters declare their types: write `text: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /scratch/tmp/.tmpfs8R8C/formatted/dev/consolidation/typing-corpus/capability-witnesses/split-reduced.xsh:2:26
+  pure split_before_anchor(text) -> Int {
+                           ^^^^ parameters declare their types: write `text: Type`
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
