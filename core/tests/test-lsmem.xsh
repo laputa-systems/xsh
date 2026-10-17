@@ -24,6 +24,9 @@ proc compare_lsmem(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process
     let candidate_context_len = if candidate_remaining > 48 { 48 } else { candidate_remaining }
     assert false, f"lsmem stdout differs for {args.join(" ")} at byte {offset}; reference length {reference.stdout.len()} context {reference.stdout.slice(context_start, length: reference_context_len).base64()}; candidate length {candidate.stdout.len()} context {candidate.stdout.slice(context_start, length: candidate_context_len).base64()}"
   }
+  if reference.stderr != candidate.stderr {
+    assert false, f"lsmem stderr differs for {args.join(" ")}; reference length {reference.stderr.len()} base64 {reference.stderr.base64()}; candidate length {candidate.stderr.len()} base64 {candidate.stderr.base64()}"
+  }
   ul.compare(reference, candidate)
   Ok()
 }
