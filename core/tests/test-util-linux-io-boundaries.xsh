@@ -11,23 +11,23 @@ pure termination_label(termination: ul.Termination) -> Str {
   "other termination"
 }
 
-proc output_failure(s: uu.Scene, util: Str, args: List[Path], reference: Bool, stream: Str) [fs, process, env, error] -> Result[OutputFailure, Error] {
-  assert stream in ["stdout", "stderr"]
+proc output_failure(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool, output_stream: Str) [fs, process, env, error] -> Result[OutputFailure, Error] {
+  assert output_stream in ["stdout", "stderr"]
   let vars = {LC_ALL: "C", TZ: "UTC"}
-  let words = if reference {
+  let words = if is_reference {
     ul.reference_argv(s, util, args, vars: vars)?
   } else {
     uu.argv(s, util, args, vars: vars)?
   }
-  let stdout = if stream == "stdout" { p"/dev/full" } else { uu.at(s, f".{util}-stdout") }
-  let stderr = if stream == "stderr" { p"/dev/full" } else { uu.at(s, f".{util}-stderr") }
+  let stdout = if output_stream == "stdout" { p"/dev/full" } else { uu.at(s, f".{util}-stdout") }
+  let stderr = if output_stream == "stderr" { p"/dev/full" } else { uu.at(s, f".{util}-stderr") }
   let status = process.run(process.command_argv(
     words[0], words, s.root, vars, b"", stdout, stderr, timeout: 3s,
   ))?
-  let stdout_bytes = if stream == "stderr" { stdout.read_bytes()? } else { b"" }
-  let stderr_bytes = if stream == "stdout" { stderr.read_bytes()? } else { b"" }
-  if stream == "stderr" { stdout.remove() }
-  if stream == "stdout" { stderr.remove() }
+  let stdout_bytes = if output_stream == "stderr" { stdout.read_bytes()? } else { b"" }
+  let stderr_bytes = if output_stream == "stdout" { stderr.read_bytes()? } else { b"" }
+  if output_stream == "stderr" { stdout.remove() }
+  if output_stream == "stdout" { stderr.remove() }
   let termination = if status.signaled() {
     ul.Signaled(status.signal_number()?)
   } else {
@@ -36,7 +36,7 @@ proc output_failure(s: uu.Scene, util: Str, args: List[Path], reference: Bool, s
   Ok({termination: termination, stdout: stdout_bytes, stderr: stderr_bytes})
 }
 
-proc closed_reader(s: uu.Scene, util: Str, args: List[Path], reference: Bool) [fs, process, env, net, error] -> Result[OutputFailure, Error] {
+proc closed_reader(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool) [fs, process, env, net, error] -> Result[OutputFailure, Error] {
   let stdout = uu.at(s, f".{util}-stdout-fifo")
   let ready = uu.at(s, f".{util}-ready-fifo")
   let release = uu.at(s, f".{util}-release-fifo")
@@ -67,7 +67,7 @@ proc closed_reader(s: uu.Scene, util: Str, args: List[Path], reference: Bool) [f
     "unix.exec(process.command_argv(words[0], words))?\n")?
 
   let vars = {LC_ALL: "C", TZ: "UTC"}
-  let command_words = if reference {
+  let command_words = if is_reference {
     ul.reference_argv(s, util, args, vars: vars)?
   } else {
     uu.argv(s, util, args, vars: vars)?
@@ -103,11 +103,11 @@ proc closed_reader(s: uu.Scene, util: Str, args: List[Path], reference: Bool) [f
   Ok({termination: termination, stdout: b"", stderr: stderr_bytes})
 }
 
-proc assert_output_failure_parity(s: uu.Scene, util: Str, args: List[Path], stream: Str) [fs, process, env, error] -> Result[Unit, Error] {
-  let reference = output_failure(s, util, args, true, stream)?
-  let candidate = output_failure(s, util, args, false, stream)?
+proc assert_output_failure_parity(s: uu.Scene, util: Str, args: List[Path], output_stream: Str) [fs, process, env, error] -> Result[Unit, Error] {
+  let reference = output_failure(s, util, args, true, output_stream)?
+  let candidate = output_failure(s, util, args, false, output_stream)?
   assert reference.termination != ul.Exited(0), util
-  if stream == "stderr" {
+  if output_stream == "stderr" {
     assert reference.stdout.is_empty(), util
   }
   assert candidate.termination == reference.termination, util
