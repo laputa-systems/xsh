@@ -120,9 +120,11 @@ use `--output` explicitly.
 
 Reading a POSIX message queue's `QSIZE` through `/dev/mqueue` updates the
 kernel inode's `ctime`. The keeper snapshot exposes `ctime_ns` but not `atime`;
-the state test checks that this timestamp is monotone and falls within the
-observed command interval, while every other exposed state field remains
-unchanged. Output bytes and status remain exact comparisons.
+only the POSIX message-queue selector permits this timestamp to advance. The
+test checks that it is monotone and falls within that command's observed
+interval, while every other exposed state field remains exact. Other
+selectors require exact snapshot equality. Output bytes and status remain
+exact comparisons.
 
 ## Native case map
 

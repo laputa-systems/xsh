@@ -248,7 +248,7 @@ proc first_snapshot_difference(before: Bytes, after: Bytes) [error] -> Result[St
   Ok("no JSON line difference")
 }
 
-proc assert_snapshot_read_preserves_state(ready: KeeperReady, before: Bytes, after: Bytes, read_started_ms: Int, read_finished_ms: Int, label: Str) [error] {
+proc assert_snapshot_read_preserves_state(ready: KeeperReady, before: Bytes, after: Bytes, mqueue_read: Bool, read_started_ms: Int, read_finished_ms: Int, label: Str) [error] {
   let before_document = json.decode(before.utf8() ?? "")?
   let after_document = json.decode(after.utf8() ?? "")?
   let before_resources = json.get(before_document, ["resources"])?.require(List[Any])?
@@ -274,11 +274,15 @@ proc assert_snapshot_read_preserves_state(ready: KeeperReady, before: Bytes, aft
       assert old.size == new.size, f"{label} changed {resource.name} size"
       assert old.mtime_ns == new.mtime_ns, f"{label} changed {resource.name} mtime"
       assert old.attributes == new.attributes, f"{label} changed {resource.name} attributes"
-      assert new.ctime_ns >= old.ctime_ns, f"{label} moved {resource.name} ctime backward: {old.ctime_ns} -> {new.ctime_ns}"
-      let earliest_read_ns = (read_started_ms - 1000) * 1000000
-      let latest_read_ns = (read_finished_ms + 1000) * 1000000
-      assert new.ctime_ns >= earliest_read_ns, f"{label} {resource.name} ctime predates read interval: {new.ctime_ns} < {earliest_read_ns}"
-      assert new.ctime_ns <= latest_read_ns, f"{label} {resource.name} ctime exceeds read interval: {new.ctime_ns} > {latest_read_ns}"
+      if mqueue_read {
+        assert new.ctime_ns >= old.ctime_ns, f"{label} moved {resource.name} ctime backward: {old.ctime_ns} -> {new.ctime_ns}"
+        let earliest_read_ns = (read_started_ms - 1000) * 1000000
+        let latest_read_ns = (read_finished_ms + 1000) * 1000000
+        assert new.ctime_ns >= earliest_read_ns, f"{label} {resource.name} ctime predates read interval: {new.ctime_ns} < {earliest_read_ns}"
+        assert new.ctime_ns <= latest_read_ns, f"{label} {resource.name} ctime exceeds read interval: {new.ctime_ns} > {latest_read_ns}"
+      } else {
+        assert old.ctime_ns == new.ctime_ns, f"{label} changed {resource.name} ctime without reading its queue status: {old.ctime_ns} -> {new.ctime_ns}"
+      }
     } else {
       assert before_state == after_state, f"{label} changed {resource.kind} state: {first_snapshot_difference(before, after)?}"
     }
@@ -1065,9 +1069,14 @@ test test_lsipc_collectors_preserve_state_except_mqueue_ctime_read_effect { |ctx
     let candidate = uu.invoke(s, "lsipc", [mode.selector], vars: {LC_ALL: "C", TZ: "UTC"}, timeout: 5s)?
     let after_candidate = keeper_snapshot(fixture.handle)?
     let candidate_finished_ms = time.now()
-    assert_snapshot_read_preserves_state(fixture.ready, before, after_reference, reference_started_ms, reference_finished_ms, f"reference {mode.kind}")
-    assert_snapshot_read_preserves_state(fixture.ready, after_reference, after_candidate, candidate_started_ms, candidate_finished_ms, f"candidate {mode.kind}")
-    ul.compare(reference, candidate, reference_state: after_reference, candidate_state: after_candidate)
+    let mqueue_read = mode.kind == "posix_mqueue"
+    assert_snapshot_read_preserves_state(fixture.ready, before, after_reference, mqueue_read, reference_started_ms, reference_finished_ms, f"reference {mode.kind}")
+    assert_snapshot_read_preserves_state(fixture.ready, after_reference, after_candidate, mqueue_read, candidate_started_ms, candidate_finished_ms, f"candidate {mode.kind}")
+    if mqueue_read {
+      ul.compare(reference, candidate)
+    } else {
+      ul.compare(reference, candidate, reference_state: after_reference, candidate_state: after_candidate)
+    }
   }
   release_keeper(fixture.handle)?
 }
