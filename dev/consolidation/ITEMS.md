@@ -8,16 +8,23 @@ ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 [active handoff](HANDOFF.md#active-candidate) owns the exact pins and live
 queue. Main and the frozen candidate use tree
 `08402ddd079228e072f24642fdb82db5196fff11`. The b235 canonical replay is still
-running; Rust stages passed, and 117 XSHT tests remain active. The accepted
-tail fixture repair passed all eight written/desugared selectors. W9 parity at
-`0deeb9c7` remains reusable for the unchanged b235 W9 scope under Phase A, but
-the b235 input-0 probe is not a full-corpus result. QEMU evidence reuse awaits
-four fresh product-hash matches. Compatibility origins and exclusions reconcile
-to the frozen denominators without claiming a new upstream pass. R6, strict
-routes, the 36-case root residual, functional close, and the ten-suite
-performance sequence remain open. Lean and Phase F remain paused; inference
-stays isolated until consolidation closes. Phase D whole-corpus work remains
-isolated at `ac4e04219`; the bounded `d6a70a237` checkpoint does not close it.
+running; integration (223), symbol (1), boundary (23), extra (58 passed, 3
+ignored), debug (748 passed, 3 ignored), XSHT (117), soundness (14), privileged
+extra (82 passed, 4 ignored, 4 filtered), and Linux privileged (10) checks
+passed.
+The 13,994-case full native selection has no terminal result or acceptance
+credit. The accepted tail fixture repair passed all eight written/desugared
+selectors. W9 parity at `0deeb9c7` remains reusable for the unchanged b235 W9
+scope under Phase A, but the b235 input-0 probe is not a full-corpus result.
+The 3c repeat is incomplete and earns no parity credit. All four b235 product
+hashes currently match the qualified QEMU hashes; reuse still requires
+terminal equality. Compatibility origins and exclusions reconcile to the
+frozen denominators without claiming a new upstream pass. R6, strict routes,
+the 36-case root residual, functional close, and the ten-suite performance
+sequence remain open. Lean and Phase F remain paused; inference stays isolated
+until consolidation closes. Phase D remains isolated at checkpoint `1f7eaf708`
+on freeze `a8d5bd910`: 615 joint removals leave 236/693 local (34.05%) and
+379/2,190 internal (17.31%) annotations removed; its targets are not met.
 
 The isolated generic module export slice remains accepted at `8475984a9`.
 Its main merge waits for consolidation closure. Broader inference, corpus

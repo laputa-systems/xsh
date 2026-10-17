@@ -2,7 +2,7 @@
 
 ## Source scope
 
-Phase A of the [campaign](../../CAMPAIGN.md#phase-a-finish-the-existing-campaign-without-expanding-it) allows earlier executable evidence when the semantic scope is unchanged. The accepted [0deeb9 proof](../w9-current-0deeb9/README.md) reports 1,690 inputs, 6,760 outcomes, zero mismatches, and a verified assignment-facts proof.
+Phase A of the [campaign](../../CAMPAIGN.md#phase-a--finish-the-existing-campaign-without-expanding-it) allows earlier executable evidence when the semantic scope is unchanged. The accepted [0deeb9 proof](../w9-current-0deeb9/README.md) reports 1,690 inputs, 6,760 outcomes, zero mismatches, and a verified assignment-facts proof.
 
 The diff from `0deeb9c7fb79e52740c82a264754dbb29d8be693` to `b235a1a43d06e44580fde4c1b8c58ff27a17ca78` changes no files in `src/`, `crates/`, or `stdlib/`, and no W9 publication tool. In `core/`, only `tests/test-nc.xsh` and `tests/test-uu-tail-1.xsh` change. The other changes are documentation and evidence. The W9 module-checking scope therefore matches the accepted 0deeb9 result under the Phase A reuse rule.
 

@@ -15,23 +15,32 @@ fixture repairs. Main and the frozen candidate are pinned to `b235a1a43`.
 The canonical replay at
 `.work/tmp/canonical-b235a1a43-20261017-r1` is still running. Integration
 (223), symbol (1), boundary (23), extra (58 passed, 3 ignored), and debug
-(748 passed, 3 ignored) Rust tests passed. The 117-test XSHT selection is
-still running. No full canonical result or functional close exists yet.
+(748 passed, 3 ignored), XSHT (117), soundness (14), privileged extra
+(82 passed, 4 ignored, 4 filtered), and Linux privileged (10) checks passed.
+The 13,994-case full native selection remains active. It has no terminal
+result or acceptance credit.
 
 The root-accepted tail fixture repair `16abfbed3` has a controlled truncation
-probe and eight exact selector passes across written and desugared forms.
-The earlier 3c canonical failure predates this repair. W9 parity at `0deeb9c7`
-remains reusable for b235 under Phase A because the W9 semantic/build scope is
+probe and eight exact selector passes across written and desugared forms; see
+[tail evidence](evidence/tail-hash-table-stress-3c0c0120/README.md). The earlier
+3c canonical failure predates this repair. W9 parity at `0deeb9c7` remains
+reusable for b235 under Phase A because the W9 semantic/build scope is
 unchanged. The fresh b235 source and input-0 probe passed, but no b235 full
-corpus capture ran. QEMU evidence at `0deeb9c7` can be reused only if all four
-fresh canonical product hashes match its qualified hashes. A fresh strict
-route replay and the root residual remain open. Root owns final freeze and
-promotion.
+corpus capture ran; see [b235 W9 scope evidence](evidence/w9-current-b235a1a43/README.md).
+The 3c repeat stopped after 250 inputs and 1,000 outcomes, with zero observed
+mismatches in that prefix and no parity credit; see [interrupted W9 evidence](evidence/w9-current-3c0c-interrupted/README.md).
+All four b235 product hashes currently match the qualified 0deeb9 QEMU hashes,
+but reuse awaits terminal `products_after` equality; see [b235 QEMU scope](evidence/linux-qemu-b235a1a4/README.md).
+A fresh strict route replay and the root residual remain open. Root owns final
+freeze and promotion.
 
-Phase D whole-corpus typing work remains isolated at `ac4e04219`. Its bounded
-`d6a70a237` checkpoint passed 889 Rust tests, 18 XSHT tests, 53 native cases,
-both production warnings-denied checks, and docs generation. It does not close
-the broader successor corpus gate or authorize an inference merge to main.
+Phase D whole-corpus typing work remains isolated in
+`.work/wt/typing-corpus-b235`, at checkpoint `1f7eaf708` on freeze `a8d5bd910`.
+After 615 joint removals, 236 of 693 local annotations (34.05%) and 379 of
+2,190 internal annotations (17.31%) are removed. Eleven root checks and the
+lower checks pass; the targets are not met, and the 26-case paired witness
+runner is pending the residual slot. The broader successor corpus gate remains
+open and does not authorize an inference merge to main.
 
 ## Stop handoff, 2026-10-16
 
