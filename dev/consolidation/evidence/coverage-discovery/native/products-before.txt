@@ -1,0 +1,2 @@
+c493d0324bcd66f15ace3f71be690248b832fecffb795a10f29ec223fad32b02  /home/josh/d/laputa-systems/xsh/.work/wt/coverage-discovery-repair/.work/target-discovery/x86_64-unknown-linux-musl/verification/xsh
+baeb0526e3b8c0e3075aee2a01fc16092c4f7aab6ee9f9438cfa238519fe5572  /home/josh/d/laputa-systems/xsh/.work/wt/coverage-discovery-repair/.work/target-discovery/x86_64-unknown-linux-musl/verification/xsht

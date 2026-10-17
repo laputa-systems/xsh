@@ -1,0 +1,4 @@
+
+thread 'xsht::cli::files::tests::discovery_skips_linked_worktree_shared_excludes_before_reading_directories' (7) panicked at crates/xsht/src/cli/files.rs:640:16:
+discover without entering the excluded directory: "/scratch/tmp/xsh-cli-files-linked-worktree-excludes-6/worktree/private: Permission denied (os error 13)"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

@@ -1,0 +1,4 @@
+.work
+running 1 tests
+tests/xsh/tooling-test.xsh::test_runner_cov_api_opt_in_prints_api_sections ... ok 2.3s
+test result: ok. 1 passed; 0 failed; 0 skipped

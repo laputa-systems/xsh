@@ -1,0 +1,23 @@
+
+running 18 tests
+test xsht::cli::files::tests::config_parses_coverage_excludes_separately ... ok
+test xsht::cli::files::tests::config_parses_dead_code_excludes_separately ... ok
+test xsht::cli::files::tests::config_reads_rule_excludes_and_rejects_an_unknown_rule ... ok
+test xsht::cli::files::tests::discovery_applies_config_excludes_after_gitignore ... ok
+test xsht::cli::files::tests::discovery_applies_the_exclusions_of_each_config_from_the_file_up_to_the_root ... ok
+test xsht::cli::files::tests::discovery_enters_visible_nested_linked_worktrees_and_keeps_ignore_precedence ... ok
+test xsht::cli::files::tests::discovery_keeps_linked_worktree_ignore_whitelists_above_shared_excludes ... ok
+test xsht::cli::files::tests::discovery_output_is_sorted_and_deduplicated ... ok
+test xsht::cli::files::tests::discovery_reports_unexcluded_unreadable_directories ... ok
+test xsht::cli::files::tests::discovery_resolves_linked_worktree_excludes_through_an_explicit_directory_symlink ... ok
+test xsht::cli::files::tests::discovery_respects_gitignore_by_default ... ok
+test xsht::cli::files::tests::discovery_respects_ordinary_repository_excludes_from_a_subdirectory ... ok
+test xsht::cli::files::tests::discovery_skips_linked_worktree_shared_excludes_before_reading_directories ... ok
+test xsht::cli::files::tests::discovery_stops_gitignore_at_repository_boundaries_and_keeps_parent_ignore_rules ... ok
+test xsht::cli::files::tests::explicit_file_is_accepted_even_when_ignored_by_discovery ... ok
+test xsht::cli::files::tests::migration_lints_are_on_unless_disabled ... ok
+test xsht::cli::files::tests::prefer_text_pattern_lint_is_explicit_opt_in ... ok
+test xsht::cli::files::tests::private_proc_effects_config_is_on_unless_disabled ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 401 filtered out; finished in 0.13s
+

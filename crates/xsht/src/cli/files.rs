@@ -164,59 +164,103 @@ impl ConfigCache {
     }
 }
 
+enum DiscoveredPath {
+    Script(PathBuf),
+    Repository(PathBuf),
+}
+
+fn has_repository_marker(directory: &Path) -> Result<bool, String> {
+    for marker in [".git", ".jj"] {
+        let path = directory.join(marker);
+        if path.try_exists().map_err(|error| format!("{}: {error}", path.display()))? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn inside_repository(root: &Path) -> Result<bool, String> {
+    let absolute = root.canonicalize().map_err(|error| format!("{}: {error}", root.display()))?;
+    for directory in absolute.ancestors() {
+        if has_repository_marker(directory)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 #[allow(clippy::single_call_fn)]
 fn collect_xsh_files_parallel(root: &Path) -> Result<Vec<PathBuf>, String> {
-    let root = root.to_path_buf();
     let workers = thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(1)
         .max(1);
-    let (tx, rx) = crossbeam_channel::unbounded();
-    let mut builder = ignore::WalkBuilder::new(&root);
-    builder
-        .hidden(false)
-        .ignore(true)
-        .parents(true)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
-        .require_git(false)
-        .threads(workers)
-        .add_custom_ignore_filename(".fdignore");
-    let walker = builder.build_parallel();
-    walker.run(|| {
-        let tx = tx.clone();
-        Box::new(move |result| {
-            if let Err(error) = check_cancellation() {
-                let _ = tx.send(Err(error));
-                return ignore::WalkState::Quit;
-            }
-            let entry = match result {
-                Ok(entry) => entry,
-                Err(error) => {
-                    let _ = tx.send(Err(error.to_string()));
+    let mut roots = vec![root.to_path_buf()];
+    let mut results = Vec::new();
+    while let Some(root) = roots.pop() {
+        check_cancellation()?;
+        let require_git = inside_repository(&root)?;
+        let (tx, rx) = crossbeam_channel::unbounded();
+        let mut builder = ignore::WalkBuilder::new(&root);
+        builder
+            .hidden(false)
+            .ignore(true)
+            .parents(true)
+            .git_ignore(true)
+            .git_global(true)
+            .git_exclude(true)
+            .require_git(require_git)
+            .threads(workers)
+            .add_custom_ignore_filename(".fdignore");
+        let walker = builder.build_parallel();
+        walker.run(|| {
+            let tx = tx.clone();
+            Box::new(move |result| {
+                if let Err(error) = check_cancellation() {
+                    let _ = tx.send(Err(error));
                     return ignore::WalkState::Quit;
                 }
-            };
-            let path = entry.path();
-            if entry
-                .file_type()
-                .is_some_and(|file_type| file_type.is_file())
-                && path.extension().is_some_and(|extension| extension == "xsh")
-                && tx.send(Ok(path.to_path_buf())).is_err()
-            {
-                return ignore::WalkState::Quit;
-            }
-            ignore::WalkState::Continue
-        })
-    });
-    drop(tx);
+                let entry = match result {
+                    Ok(entry) => entry,
+                    Err(error) => {
+                        let _ = tx.send(Err(error.to_string()));
+                        return ignore::WalkState::Quit;
+                    }
+                };
+                let path = entry.path();
+                if !require_git && entry.depth() > 0
+                    && entry.file_type().is_some_and(|file_type| file_type.is_dir())
+                {
+                    match has_repository_marker(path) {
+                        Ok(true) => {
+                            let _ = tx.send(Ok(DiscoveredPath::Repository(path.to_path_buf())));
+                            return ignore::WalkState::Skip;
+                        }
+                        Ok(false) => {}
+                        Err(error) => {
+                            let _ = tx.send(Err(error));
+                            return ignore::WalkState::Quit;
+                        }
+                    }
+                }
+                if entry
+                    .file_type()
+                    .is_some_and(|file_type| file_type.is_file())
+                    && path.extension().is_some_and(|extension| extension == "xsh")
+                    && tx.send(Ok(DiscoveredPath::Script(path.to_path_buf()))).is_err()
+                {
+                    return ignore::WalkState::Quit;
+                }
+                ignore::WalkState::Continue
+            })
+        });
+        drop(tx);
 
-    let mut results = Vec::new();
-    for result in rx {
-        {
-            let path = result?;
-            results.push(path)
+        for result in rx {
+            match result? {
+                DiscoveredPath::Script(path) => results.push(path),
+                DiscoveredPath::Repository(path) => roots.push(path),
+            }
         }
     }
     results.sort_unstable();
@@ -608,6 +652,165 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn discovery_skips_linked_worktree_shared_excludes_before_reading_directories() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("linked-worktree-excludes");
+        let worktree = root.join("worktree");
+        let git_dir = root.join("common.git/worktrees/linked");
+        let excluded = worktree.join("private");
+        fs::create_dir_all(&git_dir).unwrap();
+        fs::create_dir_all(root.join("common.git/info")).unwrap();
+        fs::create_dir_all(&excluded).unwrap();
+        fs::write(worktree.join(".git"), format!("gitdir: {}\n", git_dir.display())).unwrap();
+        fs::write(git_dir.join("commondir"), "../..\n").unwrap();
+        fs::write(root.join("common.git/info/exclude"), "/private/\n").unwrap();
+        fs::write(worktree.join("visible.xsh"), "let value = 1\n").unwrap();
+        fs::write(excluded.join("hidden.xsh"), "let value = 1\n").unwrap();
+        fs::set_permissions(&excluded, fs::Permissions::from_mode(0)).unwrap();
+
+        let mut files = Vec::new();
+        let result = collect_xsh_files(
+            &worktree,
+            &ConfigCache::default(),
+            DiscoveryFor::Scripts,
+            &mut files,
+        );
+        fs::set_permissions(&excluded, fs::Permissions::from_mode(0o755)).unwrap();
+        let actual = relative_paths(&worktree, &files);
+        fs::remove_dir_all(root).unwrap();
+
+        result.expect("discover without entering the excluded directory");
+        assert_eq!(actual, vec!["visible.xsh"]);
+    }
+
+    #[test]
+    fn discovery_enters_visible_nested_linked_worktrees_and_keeps_ignore_precedence() {
+        let root = temp_root("nested-linked-worktrees");
+        for name in ["linked", "hidden", "whitelisted"] {
+            linked_worktree(&root, name);
+        }
+        fs::write(root.join(".gitignore"), "hidden/\nwhitelisted/\n*.outside.xsh\n").unwrap();
+        fs::write(root.join(".fdignore"), "!whitelisted/\n").unwrap();
+        fs::write(root.join(".ignore"), "!kept.outside.xsh\n").unwrap();
+        fs::write(root.join("kept.outside.xsh"), "let value = 1\n").unwrap();
+        fs::write(root.join("hidden.outside.xsh"), "let value = 1\n").unwrap();
+
+        let files = discover(&root, &[]);
+
+        assert_eq!(relative_paths(&root, &files), vec![
+            "kept.outside.xsh", "linked/visible.xsh", "whitelisted/visible.xsh",
+        ]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn discovery_keeps_linked_worktree_ignore_whitelists_above_shared_excludes() {
+        let root = temp_root("linked-worktree-whitelists");
+        let worktree = linked_worktree(&root, "linked");
+        fs::write(worktree.join(".gitignore"), "*.blocked.xsh\n").unwrap();
+        fs::write(worktree.join(".ignore"), "!kept.blocked.xsh\n!discard.xsh\n").unwrap();
+        fs::write(worktree.join(".fdignore"), "!private/\n!private/hidden.xsh\ndiscard.xsh\n").unwrap();
+        fs::write(worktree.join("kept.blocked.xsh"), "let value = 1\n").unwrap();
+        fs::write(worktree.join("discard.xsh"), "let value = 1\n").unwrap();
+
+        let files = discover(&worktree, &[]);
+
+        assert_eq!(relative_paths(&worktree, &files), vec![
+            "kept.blocked.xsh", "private/hidden.xsh", "visible.xsh",
+        ]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn discovery_respects_ordinary_repository_excludes_from_a_subdirectory() {
+        let root = temp_root("ordinary-git-excludes");
+        fs::create_dir_all(root.join(".git/info")).unwrap();
+        fs::create_dir_all(root.join("sources/private")).unwrap();
+        fs::write(root.join(".git/info/exclude"), "sources/private/\n").unwrap();
+        fs::write(root.join("sources/visible.xsh"), "let value = 1\n").unwrap();
+        fs::write(root.join("sources/private/hidden.xsh"), "let value = 1\n").unwrap();
+
+        let files = discover(&root.join("sources"), &[]);
+
+        assert_eq!(relative_paths(&root, &files), vec!["sources/visible.xsh"]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn discovery_resolves_linked_worktree_excludes_through_an_explicit_directory_symlink() {
+        let root = temp_root("linked-worktree-symlink");
+        let worktree = linked_worktree(&root, "linked");
+        let alias = root.join("alias");
+        std::os::unix::fs::symlink(&worktree, &alias).unwrap();
+        std::os::unix::fs::symlink(&worktree, worktree.join("cycle")).unwrap();
+
+        let files = discover(&alias, &[]);
+
+        assert_eq!(relative_paths(&alias, &files), vec!["visible.xsh"]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn discovery_reports_unexcluded_unreadable_directories() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("unreadable-directory");
+        let private = root.join("private");
+        fs::create_dir_all(&private).unwrap();
+        fs::set_permissions(&private, fs::Permissions::from_mode(0)).unwrap();
+        let permission_denied = fs::read_dir(&private).is_err_and(|error| {
+            error.kind() == std::io::ErrorKind::PermissionDenied
+        });
+        let mut files = Vec::new();
+        let result = collect_xsh_files(
+            &root,
+            &ConfigCache::default(),
+            DiscoveryFor::Scripts,
+            &mut files,
+        );
+        fs::set_permissions(&private, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::remove_dir_all(root).unwrap();
+
+        if permission_denied {
+            let error = result.expect_err("report the unreadable directory");
+            assert!(error.contains("private"), "{error}");
+            assert!(error.contains("Permission denied"), "{error}");
+        } else {
+            result.expect("privileged directory traversal");
+        }
+    }
+
+    #[test]
+    fn discovery_stops_gitignore_at_repository_boundaries_and_keeps_parent_ignore_rules() {
+        let root = temp_root("repository-ignore-boundary");
+        let repository = root.join("nested");
+        fs::create_dir_all(repository.join(".git")).unwrap();
+        fs::write(root.join(".gitignore"), "*.outside.xsh\n").unwrap();
+        fs::write(root.join(".ignore"), "parent-hidden.xsh\nrestored.xsh\n").unwrap();
+        fs::write(root.join(".fdignore"), "parent-fd-hidden.xsh\n!restored.xsh\n").unwrap();
+        for file in [
+            root.join("hidden.outside.xsh"),
+            repository.join("visible.outside.xsh"),
+            repository.join("parent-hidden.xsh"),
+            repository.join("parent-fd-hidden.xsh"),
+            repository.join("restored.xsh"),
+        ] {
+            fs::write(file, "let value = 1\n").unwrap();
+        }
+
+        let files = discover(&root, &[]);
+
+        assert_eq!(relative_paths(&root, &files), vec![
+            "nested/restored.xsh", "nested/visible.outside.xsh",
+        ]);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn discovery_applies_config_excludes_after_gitignore() {
         let root = temp_root("excludes");
         fs::create_dir_all(root.join("nested")).expect("create nested dir");
@@ -859,6 +1062,20 @@ mod tests {
         )
         .expect("collect xsh files");
         files
+    }
+
+    fn linked_worktree(root: &Path, name: &str) -> PathBuf {
+        let worktree = root.join(name);
+        let git_dir = root.join("common.git/worktrees").join(name);
+        fs::create_dir_all(&git_dir).unwrap();
+        fs::create_dir_all(root.join("common.git/info")).unwrap();
+        fs::create_dir_all(worktree.join("private")).unwrap();
+        fs::write(worktree.join(".git"), format!("gitdir: {}\n", git_dir.display())).unwrap();
+        fs::write(git_dir.join("commondir"), "../..\n").unwrap();
+        fs::write(root.join("common.git/info/exclude"), "/private/\n").unwrap();
+        fs::write(worktree.join("visible.xsh"), "let value = 1\n").unwrap();
+        fs::write(worktree.join("private/hidden.xsh"), "let value = 1\n").unwrap();
+        worktree
     }
 
     fn relative_paths(root: &Path, files: &[PathBuf]) -> Vec<String> {

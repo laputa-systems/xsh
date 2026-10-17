@@ -1,0 +1,11 @@
+
+running 1 test
+test xsht::cli::files::tests::discovery_skips_linked_worktree_shared_excludes_before_reading_directories ... FAILED
+
+failures:
+
+failures:
+    xsht::cli::files::tests::discovery_skips_linked_worktree_shared_excludes_before_reading_directories
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 412 filtered out; finished in 0.00s
+
