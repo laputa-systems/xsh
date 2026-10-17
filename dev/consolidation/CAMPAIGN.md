@@ -46,14 +46,20 @@ and sizes matched the old 0deeb9 guest receipts. The seven guest receipts
 remain pinned to 0de; no b235 guest ran. The test-only spelling change at 7eb
 leaves that QEMU scope unchanged, so Phase A reuses those seven guest passes.
 No 7eb product build or guest run is claimed. See [QEMU scope](evidence/linux-qemu-b235a1a4/README.md).
-The 428 strict route invocations completed without failures, and source
-checks stayed clean. The matrix's AST-extractor build and admission checks are
-still running, so route acceptance is pending. The 36-case root residual has
-36 unique passes across 37 executions. The standard context passed 34 cases,
-then the skipped Unix-socket `sun_path` case passed through an owned alias.
-The namespace case passed. Both positive `NET_RAW` cases passed in the root
-context with `CAP_NET_RAW`. The initial Git-guard failure ran zero tests and
-remains excluded. See the [root residual evidence](evidence/linux-residual-0deeb9c7/README.md).
+All 428 normal and forced route runtime invocations completed without
+failures, and source checks stayed clean. The strict matrix remains red on one
+direct-IR `ExprIf` proof-admission gap: the current collector cannot admit an
+existing positive Rust proof separately from XSH. A narrow collector extension
+and one exact qualified canonical debug Rust test are in progress; the 188 XSH
+proofs are not being weakened. Route acceptance and functional close remain
+open.
+
+The root residual has 36 unique passes across 37 executions. The standard
+context passed 34 cases and retained one Unix-socket `sun_path` skip; the exact
+selector passed through an owned `/t` alias. The namespace case and both
+positive `NET_RAW` cases passed, with the latter run as root with
+`CAP_NET_RAW`. Initial Git-guard attempts selected zero tests and earn no
+credit. See the [root residual evidence](evidence/linux-residual-0deeb9c7/README.md).
 Root owns subsequent freeze and promotion.
 
 Phase D whole-corpus typing work remains isolated. Root accepted checker
@@ -61,12 +67,19 @@ checkpoint `877` at `338b82238a67ee36dd1b025b7a923f9fc5d2da40`, using the
 qualified pair `a972c8d139ecbb43174271842988eefb2c8638cc`. All eleven annotated
 and eleven reduced root checks pass. It removes 348 of 693 local annotations
 (50.22%) and 529 of 2,190 internal annotations (24.16%). The 95% and 85%
-targets remain unmet. The 26-case native witness runner is running after the
-residual slot release. All 202 eligible effect clauses remain retained
-because 142 individual proofs do not establish joint-cycle equality. Host
-component `5277` is conditionally accepted, with six native checks next. The prior 615-removal checkpoint remains
-historical. The generic-body lane is unqualified, and inference remains
-isolated from main.
+targets remain unmet. The original 13-case native trial first recorded 12
+passes and one lifecycle failure because `flock` was absent from the
+historical `ddc` test PATH. The accepted helper and call correction
+`3059676c3` were applied to both views outside the 48 program sources without
+changing annotation counts. The exact lifecycle selector now passes in both views:
+the original view has 13 passes, and the reduced view has one pass; its
+remaining contexts are pending. All 202 eligible effect clauses remain
+retained because 142 individual proofs do not establish joint-cycle equality.
+Host component `5277` is closed for its six exact native checks, with
+source/product guards and cleanup passing; see the [host native evidence](evidence/typing-host-native6/README.md).
+This closes only that isolated component; it does not accept broader inference
+or authorize merging it to main. The prior 615-removal checkpoint remains
+historical. The generic-body lane is unqualified.
 
 ## Stop handoff, 2026-10-16
 
