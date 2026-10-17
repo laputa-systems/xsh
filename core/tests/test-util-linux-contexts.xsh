@@ -128,8 +128,13 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
   contexts.release_keeper(keeper)
   let released_reference = ul.reference(s, "lsipc", options)?
   let released_candidate = uu.invoke(s, "lsipc", options)?
-  uu.fails(released_reference)
+  uu.succeeds(released_reference)
+  assert released_reference.stdout == b"{\n   \"\": [\n\n   ]\n}\n" and released_reference.stderr == b""
   ul.compare(released_reference, released_candidate)
+  for line in p"/proc/sysvipc/shm".read_text()?.lines() {
+    let fields = line.fields()
+    assert fields.len() < 2 or fields[1] != f"{owner.id}"
+  }
 }
 
 test test_util_linux_context_terminal_lock_path_truncation { |ctx|
