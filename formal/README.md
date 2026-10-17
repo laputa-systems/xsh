@@ -1,7 +1,7 @@
 # XSH formal project
 
 This is the Lean foundation for the XSH soundness campaign. It is pinned to
-Lean 4.34.1 and uses only Lean's bundled libraries; no XSH runtime or product
+Lean 4.35.0 and uses only Lean's bundled libraries; no XSH runtime or product
 build depends on it. The current `Xsh` root imports every module under
 `formal/Xsh/`. These modules define and prove fragments for exact scalar and
 word representations; observed scalar/integer machine progress with typed host
@@ -549,11 +549,22 @@ scripts/audit-axioms.sh
 scripts/audit-axioms.sh --self-test
 ```
 
-Run the fresh kernel check through its guarded runner:
+Run `lake check --paranoid` through its guarded runner:
 
 ```sh
 python3 scripts/check-fresh.py
 ```
+
+The runner checks the default targets with Lean's kernel, its paranoid variant,
+lean4lean, nanoda, con-leche, and con-ron. Bubblewrap must be available on
+`PATH`, with user namespaces enabled or a working setuid installation. Run
+the runner with the pinned toolchain on `PATH`.
+
+The runner copies the proof sources into a temporary workspace under `.work/tmp/`
+and builds the manifest there before checking. Its bubblewrap adapter keeps
+`/run` private, including on hosts without `/run/user`, and supplies four Lean
+threads with 64 MiB stacks inside the sandbox. The runner removes the workspace
+when the build or check finishes, fails, or is interrupted.
 
 The audit discovers every Lean source module under `formal/` outside
 `scripts/`, builds and imports those modules, and checks declarations by their
@@ -561,12 +572,18 @@ module identity. This catches project declarations whose namespace is outside
 `Xsh` and modules not imported by the root. It rejects unsafe declarations,
 project axioms, and transitive dependencies beyond `propext`, `Quot.sound`,
 and `Classical.choice`. The self-test checks that an axiom in an outside
-namespace, `native_decide`, and `sorry` are rejected. Fresh kernel checking
+namespace, `native_decide`, and `sorry` are rejected. Paranoid kernel checking
 and this allowlist audit are separate checks.
 
-The fresh-check runner enforces a 180-second wall limit and an 8 GiB maximum
-address space for Lake and the checker process. If the time limit expires, it
-terminates the whole process group.
+The runner allows 180 seconds for the build and 1,080 seconds for the six-kernel
+check. Both commands have an 8 GiB maximum address space. If a time limit
+expires, the runner terminates the whole process group.
+
+Check workspace staging and sandbox isolation:
+
+```sh
+python3 -B tests/test_check_fresh.py
+```
 
 Check the provisional inventory and its Python tests from the repository root:
 

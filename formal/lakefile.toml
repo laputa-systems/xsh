@@ -1,7 +1,7 @@
 name = "xsh"
 version = "0.1.0"
 defaultTargets = ["Xsh"]
-moreLeanArgs = ["-j", "4", "-M", "8192"]
+moreLeanArgs = ["-j", "4", "-M", "8192", "-s", "65536"]
 srcDir = "../formal"
 buildDir = "../.work/formal-build"
 packagesDir = "../.work/lake-packages"
