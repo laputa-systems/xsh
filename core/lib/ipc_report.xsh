@@ -317,14 +317,49 @@ export pure render(selection: Selection, rows: List[Row], output_width: Int) -> 
 
 pure parse_id(value: Str?) -> Result[Int?, OptionError] {
   if let text = value {
-    if let Ok(number) = text.parse_int() {
-      if number < -2147483648 or number > 2147483647 {
-        return Err(OptionError.Invalid {detail: f"failed to parse IPC identifier: '{text}': Invalid argument"})
+    let data = bytes.from_text(text)
+    var offset = 0
+    while offset < data.len() {
+      let byte = data.byte_at(offset) ?? 0
+      if byte == 32 or byte == 9 or byte == 10 or byte == 11 or byte == 12 or byte == 13 {
+        offset += 1
+      } else {
+        break
       }
-      return Ok(null) when number == -1
-      return Ok(number)
     }
-    return Err(OptionError.Invalid {detail: f"failed to parse IPC identifier: '{text}': Invalid argument"})
+    var negative = false
+    if offset < data.len() {
+      let byte = data.byte_at(offset) ?? 0
+      if byte == 43 or byte == 45 {
+        negative = byte == 45
+        offset += 1
+      }
+    }
+    let limit = if negative { 2147483648 } else { 2147483647 }
+    var number = 0
+    var digits = 0
+    var out_of_range = false
+    while offset < data.len() {
+      let byte = data.byte_at(offset) ?? 0
+      if byte < 48 or byte > 57 { break }
+      digits += 1
+      let digit = byte - 48
+      if number > (limit - digit) / 10 {
+        out_of_range = true
+      } else if !out_of_range {
+        number = number * 10 + digit
+      }
+      offset += 1
+    }
+    if digits == 0 or offset != data.len() {
+      return Err(OptionError.Invalid {detail: f"failed to parse IPC identifier: '{text}'"})
+    }
+    if out_of_range {
+      return Err(OptionError.Invalid {detail: f"failed to parse IPC identifier: '{text}': Numerical result out of range"})
+    }
+    let parsed = if negative { -number } else { number }
+    return Ok(null) when parsed == -1
+    return Ok(parsed)
   }
   Ok(null)
 }
