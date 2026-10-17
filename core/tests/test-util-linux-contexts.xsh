@@ -81,6 +81,10 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
   defer ul.stop_keeper(keeper)
   let owner = json.decode(keeper.ready)?.require(IpcIdentityReady)?
   assert owner.uid == 10002 and owner.capabilities["CapEff"] == "0000000000000000"
+  let entries = [line.fields() for line in p"/proc/sysvipc/shm".read_text()?.lines()]
+  let owned = [fields for fields in entries if fields.len() > 9 and fields[1] == f"{owner.id}"]
+  assert owned.len() == 1
+  assert owned[0][4] == f"{owner.pid}" and owned[0][7] == "10002" and owned[0][9] == "10002"
   let options = ["--shmems", "--id", f"{owner.id}", "--json", "--output", "ID,UID,CUID,CPID,SIZE"]
   let owner_reference = ul.reference_as_user(s, "lsipc", options, uid: 10002)?
   let owner_candidate = ul.candidate_as_user(s, "lsipc", options, uid: 10002)?
