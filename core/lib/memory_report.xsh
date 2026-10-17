@@ -245,7 +245,15 @@ proc children(root: FsRoot, directory_path: Path, label: Str) [fs, process, env,
 }
 
 proc node_id(root: FsRoot, block_path: Path, block_name: Str) [fs, process, env, error] -> Int {
-  let entries = children(root, block_path, f"{block_name}")
+  let block_root = match root.open_root(block_path) {
+    Ok(directory) => directory
+    Err(failure) => {
+      fail(f"Failed to open {block_name}: {gnu.strerror(failure)}")
+      return -1
+    }
+  }
+  defer block_root.close()
+  let entries = children(block_root, p".", block_name)
   for entry_path in entries {
     let name = entry_path.name()
     continue when ! name.starts_with("node")
@@ -372,8 +380,8 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
   if ! root.exists(block_size_path)? { fail("This system does not support memory blocks") }
   let block_size_contents = match root.read_bytes(block_size_path) {
     Ok(text) => text
-    Err(_) => {
-      fail("failed to read memory block size")
+    Err(failure) => {
+      fail(f"failed to read memory block size: {gnu.strerror(failure)}")
       b""
     }
   }
@@ -664,7 +672,8 @@ proc table_text(inventory: Inventory, columns: List[Str], opts: Options) [proces
     var cells = []
     for index in range(shown.len()) {
       let column = shown[index]
-      cells += [if column == "RANGE" { if index == shown.len() - 1 { row[index] } else { pad_right(row[index], widths[index]) } } else { pad_left(row[index], widths[index]) }]
+      let cell = if column == "RANGE" { if index == shown.len() - 1 { row[index] } else { pad_right(row[index], widths[index]) } } else if index == shown.len() - 1 and row[index] == "" { "" } else { pad_left(row[index], widths[index]) }
+      cells += [cell]
     }
     output += cells.join(" ") + "\n"
   }
