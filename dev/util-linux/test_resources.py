@@ -440,6 +440,7 @@ class BuildCostAdapterTests(unittest.TestCase):
         self.assertIn('Path("/baseline-source")', driver)
         self.assertIn('Path("/work")', driver)
         self.assertIn('"TMPDIR": str(temporary)', driver)
+        self.assertIn('"TARGET": TARGET', driver)
         self.assertIn('temporary = target / "tmp"', driver)
         self.assertNotIn("/t/targets/", driver)
 

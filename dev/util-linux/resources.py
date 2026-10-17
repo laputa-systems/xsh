@@ -914,6 +914,7 @@ def build(source, side, sample):
         "CC": "/usr/bin/clang-23",
         "AR": "/usr/local/bin/llvm-ar",
         "LD_PRELOAD": "/usr/lib/libjemalloc.so.2",
+        "TARGET": TARGET,
         "TMPDIR": str(temporary),
         "PATH": "/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     })
