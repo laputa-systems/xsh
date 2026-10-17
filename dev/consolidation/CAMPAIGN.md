@@ -52,8 +52,12 @@ path. The two netcat selectors previously skipped for socket-path length now
 pass individually against C products, and both focused controller Python
 modules pass. Their [MV results](evidence/mv-nlink-singleton-c3d3f28/README.md)
 and [netcat results](evidence/successor-57a0f6314/netcat-short-tmp/README.md)
-are archived. The two tail failures and blocked-stdin timeout remain under
-repair. No D full profile, canonical, or resource gate has run.
+are archived. The accepted tests-only tail fixture repair `8be903577` now
+passes both failed tail selectors and the inotify companion; its [red/green
+evidence](evidence/tail-startup-races-c57a0f631/README.md) retains the
+controlled failures and corrected outputs. `core/tail.xsh` is unchanged. The
+blocked-stdin timeout remains under repair. No D full profile, canonical, or
+resource gate has run.
 
 After the remaining repairs and accepted tool changes are integrated and the
 source is sealed, the full gate queue remains open: fresh normal profile, one

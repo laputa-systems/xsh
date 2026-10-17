@@ -50,8 +50,12 @@ mounts test scratch at `/t`. Its two formerly path-length-skipped netcat
 selectors pass individually against C products, and the focused Python
 controller modules pass. See the [MV evidence](evidence/mv-nlink-singleton-c3d3f28/README.md)
 and [netcat replay](evidence/successor-57a0f6314/netcat-short-tmp/README.md).
-The C suite's two tail failures and blocked-stdin timeout remain under repair.
-No D full profile or canonical gate has run.
+The two C tail failures were fixture-startup races; accepted tests-only repair
+`8be903577` now passes both selectors and their inotify companion. The
+[tail evidence](evidence/tail-startup-races-c57a0f631/README.md) preserves the
+controlled red runs and final green outputs; `core/tail.xsh` is unchanged. The
+blocked-stdin timeout remains under repair. No D full profile, canonical, or
+resource gate has run.
 
 The assembly also includes observer `90c223487`, profile cleanup
 `0b0f485`/`f73d136`, visible cleanup diagnostics, and scheduler derivation

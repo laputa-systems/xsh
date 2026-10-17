@@ -30,8 +30,11 @@ netcat selectors pass against C products. The focused Python controller
 modules also pass. The netcat proof preserves its source/product guards and
 cleanup at [its evidence archive](evidence/successor-57a0f6314/netcat-short-tmp/README.md).
 These focused results do not change C's failed profile or provide D full-gate
-credit. The two tail failures and blocked-stdin timeout remain under repair;
-the full gate queue remains open.
+credit. The accepted tests-only tail fixture repair `8be903577` passes both
+failed selectors and the inotify companion without changing `core/tail.xsh`. Its
+[red/green evidence](evidence/tail-startup-races-c57a0f631/README.md) records
+the bounded correction. The blocked-stdin timeout remains under repair; the
+full gate queue remains open.
 
 The isolated typing checkpoint
 `b823e52cb94d222de64968154d9ceee5ce580e88` records 1,038 removals: 499 of 693 eligible
