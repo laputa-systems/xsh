@@ -1,0 +1,9 @@
+controller comparator: /home/josh/d/laputa-systems/xsh/.work/wt/scheduler-derivation-repair/dev/consolidation/winddown/gate-tools/native-scheduler-comparison/compare.py
+controller comparator sha256: 52b4db0550d8e82f1172852a57bfca5113336f5f93ed0b4229632f65956845dd
+frozen source preserved: /home/josh/d/laputa-systems/xsh 0deeb9c7fb79e52740c82a264754dbb29d8be693 ffb7736e1c141bbacde71c7a036ef6bcf1433c34
+reference source qualified: /home/josh/d/laputa-systems/xsh/.work/wt/native-scheduler-reference-0deeb9c7 ['crates/xsht/src/commands.rs', 'crates/xsht/src/xsht/test.rs']
+wrong source HEAD and tree rejected
+production configure rejects absent functional close
+Test only: absent functional-close path resolution was stubbed; no close record was constructed or validated
+Full bridge qualify remains pending a genuine functional-close record
+scheduler bridge controller selection and frozen source qualification passed

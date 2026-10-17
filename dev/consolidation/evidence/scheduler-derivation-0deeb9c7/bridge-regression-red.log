@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/scheduler-derivation-repair/dev/consolidation/test_final_scheduler_receipt_bridge.py", line 88, in <module>
+    test_controller_comparator_with_frozen_source(parser.parse_args())
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/scheduler-derivation-repair/dev/consolidation/test_final_scheduler_receipt_bridge.py", line 36, in test_controller_comparator_with_frozen_source
+    assert bridge.COMPARE_PATH == expected_comparator, bridge.COMPARE_PATH
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: /home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/gate-tools/native-scheduler-comparison/compare.py

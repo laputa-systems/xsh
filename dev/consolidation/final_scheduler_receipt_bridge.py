@@ -92,7 +92,7 @@ def configure(args) -> None:
     BUILD_ROOT = ROOT / f".work/consolidation/native-scheduler-builds/{COMMIT}/{args.run_id}"
     REFERENCE_RUN = ROOT / ".work/final-review-evidence/final-correctness-gates" / f"native-scheduler-reference-{COMMIT}-{args.run_id}"
     RUNNER = ROOT / "dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh"
-    COMPARE_PATH = ROOT / "dev/consolidation/winddown/gate-tools/native-scheduler-comparison/compare.py"
+    COMPARE_PATH = Path(__file__).resolve().parent / "winddown/gate-tools/native-scheduler-comparison/compare.py"
     PATCH_PATH = ROOT / "dev/consolidation/winddown/unfinished/475-native-scheduler-reference-2083821edb768d2485479c7386289b82e43b1c7c.patch"
 
     try:
