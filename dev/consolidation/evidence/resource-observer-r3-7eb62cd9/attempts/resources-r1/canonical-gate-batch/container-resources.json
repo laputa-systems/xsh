@@ -1,0 +1,123 @@
+{
+  "cgroup_limits_and_peaks": {
+    "cpu_max": "max 100000",
+    "memory_current": "1076498432",
+    "memory_events": {
+      "high": 0,
+      "low": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_group_kill": 0,
+      "oom_kill": 0,
+      "sock_throttled": 0
+    },
+    "memory_max": "max",
+    "memory_peak": "3001720832",
+    "memory_swap_current": "0",
+    "memory_swap_events": {
+      "fail": 0,
+      "high": 0,
+      "max": 0
+    },
+    "memory_swap_max": "max",
+    "memory_swap_peak": "0",
+    "pids_current": "2",
+    "pids_max": "max",
+    "pids_peak": "294"
+  },
+  "command": [
+    "/root/.cargo/bin/cargo",
+    "run",
+    "--quiet",
+    "--target",
+    "x86_64-unknown-linux-musl",
+    "-p",
+    "xsh",
+    "--bin",
+    "xsh",
+    "--",
+    "dev/main.xsh",
+    "--",
+    "internal",
+    "gate-batch"
+  ],
+  "final": {
+    "cgroup": {
+      "cpu_max": "max 100000",
+      "memory_current": "1076498432",
+      "memory_events": {
+        "high": 0,
+        "low": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_group_kill": 0,
+        "oom_kill": 0,
+        "sock_throttled": 0
+      },
+      "memory_max": "max",
+      "memory_peak": "3001720832",
+      "memory_swap_current": "0",
+      "memory_swap_events": {
+        "fail": 0,
+        "high": 0,
+        "max": 0
+      },
+      "memory_swap_max": "max",
+      "memory_swap_peak": "0",
+      "pids_current": "2",
+      "pids_max": "max",
+      "pids_peak": "294"
+    },
+    "process_rss_sum_bytes": 10956800,
+    "sampled_utc": "2026-10-17T05:50:07.503+00:00",
+    "visible_process_count": 2
+  },
+  "initial": {
+    "cgroup": {
+      "cpu_max": "max 100000",
+      "memory_current": "10170368",
+      "memory_events": {
+        "high": 0,
+        "low": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_group_kill": 0,
+        "oom_kill": 0,
+        "sock_throttled": 0
+      },
+      "memory_max": "max",
+      "memory_peak": "10682368",
+      "memory_swap_current": "0",
+      "memory_swap_events": {
+        "fail": 0,
+        "high": 0,
+        "max": 0
+      },
+      "memory_swap_max": "max",
+      "memory_swap_peak": "0",
+      "pids_current": "2",
+      "pids_max": "max",
+      "pids_peak": "6"
+    },
+    "process_rss_sum_bytes": 10633216,
+    "sampled_utc": "2026-10-17T05:49:19.209+00:00",
+    "visible_process_count": 2
+  },
+  "oom_events": 0,
+  "oom_kill_events": 0,
+  "process_rss_peak_bytes": 4966236160,
+  "process_rss_peak_method": "sum of resident pages for visible container processes, sampled every 100 ms",
+  "received_signal": "SIGTERM",
+  "resource_sample_interval_ms": 100,
+  "resource_samples": 479,
+  "schema_version": 1,
+  "spawn_error": null,
+  "status": 3,
+  "swap_events": {
+    "fail": 0,
+    "high": 0,
+    "max": 0
+  },
+  "timing_discarded": true,
+  "wall_ns": null
+}

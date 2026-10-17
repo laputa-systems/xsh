@@ -1,0 +1,278 @@
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/alias/up/alias points to an ancestor /work/core/tests/data/grep/fx/dl/alias
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/alias/up/real/up points to an ancestor /work/core/tests/data/grep/fx/dl/alias/up
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/real/up/alias/up points to an ancestor /work/core/tests/data/grep/fx/dl/real/up
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/real/up/real/up points to an ancestor /work/core/tests/data/grep/fx/dl/real/up
+   Compiling libc v0.2.186
+   Compiling cfg-if v1.0.4
+   Compiling crossbeam-utils v0.8.21
+   Compiling pin-project-lite v0.2.17
+   Compiling futures-core v0.3.34
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v2.0.1
+   Compiling parking v2.2.1
+   Compiling fastrand v2.4.1
+   Compiling futures-io v0.3.34
+   Compiling typenum v1.20.1
+   Compiling rustix v1.1.4
+   Compiling itoa v1.0.18
+   Compiling slab v0.4.12
+   Compiling bytes v1.11.1
+   Compiling bitflags v2.13.0
+   Compiling linux-raw-sys v0.12.1
+   Compiling zeroize v1.9.0
+   Compiling futures-lite v2.6.1
+   Compiling const-oid v0.10.2
+   Compiling foldhash v0.2.0
+   Compiling atomic-waker v1.1.2
+   Compiling rustls-pki-types v1.15.0
+   Compiling hashbrown v0.17.1
+   Compiling log v0.4.33
+   Compiling autocfg v1.5.1
+   Compiling event-listener v5.4.2
+   Compiling once_cell v1.21.4
+   Compiling async-io v2.6.0
+   Compiling http v1.5.0
+   Compiling pkg-config v0.3.34
+   Compiling proc-macro2 v1.0.106
+   Compiling httparse v1.10.1
+   Compiling getrandom v0.3.4
+   Compiling equivalent v1.0.2
+   Compiling rustls v0.23.43
+   Compiling untrusted v0.9.0
+   Compiling concurrent-queue v2.5.0
+   Compiling rustls-webpki v0.103.13
+   Compiling indexmap v2.14.0
+   Compiling event-listener-strategy v0.5.4
+   Compiling subtle v2.6.1
+   Compiling futures-sink v0.3.33
+   Compiling try-lock v0.2.5
+   Compiling quote v1.0.46
+   Compiling memchr v2.8.1
+   Compiling async-task v4.7.1
+   Compiling unicode-ident v1.0.24
+   Compiling fnv v1.0.7
+   Compiling jobserver v0.1.35
+   Compiling hybrid-array v0.4.12
+   Compiling want v0.3.1
+   Compiling async-channel v2.5.0
+   Compiling cc v1.2.66
+   Compiling http-body v1.1.0
+   Compiling piper v0.2.5
+   Compiling aho-corasick v1.1.4
+   Compiling futures-channel v0.3.34
+   Compiling cpufeatures v0.3.0
+   Compiling regex-syntax v0.8.11
+   Compiling smallvec v1.15.2
+   Compiling blocking v1.6.2
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.0
+   Compiling laputa-h2-futures v0.4.16-beta.0
+   Compiling graviola v0.4.1
+   Compiling zmij v1.0.21
+   Compiling getrandom v0.4.2
+   Compiling futures-task v0.3.34
+   Compiling zstd-safe v7.3.0
+   Compiling syn v2.0.118
+   Compiling h12tiny-client-normalize v0.1.0
+   Compiling futures-util v0.3.34
+   Compiling crossbeam-epoch v0.9.18
+   Compiling webpki-roots v1.0.9
+   Compiling digest v0.11.3
+   Compiling keccak v0.2.2
+   Compiling zstd-sys v2.1.0+zstd.1.5.7
+   Compiling libmimalloc-sys v0.1.49
+   Compiling blake3 v1.8.7
+   Compiling regex-automata v0.4.14
+   Compiling sponge-cursor v0.1.0
+   Compiling rustc-hash v2.1.3
+   Compiling option-ext v0.2.0
+   Compiling miniserde v0.1.45
+   Compiling xsh-registry v0.0.1 (/work/crates/xsh-registry)
+   Compiling laputa-hyper-futures-lite v1.11.0-beta.0
+   Compiling same-file v1.0.6
+   Compiling mini-internal v0.1.45
+   Compiling walkdir v2.5.0
+   Compiling rustls-graviola v0.4.0
+   Compiling futures-rustls v0.26.0
+   Compiling dirs-sys v0.5.0
+   Compiling sha2 v0.11.0
+   Compiling crossbeam-deque v0.8.6
+   Compiling xsh v0.0.1 (/work)
+   Compiling http-body-util v0.1.4
+   Compiling async-executor v1.14.0
+   Compiling filetime v0.2.29
+   Compiling crossbeam-channel v0.5.15
+   Compiling bstr v1.12.1
+   Compiling rustls-pemfile v2.2.0
+   Compiling constant_time_eq v0.4.2
+   Compiling arrayvec v0.7.8
+   Compiling zlib-rs v0.6.3
+   Compiling libbz2-rs-sys v0.2.5
+   Compiling tar v0.4.46
+   Compiling mimalloc v0.1.52
+   Compiling globset v0.4.18
+   Compiling bzip2 v0.6.1
+   Compiling lzma-rust2 v0.16.5
+   Compiling polling v3.11.0
+   Compiling ignore v0.4.25
+   Compiling tempfile v3.27.0
+   Compiling async-net v2.0.0
+   Compiling h12tiny-core v0.1.0
+   Compiling xsh-applets v0.0.1 (/work/crates/xsh-applets)
+   Compiling h12tiny-client v0.1.1
+   Compiling directories v6.0.0
+   Compiling sha3 v0.12.0
+   Compiling shake v0.1.0
+   Compiling md-5 v0.11.0
+   Compiling sha1 v0.11.0
+   Compiling flate2 v1.1.9
+   Compiling xsh-net v0.0.1 (/work/crates/xsh-net)
+   Compiling sm3 v0.5.0
+   Compiling xsh-root v0.0.1 (/work/crates/xsh-root)
+   Compiling diffy v0.5.0
+   Compiling rawzip v0.5.1
+   Compiling data-encoding v2.11.0
+   Compiling regex-lite v0.1.9 (/work/third_party/regex-lite)
+   Compiling unicode-width v0.2.2
+   Compiling syscalls v0.8.1
+   Compiling xshi v0.0.1 (/work/crates/xshi)
+   Compiling zstd v0.13.3
+   Compiling xsht v0.0.1 (/work/crates/xsht)
+    Finished `release` profile [optimized] target(s) in 4m 42s
+   Compiling rustls v0.23.43
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.46
+   Compiling unicode-ident v1.0.24
+   Compiling vte v0.15.0
+   Compiling laputa-h2-futures-lite v0.4.16-beta.0
+   Compiling vt100 v0.16.2
+   Compiling laputa-ptytest v0.1.1
+   Compiling syn v2.0.118
+   Compiling futures-rustls v0.26.0
+   Compiling rustls-graviola v0.4.0
+   Compiling h12tiny-client v0.1.1
+   Compiling xsh-net v0.0.1 (/work/crates/xsh-net)
+   Compiling xsh v0.0.1 (/work)
+    Finished `release` profile [optimized] target(s) in 4m 40s
+     Running tests/integration.rs (target/x86_64-unknown-linux-musl/release/build/xsh/541190afac058fe9/out/integration-541190afac058fe9)
+   Compiling xsh v0.0.1 (/work)
+    Finished `release` profile [optimized] target(s) in 18.13s
+     Running tests/ambient_fs_policy.rs (target/x86_64-unknown-linux-musl/release/build/xsh/f4a6be6a05b3fec9/out/ambient_fs_policy-f4a6be6a05b3fec9)
+   Compiling xsh v0.0.1 (/work)
+    Finished `release` profile [optimized] target(s) in 1m 46s
+     Running tests/symbol_plateau.rs (target/x86_64-unknown-linux-musl/release/build/xsh/630e10969237908a/out/symbol_plateau-630e10969237908a)
+   Compiling xsh v0.0.1 (/work)
+    Finished `release` profile [optimized] target(s) in 6.46s
+     Running tests/core_compat_boundaries.rs (target/x86_64-unknown-linux-musl/release/build/xsh/6c4d234bfecdc2be/out/core_compat_boundaries-6c4d234bfecdc2be)
+   Compiling xsh v0.0.1 (/work)
+    Finished `release` profile [optimized] target(s) in 12.49s
+     Running tests/core_compat_extra.rs (target/x86_64-unknown-linux-musl/release/build/xsh/ad076923bcc2d772/out/core_compat_extra-ad076923bcc2d772)
+   Compiling rustls v0.23.43
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.46
+   Compiling vte v0.15.0
+   Compiling laputa-h2-futures-lite v0.4.16-beta.0
+   Compiling vt100 v0.16.2
+   Compiling laputa-ptytest v0.1.1
+   Compiling syn v2.0.118
+   Compiling rustls-graviola v0.4.0
+   Compiling futures-rustls v0.26.0
+   Compiling h12tiny-client v0.1.1
+   Compiling xsh-net v0.0.1 (/work/crates/xsh-net)
+   Compiling xsh v0.0.1 (/work)
+    Finished `test` profile [unoptimized] target(s) in 59.02s
+     Running unittests src/lib.rs (target/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2)
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/alias/up/alias points to an ancestor /work/core/tests/data/grep/fx/dl/alias
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/alias/up/real/up points to an ancestor /work/core/tests/data/grep/fx/dl/alias/up
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/real/up/alias/up points to an ancestor /work/core/tests/data/grep/fx/dl/real/up
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/real/up/real/up points to an ancestor /work/core/tests/data/grep/fx/dl/real/up
+   Compiling xsh v0.0.1 (/work)
+   Compiling xsht v0.0.1 (/work/crates/xsht)
+    Finished `release` profile [optimized] target(s) in 4m 53s
+     Running tests/integration.rs (target/x86_64-unknown-linux-musl/release/build/xsht/8de7863f11fab919/out/integration-8de7863f11fab919)
+   Compiling xsh-fuzz v0.0.1 (/work/crates/xsh-fuzz)
+    Finished `release` profile [optimized] target(s) in 3m 09s
+     Running tests/soundness.rs (target/x86_64-unknown-linux-musl/release/build/xsh-fuzz/35adc78126a98f16/out/soundness-35adc78126a98f16)
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/alias/up/alias points to an ancestor /work/core/tests/data/grep/fx/dl/alias
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/alias/up/real/up points to an ancestor /work/core/tests/data/grep/fx/dl/alias/up
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/real/up/alias/up points to an ancestor /work/core/tests/data/grep/fx/dl/real/up
+warning: File system loop found: /work/core/tests/data/grep/fx/dl/real/up/real/up points to an ancestor /work/core/tests/data/grep/fx/dl/real/up
+   Compiling xsh v0.0.1 (/work)
+    Finished `release` profile [optimized] target(s) in 3m 02s
+     Running tests/core_compat_extra.rs (target/x86_64-unknown-linux-musl/release/build/xsh/ba52a8725677bf52/out/core_compat_extra-ba52a8725677bf52)
+
+thread 'test_binary::tests::other_profiles_are_rejected' (191876) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/debug/xsh has an unsupported profile; run `cargo test --profile verification`
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'test_binary::tests::other_profiles_are_rejected' (191876) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/dist/xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_binary::tests::other_profiles_are_rejected' (191876) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/custom/xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_binary::tests::other_profiles_are_rejected' (191876) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but xsh has an unsupported profile; run `cargo test --profile verification`
+   Compiling xsh v0.0.1 (/work)
+    Finished `release` profile [optimized] target(s) in 6.29s
+     Running tests/linux_priv.rs (target/x86_64-unknown-linux-musl/release/build/xsh/acdceafa444f6d84/out/linux_priv-acdceafa444f6d84)
+
+thread 'test_binary::tests::other_profiles_are_rejected' (192038) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/debug/xsh has an unsupported profile; run `cargo test --profile verification`
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'test_binary::tests::other_profiles_are_rejected' (192038) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/dist/xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_binary::tests::other_profiles_are_rejected' (192038) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/custom/xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_binary::tests::other_profiles_are_rejected' (192038) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but xsh has an unsupported profile; run `cargo test --profile verification`
+egrep: warning: egrep is obsolescent; using grep -E
+fgrep: warning: fgrep is obsolescent; using grep -F
+unlink: extra operand '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-4051-test_unlink_extra_operand_is_not_removed/tmp-1/b'
+Try 'unlink --help' for more information.
+err: fs-copy-tree: source is not a directory
+executable: /work/target/x86_64-unknown-linux-musl/release/xsh
+at /work/showcase/release-pack.xsh:60:16-60:55
+call path:
+  1. proc main at /work/showcase/release-pack.xsh:1:1-1:1
+install: backing up '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2550-test_install_backup_cannot_destroy_source/tmp-1/file' might destroy source;  '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2550-test_install_backup_cannot_destroy_source/tmp-1/file~' not copied
+err: archive-escape: symlink target escape
+executable: /work/target/x86_64-unknown-linux-musl/release/xsh
+at /work/showcase/archive-unpack.xsh:130:9-131:1
+call path:
+  1. proc main at /work/showcase/archive-unpack.xsh:1:1-1:1
+ln: failed to access '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2675-test_ln_backup_restored_on_failed_link/tmp-1/missing': No such file or directory
+unlink: cannot unlink '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-4054-test_unlink_removes_link_and_refuses_directory/tmp-1': Is a directory
+mv: cannot stat '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2893-test_mv_continues_after_missing_source/tmp-1/missing': No such file or directory
+tr: misaligned [:upper:] and/or [:lower:] construct
+install: cannot create directory '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2559-test_install_directory_continues_after_existing_file/tmp-1/existing': File exists
+ln: failed to access '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2686-test_ln_failed_force_preserves_destination/tmp-1/missing': No such file or directory
+ln: '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2688-test_ln_force_same_entry_keeps_source/tmp-1' and '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2688-test_ln_force_same_entry_keeps_source/tmp-1' are the same file
+ln: failed to create symbolic link '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2694-test_ln_no_dereference_does_not_imply_force/tmp-1/dest': File exists
+mv: '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2909-test_mv_same_entry_fails_and_retains_source/tmp-1' and '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2909-test_mv_same_entry_fails_and_retains_source/tmp-1' are the same file
+cp: overwrite '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-1380-test_cp_interactive_decline_and_accept/cp-interactive-1/dest'? install: cannot create regular file '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2574-test_install_missing_directory_target_does_not_create_it/tmp-1/missing/': Not a directory
+/work/.work/tmp/native-tests-1000-1000/tmp/.tmpmWoUeU:
+cp: overwrite '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-1390-test_cp_option_order_and_equals_validation/cp-argv-1/dest'? install: '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2585-test_install_source_symlink_cannot_replace_its_own_target/tmp-1/source' and '/work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-192076-1792221247145359700-2585-test_install_source_symlink_cannot_replace_its_own_target/tmp-1/target' are the same file
+err: StageError.Failed
+executable: target/x86_64-unknown-linux-musl/debug/xsh
+at /work/dev/stage.xsh:59:3-60:1
+call path:
+  1. proc main at /work/dev/main.xsh:1:1-1:1
+  2. proc dispatch at /work/dev/main.xsh:372:10-372:40
+  3. proc /work/dev/internal.xsh.gate_batch at /work/dev/main.xsh:355:29-355:63
+  4. proc /work/dev/gates.xsh.batch at /work/dev/internal.xsh:107:3-107:19
+  5. proc /work/dev/test_workflows.xsh.native at /work/dev/gates.xsh:220:3-220:46
+  6. proc /work/dev/stage.xsh.execute at /work/dev/test_workflows.xsh:223:5-225:100
+err: StageError.Failed
+executable: .work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/gate-batch-target/debug/xsh
+at /home/josh/d/laputa-systems/xsh/dev/stage.xsh:59:3-60:1
+call path:
+  1. proc main at /home/josh/d/laputa-systems/xsh/dev/main.xsh:1:1-1:1
+  2. proc dispatch at /home/josh/d/laputa-systems/xsh/dev/main.xsh:372:10-372:40
+  3. proc /home/josh/d/laputa-systems/xsh/dev/gates.xsh.execute at /home/josh/d/laputa-systems/xsh/dev/main.xsh:218:14-218:38
+  4. proc /home/josh/d/laputa-systems/xsh/dev/docker.xsh.run_internal at /home/josh/d/laputa-systems/xsh/dev/gates.xsh:232:12-233:69
+  5. proc /home/josh/d/laputa-systems/xsh/dev/stage.xsh.execute at /home/josh/d/laputa-systems/xsh/dev/docker.xsh:240:3-249:4

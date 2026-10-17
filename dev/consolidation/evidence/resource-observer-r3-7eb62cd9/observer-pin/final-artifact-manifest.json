@@ -1,0 +1,12 @@
+{
+  "performance_observers": {
+    "files": {
+      "final-observers.py": "084c25dc3b9fa12be1a101bf39e89c0ba160f436fe0a99c3aa56e689776cac03",
+      "capture-container-resources.py": "988f7f6bf24b6b9f436a10aad3b26ede11aad1f06a868e043da4566b88778cd5",
+      "docker-observer-shim.py": "752070b2d6b76e58a841d4e9b3490c336e9396d95f3da94e64bde3aa8cdd95ac",
+      "owned_containers.py": "de1104e5c225596c99d565ae2f5587071db35b45bb67073eaafa5c1d6cf26078",
+      "test_final_observers.py": "2b8c12845870d3f66f0bbce830a92d9fead937a8a0f87a1db1651db4a9e72e48",
+      "launch-plan.md": "120b9c64392be1f9bd3cbd6037031076c6ebff7cd69767f0053a174206e6f4fe"
+    }
+  }
+}
