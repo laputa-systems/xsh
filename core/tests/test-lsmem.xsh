@@ -179,14 +179,23 @@ test test_lsmem_rooted_dangling_and_cyclic_attribute_symlinks_match_reference { 
   state.symlink(to: state)?
   compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,STATE"])?
   state.remove()?
+  state.mkdir()
+  compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,STATE"])?
+  state.remove()?
   state.write("online\n")
   let removable = uu.at(s, "sys/devices/system/memory/memory1/removable")
   removable.remove()?
   removable.symlink(to: removable)?
   compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,REMOVABLE"])?
+  removable.remove()?
+  removable.mkdir()
+  compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,REMOVABLE"])?
   let zones = uu.at(s, "sys/devices/system/memory/memory1/valid_zones")
   zones.remove()?
   zones.symlink(to: zones)?
+  compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,ZONES"])?
+  zones.remove()?
+  zones.mkdir()
   compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,ZONES"])?
 }
 

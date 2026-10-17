@@ -91,7 +91,7 @@ case.
 | `test_lsmem_rooted_malformed_block_attributes` | Invalid hexadecimal block size and malformed block attributes |
 | `test_lsmem_rooted_numeric_and_state_parsing_matches_reference` | Block-size syntax, exact state matching, and removable-value parsing |
 | `test_lsmem_rooted_zone_tokenization_and_invalid_bytes_match_reference` | Space-delimited zones, tabs, leading whitespace, and invalid UTF-8 |
-| `test_lsmem_rooted_dangling_and_cyclic_attribute_symlinks_match_reference` | Unreadable state, removable, and zone symlink targets |
+| `test_lsmem_rooted_dangling_and_cyclic_attribute_symlinks_match_reference` | Unreadable state, removable, and zone symlink targets and directories |
 | `test_lsmem_rooted_required_block_size_wrong_types_match_reference` | Required block-size directory and dangling-symlink errors |
 | `test_lsmem_rooted_firmware_inventory_can_differ_from_sysfs_blocks` | Firmware-only memory entry across table, JSON, and summary output |
 | `test_lsmem_rooted_firmware_integer_parsing_matches_reference` | Firmware config and memmap parsing with signs, suffixes, and malformed values |
