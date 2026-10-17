@@ -53,8 +53,8 @@ still running, so route acceptance is pending. The 36-case root residual has
 then the skipped Unix-socket `sun_path` case passed through an owned alias.
 The namespace case passed. Both positive `NET_RAW` cases passed in the root
 context with `CAP_NET_RAW`. The initial Git-guard failure ran zero tests and
-remains excluded. The owner is archiving this proof. Root owns subsequent
-freeze and promotion.
+remains excluded. See the [root residual evidence](evidence/linux-residual-0deeb9c7/README.md).
+Root owns subsequent freeze and promotion.
 
 Phase D whole-corpus typing work remains isolated. Root accepted checker
 checkpoint `877` at `338b82238a67ee36dd1b025b7a923f9fc5d2da40`, using the

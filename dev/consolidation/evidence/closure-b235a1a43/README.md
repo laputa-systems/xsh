@@ -63,12 +63,13 @@ Functional close can precede timing. All 428 route runtime invocations on 7eb
 completed without failures, and source checks stayed clean. The AST-extractor
 build and admission checks still run, so route acceptance remains open.
 
-The root residual has 36 unique passes across 37 executions. The standard
+The [root residual evidence](../linux-residual-0deeb9c7/README.md) records 36
+unique passes across 37 executions. The standard
 context passed 34 cases, then the skipped Unix-socket `sun_path` length case
 passed through an owned alias. The namespace case and both positive `NET_RAW`
 cases passed. Root reviewed the raw summary, source and pair guards, and
 cleanup. The initial Git-guard failure ran zero tests and remains excluded.
-The owner is archiving this proof.
+The archive retains the initial Git-guard failure, which selected zero tests.
 
 QEMU has no remaining gate. The platform owner accepted Phase A reuse of the
 seven guest passes pinned to 0de because all four protected canonical products
@@ -81,7 +82,7 @@ W9 is qualified for b235 under the accepted Phase A reuse proof described in
 `open_defects`. The 7eb-only test-literal change is outside W9 compiler inputs.
 Timing remains post-functional and is required for the final metrics bundle.
 
-For final-close assembly, the concrete missing inputs are the route and residual receipts with their exact artifacts and the post-functional timing artifacts. QEMU reuse is accepted under Phase A and does not require fresh matching results. Once those missing inputs exist, the final bundle must list all ten rows once, with actual reviewer names and workspace-relative artifact paths, hashes, commands, methods, and `verified` results. The two route-dependent rows and timing row cannot yet be marked verified, so no partial bundle is presented as admissible.
+For final-close assembly, the concrete missing inputs are the route artifacts and post-functional timing artifacts. The residual evidence is archived and must be referenced in the final bundle. QEMU reuse is accepted under Phase A and does not require fresh matching results. Once the remaining inputs exist, the final bundle must list all ten rows once, with actual reviewer names and workspace-relative artifact paths, hashes, commands, methods, and `verified` results. The two route-dependent rows and timing row cannot yet be marked verified, so no partial bundle is presented as admissible.
 
 ## Change accounting
 

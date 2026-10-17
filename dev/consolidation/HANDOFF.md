@@ -66,6 +66,7 @@ and deadlines remain unchanged.
 | W9 width diagnostic `f63b64baf` | The rejected eight-worker memory diagnostic reached the 16 GiB limit using frozen 0dc9 captures. The original three-worker cap remains. This diagnostic grants no parity or resource acceptance. See [diagnostic record](evidence/w9-comparator-width/README.md). |
 | Compatibility inventory `b235a1a43` | Frozen denominators remain 638 BusyBox IDs across 68 utilities, 514 GNU IDs across 61 groups, and 5,653 uutils IDs across 106 utilities. Native-origin counts are 638, 513, and 5,419. Exception entries are 0, 3, and 235. They overlap native-origin counts at 0, 2, and 1 IDs. The union is 6,570 native-origin IDs plus 235 exception-only IDs. The 282 exclusions are disjoint and grouped as 137 `clap-wording`, 89 `gnu-semantics`, 17 `help-text`, 3 `thread-model`, 34 `uutils-extension`, and 2 `uutils-internal`. Origin, exclusion, and offline-inventory assertions passed. Historical upstream reports retain failures; no b235 full upstream pass is claimed. See [compatibility accounting](evidence/compatibility-close-b235a1a43/README.md). |
 | Structural review `097192fd7`, current readiness `6bddfeeca` | The four hard-zero structural counts are zero at b235. Input-mode `check-current` on 7eb reused the saved report and produced an identical report and audit. This does not claim a fresh 7eb scan or final ten-row verification. Route tooling, residual archive, functional close, and timing remain open. See [closure evidence](evidence/closure-b235a1a43/README.md). |
+| Root residual `6a3a251f0` | All 36 unique selectors passed across 37 executions on the 7eb source and R6 products. The full standard attempt retains one `sun_path` skip, and the exact selector passed through `/t`; both `NET_RAW` cases passed under root with `CAP_NET_RAW`. Both startup-guard attempts selected zero tests. See [residual evidence](evidence/linux-residual-0deeb9c7/README.md). |
 
 The 73 route mapping tests and 91 W9 adapter tests are earlier focused checks.
 The accepted 0deeb9 W9 cohort remains reusable for b235 under Phase A because
@@ -90,14 +91,14 @@ consolidation closes.
 ### Current queue
 
 1. Finish route qualification. All 428 normal and forced runtime invocations completed without failures, and source checks stayed clean. The AST-extractor build and admission checks still run.
-2. The root residual has 36 unique passes across 37 executions and zero unresolved skips. The standard context passed 34 cases, then the skipped Unix-socket `sun_path` length case passed through an owned alias. The namespace case passed. Both positive `NET_RAW` cases passed in a separate root context with `CAP_NET_RAW`. The initial Git-guard failure ran zero tests and remains excluded. The owner is archiving this proof.
+2. The root residual has 36 unique passes across 37 executions. The full standard run retains one Unix-socket `sun_path` skip; the exact selector passed through `/t`. The namespace case and both positive `NET_RAW` cases passed. The initial Git-guard failure selected zero tests. See [residual evidence](evidence/linux-residual-0deeb9c7/README.md).
 3. Complete the remaining semantic, structural, documentation, and functional-close review. The accepted b235 canonical result and seven QEMU guest passes are reused for 7eb under Phase A; R6 is independently accepted on 7eb.
 4. After functional close, run the campaign's ten full-suite resource and performance sequence. Root owns release readiness and main promotion.
 
 The b235 canonical gate is accepted and reused for 7eb under Phase A. The
 fresh 7eb R6 run is also accepted. Route runtime invocations have no failures,
-but route-tool checks remain open. The root residual passed, but its archive,
-functional close, and performance gates remain open. QEMU reuse is accepted by scope; no
+but route-tool checks remain open. The root residual passed and its evidence
+is archived. Functional close and performance gates remain open. QEMU reuse is accepted by scope; no
 new 7eb products or guest run are claimed. W9 parity is accepted at 0deeb9 and
 reusable for the unchanged W9 scope under Phase A. No functional close exists.
 Do not merge inference work from typing branches.

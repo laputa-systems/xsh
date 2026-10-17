@@ -33,8 +33,8 @@ failures, with source checks clean. AST-extractor build and admission checks
 remain open. The root residual has 36 unique passes across 37 executions.
 The standard context passed 34 cases, then the Unix-socket `sun_path` length
 case passed through an owned alias. The namespace case and both positive
-`NET_RAW` cases passed in a separate root context with `CAP_NET_RAW`. The
-owner is archiving this proof. Functional close
+`NET_RAW` cases passed in a separate root context with `CAP_NET_RAW`. See the
+[root residual evidence](evidence/linux-residual-0deeb9c7/README.md). Functional close
 and the ten-suite performance sequence remain open. Lean and Phase F stay paused.
 Inference remains isolated until consolidation closes.
 
