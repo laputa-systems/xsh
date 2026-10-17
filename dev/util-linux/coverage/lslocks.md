@@ -130,7 +130,7 @@ that field.
 | `test_lslocks_bytes_and_human_size` | Exact `1.5K` suffix for a 1,536-byte file, exact 1,536-byte output, and JSON `SIZE` type with and without `-b`. |
 | `test_lslocks_list_columns_modes` | `-H`, `-H -r`, `-H -J`, and the advertised `SIZE` type. |
 | `test_lslocks_raw_noheadings_and_json` | Raw and heading-free output; JSON/raw conflict status and diagnostics. |
-| `test_lslocks_output_column_names_and_errors` | Case-insensitive names, custom ordering, `+LIST`, repeated names, an empty list, unknown columns, and trailing-delimiter rejection. |
+| `test_lslocks_output_column_names_and_errors` | Case-insensitive names, custom ordering, `+LIST`, repeated names, an empty list, unknown columns, silent rejection of leading/interior empty columns, and the trailing-delimiter diagnostic. |
 | `test_lslocks_default_and_selected_lock_rows`, `test_lslocks_blocker_flock`, `test_lslocks_blocker_posix`, `test_lslocks_blocker_ofd`, `test_lslocks_filter_errors` | Exact PID filtering for holders and queued waiters; absent PID; OFD negative-PID filter rejection. |
 | `test_lslocks_filter_values_and_hidden_columns` | Symbolic and word aliases for comparisons, decimal float and boolean comparisons, same-precedence left-associative `OR`/`AND`, string equality/inequality, numeric ordering with `K` suffixes, regex match/non-match, `AND`/`&&`, `OR`/`||`, `NOT`, including filter columns absent from output. |
 | `test_lslocks_filter_errors` | Invalid filter syntax and unknown filter columns fail with reference status and stderr. |
