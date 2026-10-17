@@ -499,14 +499,16 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
   let body = if append { raw.byte_slice(1) } else { raw }
   let names = body.split(",")
   var columns: List[Str] = if append { id_columns(selection) } else { [] }
-  for source in names {
+  for index in range(names.len()) {
+    let source = names[index]
+    let remaining = names[index..].join(",")
     let shown = source
     let column = shown.upper()
     if column not in ALL_COLUMNS {
-      return Err(OptionError.Invalid {detail: f"unknown column: {shown}"})
+      return Err(OptionError.Invalid {detail: f"unknown column: {remaining}"})
     }
     if !allowed_column(column, selection) {
-      return Err(OptionError.Invalid {detail: f"column {shown} does not apply to the specified IPC"})
+      return Err(OptionError.Invalid {detail: f"column {remaining} does not apply to the specified IPC"})
     }
     columns += [column]
   }
