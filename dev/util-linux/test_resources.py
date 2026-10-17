@@ -8,6 +8,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -217,6 +218,49 @@ class BuildScratchTests(unittest.TestCase):
 
         self.assertEqual(len(raised.exception.__notes__), 1)
         self.assertIn("build-source scratch retained at", raised.exception.__notes__[0])
+
+    def test_source_archives_replace_the_tree_at_one_path_without_following_links(self):
+        self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-build-stage-")
+        self.addCleanup(self.temp.cleanup)
+        scratch = Path(self.temp.name)
+        archives = []
+        for name, payload in (("baseline", "old"), ("candidate", "new")):
+            root = scratch / name
+            root.mkdir()
+            (root / "manifest").write_text(payload, encoding="utf-8")
+            archive = scratch / f"{name}.tar"
+            with tarfile.open(archive, "w") as tar:
+                tar.add(root / "manifest", arcname="manifest")
+            archives.append(archive)
+        work = scratch / "work"
+        work.mkdir()
+        outside = scratch / "outside"
+        outside.mkdir()
+        sentinel = outside / "sentinel"
+        sentinel.write_text("keep", encoding="utf-8")
+        (work / "outside-link").symlink_to(outside, target_is_directory=True)
+
+        tree = ast.parse(resources._build_driver_source({"baseline": (), "candidate": ()}, PairOrder.BASELINE_FIRST, 0))
+        functions = [
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name in ("clear_build_directory", "stage_source")
+        ]
+        namespace = {
+            "Path": Path,
+            "shutil": shutil,
+            "stat": __import__("stat"),
+            "subprocess": subprocess,
+        }
+        module = ast.fix_missing_locations(ast.Module(body=functions, type_ignores=[]))
+        exec(compile(module, "build-source-stage-control", "exec"), namespace)
+        work_inode = work.stat().st_ino
+
+        for archive, payload in zip(archives, ("old", "new"), strict=True):
+            namespace["stage_source"](work, archive)
+            self.assertEqual(work.stat().st_ino, work_inode)
+            self.assertEqual((work / "manifest").read_text(encoding="utf-8"), payload)
+            self.assertFalse((work / "outside-link").is_symlink())
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
 
 
 class ProductSignatureTests(unittest.TestCase):
@@ -429,7 +473,7 @@ class PrivateHostBoundaryTests(unittest.TestCase):
 
 
 class BuildCostAdapterTests(unittest.TestCase):
-    def test_build_driver_uses_release_source_and_mounted_target_paths(self):
+    def test_build_driver_stages_both_archives_at_the_same_work_path(self):
         driver = resources._build_driver_source(
             {"baseline": (), "candidate": ()},
             PairOrder.BASELINE_FIRST,
@@ -437,12 +481,68 @@ class BuildCostAdapterTests(unittest.TestCase):
         )
 
         self.assertIn('Path(f"/cargo-target/{side}-{sample}")', driver)
-        self.assertIn('Path("/baseline-source")', driver)
-        self.assertIn('Path("/work")', driver)
+        self.assertIn('commands = ((Path("/baseline.tar"), "baseline"), (Path("/candidate.tar"), "candidate"))', driver)
+        self.assertIn('stage_source(Path("/work"), source_archive)', driver)
+        self.assertIn('results[side] = build(Path("/work"), side, sample)', driver)
         self.assertIn('"TMPDIR": str(temporary)', driver)
         self.assertIn('"TARGET": TARGET', driver)
         self.assertIn('temporary = target / "tmp"', driver)
+        self.assertNotIn("/baseline-source", driver)
         self.assertNotIn("/t/targets/", driver)
+
+    def test_build_archives_pin_baseline_and_clean_candidate_identity(self):
+        self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-build-archives-")
+        self.addCleanup(self.temp.cleanup)
+        scratch = Path(self.temp.name)
+        source_checks = []
+
+        class Runtime:
+            ROOT = ROOT
+            PRODUCT_SOURCE = "c" * 40
+
+            def source_identity(self):
+                source_checks.append(True)
+                return SOURCE
+
+        runtime = Runtime()
+        archives = {"baseline": scratch / "baseline.tar", "candidate": scratch / "candidate.tar"}
+        calls = []
+
+        def archive(root, commit, destination):
+            calls.append((root, commit, destination))
+            return archives["baseline" if commit == runtime.PRODUCT_SOURCE else "candidate"]
+
+        with patch.object(resources, "_git_archive", side_effect=archive):
+            baseline, candidate = resources._build_archives(runtime, SOURCE, scratch)
+
+        self.assertEqual((baseline, candidate), (archives["baseline"], archives["candidate"]))
+        self.assertEqual(
+            calls,
+            [
+                (ROOT, runtime.PRODUCT_SOURCE, scratch / "baseline.tar"),
+                (ROOT, SOURCE.commit, scratch / "candidate.tar"),
+            ],
+        )
+        self.assertEqual(len(source_checks), 2)
+
+    def test_build_archives_reject_a_candidate_changed_while_archiving(self):
+        self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-build-archive-change-")
+        self.addCleanup(self.temp.cleanup)
+        scratch = Path(self.temp.name)
+        source_checks = iter((SOURCE, SourceIdentity(COMMIT, TREE, False)))
+
+        class Runtime:
+            ROOT = ROOT
+            PRODUCT_SOURCE = "c" * 40
+
+            def source_identity(self):
+                return next(source_checks)
+
+        with (
+            patch.object(resources, "_git_archive", side_effect=lambda _root, _commit, destination: destination),
+            self.assertRaisesRegex(ValueError, "source changed during build-cost source archives"),
+        ):
+            resources._build_archives(Runtime(), SOURCE, scratch)
 
     def test_cargo_mounts_pin_the_mold_binary_used_by_the_container(self):
         runtime = type("Runtime", (), {"ROOT": ROOT})()
@@ -468,6 +568,7 @@ class BuildCostAdapterTests(unittest.TestCase):
             f"type=bind,source={resources.MOLD_PATH},target=/usr/local/bin/mold,readonly",
             mounts,
         )
+        self.assertIn(f"type=bind,source={ROOT},target=/work,readonly", mounts)
         self.assertNotIn(
             "type=bind,source=/home/josh/.local/bin/mold,target=/usr/local/bin/mold,readonly",
             mounts,
@@ -477,8 +578,10 @@ class BuildCostAdapterTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-build-pair-")
         self.addCleanup(self.temp.cleanup)
         scratch = Path(self.temp.name)
-        archive = scratch / "baseline.tar"
-        archive.write_bytes(b"archive")
+        baseline_archive = scratch / "baseline.tar"
+        candidate_archive = scratch / "candidate.tar"
+        baseline_archive.write_bytes(b"baseline archive")
+        candidate_archive.write_bytes(b"candidate archive")
         outside = scratch / "outside"
         outside.mkdir()
         sentinel = outside / "sentinel"
@@ -510,7 +613,7 @@ class BuildCostAdapterTests(unittest.TestCase):
                     mount.rsplit(",target=", 1)[1]: Path(mount.split("source=", 1)[1].split(",target=", 1)[0])
                     for mount in mounts
                 }
-                for target in ("/baseline-source", "/cargo-target"):
+                for target in ("/work", "/cargo-target"):
                     cleanup_namespace["clear_build_directory"](roots[target])
                 return b""
 
@@ -525,7 +628,18 @@ class BuildCostAdapterTests(unittest.TestCase):
                 f"type=bind,source={resources.MOLD_PATH},target=/usr/local/bin/mold,readonly",
                 mounts,
             )
-            for target in ("/baseline-source", "/cargo-target"):
+            self.assertIn(
+                f"type=bind,source={baseline_archive},target=/baseline.tar,readonly",
+                mounts,
+            )
+            self.assertIn(
+                f"type=bind,source={candidate_archive},target=/candidate.tar,readonly",
+                mounts,
+            )
+            worktree_mount = next(mount for mount in mounts if mount.endswith(",target=/work"))
+            self.assertTrue(worktree_mount.startswith("type=bind,source="))
+            self.assertNotIn("readonly", worktree_mount)
+            for target in ("/work", "/cargo-target"):
                 root = roots[target]
                 (root / "artifact-dir").mkdir()
                 (root / "artifact-dir" / "build-output").write_text("remove", encoding="utf-8")
@@ -544,7 +658,8 @@ class BuildCostAdapterTests(unittest.TestCase):
                     Runtime(),
                     Path("/tools/perf-gate-ready"),
                     SOURCE,
-                    archive,
+                    baseline_archive,
+                    candidate_archive,
                     {"baseline": (), "candidate": ()},
                     PairOrder.BASELINE_FIRST,
                     0,
@@ -556,17 +671,19 @@ class BuildCostAdapterTests(unittest.TestCase):
         self.assertEqual(cleanup_script, "python3 -c " + resources.shlex.quote(resources._BUILD_CLEANUP_DRIVER))
         self.assertEqual(
             tuple(mount.rsplit(",target=", 1)[1] for mount in cleanup_mounts),
-            ("/baseline-source", "/cargo-target"),
+            ("/work", "/cargo-target"),
         )
-        self.assertEqual(set(scratch.iterdir()), {archive, outside})
+        self.assertEqual(set(scratch.iterdir()), {baseline_archive, candidate_archive, outside})
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "keep")
 
     def test_build_cleanup_error_is_attached_to_the_primary_timeout(self):
         self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-build-cleanup-error-")
         self.addCleanup(self.temp.cleanup)
         scratch = Path(self.temp.name)
-        archive = scratch / "baseline.tar"
-        archive.write_bytes(b"archive")
+        baseline_archive = scratch / "baseline.tar"
+        candidate_archive = scratch / "candidate.tar"
+        baseline_archive.write_bytes(b"baseline archive")
+        candidate_archive.write_bytes(b"candidate archive")
 
         class Runtime:
             ROOT = ROOT
@@ -581,7 +698,7 @@ class BuildCostAdapterTests(unittest.TestCase):
             root = next(
                 Path(mount.split("source=", 1)[1].split(",target=", 1)[0])
                 for mount in mounts
-                if mount.endswith(",target=/baseline-source")
+                if mount.endswith(",target=/work")
             )
             (root / "build-output").write_text("remove", encoding="utf-8")
             raise TimeoutError("build timed out")
@@ -598,7 +715,8 @@ class BuildCostAdapterTests(unittest.TestCase):
                     Runtime(),
                     Path("/tools/perf-gate-ready"),
                     SOURCE,
-                    archive,
+                    baseline_archive,
+                    candidate_archive,
                     {"baseline": (), "candidate": ()},
                     PairOrder.BASELINE_FIRST,
                     0,

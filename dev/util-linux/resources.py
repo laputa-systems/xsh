@@ -878,6 +878,7 @@ def _parse_timed_pair(
 _BUILD_DRIVER = r'''import hashlib
 import os
 from pathlib import Path
+import shutil
 import signal
 import stat
 import subprocess
@@ -973,16 +974,30 @@ def build(source, side, sample):
     return child.returncode, elapsed, valid, out, err
 
 
-baseline_source = Path("/baseline-source")
-subprocess.run(["tar", "-xf", "/baseline.tar", "-C", str(baseline_source)], check=True)
+def clear_build_directory(root):
+    if not stat.S_ISDIR(root.lstat().st_mode):
+        raise RuntimeError(f"build scratch root is not a directory: {root}")
+    for child in root.iterdir():
+        if stat.S_ISDIR(child.lstat().st_mode):
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
+def stage_source(root, archive):
+    clear_build_directory(root)
+    subprocess.run(["tar", "-xf", str(archive), "-C", str(root)], check=True)
+
+
 order = @ORDER@
 sample = @SAMPLE@
-commands = ((baseline_source, "baseline"), (Path("/work"), "candidate"))
+commands = ((Path("/baseline.tar"), "baseline"), (Path("/candidate.tar"), "candidate"))
 if order == "candidate-first":
     commands = tuple(reversed(commands))
 results = {}
-for source, side in commands:
-    results[side] = build(source, side, sample)
+for source_archive, side in commands:
+    stage_source(Path("/work"), source_archive)
+    results[side] = build(Path("/work"), side, sample)
 baseline, candidate = results["baseline"], results["candidate"]
 print("\t".join(("build", str(baseline[1]), str(candidate[1]), str(baseline[0]),
                  str(candidate[0]), str(int(baseline[2])), str(int(candidate[2])))))
@@ -1006,7 +1021,7 @@ def clear_build_directory(root):
             child.unlink()
 
 
-clear_build_directory(Path("/baseline-source"))
+clear_build_directory(Path("/work"))
 clear_build_directory(Path("/cargo-target"))
 '''
 
@@ -1185,10 +1200,22 @@ def _git_archive(root: Path, commit: str, destination: Path) -> Path:
             check=False,
         )
     if result.returncode != 0:
-        raise RuntimeError(f"cannot archive the frozen build source: {result.stderr.decode(errors='replace')}")
+        raise RuntimeError(f"cannot archive the requested build source: {result.stderr.decode(errors='replace')}")
     if destination.stat().st_size <= 0:
-        raise ValueError("frozen build source archive is empty")
+        raise ValueError("build source archive is empty")
     return destination
+
+
+def _build_archives(
+    runtime: ResourceRuntime,
+    source: SourceIdentity,
+    scratch: Path,
+) -> tuple[Path, Path]:
+    _require_current(runtime, source, "build-cost source archives")
+    baseline = _git_archive(runtime.ROOT, runtime.PRODUCT_SOURCE, scratch / "baseline.tar")
+    candidate = _git_archive(runtime.ROOT, source.commit, scratch / "candidate.tar")
+    _require_current(runtime, source, "build-cost source archives")
+    return baseline, candidate
 
 
 def _expected_build_products(products: tuple[Path, BuildContext, ProductSignature, Path, BuildContext, ProductSignature]):
@@ -1220,7 +1247,8 @@ def _readied_build_pair(
     runtime: ResourceRuntime,
     program: Path,
     source: SourceIdentity,
-    archive: Path,
+    baseline_archive: Path,
+    candidate_archive: Path,
     expected: dict[str, tuple[tuple[str, str], ...]],
     order: PairOrder,
     sample: int,
@@ -1230,20 +1258,20 @@ def _readied_build_pair(
     jemalloc = Path("/usr/lib/libjemalloc.so.2")
     if not jemalloc.is_file():
         raise RuntimeError("build-cost measurement requires the pinned jemalloc preload")
-    baseline_source = archive.parent / f"baseline-source-{sample}"
-    target = archive.parent / f"build-target-{sample}"
+    source_stage = baseline_archive.parent / f"build-source-{sample}"
+    target = baseline_archive.parent / f"build-target-{sample}"
     created_roots = []
     build_started = False
     primary = None
     try:
-        baseline_source.mkdir()
-        created_roots.append(baseline_source)
+        source_stage.mkdir()
+        created_roots.append(source_stage)
         target.mkdir()
         created_roots.append(target)
-        mounts = _cargo_mounts(runtime, target)
+        mounts = _cargo_mounts(runtime, target, source_stage, writable_source=True)
         mounts.extend((
-            f"type=bind,source={archive},target=/baseline.tar,readonly",
-            f"type=bind,source={baseline_source},target=/baseline-source",
+            f"type=bind,source={baseline_archive},target=/baseline.tar,readonly",
+            f"type=bind,source={candidate_archive},target=/candidate.tar,readonly",
             f"type=bind,source={jemalloc},target=/usr/lib/libjemalloc.so.2,readonly",
         ))
         build_started = True
@@ -1267,11 +1295,11 @@ def _readied_build_pair(
         raise
     finally:
         try:
-            if build_started and (any(baseline_source.iterdir()) or any(target.iterdir())):
+            if build_started and (any(source_stage.iterdir()) or any(target.iterdir())):
                 runtime.container(
                     "python3 -c " + shlex.quote(_BUILD_CLEANUP_DRIVER),
                     mounts=[
-                        f"type=bind,source={baseline_source},target=/baseline-source",
+                        f"type=bind,source={source_stage},target=/work",
                         f"type=bind,source={target},target=/cargo-target",
                     ],
                     capabilities=[],
@@ -1407,13 +1435,14 @@ def measure_timing(runtime: ResourceRuntime, source: SourceIdentity) -> Measured
     scratch = runtime.ROOT / ".work" / "tmp"
     scratch.mkdir(parents=True, exist_ok=True)
     with _build_source_scratch(scratch) as temporary:
-        archive = _git_archive(runtime.ROOT, runtime.PRODUCT_SOURCE, temporary / "baseline.tar")
+        baseline_archive, candidate_archive = _build_archives(runtime, source, temporary)
         expected = _expected_build_products(products)
         warmup = _readied_build_pair(
             runtime,
             program,
             source,
-            archive,
+            baseline_archive,
+            candidate_archive,
             expected,
             PairOrder.BASELINE_FIRST,
             -1,
@@ -1424,7 +1453,16 @@ def measure_timing(runtime: ResourceRuntime, source: SourceIdentity) -> Measured
         _assert_timing_inputs(runtime, source, products)
         build_samples = []
         for index, order in enumerate(_PAIR_ORDERS):
-            pair = _readied_build_pair(runtime, program, source, archive, expected, order, index)
+            pair = _readied_build_pair(
+                runtime,
+                program,
+                source,
+                baseline_archive,
+                candidate_archive,
+                expected,
+                order,
+                index,
+            )
             if pair is None:
                 _assert_timing_inputs(runtime, source, products)
                 return DeferredTiming("host busy")
@@ -2005,7 +2043,13 @@ def _rust_gate_script() -> str:
     return _framed_script(_CARGO_GATE_DRIVER.replace("@CASES@", repr(cases)))
 
 
-def _cargo_mounts(runtime: ResourceRuntime, target: Path) -> list[str]:
+def _cargo_mounts(
+    runtime: ResourceRuntime,
+    target: Path,
+    worktree: Path | None = None,
+    *,
+    writable_source: bool = False,
+) -> list[str]:
     kache = shutil.which("kache")
     linker = runtime.ROOT / "dev" / "musl-linker.sh"
     if (
@@ -2018,8 +2062,10 @@ def _cargo_mounts(runtime: ResourceRuntime, target: Path) -> list[str]:
         raise RuntimeError("host and documentation gates require kache, mold, and the repository musl linker")
     if not LAPUTA_CORPUS.is_dir():
         raise RuntimeError("host and documentation gates require the qualified Laputa corpus")
+    worktree = runtime.ROOT if worktree is None else worktree
+    worktree_mode = "" if writable_source else ",readonly"
     return [
-        f"type=bind,source={runtime.ROOT},target=/work,readonly",
+        f"type=bind,source={worktree},target=/work{worktree_mode}",
         f"type=bind,source={target},target=/cargo-target",
         f"type=bind,source={kache},target=/usr/local/bin/kache,readonly",
         f"type=bind,source={MOLD_PATH},target=/usr/local/bin/mold,readonly",
@@ -2095,7 +2141,7 @@ def run_host_boundaries(runtime: ResourceRuntime, source: SourceIdentity) -> Gat
     target = products[0].parent.parent
     cargo_output = runtime.container(
         _cargo_environment() + _rust_gate_script(),
-        mounts=_cargo_mounts(runtime, target),
+        mounts=_cargo_mounts(runtime, target, runtime.ROOT),
         capabilities=[],
         timeout=RUST_GATE_TIMEOUT_SECONDS,
         cpus=2,
@@ -2168,7 +2214,11 @@ def run_docs(runtime: ResourceRuntime, source: SourceIdentity) -> GateResult:
             f"type=bind,source={runtime.ROOT},target=/work,readonly",
             f"type=bind,source={target},target=/target",
             f"type=bind,source={products[0]},target=/products,readonly",
-            *[mount for mount in _cargo_mounts(runtime, target) if "/cargo-target" not in mount and "target=/work" not in mount],
+            *[
+                mount
+                for mount in _cargo_mounts(runtime, target, runtime.ROOT)
+                if "/cargo-target" not in mount and "target=/work" not in mount
+            ],
         ],
         capabilities=[],
         timeout=DOCS_GATE_TIMEOUT_SECONDS,
