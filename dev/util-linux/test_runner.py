@@ -72,6 +72,18 @@ class NativeCaseDispatchTests(unittest.TestCase):
             self.assertEqual(check.native_case(selector, timeout=2.5), output)
         self.assertEqual(launch.call_args.kwargs["timeout"], 2.5)
 
+    def test_failed_native_child_still_verifies_products(self):
+        with patch("check.protected_products", return_value=Path("/qualified")) as products, patch("check.container", side_effect=RuntimeError("native failure")):
+            with self.assertRaisesRegex(RuntimeError, "native failure"):
+                check.native_case("core/tests/test-lslocks.xsh::test_wanted")
+        self.assertEqual(products.call_count, 2)
+
+    def test_product_failure_preserves_primary_native_failure(self):
+        with patch("check.protected_products", side_effect=[Path("/qualified"), ValueError("changed products")]), patch("check.container", side_effect=RuntimeError("native failure")):
+            with self.assertRaisesRegex(RuntimeError, "native failure") as caught:
+                check.native_case("core/tests/test-lslocks.xsh::test_wanted")
+        self.assertIn("changed products", " ".join(caught.exception.__notes__))
+
     def test_passing_count_cannot_hide_wrong_exact_selector(self):
         output = b"running 1 tests\ncore/tests/test-other.xsh::test_other ... ok 1ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n"
         with patch("check.protected_products", return_value=Path("/qualified")), patch("check.container", return_value=output):

@@ -310,18 +310,35 @@ exec /usr/bin/python3 /work/core/tests/fixtures/util-linux/contexts/identity_kee
 '''
 
 
+@contextlib.contextmanager
+def _qualified_products():
+    products = protected_products()
+    failure = None
+    try:
+        yield products
+    except BaseException as error:
+        failure = error
+        raise
+    finally:
+        try:
+            protected_products()
+        except BaseException as error:
+            if failure is None:
+                raise
+            failure.add_note(f"product verification also failed: {error}")
+
+
 def native_source(paths: list[str]) -> bytes:
     if not paths or len(paths) > 8:
         raise ValueError("source checks require one to eight explicit XSH files")
     for name in paths:
         if not re.fullmatch(r"(?:core|tests/xsh|dev)/[A-Za-z0-9_./-]+\.xsh", name) or ".." in Path(name).parts or not (ROOT / name).is_file():
             raise ValueError(f"invalid source check path: {name}")
-    products = protected_products()
-    output = container("cd /work; " + shlex.join(["/products/xsht", "check", *paths]), mounts=[
-        f"type=bind,source={ROOT},target=/work,readonly",
-        f"type=bind,source={products},target=/products,readonly",
-    ], timeout=30)
-    protected_products()
+    with _qualified_products() as products:
+        output = container("cd /work; " + shlex.join(["/products/xsht", "check", *paths]), mounts=[
+            f"type=bind,source={ROOT},target=/work,readonly",
+            f"type=bind,source={products},target=/products,readonly",
+        ], timeout=30)
     print(output.decode("utf-8"), end="")
     print("source check passed: " + " ".join(paths))
     return output
@@ -332,15 +349,14 @@ def native_case(selector: str, *, private: bool = False, timeout: float = 30) ->
         raise ValueError("exact native execution requires a positive timeout at most 30 seconds")
     if not re.fullmatch(r"(?:core/tests/test-[a-z0-9-]+|tests/xsh/(?:[a-z0-9_-]+/)*[a-z0-9_-]+)\.xsh::test_[a-zA-Z0-9_]+", selector):
         raise ValueError(f"invalid exact native selector: {selector}")
-    products = protected_products()
-    command = f"/products/xsht test --exact {selector}"
-    script = "cd /work; " + ((PRIVATE_NAMESPACE.rstrip() + " " + command) if private else command)
-    output = container(script, mounts=[
-        f"type=bind,source={ROOT},target=/work,readonly",
-        f"type=bind,source={products},target=/products,readonly",
-    ], capabilities=["SYS_ADMIN"] if private else [], timeout=timeout)
+    with _qualified_products() as products:
+        command = f"/products/xsht test --exact {selector}"
+        script = "cd /work; " + ((PRIVATE_NAMESPACE.rstrip() + " " + command) if private else command)
+        output = container(script, mounts=[
+            f"type=bind,source={ROOT},target=/work,readonly",
+            f"type=bind,source={products},target=/products,readonly",
+        ], capabilities=["SYS_ADMIN"] if private else [], timeout=timeout)
     text = output.decode("utf-8")
-    protected_products()
     summaries = re.findall(r"^test result: ok\. ([0-9]+) passed; ([0-9]+) failed; ([0-9]+) skipped$", text, re.MULTILINE)
     cases = re.findall(r"^(\S+) \.\.\. ok \S+$", text, re.MULTILINE)
     if summaries != [("1", "0", "0")] or cases != [selector]:
@@ -353,10 +369,9 @@ def native_batch(selectors):
     from batches import run_exact_batch
     known = tuple(selector for selector in regression_selectors(source_identity())
                   if not selector.endswith("test_util_linux_lsns_selects_and_releases_a_live_user_namespace"))
-    products = protected_products()
-    summaries = run_exact_batch(selectors, known_selectors=known, root=ROOT,
-                                products=products, container=container)
-    protected_products()
+    with _qualified_products() as products:
+        summaries = run_exact_batch(selectors, known_selectors=known, root=ROOT,
+                                    products=products, container=container)
     for summary in summaries:
         print(f"{summary.selector}: {summary.passed} passed; {summary.failed} failed; {summary.skipped} skipped")
     return summaries
