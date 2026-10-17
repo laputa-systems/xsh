@@ -372,18 +372,30 @@ pure filter_tokens(text: Str) -> List[FilterToken]? {
     return null when start == at
     let word = text.byte_slice(start, length: at - start)
     let upper = word.upper()
-    output += [{kind: "operator", value: upper}] when upper in ["AND", "OR", "NOT"]
-    output += [{kind: "operator", value: "NOT"}] when word == "!"
-    output += [{kind: "word", value: word}] when upper not in ["AND", "OR", "NOT"]
+    if upper in ["AND", "OR", "NOT"] {
+      output += [{kind: "operator", value: upper}]
+    } else if upper in ["EQ", "NE", "LT", "LE", "GT", "GE"] {
+      output += [{kind: "operator", value: match upper { "EQ" => "=="; "NE" => "!="; "LT" => "<"; "LE" => "<="; "GT" => ">"; else => ">=" }}]
+    } else {
+      output += [{kind: "word", value: word}]
+    }
   }
   output
 }
 
 pure operator_precedence(operator: Str) -> Int {
-  return 1 when operator in ["OR", "||"]
-  return 2 when operator in ["AND", "&&"]
-  return 3 when operator in ["NOT", "!"]
-  4
+  return 1 when operator in ["OR", "||", "AND", "&&"]
+  2
+}
+
+pure filter_integer(value: Str) -> Int? {
+  if rx"^[0-9]+$".matches(value) { return decimal(value) }
+  return null when ! rx"^[0-9]+[KMGTPEZY](iB)?$".matches(value)
+  usage.parse_size(value)
+}
+
+pure filter_number(value: Str) -> Bool {
+  filter_integer(value) != null or rx"^[0-9]+\.[0-9]+$".matches(value)
 }
 
 pure filter_program(tokens: List[FilterToken]) -> List[FilterToken]? {
@@ -414,7 +426,8 @@ pure filter_program(tokens: List[FilterToken]) -> List[FilterToken]? {
       let operator = if token.value == "!" and expects_value { "NOT" } else { token.value }
       return null when operator in ["AND", "&&", "OR", "||", "==", "!=", ">", "<", ">=", "<=", "=~", "!~"] and expects_value
       return null when operator in ["NOT", "!"] and ! expects_value
-      while ! operators.is_empty() and operators[-1].kind == "operator" and
+      let unary = operator in ["NOT", "!"] and expects_value
+      while ! unary and ! operators.is_empty() and operators[-1].kind == "operator" and
           operator_precedence(operators[-1].value) >= operator_precedence(operator) {
         output += [operators[-1]]
         operators = operators[..operators.len() - 1]
@@ -434,7 +447,7 @@ pure filter_program(tokens: List[FilterToken]) -> List[FilterToken]? {
   for token in output {
     if token.kind == "word" {
       let upper = token.value.upper()
-      if canonical_column(token.value) == null and upper not in ["TRUE", "FALSE"] and decimal(token.value) == null and usage.parse_size(token.value) == null {
+      if canonical_column(token.value) == null and upper not in ["TRUE", "FALSE"] and ! filter_number(token.value) {
         return null
       }
     }
@@ -456,6 +469,8 @@ pure filter_literal(token: FilterToken) -> FilterValue {
   let upper = token.value.upper()
   return {kind: "boolean", value: "", boolean: upper == "TRUE"} when upper in ["TRUE", "FALSE"]
   if let column = canonical_column(token.value) { return {kind: "column", value: column, boolean: false} }
+  if rx"^[0-9]+\.[0-9]+$".matches(token.value) { return {kind: "float", value: token.value, boolean: false} }
+  if let number = filter_integer(token.value) { return {kind: "number", value: f"{number}", boolean: false} }
   {kind: "string", value: token.value, boolean: false}
 }
 
@@ -467,9 +482,19 @@ pure compare_filter(left: FilterValue, right: FilterValue, operator: Str, lock: 
     let matched = if let Ok(compiled) = pattern { compiled.matches(l.value) } else { false }
     return if operator == "=~" { matched } else { ! matched }
   }
-  if l.kind == "number" {
-    let left_number = decimal(l.value) ?? 0
-    let right_number = if r.kind == "number" { usage.parse_size(r.value) ?? (decimal(r.value) ?? 0) } else { usage.parse_size(r.value) ?? (decimal(r.value) ?? 0) }
+  if l.kind in ["number", "float"] or r.kind in ["number", "float"] {
+    if l.kind == "float" or r.kind == "float" {
+      let left_number = if l.kind == "boolean" { if l.boolean { 1.0 } else { 0.0 } } else { l.value.parse_float() ?? 0.0 }
+      let right_number = if r.kind == "boolean" { if r.boolean { 1.0 } else { 0.0 } } else { r.value.parse_float() ?? 0.0 }
+      return left_number == right_number when operator == "=="
+      return left_number != right_number when operator == "!="
+      return left_number > right_number when operator == ">"
+      return left_number < right_number when operator == "<"
+      return left_number >= right_number when operator == ">="
+      return left_number <= right_number when operator == "<="
+    }
+    let left_number = if l.kind == "boolean" { if l.boolean { 1 } else { 0 } } else { decimal(l.value) ?? 0 }
+    let right_number = if r.kind == "boolean" { if r.boolean { 1 } else { 0 } } else { decimal(r.value) ?? 0 }
     return left_number == right_number when operator == "=="
     return left_number != right_number when operator == "!="
     return left_number > right_number when operator == ">"
@@ -491,6 +516,14 @@ pure compare_filter(left: FilterValue, right: FilterValue, operator: Str, lock: 
   false
 }
 
+pure filter_truth(value: FilterValue, lock: Lock) -> Bool {
+  let resolved = if value.kind == "column" { column_value(lock, value.value) } else { value }
+  if resolved.kind == "boolean" { return resolved.boolean }
+  if resolved.kind == "number" { return (decimal(resolved.value) ?? 0) != 0 }
+  if resolved.kind == "float" { return (resolved.value.parse_float() ?? 0.0) != 0.0 }
+  resolved.value != ""
+}
+
 pure filter_matches(program: List[FilterToken], lock: Lock) -> Bool {
   var stack: List[FilterValue] = []
   for token in program {
@@ -499,14 +532,13 @@ pure filter_matches(program: List[FilterToken], lock: Lock) -> Bool {
     } else if token.value in ["NOT", "!"] {
       let value = stack[-1]
       stack = stack[..stack.len() - 1]
-      let boolean = if value.kind == "column" { column_value(lock, value.value).boolean } else if value.kind == "boolean" { value.boolean } else { value.value != "" }
-      stack += [{kind: "boolean", value: "", boolean: ! boolean}]
+      stack += [{kind: "boolean", value: "", boolean: ! filter_truth(value, lock)}]
     } else if token.value in ["AND", "&&", "OR", "||"] {
       let right = stack[-1]
       let left = stack[-2]
       stack = stack[..stack.len() - 2]
-      let left_bool = if left.kind == "column" { column_value(lock, left.value).boolean } else if left.kind == "boolean" { left.boolean } else { left.value != "" }
-      let right_bool = if right.kind == "column" { column_value(lock, right.value).boolean } else if right.kind == "boolean" { right.boolean } else { right.value != "" }
+      let left_bool = filter_truth(left, lock)
+      let right_bool = filter_truth(right, lock)
       stack += [{kind: "boolean", value: "", boolean: if token.value in ["AND", "&&"] { left_bool and right_bool } else { left_bool or right_bool }}]
     } else {
       let right = stack[-1]
@@ -515,7 +547,7 @@ pure filter_matches(program: List[FilterToken], lock: Lock) -> Bool {
       stack += [{kind: "boolean", value: "", boolean: compare_filter(left, right, token.value, lock)}]
     }
   }
-  stack[0].boolean
+  filter_truth(stack[0], lock)
 }
 
 pure lock_cell(lock: Lock, column: Str, bytes: Bool) -> Any {
