@@ -6,9 +6,10 @@ type OutputFailure = {termination: ul.Termination, stdout: Bytes, stderr: Bytes}
 type CommandCase = {util: Str, args: List[Path], error_args: List[Path]}
 
 pure termination_label(termination: ul.Termination) -> Str {
-  if termination == ul.Signaled(13) { return "signal 13" }
-  if termination == ul.Exited(141) { return "exit 141" }
-  "other termination"
+  match termination {
+    ul.Signaled(number) => f"signal {number}"
+    ul.Exited(status) => f"exit {status}"
+  }
 }
 
 proc output_failure(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool, output_stream: Str) [fs, process, env, error] -> Result[OutputFailure, Error] {
@@ -36,8 +37,8 @@ proc output_failure(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool
   Ok({termination: termination, stdout: stdout_bytes, stderr: stderr_bytes})
 }
 
-proc closed_reader(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool) [fs, process, env, net, error] -> Result[OutputFailure, Error] {
-  let invocation = if is_reference { "reference" } else { "candidate" }
+proc closed_reader(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool, pipe_action: Str) [fs, process, env, net, error] -> Result[OutputFailure, Error] {
+  let invocation = f"{pipe_action}-{if is_reference { "reference" } else { "candidate" }}"
   let stdout = uu.at(s, f".{util}-{invocation}-stdout-fifo")
   let ready = uu.at(s, f".{util}-{invocation}-ready-fifo")
   let release = uu.at(s, f".{util}-{invocation}-release-fifo")
@@ -63,8 +64,9 @@ proc closed_reader(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool)
     "let events = unix.poll_fd(release_fd, [\"readable\"], timeout_ms: 3000)?\n" +
     "assert \"readable\" in events\n" +
     "assert unix.read_fd(release_fd, 1)? == b\"R\"\n" +
-    "let words = [Path(word) for word in args[2..]]\n" +
-    "process.set_signal_action(\"PIPE\", \"default\")?\n" +
+    "assert args[2] in [\"default\", \"ignore\"]\n" +
+    "let words = [Path(word) for word in args[3..]]\n" +
+    "process.set_signal_action(\"PIPE\", args[2])?\n" +
     "unix.exec(process.command_argv(words[0], words))?\n")?
 
   let vars = {LC_ALL: "C", TZ: "UTC"}
@@ -73,7 +75,7 @@ proc closed_reader(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool)
   } else {
     uu.argv(s, util, args, vars: vars)?
   }
-  let wrapper_words = [s.ctx.xsh_bin, wrapper, ready, release].extend(command_words)
+  let wrapper_words = [s.ctx.xsh_bin, wrapper, ready, release, Path.parse_bytes(bytes.from_text(pipe_action))?].extend(command_words)
   let plan = process.command_argv(
     s.ctx.xsh_bin,
     wrapper_words,
@@ -167,15 +169,17 @@ test test_util_linux_closed_reader_termination_matches_reference { |ctx|
     {util: "namei", args: [p"--", s.root], error_args: []},
   ]
   var mismatches: List[Str] = []
-  for command in commands {
-    let reference = closed_reader(s, command.util, command.args, true)?
-    let candidate = closed_reader(s, command.util, command.args, false)?
-    assert reference.termination != ul.Exited(0), command.util
-    if reference.termination != candidate.termination {
-      mismatches += [f"{command.util}: reference {termination_label(reference.termination)}; candidate {termination_label(candidate.termination)}"]
-    }
-    if reference.stderr != candidate.stderr {
-      mismatches += [f"{command.util}: stderr differs"]
+  for pipe_action in ["default", "ignore"] {
+    for command in commands {
+      let reference = closed_reader(s, command.util, command.args, true, pipe_action)?
+      let candidate = closed_reader(s, command.util, command.args, false, pipe_action)?
+      assert reference.termination != ul.Exited(0), f"{command.util} {pipe_action}"
+      if reference.termination != candidate.termination {
+        mismatches += [f"{command.util} {pipe_action}: reference {termination_label(reference.termination)} stderr={reference.stderr.utf8()?}; candidate {termination_label(candidate.termination)} stderr={candidate.stderr.utf8()?}"]
+      }
+      if reference.stderr != candidate.stderr {
+        mismatches += [f"{command.util} {pipe_action}: stderr differs: reference {reference.stderr.utf8()?}; candidate {candidate.stderr.utf8()?}"]
+      }
     }
   }
   assert mismatches.is_empty(), mismatches.join("\n")
