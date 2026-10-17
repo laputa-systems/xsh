@@ -1,0 +1,31 @@
+diagnostic_only=true fresh_parity_receipt=false
+loaded_exact_owners role=reference count=1690
+loaded_exact_owners role=candidate count=1690
+loaded_assignment_proofs count=1690
+selected_original_indices=(227, 231, 232, 286, 293, 873, 893, 1655)
+selected_publication_bytes=(124172628, 124065114, 124158910, 123999488, 124012722, 145511028, 154573686, 526649814)
+Traceback (most recent call last):
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/dev/consolidation/w9_publication_adapter_runner.py", line 3230, in _run_parallel_publication_comparisons
+    for (process, connection, _child), index in zip(workers, batch_indices):
+                                       ^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.14/multiprocessing/connection.py", line 260, in recv
+    buf = self._recv_bytes()
+  File "/usr/lib/python3.14/multiprocessing/connection.py", line 451, in _recv_bytes
+    buf = self._recv(4)
+  File "/usr/lib/python3.14/multiprocessing/connection.py", line 420, in _recv
+    raise EOFError
+EOFError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/dev/consolidation/evidence/w9-comparator-width/memory_probe.py", line 127, in <module>
+    assert tuple(index for index, _result in observed) == selected
+  File "/home/josh/d/laputa-systems/xsh/.work/wt/w9-comparator-width/dev/consolidation/w9_publication_adapter_runner.py", line 3232, in _run_parallel_publication_comparisons
+        active[connection] = (process, index)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    batch_results = {}
+    ^^^^^^^^^^^^^^^^^^
+    expected_error_exits = set()
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+w9_publication_adapter_runner.PublicationError: comparison worker exited without an outcome for input 1
