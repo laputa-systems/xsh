@@ -94,6 +94,46 @@ pure long_option_name(argument: Str) -> Str? {
   if matches.len() == 1 { matches[0] } else { null }
 }
 
+pure first_unrecognized_long_option(argv: List[Str], permute: Bool) -> Str? {
+  var index = 0
+  while index < argv.len() {
+    let argument = argv[index]
+    if argument == "--" { return null }
+    if argument.starts_with("--") {
+      let name = long_option_name(argument)
+      if name == null {
+        let body = argument.byte_slice(2)
+        let typed = body.split("=")[0]
+        let matches = collect { for option in LONG_OPTIONS { yield option when option.starts_with(typed) } }
+        return null when ! matches.is_empty()
+        return f"unrecognized option: {body}"
+      }
+      let has_value = argument.find("=") != null
+      return null when ! has_value and name in ["help", "version"]
+      if ! has_value and name in ["output", "pid", "filter"] { index += 2 } else { index += 1 }
+      continue
+    }
+    if argument.starts_with("-") and argument != "-" {
+      let shorts = argument.byte_slice(1)
+      var offset = 0
+      while offset < shorts.byte_len() {
+        let code = shorts.byte_slice(offset, length: 1)
+        return null when code not in SHORT_OPTIONS or code in ["h", "V"]
+        if code in ["o", "p", "Q"] {
+          if offset + 1 == shorts.byte_len() { index += 1 }
+          break
+        }
+        offset += 1
+      }
+      index += 1
+      continue
+    }
+    return null when ! permute
+    index += 1
+  }
+  null
+}
+
 pure first_missing_required_argument(argv: List[Str], permute: Bool) -> Str? {
   var index = 0
   while index < argv.len() {
@@ -891,12 +931,15 @@ pure smartcols_json(value: Any, depth: Int) -> Str {
     items is List[Any] => {
       return "[]" when items.is_empty()
       let inner = smartcols_json_indent(depth + 1)
+      let object_rows = items[0] is smart.Object
       let rows = collect {
-        for item in items {
-          yield (inner + (if item is Str { " " } else { "" })) + smartcols_json(item, depth + 1)
+        for index in range(items.len()) {
+          let item = items[index]
+          let indent = if object_rows and index > 0 { "" } else { inner + (if item is Str { " " } else { "" }) }
+          yield indent + smartcols_json(item, depth + 1)
         }
       }
-      "[\n" + rows.join(",\n") + "\n" + smartcols_json_indent(depth) + "]"
+      "[\n" + rows.join(if object_rows { "," } else { ",\n" }) + "\n" + smartcols_json_indent(depth) + "]"
     }
     node is smart.Object => {
       return "{}" when node.members.is_empty()
@@ -988,6 +1031,7 @@ pure json_output(locks: List[Lock], columns: List[Str], as_bytes: Bool, mode: St
 ## Runs the lslocks command over Linux procfs state.
 export proc main(argv: List[Str]) [fs, process, env, error, io] {
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
+  if let detail = first_unrecognized_long_option(argv, permute) { gnu.usage_error(detail); return }
   if let option = first_missing_required_argument(argv, permute) {
     gnu.usage_error(f"option requires an argument: {option}")
     return
