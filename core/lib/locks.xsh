@@ -438,9 +438,14 @@ pure filter_program(tokens: List[FilterToken]) -> List[FilterToken]? {
         return null
       }
     }
-    if token.kind in ["word", "literal"] { depth += 1 }
-    else if token.value in ["NOT", "!"] { return null when depth < 1 }
-    else { return null when depth < 2; depth -= 1 }
+    if token.kind in ["word", "literal"] {
+      depth += 1
+    } else if token.value in ["NOT", "!"] {
+      return null when depth < 1
+    } else {
+      return null when depth < 2
+      depth -= 1
+    }
   }
   return null when depth != 1
   output
@@ -603,11 +608,7 @@ pure render_table(columns: List[Str], locks: List[Lock], headings: Bool, raw: Bo
 }
 
 pure json_lock(lock: Lock, columns: List[Str], bytes: Bool) -> smart.Object {
-  smart.object([
-    for column in columns {
-      smart.m(column.lower(), lock_cell(lock, column, bytes))
-    },
-  ])
+  smart.object([smart.m(column.lower(), lock_cell(lock, column, bytes)) for column in columns])
 }
 
 pure json_output(locks: List[Lock], columns: List[Str], bytes: Bool, mode: Str) -> Str {
