@@ -493,7 +493,7 @@ pure table_text(inventory: Inventory, columns: List[Str], opts: Options) -> Str 
     var headings = []
     for index in range(shown.len()) {
       let column = shown[index]
-      headings += [if index == shown.len() - 1 { column } else if column == "RANGE" { pad_right(column, widths[index]) } else { pad_left(column, widths[index]) }]
+      headings += [if column == "RANGE" { if index == shown.len() - 1 { column } else { pad_right(column, widths[index]) } } else { pad_left(column, widths[index]) }]
     }
     output += headings.join(" ") + "\n"
   }
@@ -501,7 +501,7 @@ pure table_text(inventory: Inventory, columns: List[Str], opts: Options) -> Str 
     var cells = []
     for index in range(shown.len()) {
       let column = shown[index]
-      cells += [if index == shown.len() - 1 { row[index] } else if column == "RANGE" { pad_right(row[index], widths[index]) } else { pad_left(row[index], widths[index]) }]
+      cells += [if column == "RANGE" { if index == shown.len() - 1 { row[index] } else { pad_right(row[index], widths[index]) } } else { pad_left(row[index], widths[index]) }]
     }
     output += cells.join(" ") + "\n"
   }
