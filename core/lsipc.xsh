@@ -389,13 +389,8 @@ proc global_row(selection: report.Selection, resource: Str, description: Str, us
   values = values.set("LIMIT", if byte_unit and !selection.bytes { human_size(limit) } else { f"{limit}" })
   if usage {
     values = values.set("USED", if byte_unit and !selection.bytes { human_size(used) } else { f"{used}" })
-    let numerator = used * 10000
-    let hundredths_floor = numerator / limit
-    let remainder = numerator % limit
-    let halfway = remainder * 2 == limit
-    let rounds_up = remainder * 2 > limit or (halfway and hundredths_floor % 2 != 0)
-    let hundredths = hundredths_floor + if rounds_up { 1 } else { 0 }
-    values = values.set("USE%", f"{hundredths / 100}.{(hundredths % 100):02}%")
+    let percentage = used.float() / limit.float() * 100.0
+    values = values.set("USE%", f"{percentage.format(precision: 2)}%")
   } else {
     values = values.set("USED", "-")
     values = values.set("USE%", "-")
