@@ -542,15 +542,18 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
       return Err(OptionError.EmptyColumn)
     }
     let remaining = names[index..].join(",")
-    let shown = source
-    let column = shown.upper()
-    if column not in ALL_COLUMNS {
+    var column: Str? = null
+    for candidate in ALL_COLUMNS {
+      if candidate.starts_with(source.upper()) { column = candidate; break }
+    }
+    if let selected = column {
+      if !allowed_column(selected, selection) {
+        return Err(OptionError.Invalid {detail: f"column {remaining} does not apply to the specified IPC"})
+      }
+      columns += [selected]
+    } else {
       return Err(OptionError.Invalid {detail: f"unknown column: {remaining}"})
     }
-    if !allowed_column(column, selection) {
-      return Err(OptionError.Invalid {detail: f"column {remaining} does not apply to the specified IPC"})
-    }
-    columns += [column]
   }
   Ok(columns)
 }
