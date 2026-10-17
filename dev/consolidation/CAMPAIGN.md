@@ -1,31 +1,37 @@
 # XSH Consolidation Campaign
 
-Status: resumed on 2026-10-16. The next consolidation candidate is assembled
-on `campaign/consolidation-next-candidate-20261017`. The current source and
-open gates are in [HANDOFF.md](HANDOFF.md#active-candidate). Lean and Phase F
-remain paused. Inference remains isolated from main.
+Status: resumed on 2026-10-16. The active frozen source is
+`b235a1a43d06e44580fde4c1b8c58ff27a17ca78`, tree
+`08402ddd079228e072f24642fdb82db5196fff11`. Its open gates are in
+[HANDOFF.md](HANDOFF.md#active-candidate). Lean and Phase F remain paused.
+Inference remains isolated from main.
 
 ## Current candidate, 2026-10-17
 
-The candidate combines the linked-worktree discovery repair, corrected route
-expectation, batch-only native admission cap, W9 producer repair, and fixture
-repairs. Root may bind products to this candidate while focused tail checks
-finish; final acceptance still depends on those checks and the campaign gates.
+The active source combines the linked-worktree discovery repair, corrected
+route expectation, batch-only native admission cap, W9 producer repair, and
+fixture repairs. Main and the frozen candidate are pinned to `b235a1a43`.
 
-The fixture-only `nc` repair passes its exact selector and a 27-case focused
-native file run. The canonical attempt on `3c0c01206` failed during XSHT
-integration after 1,854 seconds: 116 tests passed and the desugared
-`test_uu_tail_follow_name_hash_table_stress` failed with an extra truncation
-diagnostic. The run exited 3 before the full native suite, privileged harness,
-batch checks, or docs gate. Root accepted fixture-only repair `16abfbed3` for
-integration. The focused deterministic probe and written/desugared checks are
-pending with the tail owner; the failed run predates this repair and earns no
-acceptance. Seven QEMU cases are accepted for exact source `0deeb9c7`; W9
-parity is accepted for exact sources `0dc9cff7` and `0deeb9c7`. The historical route
-replay had two normal `ExprIf` proof gaps; a fresh strict replay remains
-required. This candidate has no full canonical, supplemental, route,
-platform, or resource close. Main and the frozen W9 source remain at
-`3c0c01206`; root owns the final freeze and promotion.
+The canonical replay at
+`.work/tmp/canonical-b235a1a43-20261017-r1` is still running. Integration
+(223), symbol (1), boundary (23), extra (58 passed, 3 ignored), and debug
+(748 passed, 3 ignored) Rust tests passed. The 117-test XSHT selection is
+still running. No full canonical result or functional close exists yet.
+
+The root-accepted tail fixture repair `16abfbed3` has a controlled truncation
+probe and eight exact selector passes across written and desugared forms.
+The earlier 3c canonical failure predates this repair. W9 parity at `0deeb9c7`
+remains reusable for b235 under Phase A because the W9 semantic/build scope is
+unchanged. The fresh b235 source and input-0 probe passed, but no b235 full
+corpus capture ran. QEMU evidence at `0deeb9c7` can be reused only if all four
+fresh canonical product hashes match its qualified hashes. A fresh strict
+route replay and the root residual remain open. Root owns final freeze and
+promotion.
+
+Phase D whole-corpus typing work remains isolated at `ac4e04219`. Its bounded
+`d6a70a237` checkpoint passed 889 Rust tests, 18 XSHT tests, 53 native cases,
+both production warnings-denied checks, and docs generation. It does not close
+the broader successor corpus gate or authorize an inference merge to main.
 
 ## Stop handoff, 2026-10-16
 

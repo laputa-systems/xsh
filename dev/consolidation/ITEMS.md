@@ -4,18 +4,20 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `5e66b6b896a47d0c692739135d51200b007a2a67`. The accepted designs and historical
 ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
-**Current status: candidate assembled on 2026-10-17.** The
+**Current status: active frozen source `b235a1a43`.** The
 [active handoff](HANDOFF.md#active-candidate) owns the exact pins and live
-queue. The candidate is not frozen or accepted. Its canonical attempt on
-`3c0c01206` failed during XSHT integration on a desugared tail stress fixture,
-before the full native suite or privileged harness. Root accepted the
-fixture-only repair at `16abfbed3`; the focused deterministic probe and
-written/desugared checks remain pending with the tail owner. Seven QEMU cases
-are accepted for exact source `0deeb9c7`; W9 parity is accepted for exact
-sources `0deeb9c7` and
-`0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4`. The later assembled candidate
-needs its own source-bound W9 qualification. Lean and Phase F remain paused;
-inference remains isolated from main.
+queue. Main and the frozen candidate use tree
+`08402ddd079228e072f24642fdb82db5196fff11`. The b235 canonical replay is still
+running; Rust stages passed, and 117 XSHT tests remain active. The accepted
+tail fixture repair passed all eight written/desugared selectors. W9 parity at
+`0deeb9c7` remains reusable for the unchanged b235 W9 scope under Phase A, but
+the b235 input-0 probe is not a full-corpus result. QEMU evidence reuse awaits
+four fresh product-hash matches. Compatibility origins and exclusions reconcile
+to the frozen denominators without claiming a new upstream pass. R6, strict
+routes, the 36-case root residual, functional close, and the ten-suite
+performance sequence remain open. Lean and Phase F remain paused; inference
+stays isolated until consolidation closes. Phase D whole-corpus work remains
+isolated at `ac4e04219`; the bounded `d6a70a237` checkpoint does not close it.
 
 The isolated generic module export slice remains accepted at `8475984a9`.
 Its main merge waits for consolidation closure. Broader inference, corpus
