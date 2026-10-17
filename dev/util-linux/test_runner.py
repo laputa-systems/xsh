@@ -64,6 +64,30 @@ class ContainerTests(unittest.TestCase):
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
 
 
+class NativeCaseDispatchTests(unittest.TestCase):
+    def test_standard_module_case_preserves_remaining_budget_and_exact_identity(self):
+        selector = "tests/xsh/stdlib/linux_ipc.xsh::test_linux_ipc_names_reject_nul"
+        output = f"running 1 tests\n{selector} ... ok 1ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n".encode()
+        with patch("check.protected_products", return_value=Path("/qualified")), patch("check.container", return_value=output) as launch:
+            self.assertEqual(check.native_case(selector, timeout=2.5), output)
+        self.assertEqual(launch.call_args.kwargs["timeout"], 2.5)
+
+    def test_passing_count_cannot_hide_wrong_exact_selector(self):
+        output = b"running 1 tests\ncore/tests/test-other.xsh::test_other ... ok 1ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n"
+        with patch("check.protected_products", return_value=Path("/qualified")), patch("check.container", return_value=output):
+            with self.assertRaisesRegex(ValueError, "exactly one passing behavior"):
+                check.native_case("core/tests/test-lslocks.xsh::test_wanted")
+
+    def test_unbounded_or_traversing_dispatch_does_not_launch(self):
+        with patch("check.container") as launch:
+            for timeout in (0, -1, 31, float("nan")):
+                with self.assertRaises(ValueError):
+                    check.native_case("core/tests/test-lslocks.xsh::test_wanted", timeout=timeout)
+            with self.assertRaises(ValueError):
+                check.native_case("tests/xsh/../../core/lslocks.xsh::test_wanted")
+        launch.assert_not_called()
+
+
 class OwnedCleanupTests(unittest.TestCase):
     def setUp(self):
         import acceptance

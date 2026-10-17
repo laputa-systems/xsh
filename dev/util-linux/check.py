@@ -289,8 +289,10 @@ exec /usr/bin/python3 /work/core/tests/fixtures/util-linux/contexts/identity_kee
 '''
 
 
-def native_case(selector: str, *, private: bool = False) -> bytes:
-    if not re.fullmatch(r"core/tests/test-[a-z0-9-]+\.xsh::test_[a-zA-Z0-9_]+", selector):
+def native_case(selector: str, *, private: bool = False, timeout: float = 30) -> bytes:
+    if not 0 < timeout <= 30:
+        raise ValueError("exact native execution requires a positive timeout at most 30 seconds")
+    if not re.fullmatch(r"(?:core/tests/test-[a-z0-9-]+|tests/xsh/(?:[a-z0-9_-]+/)*[a-z0-9_-]+)\.xsh::test_[a-zA-Z0-9_]+", selector):
         raise ValueError(f"invalid exact native selector: {selector}")
     products = protected_products()
     command = f"/products/xsht test --exact {selector}"
@@ -298,11 +300,12 @@ def native_case(selector: str, *, private: bool = False) -> bytes:
     output = container(script, mounts=[
         f"type=bind,source={ROOT},target=/work,readonly",
         f"type=bind,source={products},target=/products,readonly",
-    ], capabilities=["SYS_ADMIN"] if private else [])
+    ], capabilities=["SYS_ADMIN"] if private else [], timeout=timeout)
     text = output.decode("utf-8")
     protected_products()
     summaries = re.findall(r"^test result: ok\. ([0-9]+) passed; ([0-9]+) failed; ([0-9]+) skipped$", text, re.MULTILINE)
-    if summaries != [("1", "0", "0")]:
+    cases = re.findall(r"^(\S+) \.\.\. ok \S+$", text, re.MULTILINE)
+    if summaries != [("1", "0", "0")] or cases != [selector]:
         raise ValueError(f"native case did not execute exactly one passing behavior: {text}")
     print(text, end="")
     return output
