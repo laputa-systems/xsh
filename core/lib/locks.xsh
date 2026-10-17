@@ -297,6 +297,10 @@ pure columns(output: Str?, output_all: Bool, environment: Str?) -> Result[List[S
   Ok(selected)
 }
 
+pure column_selection_error(error: ColumnSelectionError) -> Str {
+  if error == TooManyColumns { "too many columns specified, the limit is 25 columns" } else { "unknown column" }
+}
+
 pure column_value(lock: Lock, column: Str) -> FilterValue {
   match column {
     "PID" => {kind: "number", value: f"{lock.pid}", boolean: false}
@@ -927,12 +931,8 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     return
   }
   let selection = columns(opts.output, opts.output_all, output_environment)
-  if let Err(TooManyColumns) = selection {
-    gnu.usage_error("too many columns specified, the limit is 25 columns")
-    return
-  }
-  if let Err(_) = selection {
-    gnu.usage_error("unknown column")
+  if let Err(error) = selection {
+    gnu.usage_error(column_selection_error(error))
     return
   }
   let chosen = selection ?? []
