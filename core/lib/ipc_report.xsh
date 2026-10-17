@@ -1,4 +1,4 @@
-export error OptionError = Invalid(detail: Str) | EmptyColumn
+export error OptionError = Invalid(detail: Str) | EmptyColumn | TooManyColumns
 
 export type Options = {
   shmems: Bool,
@@ -492,8 +492,12 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
   var columns: List[Str] = if append { id_columns(selection) } else { [] }
   for index in range(names.len()) {
     let source = names[index]
+    let trailing_empty = source.is_empty() and index + 1 == names.len() and body.ends_with(",")
+    if columns.len() >= ALL_COLUMNS.len() * 2 and !trailing_empty {
+      return Err(OptionError.TooManyColumns)
+    }
     if source.is_empty() {
-      if index + 1 == names.len() and body.ends_with(",") { continue }
+      if trailing_empty { continue }
       return Err(OptionError.EmptyColumn)
     }
     let remaining = names[index..].join(",")

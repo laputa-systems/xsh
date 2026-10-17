@@ -443,7 +443,7 @@ proc global_rows(selection: report.Selection) [fs, time, env, error] -> List[rep
 proc report_failure(failure: report.OptionError) [process, env] {
   match failure {
     report.OptionError.Invalid(detail) => { gnu.error(detail); exit 1 }
-    report.OptionError.EmptyColumn => exit 1
+    report.OptionError.EmptyColumn | report.OptionError.TooManyColumns => exit 1
   }
 }
 
