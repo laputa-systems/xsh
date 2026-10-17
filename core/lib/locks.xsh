@@ -61,6 +61,7 @@ type Lock = {
 
 type FilterToken = {kind: Str, value: Str}
 type FilterValue = {kind: Str, value: Str, boolean: Bool}
+enum ColumnSelectionError { UnknownColumn, TooManyColumns }
 type Options = {
   bytes: Bool,
   no_inaccessible: Bool,
@@ -278,21 +279,21 @@ pure canonical_column(name: Str) -> Str? {
   null
 }
 
-pure columns(output: Str?, output_all: Bool, environment: Str?) -> List[Str]? {
+pure columns(output: Str?, output_all: Bool, environment: Str?) -> Result[List[Str], ColumnSelectionError] {
   var selected = if output_all { COLUMNS } else { DEFAULT_COLUMNS }
-  if output == null and environment == null { return selected }
+  if output == null and environment == null { return Ok(selected) }
   let value = if output != null { output ?? "" } else { environment ?? "" }
   let extend = value.starts_with("+")
   let names = (if extend { value.byte_slice(1) } else { value }).split(",")
-  if names.is_empty() or (names.len() == 1 and names[0] == "") { return null }
+  if names.is_empty() or (names.len() == 1 and names[0] == "") { return Err(ColumnSelectionError.UnknownColumn) }
   if ! extend { selected = [] }
   for name in names {
     let column = canonical_column(name)
-    return null when column == null
-    return null when (column ?? "") in selected
+    return Err(ColumnSelectionError.UnknownColumn) when column == null
+    return Err(ColumnSelectionError.TooManyColumns) when selected.len() == 25
     selected += [column ?? ""]
   }
-  selected
+  Ok(selected)
 }
 
 pure column_value(lock: Lock, column: Str) -> FilterValue {
@@ -854,9 +855,11 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     }
     return
   }
-  let selected = columns(opts.output, opts.output_all, output_environment)
-  if selected == null { gnu.usage_error("unknown column or duplicate column") }
-  let chosen = selected ?? []
+  let chosen = match columns(opts.output, opts.output_all, output_environment) {
+    Ok(value) => value
+    Err(ColumnSelectionError.TooManyColumns) => gnu.usage_error("too many columns specified, the limit is 25 columns")
+    Err(_) => gnu.usage_error("unknown column")
+  }
   let program: List[FilterToken]? = if opts.filter == null {
     null
   } else if let tokens = filter_tokens(opts.filter ?? "") {
