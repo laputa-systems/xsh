@@ -21,7 +21,7 @@ inventoried without joining this campaign's behavior denominator.
 inventory and all five exact reference banners against the recorded inventory.
 `python3 dev/util-linux/check.py harness --self-test` runs lease and cleanup
 controls, a real TERM-during-container control, and exact native comparison
-controls. Unimplemented acceptance modes fail. They cannot produce an empty pass.
+controls. Missing evidence fails acceptance; it cannot produce an empty pass.
 
 The adapter resolves shared leases through the original Git common directory.
 Every Docker execution holds the original shared performance guard and exclusive
@@ -55,4 +55,23 @@ with zero effective capabilities.
 
 Lane admission requires the common controls and that lane's own positive boundary
 proofs. Rooted memory and private bind proofs pass. Lock and IPC fixture lifetime
-qualification remains open. Full cohort acceptance still requires every proof.
+qualification includes normal release and cancellation. Full cohort acceptance
+still requires every integrated command comparison and closing gate.
+
+
+`resources --check` measures binary size, source size, peak RSS, command and
+startup CPU, and build CPU. Baseline and candidate products must use comparable
+release configurations; verification products fail qualification before sampling.
+Readiness checks bracket every timing pair. Only the readiness helper's busy
+status defers timing; other errors fail. A deferred measurement prevents closure.
+Build execution also requires the original exclusive Cargo guard.
+
+`close --check` executes the cohort, positive boundaries, focused regressions,
+and resource checks, and requires source-bound results from the full native,
+host, repository, documentation, review, and cleanup callbacks. Missing callbacks
+and changed source fail closure.
+
+Known fast functional regressions may use `native_batch`: at most four distinct
+exact selectors share one container bounded to 30 seconds. Each framed case must
+report exactly one pass and no skips. Batch results provide functional evidence;
+resource measurements use their own observed process samples.
