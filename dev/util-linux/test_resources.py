@@ -371,6 +371,12 @@ class MeasurementProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "frozen regression selectors exactly once"):
             self.parse(self.rows(), regressions=REGRESSIONS + ("unexpected::test_extra",))
 
+    def test_cargo_gates_inherit_pinned_musl_c_compiler_flags(self):
+        self.assertNotIn(
+            "CFLAGS_x86_64_unknown_linux_musl=",
+            resources._cargo_environment(),
+        )
+
     def test_zero_rows_duplicate_selectors_and_unknown_rows_fail(self):
         with self.assertRaisesRegex(ValueError, "positive boundary exactly once"):
             self.parse(())

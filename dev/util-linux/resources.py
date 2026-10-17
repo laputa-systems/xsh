@@ -1965,7 +1965,6 @@ def _cargo_environment() -> str:
         "XSH_LAPUTA_CORPUS=" + str(LAPUTA_CORPUS) + " "
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker "
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS='-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol' "
-        "CFLAGS_x86_64_unknown_linux_musl=-march=x86-64-v3; "
     )
 
 
