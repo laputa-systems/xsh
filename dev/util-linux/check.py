@@ -30,6 +30,13 @@ PRODUCT_HASHES = {
     "xsh-test-helper": "cf8005649749a43cc22aa5e40092a8f90365efc370b857fce5de2004adb2e621",
 }
 
+RUNTIME_SOURCE = "b65669bf76ae79a1ea2015cb9e2cef752f43620b"
+RUNTIME_HASHES = {
+    "xsh": "6b0747950bba3147c4b2aa0aa010b7a3057a82b280f766c25be0f0acf4049af2",
+    "xsht": "10bdbcb16ef16f56a481a27bc105fecd16d45ab682781606c815354d4f9c01a9",
+    "xsh-test-helper": "4414efbc1a0091f0dba080a445db865561524fa4ac91b5f8beb834d2341c6c64",
+}
+
 
 class Cancelled(Exception):
     def __init__(self, signum):
@@ -140,22 +147,58 @@ def inventory() -> None:
     print(f"qualified util-linux 2.42.4-r3: {len(installed)} installed commands, five cohort references")
 
 
-def protected_products() -> Path:
-    inputs = ["src", "crates", "Cargo.toml", "Cargo.lock", "build.rs", "tests/helpers", "rust-toolchain.toml", ".cargo"]
-    changed = subprocess.check_output(["git", "diff", "--name-only", PRODUCT_SOURCE, "--", *inputs], cwd=ROOT)
-    untracked = subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "--", *inputs], cwd=ROOT)
-    if changed or untracked:
-        raise ValueError("protected products cannot execute changed Rust inputs")
-    directory = original_root(ROOT) / f".work/consolidation/final-performance-gates/profile-cost-{PRODUCT_SOURCE}/opt3/target/x86_64-unknown-linux-musl/release"
-    for name, expected in PRODUCT_HASHES.items():
+
+def source_identity():
+    import acceptance
+    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    tree = subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], cwd=ROOT, text=True).strip()
+    dirty = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=normal"], cwd=ROOT)
+    return acceptance.SourceIdentity(commit, tree, not dirty)
+
+
+def regression_selectors(source):
+    import acceptance
+    if source_identity() != source:
+        raise ValueError("source changed before regression selection")
+    return acceptance.declared_regression_selectors(ROOT)
+
+def verify_product_hashes(directory: Path, expected_hashes: dict[str, str]) -> Path:
+    for name, expected in expected_hashes.items():
         executable = directory / name
         if executable.is_symlink() or not executable.is_file():
-            raise ValueError(f"unsafe protected executable: {executable}")
+            raise ValueError(f"unsafe qualified executable: {executable}")
         with executable.open("rb") as stream:
             actual = hashlib.file_digest(stream, "sha256").hexdigest()
         if actual != expected:
-            raise ValueError(f"protected product changed: {name}")
+            raise ValueError(f"qualified product changed: {name}")
     return directory
+
+
+def protected_products() -> Path:
+    inputs = ["src", "crates", "third_party", "Cargo.toml", "Cargo.lock", "build.rs", "tests/helpers", "rust-toolchain.toml", ".cargo"]
+    changed = subprocess.check_output(["git", "diff", "--name-only", RUNTIME_SOURCE, "--", *inputs], cwd=ROOT)
+    untracked = subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "--", *inputs], cwd=ROOT)
+    if changed or untracked:
+        raise ValueError("qualified products cannot execute changed Rust inputs")
+    directory = original_root(ROOT) / ".work/wt/util-linux-foundation/.work/tmp/ipc-api-target/x86_64-unknown-linux-musl/verification"
+    return verify_product_hashes(directory, RUNTIME_HASHES)
+
+
+def candidate_products():
+    import acceptance
+    source = source_identity()
+    if not source.clean:
+        raise ValueError("resource measurements require committed candidate sources")
+    directory = protected_products()
+    context = acceptance.BuildContext(source=f"{source.commit}:{source.tree}", profile="verification", target="x86_64-unknown-linux-musl", image=IMAGE, allocator="mimalloc", allocation="1cpu/1GiB")
+    return directory, context
+
+
+def baseline_products():
+    import acceptance
+    directory = original_root(ROOT) / f".work/consolidation/final-performance-gates/profile-cost-{PRODUCT_SOURCE}/opt3/target/x86_64-unknown-linux-musl/release"
+    context = acceptance.BuildContext(source=PRODUCT_SOURCE, profile="release", target="x86_64-unknown-linux-musl", image=IMAGE, allocator="mimalloc", allocation="1cpu/1GiB")
+    return verify_product_hashes(directory, PRODUCT_HASHES), context
 
 
 PRIVATE_NAMESPACE = r'''
