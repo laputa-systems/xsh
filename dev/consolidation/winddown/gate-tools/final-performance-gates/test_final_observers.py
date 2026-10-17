@@ -444,6 +444,21 @@ def assert_observer_scratch_bindings(scratch_dir: Path) -> None:
 
 
 def assert_docker_shim_argv(scratch_dir: Path) -> None:
+    for conflict in (
+        ["-v", "/t"],
+        ["--volume=/t"],
+        ["--tmpfs", "/t"],
+        ["--tmpfs=/t"],
+        ["--mount", "type=tmpfs,target=//t"],
+    ):
+        assert docker_shim.has_resource_override(conflict), conflict
+    for unrelated in (
+        ["-v", "/host:/scratch-data"],
+        ["--tmpfs", "/var/tmp"],
+        ["--mount", "type=tmpfs,target=/var/tmp"],
+    ):
+        assert not docker_shim.has_resource_override(unrelated), unrelated
+
     args = [
         "run", "--rm", "--init", "--platform", "linux/amd64", "-v", "/source:/work",
         docker_shim.NATIVE_IMAGE_ID, *docker_shim.GATE_BATCH_TAIL,

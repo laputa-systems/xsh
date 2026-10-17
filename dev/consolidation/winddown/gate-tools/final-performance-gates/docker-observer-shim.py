@@ -30,6 +30,13 @@ GATE_BATCH_TAIL = [
 ]
 
 
+def scratch_target_conflicts(target: str) -> bool:
+    if target.startswith("/"):
+        target = "/" + target.lstrip("/")
+    target = posixpath.normpath(target)
+    return target == "/" or target == SCRATCH_CONTAINER_PATH or target.startswith(SCRATCH_CONTAINER_PATH + "/")
+
+
 def has_scratch_mount(specification: str) -> bool:
     if "target=" in specification or "destination=" in specification or "dst=" in specification:
         target = next((
@@ -39,9 +46,12 @@ def has_scratch_mount(specification: str) -> bool:
         ), "")
     else:
         fields = specification.rsplit(":", 2)
-        target = fields[-2] if len(fields) == 3 else fields[-1] if len(fields) == 2 else ""
-    target = posixpath.normpath(target)
-    return target == "/" or target == SCRATCH_CONTAINER_PATH or target.startswith(SCRATCH_CONTAINER_PATH + "/")
+        target = fields[-2] if len(fields) == 3 else fields[-1] if len(fields) == 2 else specification
+    return scratch_target_conflicts(target)
+
+
+def has_scratch_tmpfs(specification: str) -> bool:
+    return scratch_target_conflicts(specification.split(":", 1)[0])
 
 
 def valid_scratch_directory(value: str) -> bool:
@@ -84,6 +94,13 @@ def has_resource_override(arguments: list[str]) -> bool:
                 return True
         elif value.startswith("--volume=") or value.startswith("--mount="):
             if has_scratch_mount(value.split("=", 1)[1]):
+                return True
+        elif value == "--tmpfs":
+            index += 1
+            if index >= len(arguments) or has_scratch_tmpfs(arguments[index]):
+                return True
+        elif value.startswith("--tmpfs="):
+            if has_scratch_tmpfs(value.split("=", 1)[1]):
                 return True
         elif value.startswith("-v") and not value.startswith("--"):
             if has_scratch_mount(value[2:].lstrip("=")):
