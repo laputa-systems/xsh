@@ -466,7 +466,7 @@ test test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them {
     let identifier = if resource.kind.starts_with("sysv_") {
       f"{resource.id ?? -1}"
     } else {
-      resource.name ?? ""
+      resource.lookup_name ?? ""
     }
     assert reference.status == 0, args.join(" ")
     assert reference.stderr == b"", args.join(" ")
@@ -483,7 +483,7 @@ test test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them {
     let identifier = if resource.kind.starts_with("sysv_") {
       f"{resource.id ?? -1}"
     } else {
-      resource.name ?? ""
+      resource.lookup_name ?? ""
     }
     assert reference.status == 0, args.join(" ")
     assert reference.stderr != b"", args.join(" ")
@@ -512,7 +512,7 @@ test test_lsipc_keeper_cancellation_removes_registered_resources { |ctx|
     let identifier = if entry.resource.kind.starts_with("sysv_") {
       f"{entry.resource.id ?? -1}"
     } else {
-      entry.resource.name ?? ""
+      entry.resource.lookup_name ?? ""
     }
     assert reference.status == 0, args.join(" ")
     assert reference.stderr != b"", args.join(" ")
