@@ -50,7 +50,10 @@ proc parity(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, 
 proc compared_with_stdout_dump(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[uu.Ran, Error] {
   let reference = ul.reference(s, "lslocks", args, timeout: 5s)?
   let candidate = uu.invoke(s, "lslocks", args, timeout: 5s)?
-  assert reference.stdout == candidate.stdout, f"lslocks stdout differs: reference={reference.stdout.base64()} candidate={candidate.stdout.base64()}"
+  let invocation = args.join(" ")
+  if reference.stdout.len() <= 1024 and candidate.stdout.len() <= 1024 {
+    assert reference.stdout == candidate.stdout, f"lslocks stdout differs for {invocation}: reference={reference.stdout.base64()} candidate={candidate.stdout.base64()}"
+  }
   ul.compare(reference, candidate)
   Ok(candidate)
 }
@@ -58,7 +61,10 @@ proc compared_with_stdout_dump(s: uu.Scene, args: List[Str]) [fs, process, env, 
 proc rejected(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[Unit, Error] {
   let reference = ul.reference(s, "lslocks", args, timeout: 5s)?
   let candidate = uu.invoke(s, "lslocks", args, timeout: 5s)?
-  assert reference.stderr == candidate.stderr, f"lslocks stderr differs: reference={reference.stderr.base64()} candidate={candidate.stderr.base64()}"
+  let invocation = args.join(" ")
+  if reference.stderr.len() <= 1024 and candidate.stderr.len() <= 1024 {
+    assert reference.stderr == candidate.stderr, f"lslocks stderr differs for {invocation}: reference={reference.stderr.base64()} candidate={candidate.stderr.base64()}"
+  }
   ul.compare(reference, candidate)
   assert reference.status != 0 and candidate.status != 0, args.join(" ")
   Ok()
