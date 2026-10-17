@@ -50,11 +50,13 @@ def cancellation_scope():
 
 
 @cancellation_scope()
-def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = (), timeout: int = 30) -> bytes:
+def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = (), timeout: int = 30, cpus: int = 1, memory_gib: int = 1) -> bytes:
     require_native_lease()
+    if (cpus, memory_gib) not in {(1, 1), (1, 4), (2, 8)}:
+        raise ValueError("unsupported campaign container allocation")
     name = "xsh-util-linux-" + uuid.uuid4().hex
-    argv = ["docker", "run", "--rm", "--name", name, "--network=none", "--cpus=1",
-            "--memory=4g", "--memory-swap=4g", "--pids-limit=128", "--user=0:0",
+    argv = ["docker", "run", "--rm", "--name", name, "--network=none", f"--cpus={cpus}",
+            f"--memory={memory_gib}g", f"--memory-swap={memory_gib}g", "--pids-limit=128", "--user=0:0",
             "-e", "LC_ALL=C", "-e", "TZ=UTC", "-e", "TMPDIR=/t"]
     for mount in mounts:
         argv.extend(["--mount", mount])
