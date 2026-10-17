@@ -639,6 +639,17 @@ proc table_text(inventory: Inventory, columns: List[Str], opts: Options) [error]
   for row in rows {
     for index in range(shown.len()) { widths[index] = wider(widths[index], row[index].byte_len()) }
   }
+  var natural_width = 0
+  for width in widths { natural_width += width }
+  if widths.len() > 1 { natural_width += widths.len() - 1 }
+  if unix.tty_attrs(1) is Ok(_) {
+    let terminal_width = unix.window_size(1)?.cols
+    if natural_width < terminal_width {
+      for index in range(shown.len()) {
+        if shown[index] == "SIZE" { widths[index] = wider(widths[index], 5) }
+      }
+    }
+  }
   var output = ""
   if ! opts.noheadings {
     var headings = []
