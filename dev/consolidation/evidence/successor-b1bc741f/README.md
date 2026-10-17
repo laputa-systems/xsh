@@ -31,8 +31,27 @@ after. Its output records 9,194 sites across 48 sources and the frozen category
 counts. It does not change the inventory or its denominator.
 
 The close reuses the accepted factor and lifecycle checks from the parent
-source. Their product and source identities remain in the receipt. The
-functional close does not qualify artifacts for the exact successor source.
+source. Their product and source identities remain in the receipt.
+
+## Exact-source artifacts
+
+The [artifact receipt](profile-artifacts.json) records a successful
+artifacts-only release build from the clean source commit and tree above. The
+build exited zero and its owned container cleanup resolved. The target is
+`x86_64-unknown-linux-musl`, with opt level 3, thin LTO, and 16 codegen units.
+The receipt records these artifact hashes:
+
+- `xsh`: `e79fd4820b23b840c0bbface75a8b24780eae8fb7aedc34a01d76045f9aeae6b`
+- `xsht`: `54bb342ae14e77cdacac6db01974f60606ea42ad1a27a6ee3185cbcfe1b01b02`
+- `xsh-test-helper`: `cf8005649749a43cc22aa5e40092a8f90365efc370b857fce5de2004adb2e621`
+
+The build used 12 CPUs on CPUs 0 through 11, a 24 GiB memory limit, and no
+swap. The receipt does not report peak memory. Its timing fields are null, and
+artifacts-only mode grants no timing or resource-gate result.
+
+The proof-reproduction supplement commit
+`00754f5e11ef411d1dd04bac63b2036134340162` remains separate and unmerged. This
+archive does not duplicate its files.
 
 ## Remaining gates
 
@@ -41,6 +60,6 @@ The R3 canonical attempt remains failed with 13,914 passes, two failures, and
 full native suite began. The original receipts remain unchanged.
 
 No fresh full canonical, resource, timing, QEMU, W9 full-corpus, or structural
-recount is recorded here. Exact-source artifact qualification, the R5 full
-canonical and resource retry, timing gates, and the final metrics evidence
-bundle remain pending. Inference changes remain excluded.
+recount is recorded here. The R5 full canonical and resource retry, timing
+gates, and final metrics evidence bundle remain pending. Inference changes
+remain excluded.
