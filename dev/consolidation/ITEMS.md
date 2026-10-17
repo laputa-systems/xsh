@@ -4,8 +4,11 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `5e66b6b896a47d0c692739135d51200b007a2a67`. The accepted designs and historical
 ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
-**Current status: active frozen source `7eb62cd99`.** Main and the frozen
-candidate use tree `736b4bc16b1bcf07a0250b97e849506c19fb0753`. The
+**Current status: last broadly qualified production source `7eb62cd99`.** Main
+and the frozen candidate use tree `736b4bc16b1bcf07a0250b97e849506c19fb0753`.
+Root accepted a narrow delta-functional close for successor production delta
+`3160bda38`; its final source seal and full canonical, resource, and timing
+gates are pending. The
 [active handoff](HANDOFF.md#active-candidate) owns exact pins and the live
 queue.
 
@@ -49,17 +52,18 @@ Root accepted lifecycle fix
 `f4a9fb92f0976ed8fa6680f4ed8597180cc93f32` and factor repair `587814f274e` in
 isolated candidate `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`. The lifecycle
 reproduction is archived [here](evidence/lifecycle-profile-r3/README.md). The
-candidate is outside main. Its post-integration lifecycle and non-Unicode
-selectors each passed once, but `test_uu_factor_parallel` timed out again at
-120 seconds. It is not qualified; no new seal or R4 has started. The run
-observed a 260,632,576-byte cgroup memory peak (about 249 MiB), zero OOM and
-OOM-kill counts, stable guards, absent owned containers, and the original lock
-released; Docker reported no OOM. Build overlap lasted 51 seconds and then
-three seconds on disjoint CPU sets, which does not establish the cause. A
-stronger read-only factor-cost diagnosis and a quiet rerun after build drain
-remain pending.
-No timed run has started. **perf gate deferred: host
-busy**. Binary-size and final resource evidence remain pending. Lean and Phase F
+first integrated run timed out in `test_uu_factor_parallel` at 120 seconds
+while the lifecycle and non-Unicode selectors passed. The parallel selector
+later passed in an isolated quiet control. Root accepted narrow delta-functional
+close for these three selectors after reviewing the unchanged factor flush,
+ordering, error, and status paths. See the [integrated run](evidence/factor-buffer-7eb/integrated-candidate-3160bda/README.md)
+and [quiet control](evidence/factor-buffer-7eb/quiet-control-3160bda/README.md).
+The first timeout overlapped builds on disjoint CPU sets for 51 seconds and
+then three seconds; this does not establish causation. The quiet control ran
+after campaign builds were held, but external host jobs remained active, so it
+is not timing evidence. The successor has no full canonical or resource
+acceptance yet. No timed run has started.
+**perf gate deferred: host busy**. Binary-size remains pending. Lean and Phase F
 stay paused. Inference remains isolated until consolidation closes.
 
 Phase D remains isolated at checkpoint `877`, commit
@@ -84,22 +88,17 @@ identity and cleanup; see [host native evidence](evidence/typing-host-native6/RE
 The generic-body lane remains unqualified.
 The accepted `877` candidate remains the only one with full paired runtime
 qualification. The source-only `891` plan remains source-validated only. The
-`986` Set candidate passes accepted check/lowering on source `020f` for 457 of
-693 local removals, including 109 added mutable `Set[Str]` annotations, and 529
-of 2,190 internal removals. Its 26 exact behavior witnesses pass, 13 per view.
-That bounded run does not complete Set feature qualification. API fixture
-`a4418a5253dd557f7a96419f4212b09dd29084a1` passes. The documentation slot
-verifier rejects valid nested destructuring for `5277` and `020f`. Repair source
-`2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has qualified source-bound products;
-the minimal SPEC 18 check-only probe now fails because the verifier reports
-`driver slot identity is not the currently visible binding`. The first repair
-added the missing writer slot but exposed a fresh-output versus prior-input
-identity mismatch; the same-name top-level duplicate check also rejects. The
-owner is tracing the output-slot representation, and no rebuild is authorized
-before root reviews a source proposal. The original wrapper cleanup-check
-failure is preserved separately. Full removal credit remains 877. The
-1,065-site collection plan remains red with 92 reduced-XSH diagnostics on
-`76caa` and earns no count. The original `749` rejection remains preserved.
+`986` Set candidate has accepted check/lowering and 26 paired witnesses, but
+not full feature acceptance. The planned `1023`-site candidate adds 37 sites;
+compiler build `048`, native component `6bc96`, and all eleven check/lower
+roots pass. Original-view runtime passes 15 of 24 selectors and fails nine;
+reduced-view runtime has not run. One failure reproduces the pre-existing
+`5277` issue; the other causes remain unknown while the owner improves
+module-capture diagnosis. No removal count advances. The Definition-role
+source patch is unqualified, and the original `2cb3` failure remains
+preserved. All 149 Map annotations on `{}` initializers remain required, and
+the 95% local target remains unmet. The original `749` rejection remains
+preserved.
 See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
 [Set qualification](typing-corpus/README.md#independent-mutable-set-candidate),
 [Set evidence](evidence/typing-corpus-host-obligations/mutable-sets/README.md), and

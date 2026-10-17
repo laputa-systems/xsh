@@ -1,21 +1,33 @@
 # Consolidation handoff
 
-Status: active frozen source `7eb62cd993e578c13bf6befd68a6a6ac15133c78`,
-tree `736b4bc16b1bcf07a0250b97e849506c19fb0753`. Main and the frozen
-candidate use this pin. The accepted canonical result remains pinned to b235
-and is reused under Phase A because this source changes only two test-mode
-literal spellings. Lean and Phase F stay paused. Inference remains isolated.
+Status: last broadly qualified production source
+`7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
+`736b4bc16b1bcf07a0250b97e849506c19fb0753`; main and the frozen candidate
+remain pinned there. Root accepted a narrow delta-functional close for the
+reviewed successor production delta `3160bda38`. A final successor seal and
+fresh full canonical, resource, and timing gates remain pending. Lean and Phase
+F stay paused. Inference remains isolated.
 The 2026-10-16 stop handoff below is historical.
 
 ## Active candidate
 
-The active source is `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
+The last broadly qualified source is `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
 `736b4bc16b1bcf07a0250b97e849506c19fb0753`. On b235, the full canonical
 selection completed with 13,916 passes, 78 skips, and zero failures across
 13,994 selected cases. Root accepted that result for b235 and reused it for
 7eb under Phase A. Its original receipt remains pinned to b235. The only
 source change is two test-only `PermissionsExt::from_mode(0)` spellings changed
 to `from_mode(0o0)`; no production behavior changed.
+
+The reviewed successor production delta is
+`3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`.
+Root accepted its narrow delta-functional close on the factor parallel,
+non-Unicode, and lifecycle selectors after the isolated quiet factor control
+passed. This is selector-level acceptance only; it does not extend the 7eb
+functional-close receipt or qualify a full successor canonical or resource
+run. The delta changes `core/factor.xsh` and one lifecycle fixture. Rust source
+and selector inputs did not change. Root will bind the successor source to
+issued gate receipts.
 
 The first fresh R6 attempt on b235 passed five of thirteen stages, then failed
 at stage six on all-target, all-feature Clippy diagnostics for those two
@@ -30,14 +42,15 @@ Both positive `NET_RAW` probes passed in the root residual.
 The [R6 evidence archive](winddown/evidence/final-correctness-gates/README.md)
 preserves the failed b235 attempt and accepted 7eb run.
 
-The source includes the XSHT linked-worktree discovery repair at
+The broadly qualified 7eb source includes the XSHT linked-worktree discovery
+repair at
 `c30aed3bc`, the same-size tail fixture at `afe2998e4`, the batch admission
 change at `2d882cf6`, the W9 producer repair at `283dcdeab`, and the native
 `nc` fixture repair at `94b772ac0`. The root-reviewed tail fixture repair is
 `16abfbed3`. It preserves same-size stress-test writes and both truncation
-controls. The latest source change is the two-line test-only permission spelling
-repair at `7eb62cd99`; scheduler behavior, selected cases, privileged plans,
-and deadlines remain unchanged.
+controls. The latest change within 7eb is the two-line test-only permission
+spelling repair at `7eb62cd99`; scheduler behavior, selected cases, privileged
+plans, and deadlines remain unchanged.
 
 ### Integrated evidence
 
@@ -103,20 +116,20 @@ The accepted `877` candidate remains the only one with full paired runtime
 qualification. The source-only `891` plan remains source-validated only. The
 `986` Set candidate passes accepted check/lowering on source `020f` for 457 of
 693 local removals, including 109 added mutable `Set[Str]` annotations, and 529
-of 2,190 internal removals. Its 26 exact behavior witnesses pass, 13 per view.
-That bounded run does not complete Set feature qualification. API fixture
-`a4418a5253dd557f7a96419f4212b09dd29084a1` passes. The documentation slot
-verifier rejects valid nested destructuring for `5277` and `020f`. Repair source
-`2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has qualified source-bound products;
-the minimal SPEC 18 check-only probe now fails because the verifier reports
-`driver slot identity is not the currently visible binding`. The first repair
-added the missing writer slot but exposed a fresh-output versus prior-input
-identity mismatch; the same-name top-level duplicate check also rejects. The
-owner is tracing the output-slot representation, and no rebuild is authorized
-before root reviews a source proposal. The original wrapper cleanup-check
-failure is preserved separately. Full removal credit remains 877. The
-1,065-site collection plan remains red with 92 reduced-XSH diagnostics on
-`76caa` and earns no count. The original `749` rejection remains preserved.
+of 2,190 internal removals. Its 26 exact behavior witnesses pass, 13 per view,
+but that bounded run does not complete Set feature qualification. API fixture
+`a4418a5253dd557f7a96419f4212b09dd29084a1` passes. Driver-slot repair
+`2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has qualified products, but its
+check-only verifier rejects the output-slot identity; the original `2cb3`
+failure remains preserved. The current Definition-role source patch is
+unqualified. Full removal credit remains 877. The planned `1023`-site candidate adds 37
+sites beyond `986`; compiler build `048`, native component `6bc96`, and all
+eleven check/lower roots pass. Its original-view runtime passes 15 of 24
+selectors and fails nine; reduced-view runtime has not run. One failure
+reproduces the pre-existing `5277` issue; the other failure causes remain
+unknown while the owner improves module-capture diagnosis. No removal count
+advances. All 149 Map annotations on `{}` initializers remain required, and the
+95% local target remains unmet. The original `749` rejection remains preserved.
 See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
 [Set qualification](typing-corpus/README.md#independent-mutable-set-candidate),
 [Set evidence](evidence/typing-corpus-host-obligations/mutable-sets/README.md), and
@@ -137,32 +150,29 @@ See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidat
    case, the namespace case, and both root `CAP_NET_RAW` positives. Initial
    Git-guard attempts selected zero tests and earn no credit. See the
 [residual evidence](evidence/linux-residual-0deeb9c7/README.md).
-3. Final resource and performance gates remain open. No timed run has started:
-   `perf-gate-ready` returned zero, but shared-host load prevents an exclusive
-   measurement window. **perf gate deferred: host busy**. R3's resources-only
-   observer failed after starting one full native suite: 13,914 passed, two
-   failed and 78 were skipped. The failures were the lifecycle profile
-   expectation and a factor timeout. Cleanup resolved with no OOM, but R3 earns
-   no resource credit. See the [R3 archive](evidence/resource-observer-r3-7eb62cd9/README.md).
-   Root accepted lifecycle fix
-   `f4a9fb92f0976ed8fa6680f4ed8597180cc93f32` and factor repair `587814f274e`;
-   they remain in isolated candidate
-   `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`, outside main. Its
-   post-integration lifecycle and non-Unicode selectors each passed once, but
-   `test_uu_factor_parallel` timed out again at 120 seconds. The candidate is
-   not qualified; no new seal or R4 has started. The run observed a cgroup
-   memory peak of 260,632,576 bytes (about 249 MiB), zero OOM and OOM-kill
-   counts, stable guards, absent owned containers, and the original lock
-   released. Docker reported no OOM. Builds overlapped the run for 51 seconds
-   and then three seconds on disjoint CPU sets; this does not establish the
-   cause. A stronger read-only factor-cost diagnosis and a quiet rerun after
-   build drain are pending. The lifecycle reproduction is archived [here](evidence/lifecycle-profile-r3/README.md).
-   Binary-size and final resource evidence remain pending. Root owns release
-   readiness and main promotion. Native-suite budget: nine serial correctness
-   runs remain: canonical normal (1), opt3 correctness (1), forced (1), and six
-   scheduler-pair runs. One observer retry remains. R3 consumed the failed
-   observer attempt from the original ten-suite sequence, so eleven attempts
-   total comprise that failure plus the ten remaining runs.
+3. Final resource and performance gates remain open. The R3 resources-only
+   observer failed after one full native suite: 13,914 passed, two failed, and
+   78 were skipped. The failures were the lifecycle profile expectation and a
+   factor timeout; cleanup resolved without OOM. R3 earns no resource credit.
+   See the [R3 archive](evidence/resource-observer-r3-7eb62cd9/README.md).
+   Successor delta `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8` has accepted
+   narrow delta-functional close: lifecycle and non-Unicode passed in the first
+   integrated run, and the factor parallel selector passed in the isolated
+   quiet control. Root reviewed the unchanged flush, ordering, error, and status
+   paths. See the [integrated run](evidence/factor-buffer-7eb/integrated-candidate-3160bda/README.md)
+   and [quiet control](evidence/factor-buffer-7eb/quiet-control-3160bda/README.md).
+   The initial integrated timeout overlapped builds on disjoint CPU sets for
+   51 seconds and then three seconds, which does not prove causation. Campaign
+   builds were held for the quiet control, but external host jobs remained
+   active; it is not timing evidence. The prior failed run's memory and cleanup
+   observations remain in the linked archive. This delta acceptance does not
+   qualify a full successor canonical or resource run. Root will bind the final source to issued gate
+   receipts. The fresh artifacts-only qualifier, full canonical, R4, and
+   binary-size run have not started. No timed run has started; `perf-gate-ready`
+   returned zero, but shared-host load prevents an exclusive measurement
+   window. **perf gate deferred: host busy**. Nine serial correctness suites
+   remain (canonical normal 1, opt3 correctness 1, forced 1, scheduler pairs 6)
+   plus R4: ten native runs total. Root owns release readiness and promotion.
 
 The b235 canonical gate is accepted and reused for 7eb under Phase A. The fresh
 7eb R6 run is accepted, residual and QEMU scopes are closed, W9 parity is

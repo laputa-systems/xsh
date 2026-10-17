@@ -1,16 +1,23 @@
 # XSH Consolidation Campaign
 
-Status: resumed on 2026-10-16. The active frozen source is
+Status: resumed on 2026-10-16. The last broadly qualified production source is
 `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
-`736b4bc16b1bcf07a0250b97e849506c19fb0753`. Its open gates are in
-[HANDOFF.md](HANDOFF.md#active-candidate). Lean and Phase F remain paused.
+`736b4bc16b1bcf07a0250b97e849506c19fb0753`; main and the frozen candidate
+remain pinned there. Reviewed successor production delta `3160bda38` has narrow
+delta-functional acceptance. Its fresh full canonical, resource, and timing
+gates remain open; root owns the final source seal. See the active
+[handoff](HANDOFF.md#active-candidate). Lean and Phase F remain paused.
 Inference remains isolated from main.
 
 ## Current candidate, 2026-10-17
 
-The active source combines the linked-worktree discovery repair, corrected
-route expectation, batch-only native admission cap, W9 producer repair, and
-fixture repairs. Main and the frozen candidate are pinned to `7eb62cd99`.
+The last broadly qualified source combines the linked-worktree discovery
+repair, corrected route expectation, batch-only native admission cap, W9
+producer repair, and fixture repairs. The reviewed successor production delta
+`3160bda38f5fb4cdb05e6b279efc57b296d4fcf8` has an accepted narrow
+delta-functional close for three exact selectors. Main and the frozen candidate remain
+pinned to `7eb62cd99`; root will bind the successor source to issued gate
+receipts before promotion.
 
 The full canonical run on b235 completed with 13,916 passes, 78 skips, and no
 failures across 13,994 selected cases. Root accepted that result and reused it
@@ -66,19 +73,25 @@ with no OOM, but R3 earns no resource credit. See the [R3 archive](evidence/reso
 Root accepted lifecycle fix
 `f4a9fb92f0976ed8fa6680f4ed8597180cc93f32` and factor repair `587814f274e`;
 neither is integrated into main. The factor repair's separate focused proof is
-accepted, but it does not qualify the integrated selector result. Both repairs
-are in isolated source candidate
-`3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`. Its post-integration lifecycle
-and non-Unicode selectors each passed once, but `test_uu_factor_parallel` timed
-out again at 120 seconds. The candidate is not qualified; no new seal or R4 has
-started. The run observed a cgroup memory peak of 260,632,576 bytes (about 249
-MiB), zero OOM and OOM-kill counts, stable guards, absent owned containers, and
-the original lock released. Docker reported no OOM. Builds overlapped this run
-for 51 seconds and then three seconds on disjoint CPU sets; this does not
-establish the cause. A stronger read-only factor-cost diagnosis and a quiet
-rerun after build drain are pending. The lifecycle reproduction is archived
-[here](evidence/lifecycle-profile-r3/README.md). Binary-size and final resource
-evidence remain pending.
+accepted; its first integrated run timed out in `test_uu_factor_parallel` after
+120 seconds while the two other post-integration selectors passed. The exact
+parallel selector later passed in the isolated quiet control. Together with the
+non-Unicode and lifecycle passes, root accepted a narrow delta-functional close
+for the three selectors and reviewed the unchanged factor flush, ordering,
+error, and status paths. The delta changes `core/factor.xsh` and one lifecycle
+fixture; Rust source and selector inputs did not change. See the
+[integrated run](evidence/factor-buffer-7eb/integrated-candidate-3160bda/README.md)
+and [quiet control](evidence/factor-buffer-7eb/quiet-control-3160bda/README.md).
+The integrated timeout overlapped two campaign builds on disjoint CPU sets for
+51 seconds and then three seconds; this does not establish causation. The quiet
+control ran after campaign builds were held, but external host jobs remained
+active, so it is not timing evidence. It observed a cgroup peak of 375,775,232
+bytes, zero OOM events, and an unchanged lock. The failed integrated run's
+260,632,576-byte peak, zero OOM and OOM-kill counts, stable guards, absent
+owned containers, and released lock remain in the
+[failed-run archive](evidence/factor-buffer-7eb/integrated-candidate-3160bda/README.md).
+Full successor canonical, R4 resource, binary-size, and timing gates remain
+pending. The lifecycle reproduction is archived [here](evidence/lifecycle-profile-r3/README.md).
 
 The root residual has 36 unique passes across 37 executions. The standard
 context passed 34 cases and retained one Unix-socket `sun_path` skip; the exact
@@ -113,22 +126,17 @@ generic-body lane remains unqualified.
 
 The accepted `877` candidate remains the only one with full paired runtime
 qualification. The source-only `891` plan remains source-validated only. The
-`986` Set candidate passes accepted check/lowering on source `020f` for 457 of
-693 local removals, including 109 added mutable `Set[Str]` annotations, and 529
-of 2,190 internal removals. Its 26 exact behavior witnesses pass, 13 per view.
-That bounded run does not complete Set feature qualification. API fixture
-`a4418a5253dd557f7a96419f4212b09dd29084a1` passes. The documentation slot
-verifier rejects valid nested destructuring for `5277` and `020f`. Repair source
-`2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has qualified source-bound products;
-the minimal SPEC 18 check-only probe now fails because the verifier reports
-`driver slot identity is not the currently visible binding`. The first repair
-added the missing writer slot but exposed a fresh-output versus prior-input
-identity mismatch; the same-name top-level duplicate check also rejects. The
-owner is tracing the output-slot representation, and no rebuild is authorized
-before root reviews a source proposal. The original wrapper cleanup-check
-failure is preserved separately. Full removal credit remains 877. The
-1,065-site collection plan remains red with 92 reduced-XSH diagnostics on
-`76caa` and earns no count. The original `749` rejection remains preserved.
+`986` Set candidate has accepted check/lowering and 26 paired witnesses, but
+not full feature acceptance. The planned `1023`-site candidate adds 37 sites;
+compiler build `048`, native component `6bc96`, and all eleven check/lower
+roots pass. Original-view runtime passes 15 of 24 selectors and fails nine;
+reduced-view runtime has not run. One failure reproduces the pre-existing
+`5277` issue; the other causes remain unknown while the owner improves
+module-capture diagnosis. No removal count advances. The Definition-role
+source patch is unqualified, and the original `2cb3` failure remains
+preserved. All 149 Map annotations on `{}` initializers remain required, and
+the 95% local target remains unmet. The original `749` rejection remains
+preserved.
 See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
 [Set qualification](typing-corpus/README.md#independent-mutable-set-candidate),
 [Set evidence](evidence/typing-corpus-host-obligations/mutable-sets/README.md), and

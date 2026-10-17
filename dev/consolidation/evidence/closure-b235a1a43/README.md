@@ -84,10 +84,26 @@ This is row-level evidence preparation, not a partial `ReviewEvidenceBundle`. Th
 
 Production source delta from b235 to 7eb: **0 lines**. The accepted 7eb source change is two test-only literal spellings. Evidence/docs delta: this README, the byte-exact 7eb functional-close receipt, the official b235 metrics report, item inventory, and check-current audit. The measured source counts remain pinned to b235; historical evidence pins remain unchanged.
 
+This close remains bound to 7eb. Root accepted a narrow delta-functional close
+for successor production delta `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8` on
+the factor parallel, non-Unicode, and lifecycle selectors after the isolated
+quiet factor control passed. This does not extend this receipt or qualify the
+successor's full canonical, resource, or timing gates. See the [integrated
+factor run](../factor-buffer-7eb/integrated-candidate-3160bda/README.md) and
+[quiet control](../factor-buffer-7eb/quiet-control-3160bda/README.md). The final
+successor source pin remains owned by root's issued gate receipts. The delta
+changes `core/factor.xsh` and one lifecycle fixture. Rust source and selector
+inputs did not change.
+
 The separate Phase D corpus remains isolated. Candidate `877` retains full
 paired runtime qualification. Candidate `891` has source validation only.
-Candidate `986` has accepted checking and lowering, plus 26 passing bounded
-behavior witnesses. Full Set feature and removal acceptance remain pending its
-API and documentation gates. The separate 1,065-site collection plan is red
-with 92 reduced-XSH diagnostics and earns no count. These candidates do not
-change this close's 7eb source pin. See the [corpus qualification record](../../typing-corpus/README.md#independent-mutable-set-candidate).
+Candidate `986` has accepted check/lowering and 26 paired witnesses, but not
+full Set acceptance. The planned `1023`-site candidate adds 37 sites; compiler
+build `048`, native component `6bc96`, and all eleven check/lower roots pass.
+Original-view runtime passes 15 of 24 selectors and fails nine; reduced-view
+runtime has not run. One failure reproduces the pre-existing `5277` issue; the
+other causes remain unknown. No removal count advances. The Definition-role
+patch is unqualified, the original `2cb3` failure remains preserved, and all
+149 Map annotations on `{}` initializers remain required. The 95% local target
+remains unmet. These isolated candidates do not change this close's 7eb source
+pin. See the [active handoff](../../HANDOFF.md#active-candidate) for status.
