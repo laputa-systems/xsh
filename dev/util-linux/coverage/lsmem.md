@@ -27,6 +27,24 @@ and [`x86_64-16g.tar.bz2`](https://github.com/util-linux/util-linux/blob/v2.42.4
 sysfs content, including sparse memory IDs and node symlinks. The upstream
 matrix is only a baseline; it does not cover the complete option surface.
 
+## Option inventory
+
+| Option | Reference behavior and native coverage |
+|---|---|
+| `-a`, `--all` | List each block; upstream matrix and sparse-root cases |
+| `-b`, `--bytes` | Print byte sizes; sparse-root and configured-root cases |
+| `-h`, `--help` | Print help and exit successfully; both forms are compared |
+| `-J`, `--json` | JSON output; upstream, sparse-root, and configured-root cases |
+| `-n`, `--noheadings` | Omit headings; sparse-root cases |
+| `-o`, `--output LIST` | Select or extend columns; upstream and rooted cases |
+| `--output-all` | Request every available column |
+| `-P`, `--pairs` | Key/value output; sparse-root and configured-root cases |
+| `-r`, `--raw` | Raw output; upstream, sparse-root, and configured-root cases |
+| `-S`, `--split LIST` | Select merge attributes; upstream and state/node/zone/configured-root cases |
+| `-s`, `--sysroot DIR` | Read under an alternate root; every rooted case, including its short form |
+| `--summary[=when]` | `when` may be `never`, `always`, or `only`; all modes and the bare form use the sparse fixture |
+| `-V`, `--version` | Print version; both forms use the separate identity assertion |
+
 ## Source behavior inventory
 
 | Area | util-linux v2.42.4 contract |
@@ -62,10 +80,11 @@ parameter to also compare `Y` and `N` summary output.
 |---|---|
 | `test_lsmem_util_linux_2_42_4_upstream_s390_zvm_6g` | Nine upstream invocations on the s390 dump |
 | `test_lsmem_util_linux_2_42_4_upstream_x86_64_16g` | Nine upstream invocations on the x86 dump |
-| `test_lsmem_util_linux_2_42_4_version_identity` | Independent exact version identities |
-| `test_lsmem_util_linux_2_42_4_help_matches_reference` | Help output |
+| `test_lsmem_util_linux_2_42_4_version_identity` | Independent exact version identities for `--version` and `-V` |
+| `test_lsmem_util_linux_2_42_4_help_matches_reference` | Help output for `--help` and `-h` |
 | `test_lsmem_rooted_sparse_memory_attributes_and_output_modes` | Fixture-backed range discovery, merging, columns, output formats, bytes, headings, and summary modes |
 | `test_lsmem_rooted_columns_environment_and_explicit_output_precedence` | `LSMEM_COLUMNS`, explicit `--output`, and `--output-all` |
+| `test_lsmem_rooted_short_option_aliases` | Short aliases for the supported output, byte, split, and sysroot options |
 | `test_lsmem_rooted_configured_memory_and_memmap_summary` | Firmware configuration, per-block memmap, and global summary modes |
 | `test_lsmem_rooted_malformed_block_attributes` | Invalid hexadecimal block size and malformed block attributes |
 | `test_lsmem_rooted_missing_block_size_is_an_error` | Missing required block-size attribute |

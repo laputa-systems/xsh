@@ -51,14 +51,16 @@ test test_lsmem_util_linux_2_42_4_upstream_x86_64_16g { |ctx|
 
 test test_lsmem_util_linux_2_42_4_version_identity { |ctx|
   let s = uu.scene(ctx)?
-  let reference = ul.reference(s, "lsmem", ["--version"], timeout: 5s)?
-  let candidate = uu.invoke(s, "lsmem", ["--version"], timeout: 5s)?
-  ul.version_identity(reference, candidate)
+  for args in [["--version"], ["-V"]] {
+    let reference = ul.reference(s, "lsmem", args, timeout: 5s)?
+    let candidate = uu.invoke(s, "lsmem", args, timeout: 5s)?
+    ul.version_identity(reference, candidate)
+  }
 }
 
 test test_lsmem_util_linux_2_42_4_help_matches_reference { |ctx|
   let s = uu.scene(ctx)?
-  compare_lsmem(s, ["--help"])?
+  for args in [["--help"], ["-h"]] { compare_lsmem(s, args)? }
 }
 
 test test_lsmem_rooted_sparse_memory_attributes_and_output_modes { |ctx|
@@ -93,6 +95,22 @@ test test_lsmem_rooted_columns_environment_and_explicit_output_precedence { |ctx
   compare_lsmem_rooted(s, [], {LSMEM_COLUMNS: "RANGE,SIZE,STATE"})?
   compare_lsmem_rooted(s, ["--output", "RANGE,BLOCK"], {LSMEM_COLUMNS: "NODE,ZONES"})?
   compare_lsmem_rooted(s, ["--output-all"], {LSMEM_COLUMNS: "NODE"})?
+}
+
+test test_lsmem_rooted_short_option_aliases { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  let columns = "RANGE,SIZE,STATE,REMOVABLE,BLOCK,NODE,ZONES"
+  let cases = [
+    ["-a", "-o", columns],
+    ["-b", "-n", "-o", "RANGE,SIZE,BLOCK"],
+    ["-J", "-o", columns],
+    ["-P", "-o", columns],
+    ["-r", "-o", columns],
+    ["-S", "none", "-o", "RANGE,BLOCK"],
+  ]
+  for args in cases { compare_lsmem_rooted(s, args)? }
+  compare_lsmem(s, ["-s", s.root.display(), "-o", columns])?
 }
 
 test test_lsmem_rooted_configured_memory_and_memmap_summary { |ctx|
