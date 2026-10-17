@@ -1,4 +1,4 @@
-export error OptionError = Invalid(detail: Str)
+export error OptionError = Invalid(detail: Str) | EmptyColumn
 
 export type Options = {
   shmems: Bool,
@@ -497,10 +497,15 @@ pure allowed_column(column: Str, selection: Selection) -> Bool {
 pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionError] {
   let append = raw.starts_with("+")
   let body = if append { raw.byte_slice(1) } else { raw }
+  if body.is_empty() { return Err(OptionError.EmptyColumn) }
   let names = body.split(",")
   var columns: List[Str] = if append { id_columns(selection) } else { [] }
   for index in range(names.len()) {
     let source = names[index]
+    if source.is_empty() {
+      if index + 1 == names.len() and body.ends_with(",") { continue }
+      return Err(OptionError.EmptyColumn)
+    }
     let remaining = names[index..].join(",")
     let shown = source
     let column = shown.upper()
