@@ -154,8 +154,8 @@ test test_util_linux_lsns_selects_and_releases_a_live_user_namespace { |ctx|
   let holder = hold_user_namespace(ctx)?
   defer holder.handle.cancel(signal: "TERM", kill_after: 2s)
   defer holder.release.write("")
-  let inode = fs.stat(fp"/proc/{holder.pid}/ns/user")?.ino
-  assert inode != fs.stat(p"/proc/self/ns/user")?.ino
+  let inode = fs.stat(fp"/proc/{holder.pid}/ns/user", follow_symlinks: true)?.ino
+  assert inode != fs.stat(p"/proc/self/ns/user", follow_symlinks: true)?.ino
   let selected = run_applet(ctx, "lsns", ["-p", f"{holder.pid}", "-t", "user", "-n", "-r", "-o", "NS,TYPE,NPROCS"])?
   assert selected.status == 0, selected.stderr
   assert selected.stdout == f"{inode} user 1\n", selected.stdout
