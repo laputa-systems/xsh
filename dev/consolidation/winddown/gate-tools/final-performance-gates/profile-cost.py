@@ -12,10 +12,10 @@ from pathlib import Path
 import re
 import secrets
 import signal
-import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 sys.dont_write_bytecode = True
@@ -220,10 +220,8 @@ def repository_tmp_parent():
 @contextmanager
 def repository_tmp_dir(run_id):
     parent = repository_tmp_parent()
-    path = parent / f"profile-cost-{run_id}"
-    if path.exists() or path.is_symlink():
-        raise ValueError(f"profile temporary path already exists: {path}")
-    path.mkdir(mode=0o700)
+    temporary = tempfile.TemporaryDirectory(prefix=f"profile-cost-{run_id}-", dir=parent)
+    path = Path(temporary.name)
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
@@ -234,8 +232,14 @@ def repository_tmp_dir(run_id):
         if not stat.S_ISDIR(mode) or stat.S_IMODE(mode) != 0o700:
             raise ValueError(f"profile temporary directory is not private: {path}")
         yield path
-    finally:
-        shutil.rmtree(path)
+    except BaseException as error:
+        try:
+            temporary.cleanup()
+        except BaseException as cleanup_error:
+            error.add_note(f"profile temporary cleanup also failed: {cleanup_error!r}")
+        raise
+    else:
+        temporary.cleanup()
 
 
 def docker_base(tree, target_dir, cpus, native_image, repository_tmp, user=False, candidate_xsh=None):

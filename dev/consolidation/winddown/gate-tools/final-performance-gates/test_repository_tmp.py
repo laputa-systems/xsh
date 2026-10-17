@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from importlib.util import module_from_spec, spec_from_file_location
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import sys
@@ -57,6 +58,60 @@ def test_profile_cost_does_not_use_shared_setgid_tmp():
         assert not private_tmp.exists()
 
 
+def test_profile_cost_removes_execute_only_directories():
+    with setgid_repository() as (root, _):
+        with patch.object(profile, "ROOT", root):
+            private_tmp = None
+            unreadable = None
+            try:
+                with profile.repository_tmp_dir("test-run") as private_tmp:
+                    unreadable = private_tmp / "unreadable"
+                    unreadable.mkdir()
+                    os.chmod(unreadable, 0o100)
+            finally:
+                if unreadable is not None and unreadable.exists():
+                    os.chmod(unreadable, 0o700)
+                if private_tmp is not None and private_tmp.exists():
+                    shutil.rmtree(private_tmp)
+        assert private_tmp is not None
+        assert not private_tmp.exists()
+
+
+def test_profile_cost_removes_symlinks_without_touching_targets():
+    with setgid_repository() as (root, _):
+        target = root / ".work/external-target"
+        target.mkdir(parents=True)
+        marker = target / "marker"
+        marker.write_text("retained", encoding="utf-8")
+        os.chmod(target, 0o500)
+        with patch.object(profile, "ROOT", root):
+            with profile.repository_tmp_dir("test-run") as private_tmp:
+                (private_tmp / "external").symlink_to(target, target_is_directory=True)
+        assert marker.read_text(encoding="utf-8") == "retained"
+        assert stat.S_IMODE(target.stat().st_mode) == 0o500
+
+
+def test_profile_tmp_cleanup_error_does_not_mask_gate_error():
+    with setgid_repository() as (root, _):
+        with patch.object(profile, "ROOT", root):
+            gate_error = RuntimeError("gate failed")
+            cleanup_error = PermissionError("cleanup failed")
+            private_tmp = None
+            try:
+                with patch.object(profile.tempfile.TemporaryDirectory, "cleanup", side_effect=cleanup_error):
+                    try:
+                        with profile.repository_tmp_dir("test-run") as private_tmp:
+                            raise gate_error
+                    except RuntimeError as error:
+                        assert error is gate_error
+                        assert any("profile temporary cleanup also failed" in note for note in error.__notes__)
+                    else:
+                        raise AssertionError("profile cleanup replaced the gate failure")
+            finally:
+                if private_tmp is not None and private_tmp.exists():
+                    shutil.rmtree(private_tmp)
+
+
 def test_forced_frames_does_not_use_shared_setgid_tmp():
     with setgid_repository() as (root, shared_tmp):
         with patch.object(forced, "ROOT", root):
@@ -100,6 +155,9 @@ def test_forced_frames_rejects_a_symlinked_tmp_parent():
 
 if __name__ == "__main__":
     test_profile_cost_does_not_use_shared_setgid_tmp()
+    test_profile_cost_removes_execute_only_directories()
+    test_profile_cost_removes_symlinks_without_touching_targets()
+    test_profile_tmp_cleanup_error_does_not_mask_gate_error()
     test_forced_frames_does_not_use_shared_setgid_tmp()
     test_profile_cost_rejects_a_symlinked_tmp_parent()
     test_forced_frames_rejects_a_symlinked_tmp_parent()
