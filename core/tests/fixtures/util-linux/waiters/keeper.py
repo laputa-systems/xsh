@@ -171,8 +171,12 @@ def wait_for_readiness():
         for descriptor in readable:
             data = os.read(descriptor, 1)
             pid = pending.pop(descriptor)
-            os.close(descriptor)
-            readiness_fds.remove((pid, descriptor))
+            previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, HANDLED_SIGNALS)
+            try:
+                os.close(descriptor)
+                readiness_fds.remove((pid, descriptor))
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
             if data != b"R":
                 raise RuntimeError(f"waiter {pid} exited before setup readiness")
 
