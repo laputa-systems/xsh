@@ -1,4 +1,4 @@
-# Quiet factor parallel control
+# Factor parallel isolated control
 
 The unchanged integrated candidate passed the exact parallel factor selector in isolation. The prior R3 timeout remains unexplained by this control.
 
@@ -14,7 +14,7 @@ The container used image `sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6
 
 ## Result and resources
 
-The selector matched one test and passed. It reported one passed, zero failed, and zero skipped. The test verified the expected sorted-output hash. Its kept output had 400,008 lines and 6,520,608 bytes. All eight child stderr files were empty. The harness reported 1m34s. The container ran for about 95 seconds. These durations document the functional run and are not performance results.
+The selector matched one test and passed. It reported one passed, zero failed, and zero skipped. The test verified the expected sorted-output hash. Its kept output had 400,008 lines and 6,520,608 bytes. All eight child stderr files were empty. The harness reported 1m34s. The container ran for about 95 seconds. These durations document the functional run and are not performance results. The coordination window held other campaign builds, but external host jobs remained active; this run was not perf-ready.
 
 The cgroup peak was 375,775,232 bytes. `memory.events` recorded zero OOM events. CPU usage was 189.663 seconds with zero throttling. Docker reported `OOMKilled=false`. The original shared lock remained device 66307, inode 62012470, with unchanged metadata. Source, test, and product hashes match before and after in the adjacent files.
 
@@ -30,7 +30,9 @@ checked its hash before and after. `perf report --symfs` maps the sampled PC
 instructions (`0x16bd17b`–`0x16bd1ac`). `memcpy` held 27.80% of self samples,
 `memcmp` 2.07%, and `LoweredValue::clone` 0.83%. The recorded call chains do not
 identify the XSH source caller. The profile itself cannot prove DSO identity
-because it lacks a build ID.
+because it lacks a build ID. The byte-identical `perf report --symfs` output is
+retained in [`perf-report-symfs.txt`](perf-report-symfs.txt), with its stderr
+beside it.
 
 An initial `addr2line` query used the wrong offset, `0x16bc19f`, and appeared to
 name `trinkle`. That attribution was incorrect; the recorded address maps to
@@ -78,4 +80,4 @@ The +30 and +90 second container samples could not run `ps -o pcpu`; BusyBox
 separate host `docker top` sample near +70 seconds showed `xsht` and four factor
 children waiting in `futex_do_wait`. Each visible child had about three seconds
 of CPU time at that point. This point sample and the profiles do not establish
-the overlap that caused the earlier timeout. No performance result is claimed.
+the cause of the earlier timeout. No performance result is claimed.

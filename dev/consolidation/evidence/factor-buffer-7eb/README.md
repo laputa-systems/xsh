@@ -30,7 +30,7 @@ full canonical suite.
 
 The integrated candidate later timed out during a run that overlapped builds,
 then passed the unchanged exact selector in a bounded single-test control. See
-the [integrated run](integrated-candidate-3160bda/README.md) and [quiet
+the [integrated run](integrated-candidate-3160bda/README.md) and [single-test
 control](quiet-control-3160bda/README.md). The isolated pass does not establish
 why the earlier run timed out.
 

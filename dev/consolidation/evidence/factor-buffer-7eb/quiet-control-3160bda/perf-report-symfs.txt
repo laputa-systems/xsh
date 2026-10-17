@@ -1,0 +1,508 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 241  of event 'cpu-clock:u'
+# Event count (approx.): 4918367283
+#
+# Children      Self  Shared Object     Symbol                                                                                                                                                                                                                                                                                                                                                                                                                                                                            IPC   [IPC Coverage]
+# ........  ........  ................  ................................................................................................................................................................................................................................................................................................................................................................................................................................................................................  ....................
+#
+    27.80%    27.80%  xsh               [.] memcpy                                                                                                                                                                                                                                                                                                                                                                                                                                                                        -      -            
+            |          
+            |--18.67%--memcpy
+            |          
+            |--6.64%--0x1
+            |          memcpy
+            |          
+            |--2.07%--0x2f6f0a14e10
+            |          memcpy
+            |          
+             --0.41%--0x8000000000000000
+                       memcpy
+
+    14.11%     0.00%  [unknown]         [.] 0x0000000000000001                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x1
+               |          
+               |--6.64%--memcpy
+               |          
+               |--2.90%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step
+               |          
+               |--2.07%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::continue_value
+               |          
+               |--1.24%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_discard
+               |          
+               |--0.41%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::start_if_expr
+               |          
+               |--0.41%--<xsh::runtime::eval::Evaluator>::eval_indexed_expr_inner
+               |          
+                --0.41%--core::ptr::drop_glue::<xsh::runtime::eval::LoweredValue>
+
+     6.64%     0.00%  [unknown]         [.] 0x000002f6f0a14e10                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x2f6f0a14e10
+               |          
+               |--2.07%--memcpy
+               |          
+               |--1.66%--<xsh::runtime::eval::Evaluator>::eval_indexed_expr
+               |          
+               |--0.41%--_mi_theap_realloc_zero
+               |          
+               |--0.41%--<xsh::runtime::eval::indexed::full::schema::StmtView>::decode
+               |          
+               |--0.41%--<xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+               |          
+               |--0.41%--<xsh::runtime::eval::indexed::full::decode::ListView<usize>>::from_block (inlined)
+               |          
+               |--0.41%--<xsh::runtime::eval::Evaluator>::lowered_call_slots
+               |          
+               |--0.41%--<xsh::runtime::eval::Evaluator>::sync_indexed_root_slots
+               |          
+                --0.41%--<alloc::vec::Vec<(xsh::runtime::eval::BuildExprId, alloc::vec::Vec<xsh::runtime::eval::BuildStmtId>)> as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow
+
+     4.98%     4.98%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::eval_expr                                                                                                                                                                                                                                                                                                                                                                                       -      -            
+            |
+            ---<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::eval_expr
+
+     3.73%     3.73%  xsh               [.] <alloc::collections::btree::map::BTreeMap<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert                                                                                                                                                                                                                                                                                                                                                                   -      -            
+            |          
+            |--2.90%--<alloc::collections::btree::map::BTreeMap<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert
+            |          
+             --0.83%--0
+                       <alloc::collections::btree::map::BTreeMap<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert
+
+     3.73%     3.73%  xsh               [.] <xsh::runtime::eval::indexed::full::schema::ExprView>::decode                                                                                                                                                                                                                                                                                                                                                                                                                 -      -            
+            |          
+            |--1.66%--<xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+            |          
+            |--0.41%--0x2a00007f00e8db55
+            |          <xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+            |          
+            |--0.41%--0x2f6f0a14e10
+            |          <xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+            |          
+            |--0.41%--0x2f6eff54000
+            |          <xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+            |          
+            |--0.41%--0x100000013
+            |          <xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+            |          
+             --0.41%--0x9
+                       <xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+
+     3.73%     3.73%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::continue_value                                                                                                                                                                                                                                                                                                                                                                                  -      -            
+            |          
+            |--2.07%--0x1
+            |          <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::continue_value
+            |          
+             --1.66%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::continue_value
+
+     3.73%     3.73%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::eval_expr_view                                                                                                                                                                                                                                                                                                                                                                                  -      -            
+            |
+            ---<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::eval_expr_view
+
+     3.73%     3.73%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_statements                                                                                                                                                                                                                                                                                                                                                                                 -      -            
+            |
+            ---<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_statements
+
+     3.32%     3.32%  xsh               [.] <alloc::collections::btree::node::Handle<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Mut, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Leaf>, alloc::collections::btree::node::marker::Edge>>::insert_recursing::<alloc::alloc::Global, <alloc::collections::btree::map::entry::VacantEntry<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert_entry::{closure#0}>  -      -            
+            |
+            ---<alloc::collections::btree::node::Handle<alloc::collections::btree::node::NodeRef<alloc::collections::btree::node::marker::Mut, alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue, alloc::collections::btree::node::marker::Leaf>, alloc::collections::btree::node::marker::Edge>>::insert_recursing::<alloc::alloc::Global, <alloc::collections::btree::map::entry::VacantEntry<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert_entry::{closure#0}>
+
+     2.90%     2.90%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x1
+               <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step
+
+     2.07%     0.00%  [unknown]         [.] 0000000000000000                                                                                                                                                                                                                                                                                                                                                                                                                                                              -      -            
+            |
+            ---0
+               |          
+               |--0.83%--<alloc::collections::btree::map::BTreeMap<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue>>::insert
+               |          
+               |--0.41%--<xsh::runtime::value::RecordOwnedKeyIter as core::iter::traits::iterator::Iterator>::next
+               |          
+               |--0.41%--<xsh::runtime::eval::Evaluator>::eval_lowered_method_dispatch
+               |          
+                --0.41%--0x694b
+                          mi_malloc_aligned
+
+     2.07%     2.07%  xsh               [.] <xsh::runtime::eval::indexed::full::decode::ListView<(xsh::runtime::eval::BuildPatternId, core::option::Option<xsh::runtime::eval::BuildExprId>, alloc::vec::Vec<xsh::runtime::eval::BuildStmtId>)>>::from_block                                                                                                                                                                                                                                                              -      -            
+            |          
+            |--1.66%--<xsh::runtime::eval::indexed::full::decode::ListView<usize>>::from_block (inlined)
+            |          
+             --0.41%--0x2f6f0a14e10
+                       <xsh::runtime::eval::indexed::full::decode::ListView<usize>>::from_block (inlined)
+
+     2.07%     2.07%  xsh               [.] memcmp                                                                                                                                                                                                                                                                                                                                                                                                                                                                        -      -            
+            |
+            ---memcmp
+
+     2.07%     0.00%  xsh               [.] <xsh::runtime::eval::indexed::full::decode::ListView<usize>>::from_block (inlined)                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---<xsh::runtime::eval::indexed::full::decode::ListView<usize>>::from_block (inlined)
+
+     1.66%     1.66%  xsh               [.] mi_malloc_aligned                                                                                                                                                                                                                                                                                                                                                                                                                                                             -      -            
+            |          
+            |--1.24%--mi_malloc_aligned
+            |          
+             --0.41%--0
+                       0x694b
+                       mi_malloc_aligned
+
+     1.66%     0.00%  [unknown]         [.] 0x000002f6eff54000                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x2f6eff54000
+               |          
+               |--0.83%--xsh::runtime::eval::lowered_run::indexed_run::explicit_run::call_argument_at
+               |          
+               |--0.41%--<xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+               |          
+                --0.41%--0x1
+                          <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::start_if_expr
+
+     1.66%     1.66%  xsh               [.] <xsh::runtime::eval::Evaluator>::eval_indexed_expr                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x2f6f0a14e10
+               <xsh::runtime::eval::Evaluator>::eval_indexed_expr
+
+     1.66%     1.66%  xsh               [.] <xsh::runtime::eval::Evaluator>::eval_indexed_expr_inner                                                                                                                                                                                                                                                                                                                                                                                                                      -      -            
+            |          
+            |--1.24%--<xsh::runtime::eval::Evaluator>::eval_indexed_expr_inner
+            |          
+             --0.41%--0x1
+                       <xsh::runtime::eval::Evaluator>::eval_indexed_expr_inner
+
+     1.66%     1.66%  xsh               [.] <xsh::runtime::eval::indexed::full::schema::StmtView>::decode                                                                                                                                                                                                                                                                                                                                                                                                                 -      -            
+            |          
+            |--1.24%--<xsh::runtime::eval::indexed::full::schema::StmtView>::decode
+            |          
+             --0.41%--0x2f6f0a14e10
+                       <xsh::runtime::eval::indexed::full::schema::StmtView>::decode
+
+     1.66%     1.66%  xsh               [.] <xsh::runtime::eval::indexed::full::decode::ListView<xsh::runtime::eval::BuildStmtId> as core::iter::traits::iterator::Iterator>::next                                                                                                                                                                                                                                                                                                                                        -      -            
+            |
+            ---<xsh::runtime::eval::indexed::full::decode::ListView<xsh::runtime::eval::BuildStmtId> as core::iter::traits::iterator::Iterator>::next
+
+     1.66%     1.66%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::push_expr                                                                                                                                                                                                                                                                                                                                                                                       -      -            
+            |
+            ---<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::push_expr
+
+     1.66%     1.66%  xsh               [.] xsh::runtime::eval::type_view::value_matches_static_type                                                                                                                                                                                                                                                                                                                                                                                                                      -      -            
+            |
+            ---xsh::runtime::eval::type_view::value_matches_static_type
+
+     1.24%     1.24%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_discard                                                                                                                                                                                                                                                                                                                                                                                    -      -            
+            |
+            ---0x1
+               <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_discard
+
+     1.24%     0.00%  [unknown]         [.] 0x8000000000000000                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x8000000000000000
+               |          
+               |--0.41%--memcpy
+               |          
+               |--0.41%--<xsh::runtime::eval::Evaluator>::cleanup_scope_owned_activities
+               |          
+                --0.41%--<xsh::runtime::eval::Evaluator>::flush_pending_stream_captures
+
+     1.24%     1.24%  xsh               [.] <alloc::collections::btree::map::IntoIter<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue> as core::ops::drop::Drop>::drop                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---<alloc::collections::btree::map::IntoIter<alloc::sync::Arc<str>, xsh::runtime::eval::LoweredValue> as core::ops::drop::Drop>::drop
+
+     1.24%     1.24%  xsh               [.] <xsh::runtime::eval::Evaluator>::lowered_capture_values                                                                                                                                                                                                                                                                                                                                                                                                                       -      -            
+            |
+            ---<xsh::runtime::eval::Evaluator>::lowered_capture_values
+
+     0.83%     0.83%  xsh               [.] <xsh::runtime::eval::LoweredValue as core::clone::Clone>::clone                                                                                                                                                                                                                                                                                                                                                                                                               -      -            
+            |          
+            |--0.41%--0xd
+            |          <xsh::runtime::eval::LoweredValue as core::clone::Clone>::clone
+            |          
+             --0.41%--0x9
+                       <xsh::runtime::eval::LoweredValue as core::clone::Clone>::clone
+
+     0.83%     0.83%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::push_method_arguments                                                                                                                                                                                                                                                                                                                                                                           -      -            
+            |          
+            |--0.41%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::push_method_arguments
+            |          
+             --0.41%--0x2a00007f00e8db55
+                       <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::push_method_arguments
+
+     0.83%     0.83%  xsh               [.] xsh::runtime::eval::lowered_run::indexed_run::explicit_run::call_argument_at                                                                                                                                                                                                                                                                                                                                                                                                  -      -            
+            |
+            ---0x2f6eff54000
+               xsh::runtime::eval::lowered_run::indexed_run::explicit_run::call_argument_at
+
+     0.83%     0.00%  [unknown]         [.] 0x0000000000000009                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x9
+               |          
+               |--0.41%--<xsh::runtime::eval::LoweredValue as core::clone::Clone>::clone
+               |          
+                --0.41%--<xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+
+     0.83%     0.00%  [unknown]         [.] 0x2a00007f00e8db55                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x2a00007f00e8db55
+               |          
+               |--0.41%--<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::push_method_arguments
+               |          
+                --0.41%--<xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+
+     0.83%     0.83%  xsh               [.] <(bool, xsh::runtime::eval::BuildExprId, xsh::source::Span) as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow                                                                                                                                                                                                                                                                                                                                                -      -            
+            |
+            ---<(bool, xsh::runtime::eval::BuildExprId, xsh::source::Span) as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow
+
+     0.83%     0.83%  xsh               [.] <xsh::runtime::eval::BuildStmtId as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow                                                                                                                                                                                                                                                                                                                                                                           -      -            
+            |
+            ---<xsh::runtime::eval::BuildStmtId as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow
+
+     0.83%     0.83%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::push_call_with_header                                                                                                                                                                                                                                                                                                                                                                           -      -            
+            |
+            ---<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::push_call_with_header
+
+     0.83%     0.83%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::push_value                                                                                                                                                                                                                                                                                                                                                                                      -      -            
+            |
+            ---<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::push_value
+
+     0.83%     0.83%  xsh               [.] core::ptr::drop_glue::<xsh::runtime::eval::indexed::full::FullDecoder>                                                                                                                                                                                                                                                                                                                                                                                                        -      -            
+            |
+            ---core::ptr::drop_glue::<xsh::runtime::eval::indexed::full::FullDecoder>
+
+     0.83%     0.83%  xsh               [.] core::ptr::drop_glue::<xsh::runtime::eval::indexed::full::FullDecoder>                                                                                                                                                                                                                                                                                                                                                                                                        -      -            
+            |
+            ---core::ptr::drop_glue::<xsh::runtime::eval::indexed::full::FullDecoder>
+
+     0.41%     0.41%  xsh               [.] <alloc::vec::Vec<xsh::runtime::eval::LoweredValue> as core::clone::Clone>::clone                                                                                                                                                                                                                                                                                                                                                                                              -      -            
+            |
+            ---0xffda85e900256171
+               0x2
+               <alloc::vec::Vec<xsh::runtime::eval::LoweredValue> as core::clone::Clone>::clone
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::Evaluator>::eval_lowered_method_dispatch                                                                                                                                                                                                                                                                                                                                                                                                                 -      -            
+            |
+            ---0x1500007f00
+               0
+               <xsh::runtime::eval::Evaluator>::eval_lowered_method_dispatch
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::start_if_expr                                                                                                                                                                                                                                                                                                                                                                                   -      -            
+            |
+            ---0x2f6eff54000
+               0x1
+               <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::start_if_expr
+
+     0.41%     0.00%  [unknown]         [.] 0xffda85e900256171                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0xffda85e900256171
+               0x2
+               <alloc::vec::Vec<xsh::runtime::eval::LoweredValue> as core::clone::Clone>::clone
+
+     0.41%     0.00%  [unknown]         [.] 0x0000001500007f00                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x1500007f00
+               0
+               <xsh::runtime::eval::Evaluator>::eval_lowered_method_dispatch
+
+     0.41%     0.41%  xsh               [.] <alloc::raw_vec::RawVec<xsh::runtime::eval::lowered_run::indexed_run::values::TypedScalarValue>>::grow_one                                                                                                                                                                                                                                                                                                                                                                    -      -            
+            |
+            ---0x24a9
+               <alloc::raw_vec::RawVec<xsh::runtime::eval::lowered_run::indexed_run::values::TypedScalarValue>>::grow_one
+
+     0.41%     0.41%  xsh               [.] <alloc::vec::Vec<(xsh::runtime::eval::BuildExprId, alloc::vec::Vec<xsh::runtime::eval::BuildStmtId>)> as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow                                                                                                                                                                                                                                                                                                      -      -            
+            |
+            ---0x2f6f0a14e10
+               <alloc::vec::Vec<(xsh::runtime::eval::BuildExprId, alloc::vec::Vec<xsh::runtime::eval::BuildStmtId>)> as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::Evaluator>::cleanup_scope_owned_activities                                                                                                                                                                                                                                                                                                                                                                                                               -      -            
+            |
+            ---0x8000000000000000
+               <xsh::runtime::eval::Evaluator>::cleanup_scope_owned_activities
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::Evaluator>::flush_pending_stream_captures                                                                                                                                                                                                                                                                                                                                                                                                                -      -            
+            |
+            ---0x8000000000000000
+               <xsh::runtime::eval::Evaluator>::flush_pending_stream_captures
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::Evaluator>::lowered_call_slots                                                                                                                                                                                                                                                                                                                                                                                                                           -      -            
+            |
+            ---0x2f6f0a14e10
+               <xsh::runtime::eval::Evaluator>::lowered_call_slots
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::Evaluator>::sync_indexed_root_slots                                                                                                                                                                                                                                                                                                                                                                                                                      -      -            
+            |
+            ---0x2f6f0a14e10
+               <xsh::runtime::eval::Evaluator>::sync_indexed_root_slots
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::run                                                                                                                                                                                                                                                                                                                                                                                             -      -            
+            |
+            ---0x2f6f0690290
+               <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::run
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_list_literal                                                                                                                                                                                                                                                                                                                                                                               -      -            
+            |
+            ---0x1000002f6f095c9
+               <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_list_literal
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::value::RecordOwnedKeyIter as core::iter::traits::iterator::Iterator>::next                                                                                                                                                                                                                                                                                                                                                                                     -      -            
+            |
+            ---0
+               <xsh::runtime::value::RecordOwnedKeyIter as core::iter::traits::iterator::Iterator>::next
+
+     0.41%     0.41%  xsh               [.] _mi_theap_realloc_zero                                                                                                                                                                                                                                                                                                                                                                                                                                                        -      -            
+            |
+            ---0x2f6f0a14e10
+               _mi_theap_realloc_zero
+
+     0.41%     0.41%  xsh               [.] core::ptr::drop_glue::<xsh::runtime::eval::LoweredValue>                                                                                                                                                                                                                                                                                                                                                                                                                      -      -            
+            |
+            ---0x1
+               core::ptr::drop_glue::<xsh::runtime::eval::LoweredValue>
+
+     0.41%     0.41%  xsh               [.] mi_free                                                                                                                                                                                                                                                                                                                                                                                                                                                                       -      -            
+            |
+            ---0x4000002f6f0682f
+               mi_free
+
+     0.41%     0.41%  xsh               [.] xsh::runtime::eval::lowered_ops::lowered_module_from_runtime                                                                                                                                                                                                                                                                                                                                                                                                                  -      -            
+            |
+            ---0x7fffffffffffffff
+               xsh::runtime::eval::lowered_ops::lowered_module_from_runtime
+
+     0.41%     0.00%  [unknown]         [.] 0x0000000000000002                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x2
+               <alloc::vec::Vec<xsh::runtime::eval::LoweredValue> as core::clone::Clone>::clone
+
+     0.41%     0.00%  [unknown]         [.] 0x000000000000000d                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0xd
+               <xsh::runtime::eval::LoweredValue as core::clone::Clone>::clone
+
+     0.41%     0.00%  [unknown]         [.] 0x00000000000024a9                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x24a9
+               <alloc::raw_vec::RawVec<xsh::runtime::eval::lowered_run::indexed_run::values::TypedScalarValue>>::grow_one
+
+     0.41%     0.00%  [unknown]         [.] 0x000000000000694b                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x694b
+               mi_malloc_aligned
+
+     0.41%     0.00%  [unknown]         [.] 0x0000000100000013                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x100000013
+               <xsh::runtime::eval::indexed::full::schema::ExprView>::decode
+
+     0.41%     0.00%  [unknown]         [.] 0x000002f6f0690290                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x2f6f0690290
+               <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::run
+
+     0.41%     0.00%  [unknown]         [.] 0x01000002f6f095c9                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x1000002f6f095c9
+               <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_list_literal
+
+     0.41%     0.00%  [unknown]         [.] 0x04000002f6f0682f                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x4000002f6f0682f
+               mi_free
+
+     0.41%     0.00%  [unknown]         [.] 0x7fffffffffffffff                                                                                                                                                                                                                                                                                                                                                                                                                                                            -      -            
+            |
+            ---0x7fffffffffffffff
+               xsh::runtime::eval::lowered_ops::lowered_module_from_runtime
+
+     0.41%     0.41%  xsh               [.] <alloc::raw_vec::RawVecInner>::finish_grow                                                                                                                                                                                                                                                                                                                                                                                                                                    -      -            
+            |
+            ---<alloc::raw_vec::RawVecInner>::finish_grow
+
+     0.41%     0.41%  xsh               [.] <alloc::vec::Vec<(xsh::runtime::eval::BuildExprId, xsh::runtime::eval::BuildExprId)> as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow                                                                                                                                                                                                                                                                                                                       -      -            
+            |
+            ---<alloc::vec::Vec<(xsh::runtime::eval::BuildExprId, xsh::runtime::eval::BuildExprId)> as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow
+
+     0.41%     0.41%  xsh               [.] <alloc::vec::Vec<xsh::runtime::eval::LoweredValue>>::extend_with                                                                                                                                                                                                                                                                                                                                                                                                              -      -            
+            |
+            ---<alloc::vec::Vec<xsh::runtime::eval::LoweredValue>>::extend_with
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::BuildExprId as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow                                                                                                                                                                                                                                                                                                                                                                           -      -            
+            |
+            ---<xsh::runtime::eval::BuildExprId as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::Evaluator>::hydrate_lowered_captures                                                                                                                                                                                                                                                                                                                                                                                                                     -      -            
+            |
+            ---<xsh::runtime::eval::Evaluator>::hydrate_lowered_captures
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::Evaluator>::service_pending_signal                                                                                                                                                                                                                                                                                                                                                                                                                       -      -            
+            |
+            ---<xsh::runtime::eval::Evaluator>::service_pending_signal
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::LoweredValue as core::clone::Clone>::clone                                                                                                                                                                                                                                                                                                                                                                                                               -      -            
+            |
+            ---<xsh::runtime::eval::LoweredValue as core::clone::Clone>::clone
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::indexed::full::FullProgram>::function_view                                                                                                                                                                                                                                                                                                                                                                                                               -      -            
+            |
+            ---<xsh::runtime::eval::indexed::full::FullProgram>::function_view
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::indexed::full::decode::ListView<(bool, xsh::runtime::eval::BuildExprId, xsh::source::Span)> as core::iter::traits::iterator::Iterator>::next                                                                                                                                                                                                                                                                                                             -      -            
+            |
+            ---<xsh::runtime::eval::indexed::full::decode::ListView<(bool, xsh::runtime::eval::BuildExprId, xsh::source::Span)> as core::iter::traits::iterator::Iterator>::next
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::indexed::full::decode::ListView<(xsh::runtime::eval::BuildExprId, alloc::vec::Vec<xsh::runtime::eval::BuildStmtId>)> as core::iter::traits::iterator::Iterator>::next                                                                                                                                                                                                                                                                                    -      -            
+            |
+            ---<xsh::runtime::eval::indexed::full::decode::ListView<(xsh::runtime::eval::BuildExprId, alloc::vec::Vec<xsh::runtime::eval::BuildStmtId>)> as core::iter::traits::iterator::Iterator>::next
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::declare_slot                                                                                                                                                                                                                                                                                                                                                                                    -      -            
+            |
+            ---<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::declare_slot
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::exit_block_scope                                                                                                                                                                                                                                                                                                                                                                                -      -            
+            |
+            ---<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::exit_block_scope
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_statement_if                                                                                                                                                                                                                                                                                                                                                                               -      -            
+            |
+            ---<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::ExplicitFrames>::step_statement_if
+
+     0.41%     0.41%  xsh               [.] <xsh::runtime::eval::lowered_run::indexed_run::explicit_run::StatementCursor>::function_body                                                                                                                                                                                                                                                                                                                                                                                  -      -            
+            |
+            ---<xsh::runtime::eval::lowered_run::indexed_run::explicit_run::StatementCursor>::function_body
+
+     0.41%     0.41%  xsh               [.] <xsh::source::Span as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow                                                                                                                                                                                                                                                                                                                                                                                         -      -            
+            |
+            ---<xsh::source::Span as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow
+
+     0.41%     0.41%  xsh               [.] <xsh::syntax::node::BinaryOp as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow                                                                                                                                                                                                                                                                                                                                                                               -      -            
+            |
+            ---<xsh::syntax::node::BinaryOp as xsh::runtime::eval::indexed::full::decode::BorrowCodec>::borrow
+
+     0.41%     0.41%  xsh               [.] core::ptr::drop_glue::<xsh::runtime::eval::indexed::full::FullDecoder>                                                                                                                                                                                                                                                                                                                                                                                                        -      -            
+            |
+            ---core::ptr::drop_glue::<xsh::runtime::eval::indexed::full::FullDecoder>
+
+     0.41%     0.41%  xsh               [.] core::ptr::drop_glue::<xsh::runtime::eval::indexed::full::FullDecoder>                                                                                                                                                                                                                                                                                                                                                                                                        -      -            
+            |
+            ---core::ptr::drop_glue::<xsh::runtime::eval::indexed::full::FullDecoder>
+
+     0.41%     0.41%  xsh               [.] xsh::runtime::eval::lowered_ops::lowered_binary_value                                                                                                                                                                                                                                                                                                                                                                                                                         -      -            
+            |
+            ---xsh::runtime::eval::lowered_ops::lowered_binary_value
+
+     0.41%     0.41%  xsh               [.] xsh::runtime::eval::lowered_run::indexed_run::indexed_frame_apply_child                                                                                                                                                                                                                                                                                                                                                                                                       -      -            
+            |
+            ---xsh::runtime::eval::lowered_run::indexed_run::indexed_frame_apply_child
+
+     0.41%     0.41%  xsh               [.] xsh::runtime::eval::lowered_values_semantically_equal                                                                                                                                                                                                                                                                                                                                                                                                                         -      -            
+            |
+            ---xsh::runtime::eval::lowered_values_semantically_equal
+
+
+
+#
+# (Cannot load tips.txt file, install linux-tools-doc to see tips!)
+#
