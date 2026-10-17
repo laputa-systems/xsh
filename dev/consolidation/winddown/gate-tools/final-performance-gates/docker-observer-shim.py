@@ -73,6 +73,7 @@ def instrument_batch_argv(
     container_observer: str,
     container_resource_file: str,
     cpuset_cpus: str,
+    resources_only: bool = False,
 ) -> list[str] | None:
     if not arguments or arguments[0] != "run":
         return None
@@ -94,7 +95,9 @@ def instrument_batch_argv(
         "-e", f"CARGO_BUILD_JOBS={CPU_LIMIT}",
     ]
     command = [
-        "/usr/bin/python3", container_observer, container_resource_file, "--",
+        "/usr/bin/python3", container_observer,
+        *( ["--resources-only"] if resources_only else [] ),
+        container_resource_file, "--",
         "/root/.cargo/bin/cargo", *GATE_BATCH_TAIL[1:],
     ]
     return arguments[:1] + ownership_options + resource_options + arguments[1:image_at + 1] + command
@@ -116,7 +119,11 @@ def main() -> int:
     observer = os.environ.get("XSH_OBSERVER_CONTAINER_SCRIPT")
     resource_file = os.environ.get("XSH_OBSERVER_CONTAINER_RESOURCE")
     cpuset_cpus = os.environ.get("XSH_OBSERVER_CPUSET")
-    if not all((real_docker, log_path, owner, cidfile, observer, resource_file, cpuset_cpus)):
+    resources_only_value = os.environ.get("XSH_OBSERVER_RESOURCES_ONLY")
+    if (
+        not all((real_docker, log_path, owner, cidfile, observer, resource_file, cpuset_cpus))
+        or resources_only_value not in ("0", "1")
+    ):
         print("Docker observer configuration is incomplete", file=sys.stderr)
         return 78
 
@@ -128,6 +135,7 @@ def main() -> int:
         container_observer=observer,
         container_resource_file=resource_file,
         cpuset_cpus=cpuset_cpus,
+        resources_only=resources_only_value == "1",
     )
     if original[:1] == ["run"] and instrumented is None:
         print("unexpected Docker run during the canonical gate batch", file=sys.stderr)

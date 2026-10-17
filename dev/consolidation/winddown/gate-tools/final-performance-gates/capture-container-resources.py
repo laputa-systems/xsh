@@ -94,7 +94,7 @@ def atomic_json(path: Path, value: object) -> None:
     os.replace(temporary, path)
 
 
-def run(output_path: Path, command: list[str]) -> int:
+def run(output_path: Path, command: list[str], *, resources_only: bool = False) -> int:
     if not command:
         raise ValueError("a command is required after --")
     initial = snapshot()
@@ -113,7 +113,7 @@ def run(output_path: Path, command: list[str]) -> int:
                 pass
 
     previous = {signum: signal.signal(signum, forward_signal) for signum in (signal.SIGINT, signal.SIGTERM)}
-    started = time.perf_counter_ns()
+    started = None if resources_only else time.perf_counter_ns()
     status: int | None = None
     spawn_error: str | None = None
     try:
@@ -149,16 +149,18 @@ def run(output_path: Path, command: list[str]) -> int:
         for signum, handler in previous.items():
             signal.signal(signum, handler)
 
-    elapsed = time.perf_counter_ns() - started
+    elapsed = time.perf_counter_ns() - started if started is not None else None
+    timing_accepted = not resources_only and status == 0 and received_signal is None and spawn_error is None
     cgroup = final["cgroup"]
     receipt = {
         "schema_version": 1,
+        "execution_mode": "resources-only" if resources_only else "timed",
         "command": command,
         "status": status,
         "spawn_error": spawn_error,
         "received_signal": signal.Signals(received_signal).name if received_signal else None,
-        "wall_ns": elapsed if status == 0 and received_signal is None else None,
-        "timing_discarded": status != 0 or received_signal is not None,
+        "wall_ns": elapsed if timing_accepted else None,
+        "timing_discarded": not timing_accepted,
         "resource_sample_interval_ms": int(SAMPLE_INTERVAL_SECONDS * 1000),
         "process_rss_peak_bytes": rss_peak,
         "process_rss_peak_method": "sum of resident pages for visible container processes, sampled every 100 ms",
@@ -175,11 +177,15 @@ def run(output_path: Path, command: list[str]) -> int:
 
 
 def main() -> int:
-    if len(sys.argv) < 4 or sys.argv[2] != "--":
-        print("usage: capture-container-resources.py OUTPUT.json -- COMMAND...", file=sys.stderr)
+    arguments = sys.argv[1:]
+    resources_only = arguments[:1] == ["--resources-only"]
+    if resources_only:
+        arguments = arguments[1:]
+    if len(arguments) < 3 or arguments[1] != "--":
+        print("usage: capture-container-resources.py [--resources-only] OUTPUT.json -- COMMAND...", file=sys.stderr)
         return 2
     try:
-        return run(Path(sys.argv[1]), sys.argv[3:])
+        return run(Path(arguments[0]), arguments[2:], resources_only=resources_only)
     except Exception as error:
         print(f"container resource observer failed: {error}", file=sys.stderr)
         return 125

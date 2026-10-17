@@ -452,7 +452,7 @@ def perf_gate_check(after: bool = False) -> dict[str, Any]:
         return {"command": command, "exit_code": None, "stdout": "", "stderr": str(error)}
 
 
-def resource_receipt(path: Path) -> dict[str, Any]:
+def resource_receipt(path: Path, *, resources_only: bool = False) -> dict[str, Any]:
     if not path.is_file():
         raise ObserverFailure(f"container resource receipt is missing: {path}")
     value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_json_object)
@@ -472,8 +472,25 @@ def resource_receipt(path: Path) -> dict[str, Any]:
         raise ObserverFailure("container resource receipt lacks memory OOM event counters")
     if not isinstance(cgroup["memory_swap_events"], dict):
         raise ObserverFailure("container resource receipt lacks swap event counters")
-    if value.get("status") != 0 or value.get("timing_discarded") is not False:
+    expected_mode = "resources-only" if resources_only else "timed"
+    if value.get("execution_mode") != expected_mode:
+        raise ObserverFailure("container resource receipt execution mode does not match the observer")
+    if (
+        type(value.get("status")) is not int
+        or value["status"] != 0
+        or value.get("received_signal") is not None
+        or value.get("spawn_error") is not None
+    ):
         raise ObserverFailure("container command or its resource observer did not complete successfully")
+    if resources_only:
+        if value.get("timing_discarded") is not True or value.get("wall_ns") is not None:
+            raise ObserverFailure("resources-only container receipt must discard timing")
+    elif (
+        value.get("timing_discarded") is not False
+        or type(value.get("wall_ns")) is not int
+        or value["wall_ns"] < 0
+    ):
+        raise ObserverFailure("timed container receipt lacks an accepted command duration")
     if not isinstance(value.get("process_rss_peak_bytes"), int) or value["process_rss_peak_bytes"] <= 0:
         raise ObserverFailure("container resource receipt lacks a sampled RSS peak")
     return {"path": str(path), "sha256": sha256(path), "receipt": value}
@@ -503,8 +520,8 @@ def parse_cpu_set(value: object) -> list[int]:
     return sorted(cpus)
 
 
-def validate_gate_batch_resources(path: Path, expected_cpuset: str) -> dict[str, Any]:
-    observed = resource_receipt(path)
+def validate_gate_batch_resources(path: Path, expected_cpuset: str, *, resources_only: bool = False) -> dict[str, Any]:
+    observed = resource_receipt(path, resources_only=resources_only)
     cgroup = observed["receipt"]["cgroup_limits_and_peaks"]
     try:
         memory_max = int(cgroup["memory_max"])
@@ -636,7 +653,7 @@ def finalize_normal_stage(
     stage["container_resources"] = None
     resource_error = None
     try:
-        stage["container_resources"] = resource_receipt(resource_file)
+        stage["container_resources"] = resource_receipt(resource_file, resources_only=resources_only)
     except (OSError, ValueError, ObserverFailure) as error:
         resource_error = str(error)
     stage["container_resource_error"] = resource_error
@@ -809,6 +826,7 @@ def lint_command(
     output_dir: Path,
     cpus: str,
     run_id: str,
+    resources_only: bool = False,
 ) -> list[str]:
     observer = "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py"
     cidfile = output_dir / "container.cid"
@@ -836,7 +854,9 @@ def lint_command(
         "-e", "XSH_BIN=/release/xsh",
         "-e", "PATH=/release:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         NATIVE_IMAGE_ID,
-        "/usr/bin/python3", observer, resource_in_container, "--", "/release/xsht", "lint",
+        "/usr/bin/python3", observer,
+        *( ["--resources-only"] if resources_only else [] ),
+        resource_in_container, "--", "/release/xsht", "lint",
     ]
 
 
@@ -923,7 +943,16 @@ def gate_target_build_input(requested: Path | None, actual: Path, reused: bool) 
     }
 
 
-def prepare_docker_shim(output: Path, environment: dict[str, str], docker: str, run_id: str, batch_stage: Path, cpuset_cpus: str) -> Path:
+def prepare_docker_shim(
+    output: Path,
+    environment: dict[str, str],
+    docker: str,
+    run_id: str,
+    batch_stage: Path,
+    cpuset_cpus: str,
+    *,
+    resources_only: bool = False,
+) -> Path:
     shim_dir = output / "host-bin"
     shim_dir.mkdir()
     shim_path = shim_dir / "docker"
@@ -937,6 +966,7 @@ def prepare_docker_shim(output: Path, environment: dict[str, str], docker: str, 
     output_relative = manifest_relative_output(batch_stage / "container-resources.json", ROOT)
     environment["XSH_OBSERVER_CONTAINER_RESOURCE"] = "/work/" + output_relative
     environment["XSH_OBSERVER_CPUSET"] = cpuset_cpus
+    environment["XSH_OBSERVER_RESOURCES_ONLY"] = "1" if resources_only else "0"
     environment["PATH"] = str(shim_dir) + os.pathsep + environment["PATH"]
     return shim_path
 
@@ -1013,11 +1043,15 @@ def run(args: argparse.Namespace) -> int:
         "DOCKER_PLATFORM": "linux/amd64",
     })
     host_env = dict(baseline_environment)
-    batch_shim = prepare_docker_shim(output, host_env, docker, run_id, batch_dir, lint_cpus)
+    batch_shim = prepare_docker_shim(
+        output, host_env, docker, run_id, batch_dir, lint_cpus, resources_only=args.resources_only,
+    )
     batch_env = dict(host_env)
     batch_env["PATH"] = str(batch_shim.parent) + os.pathsep + os.environ.get("PATH", "")
     profile_before = selected["binaries"]
-    lint_command_argv = lint_command(docker, tree, Path(selected["directory"]), lint_dir, lint_cpus, run_id)
+    lint_command_argv = lint_command(
+        docker, tree, Path(selected["directory"]), lint_dir, lint_cpus, run_id, resources_only=args.resources_only,
+    )
     batch_command_argv = gate_batch_command()
     receipt_path = output / "receipt.json"
     receipt: dict[str, Any] = {
@@ -1129,7 +1163,9 @@ def run(args: argparse.Namespace) -> int:
                     "selected_release_binaries": sealed_binary_set(Path(selected["directory"]), profile_before),
                     "gate_batch_release_binaries": binary_set(gate_target_binaries),
                     "docker_commands": read_docker_observer_log(batch_dir / "docker-commands.jsonl"),
-                    "gate_batch_resource_limits": validate_gate_batch_resources(gate_resource_path, lint_cpus),
+                    "gate_batch_resource_limits": validate_gate_batch_resources(
+                        gate_resource_path, lint_cpus, resources_only=args.resources_only,
+                    ),
                     "profile_qualification_tool": validate_qualification_tool(selected),
                 },
                 resources_only=args.resources_only,

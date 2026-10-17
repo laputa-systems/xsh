@@ -30,7 +30,7 @@ container_resources = load_module("capture_container_resources", HERE / "capture
 docker_shim = load_module("docker_observer_shim", HERE / "docker-observer-shim.py")
 
 
-def successful_resource_receipt(path: Path) -> None:
+def successful_resource_receipt(path: Path, *, resources_only: bool = False) -> None:
     cgroup = {
         "memory_peak": "4096",
         "memory_max": str(24 * 1024**3),
@@ -43,8 +43,12 @@ def successful_resource_receipt(path: Path) -> None:
     }
     path.write_text(json.dumps({
         "schema_version": 1,
+        "execution_mode": "resources-only" if resources_only else "timed",
         "status": 0,
-        "timing_discarded": False,
+        "spawn_error": None,
+        "received_signal": None,
+        "wall_ns": None if resources_only else 1,
+        "timing_discarded": resources_only,
         "process_rss_peak_bytes": 2048,
         "cgroup_limits_and_peaks": cgroup,
     }) + "\n", encoding="utf-8")
@@ -56,7 +60,7 @@ def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0), re
         stage_dir = root / "stage"
         stage_dir.mkdir()
         resource_path = stage_dir / "container-resources.json"
-        successful_resource_receipt(resource_path)
+        successful_resource_receipt(resource_path, resources_only=resources_only)
         process = MagicMock()
         process.wait.return_value = status
         cleanup = {"resolved": True, "container_ids": [], "commands": []}
@@ -92,6 +96,69 @@ def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0), re
             "receipt_exists": (stage_dir / "receipt.json").is_file(),
             "receipt": json.loads((stage_dir / "receipt.json").read_text(encoding="utf-8")),
         }
+
+
+def assert_container_resource_timing_modes() -> None:
+    cgroup = {
+        "memory_peak": "4096",
+        "memory_max": str(24 * 1024**3),
+        "memory_swap_peak": "0",
+        "memory_swap_max": "0",
+        "memory_events": {"oom": 0, "oom_kill": 0},
+        "memory_swap_events": {"high": 0},
+        "cpu_max": "1200000 100000",
+        "cpuset_cpus_effective": "0-11",
+    }
+    sample = {"process_rss_sum_bytes": 2048, "cgroup": cgroup}
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
+        output = Path(temporary) / "container-resources.json"
+        process = MagicMock()
+        process.wait.return_value = 0
+        process.poll.return_value = 0
+        with (
+            patch.object(container_resources, "snapshot", side_effect=[sample, sample]),
+            patch.object(container_resources.subprocess, "Popen", return_value=process) as popen,
+            patch.object(container_resources.time, "perf_counter_ns", side_effect=[100, 250]) as clock,
+        ):
+            assert container_resources.run(output, ["synthetic-command"]) == 0
+        timed = json.loads(output.read_text(encoding="utf-8"))
+        assert timed["execution_mode"] == "timed"
+        assert timed["wall_ns"] == 150
+        assert timed["timing_discarded"] is False
+        assert observer.resource_receipt(output)["receipt"] == timed
+        assert clock.call_count == 2
+        assert popen.call_count == 1
+
+        with (
+            patch.object(container_resources, "snapshot", side_effect=[sample, sample]),
+            patch.object(container_resources.subprocess, "Popen", return_value=process) as popen,
+            patch.object(container_resources.time, "perf_counter_ns", side_effect=AssertionError("resources-only mode must not read a timing clock")) as clock,
+        ):
+            assert container_resources.run(output, ["synthetic-command"], resources_only=True) == 0
+        resource_only = json.loads(output.read_text(encoding="utf-8"))
+        assert resource_only["execution_mode"] == "resources-only"
+        assert resource_only["wall_ns"] is None
+        assert resource_only["timing_discarded"] is True
+        assert observer.resource_receipt(output, resources_only=True)["receipt"] == resource_only
+        assert clock.call_count == 0
+        assert popen.call_count == 1
+        try:
+            observer.resource_receipt(output)
+        except observer.ObserverFailure:
+            pass
+        else:
+            raise AssertionError("resources-only container receipts must not qualify timed observers")
+
+        for field, value in (("status", False), ("received_signal", "SIGTERM"), ("spawn_error", "missing command")):
+            rejected = dict(resource_only)
+            rejected[field] = value
+            output.write_text(json.dumps(rejected), encoding="utf-8")
+            try:
+                observer.resource_receipt(output, resources_only=True)
+            except observer.ObserverFailure:
+                pass
+            else:
+                raise AssertionError(f"resource-only receipt must reject invalid {field}")
 
 
 def assert_helper_pin_detects_drift() -> None:
@@ -304,10 +371,21 @@ def assert_batch_shim_cpu_affinity() -> None:
         environment = {"PATH": "/usr/bin"}
         cpuset = ",".join(str(cpu) for cpu in range(12))
         with patch.object(observer, "manifest_relative_output", return_value=".work/test/container-resources.json"):
-            shim_path = observer.prepare_docker_shim(output, environment, "/usr/bin/docker", "synthetic-run", batch_stage, cpuset)
+            shim_path = observer.prepare_docker_shim(
+                output, environment, "/usr/bin/docker", "synthetic-run", batch_stage, cpuset, resources_only=True,
+            )
         assert shim_path.is_file()
         assert environment["XSH_OBSERVER_CPUSET"] == cpuset
         assert environment["XSH_OBSERVER_REAL_DOCKER"] == "/usr/bin/docker"
+        assert environment["XSH_OBSERVER_RESOURCES_ONLY"] == "1"
+        lint = observer.lint_command(
+            "/usr/bin/docker", observer.ROOT, Path("/release"), output, cpuset, "synthetic-run", resources_only=True,
+        )
+        image_at = lint.index(observer.NATIVE_IMAGE_ID)
+        assert lint[image_at + 1:] == [
+            "/usr/bin/python3", "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py",
+            "--resources-only", "/observer/container-resources.json", "--", "/release/xsht", "lint",
+        ]
 
 
 def assert_batch_child_owns_cargo_lock() -> None:
@@ -426,6 +504,7 @@ def main() -> None:
     assert_gate_target_cli_forwarding()
     assert_batch_shim_cpu_affinity()
     assert_batch_child_owns_cargo_lock()
+    assert_container_resource_timing_modes()
 
     args = [
         "run", "--rm", "--init", "--platform", "linux/amd64", "-v", "/source:/work",
@@ -444,6 +523,20 @@ def main() -> None:
     assert transformed[image_at + 1:] == [
         "/usr/bin/python3", "/work/observer.py", "/work/resource.json", "--",
         "/root/.cargo/bin/cargo", *docker_shim.GATE_BATCH_TAIL[1:],
+    ]
+    resource_only_transformed = docker_shim.instrument_batch_argv(
+        args,
+        cidfile="/evidence/container.cid",
+        owner="synthetic-run",
+        container_observer="/work/observer.py",
+        container_resource_file="/work/resource.json",
+        cpuset_cpus=",".join(str(cpu) for cpu in range(12)),
+        resources_only=True,
+    )
+    assert resource_only_transformed is not None
+    resource_image_at = resource_only_transformed.index(docker_shim.NATIVE_IMAGE_ID)
+    assert resource_only_transformed[resource_image_at + 1:resource_image_at + 5] == [
+        "/usr/bin/python3", "/work/observer.py", "--resources-only", "/work/resource.json",
     ]
     assert transformed[1:5] == [
         "--cidfile", "/evidence/container.cid", "--label", "org.xsh.final-performance.owner=synthetic-run",
