@@ -1,7 +1,7 @@
 ##! Validates lsipc options, resolves source-backed columns and renders report rows.
 
-## Reports invalid lsipc values, empty columns or excess output columns.
-export error OptionError = Invalid(detail: Str) | EmptyColumn | TooManyColumns
+## Reports lsipc usage errors, invalid values, empty columns or excess columns.
+export error OptionError = Invalid(detail: Str) | Usage(detail: Str) | EmptyColumn | TooManyColumns
 
 ## Holds the options accepted by the lsipc command parser.
 export type Options = {
@@ -80,7 +80,7 @@ const ALL_COLUMNS = [
 ]
 const GENERIC_COLUMNS = ["KEY", "ID", "OWNER", "PERMS", "CUID", "CUSER", "CGID", "CGROUP", "UID", "USER", "GID", "GROUP", "CTIME"]
 const HEX = "0123456789abcdef"
-const RIGHT_COLUMNS = ["ID", "OWNER", "PERMS", "CUID", "CGID", "UID", "GID", "CTIME", "MTIME", "USEDBYTES", "SEND", "RECV", "LSPID", "LRPID", "SIZE", "NATTCH", "ATTACH", "DETACH", "CPID", "LPID", "NSEMS", "OTIME", "LIMIT", "USED", "USE%", "SVAL"]
+const RIGHT_COLUMNS = ["OWNER", "PERMS", "CUID", "CGID", "UID", "GID", "CTIME", "MTIME", "USEDBYTES", "SEND", "RECV", "LSPID", "LRPID", "SIZE", "NATTCH", "ATTACH", "DETACH", "CPID", "LPID", "NSEMS", "OTIME", "LIMIT", "USED", "USE%", "SVAL"]
 const PRETTY_COLUMNS = [
   {column: "KEY", label: "Key"}, {column: "ID", label: "ID"}, {column: "OWNER", label: "Owner"},
   {column: "PERMS", label: "Permissions"}, {column: "CUID", label: "Creator UID"}, {column: "CUSER", label: "Creator user"},
@@ -597,7 +597,18 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
   while index < argv.len() {
     let argument = argv[index]
     if argument == "--" { break }
+    if argument.starts_with("--") and option_name(argument) == null {
+      let body = argument.byte_slice(2)
+      let typed = body.split("=")[0]
+      let matches = [name for name in LONG_OPTIONS if name.starts_with(typed)]
+      if matches.len() > 1 { return Err(OptionError.Usage(detail: f"option is ambiguous: {body}")) }
+      return Err(OptionError.Usage(detail: f"unrecognized option: {body}"))
+    }
     if let name = option_name(argument) {
+      let has_value = argument.find("=") != null
+      let requires_value = name in ["id", "name", "output", "time-format"]
+      if has_value and !requires_value { return Err(OptionError.Usage(detail: f"option does not take an argument: {name}")) }
+      if requires_value and !has_value and index + 1 >= argv.len() { return Err(OptionError.Usage(detail: f"option requires an argument: {name}")) }
       if name == "help" or name == "version" { break }
       if let code = option_code(name) {
         let group_index = conflict_group(code)
@@ -658,6 +669,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
           "y" => "shell"
           else => ""
         }
+        if name.is_empty() { return Err(OptionError.Usage(detail: f"unrecognized option: {code}")) }
         if let mapped = option_code(name) {
           let group_index = conflict_group(mapped)
           if group_index >= 0 {
@@ -670,6 +682,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
           }
         }
         if code in ["i", "N", "o"] {
+          if offset + 1 == shorts.byte_len() and index + 1 >= argv.len() { return Err(OptionError.Usage(detail: f"option requires an argument: {code}")) }
           let value = if offset + 1 < shorts.byte_len() { shorts.byte_slice(offset + 1) } else { index += 1; argv[index] }
           if code == "i" {
             let _ = parse_id(value)?

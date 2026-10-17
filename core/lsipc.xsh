@@ -507,6 +507,7 @@ proc global_rows(selection: report.Selection) [fs, process, time, env, error] ->
 proc report_failure(failure: report.OptionError) [process, env] -> Unit {
   match failure {
     report.OptionError.Invalid {detail} => { gnu.error(detail); exit 1 }
+    report.OptionError.Usage {detail} => { gnu.usage_error(detail) }
     report.OptionError.EmptyColumn => { exit 1 }
     report.OptionError.TooManyColumns => { exit 1 }
   }
@@ -530,6 +531,8 @@ proc output_width() [env] -> Int {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
+  let permute = env.get("POSIXLY_CORRECT") is Err(_)
+  if let Err(failure) = report.validate_cli_options(argv, permute) { report_failure(failure); return }
   let options: report.Options = cli.applet(argv, {
     gnu: {status: 1},
     shmems: {form: "-m --shmems", default: false},
@@ -559,8 +562,6 @@ proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
     version: {form: "-V --version", default: false, stop: true},
     operands: {form: "...ARG"},
   })?
-  let permute = env.get("POSIXLY_CORRECT") is Err(_)
-  if let Err(failure) = report.validate_cli_options(argv, permute) { report_failure(failure); return }
   if options.help { gnu.help(help_text()); return }
   if options.version { gnu.version("lsipc"); return }
   let selection = match report.resolve(options, argv, permute) {
