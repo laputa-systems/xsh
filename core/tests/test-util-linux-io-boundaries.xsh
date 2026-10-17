@@ -106,17 +106,26 @@ proc closed_reader(s: uu.Scene, util: Str, args: List[Path], is_reference: Bool,
   Ok({termination: termination, stdout: b"", stderr: stderr_bytes})
 }
 
-proc assert_output_failure_parity(s: uu.Scene, util: Str, args: List[Path], output_stream: Str) [fs, process, env, error] -> Result[Unit, Error] {
+proc output_failure_mismatches(s: uu.Scene, util: Str, args: List[Path], output_stream: Str) [fs, process, env, error] -> Result[List[Str], Error] {
   let reference = output_failure(s, util, args, true, output_stream)?
   let candidate = output_failure(s, util, args, false, output_stream)?
-  assert reference.termination != ul.Exited(0), util
-  if output_stream == "stderr" {
-    assert reference.stdout.is_empty(), util
+  var mismatches: List[Str] = []
+  if reference.termination == ul.Exited(0) {
+    mismatches += [f"{util} {output_stream}: reference exited successfully"]
   }
-  assert candidate.termination == reference.termination, util
-  assert candidate.stdout == reference.stdout, util
-  assert candidate.stderr == reference.stderr, util
-  Ok()
+  if output_stream == "stderr" and ! reference.stdout.is_empty() {
+    mismatches += [f"{util} stderr: reference unexpectedly wrote stdout {reference.stdout.utf8()?}"]
+  }
+  if candidate.termination != reference.termination {
+    mismatches += [f"{util} {output_stream}: reference {termination_label(reference.termination)}; candidate {termination_label(candidate.termination)}"]
+  }
+  if candidate.stdout != reference.stdout {
+    mismatches += [f"{util} {output_stream}: stdout differs; reference={reference.stdout.utf8()?}; candidate={candidate.stdout.utf8()?}"]
+  }
+  if candidate.stderr != reference.stderr {
+    mismatches += [f"{util} {output_stream}: stderr differs; reference={reference.stderr.utf8()?}; candidate={candidate.stderr.utf8()?}"]
+  }
+  Ok(mismatches)
 }
 
 test test_util_linux_stdout_and_stderr_write_failures_match_reference { |ctx|
@@ -139,13 +148,17 @@ test test_util_linux_stdout_and_stderr_write_failures_match_reference { |ctx|
     {util: "mountpoint", args: [p"--show", p"/proc"], error_args: [p"--not-an-option"]},
     {util: "namei", args: [p"--", s.root], error_args: [p"-Z"]},
   ]
+  var write_mismatches: List[Str] = []
   for command in commands {
-    assert_output_failure_parity(s, command.util, command.args, "stdout")?
+    write_mismatches.extend(output_failure_mismatches(s, command.util, command.args, "stdout")?)
+    write_mismatches.extend(output_failure_mismatches(s, command.util, command.error_args, "stderr")?)
+  }
+  assert write_mismatches.is_empty(), write_mismatches.join("\n")
+  for command in commands {
     let reference = ul.reference_paths(s, command.util, command.error_args, timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
     let candidate = uu.invoke_paths(s, command.util, command.error_args, timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
     ul.compare(reference, candidate)
     assert reference.status != 0 and reference.stdout.is_empty() and ! reference.stderr.is_empty(), command.util
-    assert_output_failure_parity(s, command.util, command.error_args, "stderr")?
   }
 }
 
