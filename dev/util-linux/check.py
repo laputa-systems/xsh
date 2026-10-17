@@ -32,11 +32,11 @@ PRODUCT_HASHES = {
     "xsh-test-helper": "cf8005649749a43cc22aa5e40092a8f90365efc370b857fce5de2004adb2e621",
 }
 
-RUNTIME_SOURCE = "b65669bf76ae79a1ea2015cb9e2cef752f43620b"
+RUNTIME_SOURCE = "2ea893a3b0d1777c008ac798f6c793e98c4a6079"
 RUNTIME_HASHES = {
-    "xsh": "6b0747950bba3147c4b2aa0aa010b7a3057a82b280f766c25be0f0acf4049af2",
-    "xsht": "10bdbcb16ef16f56a481a27bc105fecd16d45ab682781606c815354d4f9c01a9",
-    "xsh-test-helper": "4414efbc1a0091f0dba080a445db865561524fa4ac91b5f8beb834d2341c6c64",
+    "xsh": "83d0f8ace6a5ee7bfe4fe088adbbf8e80f9b0a39d6e56d27c7a3bda5237dd82a",
+    "xsht": "72a6a9e6bfdb1506c419e89e006acbc5a7981a6d4d6f671cda05cb90774ab144",
+    "xsh-test-helper": "b8c818801b4e1a4b770ee228cdc59b5178f11bc2078ed5c3c13f1187af031692",
 }
 
 
@@ -184,7 +184,7 @@ def protected_products() -> Path:
     untracked = subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard", "--", *inputs], cwd=ROOT)
     if changed or untracked:
         raise ValueError("qualified products cannot execute changed Rust inputs")
-    directory = original_root(ROOT) / ".work/wt/util-linux-foundation/.work/tmp/ipc-api-target/x86_64-unknown-linux-musl/verification"
+    directory = original_root(ROOT) / ".work/protected-products" / f"util-linux-runtime-{RUNTIME_SOURCE}"
     return verify_product_hashes(directory, RUNTIME_HASHES)
 
 
