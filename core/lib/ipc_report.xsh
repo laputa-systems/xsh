@@ -95,6 +95,7 @@ const PRETTY_COLUMNS = [
   {column: "OTIME", label: "Last operation"}, {column: "RESOURCE", label: "Resource"}, {column: "DESCRIPTION", label: "Description"},
   {column: "LIMIT", label: "Limit"}, {column: "USED", label: "Used"}, {column: "USE%", label: "Use"}, {column: "SVAL", label: "Value"},
 ]
+const ARGUMENT_OPTIONS = ["id", "name", "output", "time-format"]
 const LONG_OPTIONS = [
   "bytes", "creator", "export", "global", "help", "id", "json", "list", "name", "newline", "noheadings", "notruncate", "numeric-perms", "output", "posix-mqueues", "posix-semaphores", "posix-shmems", "queues", "raw", "semaphores", "shmems", "time", "time-format", "version", "shell",
 ]
@@ -386,34 +387,50 @@ pure option_name(argument: Str) -> Str? {
   if matching.len() == 1 { matching[0] } else { null }
 }
 
+const SHORT_OPTIONS = [
+  {code: "b", name: "bytes"},
+  {code: "c", name: "creator"},
+  {code: "e", name: "export"},
+  {code: "g", name: "global"},
+  {code: "h", name: "help"},
+  {code: "i", name: "id"},
+  {code: "J", name: "json"},
+  {code: "l", name: "list"},
+  {code: "m", name: "shmems"},
+  {code: "M", name: "posix-shmems"},
+  {code: "n", name: "newline"},
+  {code: "N", name: "name"},
+  {code: "o", name: "output"},
+  {code: "P", name: "numeric-perms"},
+  {code: "Q", name: "posix-mqueues"},
+  {code: "q", name: "queues"},
+  {code: "r", name: "raw"},
+  {code: "S", name: "posix-semaphores"},
+  {code: "s", name: "semaphores"},
+  {code: "t", name: "time"},
+  {code: "V", name: "version"},
+  {code: "y", name: "shell"},
+]
+
 pure option_code(name: Str) -> Str? {
-  match name {
-    "json" => "J"
-    "export" => "e"
-    "list" => "l"
-    "newline" => "n"
-    "raw" => "r"
-    "name" => "N"
-    "global" => "g"
-    "id" => "i"
-    "creator" => "c"
-    "output" => "o"
-    "time" => "t"
-    "posix-shmems" => "M"
-    "posix-mqueues" => "Q"
-    "posix-semaphores" => "S"
-    "shmems" => "m"
-    "queues" => "q"
-    "semaphores" => "s"
-    else => null
+  for option in SHORT_OPTIONS {
+    if option.name == name { return option.code }
   }
+  null
+}
+
+pure short_option_name(code: Str) -> Str {
+  for option in SHORT_OPTIONS {
+    if option.code == code { return option.name }
+  }
+  ""
 }
 
 pure conflict_group(code: Str) -> Int {
   return 0 when code in ["J", "e", "l", "n", "r"]
   return 1 when code in ["N", "g", "i"]
   return 2 when code in ["c", "o", "t"]
-  return 3 when code in ["M", "Q", "S", "m", "q", "s"]
+  return 3 when code in ["m", "q", "s"]
   -1
 }
 
@@ -439,20 +456,15 @@ pure option_display(code: Str) -> Str {
   }
 }
 
-pure id_columns(selection: Selection) -> List[Str] {
+pure id_columns(selection: Selection, resource_order: List[Str]) -> List[Str] {
   if selection.global and !selection.explicit_resources {
     return GLOBAL_COLUMNS
   }
   var columns: List[Str] = []
-  for resource in selection.resources {
+  for resource in resource_order {
     for mode in RESOURCE_OPTIONS {
       if mode.name == resource {
-        if selection.time and !selection.global and resource == "shmems" {
-          columns = columns.extend(mode.columns[0..mode.columns.len() - 1])
-          columns = columns.extend(["ATTACH", "DETACH", "COMMAND"])
-        } else {
-          columns = columns.extend(mode.columns)
-        }
+        columns = columns.extend(mode.columns)
       }
     }
   }
@@ -465,7 +477,12 @@ pure id_columns(selection: Selection) -> List[Str] {
   }
   if selection.time {
     if "queues" in selection.resources { columns = columns.extend(["SEND", "RECV", "CTIME"]) }
-    if selection.global and "shmems" in selection.resources { columns = columns.extend(["ATTACH", "DETACH"]) }
+    if "shmems" in selection.resources {
+      let command_last = !columns.is_empty() and columns[-1] == "COMMAND"
+      if command_last { columns = columns[0..columns.len() - 1] }
+      columns = columns.extend(["ATTACH", "DETACH"])
+      if command_last { columns = columns.extend(["COMMAND"]) }
+    }
     if "semaphores" in selection.resources { columns = columns.extend(["OTIME", "CTIME"]) }
   }
   columns
@@ -500,7 +517,7 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
   let body = if append { raw.byte_slice(1) } else { raw }
   if body.is_empty() { return Err(OptionError.EmptyColumn()) }
   let names = body.split(",")
-  var columns: List[Str] = if append { id_columns(selection) } else { [] }
+  var columns: List[Str] = if append { selection.columns } else { [] }
   for index in range(names.len()) {
     let source = if index + 2 == names.len() and body.ends_with(",") { names[index] + "," } else { names[index] }
     if columns.len() >= ALL_COLUMNS.len() * 2 {
@@ -528,21 +545,21 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
   Ok(columns)
 }
 
-pure last_option_has_argument(argv: List[Str], permute: Bool) -> Bool {
-  var has_argument = false
+pure option_names(argv: List[Str], permute: Bool) -> List[Str] {
+  var names: List[Str] = []
   var index = 0
   while index < argv.len() {
     let argument = argv[index]
     if argument == "--" { break }
     if let name = option_name(argument) {
-      has_argument = name in ["id", "name", "output", "time-format"]
-      if has_argument and argument.find("=") == null { index += 1 }
+      names += [name]
+      if name in ARGUMENT_OPTIONS and argument.find("=") == null { index += 1 }
     } else if argument.starts_with("-") and argument != "-" {
       let shorts = argument.byte_slice(1)
       for offset in range(shorts.byte_len()) {
-        let code = shorts.byte_slice(offset, length: 1)
-        has_argument = code in ["i", "N", "o"]
-        if has_argument {
+        let name = short_option_name(shorts.byte_slice(offset, length: 1))
+        names += [name]
+        if name in ARGUMENT_OPTIONS {
           if offset + 1 == shorts.byte_len() { index += 1 }
           break
         }
@@ -552,7 +569,7 @@ pure last_option_has_argument(argv: List[Str], permute: Bool) -> Bool {
     }
     index += 1
   }
-  has_argument
+  names
 }
 
 pure select(options: Options, argv: List[Str], permute: Bool) -> Result[Selection, OptionError] {
@@ -562,6 +579,13 @@ pure select(options: Options, argv: List[Str], permute: Bool) -> Result[Selectio
     }
   }
   let id = parse_id(options.id)?
+  let parsed_names = option_names(argv, permute)
+  var resource_order: List[Str] = []
+  for name in parsed_names {
+    for mode in RESOURCE_OPTIONS {
+      if mode.option == name.replace("-", with: "_") { resource_order += [mode.name] }
+    }
+  }
   var resources: List[Str] = []
   for mode in RESOURCE_OPTIONS {
     let selected = match mode.option {
@@ -612,12 +636,14 @@ pure select(options: Options, argv: List[Str], permute: Bool) -> Result[Selectio
     time: options.time,
     time_format: time_format,
   }
+  selection = {...selection, columns: id_columns(selection, resource_order)}
+  let last_has_argument = !parsed_names.is_empty() and parsed_names[-1] in ARGUMENT_OPTIONS
   let columns = if let output = options.output {
     output_columns(output, selection)?
-  } else if pretty and !options.creator and !options.time and !last_option_has_argument(argv, permute) {
+  } else if pretty and !options.creator and !options.time and !last_has_argument {
     ALL_COLUMNS
   } else {
-    id_columns(selection)
+    selection.columns
   }
   selection = {...selection, columns: columns}
   Ok(selection)
@@ -639,7 +665,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
     }
     if let name = option_name(argument) {
       let has_value = argument.find("=") != null
-      let requires_value = name in ["id", "name", "output", "time-format"]
+      let requires_value = name in ARGUMENT_OPTIONS
       if has_value and !requires_value { return Err(OptionError.Usage(detail: f"option does not take an argument: {name}")) }
       if requires_value and !has_value and index + 1 >= argv.len() { return Err(OptionError.Usage(detail: f"option requires an argument: {name}")) }
       if name == "help" or name == "version" { break }
@@ -679,29 +705,7 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
           stop_options = true
           break
         }
-        let name = match code {
-          "b" => "bytes"
-          "c" => "creator"
-          "e" => "export"
-          "g" => "global"
-          "i" => "id"
-          "J" => "json"
-          "l" => "list"
-          "m" => "shmems"
-          "M" => "posix-shmems"
-          "n" => "newline"
-          "N" => "name"
-          "o" => "output"
-          "P" => "numeric-perms"
-          "Q" => "posix-mqueues"
-          "q" => "queues"
-          "r" => "raw"
-          "S" => "posix-semaphores"
-          "s" => "semaphores"
-          "t" => "time"
-          "y" => "shell"
-          else => ""
-        }
+        let name = short_option_name(code)
         if name.is_empty() { return Err(OptionError.Usage(detail: f"unrecognized option: {code}")) }
         if let mapped = option_code(name) {
           let group_index = conflict_group(mapped)
