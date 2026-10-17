@@ -164,13 +164,81 @@ pure block_entry(name: Str, prefix: Str) -> Entry? {
   null
 }
 
+pure memory_version_digit(byte: Int) -> Bool {
+  byte >= 48 and byte <= 57
+}
+
+pure memory_version_digit_offset(byte: Int) -> Int {
+  if byte < 48 { byte + 208 } else { byte - 48 }
+}
+
+pure memory_version_compare(left: Str, right: Str) -> Int {
+  let left_bytes = left.bytes()
+  let right_bytes = right.bytes()
+  var index = 0
+  var digit_start = 0
+  var zero_prefix = true
+  while (left_bytes.byte_at(index) ?? 0) == (right_bytes.byte_at(index) ?? 0) {
+    let byte = left_bytes.byte_at(index) ?? 0
+    return 0 when byte == 0
+    if ! memory_version_digit(byte) {
+      digit_start = index + 1
+      zero_prefix = true
+    } else if byte != 48 {
+      zero_prefix = false
+    }
+    index += 1
+  }
+  let left_byte = left_bytes.byte_at(index) ?? 0
+  let right_byte = right_bytes.byte_at(index) ?? 0
+  let left_start = left_bytes.byte_at(digit_start) ?? 0
+  let right_start = right_bytes.byte_at(digit_start) ?? 0
+  if left_start != 48 and right_start != 48 {
+    var tail = index
+    while memory_version_digit(left_bytes.byte_at(tail) ?? 0) {
+      if ! memory_version_digit(right_bytes.byte_at(tail) ?? 0) { return 1 }
+      tail += 1
+    }
+    if memory_version_digit(right_bytes.byte_at(tail) ?? 0) { return -1 }
+  } else if zero_prefix and digit_start < index and (memory_version_digit(left_byte) or memory_version_digit(right_byte)) {
+    return memory_version_digit_offset(left_byte) - memory_version_digit_offset(right_byte)
+  }
+  left_byte - right_byte
+}
+
+pure memory_version_before_or_equal(left: Entry, right: Entry) -> Bool {
+  let order = memory_version_compare(left.name, right.name)
+  order < 0 or (order == 0 and left.name <= right.name)
+}
+
+pure memory_version_sort(entries: List[Entry]) -> List[Entry] {
+  return entries when entries.len() <= 1
+  let middle = entries.len() / 2
+  let left = memory_version_sort(entries[..middle])
+  let right = memory_version_sort(entries[middle..])
+  var left_index = 0
+  var right_index = 0
+  let ordered: List[Entry] = collect {
+    while left_index < left.len() and right_index < right.len() {
+      if memory_version_before_or_equal(left[left_index], right[right_index]) {
+        yield left[left_index]
+        left_index += 1
+      } else {
+        yield right[right_index]
+        right_index += 1
+      }
+    }
+  }
+  ordered + left[left_index..] + right[right_index..]
+}
+
 pure memory_entries(paths: List[Path]) -> List[Entry] {
   let entries = collect {
     for item_path in paths {
       if let entry = block_entry(item_path.name(), "memory") { yield entry }
     }
   }
-  entries |> sort-by .index
+  memory_version_sort(entries)
 }
 
 pure hex_digit_byte(value: Int) -> Int? {
