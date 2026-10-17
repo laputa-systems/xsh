@@ -50,13 +50,57 @@ proc unknown_long_option(argv: List[Str]) [env] -> Str? {
   null
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+pure sysroot_equals_at(argument: Bytes) -> Int? {
+  return null when ! argument.starts_with(b"--")
+  var equals: Int? = null
+  for index in range(argument.len()) {
+    if argument.byte_at(index) == 61 { equals = index; break }
+  }
+  return null when equals == null
+  let at = equals ?? 0
+  return null when at == 2
+  let name = argument.byte_slice(2, at - 2).utf8() ?? ""
+  let matches = [option for option in LONG_OPTIONS if option.starts_with(name)]
+  if matches.len() == 1 and matches[0] == "sysroot" { at } else { null }
+}
+
+pure short_sysroot_value_start(argument: Bytes) -> Int? {
+  return null when ! argument.starts_with(b"-") or argument.starts_with(b"--")
+  for index in range(1, argument.len()) {
+    let flag = argument.byte_at(index) ?? 0
+    if flag == 115 { return index + 1 when index + 1 < argument.len() }
+    if flag in [97, 98, 74, 80, 110, 114] { continue }
+    return null
+  }
+  null
+}
+
+pure normalize_sysroot_arguments(argv: List[Bytes]) -> List[Bytes] {
+  var normalized: List[Bytes] = []
+  for argument in argv {
+    if let Ok(_) = argument.utf8() { normalized += [argument]; continue }
+    if let at = sysroot_equals_at(argument) {
+      let index = at ?? 0
+      normalized += [argument.byte_slice(0, index), argument.byte_slice(index + 1, argument.len() - index - 1)]
+    } else if let at = short_sysroot_value_start(argument) {
+      let index = at ?? 0
+      normalized += [argument.byte_slice(0, index), argument.byte_slice(index, argument.len() - index)]
+    } else {
+      normalized += [argument]
+    }
+  }
+  normalized
+}
+
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   if process.signal_action("PIPE")? == "default" {
     process.set_signal_action("PIPE", "default")
   }
-  if let option = unknown_long_option(argv) { gnu.usage_error(f"unrecognized option: {option}") }
+  let prepared = gnu.prepare_arguments(normalize_sysroot_arguments(argv))
+  let arguments = prepared.text
+  if let option = unknown_long_option(arguments) { gnu.usage_error(f"unrecognized option: {option}") }
 
-  let opts: report.Options = cli.applet(argv, {
+  let parsed = cli.applet(arguments, {
     gnu: {status: 1},
     all: {form: "-a --all", default: false},
     bytes: {form: "-b --bytes", default: false},
@@ -67,17 +111,19 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     pairs: {form: "-P --pairs", default: false},
     raw: {form: "-r --raw", default: false},
     split: {form: "-S --split LIST"},
-    sysroot: {form: "-s --sysroot DIR", kind: "Path"},
+    sysroot: {form: "-s --sysroot DIR"},
     summary: {form: "--summary[=WHEN]", optional_default: "only"},
     help: {form: "-h --help", default: false, stop: true},
     version: {form: "-V --version", default: false, stop: true},
     operands: {form: "...ARG"},
   })?
+  let sysroot = if parsed.sysroot == null { null } else { Path.parse_bytes(gnu.argument_bytes(parsed.sysroot ?? "", prepared.raw))? }
+  let opts: report.Options = {...parsed, sysroot: sysroot}
   if opts.help { ul_io.help(HELP); return }
   if opts.version { ul_io.version("lsmem"); return }
-  report.check_exclusive(argv)
+  report.check_exclusive(arguments)
   if ! opts.operands.is_empty() { gnu.usage_error("bad usage") }
-  let modes = report.modes(argv)
+  let modes = report.modes(arguments)
   if !modes.table and !modes.summary {
     gnu.error("options --{raw,json,pairs} and --summary=only are mutually exclusive")
     exit 1
