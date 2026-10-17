@@ -171,7 +171,7 @@ class NativeResultTests(unittest.TestCase):
 
 class RegressionDeclarationTests(unittest.TestCase):
     def test_frozen_selector_ids_come_from_both_actual_native_files(self):
-        selectors = acceptance._declared_regression_selectors(ROOT)
+        selectors = acceptance.declared_regression_selectors(ROOT)
         self.assertEqual(selectors, tuple(sorted(selectors)))
         self.assertEqual(
             {selector.rsplit("::", 1)[0] for selector in selectors},
@@ -181,10 +181,10 @@ class RegressionDeclarationTests(unittest.TestCase):
     def test_missing_or_empty_regression_sources_fail(self):
         with patch.object(acceptance, "REGRESSION_FILES", ("missing.xsh",)):
             with self.assertRaisesRegex(ValueError, "missing required regression source"):
-                acceptance._declared_regression_selectors(ROOT)
+                acceptance.declared_regression_selectors(ROOT)
         with patch.object(acceptance, "REGRESSION_FILES", ("dev/util-linux/README.md",)):
             with self.assertRaisesRegex(ValueError, "declares no behaviors"):
-                acceptance._declared_regression_selectors(ROOT)
+                acceptance.declared_regression_selectors(ROOT)
 
 
 class ResourceControlTests(unittest.TestCase):

@@ -102,7 +102,7 @@ def _case_selector(command: str, name: str) -> str:
     return f"core/tests/test-{command}.xsh::{name}"
 
 
-def _declared_regression_selectors(root: Path) -> tuple[str, ...]:
+def declared_regression_selectors(root: Path) -> tuple[str, ...]:
     selectors: list[str] = []
     for relative in REGRESSION_FILES:
         path = root / relative
@@ -127,7 +127,7 @@ def _expected_regression_selectors(
     if before != source:
         raise ValueError("regression selectors use a stale source")
     produced = runtime.regression_selectors(source)
-    declared = _declared_regression_selectors(runtime.ROOT)
+    declared = declared_regression_selectors(runtime.ROOT)
     after = _current_source(runtime)
     if after != before:
         raise ValueError("source changed while resolving regression selectors")
