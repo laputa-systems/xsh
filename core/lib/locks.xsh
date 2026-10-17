@@ -611,14 +611,18 @@ pure json_lock(lock: Lock, columns: List[Str], bytes: Bool) -> smart.Object {
   smart.object([smart.m(column.lower(), lock_cell(lock, column, bytes)) for column in columns])
 }
 
-pure json_output(locks: List[Lock], columns: List[Str], bytes: Bool, mode: Str) -> Str {
-  let rows = [json_lock(lock, columns, bytes) for lock in locks]
+pure json_table(rows: List[smart.Object], name: Str, mode: Str) -> Str {
   if mode == "lines" {
-    let lines = [smart.render(smart.object([smart.m("locks", [row])]), compact: true) for row in rows]
+    let lines = [smart.render(row, compact: true) for row in rows]
     return lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })
   }
-  let document = smart.object([smart.m("locks", rows)])
+  let document = smart.object([smart.m(name, rows)])
   smart.render(document, compact: mode == "compact") + "\n"
+}
+
+pure json_output(locks: List[Lock], columns: List[Str], bytes: Bool, mode: Str) -> Str {
+  let rows = [json_lock(lock, columns, bytes) for lock in locks]
+  json_table(rows, "locks", mode)
 }
 
 export proc main(argv: List[Str]) [fs, process, env, error, io] {
@@ -650,6 +654,7 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     if value == null or (value ?? 0) <= 0 { gnu.usage_error(f"invalid PID argument: {gnu.quote(opts.pid ?? "")}") }
   }
   let output_environment = if let Ok(value) = env.get("LSLOCKS_COLUMNS") { value } else { null }
+  let json_mode = if let Ok(value) = env.get("LIBSMARTCOLS_JSON") { value } else { "" }
   if opts.list_columns {
     let names = COLUMNS
     let json_types = ["<string>", "<integer>", "<string>", "<string|number>", "<integer>", "<string>", "<string>", "<boolean>", "<integer>", "<integer>", "<string>", "<integer>", "<string>"]
@@ -658,7 +663,7 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     }
     if opts.json {
       let encoded = [smart.object([smart.m("holder", row[0]), smart.m("type", row[1]), smart.m("description", row[2])]) for row in rows]
-      gnu.write_text(smart.render(smart.object([smart.m("lslocks-columns", encoded)]), compact: false) + "\n")
+      gnu.write_text(json_table(encoded, "lslocks-columns", json_mode))
     } else {
       var holder_width = 0
       var type_width = 0
@@ -697,8 +702,7 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     rows = rows |> where filter_matches(program ?? [], .) |> collect
   }
   if opts.json {
-    let mode = if let Ok(value) = env.get("LIBSMARTCOLS_JSON") { value } else { "" }
-    gnu.write_text(json_output(rows, chosen, opts.bytes, mode))
+    gnu.write_text(json_output(rows, chosen, opts.bytes, json_mode))
   } else {
     gnu.write_text(render_table(chosen, rows, ! opts.noheadings, opts.raw, opts.bytes))
   }
