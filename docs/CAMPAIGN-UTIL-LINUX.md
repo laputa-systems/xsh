@@ -75,7 +75,7 @@ campaign after receiving the launch prompt with local commits and no push.
 | Complete every behavior available in that reference for each selected command. | Existing partial option support is the starting point, not the target. Do not redefine the target as today's XSH flags. |
 | Preserve XSH identity in `--version`. | Existing `gnu.version` prints `NAME (XSH core) VERSION`. Record this narrow provenance exception. The util-linux 2.42.4 string pins the oracle, never the XSH banner. |
 | Allow only the stale-errno suffix to vary for the zero-numeric-memory-entry fixture. | The owner approved this exception after repeated reference runs and musl `scandir` source confirmed stale errno. Require exact utility, arguments, exit status 1, empty stdout, and rooted diagnostic prefix. The suffix must be one nonempty line. All other comparisons follow their exact rules. |
-| Exclude two exact `lsipc` invocations from reference-parity credit. | The pinned reference terminates with `SIGSEGV` for `--posix-shmems --posix-mqueues` and `--posix-shmems --output NAME,NAME`. Keep both behavior tests, require the reference signal and independent candidate expectations, and give neither invocation parity credit. The enclosing selector is behavior evidence only. Every other argument vector, including reversed selector order and other output forms, remains an exact comparison. |
+| Exclude thirteen exact `lsipc` invocations from reference-parity credit. | The pinned reference terminates with `SIGSEGV` for each of the three pairs among `--posix-shmems`, `--posix-mqueues`, and `--posix-semaphores`, in both orders with plain and JSON output, plus `--posix-shmems --output NAME,NAME`. Require the reference signal and independent candidate assertions for every vector. Give none parity credit. The enclosing selector is behavior evidence only. The 36 System V/POSIX pair vectors remain exact comparisons. |
 | Implement policy, parsing, selection, and rendering in XSH. | Preserve the project's architecture. Add a host primitive only for an actual missing OS operation. |
 | Keep shared source changes with the coordinator. | Registry, runtime, and gate ownership overlap consolidation. Feature lanes consume a reviewed seam. |
 | Use private fixtures for process, lock, namespace, and device cases. | Observe the same objects in reference and XSH without changing host state. Privilege cases use the existing pinned container isolation. |
@@ -227,8 +227,8 @@ the exact XSH banner produced by
 `NAME (XSH core) 0.0.1`. Assert the reference's actual util-linux 2.42.4 banner
 separately. Preserve each implementation's provenance instead of replacing text.
 Do not normalize other help, option, version-option parsing, or diagnostic differences.
-The stale-errno suffix and the two exact `lsipc` invocations in the decision
-table above are the only other preapproved exceptions. A newly discovered
+The stale-errno suffix and the thirteen exact `lsipc` invocations in the
+decision table above are the only other preapproved exceptions. A newly discovered
 contract difference remains open until resolved inside the stated reference contract.
 Keep raw comparison beside parsed assertions where structured output matters.
 Use fixture synchronization rather than sleeps for lock and process readiness.
@@ -403,10 +403,11 @@ The `version-provenance` exception requires each implementation's independent
 identity assertions. The zero-numeric-memory-entry fixture also allows its
 stale-errno suffix to vary under the owner-approved rule above. That rule
 preserves exact utility, arguments, status, stdout, and rooted diagnostic
-prefix, and rejects additional diagnostic lines. The two exact `lsipc`
+prefix, and rejects additional diagnostic lines. The thirteen exact `lsipc`
 invocations listed above require reference `SIGSEGV` and independent candidate
-assertions; their enclosing selector is behavior evidence only. Zero undecided
-mismatches requires every other parity comparison to match its exact oracle.
+assertions; their enclosing selector is behavior evidence only. The 36
+System V/POSIX selector cases retain exact reference comparisons. Zero
+undecided mismatches requires every other parity comparison to match its exact oracle.
 No exception permits global normalization. Every selector fails when no
 behavior matches. Each parity comparison requires an executed reference and
 candidate, matching fixture inputs, and exact comparison rules. An unexpected

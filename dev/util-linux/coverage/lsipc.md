@@ -123,13 +123,24 @@ The manual says the default table output can change. Native comparisons pin
 the exact 2.42.4 output using the owned fixture. Tests that need a stable schema
 use `--output` explicitly.
 
-The reference terminates with `SIGSEGV` for exactly two tested argument
-vectors: `--posix-shmems --posix-mqueues` and
-`--posix-shmems --output NAME,NAME`. Their behavior checks require that exact
-reference signal and assert the candidate output independently, so neither
-invocation receives oracle-parity credit. The enclosing selector is behavior
-evidence only. Every other vector in that selector, including reversed
-selector order and other output forms, remains an exact reference comparison.
+The reference terminates with `SIGSEGV` for all twelve vectors that combine
+two of `--posix-shmems`, `--posix-mqueues`, and `--posix-semaphores`, in both
+selector orders with plain and JSON output. It also terminates with `SIGSEGV`
+for `--posix-shmems --output NAME,NAME`. These thirteen behavior checks require
+the exact reference signal and independent candidate assertions, so none
+receives oracle-parity credit. Their enclosing selector is behavior evidence
+only. The other 36 System V/POSIX selector vectors remain exact comparisons.
+The mixed candidate assertions check ordered headers, fixture-derived row
+counts and identities, both repeated `NAME` cells, JSON array shape, field
+types, and mode-specific values. Semaphore backing entries appear once in the
+shared-memory inventory and again when the POSIX semaphore selector is also
+selected.
+The safe standalone reference `--posix-shmems --output NAME` returns four
+fixture entries: two POSIX shared-memory objects and two POSIX semaphore
+backing entries. `--posix-mqueues --output NAME` returns the two registered
+queue names. The combined candidate behavior therefore has six data rows; the
+repeated-`NAME` candidate behavior has four rows. The assertions match each
+row to its registered fixture identity and check both repeated name cells.
 
 Reading a POSIX message queue's `QSIZE` through `/dev/mqueue` updates the
 kernel inode's `ctime`. The keeper snapshot exposes `ctime_ns` but not `atime`;
@@ -143,7 +154,9 @@ exact comparisons.
 
 `core/tests/test-lsipc.xsh` uses these selectors. The source line ranges
 identify the upstream behavior each test covers. `ipcutils.c` lines 241–509
-enumerate POSIX shared-memory and semaphore names and metadata; lines 625–714
+enumerate POSIX shared-memory and semaphore names and metadata; on the pinned
+image the POSIX semaphore backing entries also appear in the shared-memory
+inventory. Lines 625–714
 enumerate POSIX message queues. System V collectors read the kernel IPC
 tables and query each selected ID.
 
@@ -166,7 +179,7 @@ tables and query each selected ID.
 | `test_lsipc_output_column_capacity_matches_reference` | The parser accepts 74 repeated columns and silently rejects the 75th, including capacity consumed by default columns when appending | `lsipc.c:210-221`; `strutils.c:667-737` | Open. Stable input. |
 | `test_lsipc_rejects_unknown_time_format` | Invalid time formats, status, and diagnostics | `lsipc.c:273-290` | Guarded native check passed 1/0/0. |
 | `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, malformed decimal IDs, signed 32-bit overflow diagnostics, and parser errors before later help | `lsipc.c:1381-1455`; `strutils.c:311-410` | Guarded native check passed 1/0/0. |
-| `test_lsipc_exclusive_options_and_resource_selector_combinations_match_reference` | Conflicting option pairs plus live POSIX/System V selector combinations in both argv orders; the two exact reference-crash vectors also have independent candidate behavior assertions | `lsipc.c:1415-1420,1457-1534,1627-1659`; `optutils.h:176` | Open. Live fixture required. The exact `--posix-shmems --posix-mqueues` and `--posix-shmems --output NAME,NAME` invocations require reference `SIGSEGV` and receive no oracle-parity credit. The enclosing selector is behavior evidence only; every other invocation remains an exact comparison. |
+| `test_lsipc_exclusive_options_and_resource_selector_combinations_match_reference` | Conflicting option pairs plus live POSIX/System V selector combinations in both argv orders; thirteen approved reference-crash vectors have independent candidate assertions | `lsipc.c:1415-1420,1457-1534,1627-1659`; `optutils.h:176` | Guarded native check passed 1/0/0. Thirteen behavior-only crash vectors and 36 exact System V/POSIX comparisons. |
 | `test_lsipc_visibility_matches_for_owner_and_unprivileged_observer` | Per-class visibility for two real UIDs with capabilities dropped | `ipcutils.c:131-240,249-300,342-510,521-575,633-713` | Open. Requires the positive two-UID fixture. |
 | `test_lsipc_collectors_preserve_state_except_mqueue_ctime_read_effect` | IDs, names, permissions, sizes, values, counters, and every timestamp except the kernel-updated POSIX message-queue `ctime` remain unchanged after each collector; queue `ctime` is monotone and bounded by the command interval | `lsipc.c:1370-1666`; `ipcutils.c:668-680`; Linux `mqueue_read_file` | Open. Keeper state snapshots required. |
 | `test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them` | The reference sees each registered ID or reported name, preserves every seeded state field except selected POSIX message-queue `ctime`, and sees no record after successful release | `lsipc.c:559-563,823-827,958-965,1094-1097,1265-1272,1661-1666`; `ipcutils.c:668-680`; all six collectors | Guarded reference-only proof passed; candidate comparison remains open. |
