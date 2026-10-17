@@ -118,6 +118,12 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
   let observer_reference = ul.reference_as_user(s, "lsipc", options, uid: 10001)?
   let observer_candidate = ul.candidate_as_user(s, "lsipc", options, uid: 10001)?
   ul.compare(observer_reference, observer_candidate)
+  let terminal_args = [p"--shmems", p"--id", fp"{owner.id}", p"--output", p"ID,UID,CUID,CPID,SIZE"]
+  for columns in [24, 120] {
+    let reference = contexts.terminal_reference(s, "lsipc", terminal_args, columns:)?
+    let candidate = contexts.terminal_candidate(s, "lsipc", terminal_args, columns:)?
+    assert ul.observed_equal(reference, candidate), "lsipc terminal capture differs"
+  }
   contexts.release_keeper(keeper)
   let released_reference = ul.reference(s, "lsipc", options)?
   let released_candidate = uu.invoke(s, "lsipc", options)?
