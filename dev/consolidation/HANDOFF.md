@@ -105,8 +105,8 @@ qualification. The source-only `891` plan remains source-validated only. The
 693 local removals, including 109 added mutable `Set[Str]` annotations, and 529
 of 2,190 internal removals. Its 26 exact behavior witnesses pass, 13 per view.
 That bounded run does not complete Set feature qualification. API fixture
-`a4411` passes, but the documentation slot verifier rejects valid nested
-destructuring for `5277` and `020f`. Repair source
+`a4418a5253dd557f7a96419f4212b09dd29084a1` passes. The documentation slot
+verifier rejects valid nested destructuring for `5277` and `020f`. Repair source
 `2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has qualified source-bound products;
 the minimal SPEC 18 check-only probe now fails because the verifier reports
 `driver slot identity is not the currently visible binding`. The first repair
@@ -158,7 +158,11 @@ See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidat
    cause. A stronger read-only factor-cost diagnosis and a quiet rerun after
    build drain are pending. The lifecycle reproduction is archived [here](evidence/lifecycle-profile-r3/README.md).
    Binary-size and final resource evidence remain pending. Root owns release
-   readiness and main promotion.
+   readiness and main promotion. Native-suite budget: nine serial correctness
+   runs remain: canonical normal (1), opt3 correctness (1), forced (1), and six
+   scheduler-pair runs. One observer retry remains. R3 consumed the failed
+   observer attempt from the original ten-suite sequence, so eleven attempts
+   total comprise that failure plus the ten remaining runs.
 
 The b235 canonical gate is accepted and reused for 7eb under Phase A. The fresh
 7eb R6 run is accepted, residual and QEMU scopes are closed, W9 parity is

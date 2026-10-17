@@ -117,8 +117,8 @@ qualification. The source-only `891` plan remains source-validated only. The
 693 local removals, including 109 added mutable `Set[Str]` annotations, and 529
 of 2,190 internal removals. Its 26 exact behavior witnesses pass, 13 per view.
 That bounded run does not complete Set feature qualification. API fixture
-`a4411` passes, but the documentation slot verifier rejects valid nested
-destructuring for `5277` and `020f`. Repair source
+`a4418a5253dd557f7a96419f4212b09dd29084a1` passes. The documentation slot
+verifier rejects valid nested destructuring for `5277` and `020f`. Repair source
 `2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has qualified source-bound products;
 the minimal SPEC 18 check-only probe now fails because the verifier reports
 `driver slot identity is not the currently visible binding`. The first repair

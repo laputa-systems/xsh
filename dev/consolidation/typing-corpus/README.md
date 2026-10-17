@@ -324,8 +324,10 @@ retains the native run and runner guards. All 13 exact selectors passed in each
 view, with no failures or skips. These witnesses do not exercise all 109
 accumulators or complete the Set feature gates.
 
-The Set API fixture at `a4411` passes. The documentation gate fails because its
-slot verifier rejects valid nested destructuring in the `5277` and `020f`
+The Set API fixture at
+`a4418a5253dd557f7a96419f4212b09dd29084a1` passes. The documentation gate
+fails because its slot verifier rejects valid nested destructuring in the
+`5277` and `020f`
 examples. Repair source `2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has
 qualified source-bound products, but the minimal SPEC 18 check-only probe
 fails: the verifier reports `driver slot identity is not the currently visible
