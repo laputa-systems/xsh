@@ -1,4 +1,7 @@
-from contextlib import contextmanager
+import io
+import json
+from argparse import Namespace
+from contextlib import contextmanager, nullcontext, redirect_stdout
 from importlib.util import module_from_spec, spec_from_file_location
 import os
 from pathlib import Path
@@ -123,6 +126,109 @@ def test_forced_frames_does_not_use_shared_setgid_tmp():
         assert not private_tmp.exists()
 
 
+def test_forced_frames_removes_execute_only_directories():
+    with setgid_repository() as (root, _):
+        with patch.object(forced, "ROOT", root):
+            private_tmp = None
+            unreadable = None
+            try:
+                with forced.ensure_repository_tmp(forced.repository_tmp_path("test-run")) as private_tmp:
+                    unreadable = private_tmp / "unreadable"
+                    unreadable.mkdir()
+                    os.chmod(unreadable, 0o100)
+            finally:
+                if unreadable is not None and unreadable.exists():
+                    os.chmod(unreadable, 0o700)
+                if private_tmp is not None and private_tmp.exists():
+                    shutil.rmtree(private_tmp)
+        assert private_tmp is not None
+        assert not private_tmp.exists()
+
+
+def test_forced_frames_removes_symlinks_without_touching_targets():
+    with setgid_repository() as (root, _):
+        target = root / ".work/external-target"
+        target.mkdir(parents=True)
+        marker = target / "marker"
+        marker.write_text("retained", encoding="utf-8")
+        os.chmod(target, 0o500)
+        with patch.object(forced, "ROOT", root):
+            with forced.ensure_repository_tmp(forced.repository_tmp_path("test-run")) as private_tmp:
+                (private_tmp / "external").symlink_to(target, target_is_directory=True)
+        assert marker.read_text(encoding="utf-8") == "retained"
+        assert stat.S_IMODE(target.stat().st_mode) == 0o500
+
+
+def test_forced_frames_records_the_yielded_tmp_in_receipt_and_command():
+    with setgid_repository() as (root, _):
+        profile_dir = root / ".work/products"
+        profile_dir.mkdir(parents=True)
+        output = root / ".work/evidence/forced-frames"
+        output.parent.mkdir(parents=True)
+        close_path = root / ".work/functional-close.json"
+        profile_receipt_path = root / ".work/profile-receipt.json"
+        source = {"commit": "a" * 40, "git_tree": "b" * 40, "status": "clean"}
+        close = {"functional_complete": True}
+        profile = {
+            "receipt": {"state": "complete"},
+            "name": "release",
+            "profile": "release",
+            "opt_level": 3,
+            "directory": str(profile_dir),
+            "binaries": {},
+        }
+        stage = {"status": 0, "cleanup_resolved": True, "interrupted_signal": None, "error": None}
+        git_common = root / ".git"
+        args = Namespace(tree=root, commit=source["commit"], functional_close=close_path, profile_receipt=profile_receipt_path, output=output)
+        with (
+            patch.object(forced, "ROOT", root),
+            patch.object(forced, "validate_static_paths", return_value=(root, close_path, profile_receipt_path, output, output.parent)),
+            patch.object(forced, "source_identity", return_value=source),
+            patch.object(forced, "load_functional_close", return_value=close),
+            patch.object(forced, "load_profile", return_value=profile),
+            patch.object(forced.shutil, "which", return_value="/usr/bin/docker"),
+            patch.object(forced, "cpu_set", return_value=",".join(str(cpu) for cpu in range(12))),
+            patch.object(forced.subprocess, "check_output", return_value=str(git_common)),
+            patch.object(forced, "native_suite_lock", side_effect=lambda: nullcontext()),
+            patch.object(forced, "install_signal_handlers", return_value=None),
+            patch.object(forced, "restore_signal_handlers"),
+            patch.object(forced, "inspect_native_image", return_value={"image_id": forced.IMAGE}),
+            patch.object(forced, "no_active_native_containers"),
+            patch.object(forced, "verify_inputs", return_value={"source": source}),
+            patch.object(forced, "owned_docker_command", side_effect=lambda command, **_: {"argv": command}),
+            patch.object(forced, "run_container", return_value=stage),
+            redirect_stdout(io.StringIO()),
+        ):
+            assert forced.run(args) == 0
+        receipt = json.loads((output / "receipt.json").read_text(encoding="utf-8"))
+        repository_tmp = Path(receipt["environment"]["TMPDIR"])
+        assert repository_tmp.parent == root / ".work/tmp"
+        assert repository_tmp.name.startswith(f"forced-frames-{receipt['run_id']}-")
+        assert any(argument == f"TMPDIR={repository_tmp}" for argument in receipt["docker_command"]["argv"])
+        assert not repository_tmp.exists()
+
+
+def test_forced_frames_cleanup_error_does_not_mask_gate_error():
+    with setgid_repository() as (root, _):
+        with patch.object(forced, "ROOT", root):
+            gate_error = forced.GateFailure("gate failed")
+            cleanup_error = PermissionError("cleanup failed")
+            private_tmp = None
+            try:
+                with patch.object(forced.tempfile.TemporaryDirectory, "cleanup", side_effect=cleanup_error):
+                    try:
+                        with forced.ensure_repository_tmp(forced.repository_tmp_path("test-run")) as private_tmp:
+                            raise gate_error
+                    except forced.GateFailure as error:
+                        assert error is gate_error
+                        assert any("forced-frame temporary cleanup also failed" in note for note in error.__notes__)
+                    else:
+                        raise AssertionError("forced-frame cleanup replaced the gate failure")
+            finally:
+                if private_tmp is not None and private_tmp.exists():
+                    shutil.rmtree(private_tmp)
+
+
 def test_profile_cost_rejects_a_symlinked_tmp_parent():
     with setgid_repository() as (root, shared_tmp):
         shared_tmp.rmdir()
@@ -159,6 +265,10 @@ if __name__ == "__main__":
     test_profile_cost_removes_symlinks_without_touching_targets()
     test_profile_tmp_cleanup_error_does_not_mask_gate_error()
     test_forced_frames_does_not_use_shared_setgid_tmp()
+    test_forced_frames_removes_execute_only_directories()
+    test_forced_frames_removes_symlinks_without_touching_targets()
+    test_forced_frames_records_the_yielded_tmp_in_receipt_and_command()
+    test_forced_frames_cleanup_error_does_not_mask_gate_error()
     test_profile_cost_rejects_a_symlinked_tmp_parent()
     test_forced_frames_rejects_a_symlinked_tmp_parent()
     print("gate temporary directories are private and clean up shared parent mode")

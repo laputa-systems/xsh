@@ -17,6 +17,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 sys.dont_write_bytecode = True
@@ -607,19 +608,29 @@ def ensure_repository_tmp(private_path: Path):
         raise GateFailure(f"forced-frame temporary path is not run-scoped: {private_path}")
     if private_path.exists() or private_path.is_symlink():
         raise GateFailure(f"forced-frame temporary directory already exists: {private_path}")
-    private_path.mkdir(mode=0o700)
+    temporary = tempfile.TemporaryDirectory(prefix=f"{private_path.name}-", dir=path)
+    actual_path = Path(temporary.name)
     try:
-        descriptor = os.open(private_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        actual_path = require_exact_path(actual_path, path / actual_path.name, must_exist=True)
+        if not actual_path.name.startswith(f"{private_path.name}-"):
+            raise GateFailure(f"forced-frame temporary path is not run-scoped: {actual_path}")
+        descriptor = os.open(actual_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             os.fchmod(descriptor, 0o700)
             mode = os.fstat(descriptor).st_mode
         finally:
             os.close(descriptor)
         if not stat.S_ISDIR(mode) or stat.S_IMODE(mode) != 0o700:
-            raise GateFailure(f"forced-frame temporary directory is not private: {private_path}")
-        yield private_path
-    finally:
-        shutil.rmtree(private_path)
+            raise GateFailure(f"forced-frame temporary directory is not private: {actual_path}")
+        yield actual_path
+    except BaseException as error:
+        try:
+            temporary.cleanup()
+        except BaseException as cleanup_error:
+            error.add_note(f"forced-frame temporary cleanup also failed: {cleanup_error!r}")
+        raise
+    else:
+        temporary.cleanup()
 
 
 def run(args: argparse.Namespace) -> int:
@@ -675,6 +686,7 @@ def run(args: argparse.Namespace) -> int:
     }
     output_created = False
     with native_suite_lock(), ensure_repository_tmp(repository_tmp) as repository_tmp:
+        receipt["environment"]["TMPDIR"] = str(repository_tmp)
         previous_handlers = install_signal_handlers()
         try:
             output.mkdir(mode=0o755)
