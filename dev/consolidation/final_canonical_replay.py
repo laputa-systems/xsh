@@ -812,6 +812,9 @@ def run_batch(validated: dict[str, Any]) -> int:
     lock = lock_path.open("r+")
     try:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        cleanup_marker = lock_path.with_suffix(".cleanup-unresolved")
+        if cleanup_marker.exists() or cleanup_marker.is_symlink() or lock.read(19) == "cleanup-unresolved:":
+            raise ReplayError(f"native-suite cleanup remains unresolved: {lock_path}")
         before = source_check(validated, "before")
         image_id = run_text(["docker", "image", "inspect", "--format", "{{.Id}}", IMAGE], root)
         if image_id != IMAGE:

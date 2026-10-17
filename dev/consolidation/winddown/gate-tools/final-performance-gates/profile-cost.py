@@ -129,8 +129,17 @@ def no_active_native_containers(image_id):
         raise ValueError("native build or test containers are active; profile timing needs an isolated window")
 
 
+def reject_unresolved_cleanup(path, stream):
+    cleanup_marker = path.with_suffix(".cleanup-unresolved")
+    if cleanup_marker.exists() or cleanup_marker.is_symlink():
+        raise ValueError(f"owned-container cleanup marker exists: {cleanup_marker}")
+    stream.seek(0)
+    if stream.read(19) == "cleanup-unresolved:":
+        raise ValueError(f"owned-container cleanup remains unresolved in {path}")
+
+
 @contextmanager
-def exclusive_lock(path, *, reject_unresolved=False):
+def exclusive_lock(path, *, reject_unresolved=True):
     path.parent.mkdir(parents=True, exist_ok=True)
     stream = path.open("a+")
     try:
@@ -140,10 +149,7 @@ def exclusive_lock(path, *, reject_unresolved=False):
         raise ValueError(f"another build, suite, or final gate owns {path}") from error
     try:
         if reject_unresolved:
-            stream.seek(0)
-            marker = stream.read()
-            if marker.startswith("cleanup-unresolved:"):
-                raise ValueError(f"owned-container cleanup remains unresolved in {path}: {marker.strip()}")
+            reject_unresolved_cleanup(path, stream)
         yield stream
     finally:
         stream.close()
@@ -503,6 +509,9 @@ def run(args):
     ownership = exclusive_lock(PROFILE_LOCK, reject_unresolved=True)
     native_suite_lock = nullcontext() if args.artifacts_only else exclusive_lock(INFRA / "native-suite.lock")
     with ownership as ownership_stream, native_suite_lock, repository_tmp_dir(run_id) as repository_tmp:
+        if args.artifacts_only:
+            with (INFRA / "native-suite.lock").open() as native_lock:
+                reject_unresolved_cleanup(INFRA / "native-suite.lock", native_lock)
         no_active_native_containers(image["image_id"])
         output.mkdir(parents=True)
         receipt_path = output / "receipt.json"

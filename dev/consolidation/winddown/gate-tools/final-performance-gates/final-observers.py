@@ -867,8 +867,11 @@ def gate_batch_command() -> list[str]:
 
 
 def ensure_native_marker_clear() -> None:
-    if NATIVE_CLEANUP_MARKER.exists():
+    if NATIVE_CLEANUP_MARKER.exists() or NATIVE_CLEANUP_MARKER.is_symlink():
         raise ObserverFailure(f"canonical native-suite cleanup marker exists: {NATIVE_CLEANUP_MARKER}")
+    with NATIVE_SUITE_LOCK.open() as native_lock:
+        if native_lock.read(19) == "cleanup-unresolved:":
+            raise ObserverFailure(f"canonical native-suite cleanup remains unresolved: {NATIVE_SUITE_LOCK}")
 
 
 def manifest_relative_output(output: Path, tree: Path) -> str:
