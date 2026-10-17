@@ -53,6 +53,13 @@ test test_namei_each_output_option_and_long_combination { |ctx|
   ] {
     parity(s, options.extend(["--", operand]))?
   }
+  for args in [["-Z", "--", operand], ["--context", "--", operand]] {
+    let reference = ul.reference(s, "namei", args, timeout: 5s)?
+    let option = if args[0] == "-Z" { "Z" } else { "context" }
+    assert reference.status == 1
+    assert reference.stdout == b""
+    assert reference.stderr == bytes.from_text(f"/usr/bin/namei: unrecognized option: {option}\nTry 'namei --help' for more information.\n")
+  }
 }
 
 test test_namei_component_walk_follows_relative_and_absolute_symlinks { |ctx|
