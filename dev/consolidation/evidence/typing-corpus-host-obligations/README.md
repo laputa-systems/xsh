@@ -89,16 +89,54 @@ individual proofs. They stay eligible and count as not removed. The final source
 keeps the original explicit effect contracts. No new effect API, analysis,
 budget or speculative language feature is added to improve the score.
 
-## Remaining behavior acceptance
+## Paired behavior acceptance
 
-The strict 26-execution runner now binds the qualified pair above and the actual
-877-removal `reduced-final` view. Each of thirteen existing behavior witnesses
-must select and pass once in each view with zero failures or skips. Its source
-and product guards, shared native lock and exact-container cleanup remain in
-force. Native execution still awaits the assigned slot. This checkpoint claims
-checker and lowering acceptance, not behavior parity or completion of the
-annotation-removal workstream. The named generic-body seam, broader successor
-acceptance and campaign targets remain open. Main remains untouched.
+All 26 unique view and selector slots are accepted across the recorded attempts.
+This is not a single green 26-execution attempt:
+
+| Attempt | Original | Reduced | Actual executions |
+|---|---|---|---:|
+| Initial archived witnesses | 12 pass, 1 fixture failure | Not run | 13 |
+| Corrected lifecycle selector | 1 pass | 1 pass | 2 |
+| Final reduced matrix | Not repeated | 13 pass | 13 |
+| Total | Original thirteen slots accepted | Reduced thirteen slots accepted | 28 |
+
+The history contains 27 passes and the preserved initial fixture failure. The
+reduced lifecycle slot passes twice. `execution-history.tsv` records all 28
+executions. `accepted-slots.tsv` maps the 26 unique accepted slots to their raw
+receipts. Every accepted exact invocation selects one test and reports one pass,
+zero failures and zero skips. The scripts enforce actual selection and summary
+counts, not exit status alone.
+
+The twelve original passes are reused because all 48 program files and their
+selected witness sources remain unchanged by the correction. Only the failed
+lifecycle witness receives the approved helper outside those 48 files. Its narrow
+original pass supplies the thirteenth original slot. The final reduced matrix
+qualifies all thirteen reduced witnesses together on the corrected source view.
+
+Each witness asserts its original behavior: byte counts, Unicode handling,
+translation modes, parser errors, input operand order, date precision, replay
+redaction and rejection, selected gate and target propagation, failed-Cargo
+cleanup, or stable build-plan JSON and corruption rejection. Harness durations
+are not compared. This acceptance covers those named observations, not every
+runtime path in the cohort.
+
+All attempts use the same pinned pair and four-CPU, 8-GiB, no-extra-swap,
+network-disabled, UID-1000 environment. The per-selector deadline stays 120
+seconds. Corrected-attempt before and after product checks pass. Their whole-view
+digests also match before and after:
+
+| Corrected view | Digest |
+|---|---|
+| Original | `e3429dcf2abe9524754a28458651443bc56523b50130268a1c1ff44c03e36899` |
+| Reduced 877 | `31bfcd24a8b3825b16b7aaebb2a13b35007d76be107c84bf25f936cbddce7241` |
+
+Every owned container is absent with the exact owned-ID response retained.
+Both corrected wrappers exit zero after cleanup and release the original shared
+native lock. No lock is held while this proof is written. There are no remaining
+owned jobs. Program and interface validation remains the unchanged 877-site
+result. Main remains untouched. Campaign targets, the named generic-body seam
+and broader inference acceptance remain open.
 
 ## First native attempt and fixture correction
 

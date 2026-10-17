@@ -91,5 +91,7 @@ preserves the 615-removal candidate. The
 records the current 877-removal candidate and its qualified product identities.
 Existing generic and adversarial acceptance relies on the retained typing and
 host-obligation qualification. This migration changes no compiler source or
-embedded standard library. Native behavior qualification remains pending its
-named slot.
+embedded standard library. The thirteen existing behavior witnesses pass in each view through the
+[documented attempt composition](../evidence/typing-corpus-host-obligations/README.md#paired-behavior-acceptance).
+The initial fixture failure remains recorded. Neither annotation target nor
+general inference completion is claimed.
