@@ -396,6 +396,9 @@ def native_suite_lock():
             raise GateFailure("the shared native-suite lock is held; do not overlap this full suite") from error
         if NATIVE_CLEANUP_MARKER.exists() or NATIVE_CLEANUP_MARKER.is_symlink():
             raise GateFailure(f"native-suite cleanup marker exists: {NATIVE_CLEANUP_MARKER}")
+        lock_file.seek(0)
+        if lock_file.read(19) == "cleanup-unresolved:":
+            raise GateFailure(f"native-suite cleanup remains unresolved: {NATIVE_LOCK}")
         yield lock_file
     finally:
         try:

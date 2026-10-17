@@ -878,7 +878,7 @@ def run_stage(
     return report
 
 
-def acquire_lock(lock_path: Path, *, create: bool = False, reject_unresolved: bool = False):
+def acquire_lock(lock_path: Path, *, create: bool = False, reject_unresolved: bool = True):
     if create:
         lock_path.parent.mkdir(parents=True, exist_ok=True)
     elif not lock_path.is_file():
@@ -892,7 +892,8 @@ def acquire_lock(lock_path: Path, *, create: bool = False, reject_unresolved: bo
     if reject_unresolved:
         lock_file.seek(0)
         marker = lock_file.read().decode("utf-8", errors="replace")
-        if marker.startswith("cleanup-unresolved:"):
+        cleanup_marker = lock_path.with_suffix(".cleanup-unresolved")
+        if marker.startswith("cleanup-unresolved:") or cleanup_marker.exists() or cleanup_marker.is_symlink():
             lock_file.close()
             raise RuntimeError(f"owned-container cleanup remains unresolved in {lock_path}: {marker.strip()}")
     return lock_file

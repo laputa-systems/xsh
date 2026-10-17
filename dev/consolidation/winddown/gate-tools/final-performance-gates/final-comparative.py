@@ -178,7 +178,7 @@ def no_native_containers(image_id):
         raise ValueError("native test/build containers are active; final measurement needs an isolated window")
 
 
-def acquire_lock(path, *, reject_unresolved=False):
+def acquire_lock(path, *, reject_unresolved=True):
     path.parent.mkdir(parents=True, exist_ok=True)
     stream = path.open("a+")
     try:
@@ -189,7 +189,8 @@ def acquire_lock(path, *, reject_unresolved=False):
     if reject_unresolved:
         stream.seek(0)
         marker = stream.read()
-        if marker.startswith("cleanup-unresolved:"):
+        cleanup_marker = path.with_suffix(".cleanup-unresolved")
+        if marker.startswith("cleanup-unresolved:") or cleanup_marker.exists() or cleanup_marker.is_symlink():
             stream.close()
             raise ValueError(f"owned-container cleanup remains unresolved in {path}: {marker.strip()}")
     return stream
