@@ -152,6 +152,9 @@ type SortOptions = {
 type GeneralNumericEntry = {key: Str, prefix: Str}
 type SortRecord = {bytes: Bytes, text: Str?}
 type SortRecordOrder = {record: SortRecord, key: Str}
+type SortRecordMode = {month: Bool, human_numeric: Bool, general_numeric: Bool, version: Bool, numeric: Bool}
+type SortKeyMode = {spec: Str, mode: SortRecordMode}
+type SortRecordPlan = {has_key: Bool, mode: SortRecordMode, key_modes: List[SortKeyMode], plain_whole_line: Bool, last_resort: Bool}
 type GeneralNumericInput = {text: Str, source_ends: List[Int]}
 ## `compressed` names the program that wrote a temporary run; null marks plain input or a plain run.
 type SortInput = {name: Bytes, path: Path, stdin: Bool, compressed: Str?}
@@ -222,6 +225,7 @@ pure numeric_prefix_raw(line: Bytes, opts: SortOptions) -> Bytes {
 ## Normalize only the numeric prefix; suffixes and source offsets retain their bytes.
 ## GNU ignores a group separator when the locale encodes it with multiple bytes.
 pure normalized_numeric_prefix_raw(prefix: Bytes, opts: SortOptions) -> Bytes {
+  return prefix when opts.decimal_point == "." and opts.thousands_separator.len() != 1
   let point = bytes.from_text(opts.decimal_point)
   var at = 0
   let normalized = collect {
@@ -1004,40 +1008,67 @@ pure selected_sort_mode(opts: SortOptions) -> Str {
   opts.sort_mode.get(opts.sort_mode.len() - 1) ?? ""
 }
 
-pure is_version_sort(opts: SortOptions) -> Bool {
-  opts.version_sort or selected_sort_mode(opts).starts_with("v")
-}
-
 pure is_month_mode(mode: Str) -> Bool {
   mode != "" and "month".starts_with(mode)
-}
-
-pure is_month_sort(opts: SortOptions) -> Bool {
-  let mode = selected_sort_mode(opts)
-  if mode == "" { opts.month } else { is_month_mode(mode) }
-}
-
-pure is_general_numeric_sort(opts: SortOptions) -> Bool {
-  let mode = selected_sort_mode(opts)
-  if mode == "" { opts.general_numeric } else { is_general_numeric_mode(mode) }
 }
 
 pure is_general_numeric_mode(mode: Str) -> Bool {
   mode != "" and "general-numeric".starts_with(mode)
 }
 
-pure is_numeric_sort(opts: SortOptions) -> Bool {
-  let mode = selected_sort_mode(opts)
-  if mode == "" { opts.numeric } else { mode in ["n", "numeric"] }
-}
-
 pure is_human_numeric_mode(mode: Str) -> Bool {
   mode != "" and (mode in ["h", "human"] or "human-numeric".starts_with(mode))
 }
 
-pure is_human_numeric_sort(opts: SortOptions) -> Bool {
-  let mode = selected_sort_mode(opts)
+pure is_version_sort_mode(opts: SortOptions, mode: Str) -> Bool {
+  opts.version_sort or mode.starts_with("v")
+}
+
+pure is_month_sort_mode(opts: SortOptions, mode: Str) -> Bool {
+  if mode == "" { opts.month } else { is_month_mode(mode) }
+}
+
+pure is_general_numeric_sort_mode(opts: SortOptions, mode: Str) -> Bool {
+  if mode == "" { opts.general_numeric } else { is_general_numeric_mode(mode) }
+}
+
+pure is_numeric_sort_mode(opts: SortOptions, mode: Str) -> Bool {
+  if mode == "" { opts.numeric } else { mode in ["n", "numeric"] }
+}
+
+pure is_human_numeric_sort_mode(opts: SortOptions, mode: Str) -> Bool {
   if mode == "" { opts.human_numeric } else { is_human_numeric_mode(mode) }
+}
+
+pure sort_record_mode(opts: SortOptions) -> SortRecordMode {
+  let mode = selected_sort_mode(opts)
+  {
+    month: is_month_sort_mode(opts, mode),
+    human_numeric: is_human_numeric_sort_mode(opts, mode),
+    general_numeric: is_general_numeric_sort_mode(opts, mode),
+    version: is_version_sort_mode(opts, mode),
+    numeric: is_numeric_sort_mode(opts, mode),
+  }
+}
+
+pure is_version_sort(opts: SortOptions) -> Bool {
+  is_version_sort_mode(opts, selected_sort_mode(opts))
+}
+
+pure is_month_sort(opts: SortOptions) -> Bool {
+  is_month_sort_mode(opts, selected_sort_mode(opts))
+}
+
+pure is_general_numeric_sort(opts: SortOptions) -> Bool {
+  is_general_numeric_sort_mode(opts, selected_sort_mode(opts))
+}
+
+pure is_numeric_sort(opts: SortOptions) -> Bool {
+  is_numeric_sort_mode(opts, selected_sort_mode(opts))
+}
+
+pure is_human_numeric_sort(opts: SortOptions) -> Bool {
+  is_human_numeric_sort_mode(opts, selected_sort_mode(opts))
 }
 
 pure character_order_key(text: Str, dictionary: Bool, ignore_nonprinting: Bool, fold_case: Bool) -> Str {
@@ -1072,21 +1103,20 @@ pure sort_record_key_bytes(record: SortRecord, spec: Str, opts: SortOptions) -> 
   key_field_value_raw(record.bytes, bytes.from_text(sort_delimiter(opts)), spec, key_effective_options(spec, opts))
 }
 
-pure sort_record_key_value(record: SortRecord, spec: Str, opts: SortOptions) -> Str {
+pure sort_record_key_value(record: SortRecord, spec: Str, opts: SortOptions, mode: SortRecordMode) -> Str {
   let key_opts = key_effective_options(spec, opts)
   let reverse = opts.reverse != key_reversed(spec)
   let selected = key_range_bytes_raw(record.bytes, bytes.from_text(sort_delimiter(opts)), spec, key_opts)
-  if ! is_month_sort(key_opts) and ! is_human_numeric_sort(key_opts) and ! is_general_numeric_sort(key_opts) and
-    ! is_version_sort(key_opts) and ! is_numeric_sort(key_opts) {
+  if ! mode.month and ! mode.human_numeric and ! mode.general_numeric and ! mode.version and ! mode.numeric {
     return character_order_sort_key(selected, key_opts.dictionary, key_opts.ignore_nonprinting, key_opts.fold_case, reverse)
   }
-  let key = if is_month_sort(key_opts) {
+  let key = if mode.month {
     padded_decimal(if let Ok(value) = selected.utf8() { month_order(value, opts) } else { 0 }, 2)
-  } else if is_human_numeric_sort(key_opts) {
+  } else if mode.human_numeric {
     human_numeric_order_key_raw(selected, key_opts)
-  } else if is_general_numeric_sort(key_opts) {
+  } else if mode.general_numeric {
     opts.general_numeric_keys[sort_direction_bytes(selected, false)].key
-  } else if is_version_sort(key_opts) {
+  } else if mode.version {
     version_key_bytes(selected)
   } else {
     numeric_order_key_raw(selected, key_opts)
@@ -1094,30 +1124,30 @@ pure sort_record_key_value(record: SortRecord, spec: Str, opts: SortOptions) -> 
   if reverse { sort_direction_key(key, true) } else { key }
 }
 
-pure sort_record_primary_keys(record: SortRecord, opts: SortOptions, has_key: Bool) -> List[Str] {
-  if has_key {
+pure sort_record_primary_keys(record: SortRecord, opts: SortOptions, plan: SortRecordPlan) -> List[Str] {
+  if plan.has_key {
     let keys = collect {
-      for spec in opts.key { yield sort_record_key_value(record, spec, opts) }
+      for key in plan.key_modes { yield sort_record_key_value(record, key.spec, opts, key.mode) }
     }
     return keys
   }
-  if is_month_sort(opts) {
+  if plan.mode.month {
     let key = padded_decimal(if let value = record.text { month_order(value, opts) } else { 0 }, 2)
     return [if opts.reverse { sort_direction_key(key, true) } else { key }]
   }
-  if is_human_numeric_sort(opts) {
+  if plan.mode.human_numeric {
     let key = human_numeric_order_key_raw(record.bytes, opts)
     return [if opts.reverse { sort_direction_key(key, true) } else { key }]
   }
-  if is_general_numeric_sort(opts) {
+  if plan.mode.general_numeric {
     let key = opts.general_numeric_keys[sort_direction_bytes(record.bytes, false)].key
     return [if opts.reverse { sort_direction_key(key, true) } else { key }]
   }
-  if is_version_sort(opts) {
+  if plan.mode.version {
     let key = version_key_bytes(record.bytes)
     return [if opts.reverse { sort_direction_key(key, true) } else { key }]
   }
-  if is_numeric_sort(opts) {
+  if plan.mode.numeric {
     let key = numeric_order_key_raw(record.bytes, opts)
     return [if opts.reverse { sort_direction_key(key, true) } else { key }]
   }
@@ -1133,27 +1163,40 @@ pure sort_record_primary_keys(record: SortRecord, opts: SortOptions, has_key: Bo
 }
 
 ## GNU compares keys in order, then uses the raw line unless stable or unique was requested.
-pure sort_record_order(record: SortRecord, opts: SortOptions, has_key: Bool) -> Str {
+pure sort_record_order(record: SortRecord, opts: SortOptions, plan: SortRecordPlan) -> Str {
   var order = ""
-  for key in sort_record_primary_keys(record, opts, has_key) { order += key + "\0" }
-  let plain_line_key = ! has_key and ! is_month_sort(opts) and ! is_human_numeric_sort(opts) and
-    ! is_general_numeric_sort(opts) and ! is_version_sort(opts) and ! is_numeric_sort(opts) and
-    ! opts.blank and ! opts.fold_case and ! opts.dictionary and ! opts.ignore_nonprinting
-  if ! opts.stable and ! opts.unique and ! plain_line_key { order += sort_direction_bytes(record.bytes, opts.reverse) }
+  for key in sort_record_primary_keys(record, opts, plan) { order += key + "\0" }
+  if plan.last_resort { order += sort_direction_bytes(record.bytes, opts.reverse) }
   order
 }
 
-pure plain_whole_line_sort(opts: SortOptions, has_key: Bool) -> Bool {
-  ! has_key and ! opts.random and ! is_month_sort(opts) and ! is_human_numeric_sort(opts) and
-    ! is_general_numeric_sort(opts) and ! is_version_sort(opts) and ! is_numeric_sort(opts) and
-    ! opts.blank and ! opts.fold_case and ! opts.dictionary and ! opts.ignore_nonprinting
+pure sort_record_plan(opts: SortOptions, has_key: Bool) -> SortRecordPlan {
+  let mode = sort_record_mode(opts)
+  let key_modes: List[SortKeyMode] = collect {
+    if has_key {
+      for spec in opts.key {
+        yield {spec: spec, mode: sort_record_mode(key_effective_options(spec, opts))}
+      }
+    }
+  }
+  let special_order = mode.month or mode.human_numeric or mode.general_numeric or mode.version or mode.numeric
+  let plain_line_key = ! has_key and ! special_order and ! opts.blank and ! opts.fold_case and ! opts.dictionary and
+    ! opts.ignore_nonprinting
+  {
+    has_key: has_key,
+    mode: mode,
+    key_modes: key_modes,
+    plain_whole_line: ! has_key and ! opts.random and ! special_order and ! opts.blank and ! opts.fold_case and
+      ! opts.dictionary and ! opts.ignore_nonprinting,
+    last_resort: ! opts.stable and ! opts.unique and ! plain_line_key,
+  }
 }
 
-pure sort_records(records: List[SortRecord], opts: SortOptions, has_key: Bool) -> List[SortRecord] {
+pure sort_records(records: List[SortRecord], opts: SortOptions, plan: SortRecordPlan) -> List[SortRecord] {
   let unique_input = if opts.unique { records |> unique-by . } else { records }
   return unique_input when opts.merge
   ## UTF-8 string order matches raw byte order only when every record is valid UTF-8.
-  if plain_whole_line_sort(opts, has_key) {
+  if plan.plain_whole_line {
     var all_text = true
     let ordered: List[SortRecordOrder] = collect {
       for record in unique_input {
@@ -1170,33 +1213,33 @@ pure sort_records(records: List[SortRecord], opts: SortOptions, has_key: Bool) -
     }
   }
   let ordered: List[SortRecordOrder] = collect {
-    for record in unique_input { yield {record: record, key: sort_record_order(record, opts, has_key)} }
+    for record in unique_input { yield {record: record, key: sort_record_order(record, opts, plan)} }
   }
   [entry.record for entry in ordered |> sort-by .key]
 }
 
-pure same_sort_record_key(left: SortRecord, right: SortRecord, opts: SortOptions, has_key: Bool) -> Bool {
-  sort_record_primary_keys(left, opts, has_key) == sort_record_primary_keys(right, opts, has_key)
+pure same_sort_record_key(left: SortRecord, right: SortRecord, opts: SortOptions, plan: SortRecordPlan) -> Bool {
+  sort_record_primary_keys(left, opts, plan) == sort_record_primary_keys(right, opts, plan)
 }
 
-pure unique_sorted_records(records: List[SortRecord], opts: SortOptions, has_key: Bool) -> List[SortRecord] {
+pure unique_sorted_records(records: List[SortRecord], opts: SortOptions, plan: SortRecordPlan) -> List[SortRecord] {
   return records unless opts.unique
   var unique: List[SortRecord] = []
   for record in records {
-    if unique.is_empty() or ! same_sort_record_key(unique[-1], record, opts, has_key) {
+    if unique.is_empty() or ! same_sort_record_key(unique[-1], record, opts, plan) {
       unique += [record]
     }
   }
   unique
 }
 
-pure sort_record_precedes(left: SortRecord, right: SortRecord, opts: SortOptions, has_key: Bool) -> Bool {
-  sort_record_order(left, opts, has_key) < sort_record_order(right, opts, has_key)
+pure sort_record_precedes(left: SortRecord, right: SortRecord, opts: SortOptions, plan: SortRecordPlan) -> Bool {
+  sort_record_order(left, opts, plan) < sort_record_order(right, opts, plan)
 }
 
-pure sort_merge_reader_order(reader: SortMergeReader, opts: SortOptions, has_key: Bool) -> SortMergeReader {
+pure sort_merge_reader_order(reader: SortMergeReader, opts: SortOptions, plan: SortRecordPlan) -> SortMergeReader {
   if let current = reader.current {
-    {...reader, current_order: sort_record_order(current, opts, has_key)}
+    {...reader, current_order: sort_record_order(current, opts, plan)}
   } else {
     {...reader, current_order: null}
   }
@@ -1698,6 +1741,7 @@ proc read_sort_records(sources: List[SortInput], zero_terminated: Bool) [fs, io,
 ## Merge one current record from each input; ties keep the earlier input first.
 pure merge_sort_records(sources: List[List[SortRecord]], opts: SortOptions, has_key: Bool) -> List[SortRecord] {
   var positions = [0 for _ in sources]
+  let plan = sort_record_plan(opts, has_key)
   let merged: List[SortRecord] = collect {
     loop {
       var selected = null
@@ -1707,7 +1751,7 @@ pure merge_sort_records(sources: List[List[SortRecord]], opts: SortOptions, has_
           if let current_index = selected {
             let candidate = sources[index][position]
             let current = sources[current_index][positions[current_index]]
-            if sort_record_precedes(candidate, current, opts, has_key) {
+            if sort_record_precedes(candidate, current, opts, plan) {
               selected = index
             }
           } else {
@@ -1774,6 +1818,7 @@ proc can_stream_sort_merge(inputs: List[SortInput], opts: SortOptions, check_ena
 
 ## Merge sorted file streams directly to stdout so a failed writer stops further reads.
 proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool) [fs, io, env, process, error] {
+  let plan = sort_record_plan(opts, has_key)
   var readers: List[SortMergeReader] = []
   for input in inputs {
     match unix.open_fd(input.path) {
@@ -1787,7 +1832,7 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
 
   for index in range(readers.len()) {
     match advance_sort_merge_reader(readers[index], opts.zero_terminated) {
-      Ok(reader) => readers[index] = if has_general_numeric_keys(opts) { reader } else { sort_merge_reader_order(reader, opts, has_key) }
+      Ok(reader) => readers[index] = if has_general_numeric_keys(opts) { reader } else { sort_merge_reader_order(reader, opts, plan) }
       Err(failure) => {
         gnu.error(f"cannot read: {gnu.quote_bytes(readers[index].name, always: false)}: {gnu.strerror(failure)}")
         exit 2
@@ -1807,7 +1852,7 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
         if let line = previous { yield line }
       }
       prepared = prepare_general_numeric_keys(active, prepared)
-      for index in range(readers.len()) { readers[index] = sort_merge_reader_order(readers[index], prepared, has_key) }
+      for index in range(readers.len()) { readers[index] = sort_merge_reader_order(readers[index], prepared, plan) }
     }
     var selected = null
     for index in range(readers.len()) {
@@ -1825,7 +1870,7 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
     if let index = selected {
       let line = readers[index].current ?? sort_record(b"")
       let duplicate = if opts.unique {
-        if let prior = previous { same_sort_record_key(prior, line, prepared, has_key) } else { false }
+        if let prior = previous { same_sort_record_key(prior, line, prepared, plan) } else { false }
       } else { false }
       if ! duplicate {
         output += [line.bytes, line_ending]
@@ -1838,7 +1883,7 @@ proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool
       }
       previous = line
       match advance_sort_merge_reader(readers[index], opts.zero_terminated) {
-        Ok(reader) => readers[index] = if has_general_numeric_keys(opts) { reader } else { sort_merge_reader_order(reader, prepared, has_key) }
+        Ok(reader) => readers[index] = if has_general_numeric_keys(opts) { reader } else { sort_merge_reader_order(reader, prepared, plan) }
         Err(failure) => {
           gnu.error(f"cannot read: {gnu.quote_bytes(readers[index].name, always: false)}: {gnu.strerror(failure)}")
           exit 2
@@ -2103,7 +2148,8 @@ proc plain_sort_inputs(root: FsRoot, inputs: List[SortInput], prefix: Str) [fs, 
 
 proc write_sort_run(root: FsRoot, name: Str, records: List[SortRecord], opts: SortOptions, has_key: Bool, compress: Str?) [fs, process, env, error] -> SortInput {
   let prepared = prepare_general_numeric_keys(records, opts)
-  let sorted = unique_sorted_records(sort_records(records, prepared, has_key), prepared, has_key)
+  let plan = sort_record_plan(prepared, has_key)
+  let sorted = unique_sorted_records(sort_records(records, prepared, plan), prepared, plan)
   let ending = if opts.zero_terminated { b"\0" } else { b"\n" }
   write_temp_run(root, name, sort_record_bytes(sorted, ending), compress)
 }
@@ -2122,6 +2168,7 @@ proc sort_merge_batch_limit(opts: SortOptions) [process, error] -> Int {
 }
 
 proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool, output_fd: Int?, deduplicate: Bool) [fs, io, env, process, error] {
+  let plan = sort_record_plan(opts, has_key)
   var readers: List[SortMergeReader] = []
   defer {
     for reader in readers {
@@ -2146,7 +2193,7 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
 
   for index in range(readers.len()) {
     match advance_sort_merge_reader(readers[index], opts.zero_terminated) {
-      Ok(reader) => readers[index] = if has_general_numeric_keys(opts) { reader } else { sort_merge_reader_order(reader, opts, has_key) }
+      Ok(reader) => readers[index] = if has_general_numeric_keys(opts) { reader } else { sort_merge_reader_order(reader, opts, plan) }
       Err(failure) => {
         gnu.error(f"cannot read: {gnu.quote_bytes(readers[index].name, always: false)}: {gnu.strerror(failure)}")
         exit 2
@@ -2166,7 +2213,7 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
         if let line = previous { yield line }
       }
       prepared = prepare_general_numeric_keys(active, prepared)
-      for index in range(readers.len()) { readers[index] = sort_merge_reader_order(readers[index], prepared, has_key) }
+      for index in range(readers.len()) { readers[index] = sort_merge_reader_order(readers[index], prepared, plan) }
     }
     var selected = null
     for index in range(readers.len()) {
@@ -2184,7 +2231,7 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
     if let index = selected {
       let line = readers[index].current ?? sort_record(b"")
       let duplicate = if deduplicate {
-        if let prior = previous { same_sort_record_key(prior, line, prepared, has_key) } else { false }
+        if let prior = previous { same_sort_record_key(prior, line, prepared, plan) } else { false }
       } else { false }
       if ! duplicate {
         output += [line.bytes, line_ending]
@@ -2198,7 +2245,7 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
       }
       previous = line
       match advance_sort_merge_reader(readers[index], opts.zero_terminated) {
-        Ok(reader) => readers[index] = if has_general_numeric_keys(opts) { reader } else { sort_merge_reader_order(reader, prepared, has_key) }
+        Ok(reader) => readers[index] = if has_general_numeric_keys(opts) { reader } else { sort_merge_reader_order(reader, prepared, plan) }
         Err(failure) => {
           gnu.error(f"cannot read: {gnu.quote_bytes(readers[index].name, always: false)}: {gnu.strerror(failure)}")
           exit 2
@@ -2308,7 +2355,8 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
 
   if runs.is_empty() {
     let prepared = prepare_general_numeric_keys(chunk, opts)
-    let lines = unique_sorted_records(sort_records(chunk, prepared, has_key), prepared, has_key)
+    let plan = sort_record_plan(prepared, has_key)
+    let lines = unique_sorted_records(sort_records(chunk, prepared, plan), prepared, plan)
     let line_ending = if opts.zero_terminated { b"\0" } else { b"\n" }
     let output_data = sort_record_bytes(lines, line_ending)
     if has_output {
@@ -2772,6 +2820,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
     opts = prepare_general_numeric_keys(numeric_source_lines, opts)
   }
+  let plan = sort_record_plan(opts, has_key)
   var input_lines: List[SortRecord] = []
   if opts.merge {
     input_lines = merge_sort_records(source_records, opts, has_key)
@@ -2783,8 +2832,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       for index in range(1, input_lines.len()) {
         let previous = input_lines[index - 1]
         let current = input_lines[index]
-        let unordered = sort_record_order(previous, opts, has_key) > sort_record_order(current, opts, has_key)
-        let duplicate = opts.unique and same_sort_record_key(previous, current, opts, has_key)
+        let unordered = sort_record_order(previous, opts, plan) > sort_record_order(current, opts, plan)
+        let duplicate = opts.unique and same_sort_record_key(previous, current, opts, plan)
 
         if unordered or duplicate {
           if ! silent_check {
@@ -2806,9 +2855,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let sorted = if random_requested {
     random_sort_records(input_lines, opts, has_key, random_salt(opts.random_source))
   } else {
-    sort_records(input_lines, opts, has_key)
+    sort_records(input_lines, opts, plan)
   }
-  let lines = unique_sorted_records(sorted, opts, has_key)
+  let lines = unique_sorted_records(sorted, opts, plan)
 
   let line_ending = if opts.zero_terminated { b"\0" } else { b"\n" }
   let output_data = if opts.debug {
