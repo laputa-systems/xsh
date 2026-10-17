@@ -601,7 +601,7 @@ proc block_value(inventory: Inventory, block: Block, column: Str, byte_mode: Boo
     "RANGE" => range_text(block, inventory.block_size)
     "SIZE" => if byte_mode { u64_signed_decimal(size) } else { lsmem_size(size) }
     "STATE" => block.state
-    "REMOVABLE" => if block.state == "online" and block.removable { "yes" } else { "no" }
+    "REMOVABLE" => if block.state == "online" { if block.removable { "yes" } else { "no" } } else { null }
     "BLOCK" => block_number(block)
     "NODE" => if inventory.have_nodes { f"{block.node}" } else { null }
     "ZONES" => if inventory.have_zones { block.zones.join("/") } else { null }
@@ -612,10 +612,10 @@ proc block_value(inventory: Inventory, block: Block, column: Str, byte_mode: Boo
 }
 
 proc block_json_value(inventory: Inventory, block: Block, column: Str, byte_mode: Bool) [error] -> Str? {
+  if column == "REMOVABLE" { return if block.state == "online" and block.removable { "true" } else { "false" } }
   let value = block_value(inventory, block, column, byte_mode)
   if value == null { return null }
   let text = value ?? ""
-  if column == "REMOVABLE" { return if text == "yes" { "true" } else { "false" } }
   if column == "NODE" or (column == "SIZE" and byte_mode) { return text }
   json.encode(text)?
 }
