@@ -570,6 +570,8 @@ test test_lslocks_help_and_usage_errors { |ctx|
     let result = compared(s, args)?
     assert result.status == 0 and ! result.stdout.is_empty()
   }
+  let stray_operand = compared(s, ["stray"])?
+  assert stray_operand.status == 0
   for args in [
     ["--output"], ["--pid", "bad"], ["--unknown"], ["--pid"], ["--pid", "0"],
     ["--pid", "-1"], ["--pid", "2147483648"], ["--filter"], ["-Q"],
