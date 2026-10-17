@@ -47,12 +47,15 @@ remain pinned to 0de; no b235 guest ran. The test-only spelling change at 7eb
 leaves that QEMU scope unchanged, so Phase A reuses those seven guest passes.
 No 7eb product build or guest run is claimed. See [QEMU scope](evidence/linux-qemu-b235a1a4/README.md).
 All 428 normal and forced route runtime invocations completed without
-failures, and source checks stayed clean. The strict matrix remains red on one
-direct-IR `ExprIf` proof-admission gap: the current collector cannot admit an
-existing positive Rust proof separately from XSH. A narrow collector extension
-and one exact qualified canonical debug Rust test are in progress; the 188 XSH
-proofs are not being weakened. Route acceptance and functional close remain
-open.
+failures, and source checks stayed clean. The earlier strict matrix exposed a
+direct-IR `ExprIf` proof-admission gap. The accepted collector repair
+`30bebbc44`, strict source-check follow-up `9f5d12725`, and [admission
+contract](winddown/README.md) now support a separate `--direct-ir-receipt` for
+the reviewed Rust proof. This credits only the normal `ExprIf` in-place route
+and does not relabel XSH artifacts or weaken the 188 XSH proofs. The final
+strict matrix result is pending; no 428 runtime rerun is required. Route
+acceptance and functional close remain open until its terminal result is
+reviewed.
 
 The root residual has 36 unique passes across 37 executions. The standard
 context passed 34 cases and retained one Unix-socket `sun_path` skip; the exact
@@ -67,19 +70,23 @@ checkpoint `877` at `338b82238a67ee36dd1b025b7a923f9fc5d2da40`, using the
 qualified pair `a972c8d139ecbb43174271842988eefb2c8638cc`. All eleven annotated
 and eleven reduced root checks pass. It removes 348 of 693 local annotations
 (50.22%) and 529 of 2,190 internal annotations (24.16%). The 95% and 85%
-targets remain unmet. The original 13-case native trial first recorded 12
-passes and one lifecycle failure because `flock` was absent from the
-historical `ddc` test PATH. The accepted helper and call correction
-`3059676c3` were applied to both views outside the 48 program sources without
-changing annotation counts. The exact lifecycle selector now passes in both views:
-the original view has 13 passes, and the reduced view has one pass; its
-remaining contexts are pending. All 202 eligible effect clauses remain
-retained because 142 individual proofs do not establish joint-cycle equality.
-Host component `5277` is closed for its six exact native checks, with
-source/product guards and cleanup passing; see the [host native evidence](evidence/typing-host-native6/README.md).
-This closes only that isolated component; it does not accept broader inference
-or authorize merging it to main. The prior 615-removal checkpoint remains
-historical. The generic-body lane is unqualified.
+targets remain unmet. Root accepted all 26 unique paired behavior slots in
+proof `54956efd7925818d7c70f82d0c74fa4669eaf1db` across 28 executions: 27
+passes and the preserved original lifecycle-fixture
+failure, including one duplicate reduced lifecycle execution. The original
+view's 13 slots comprise 12 unchanged passes and the corrected lifecycle pass;
+the final reduced matrix passes all 13. See the [paired behavior proof](evidence/typing-corpus-host-obligations/README.md#paired-behavior-acceptance).
+The original failure occurred because `flock` was absent from the historical
+`ddc` test PATH. The accepted helper and call correction
+`3059676c39aca75a126893e81d8fcecf96e8d912` changes no assertions and stays
+outside the 48 program sources. All 202 eligible effect
+clauses remain retained because 142 individual proofs do not establish
+joint-cycle equality. Host component `5277` has conditional acceptance for its
+six exact native checks at proof `1edf4ee50c093323accc03f9355bd83795bbfdba`,
+with source/product guards and cleanup passing; see the [host native
+evidence](evidence/typing-host-native6/README.md). Broader
+inference is not accepted or merged. The prior 615-removal checkpoint remains
+historical. The generic-body lane remains unqualified and CPU-paused.
 
 ## Stop handoff, 2026-10-16
 

@@ -29,11 +29,14 @@ full-corpus result, and the interrupted 3c repeat earns no credit.
 
 Compatibility origins and exclusions reconcile to frozen denominators. No
 new upstream pass is claimed. All 428 route runtime invocations completed
-without failures, with source checks clean. The strict matrix remains red on
-one direct-IR `ExprIf` proof-admission gap; a narrow collector extension and
-one exact qualified canonical debug Rust test are in progress. The existing
-188 XSH proofs are unchanged. Route acceptance and functional close remain
-open.
+without failures, with source checks clean. The earlier strict matrix exposed
+a direct-IR `ExprIf` proof-admission gap. The accepted collector repair
+`30bebbc44`, source-check follow-up `9f5d12725`, and [admission contract]
+(winddown/README.md) support a separate `--direct-ir-receipt` for the reviewed
+Rust proof. This credits only the normal `ExprIf` in-place route; XSH artifacts
+and all 188 XSH proofs are unchanged. The final strict matrix result is
+pending; no 428 runtime rerun is required. Route acceptance and functional
+close remain open until the terminal matrix result is reviewed.
 
 The root residual has 36 unique passes across 37 executions. The standard
 context passed 34 cases and retained one Unix-socket `sun_path` skip; the exact
@@ -49,16 +52,23 @@ Phase D remains isolated at checkpoint `877`, commit
 `a972c8d139ecbb43174271842988eefb2c8638cc`. It removed 348/693 local and
 529/2,190 internal annotations. All eleven annotated and eleven reduced root
 checks pass. The original 13-case native trial had 12 passes and one lifecycle
-failure because `flock` was absent from the historical `ddc` test PATH. The
-accepted helper and call correction `3059676c3` added no annotations and kept
-both views outside the 48 program sources. The exact lifecycle selector now
-passes in each view:
-the original has 13 passes, while the reduced view has one pass and its other
-contexts remain pending. Targets remain unmet, and all 202 eligible effects
-remain retained. Host component `5277` is closed for its six exact native
-checks, with guarded source/product identity and cleanup; see the [host native
-evidence](evidence/typing-host-native6/README.md). See the [active handoff](HANDOFF.md#active-candidate)
-for the full checkpoint details.
+failure because `flock` was absent from the historical `ddc` test PATH. Root
+accepted all 26 unique paired behavior slots in proof
+`54956efd7925818d7c70f82d0c74fa4669eaf1db` across 28 executions: 27 passes
+and the preserved original lifecycle-fixture failure, including one duplicate
+reduced lifecycle execution. The original view's 13 slots comprise 12
+unchanged passes and the corrected lifecycle pass; the final reduced matrix
+passes all 13. See the [paired behavior proof](evidence/typing-corpus-host-obligations/README.md#paired-behavior-acceptance).
+The accepted helper and call correction
+`3059676c39aca75a126893e81d8fcecf96e8d912` changes no assertions and
+stays outside the 48 program sources. Targets remain unmet, and all 202
+eligible effects remain retained. Host component `5277` has conditional
+acceptance for its six exact native checks at proof
+`1edf4ee50c093323accc03f9355bd83795bbfdba`, with guarded source/product
+identity and cleanup; see [host native evidence](evidence/typing-host-native6/README.md).
+The generic-body lane remains unqualified and CPU-paused. Inference remains
+isolated. See the [active handoff](HANDOFF.md#active-candidate) for the full
+checkpoint details.
 
 The isolated generic module export slice remains accepted at `8475984a9`.
 Its main merge waits for consolidation closure. Broader inference, corpus
