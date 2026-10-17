@@ -96,7 +96,9 @@ The output-column parser accepts case-insensitive full column names, not
 abbreviations. It accepts one trailing comma, but rejects an empty column
 list, a leading comma, and repeated commas.
 Its fixed column array accepts 74 repeated valid columns and silently rejects
-the 75th with status 1 and no output or diagnostic.
+the 75th with status 1 and no output or diagnostic. A leading `+` appends
+columns to the selected mode's defaults, and those defaults count toward the
+same capacity.
 Negative IDs below `-1` retain the reference's enumerate-all behavior for
 System V queues, shared memory, and semaphores. ID parsing accepts leading
 whitespace and an optional sign, uses decimal syntax, and rejects prefixes,
@@ -119,7 +121,7 @@ tables and query each selected ID.
 | Native selector | Behavior under test | Upstream origin | Disposition |
 |---|---|---|---|
 | `test_lsipc_default_and_global_summary_outputs_match_reference` | Default global-summary selection, summary resource rows, explicit summary columns, and all explicit global selector combinations | `lsipc.c:703-724,1044-1084,1348-1369,1565-1579,1627-1659` | Open. Fixture required. |
-| `test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes` | Default columns and every explicitly accepted column for all resource classes; case-insensitive full names, abbreviation rejection, and trailing-comma output parsing | `lsipc.c:157-203,223-243,533-1370`; `ipcutils.c:131-714` | Open. Fixture required. |
+| `test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes` | Default columns and every explicitly accepted column for all resource classes; case-insensitive full names, abbreviation rejection, trailing-comma output parsing, and appending columns to defaults | `lsipc.c:157-203,223-243,533-1370`; `ipcutils.c:131-714`; `strutils.c:667-737` | Open. Fixture required. |
 | `test_lsipc_id_and_name_select_registered_objects` | Exact ID and name selection, POSIX message-queue slash spelling, leading-whitespace IDs, and negative-ID enumeration for all System V classes | `lsipc.c:559-563,647-648,823-827,958-965,1094-1097,1265-1272`; `ipcutils.c:283-289,492-498,645-700` | Open. Fixture required. |
 | `test_lsipc_missing_ids_and_names_preserve_reference_status_and_diagnostics` | Missing IDs and names, successful exit status, and warning diagnostics for all six resource modes | `lsipc.c:559-563,738-741,823-827,958-961,1094-1097,1265-1268,1661-1666` | Open. Capture exact oracle output. |
 | `test_lsipc_rejects_id_and_name_without_matching_modes` | Selector prerequisites and option conflicts | `lsipc.c:1415-1420,1565-1570` | Open. Capture exact oracle output. |
@@ -130,7 +132,7 @@ tables and query each selected ID.
 | `test_lsipc_version_preserves_xsh_provenance` | XSH identity and exact XSH version banner through `--version` and `-V` | `lsipc.c:1557-1562`; campaign `version-provenance` decision | Open. Assert XSH banner independently. |
 | `test_lsipc_short_option_aliases_match_long_options` | Short and long aliases for global mode, IDs, names, output, rendering, and value options | `lsipc.c:1381-1421` | Open. Compare exact output for each spelling. |
 | `test_lsipc_rejects_unknown_and_inapplicable_columns` | Unknown and inapplicable columns, default-only POSIX columns, global summary range, and empty/leading/repeated output separators | `lsipc.c:223-243,1526-1535` | Open. Stable input. |
-| `test_lsipc_output_column_capacity_matches_reference` | The parser accepts 74 repeated columns and silently rejects the 75th | `lsipc.c:223-243`; `columns[ARRAY_SIZE(coldescs) * 2]` | Open. Stable input. |
+| `test_lsipc_output_column_capacity_matches_reference` | The parser accepts 74 repeated columns and silently rejects the 75th, including capacity consumed by default columns when appending | `lsipc.c:210-221`; `strutils.c:667-737` | Open. Stable input. |
 | `test_lsipc_rejects_unknown_time_format` | Invalid time formats, status, and diagnostics | `lsipc.c:273-290` | Open. Stable input. |
 | `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, malformed decimal IDs, signed 32-bit overflow diagnostics, and parser errors before later help | `lsipc.c:1381-1455`; `strutils.c:311-410` | Open. Compare exact diagnostics and status. |
 | `test_lsipc_rejects_each_exclusive_option_pair` | Every pair in the four source-defined exclusivity groups | `lsipc.c:1415-1420` | Open. Stable input. |

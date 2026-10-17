@@ -260,7 +260,7 @@ test test_lsipc_help_lists_resource_modes_and_columns { |ctx|
   assert pair.candidate.status == 0
   assert pair.candidate.stderr == b""
   let stdout = pair.candidate.stdout.utf8() ?? ""
-  assert "Usage: lsipc [options]" in stdout
+  assert "Usage:\n lsipc [options]" in stdout
   for name in [
     "--shmems",
     "--posix-shmems",
@@ -459,6 +459,23 @@ test test_lsipc_output_column_capacity_matches_reference { |ctx|
   assert rejected.candidate.status == 1
   assert rejected.candidate.stdout == b""
   assert rejected.candidate.stderr == b""
+
+  columns = []
+  for _ in range(66) {
+    columns = columns.extend(["ID"])
+  }
+  let appended = run_both(s, ["--queues", "--noheadings", "--output", "+" + columns.join(",")])?
+  ul.compare(appended.reference, appended.candidate)
+  assert appended.candidate.status == 0
+  assert appended.candidate.stdout == b""
+  assert appended.candidate.stderr == b""
+
+  columns = columns.extend(["ID"])
+  let appended_overflow = run_both(s, ["--queues", "--noheadings", "--output", "+" + columns.join(",")])?
+  ul.compare(appended_overflow.reference, appended_overflow.candidate)
+  assert appended_overflow.candidate.status == 1
+  assert appended_overflow.candidate.stdout == b""
+  assert appended_overflow.candidate.stderr == b""
 }
 
 test test_lsipc_rejects_invalid_options_and_missing_arguments { |ctx|
@@ -673,6 +690,11 @@ test test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes { |ctx
     assert columns.candidate.status == 0, f"{mode.selector}: {columns.candidate.stderr.utf8() ?? ""}"
     assert columns.candidate.stdout != b"", mode.selector
   }
+
+  let appended = run_both(s, ["--queues", "--output", "+ID"])?
+  ul.compare(appended.reference, appended.candidate)
+  assert appended.candidate.status == 0
+  assert appended.candidate.stdout != b""
 
   let trailing_comma = run_both(s, ["--queues", "--output", "ID,"])?
   ul.compare(trailing_comma.reference, trailing_comma.candidate)
