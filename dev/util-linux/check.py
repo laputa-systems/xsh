@@ -219,10 +219,11 @@ def owned_cleanup(source):
     require_native_lease()
     if source_identity() != source or not source.clean:
         raise ValueError("cleanup requires the current clean source")
-    containers = subprocess.check_output(["docker", "ps", "--all", "--quiet", "--filter", "name=xsh-util-linux-"], timeout=10)
-    if containers.strip():
-        raise ValueError(f"owned containers remain: {containers!r}")
-    processes = subprocess.check_output(["ps", "-eo", "pid=,comm=,args="], text=True, timeout=10)
+    containers = subprocess.check_output(["docker", "ps", "--all", "--format", "{{.Names}}"], timeout=10)
+    owned_containers = tuple(name for name in containers.splitlines() if name.startswith(b"xsh-util-linux-"))
+    if owned_containers:
+        raise ValueError(f"owned containers remain: {owned_containers!r}")
+    processes = subprocess.check_output(["ps", "-eo", "pid=,comm=,args="], text=True, errors="surrogateescape", timeout=10)
     if not processes.strip():
         raise ValueError("process inventory is empty during cleanup")
     for line in processes.splitlines():

@@ -88,7 +88,7 @@ class OwnedCleanupTests(unittest.TestCase):
         self.assertEqual(set(result.selectors), {"remaining-owned-processes:0", "unresolved-markers:0", "lost-work:false"})
 
     def test_owned_container_prevents_cleanup_acceptance(self):
-        with patch("check.subprocess.check_output", return_value=b"owned-container\n"):
+        with patch("check.subprocess.check_output", return_value=b"xsh-util-linux-owned\n"):
             with self.assertRaisesRegex(ValueError, "owned containers remain"):
                 check.owned_cleanup(self.source)
 
