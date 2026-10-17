@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.gnu as gnu
+use lib.util_linux_io as ul_io
 
 const MAXSYMLINKS = 20
 const USAGE = """Usage:
@@ -293,29 +294,29 @@ pure spaces(count: Int) -> Bytes {
 
 proc render(entries: List[Entry], operand: Bytes, options: Options, user_width: Int, group_width: Int) [fs, env, process, io] -> Bool {
   return false when entries.is_empty()
-  gnu.write_bytes(bytes.concat([b"f: ", operand, b"\n"]))
+  ul_io.write_bytes(bytes.concat([b"f: ", operand, b"\n"]))
   var failed = false
   for entry in entries {
     if let failure = entry.stat_error {
       failed = true
       let blanks = 1 + (if options.modes { 9 } else { 0 }) + (if options.owners { user_width + group_width + 2 } else { 0 }) + (if options.vertical { 0 } else { 1 }) + 1 + entry.level * 2
-      gnu.write_bytes(bytes.concat([spaces(blanks), b" ", entry.name, b" - ", bytes.from_text(gnu.strerror(failure)), b"\n"]))
+      ul_io.write_bytes(bytes.concat([spaces(blanks), b" ", entry.name, b" - ", bytes.from_text(gnu.strerror(failure)), b"\n"]))
       break
     }
     guard let metadata = entry.metadata else { continue }
     let mode = mode_string(metadata, entry.mountpoint)
-    if ! options.vertical { gnu.write_bytes(spaces(entry.level * 2)); gnu.write_bytes(b" ") }
-    gnu.write_bytes(if options.modes { bytes.from_text(mode) } else { bytes.from_text(mode.byte_slice(0, length: 1)) })
+    if ! options.vertical { ul_io.write_bytes(spaces(entry.level * 2)); ul_io.write_bytes(b" ") }
+    ul_io.write_bytes(if options.modes { bytes.from_text(mode) } else { bytes.from_text(mode.byte_slice(0, length: 1)) })
     if options.owners {
       let user_name = username(metadata.uid)
       let group_name = groupname(metadata.gid)
-      gnu.write_bytes(bytes.from_text(f" {right_pad(user_name, user_width)} {right_pad(group_name, group_width)}"))
+      ul_io.write_bytes(bytes.from_text(f" {right_pad(user_name, user_width)} {right_pad(group_name, group_width)}"))
     }
-    if options.vertical { gnu.write_bytes(spaces(entry.level * 2)) }
+    if options.vertical { ul_io.write_bytes(spaces(entry.level * 2)) }
     if let target = entry.link {
-      gnu.write_bytes(bytes.concat([b" ", entry.name, b" -> ", target, b"\n"]))
+      ul_io.write_bytes(bytes.concat([b" ", entry.name, b" -> ", target, b"\n"]))
     } else {
-      gnu.write_bytes(bytes.concat([b" ", entry.name, b"\n"]))
+      ul_io.write_bytes(bytes.concat([b" ", entry.name, b"\n"]))
     }
   }
   failed
@@ -358,8 +359,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let prepared = gnu.prepare_arguments(argv)
   let options = parse_options(prepared.text)
 
-  if options.help { gnu.help(f"\n{USAGE}"); return }
-  if options.version { gnu.version("namei"); return }
+  if options.help { ul_io.help(f"\n{USAGE}"); return }
+  if options.version { ul_io.version("namei"); return }
   if options.paths.is_empty() {
     gnu.error("pathname argument is missing")
     gnu.try_help()

@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.gnu as gnu
+use lib.util_linux_io as ul_io
 
 const USAGE = """Usage:
  mountpoint [-qd] /path/to/directory
@@ -115,8 +116,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let prepared = gnu.prepare_arguments(argv)
   let opts = parse_options(prepared.text)
 
-  if opts.help { gnu.help(f"\n{USAGE}"); return }
-  if opts.version { gnu.version("mountpoint"); return }
+  if opts.help { ul_io.help(f"\n{USAGE}"); return }
+  if opts.version { ul_io.version("mountpoint"); return }
   if opts.operands.len() != 1 { bad_usage() }
   if opts.nofollow and opts.devno {
     gnu.error("--devno and --nofollow are mutually exclusive")
@@ -138,13 +139,13 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       if ! opts.quiet { report_non_block(name) }
       exit 32
     }
-    gnu.write_text(f"{device_number(metadata.rdev)}\n")
+    ul_io.write_text(f"{device_number(metadata.rdev)}\n")
     return
   }
 
   if opts.nofollow and metadata.kind == "symlink" {
     if ! opts.quiet {
-      gnu.write_bytes(bytes.concat([name, b" is not a mountpoint\n"]))
+      ul_io.write_bytes(bytes.concat([name, b" is not a mountpoint\n"]))
     }
     exit 32
   }
@@ -165,16 +166,16 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   if opts.show {
-    gnu.write_bytes(bytes.concat([mount.mounted_on.bytes(), b"\n"]))
+    ul_io.write_bytes(bytes.concat([mount.mounted_on.bytes(), b"\n"]))
     return
   }
   if resolved != mount.mounted_on {
-    if ! opts.quiet { gnu.write_bytes(bytes.concat([name, b" is not a mountpoint\n"])) }
+    if ! opts.quiet { ul_io.write_bytes(bytes.concat([name, b" is not a mountpoint\n"])) }
     exit 32
   }
   if opts.fs_devno {
-    gnu.write_text(f"{device_number(mount.device)}\n")
+    ul_io.write_text(f"{device_number(mount.device)}\n")
   } else if ! opts.quiet {
-    gnu.write_bytes(bytes.concat([name, b" is a mountpoint\n"]))
+    ul_io.write_bytes(bytes.concat([name, b" is a mountpoint\n"]))
   }
 }
