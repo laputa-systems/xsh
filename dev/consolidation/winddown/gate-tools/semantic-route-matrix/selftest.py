@@ -4305,7 +4305,7 @@ class DirectIrRouteReceiptTests(unittest.TestCase):
                 "build_receipt": {"path": str(build_path), "sha256": generate.sha256_file(build_path)},
             },
             "hashes": {phase: {"xsh-lib": self.digest} for phase in ("binaries_before_tests", "binaries_after_tests")},
-            "source_checks": [{"where": f"{phase}:direct-if-route", "head": "head", "tree": "tree", "clean": True} for phase in ("before", "after")],
+            "source_checks": [{"where": f"{phase}:direct-if-route", "head": "head", "tree": "tree", "clean": True, "status": ""} for phase in ("before", "after")],
             "steps": [{"id": "direct-if-route", "argv": [str(self.binary), generate.DIRECT_IR_TEST_ID, "--exact"], "env": {}, "exit_code": 0, "process_exit_code": 0, "log": "test.log"}],
         }
         self.path = self.root / "receipt.json"
@@ -4346,6 +4346,8 @@ class DirectIrRouteReceiptTests(unittest.TestCase):
             lambda r: r["qualified_product"]["build_receipt"].update(sha256="wrong"),
             lambda r: r["hashes"]["binaries_after_tests"].update({"xsh-lib": "wrong"}),
             lambda r: r["source_checks"][1].update(clean=False),
+            lambda r: r["source_checks"][1].update(clean=1),
+            lambda r: r["source_checks"][1].update(status=" M src/runtime/eval/indexed/full.rs"),
             lambda r: r["steps"][0].update(exit_code=1),
             lambda r: r["steps"][0].update(process_exit_code=1),
             lambda r: r["steps"][0].update(env={"XSH_INTERNAL_TEST_FORCE_FRAMES": "1"}),

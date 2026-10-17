@@ -6694,8 +6694,8 @@ def validate_direct_ir_route_receipt(
     if not isinstance(checks, list) or len(checks) != 2:
         raise EvidenceError("direct IR execution needs clean before/after source checks")
     for phase in ("before", "after"):
-        expected = {"where": f"{phase}:{step['id']}", "head": actual["head"], "tree": actual["tree"], "clean": True}
-        if sum(isinstance(check, dict) and all(check.get(key) == value for key, value in expected.items()) for check in checks) != 1:
+        expected = {"where": f"{phase}:{step['id']}", "head": actual["head"], "tree": actual["tree"], "status": ""}
+        if sum(isinstance(check, dict) and check.get("clean") is True and all(check.get(key) == value for key, value in expected.items()) for check in checks) != 1:
             raise EvidenceError("direct IR execution source check mismatch")
     stdout = receipt_step_log_stdout(root, step)
     if stdout is None:
