@@ -265,6 +265,32 @@ def test_forced_frames_rejects_a_symlinked_tmp_parent():
         assert list(target.iterdir()) == []
 
 
+def test_forced_frames_accepts_reviewed_helper_and_rejects_changes():
+    with setgid_repository() as (root, _):
+        evidence = root / ".work/final-review-evidence"
+        performance = evidence / "final-performance-gates"
+        performance.mkdir(parents=True)
+        output_parent = root / ".work/consolidation/final-performance-gates"
+        profile_dir = output_parent / f"profile-cost-{'a' * 40}"
+        profile_dir.mkdir(parents=True)
+        close = evidence / f"functional-close-{'a' * 40}.json"
+        close.touch()
+        profile_receipt = profile_dir / "receipt.json"
+        profile_receipt.touch()
+        helper = performance / "owned_containers.py"
+        helper.write_bytes((performance_dir / "owned_containers.py").read_bytes())
+        args = Namespace(tree=root, commit="a" * 40, functional_close=close, profile_receipt=profile_receipt, output=output_parent / f"forced-frames-{'a' * 40}")
+        with patch.multiple(forced, ROOT=root, PERFORMANCE_DIR=performance, PROFILE_OUTPUT_ROOT=output_parent, FUNCTIONAL_CLOSE_ROOT=evidence):
+            assert forced.validate_static_paths(args) == (root, close, profile_receipt, args.output, output_parent)
+            helper.write_bytes(helper.read_bytes() + b"\n")
+            try:
+                forced.validate_static_paths(args)
+            except forced.GateFailure as error:
+                assert "differs from its inspected version" in str(error)
+            else:
+                raise AssertionError("forced-frame acceptance admitted a changed cleanup helper")
+
+
 if __name__ == "__main__":
     test_profile_cost_does_not_use_shared_setgid_tmp()
     test_profile_cost_removes_execute_only_directories()
@@ -277,4 +303,5 @@ if __name__ == "__main__":
     test_forced_frames_cleanup_error_does_not_mask_gate_error()
     test_profile_cost_rejects_a_symlinked_tmp_parent()
     test_forced_frames_rejects_a_symlinked_tmp_parent()
+    test_forced_frames_accepts_reviewed_helper_and_rejects_changes()
     print("gate temporary directories are private and clean up shared parent mode")
