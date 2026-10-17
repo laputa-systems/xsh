@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.gnu
+use lib.util_linux_io as ul_io
 use core.lib.ipc_report as report
 
 type IpcEntry = {values: Map[Str, Str], elements: List[report.Element]}
@@ -565,13 +566,13 @@ proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
     version: {form: "-V --version", default: false, stop: true},
     operands: {form: "...ARG"},
   })?
-  if options.help { gnu.help(help_text()); return }
-  if options.version { gnu.version("lsipc"); return }
+  if options.help { ul_io.help(help_text()); return }
+  if options.version { ul_io.version("lsipc"); return }
   let selection = match report.resolve(options, argv, permute) {
     Ok(value) => value
     Err(failure) => { report_failure(failure); return }
   }
   let rows = if selection.global { global_rows(selection) } else { selected_rows(selection) }
   if rows.is_empty() { missing_resource(selection) }
-  gnu.write_text(report.render(selection, rows, output_width()))
+  ul_io.write_text(report.render(selection, rows, output_width()))
 }
