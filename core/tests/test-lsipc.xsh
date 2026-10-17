@@ -1,5 +1,6 @@
 use support.uu as uu
 use support.util_linux as ul
+use support.util_linux_contexts as contexts
 use core.lib.gnu as gnu
 
 type LsipcPair = {reference: uu.Ran, candidate: uu.Ran}
@@ -1007,9 +1008,26 @@ test test_lsipc_output_modes_and_table_controls_match_reference { |ctx|
   let notruncated = run_both_with_vars(s, ["--shmems", "--output", "ID,COMMAND", "--notruncate"], vars: width)?
   ul.compare(notruncated.reference, notruncated.candidate)
   let keeper_path = f"{s.ctx.core_dir}/tests/fixtures/util-linux/ipc/keeper.py"
-  assert truncated.candidate.stdout != notruncated.candidate.stdout
+  assert truncated.candidate.stdout == notruncated.candidate.stdout
+  assert keeper_path in (truncated.candidate.stdout.utf8() ?? "")
   assert keeper_path in (notruncated.candidate.stdout.utf8() ?? "")
-  assert keeper_path not in (truncated.candidate.stdout.utf8() ?? "")
+
+  let terminal_args = [p"--shmems", p"--output", p"ID,COMMAND"]
+  let terminal_vars = {LC_ALL: "C", TZ: "UTC"}
+  let narrow_reference = contexts.terminal_reference(s, "lsipc", terminal_args, columns: 24, vars: terminal_vars)?
+  let narrow_candidate = contexts.terminal_candidate(s, "lsipc", terminal_args, columns: 24, vars: terminal_vars)?
+  assert ul.observed_equal(narrow_reference, narrow_candidate)
+  assert keeper_path not in (narrow_reference.stdout.utf8() ?? "")
+  let wide_reference = contexts.terminal_reference(s, "lsipc", terminal_args, columns: 120, vars: terminal_vars)?
+  let wide_candidate = contexts.terminal_candidate(s, "lsipc", terminal_args, columns: 120, vars: terminal_vars)?
+  assert ul.observed_equal(wide_reference, wide_candidate)
+  assert narrow_reference.stdout != wide_reference.stdout
+  assert keeper_path in (wide_reference.stdout.utf8() ?? "")
+  let terminal_notruncate_args = terminal_args.extend([p"--notruncate"])
+  let terminal_notruncated_reference = contexts.terminal_reference(s, "lsipc", terminal_notruncate_args, columns: 24, vars: terminal_vars)?
+  let terminal_notruncated_candidate = contexts.terminal_candidate(s, "lsipc", terminal_notruncate_args, columns: 24, vars: terminal_vars)?
+  assert ul.observed_equal(terminal_notruncated_reference, terminal_notruncated_candidate)
+  assert keeper_path in (terminal_notruncated_reference.stdout.utf8() ?? "")
 
   let process_columns = run_both(s, ["--shmems", "--notruncate", "--output", "CPID,LPID,COMMAND"])?
   ul.compare(process_columns.reference, process_columns.candidate)
