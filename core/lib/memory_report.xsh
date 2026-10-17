@@ -246,20 +246,34 @@ proc node_id(root: FsRoot, block_path: Path, block_name: Str) [fs, process, env,
 
 proc zone_values(root: FsRoot, block_path: Path) [fs, error] -> List[Str] {
   let zones_path = fp"{block_path}/valid_zones"
-  if let Ok(raw) = root.read_text(zones_path) {
-    let text = without_final_newline(raw)
-    var zones = []
-    for token in text.split(" ") {
-      continue when token == ""
-      var zone = "Unknown"
-      for known in ZONE_NAMES {
-        if known.lower() == token.lower() { zone = known; break }
+  match root.read_bytes(zones_path) {
+    Ok(raw) => {
+      var length = raw.len()
+      for at in range(length) {
+        if (raw.byte_at(at) ?? 0) == 0 { length = at; break }
       }
-      if zones.len() < 8 { zones += [zone] }
+      if length > 0 and (raw.byte_at(length - 1) ?? 0) == 10 { length -= 1 }
+      var zones = []
+      var start = 0
+      for at in range(length + 1) {
+        if at < length and (raw.byte_at(at) ?? 0) != 32 { continue }
+        if at > start {
+          let token = match raw.slice(start, length: at - start).utf8() {
+            Ok(text) => text.lower()
+            Err(_) => ""
+          }
+          var zone = "Unknown"
+          for known in ZONE_NAMES {
+            if known.lower() == token { zone = known; break }
+          }
+          if zones.len() < 8 { zones += [zone] }
+        }
+        start = at + 1
+      }
+      zones
     }
-    return zones
+    Err(_) => []
   }
-  []
 }
 
 proc block_attributes(root: FsRoot, entry: Entry, have_config: Bool, have_nodes: Bool, have_zones: Bool) [fs, process, env, error] -> Block {
@@ -344,15 +358,15 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
   if directory.kind != "dir" { fail("cannot open /sys/devices/system/memory: Not a directory") }
   let block_size_path = fp"{MEMORY_PATH}/block_size_bytes"
   if ! root.exists(block_size_path)? { fail("This system does not support memory blocks") }
-  let block_size_text = match root.read_text(block_size_path) {
-    Ok(text) => without_final_newline(text)
+  let block_size_contents = match root.read_text(block_size_path) {
+    Ok(text) => text
     Err(_) => {
       fail("failed to read memory block size")
       ""
     }
   }
-  if block_size_text == "" { fail("failed to read memory block size") }
-  let block_size = block_size_value(block_size_text)
+  if block_size_contents == "" { fail("failed to read memory block size") }
+  let block_size = block_size_value(without_final_newline(block_size_contents))
   let memory_paths = children(root, memory_path, "/sys/devices/system/memory")
   let entries = memory_entries(memory_paths)
   if entries.is_empty() { fail("Failed to read /sys/devices/system/memory") }
