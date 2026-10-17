@@ -1,4 +1,5 @@
 import argparse
+import gc
 import io
 import hashlib
 import multiprocessing
@@ -11,6 +12,7 @@ import sys
 import subprocess
 import tempfile
 import unittest
+import weakref
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -4601,12 +4603,12 @@ class AdapterReferenceReuseTests(unittest.TestCase):
     def test_parallel_full_compare_matches_serial_and_preserves_mismatch_order(self):
         result, _observed, progress, _candidate_start = self._run_full_compare_progress_case(
             "owner-error",
-            input_count=2,
+            input_count=9,
             verify_serial_parity=True,
             mismatch_name="parallel-owner-error.tsv",
         )
 
-        self.assertEqual(result, (2, 1))
+        self.assertEqual(result, (9, 1))
         self.assertEqual(
             self.comparison_parity[0],
             self.comparison_parity[1],
@@ -4617,41 +4619,215 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         )
         self.assertEqual(
             progress,
-            "comparison_progress inputs=2/2 outcomes=2/2 mismatches=1\n",
+            "comparison_progress inputs=9/9 outcomes=9/9 mismatches=1\n",
         )
 
     def test_parallel_full_compare_detects_perturbed_profiles_like_serial(self):
         result, _observed, progress, _candidate_start = self._run_full_compare_progress_case(
             "cache-failure",
-            input_count=2,
+            input_count=9,
             verify_serial_parity=True,
             mismatch_name="parallel-cache-failure.tsv",
         )
 
-        self.assertEqual(result, (8, 8))
+        self.assertEqual(result, (36, 36))
         self.assertEqual(self.comparison_parity[0], self.comparison_parity[1])
         report = (self.artifact_root / "parallel-cache-failure.tsv").read_bytes()
-        self.assertEqual(report.count(b"\tadapter\tAdapterError\tfixture comparison failure\n"), 8)
+        self.assertEqual(report.count(b"\tadapter\tAdapterError\tfixture comparison failure\n"), 36)
         self.assertLess(report.index(b"(0, 'source/0000.xsh'"), report.index(b"(1, 'source/0001.xsh'"))
         self.assertEqual(
             progress,
-            "comparison_progress inputs=2/2 outcomes=8/8 mismatches=8\n",
+            "comparison_progress inputs=9/9 outcomes=36/36 mismatches=36\n",
         )
 
     def test_parallel_full_compare_forwards_both_exact_owner_roles(self):
         result, _observed, progress, _candidate_start = self._run_full_compare_progress_case(
             "statement-flow",
-            input_count=2,
+            input_count=9,
         )
 
-        self.assertEqual(result, (8, 0))
+        self.assertEqual(result, (36, 0))
         self.assertEqual(
             (self.artifact_root / "full-mismatches.tsv").read_bytes(),
             b"",
         )
         self.assertEqual(
             progress,
-            "comparison_progress inputs=2/2 outcomes=8/8 mismatches=0\n",
+            "comparison_progress inputs=9/9 outcomes=36/36 mismatches=0\n",
+        )
+
+    def test_parallel_comparison_bounds_active_children_and_emits_every_input_once(self):
+        process_context = multiprocessing.get_context("fork")
+        first_batch = process_context.Barrier(3)
+        existing_children = {process.pid for process in multiprocessing.active_children()}
+        results = []
+        child_counts = []
+
+        def compare(index, _context):
+            if index < 3:
+                first_batch.wait(timeout=3)
+            return os.getpid(), index
+
+        def accept(index, result):
+            results.append((index, result))
+            child_counts.append(len({
+                process.pid for process in multiprocessing.active_children()
+            } - existing_children))
+
+        with patch.object(adapter_runner, "_compare_publication_input", side_effect=compare):
+            adapter_runner._run_parallel_publication_comparisons(
+                self._parallel_test_context(), 19, accept
+            )
+
+        self.assertEqual([index for index, _result in results], list(range(19)))
+        self.assertEqual([result[1] for _index, result in results], list(range(19)))
+        self.assertEqual(len({result[0] for _index, result in results}), 3)
+        self.assertEqual(child_counts, [3] * 19)
+        self.assertEqual(
+            {process.pid for process in multiprocessing.active_children()}, existing_children
+        )
+
+    def test_parallel_comparison_preserves_parent_gc_and_collects_new_child_cycles(self):
+        class Cycle:
+            pass
+
+        original_enabled = gc.isenabled()
+        frozen_count = gc.get_freeze_count()
+
+        def compare(_index, _context):
+            cycle = Cycle()
+            cycle.reference = cycle
+            reference = weakref.ref(cycle)
+            del cycle
+            gc.collect()
+            return gc.isenabled(), gc.get_freeze_count() > frozen_count, reference() is None
+
+        try:
+            for enabled in (True, False):
+                for fail in (False, True):
+                    with self.subTest(enabled=enabled, fail=fail):
+                        (gc.enable if enabled else gc.disable)()
+                        results = []
+
+                        def accept(index, result):
+                            self.assertFalse(gc.isenabled())
+                            if fail:
+                                raise RuntimeError("result callback failed")
+                            results.append((index, result))
+
+                        with patch.object(adapter_runner, "_compare_publication_input", side_effect=compare):
+                            if fail:
+                                with self.assertRaisesRegex(RuntimeError, "result callback failed"):
+                                    adapter_runner._run_parallel_publication_comparisons(
+                                        self._parallel_test_context(), 9, accept
+                                    )
+                            else:
+                                adapter_runner._run_parallel_publication_comparisons(
+                                    self._parallel_test_context(), 9, accept
+                                )
+                                self.assertEqual(results, [
+                                    (index, (enabled, True, True)) for index in range(9)
+                                ])
+                        self.assertEqual(gc.isenabled(), enabled)
+                        self.assertEqual(gc.get_freeze_count(), frozen_count)
+        finally:
+            (gc.enable if original_enabled else gc.disable)()
+
+    def test_parallel_comparison_bounds_children_by_input_count(self):
+        existing_children = {process.pid for process in multiprocessing.active_children()}
+        for count in (0, 1, 2):
+            with self.subTest(count=count):
+                results = []
+
+                def accept(index, result):
+                    results.append((index, result))
+                    self.assertEqual(len({
+                        process.pid for process in multiprocessing.active_children()
+                    } - existing_children), count)
+
+                with patch.object(adapter_runner, "_compare_publication_input", return_value=()):
+                    adapter_runner._run_parallel_publication_comparisons(
+                        self._parallel_test_context(), count, accept
+                    )
+                self.assertEqual(results, [(index, ()) for index in range(count)])
+                self.assertEqual(
+                    {process.pid for process in multiprocessing.active_children()}, existing_children
+                )
+
+    def test_parallel_comparison_reaps_partial_startup_and_closes_connections(self):
+        process_context = multiprocessing.get_context("fork")
+        original_start = process_context.Process.start
+        original_pipe = process_context.Pipe
+        existing_children = {process.pid for process in multiprocessing.active_children()}
+        original_gc_enabled = gc.isenabled()
+        original_signal_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+        started = []
+        connections = []
+
+        def start(process):
+            if len(started) == 2:
+                raise OSError("third worker startup failed")
+            original_start(process)
+            started.append(process)
+
+        def pipe(*args, **kwargs):
+            endpoints = original_pipe(*args, **kwargs)
+            connections.extend(endpoints)
+            return endpoints
+
+        with (
+            patch.object(process_context.Process, "start", start),
+            patch.object(process_context, "Pipe", side_effect=pipe),
+            patch.object(adapter_runner.multiprocessing, "get_context", return_value=process_context),
+        ):
+            with self.assertRaisesRegex(OSError, "third worker startup failed"):
+                adapter_runner._run_parallel_publication_comparisons(
+                    self._parallel_test_context(), 9, lambda _index, _result: None
+                )
+
+        self.assertEqual(len(started), 2)
+        self.assertTrue(all(not process.is_alive() for process in started))
+        self.assertTrue(all(connection.closed for connection in connections))
+        self.assertEqual(gc.isenabled(), original_gc_enabled)
+        self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, []), original_signal_mask)
+        self.assertEqual(
+            {process.pid for process in multiprocessing.active_children()}, existing_children
+        )
+
+    def test_parallel_comparison_owns_child_before_delivering_startup_cancellation(self):
+        process_context = multiprocessing.get_context("fork")
+        original_start = process_context.Process.start
+        existing_children = {process.pid for process in multiprocessing.active_children()}
+        original_gc_enabled = gc.isenabled()
+        original_signal_mask = signal.pthread_sigmask(signal.SIG_BLOCK, [])
+        original_handler = signal.getsignal(signal.SIGTERM)
+        started = []
+
+        def start(process):
+            original_start(process)
+            started.append(process)
+            os.kill(os.getpid(), signal.SIGTERM)
+
+        def cancel(_signum, _frame):
+            raise KeyboardInterrupt("cancelled during process start")
+
+        signal.signal(signal.SIGTERM, cancel)
+        try:
+            with patch.object(process_context.Process, "start", start):
+                with self.assertRaisesRegex(KeyboardInterrupt, "cancelled during process start"):
+                    adapter_runner._run_parallel_publication_comparisons(
+                        self._parallel_test_context(), 9, lambda _index, _result: None
+                    )
+            self.assertIs(signal.getsignal(signal.SIGTERM), cancel)
+        finally:
+            signal.signal(signal.SIGTERM, original_handler)
+
+        self.assertEqual(len(started), 1)
+        self.assertTrue(all(not process.is_alive() for process in started))
+        self.assertEqual(gc.isenabled(), original_gc_enabled)
+        self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, []), original_signal_mask)
+        self.assertEqual(
+            {process.pid for process in multiprocessing.active_children()}, existing_children
         )
 
     def test_parallel_comparison_preserves_lowest_index_worker_exception(self):
@@ -4663,6 +4839,8 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         existing_children = {process.pid for process in multiprocessing.active_children()}
 
         def fail_by_index(index, _comparison_context):
+            if index > 1:
+                return ()
             if index == 1:
                 earlier_failure_ready.set()
                 raise RuntimeError("input one failed first")
@@ -4691,7 +4869,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "input zero failed second"):
                 adapter_runner._run_parallel_publication_comparisons(
-                    self._parallel_test_context(), 2, lambda _index, _result: None
+                    self._parallel_test_context(), 8, lambda _index, _result: None
                 )
 
         self.assertEqual(
@@ -4713,7 +4891,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 "comparison worker exited (without an outcome for input 0|unexpectedly with status 19)",
             ):
                 adapter_runner._run_parallel_publication_comparisons(
-                    self._parallel_test_context(), 2, lambda _index, _result: None
+                    self._parallel_test_context(), 8, lambda _index, _result: None
                 )
 
         self.assertEqual(
@@ -4742,7 +4920,7 @@ class AdapterReferenceReuseTests(unittest.TestCase):
             with patch.object(adapter_runner, "_compare_publication_input", side_effect=interrupt_parent):
                 with self.assertRaisesRegex(KeyboardInterrupt, "received signal 2"):
                     adapter_runner._run_parallel_publication_comparisons(
-                        self._parallel_test_context(), 2, lambda _index, _result: None
+                        self._parallel_test_context(), 8, lambda _index, _result: None
                     )
 
             self.assertIs(signal.getsignal(signum), previous_interrupt_handler)
@@ -4768,10 +4946,10 @@ class AdapterReferenceReuseTests(unittest.TestCase):
                 results = []
                 adapter_runner._run_parallel_publication_comparisons(
                     self._parallel_test_context(),
-                    2,
+                    8,
                     lambda index, result: results.append((index, result)),
                 )
-            self.assertEqual(results, [(0, ()), (1, ())])
+            self.assertEqual(results, [(index, ()) for index in range(8)])
             self.assertIs(signal.getsignal(signal.SIGTERM), signal.SIG_IGN)
         finally:
             signal.signal(signal.SIGTERM, previous_handler)
@@ -4834,10 +5012,10 @@ def compare(args, active_runner):
         with active_runner.claim_run_resources(args.candidate_root, output, []):
             active_runner.write_status(output, "incomplete", [])
             with patch.object(runner, "_compare_publication_input", side_effect=interrupt_parent):
-                runner._run_parallel_publication_comparisons(context, 2, lambda _index, _result: None)
+                runner._run_parallel_publication_comparisons(context, 8, lambda _index, _result: None)
     else:
         with patch.object(runner, "_compare_publication_input", side_effect=interrupt_parent):
-            runner._run_parallel_publication_comparisons(context, 2, lambda _index, _result: None)
+            runner._run_parallel_publication_comparisons(context, 8, lambda _index, _result: None)
 
 runner._load_candidate_publication_runner = lambda *_args: publication_runner
 runner.compare_captured_publications = compare

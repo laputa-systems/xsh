@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import hashlib
 import importlib.util
 import multiprocessing
@@ -3082,10 +3083,16 @@ def _compare_publication_input(
 def _publication_comparison_worker(
     connection,
     context: _PublicationComparisonContext,
+    gc_enabled: bool,
+    signal_mask: set[signal.Signals],
 ) -> None:
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     try:
+        signal.pthread_sigmask(signal.SIG_SETMASK, signal_mask)
+        gc.freeze()
+        if gc_enabled:
+            gc.enable()
         connection.send((None, None, None))
         while True:
             index = connection.recv()
@@ -3161,7 +3168,9 @@ def _run_parallel_publication_comparisons(
     process_context = multiprocessing.get_context("fork")
     workers: list[tuple[multiprocessing.Process, object, object]] = []
     previous_handlers = {}
+    gc_enabled = gc.isenabled()
     try:
+        gc.disable()
         if threading.current_thread() is threading.main_thread():
             for signum in (signal.SIGINT, signal.SIGTERM):
                 previous_handlers[signum] = signal.getsignal(signum)
@@ -3178,22 +3187,31 @@ def _run_parallel_publication_comparisons(
 
                 signal.signal(signum, interrupt)
         for _ in range(min(3, count)):
-            parent_connection, child_connection = process_context.Pipe()
-            process = process_context.Process(
-                target=_publication_comparison_worker,
-                args=(child_connection, context),
+            previous_mask = signal.pthread_sigmask(
+                signal.SIG_BLOCK, (signal.SIGINT, signal.SIGTERM)
             )
+            process = None
+            parent_connection = child_connection = None
             try:
+                parent_connection, child_connection = process_context.Pipe()
+                process = process_context.Process(
+                    target=_publication_comparison_worker,
+                    args=(child_connection, context, gc_enabled, previous_mask),
+                )
                 process.start()
             except BaseException:
-                if process.pid is not None:
+                if process is not None and process.pid is not None:
                     workers.append((process, parent_connection, child_connection))
-                child_connection.close()
-                if process.pid is None:
+                if child_connection is not None:
+                    child_connection.close()
+                if parent_connection is not None and (process is None or process.pid is None):
                     parent_connection.close()
                 raise
-            workers.append((process, parent_connection, child_connection))
-            child_connection.close()
+            else:
+                workers.append((process, parent_connection, child_connection))
+                child_connection.close()
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
         for process, connection, _child_connection in workers:
             try:
                 ready = connection.recv()
@@ -3291,6 +3309,7 @@ def _run_parallel_publication_comparisons(
                     error.add_note(f"comparison worker cleanup also failed: {cleanup_error}")
             raise
     finally:
+        (gc.enable if gc_enabled else gc.disable)()
         for signum, handler in previous_handlers.items():
             signal.signal(signum, handler)
 
