@@ -33,13 +33,13 @@ test test_namei_each_output_option_and_long_combination { |ctx|
   let s = uu.scene(ctx)?
   uu.mkdir(s, "tree/inner")
   uu.write(s, "tree/inner/file", "file\n")
-  let path = fp"{s.root}/tree/inner/file".display()
+  let operand = fp"{s.root}/tree/inner/file".display()
   for options in [
     ["-x"], ["--mountpoints"], ["-m"], ["--modes"], ["-o"], ["--owners"],
     ["-l"], ["--long"], ["-n"], ["--nosymlinks"], ["-v"], ["--vertical"],
     ["-Z"], ["--context"], ["-xmo"], ["-l", "-n"], ["-m", "-o", "-v"]
   ] {
-    parity(s, options.extend(["--", path]))?
+    parity(s, options.extend(["--", operand]))?
   }
 }
 
@@ -159,13 +159,13 @@ test test_namei_permission_denied_from_unprivileged_runner { |ctx|
   let directory = fp"{s.root}/inaccessible"
   defer directory.chmod(0o700)
   directory.chmod(0)
-  let path = fp"{directory}/secret".display()
-  for args in [["-l", "--", path], ["--nosymlinks", "--", path]] {
+  let operand = fp"{directory}/secret".display()
+  for args in [["-l", "--", operand], ["--nosymlinks", "--", operand]] {
     let reference = ul.reference_as_user(s, "namei", args, uid: 10001, timeout: 5s)?
     let candidate = ul.candidate_as_user(s, "namei", args, uid: 10001, timeout: 5s)?
     ul.compare(reference, candidate)
   }
-  assert directory.stat()?.mode.bit_and(0o777) == 0
+  assert fs.stat(directory)?.mode.bit_and(0o777) == 0
   assert fp"{directory}/secret".read_text()? == "owned path\n"
 }
 

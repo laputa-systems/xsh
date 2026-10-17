@@ -129,13 +129,13 @@ test test_mountpoint_inaccessible_path_from_unprivileged_runner { |ctx|
   let directory = fp"{s.root}/inaccessible"
   defer directory.chmod(0o700)
   directory.chmod(0)
-  let path = fp"{directory}/secret".display()
-  for args in [["--", path], ["--quiet", "--", path]] {
+  let operand = fp"{directory}/secret".display()
+  for args in [["--", operand], ["--quiet", "--", operand]] {
     let reference = ul.reference_as_user(s, "mountpoint", args, uid: 10001, timeout: 5s)?
     let candidate = ul.candidate_as_user(s, "mountpoint", args, uid: 10001, timeout: 5s)?
     ul.compare(reference, candidate)
   }
-  assert directory.stat()?.mode.bit_and(0o777) == 0
+  assert fs.stat(directory)?.mode.bit_and(0o777) == 0
   assert fp"{directory}/secret".read_text()? == "owned path\n"
 }
 
