@@ -58,12 +58,11 @@ receipt is [archived here](evidence/closure-b235a1a43/functional-close-7eb62cd99
 Final performance closure is not complete. No timed run has started: although
 `perf-gate-ready` returned zero, shared-host load prevents an exclusive window.
 **perf gate deferred: host busy**. Root accepted the `performance_prep`
-artifacts-only build/resources-only observer mode and both controller commits
-are integrated. Its artifacts-only opt3 build is running on the exact 7eb
-source; no receipt credit is assigned yet. The resource-only observer and
-binary-size evidence remain pending. Nine full-native suites remain (profile
-once, forced once, scheduler six times, observer once); the artifacts-only build
-adds no suite.
+artifacts-only build/resources-only observer modes, and the accepted controller
+changes are integrated. The resource-only observer and binary-size evidence
+remain pending. No final resource or native gate credit is recorded. Nine
+full-native suites remain (profile once, forced once, scheduler six times,
+observer once).
 
 The root residual has 36 unique passes across 37 executions. The standard
 context passed 34 cases and retained one Unix-socket `sun_path` skip; the exact
@@ -92,10 +91,18 @@ clauses remain retained because 142 individual proofs do not establish
 joint-cycle equality. Host component `5277` has conditional acceptance for its
 six exact native checks at proof `1edf4ee50c093323accc03f9355bd83795bbfdba`,
 with source/product guards and cleanup passing; see the [host native
-evidence](evidence/typing-host-native6/README.md). Broader
-inference is not accepted or merged. The prior 615-removal checkpoint remains
-historical. The generic-body lane remains unqualified; its bounded focused
-checks have resumed at four CPUs and 8 GiB. No inference changes are merged.
+evidence](evidence/typing-host-native6/README.md). Broader inference is not accepted or merged. The prior 615-removal checkpoint
+remains historical. The generic-body lane remains unqualified.
+
+The accepted `877` checkpoint remains the only qualified annotation result.
+The source-only `891` candidate plans 14 additional removals and has source
+validation only. The separate `986` Set candidate plans 109 mutable
+`Set[Str]` removals. Its first compiler pair passed all eleven original roots
+but rejected all 109 reduced Set sites because the Set seed ran after
+`set.empty()` returned `Unknown`. The [raw failed proof and source/product
+snapshots](evidence/typing-corpus-host-obligations/mutable-sets/) remain
+preserved. A corrected Set admission candidate is being qualified in isolation.
+Neither candidate earns annotation-removal credit. See the [891 plan](typing-corpus/README.md#next-source-only-candidate) and [Set status](typing-corpus/README.md#independent-mutable-set-candidate).
 
 ## Stop handoff, 2026-10-16
 

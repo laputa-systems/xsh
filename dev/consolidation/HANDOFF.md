@@ -96,9 +96,18 @@ joint-cycle equality. Host component `5277` has conditional acceptance for its
 six exact native checks at proof `1edf4ee50c093323accc03f9355bd83795bbfdba`,
 including source/product guards and cleanup; see [host native evidence](evidence/typing-host-native6/README.md). Broader
 inference is not accepted. The earlier 615-removal checkpoint `17be3ff8` on
-freeze `a8d5bd910` remains historical. The generic-body lane remains unqualified; bounded focused checks have
-resumed at four CPUs and 8 GiB. Do not merge inference to main before
-consolidation closes.
+freeze `a8d5bd910` remains historical. The generic-body lane remains
+unqualified. Do not merge inference to main before consolidation closes.
+
+The accepted `877` checkpoint remains the only qualified annotation result.
+The source-only `891` candidate plans 14 additional removals and has source
+validation only. The separate `986` Set candidate plans 109 mutable
+`Set[Str]` removals. Its first compiler pair passed all eleven original roots
+but rejected all 109 reduced Set sites because the Set seed ran after
+`set.empty()` returned `Unknown`. The [raw failed proof and source/product
+snapshots](evidence/typing-corpus-host-obligations/mutable-sets/) remain
+preserved. A corrected Set admission candidate is being qualified in isolation.
+Neither candidate earns annotation-removal credit. See the [891 plan](typing-corpus/README.md#next-source-only-candidate) and [Set status](typing-corpus/README.md#independent-mutable-set-candidate).
 
 ### Current queue
 
@@ -119,11 +128,10 @@ consolidation closes.
    started: `perf-gate-ready` returned zero, but shared-host load prevents an
    exclusive measurement window. **perf gate deferred: host busy**. Root
    accepted the `performance_prep` artifacts-only build/resources-only observer
-   mode, integrated here with its source and tests. Its artifacts-only opt3
-   build is running on the exact 7eb source; no receipt credit is assigned yet.
-   The resource-only observer and binary-size evidence remain pending. Run the
-   nine remaining full-native suites (profile once, forced once, scheduler six
-   times, observer once); the artifacts-only build adds no suite. Root owns
+   modes, and the accepted controller changes are integrated. The resource-only
+   observer and binary-size evidence remain pending. No final resource or
+   native gate credit is recorded. Run the nine remaining full-native suites
+   (profile once, forced once, scheduler six times, observer once). Root owns
    release readiness and main promotion.
 
 The b235 canonical gate is accepted and reused for 7eb under Phase A. The fresh

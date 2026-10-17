@@ -41,11 +41,11 @@ both positive `NET_RAW` cases passed under root with `CAP_NET_RAW`. Initial
 Git-guard attempts selected zero tests and earn no credit. See the [residual
 evidence](evidence/linux-residual-0deeb9c7/README.md). Root accepted the
 `profile-cost.py --artifacts-only` and `final-observers.py --resources-only`
-modes. The artifacts-only opt3 build is running for the exact 7eb source and
-earns no receipt credit yet. Resource-only observer and binary-size evidence
-remain pending. No timed run has started. **perf gate deferred: host busy**.
-Lean and Phase F stay paused. Inference remains isolated until consolidation
-closes.
+modes, and the accepted controller changes are integrated. Resource-only
+observer and binary-size evidence remain pending. No final resource or native
+gate credit is recorded. No timed run has started. **perf gate deferred: host
+busy**. Lean and Phase F stay paused. Inference remains isolated until
+consolidation closes.
 
 Phase D remains isolated at checkpoint `877`, commit
 `338b82238a67ee36dd1b025b7a923f9fc5d2da40`, on pair
@@ -66,9 +66,16 @@ eligible effects remain retained. Host component `5277` has conditional
 acceptance for its six exact native checks at proof
 `1edf4ee50c093323accc03f9355bd83795bbfdba`, with guarded source/product
 identity and cleanup; see [host native evidence](evidence/typing-host-native6/README.md).
-The generic-body lane remains unqualified; bounded focused checks have
-resumed at four CPUs and 8 GiB. Inference remains isolated. See the [active
-handoff](HANDOFF.md#active-candidate) for the full checkpoint details.
+The generic-body lane remains unqualified. The accepted `877` checkpoint is
+the only qualified annotation result. The source-only `891` candidate plans 14
+additional removals and has source validation only. The separate `986` Set
+candidate plans 109 mutable `Set[Str]` removals. Its first compiler pair passed
+all eleven original roots but rejected all 109 reduced Set sites because the
+Set seed ran after `set.empty()` returned `Unknown`. The [raw failed proof and
+source/product snapshots](evidence/typing-corpus-host-obligations/mutable-sets/)
+remain preserved. A corrected Set admission candidate is being qualified in
+isolation. Neither candidate earns annotation-removal credit. See the [891
+plan](typing-corpus/README.md#next-source-only-candidate) and [Set status](typing-corpus/README.md#independent-mutable-set-candidate). Inference remains isolated. See the [active handoff](HANDOFF.md#active-candidate) for the full checkpoint details.
 
 The isolated generic module export slice remains accepted at `8475984a9`.
 Its main merge waits for consolidation closure. Broader inference, corpus
