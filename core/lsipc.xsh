@@ -252,7 +252,7 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
     if let count = number(record, "nsems") { values = values.set("NSEMS", f"{count}") }
     if let seconds = number(record, "otime"), let text = display_time(seconds, selection.time_format) { values = values.set("OTIME", text) }
     if let seconds = number(record, "ctime"), let text = display_time(seconds, selection.time_format) { values = values.set("CTIME", text) }
-    if selection.id != null, let identity = id, let count = number(record, "nsems") {
+    if let selected_id = selection.id, selected_id >= 0, let identity = id, let count = number(record, "nsems") {
       for index in range(count) {
         let observation = linux.system_v_semaphore_element(identity, index)?
         elements += [{number: index, value: observation.value, waiting_for_increase: observation.waiting_for_increase, waiting_for_zero: observation.waiting_for_zero, pid: observation.pid, command: command_line(observation.pid)}]
@@ -357,7 +357,7 @@ proc selected_rows(selection: report.Selection) [fs, time, env, error] -> List[r
     var entries: List[IpcEntry] = []
     if kind in ["queues", "shmems", "semaphores"] {
       for record in sysv_records(kind)? {
-        if let wanted_id = selection.id {
+        if let wanted_id = selection.id, wanted_id >= 0 {
           let record_id = number(record, if kind == "queues" { "msqid" } else if kind == "shmems" { "shmid" } else { "semid" })
           continue when record_id != wanted_id
         }
@@ -367,7 +367,7 @@ proc selected_rows(selection: report.Selection) [fs, time, env, error] -> List[r
       entries = posix_entries(kind, selection)?
     }
     for entry in entries {
-      if kind in ["queues", "shmems", "semaphores"], let wanted_id = selection.id {
+      if kind in ["queues", "shmems", "semaphores"], let wanted_id = selection.id, wanted_id >= 0 {
         let found_id = if let text = entry.values.get("ID"), let Ok(parsed) = text.parse_int() { parsed } else { null }
         continue when found_id != wanted_id
       }
@@ -448,8 +448,7 @@ proc report_failure(failure: report.OptionError) [process, env] {
 }
 
 proc missing_resource(selection: report.Selection) [process, env] {
-  return when selection.id == null and selection.name == null
-  if selection.resources[0] in ["queues", "shmems", "semaphores"], let id = selection.id { gnu.error(f"id {id} not found") }
+  if selection.resources[0] in ["queues", "shmems", "semaphores"], let id = selection.id, id >= 0 { gnu.error(f"id {id} not found") }
 }
 
 proc output_width() [env] -> Int {
