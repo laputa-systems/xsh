@@ -1,6 +1,6 @@
-# Final correctness gate failures
+# Final correctness gate evidence
 
-These files preserve the recorded failure receipts and raw failure logs. Each copied receipt remains unchanged and retains its original scratch paths.
+This index preserves failed attempts and the latest supplemental reference record. Receipts and raw logs remain unchanged and retain their original scratch paths.
 
 - `correctness-be0b-20261016` failed preflight before a command ran. Its receipt has no steps and the original `logs` directory was empty.
 - `correctness-be0b-20261016-r2` failed the pinned-image check. Its image-inspect log is preserved.
@@ -34,3 +34,7 @@ The supplemental attempts all selected source commit `e048b33f2c716ecff4e8d38428
 `correctness-e048-20261016-core-compat-extra-pty-focus-r2` records the single focused retry against the same frozen source, using tool commit `0f1f17f23f465e4f04cebf85fe21562dc4f2f301`, tree `b02fde7012692ff23a1d370dcaf954fdadfe2b46`. Its source-qualified verification product `target/products/x86_64-unknown-linux-musl/verification/xsht` was staged beside the existing `core-compat-extra` harness executable at `target/harness/x86_64-unknown-linux-musl/verification/xsht`. Source and destination SHA-256 both equal `2d44630fdebed670d52354f33f0a39a71aba17ae9ae34ab7013892ce861f5345`. The sibling harness `xsh` is the source-qualified verification harness artifact with features `default,native-tests,net,tools` and SHA-256 `c22e68d4e33c23669361186e7f77ef669b2f1b6207b53ebdd551a792f73bca6b`. The [receipt](correctness-e048-20261016-core-compat-extra-pty-focus-r2/receipt.json), [staging log](correctness-e048-20261016-core-compat-extra-pty-focus-r2/logs/001-stage-core-compat-extra-xsht.log), and [focused test log](correctness-e048-20261016-core-compat-extra-pty-focus-r2/logs/002-linux-special-focus-core-compat-extra-pty.log) record both successful steps. The exact PTY test passed: 1 passed, 0 failed, 0 ignored, 62 filtered out. This used the already-qualified r3 artifacts and did not rebuild them.
 
 The five-context acceptance matrix remains open: `core-compat-boundaries` passed in r2 and r3, the non-split `core-compat-extra` context failed as above, and the split, privileged cp, and uid-1000 traceroute contexts were not reached. The QEMU-only ignored date-clock and BTRFS cases also remain open. The focused PTY pass does not close the supplemental or canonical gate.
+
+## Frozen 0dc9 supplemental
+
+The [reference-mode record](correctness-0dc9cff7-20261016-r1/README.md) covers the approved replacement protocol on source and tool commit `0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4`, tree `b4f9db3f8ee2f38a6c62fea876976619db424ed7`. The successful product and harness builds, warning-denied Clippy, staging step, and all five Linux contexts are documented there. Earlier failed receipts remain unchanged. Root's separate skip and QEMU review accepts this supplemental protocol result; canonical, W9, routes, and resource closure remain open.

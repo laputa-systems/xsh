@@ -1,0 +1,1527 @@
+{
+  "authorities": {
+    "controller_root": "/home/josh/d/laputa-systems/xsh",
+    "output_root": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates",
+    "source_git_common_dir": "/home/josh/d/laputa-systems/xsh/.git",
+    "source_root": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+    "tool_dir": "/home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/gate-tools/final-correctness-gates",
+    "tool_root": "/home/josh/d/laputa-systems/xsh"
+  },
+  "cargo_target_dirs": {
+    "harness": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness",
+    "linux-priv": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/linux-priv",
+    "products": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products",
+    "runtime": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/runtime"
+  },
+  "environment": {
+    "build_tools": {
+      "/home/josh/.cargo/bin/kache": "b826e99983057974663d6863eafbee4e1b25ca9373071406b15dd02961b2c37d",
+      "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/mold-linker.sh": "49f116f6bd364f682439e87200281a5acccf081d3b5841170a5a5bf34daf5271",
+      "/usr/lib/libjemalloc.so.2": "2db538572b752a3ed5b6b8d9a76cc2966f0670ad481892cb423617c9e4345284",
+      "/usr/local/bin/mold": "78e4b6aec99fa067b81326f4b540893b92ae78e5b4176ab32be0565dcbd049d3"
+    },
+    "cargo_lock_timeout_seconds": 900,
+    "container_cpus": 12,
+    "container_memory": "24g",
+    "container_swap": "disabled",
+    "final_runner_sha256": "aa156085c8beb4023660f6191ff16bb2c5bb4d6f94835691dc623313507962ce",
+    "host_gid": 1000,
+    "host_uid": 1000,
+    "image": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+    "launch_sha256": "1fe5c448252b89d9f89928b6857e4a532158968ff20d3b2f7c77f41f22169bbd",
+    "manifest_body_sha256": "cc86848e387d2dbd03c509dd5a63b12eaaa0f9ec7bad22c3547cbf65b467e409",
+    "manifest_sha256": "cd80d556c8ff2f06288ef96360d9b399e59709c0e59187f79f13047d3ba73bcc",
+    "native_cleanup_marker_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.cleanup-unresolved",
+    "native_lock_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock",
+    "native_lock_scope": "acquired before product, harness, Clippy and supplemental context runs",
+    "native_runner_base_sha256": "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15",
+    "no_docker_self_test_sha256": "51064ce454b3db149864ac66c92c66a44038e9d7b97cc6b6e102c943c8b52209",
+    "runtime_cargo_forwarder_sha256": "a60824f4354a8f6b1b62d34c7c82b9a14e2d49c2c4efd31b7d2b7c52087f4e73",
+    "runtime_rustc_wrapper_sha256": "ad726243b5d92b126b7f457dc0055391b911c1a51f284ec589c25f5354068af4",
+    "target": "x86_64-unknown-linux-musl"
+  },
+  "finished_utc": "2026-10-16T23:48:23+00:00",
+  "harness_artifact_staging": {
+    "core-compat-extra-xsht": {
+      "action": "staged",
+      "destination": {
+        "features": [
+          "default",
+          "native-tests",
+          "net",
+          "tools"
+        ],
+        "harness": "core-compat-extra",
+        "harness_xsh_path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/xsh",
+        "harness_xsh_sha256": "125a910d816a8a18882f6542b59265dd6f064301afa7bcb1d311e20c1e802c1d",
+        "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/xsht",
+        "profile": "verification",
+        "sha256": "f2efdc4b440b3c12cfc79ad803c94fa9179164cde9563d3b74c856c0f10c8693",
+        "target_variant": "harness"
+      },
+      "source": {
+        "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification/xsht",
+        "qualified_product_variant": {
+          "commit": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+          "profile": "verification",
+          "target_variant": "products",
+          "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7"
+        },
+        "sha256": "f2efdc4b440b3c12cfc79ad803c94fa9179164cde9563d3b74c856c0f10c8693"
+      }
+    }
+  },
+  "harnesses": {
+    "core-compat-boundaries": {
+      "features": [],
+      "product_artifacts": {
+        "xsh": {
+          "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/xsh",
+          "sha256": "125a910d816a8a18882f6542b59265dd6f064301afa7bcb1d311e20c1e802c1d"
+        },
+        "xsh-test-helper": {
+          "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/xsh-test-helper",
+          "sha256": "07261b201dd433b82f31fca7a61287b577fb6173af6c12587e64f671ea231db3"
+        }
+      },
+      "target_dir": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness",
+      "target_variant": "harness",
+      "targets": {
+        "core_compat_boundaries": {
+          "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/build/xsh/1863d5379a47a972/out/core_compat_boundaries-1863d5379a47a972",
+          "sha256": "1b98b1b8d4161b890df842465cafea3f3125f3d106c4cb2d832927a3e9d89c16"
+        }
+      },
+      "xsh_variant": {
+        "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/xsh",
+        "qualification": {
+          "build_exit_code": 0,
+          "build_finished_success": true,
+          "cargo_fresh": false,
+          "features": [
+            "default",
+            "native-tests",
+            "net",
+            "tools"
+          ],
+          "manifest_path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/Cargo.toml",
+          "package_id": "path+file:///home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c#xsh@0.0.1",
+          "profile": {
+            "debug_assertions": false,
+            "debuginfo": 0,
+            "opt_level": "3",
+            "overflow_checks": false,
+            "test": false
+          },
+          "profile_name": "verification",
+          "requested_features": [],
+          "source": {
+            "clean": true,
+            "commit": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+            "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7"
+          },
+          "target": {
+            "crate_types": [
+              "bin"
+            ],
+            "doc": true,
+            "doctest": false,
+            "edition": "2024",
+            "kind": [
+              "bin"
+            ],
+            "name": "xsh",
+            "src_path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/src/entrypoints/xsh_main.rs",
+            "test": false
+          },
+          "target_dir": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness",
+          "target_variant": "harness"
+        },
+        "sha256": "125a910d816a8a18882f6542b59265dd6f064301afa7bcb1d311e20c1e802c1d"
+      }
+    },
+    "core-compat-extra": {
+      "features": [],
+      "product_artifacts": {
+        "xsh": {
+          "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/xsh",
+          "sha256": "125a910d816a8a18882f6542b59265dd6f064301afa7bcb1d311e20c1e802c1d"
+        },
+        "xsh-test-helper": {
+          "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/xsh-test-helper",
+          "sha256": "07261b201dd433b82f31fca7a61287b577fb6173af6c12587e64f671ea231db3"
+        }
+      },
+      "target_dir": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness",
+      "target_variant": "harness",
+      "targets": {
+        "core_compat_extra": {
+          "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/build/xsh/bf5f7d7c18063088/out/core_compat_extra-bf5f7d7c18063088",
+          "sha256": "f8a2b28108d7363a97e3ca5e1be6cc024197144e6cd3fa8e90ca3e9208f9bf29"
+        }
+      },
+      "xsh_variant": {
+        "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/xsh",
+        "qualification": {
+          "build_exit_code": 0,
+          "build_finished_success": true,
+          "cargo_fresh": true,
+          "features": [
+            "default",
+            "native-tests",
+            "net",
+            "tools"
+          ],
+          "manifest_path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/Cargo.toml",
+          "package_id": "path+file:///home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c#xsh@0.0.1",
+          "profile": {
+            "debug_assertions": false,
+            "debuginfo": 0,
+            "opt_level": "3",
+            "overflow_checks": false,
+            "test": false
+          },
+          "profile_name": "verification",
+          "requested_features": [],
+          "source": {
+            "clean": true,
+            "commit": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+            "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7"
+          },
+          "target": {
+            "crate_types": [
+              "bin"
+            ],
+            "doc": true,
+            "doctest": false,
+            "edition": "2024",
+            "kind": [
+              "bin"
+            ],
+            "name": "xsh",
+            "src_path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/src/entrypoints/xsh_main.rs",
+            "test": false
+          },
+          "target_dir": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness",
+          "target_variant": "harness"
+        },
+        "sha256": "125a910d816a8a18882f6542b59265dd6f064301afa7bcb1d311e20c1e802c1d"
+      }
+    },
+    "core-compat-extra-privileged": {
+      "features": [
+        "linux-priv-tests"
+      ],
+      "product_artifacts": {
+        "xsh": {
+          "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/linux-priv/x86_64-unknown-linux-musl/verification/xsh",
+          "sha256": "a75760359dad6e6f70fb66549cbe23e08590c06c67bd3ab0c7dc3cf76a2afe64"
+        },
+        "xsh-test-helper": {
+          "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/linux-priv/x86_64-unknown-linux-musl/verification/xsh-test-helper",
+          "sha256": "3adeb524e81cf55d53b34ae78a40b53a59b86490d9522d20709836b8fa8966a7"
+        }
+      },
+      "target_dir": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/linux-priv",
+      "target_variant": "linux-priv",
+      "targets": {
+        "core_compat_extra_privileged": {
+          "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/linux-priv/x86_64-unknown-linux-musl/verification/build/xsh/3d8121d8f4bad471/out/core_compat_extra_privileged-3d8121d8f4bad471",
+          "sha256": "6b3b62342db505b739f0dbe7ebb5ca8f1775460270435d049d1086ddef699d78"
+        }
+      },
+      "xsh_variant": {
+        "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/linux-priv/x86_64-unknown-linux-musl/verification/xsh",
+        "qualification": {
+          "build_exit_code": 0,
+          "build_finished_success": true,
+          "cargo_fresh": false,
+          "features": [
+            "default",
+            "linux-priv-tests",
+            "native-tests",
+            "net",
+            "tools"
+          ],
+          "manifest_path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/Cargo.toml",
+          "package_id": "path+file:///home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c#xsh@0.0.1",
+          "profile": {
+            "debug_assertions": false,
+            "debuginfo": 0,
+            "opt_level": "3",
+            "overflow_checks": false,
+            "test": false
+          },
+          "profile_name": "verification",
+          "requested_features": [
+            "linux-priv-tests"
+          ],
+          "source": {
+            "clean": true,
+            "commit": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+            "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7"
+          },
+          "target": {
+            "crate_types": [
+              "bin"
+            ],
+            "doc": true,
+            "doctest": false,
+            "edition": "2024",
+            "kind": [
+              "bin"
+            ],
+            "name": "xsh",
+            "src_path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/src/entrypoints/xsh_main.rs",
+            "test": false
+          },
+          "target_dir": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/linux-priv",
+          "target_variant": "linux-priv"
+        },
+        "sha256": "a75760359dad6e6f70fb66549cbe23e08590c06c67bd3ab0c7dc3cf76a2afe64"
+      }
+    }
+  },
+  "hashes": {
+    "binaries_after_build": {
+      "xsh-fuzz-verification": "c5505c0a767021fdb8eac7c8ee26aaf1b146f5af09c566a31e60f911caa1ad1b",
+      "xsh-test-helper-verification": "5687f4a562fe6c35e76d4921032d8293303f896bdfc94cd0ae542fe73f0a653d",
+      "xsh-verification": "d817ed7e8e43e5b7db5670068eb6fe76186178416233360aa535a5d07b5917af",
+      "xshi-verification": "5121c56402853320e396695d6854336067fa9754fcc957bdcdd98ffe74fcea53",
+      "xsht-verification": "f2efdc4b440b3c12cfc79ad803c94fa9179164cde9563d3b74c856c0f10c8693"
+    },
+    "binaries_after_tests": {
+      "xsh-fuzz-verification": "c5505c0a767021fdb8eac7c8ee26aaf1b146f5af09c566a31e60f911caa1ad1b",
+      "xsh-test-helper-verification": "5687f4a562fe6c35e76d4921032d8293303f896bdfc94cd0ae542fe73f0a653d",
+      "xsh-verification": "d817ed7e8e43e5b7db5670068eb6fe76186178416233360aa535a5d07b5917af",
+      "xshi-verification": "5121c56402853320e396695d6854336067fa9754fcc957bdcdd98ffe74fcea53",
+      "xsht-verification": "f2efdc4b440b3c12cfc79ad803c94fa9179164cde9563d3b74c856c0f10c8693"
+    },
+    "binaries_before_build": {},
+    "binaries_before_tests": {
+      "xsh-fuzz-verification": "c5505c0a767021fdb8eac7c8ee26aaf1b146f5af09c566a31e60f911caa1ad1b",
+      "xsh-test-helper-verification": "5687f4a562fe6c35e76d4921032d8293303f896bdfc94cd0ae542fe73f0a653d",
+      "xsh-verification": "d817ed7e8e43e5b7db5670068eb6fe76186178416233360aa535a5d07b5917af",
+      "xshi-verification": "5121c56402853320e396695d6854336067fa9754fcc957bdcdd98ffe74fcea53",
+      "xsht-verification": "f2efdc4b440b3c12cfc79ad803c94fa9179164cde9563d3b74c856c0f10c8693"
+    },
+    "harness_variant_binaries_after_tests": {
+      "core-compat-boundaries": {
+        "xsh": "125a910d816a8a18882f6542b59265dd6f064301afa7bcb1d311e20c1e802c1d",
+        "xsh-test-helper": "07261b201dd433b82f31fca7a61287b577fb6173af6c12587e64f671ea231db3",
+        "xsht": "f2efdc4b440b3c12cfc79ad803c94fa9179164cde9563d3b74c856c0f10c8693"
+      },
+      "core-compat-extra": {
+        "xsh": "125a910d816a8a18882f6542b59265dd6f064301afa7bcb1d311e20c1e802c1d",
+        "xsh-test-helper": "07261b201dd433b82f31fca7a61287b577fb6173af6c12587e64f671ea231db3",
+        "xsht": "f2efdc4b440b3c12cfc79ad803c94fa9179164cde9563d3b74c856c0f10c8693"
+      },
+      "core-compat-extra-privileged": {
+        "xsh": "a75760359dad6e6f70fb66549cbe23e08590c06c67bd3ab0c7dc3cf76a2afe64",
+        "xsh-test-helper": "3adeb524e81cf55d53b34ae78a40b53a59b86490d9522d20709836b8fa8966a7"
+      }
+    },
+    "harness_variant_binaries_before_tests": {
+      "core-compat-boundaries": {
+        "xsh": "125a910d816a8a18882f6542b59265dd6f064301afa7bcb1d311e20c1e802c1d",
+        "xsh-test-helper": "07261b201dd433b82f31fca7a61287b577fb6173af6c12587e64f671ea231db3",
+        "xsht": "f2efdc4b440b3c12cfc79ad803c94fa9179164cde9563d3b74c856c0f10c8693"
+      },
+      "core-compat-extra": {
+        "xsh": "125a910d816a8a18882f6542b59265dd6f064301afa7bcb1d311e20c1e802c1d",
+        "xsh-test-helper": "07261b201dd433b82f31fca7a61287b577fb6173af6c12587e64f671ea231db3",
+        "xsht": "f2efdc4b440b3c12cfc79ad803c94fa9179164cde9563d3b74c856c0f10c8693"
+      },
+      "core-compat-extra-privileged": {
+        "xsh": "a75760359dad6e6f70fb66549cbe23e08590c06c67bd3ab0c7dc3cf76a2afe64",
+        "xsh-test-helper": "3adeb524e81cf55d53b34ae78a40b53a59b86490d9522d20709836b8fa8966a7"
+      }
+    },
+    "harnesses_after_tests": {
+      "core-compat-boundaries": {
+        "core_compat_boundaries": "1b98b1b8d4161b890df842465cafea3f3125f3d106c4cb2d832927a3e9d89c16"
+      },
+      "core-compat-extra": {
+        "core_compat_extra": "f8a2b28108d7363a97e3ca5e1be6cc024197144e6cd3fa8e90ca3e9208f9bf29"
+      },
+      "core-compat-extra-privileged": {
+        "core_compat_extra_privileged": "6b3b62342db505b739f0dbe7ebb5ca8f1775460270435d049d1086ddef699d78"
+      }
+    },
+    "harnesses_before_tests": {
+      "core-compat-boundaries": {
+        "core_compat_boundaries": "1b98b1b8d4161b890df842465cafea3f3125f3d106c4cb2d832927a3e9d89c16"
+      },
+      "core-compat-extra": {
+        "core_compat_extra": "f8a2b28108d7363a97e3ca5e1be6cc024197144e6cd3fa8e90ca3e9208f9bf29"
+      },
+      "core-compat-extra-privileged": {
+        "core_compat_extra_privileged": "6b3b62342db505b739f0dbe7ebb5ca8f1775460270435d049d1086ddef699d78"
+      }
+    },
+    "products_after_harness_builds": {
+      "xsh-fuzz-verification": "c5505c0a767021fdb8eac7c8ee26aaf1b146f5af09c566a31e60f911caa1ad1b",
+      "xsh-test-helper-verification": "5687f4a562fe6c35e76d4921032d8293303f896bdfc94cd0ae542fe73f0a653d",
+      "xsh-verification": "d817ed7e8e43e5b7db5670068eb6fe76186178416233360aa535a5d07b5917af",
+      "xshi-verification": "5121c56402853320e396695d6854336067fa9754fcc957bdcdd98ffe74fcea53",
+      "xsht-verification": "f2efdc4b440b3c12cfc79ad803c94fa9179164cde9563d3b74c856c0f10c8693"
+    },
+    "products_after_initial_build": {
+      "xsh-fuzz-verification": "c5505c0a767021fdb8eac7c8ee26aaf1b146f5af09c566a31e60f911caa1ad1b",
+      "xsh-test-helper-verification": "5687f4a562fe6c35e76d4921032d8293303f896bdfc94cd0ae542fe73f0a653d",
+      "xsh-verification": "d817ed7e8e43e5b7db5670068eb6fe76186178416233360aa535a5d07b5917af",
+      "xshi-verification": "5121c56402853320e396695d6854336067fa9754fcc957bdcdd98ffe74fcea53",
+      "xsht-verification": "f2efdc4b440b3c12cfc79ad803c94fa9179164cde9563d3b74c856c0f10c8693"
+    },
+    "source_after": {
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7"
+    },
+    "source_before": {
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7"
+    },
+    "tool_after": {
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7"
+    }
+  },
+  "native_lock": {
+    "acquired": true,
+    "held_before_build": true,
+    "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock",
+    "unresolved_cleanup_marker": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.cleanup-unresolved",
+    "wait_policy": "nonblocking"
+  },
+  "product_variants": {
+    "verification": {
+      "binaries": [
+        "xsh",
+        "xsht",
+        "xshi",
+        "xsh-fuzz",
+        "xsh-test-helper"
+      ],
+      "profile": "verification",
+      "target_variant": "products"
+    }
+  },
+  "qualification": [
+    "The complete native suite is owned by the final scheduler and is intentionally absent here.",
+    "Linux privilege cases that early-return for a missing capability require manual skip audit from --nocapture logs.",
+    "Ignored date-clock and BTRFS cases require the disposable QEMU guest described in docs/TESTING.md.",
+    "The interactive parity scenario driver is absent; the retained Linux PTY Rust case is included."
+  ],
+  "schema": 1,
+  "source_checks": [
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before-build"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:verify-pinned-image-id"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:verify-pinned-image-id"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:build-product-01-xsh-xsht-xshi-xsh-fuzz"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:build-product-01-xsh-xsht-xshi-xsh-fuzz"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:build-harness-core-compat-boundaries"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:build-harness-core-compat-boundaries"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:build-harness-core-compat-extra"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:build-harness-core-compat-extra"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:build-harness-core-compat-extra-privileged"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:build-harness-core-compat-extra-privileged"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:warning-deny-01"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:warning-deny-01"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:stage-core-compat-extra-xsht"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:stage-core-compat-extra-xsht"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:linux-special-01-core-compat-boundaries"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:linux-special-01-core-compat-boundaries"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:linux-special-02-core-compat-extra"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:linux-special-02-core-compat-extra"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:linux-special-03-core-compat-extra"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:linux-special-03-core-compat-extra"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:linux-special-04-core-compat-extra-privileged"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:linux-special-04-core-compat-extra-privileged"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:linux-special-05-traceroute-unprivileged"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:linux-special-05-traceroute-unprivileged"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:tracked-diff-check"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:tracked-diff-check"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after-all-gates"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "final"
+    }
+  ],
+  "source_expected": {
+    "commit": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+    "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7"
+  },
+  "started_utc": "2026-10-16T23:35:34+00:00",
+  "status": "commands-passed-needs-privilege-skip-and-close-review",
+  "steps": [
+    {
+      "argv": [
+        "docker",
+        "image",
+        "inspect",
+        "--format",
+        "{{.Id}}",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 0.016,
+      "env": {},
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:35:34+00:00",
+      "id": "verify-pinned-image-id",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/001-verify-pinned-image-id.log",
+      "log_sha256": "83e8c0a76db005b7800725f4a7a3402a706e1561f98971db6a6561da012c0a6f",
+      "started_utc": "2026-10-16T23:35:34+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/001-verify-pinned-image-id.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/001-verify-pinned-image-id.stdout",
+      "stdout_sha256": "36128ab6ec4d91052108020e86d2cbb9277578c5c8944db986340a97d934e9b4",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "/home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+        "build",
+        "cargo",
+        "build",
+        "--locked",
+        "--offline",
+        "--profile",
+        "verification",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "-p",
+        "xsh",
+        "-p",
+        "xsht",
+        "-p",
+        "xshi",
+        "-p",
+        "xsh-fuzz",
+        "--bins",
+        "--message-format=json"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 127.706,
+      "env": {
+        "XSH_GATE_CARGO_LOCK_TIMEOUT": "900",
+        "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/002-build-product-01-xsh-xsht-xshi-xsh-fuzz.cid",
+        "XSH_GATE_NATIVE_LOCK_FD": "3",
+        "XSH_GATE_TARGET_DIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products",
+        "XSH_GATE_TOOL_DIR": "/home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/gate-tools/final-correctness-gates"
+      },
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:37:42+00:00",
+      "id": "build-product-01-xsh-xsht-xshi-xsh-fuzz",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/002-build-product-01-xsh-xsht-xshi-xsh-fuzz.log",
+      "log_sha256": "5c64795d1edb59af30ae44573537e37422a3f11ec719a3daa9bd8f48dbf35dcb",
+      "started_utc": "2026-10-16T23:35:34+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/002-build-product-01-xsh-xsht-xshi-xsh-fuzz.stderr",
+      "stderr_sha256": "3ee72607b5b5118fa387c461e418d218f67d674943df6d66b0294e2599ec0de7",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/002-build-product-01-xsh-xsht-xshi-xsh-fuzz.stdout",
+      "stdout_sha256": "95b3d2e13a35dfab0ae0622d8bb11dc32a0a2ef235e17cc87197720d7de19554",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "/home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+        "build",
+        "cargo",
+        "test",
+        "--locked",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "--profile",
+        "verification",
+        "-p",
+        "xsh",
+        "--test",
+        "core_compat_boundaries",
+        "--no-run",
+        "--message-format=json"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 131.928,
+      "env": {
+        "XSH_GATE_CARGO_LOCK_TIMEOUT": "900",
+        "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/003-build-harness-core-compat-boundaries.cid",
+        "XSH_GATE_NATIVE_LOCK_FD": "3",
+        "XSH_GATE_TARGET_DIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness",
+        "XSH_GATE_TOOL_DIR": "/home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/gate-tools/final-correctness-gates"
+      },
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:39:54+00:00",
+      "id": "build-harness-core-compat-boundaries",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/003-build-harness-core-compat-boundaries.log",
+      "log_sha256": "7eaf017a80e2f292f66372e6e2261578e50b275826e988f1feb38ac69aebcf31",
+      "started_utc": "2026-10-16T23:37:42+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/003-build-harness-core-compat-boundaries.stderr",
+      "stderr_sha256": "5a79565487e8f4483a85bc5a3ed5d043fa747396da2cc399bbab8c5e36d901e1",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/003-build-harness-core-compat-boundaries.stdout",
+      "stdout_sha256": "4dd878423a2fcac141c54f52d320629621f845271ee9a4c0e6ed75a494af4a26",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "/home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+        "build",
+        "cargo",
+        "test",
+        "--locked",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "--profile",
+        "verification",
+        "-p",
+        "xsh",
+        "--test",
+        "core_compat_extra",
+        "--no-run",
+        "--message-format=json"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 359.804,
+      "env": {
+        "XSH_GATE_CARGO_LOCK_TIMEOUT": "900",
+        "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/004-build-harness-core-compat-extra.cid",
+        "XSH_GATE_NATIVE_LOCK_FD": "3",
+        "XSH_GATE_TARGET_DIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness",
+        "XSH_GATE_TOOL_DIR": "/home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/gate-tools/final-correctness-gates"
+      },
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:45:54+00:00",
+      "id": "build-harness-core-compat-extra",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/004-build-harness-core-compat-extra.log",
+      "log_sha256": "1d6656941acd7284f37ea8cbb5e16fd051a2f2f9f5091c6bb06ec0444b3784d2",
+      "started_utc": "2026-10-16T23:39:54+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/004-build-harness-core-compat-extra.stderr",
+      "stderr_sha256": "72d52251fe5fab72b2d7f00451f5337b7b54beefb7701b4c149acd7be0e1154a",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/004-build-harness-core-compat-extra.stdout",
+      "stdout_sha256": "9a5ac507c87513c3856a92259d2db4decb54bb6b52deed0169ffed38b5c7ba42",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "/home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+        "build",
+        "cargo",
+        "test",
+        "--locked",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "--profile",
+        "verification",
+        "-p",
+        "xsh",
+        "--test",
+        "core_compat_extra_privileged",
+        "--features",
+        "linux-priv-tests",
+        "--no-run",
+        "--message-format=json"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 53.697,
+      "env": {
+        "XSH_GATE_CARGO_LOCK_TIMEOUT": "900",
+        "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/005-build-harness-core-compat-extra-privileged.cid",
+        "XSH_GATE_NATIVE_LOCK_FD": "3",
+        "XSH_GATE_TARGET_DIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/linux-priv",
+        "XSH_GATE_TOOL_DIR": "/home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/gate-tools/final-correctness-gates"
+      },
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:46:48+00:00",
+      "id": "build-harness-core-compat-extra-privileged",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/005-build-harness-core-compat-extra-privileged.log",
+      "log_sha256": "0539e5a3126afea867f0ee277cd88afe75015998ae7a72d3d654caa318ccc068",
+      "started_utc": "2026-10-16T23:45:54+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/005-build-harness-core-compat-extra-privileged.stderr",
+      "stderr_sha256": "8778501800eec6c0d01f61179c54549864d818ba11dc8fb250391f71a20b6154",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/005-build-harness-core-compat-extra-privileged.stdout",
+      "stdout_sha256": "7f7f25777c96fac288e5834db60f3179b2101823344914107ebd52983b436da1",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "/home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+        "lint",
+        "cargo",
+        "clippy",
+        "--locked",
+        "--offline",
+        "--workspace",
+        "--target",
+        "x86_64-unknown-linux-musl",
+        "--all-targets",
+        "--all-features",
+        "--quiet",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 27.107,
+      "env": {
+        "XSH_GATE_CARGO_LOCK_TIMEOUT": "900",
+        "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/006-warning-deny-01.cid",
+        "XSH_GATE_NATIVE_LOCK_FD": "3",
+        "XSH_GATE_TARGET_DIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products",
+        "XSH_GATE_TOOL_DIR": "/home/josh/d/laputa-systems/xsh/dev/consolidation/winddown/gate-tools/final-correctness-gates"
+      },
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:47:16+00:00",
+      "id": "warning-deny-01",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/006-warning-deny-01.log",
+      "log_sha256": "d916ff594ea02e81ce6386443638f0fdefd94872291bfc21393685995f6bd179",
+      "started_utc": "2026-10-16T23:46:48+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/006-warning-deny-01.stderr",
+      "stderr_sha256": "77cb6ef1e79d9e741adec17c1d416d2febb77cbe0f1cc1ad0bb6ffcc940402d7",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/006-warning-deny-01.stdout",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "docker",
+        "run",
+        "--rm",
+        "--init",
+        "--read-only",
+        "--cidfile",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/007-stage-core-compat-extra-xsht.cid",
+        "--platform",
+        "linux/amd64",
+        "--cpus=2",
+        "--memory=1g",
+        "--memory-swap=1g",
+        "--network=none",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness:rw",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp:/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp:rw",
+        "-e",
+        "TMPDIR=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp",
+        "--user",
+        "0:0",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "sh",
+        "-euc",
+        "set -eu\nsource=$1\ndestination=$2\nexpected=$3\nhash_file() { result=$(sha256sum -- \"$1\") || return; printf '%s\\n' \"${result%% *}\"; }\n[ ! -L \"$source\" ] && [ -f \"$source\" ] && [ -x \"$source\" ]\n[ \"$(hash_file \"$source\")\" = \"$expected\" ]\nif [ -L \"$destination\" ]; then exit 1; fi\nif [ -e \"$destination\" ]; then\n    [ -f \"$destination\" ] && [ -x \"$destination\" ]\n    [ \"$(hash_file \"$destination\")\" = \"$expected\" ]\n    exit 0\nfi\ntemporary=$(mktemp \"${destination}.stage.XXXXXX\")\ntrap 'rm -f -- \"$temporary\"' EXIT HUP INT TERM\ncp -p -- \"$source\" \"$temporary\"\n[ -f \"$temporary\" ] && [ -x \"$temporary\" ]\n[ \"$(hash_file \"$temporary\")\" = \"$expected\" ]\nln -- \"$temporary\" \"$destination\"\nrm -- \"$temporary\"\ntrap - EXIT HUP INT TERM",
+        "xsh-gate-stage-xsht",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification/xsht",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/xsht",
+        "f2efdc4b440b3c12cfc79ad803c94fa9179164cde9563d3b74c856c0f10c8693"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 0.414,
+      "env": {
+        "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/007-stage-core-compat-extra-xsht.cid"
+      },
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:47:16+00:00",
+      "id": "stage-core-compat-extra-xsht",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/007-stage-core-compat-extra-xsht.log",
+      "log_sha256": "399c4287e78e601213b61bc8944630bac4bd1f71aa1299049289d0a23082e922",
+      "started_utc": "2026-10-16T23:47:16+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/007-stage-core-compat-extra-xsht.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/007-stage-core-compat-extra-xsht.stdout",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "docker",
+        "run",
+        "--rm",
+        "--init",
+        "--cidfile",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/008-linux-special-01-core-compat-boundaries.cid",
+        "--platform",
+        "linux/amd64",
+        "--cpus=12",
+        "--memory=4g",
+        "--memory-swap=4g",
+        "--network=none",
+        "--tmpfs",
+        "/tmp:rw,nodev,exec,nosuid,mode=1777",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c:/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c:rw",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp:/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp:rw",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products:ro",
+        "-w",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+        "-e",
+        "LC_ALL=C",
+        "-e",
+        "TZ=UTC",
+        "-e",
+        "TMPDIR=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp",
+        "-e",
+        "CARGO_TARGET_DIR=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness",
+        "-e",
+        "HOME=/home/compat",
+        "-e",
+        "RUSTUP_HOME=/root/.rustup",
+        "-e",
+        "TARGET=x86_64-unknown-linux-musl",
+        "-e",
+        "DIST_PROFILE=verification",
+        "-e",
+        "XSH_BIN=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification/xsh",
+        "-e",
+        "XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa",
+        "-e",
+        "PATH=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "--user",
+        "0:0",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/build/xsh/1863d5379a47a972/out/core_compat_boundaries-1863d5379a47a972",
+        "--nocapture",
+        "--test-threads=1",
+        "--skip",
+        "split::"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 6.372,
+      "env": {
+        "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/008-linux-special-01-core-compat-boundaries.cid"
+      },
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:47:23+00:00",
+      "id": "linux-special-01-core-compat-boundaries",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/008-linux-special-01-core-compat-boundaries.log",
+      "log_sha256": "3ef8326943f9c8ea3f4d612884d9ad213d0e84ffe2a97f99430d765593d86935",
+      "started_utc": "2026-10-16T23:47:16+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/008-linux-special-01-core-compat-boundaries.stderr",
+      "stderr_sha256": "0cc512887c8a3763de847091d0e9c73b26862f187acbab80199a4610937c5dbd",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/008-linux-special-01-core-compat-boundaries.stdout",
+      "stdout_sha256": "315832c6e1cc4c0b032420dbf18b7523953c9f9e6c66e6c3d5ccc510d70e124c",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "docker",
+        "run",
+        "--rm",
+        "--init",
+        "--cidfile",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/009-linux-special-02-core-compat-extra.cid",
+        "--platform",
+        "linux/amd64",
+        "--cpus=12",
+        "--memory=4g",
+        "--memory-swap=4g",
+        "--network=none",
+        "--tmpfs",
+        "/tmp:rw,nodev,exec,nosuid,mode=1777",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c:/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c:rw",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp:/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp:rw",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products:ro",
+        "-w",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+        "-e",
+        "LC_ALL=C",
+        "-e",
+        "TZ=UTC",
+        "-e",
+        "TMPDIR=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp",
+        "-e",
+        "CARGO_TARGET_DIR=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness",
+        "-e",
+        "HOME=/home/compat",
+        "-e",
+        "RUSTUP_HOME=/root/.rustup",
+        "-e",
+        "TARGET=x86_64-unknown-linux-musl",
+        "-e",
+        "DIST_PROFILE=verification",
+        "-e",
+        "XSH_BIN=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification/xsh",
+        "-e",
+        "XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa",
+        "-e",
+        "PATH=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "--user",
+        "0:0",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/build/xsh/bf5f7d7c18063088/out/core_compat_extra-bf5f7d7c18063088",
+        "--nocapture",
+        "--test-threads=1",
+        "--skip",
+        "split::"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 17.137,
+      "env": {
+        "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/009-linux-special-02-core-compat-extra.cid"
+      },
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:47:40+00:00",
+      "id": "linux-special-02-core-compat-extra",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/009-linux-special-02-core-compat-extra.log",
+      "log_sha256": "a8626f108d66f65e494af1a5f94aa6056ae21319dfe859043e4be45e99e89b81",
+      "started_utc": "2026-10-16T23:47:23+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/009-linux-special-02-core-compat-extra.stderr",
+      "stderr_sha256": "0db6ccd431fb76d22d182d03979076b0e8c611229382ae9a0c02055e5707adee",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/009-linux-special-02-core-compat-extra.stdout",
+      "stdout_sha256": "e1a68074575f537758dce34abfeb33e747656f9b5e865b1edfa02dadc51c6e65",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "docker",
+        "run",
+        "--rm",
+        "--init",
+        "--cidfile",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/010-linux-special-03-core-compat-extra.cid",
+        "--platform",
+        "linux/amd64",
+        "--cpus=0.01",
+        "--memory=1g",
+        "--memory-swap=1g",
+        "--network=none",
+        "--tmpfs",
+        "/tmp:rw,nodev,exec,nosuid,mode=1777",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c:/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c:rw",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp:/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp:rw",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products:ro",
+        "-w",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+        "-e",
+        "LC_ALL=C",
+        "-e",
+        "TZ=UTC",
+        "-e",
+        "TMPDIR=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp",
+        "-e",
+        "CARGO_TARGET_DIR=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness",
+        "-e",
+        "HOME=/home/compat",
+        "-e",
+        "RUSTUP_HOME=/root/.rustup",
+        "-e",
+        "TARGET=x86_64-unknown-linux-musl",
+        "-e",
+        "DIST_PROFILE=verification",
+        "-e",
+        "XSH_BIN=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification/xsh",
+        "-e",
+        "XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa",
+        "-e",
+        "PATH=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "--user",
+        "0:0",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/harness/x86_64-unknown-linux-musl/verification/build/xsh/bf5f7d7c18063088/out/core_compat_extra-bf5f7d7c18063088",
+        "split::",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 28.21,
+      "env": {
+        "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/010-linux-special-03-core-compat-extra.cid"
+      },
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:48:08+00:00",
+      "id": "linux-special-03-core-compat-extra",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/010-linux-special-03-core-compat-extra.log",
+      "log_sha256": "3fef6cecb89ed42846dc0be6355d707d648c2b66708c79b9a6ea065c792c979e",
+      "started_utc": "2026-10-16T23:47:40+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/010-linux-special-03-core-compat-extra.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/010-linux-special-03-core-compat-extra.stdout",
+      "stdout_sha256": "a56285fbd2a506c03295438074cbf9fb9a25a8776d2717530a10fc093d5a1e38",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "docker",
+        "run",
+        "--rm",
+        "--init",
+        "--cidfile",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/011-linux-special-04-core-compat-extra-privileged.cid",
+        "--platform",
+        "linux/amd64",
+        "--cpus=12",
+        "--memory=1g",
+        "--memory-swap=1g",
+        "--network=none",
+        "--privileged",
+        "--tmpfs",
+        "/tmp:rw,nodev,exec,nosuid,mode=1777",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c:/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c:rw",
+        "--tmpfs",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp:rw,nodev,exec,nosuid,mode=1777,size=1g",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/linux-priv:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/linux-priv:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products:ro",
+        "-w",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+        "-e",
+        "LC_ALL=C",
+        "-e",
+        "TZ=UTC",
+        "-e",
+        "TMPDIR=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp",
+        "-e",
+        "CARGO_TARGET_DIR=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/linux-priv",
+        "-e",
+        "HOME=/home/compat",
+        "-e",
+        "RUSTUP_HOME=/root/.rustup",
+        "-e",
+        "TARGET=x86_64-unknown-linux-musl",
+        "-e",
+        "DIST_PROFILE=verification",
+        "-e",
+        "XSH_BIN=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification/xsh",
+        "-e",
+        "XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa",
+        "-e",
+        "PATH=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "--user",
+        "0:0",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/linux-priv/x86_64-unknown-linux-musl/verification/build/xsh/3d8121d8f4bad471/out/core_compat_extra_privileged-3d8121d8f4bad471",
+        "cp::privileged::test_cp_recursive_block_device_",
+        "--nocapture",
+        "--test-threads=1"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 0.465,
+      "env": {
+        "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/011-linux-special-04-core-compat-extra-privileged.cid"
+      },
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:48:09+00:00",
+      "id": "linux-special-04-core-compat-extra-privileged",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/011-linux-special-04-core-compat-extra-privileged.log",
+      "log_sha256": "af23f7d3129a1f908511fcc6c8362483500f27676f4999bd806a3334a523bff1",
+      "started_utc": "2026-10-16T23:48:08+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/011-linux-special-04-core-compat-extra-privileged.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/011-linux-special-04-core-compat-extra-privileged.stdout",
+      "stdout_sha256": "1f910b70117a89cc15c9567d075f89149d66d50ad2f298c494276ee0a9a9421d",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "docker",
+        "run",
+        "--rm",
+        "--init",
+        "--cidfile",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/012-linux-special-05-traceroute-unprivileged.cid",
+        "--platform",
+        "linux/amd64",
+        "--cpus=12",
+        "--memory=1g",
+        "--memory-swap=1g",
+        "--network=none",
+        "--tmpfs",
+        "/tmp:rw,nodev,exec,nosuid,mode=1777",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c:/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c:rw",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp:/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp:rw",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
+        "-v",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products:/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products:ro",
+        "-w",
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+        "-e",
+        "LC_ALL=C",
+        "-e",
+        "TZ=UTC",
+        "-e",
+        "TMPDIR=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c/.work/tmp",
+        "-e",
+        "CARGO_TARGET_DIR=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products",
+        "-e",
+        "HOME=/home/compat",
+        "-e",
+        "RUSTUP_HOME=/root/.rustup",
+        "-e",
+        "TARGET=x86_64-unknown-linux-musl",
+        "-e",
+        "DIST_PROFILE=verification",
+        "-e",
+        "XSH_BIN=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification/xsh",
+        "-e",
+        "XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa",
+        "-e",
+        "PATH=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "--user",
+        "1000:1000",
+        "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "/usr/bin/env",
+        "CARGO_TARGET_DIR=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products",
+        "XSH_BIN=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification/xsh",
+        "PATH=/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+        "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/target/products/x86_64-unknown-linux-musl/verification/xsht",
+        "test",
+        "core/tests/test-traceroute.xsh",
+        "-j",
+        "1"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 13.129,
+      "env": {
+        "XSH_GATE_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/container-ids/012-linux-special-05-traceroute-unprivileged.cid"
+      },
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:48:22+00:00",
+      "id": "linux-special-05-traceroute-unprivileged",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/012-linux-special-05-traceroute-unprivileged.log",
+      "log_sha256": "bc658b06a5c4d02e0a095575aa27b7292e4c24f977b4d32a6d890aa9aa2174d9",
+      "started_utc": "2026-10-16T23:48:09+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/012-linux-special-05-traceroute-unprivileged.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/012-linux-special-05-traceroute-unprivileged.stdout",
+      "stdout_sha256": "26afc9725738e1d4f8f1d1e9b4702b42bf56034299ba145187c5a79d4a6184ea",
+      "timed_out": false
+    },
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-0dc9cff7c",
+      "duration_seconds": 0.004,
+      "env": {},
+      "exit_code": 0,
+      "finished_utc": "2026-10-16T23:48:23+00:00",
+      "id": "tracked-diff-check",
+      "log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/013-tracked-diff-check.log",
+      "log_sha256": "14fe4d7629c8263bdd9a5f252e949a1f9f115ab1b4626e94c074351ea8e224c4",
+      "started_utc": "2026-10-16T23:48:23+00:00",
+      "stderr_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/013-tracked-diff-check.stderr",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_log": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/logs/013-tracked-diff-check.stdout",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "timed_out": false
+    }
+  ],
+  "tool_checks": [
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before-build"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:verify-pinned-image-id"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:verify-pinned-image-id"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:build-product-01-xsh-xsht-xshi-xsh-fuzz"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:build-product-01-xsh-xsht-xshi-xsh-fuzz"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:build-harness-core-compat-boundaries"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:build-harness-core-compat-boundaries"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:build-harness-core-compat-extra"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:build-harness-core-compat-extra"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:build-harness-core-compat-extra-privileged"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:build-harness-core-compat-extra-privileged"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:warning-deny-01"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:warning-deny-01"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:stage-core-compat-extra-xsht"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:stage-core-compat-extra-xsht"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:linux-special-01-core-compat-boundaries"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:linux-special-01-core-compat-boundaries"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:linux-special-02-core-compat-extra"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:linux-special-02-core-compat-extra"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:linux-special-03-core-compat-extra"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:linux-special-03-core-compat-extra"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:linux-special-04-core-compat-extra-privileged"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:linux-special-04-core-compat-extra-privileged"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:linux-special-05-traceroute-unprivileged"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:linux-special-05-traceroute-unprivileged"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "before:tracked-diff-check"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "after:tracked-diff-check"
+    },
+    {
+      "clean": true,
+      "head": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+      "status": "",
+      "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7",
+      "where": "final"
+    }
+  ],
+  "tool_expected": {
+    "commit": "0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4",
+    "tree": "b4f9db3f8ee2f38a6c62fea876976619db424ed7"
+  }
+}
