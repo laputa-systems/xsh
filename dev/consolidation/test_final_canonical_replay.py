@@ -117,6 +117,16 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
             bootstrap_receipt=self.receipt_path if receipt is None else receipt,
         )
 
+    def bootstrap_arguments(self):
+        return argparse.Namespace(
+            repo=self.repo,
+            head=self.head,
+            tree=self.tree,
+            output=pathlib.Path(".work/tmp/canonical-bootstrap"),
+            run_name="canonical-bootstrap",
+            timeout_seconds=60,
+        )
+
     def with_mocked_tools(self):
         real_host_file = runner.host_file
 
@@ -260,6 +270,140 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         self.assertEqual(runner.batch_command()[0], f"/work/target/{runner.TARGET}/verification/xsh")
         self.assertNotIn("cargo", runner.batch_command())
         self.assertIn("/work/dev/consolidation/final_canonical_replay.py", command)
+
+    def test_bootstrap_command_uses_the_exact_pinned_build_and_target(self):
+        with self.with_mocked_tools():
+            validated = runner.validate_bootstrap_inputs(self.bootstrap_arguments())
+        command = runner.bootstrap_docker_command(
+            validated,
+            "xsh-canonical-bootstrap-canonical-bootstrap",
+            self.output / "container.cid",
+        )
+        volumes = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "--volume"]
+        self.assertEqual(command[-len(runner.BOOTSTRAP_CARGO_ARGV):], runner.BOOTSTRAP_CARGO_ARGV)
+        self.assertIn(f"{self.target_dir}:/work/target:rw", volumes)
+        self.assertIn(f"{self.repo}:/work:ro", volumes)
+        self.assertIn(f"{self.scratch_dir}:/scratch:rw", volumes)
+        environment = {
+            item.split("=", 1)[0]: item.split("=", 1)[1]
+            for index, value in enumerate(command[:-1])
+            if value == "--env"
+            for item in [command[index + 1]]
+        }
+        self.assertEqual(environment["CARGO_TARGET_DIR"], runner.BOOTSTRAP_CONTAINER_TARGET_DIR)
+        self.assertEqual(environment["CARGO_BUILD_JOBS"], str(runner.CPU_LIMIT))
+        self.assertEqual(
+            environment["CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS"],
+            runner.RUSTFLAGS,
+        )
+        self.assertEqual(environment["TMPDIR"], "/scratch/canonical-bootstrap/tmp")
+
+    def test_bootstrap_producer_writes_a_receipt_accepted_by_the_canonical_validator(self):
+        self.create_build_receipt()
+        self.receipt_path.unlink()
+        receipt_output = self.output / "bootstrap-receipt.json"
+        receipt_output.parent.mkdir()
+        source = runner.git_snapshot(self.repo)
+
+        with self.with_mocked_tools():
+            receipt = runner.create_bootstrap_receipt(
+                receipt_output,
+                self.build_json_path,
+                self.bootstrap,
+                source,
+                0,
+                self.repo,
+                self.scratch_dir,
+            )
+            validated = runner.validate_bootstrap_receipt(
+                receipt_output,
+                self.repo,
+                self.scratch_dir,
+                source,
+                self.bootstrap,
+            )
+
+        self.assertEqual(receipt["cargo_argv"], runner.BOOTSTRAP_CARGO_ARGV)
+        self.assertEqual(receipt["cargo_target_dir"], "/work/target")
+        self.assertEqual(receipt["rustflags"], runner.RUSTFLAGS)
+        self.assertEqual(receipt["build_json"]["sha256"], runner.sha256_file(self.build_json_path))
+        self.assertEqual(validated["record"], receipt)
+
+    def test_bootstrap_producer_rejects_failed_build_and_wrong_output_directory(self):
+        self.create_build_receipt()
+        self.receipt_path.unlink()
+        receipt_output = self.output / "bootstrap-receipt.json"
+        receipt_output.parent.mkdir()
+        source = runner.git_snapshot(self.repo)
+
+        with self.assertRaisesRegex(runner.ReplayError, "did not succeed"):
+            runner.create_bootstrap_receipt(
+                receipt_output,
+                self.build_json_path,
+                self.bootstrap,
+                source,
+                1,
+                self.repo,
+                self.scratch_dir,
+            )
+        with self.assertRaisesRegex(runner.ReplayError, "outside the pinned target directory"):
+            runner.create_bootstrap_receipt(
+                receipt_output,
+                self.build_json_path,
+                self.target_dir / "xsh",
+                source,
+                0,
+                self.repo,
+                self.scratch_dir,
+            )
+
+    def test_run_bootstrap_captures_cargo_json_and_writes_the_validated_receipt(self):
+        source = runner.git_snapshot(self.repo)
+        records = self.build_records()
+        encoded_records = "".join(json.dumps(record) + "\n" for record in records)
+        process = mock.MagicMock()
+        process.poll.return_value = 0
+        process.returncode = 0
+        run_text = runner.run_text
+
+        def run_host_text(command, cwd):
+            if command[:3] == ["docker", "image", "inspect"]:
+                return runner.IMAGE
+            return run_text(command, cwd)
+
+        def start_process(command, **kwargs):
+            kwargs["stdout"].write(encoded_records.encode())
+            kwargs["stdout"].flush()
+            self.assertEqual(command[-len(runner.BOOTSTRAP_CARGO_ARGV):], runner.BOOTSTRAP_CARGO_ARGV)
+            self.assertEqual(kwargs["cwd"], self.repo)
+            self.assertEqual(kwargs["env"]["TMPDIR"], str(self.scratch_dir / "canonical-bootstrap" / "tmp"))
+            return process
+
+        with self.with_mocked_tools():
+            validated = runner.validate_bootstrap_inputs(self.bootstrap_arguments())
+        with (
+            mock.patch.object(runner, "run_text", side_effect=run_host_text),
+            mock.patch.object(runner, "source_check", side_effect=[source, source]),
+            mock.patch.object(runner, "stop_container", return_value={"resolved": True}) as stop_container,
+            mock.patch.object(runner.subprocess, "Popen", side_effect=start_process),
+            mock.patch("builtins.print"),
+        ):
+            result = runner.run_bootstrap(validated)
+
+        self.assertEqual(result, 0)
+        stop_container.assert_called_once()
+        receipt_path = self.scratch_dir / "canonical-bootstrap" / "bootstrap-receipt.json"
+        cargo_json_path = self.scratch_dir / "canonical-bootstrap" / "cargo-build.jsonl"
+        self.assertEqual(cargo_json_path.read_text(encoding="utf-8"), encoded_records)
+        with self.with_mocked_tools():
+            receipt = runner.validate_bootstrap_receipt(
+                receipt_path,
+                self.repo,
+                self.scratch_dir,
+                source,
+                self.bootstrap,
+            )
+        self.assertEqual(receipt["record"]["cargo_argv"], runner.BOOTSTRAP_CARGO_ARGV)
 
     def test_run_batch_creates_validated_target_mount_before_docker_launch(self):
         target_mount = self.repo / "target"

@@ -228,6 +228,200 @@ def validate_bootstrap_receipt(
     }
 
 
+def validate_bootstrap_inputs(args: argparse.Namespace) -> dict[str, Any]:
+    root = args.repo.resolve(strict=True)
+    if not (root / ".git").exists():
+        raise ReplayError(f"repository metadata is missing under {root}")
+    if re.fullmatch(r"[0-9a-f]{40}", args.head) is None or re.fullmatch(r"[0-9a-f]{40}", args.tree) is None:
+        raise ReplayError("--head and --tree must be full lowercase Git object IDs")
+    source = git_snapshot(root)
+    if (source["head"], source["tree"], source["clean"]) != (args.head, args.tree, True):
+        raise ReplayError(f"source does not match the explicit clean freeze: {source}")
+
+    work_dir = root / ".work"
+    scratch_dir = work_dir / "tmp"
+    if work_dir.is_symlink() or scratch_dir.is_symlink() or not scratch_dir.is_dir() or not os.access(scratch_dir, os.W_OK):
+        raise ReplayError(".work/tmp must exist as a writable real directory")
+    ignored = subprocess.run(
+        ["git", "check-ignore", "--quiet", "--no-index", ".work"], cwd=root, check=False
+    )
+    if ignored.returncode != 0:
+        raise ReplayError(".work must be ignored through .git/info/exclude")
+
+    output_root = resolved_path(args.output, root)
+    require_below(output_root, scratch_dir)
+    if output_root.parent.resolve(strict=False) != scratch_dir.resolve(strict=True):
+        raise ReplayError("output must be one fresh run directory directly under .work/tmp")
+    if output_root.name != args.run_name:
+        raise ReplayError("--run-name must match the output directory name")
+    if output_root.exists() or output_root.is_symlink():
+        raise ReplayError(f"output directory must not already exist: {output_root}")
+    if ":" in str(root) or ":" in str(output_root):
+        raise ReplayError("Docker bind paths cannot contain a colon")
+
+    target_dir = root / ".work/target-final-canonical"
+    if target_dir.is_symlink() or (target_dir.exists() and not target_dir.is_dir()):
+        raise ReplayError(f"root target directory must be a real directory: {target_dir}")
+    for path in (target_dir / TARGET, target_dir / TARGET / PROFILE):
+        if path.is_symlink() or (path.exists() and not path.is_dir()):
+            raise ReplayError(f"bootstrap target path must contain only real directories: {path}")
+
+    lock_path = root / LOCK_PATH
+    if lock_path.is_symlink() or not lock_path.is_file() or not os.access(lock_path, os.W_OK):
+        raise ReplayError(f"shared native-suite lock is missing, unsafe, or not writable: {lock_path}")
+    cargo_lock_path = root / CARGO_LOCK_PATH
+    if (
+        cargo_lock_path.parent.is_symlink()
+        or cargo_lock_path.is_symlink()
+        or not cargo_lock_path.is_file()
+        or not os.access(cargo_lock_path, os.W_OK)
+    ):
+        raise ReplayError(f"shared Cargo lock is missing, unsafe, or not writable: {cargo_lock_path}")
+
+    common_git = pathlib.Path(run_text(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], root))
+    if not common_git.is_dir() or ":" in str(common_git):
+        raise ReplayError(f"Git common directory cannot be mounted read-only: {common_git}")
+
+    tools = {
+        "kache": host_file(cargo_home() / "bin" / "kache", executable=True),
+        "mold": host_file(pathlib.Path("/usr/local/bin/mold"), executable=True),
+        "linker": host_file(root / "dev/musl-linker.sh", executable=True),
+        "jemalloc": host_file(pathlib.Path("/usr/lib/libjemalloc.so.2")),
+    }
+    return {
+        "root": root,
+        "source": source,
+        "output_root": output_root,
+        "scratch_dir": scratch_dir,
+        "target_dir": target_dir,
+        "common_git": common_git.resolve(strict=True),
+        "lock_path": lock_path,
+        "cargo_lock_path": cargo_lock_path,
+        "tools": tools,
+        "args": args,
+    }
+
+
+def bootstrap_docker_command(validated: dict[str, Any], container_name: str, cid_file: pathlib.Path) -> list[str]:
+    root = validated["root"]
+    scratch_dir = validated["scratch_dir"]
+    output_root = validated["output_root"]
+    tools = validated["tools"]
+    rustflags_variable = f"CARGO_TARGET_{TARGET.replace('-', '_').upper()}_RUSTFLAGS"
+    argv = [
+        "docker",
+        "run",
+        "--rm",
+        "--init",
+        "--platform",
+        "linux/amd64",
+        f"--cpus={CPU_LIMIT}",
+        f"--memory={MEMORY_LIMIT_BYTES // (1024 * 1024 * 1024)}g",
+        f"--memory-swap={(MEMORY_LIMIT_BYTES + SWAP_LIMIT_BYTES) // (1024 * 1024 * 1024)}g",
+        "--network",
+        "none",
+        "--cidfile",
+        str(cid_file),
+        "--name",
+        container_name,
+        "--volume",
+        f"{root}:/work:ro",
+        "--volume",
+        f"{validated['target_dir']}:{BOOTSTRAP_CONTAINER_TARGET_DIR}:rw",
+        "--volume",
+        f"{scratch_dir}:/scratch:rw",
+        "--volume",
+        f"{validated['cargo_lock_path']}:{CARGO_LOCK_CONTAINER_PATH}:rw",
+        "--volume",
+        "xsh-cargo-registry:/root/.cargo/registry",
+        "--volume",
+        "xsh-consolidation-kache:/root/.cache/kache",
+        "--volume",
+        f"{validated['common_git']}:{validated['common_git']}:ro",
+        "--volume",
+        f"{tools['linker']['path']}:/usr/local/bin/xsh-mold-linker:ro",
+        "--volume",
+        f"{tools['mold']['path']}:/usr/local/bin/mold:ro",
+        "--volume",
+        f"{tools['kache']['path']}:/usr/local/bin/kache:ro",
+        "--volume",
+        f"{tools['jemalloc']['path']}:/usr/lib/libjemalloc.so.2:ro",
+        "--workdir",
+        "/work",
+    ]
+    environment = {
+        "TARGET": TARGET,
+        "DIST_PROFILE": PROFILE,
+        "CARGO_TARGET_DIR": BOOTSTRAP_CONTAINER_TARGET_DIR,
+        "CARGO_BUILD_WARNINGS": "deny",
+        "CARGO_BUILD_JOBS": str(CPU_LIMIT),
+        "CARGO_NET_OFFLINE": "true",
+        "CARGO_HOME": "/root/.cargo",
+        "XDG_CACHE_HOME": "/root/.cache",
+        "TMPDIR": f"/scratch/{output_root.name}/tmp",
+        "RUSTC_WRAPPER": "/usr/local/bin/kache",
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER": "/usr/local/bin/xsh-mold-linker",
+        rustflags_variable: RUSTFLAGS,
+    }
+    for key, value in environment.items():
+        argv.extend(["--env", f"{key}={value}"])
+    return [*argv, IMAGE, *BOOTSTRAP_CARGO_ARGV]
+
+
+def create_bootstrap_receipt(
+    receipt_path: pathlib.Path,
+    build_json_path: pathlib.Path,
+    artifact_path: pathlib.Path,
+    source: dict[str, Any],
+    exit_code: int,
+    root: pathlib.Path,
+    scratch_dir: pathlib.Path,
+) -> dict[str, Any]:
+    if type(exit_code) is not int or exit_code != 0:
+        raise ReplayError("canonical bootstrap Cargo build did not succeed")
+    build_json_path = require_scratch_file(str(build_json_path), root, scratch_dir, "bootstrap Cargo JSON")
+    receipt_path = pathlib.Path(os.path.abspath(receipt_path if receipt_path.is_absolute() else root / receipt_path))
+    require_below(receipt_path, scratch_dir)
+    scratch_root = scratch_dir.resolve(strict=True)
+    parent = receipt_path.parent
+    cursor = parent
+    while cursor != scratch_root:
+        if cursor.is_symlink():
+            raise ReplayError(f"bootstrap receipt output path contains a symlink: {cursor}")
+        cursor = cursor.parent
+    if not parent.is_dir() or receipt_path.is_symlink() or receipt_path.exists():
+        raise ReplayError(f"bootstrap receipt output must be fresh and regular: {receipt_path}")
+    expected_artifact_path = root / ".work/target-final-canonical" / TARGET / PROFILE / "xsh"
+    artifact_path = pathlib.Path(os.path.abspath(artifact_path if artifact_path.is_absolute() else root / artifact_path))
+    if artifact_path != expected_artifact_path:
+        raise ReplayError("canonical bootstrap artifact is outside the pinned target directory")
+    artifact_path = artifact_path.resolve(strict=True)
+    if artifact_path != expected_artifact_path:
+        raise ReplayError("canonical bootstrap artifact path contains a symlink")
+    validate_build_json(build_json_path, artifact_path)
+    artifact = host_file(artifact_path, executable=True)
+    receipt = {
+        "schema_version": 1,
+        "status": "passed",
+        "source": {"commit": source["head"], "tree": source["tree"], "clean": source["clean"]},
+        "image": IMAGE,
+        "target": TARGET,
+        "profile": PROFILE,
+        "rustflags": RUSTFLAGS,
+        "cargo_argv": BOOTSTRAP_CARGO_ARGV,
+        "cargo_target_dir": BOOTSTRAP_CONTAINER_TARGET_DIR,
+        "build_json": {
+            "exit_code": exit_code,
+            "path": str(build_json_path),
+            "sha256": sha256_file(build_json_path),
+        },
+        "artifact": artifact,
+    }
+    write_json(receipt_path, receipt)
+    validate_bootstrap_receipt(receipt_path, root, scratch_dir, source, artifact_path)
+    return receipt
+
+
 def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
     root = args.repo.resolve(strict=True)
     if not (root / ".git").exists():
@@ -803,6 +997,131 @@ def stop_container(cid_file: pathlib.Path, container_name: str | None = None) ->
     return {"resolved": resolved, "container_id": container_id, "commands": results}
 
 
+def run_bootstrap(validated: dict[str, Any]) -> int:
+    root = validated["root"]
+    output_root = validated["output_root"]
+    args = validated["args"]
+    lock = validated["lock_path"].open("r+")
+    try:
+        cargo_lock = validated["cargo_lock_path"].open("r+")
+    except OSError:
+        lock.close()
+        raise
+    try:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        fcntl.flock(cargo_lock.fileno(), fcntl.LOCK_EX)
+        cleanup_marker = validated["lock_path"].with_suffix(".cleanup-unresolved")
+        if cleanup_marker.exists() or cleanup_marker.is_symlink() or lock.read(19) == "cleanup-unresolved:":
+            raise ReplayError(f"native-suite cleanup remains unresolved: {validated['lock_path']}")
+        before = source_check(validated, "before-bootstrap")
+        image_id = run_text(["docker", "image", "inspect", "--format", "{{.Id}}", IMAGE], root)
+        if image_id != IMAGE:
+            raise ReplayError(f"pinned Docker image ID differs: {image_id}")
+
+        output_root.mkdir()
+        tmpdir = output_root / "tmp"
+        tmpdir.mkdir()
+        validated["target_dir"].mkdir(exist_ok=True)
+        for path in (validated["target_dir"], validated["target_dir"] / TARGET, validated["target_dir"] / TARGET / PROFILE):
+            if path.is_symlink() or not path.is_dir():
+                raise ReplayError(f"bootstrap target path must contain only real directories: {path}")
+        stdout_path = output_root / "cargo-build.jsonl"
+        stderr_path = output_root / "cargo-build.stderr.log"
+        cid_file = output_root / "container.cid"
+        stdout_path.touch()
+        stderr_path.touch()
+        container_name = f"xsh-canonical-bootstrap-{args.run_name}"
+        command = bootstrap_docker_command(validated, container_name, cid_file)
+        host_environment = dict(os.environ)
+        host_environment.pop("LD_PRELOAD", None)
+        host_environment["TMPDIR"] = str(tmpdir)
+        started = time.monotonic()
+        process: subprocess.Popen[bytes] | None = None
+        timed_out = False
+        interrupted: int | None = None
+        earlier_cleanup: dict[str, Any] | None = None
+        previous_handlers: dict[int, Any] = {}
+
+        def note_signal(signum: int, _frame: Any) -> None:
+            nonlocal interrupted
+            interrupted = signum
+
+        previous_handlers = {signum: signal.signal(signum, note_signal) for signum in (signal.SIGINT, signal.SIGTERM)}
+        try:
+            with stdout_path.open("wb") as stdout_log, stderr_path.open("wb") as stderr_log:
+                process = subprocess.Popen(
+                    command,
+                    cwd=root,
+                    env=host_environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout_log,
+                    stderr=stderr_log,
+                    start_new_session=True,
+                )
+                while process.poll() is None:
+                    if interrupted is not None:
+                        earlier_cleanup = stop_container(cid_file, container_name)
+                        try:
+                            process.wait(timeout=TERM_GRACE_SECONDS)
+                        except subprocess.TimeoutExpired:
+                            os.killpg(process.pid, signal.SIGKILL)
+                            process.wait()
+                        break
+                    if time.monotonic() - started > args.timeout_seconds:
+                        timed_out = True
+                        earlier_cleanup = stop_container(cid_file, container_name)
+                        try:
+                            process.wait(timeout=TERM_GRACE_SECONDS)
+                        except subprocess.TimeoutExpired:
+                            os.killpg(process.pid, signal.SIGKILL)
+                            process.wait()
+                        break
+                    time.sleep(0.2)
+                exit_code = process.returncode if process.returncode is not None else 124
+        except OSError as error:
+            exit_code = 127
+            stderr_path.write_text(f"bootstrap launcher error: {error}\n", encoding="utf-8")
+        finally:
+            for signum, handler in previous_handlers.items():
+                signal.signal(signum, handler)
+
+        cleanup = stop_container(cid_file, container_name)
+        if earlier_cleanup is not None:
+            cleanup["before_process_exit"] = earlier_cleanup
+        if cleanup.get("resolved") is not True:
+            raise ReplayError(f"canonical bootstrap container cleanup is unresolved: {cleanup}")
+        after = source_check(validated, "after-bootstrap")
+        if timed_out:
+            raise ReplayError(f"canonical bootstrap build timed out; logs are in {output_root}")
+        if interrupted is not None:
+            raise ReplayError(f"canonical bootstrap build interrupted by {signal.Signals(interrupted).name}; logs are in {output_root}")
+        if exit_code != 0:
+            raise ReplayError(f"canonical bootstrap build exited {exit_code}; logs are in {output_root}")
+        if after["head"] != before["head"] or after["tree"] != before["tree"] or not after["clean"]:
+            raise ReplayError(f"source freeze changed during canonical bootstrap: {after}")
+
+        artifact_path = validated["target_dir"] / TARGET / PROFILE / "xsh"
+        receipt_path = output_root / "bootstrap-receipt.json"
+        create_bootstrap_receipt(
+            receipt_path,
+            stdout_path,
+            artifact_path,
+            after,
+            exit_code,
+            root,
+            validated["scratch_dir"],
+        )
+        print(f"bootstrap_receipt={receipt_path}")
+        print(f"cargo_json={stdout_path}")
+        print("status=passed build_credit=none")
+        return 0
+    finally:
+        fcntl.flock(cargo_lock.fileno(), fcntl.LOCK_UN)
+        cargo_lock.close()
+        fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        lock.close()
+
+
 def run_batch(validated: dict[str, Any]) -> int:
     root = validated["root"]
     output_root = validated["output_root"]
@@ -987,6 +1306,13 @@ def run_batch(validated: dict[str, Any]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="mode", required=True)
+    bootstrap = subparsers.add_parser("bootstrap")
+    bootstrap.add_argument("--repo", type=pathlib.Path, required=True)
+    bootstrap.add_argument("--head", required=True)
+    bootstrap.add_argument("--tree", required=True)
+    bootstrap.add_argument("--output", type=pathlib.Path, required=True)
+    bootstrap.add_argument("--run-name", required=True)
+    bootstrap.add_argument("--timeout-seconds", type=int, default=CASE_TIMEOUT_SECONDS)
     host = subparsers.add_parser("execute")
     host.add_argument("--repo", type=pathlib.Path, required=True)
     host.add_argument("--head", required=True)
@@ -1005,6 +1331,17 @@ def main() -> int:
         except Exception as error:
             print(f"container capture failed: {error}", file=sys.stderr)
             return 125
+    if args.mode == "bootstrap":
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", args.run_name) is None:
+            parser.error("--run-name must be a path-safe label of at most 64 characters")
+        if args.timeout_seconds < 1 or args.timeout_seconds > CASE_TIMEOUT_SECONDS:
+            parser.error(f"--timeout-seconds must be between 1 and {CASE_TIMEOUT_SECONDS}")
+        try:
+            validated = validate_bootstrap_inputs(args)
+            return run_bootstrap(validated)
+        except (ReplayError, OSError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
+            print(str(error), file=sys.stderr)
+            return 2
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", args.run_name) is None:
         parser.error("--run-name must be a path-safe label of at most 64 characters")
     if args.timeout_seconds < 1 or args.timeout_seconds > CASE_TIMEOUT_SECONDS:

@@ -303,9 +303,17 @@ structural report, and required semantic review rows for the clean source.
 Use the current `metrics.xsh check-current` owner for those rows. Reject a bare
 boolean, absent result, stale product, or unreviewed mandatory skip. Then write
 the existing functional-close shape with its evidence bindings. Supplementary
-`launch.py` success alone does not issue a close. For canonical bootstrap, adapt
-the existing Cargo-JSON producer to `final_canonical_replay.py`'s exact
-`validate_bootstrap_receipt` contract. Add no parallel build or receipt schema.
+`launch.py` success alone does not issue a close. Run the canonical owner's
+bootstrap stage before `execute`:
+
+```sh
+python3 -B dev/consolidation/final_canonical_replay.py bootstrap --repo SOURCE --head COMMIT --tree TREE --output .work/tmp/bootstrap-RUN --run-name bootstrap-RUN
+```
+
+`execute --bootstrap-receipt` consumes
+`.work/tmp/bootstrap-RUN/bootstrap-receipt.json`. The stage records the exact
+singleton Cargo build and writes the existing `validate_bootstrap_receipt`
+schema.
 
 ### P1: Integrate inference and complete workflow behavior
 
