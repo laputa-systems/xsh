@@ -276,12 +276,10 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
     }
     if let selected_id = selection.id {
       if selected_id >= 0 {
-        if let identity = id {
-          if let count = number(record, "nsems") {
-            for index in range(count) {
-              let observation = linux.system_v_semaphore_element(identity, index)?
-              elements += [{number: index, value: observation.value, waiting_for_increase: observation.waiting_for_increase, waiting_for_zero: observation.waiting_for_zero, pid: observation.pid, command: command_line(observation.pid)}]
-            }
+        if let count = number(record, "nsems") {
+          for index in range(count) {
+            let observation = linux.system_v_semaphore_element(id, index)?
+            elements += [{number: index, value: observation.value, waiting_for_increase: observation.waiting_for_increase, waiting_for_zero: observation.waiting_for_zero, pid: observation.pid, command: command_line(observation.pid)}]
           }
         }
       }
@@ -406,7 +404,7 @@ proc selected_rows(selection: report.Selection) [fs, process, time, env, error] 
       if kind in ["queues", "shmems", "semaphores"] {
         if let wanted_id = selection.id {
           if wanted_id >= 0 {
-            let found_id = (entry.values.get("ID") ?? "").parse_int() ?? null
+            let found_id = number(entry.values, "ID")
             continue when found_id != wanted_id
           }
         }
