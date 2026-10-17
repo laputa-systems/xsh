@@ -1,0 +1,6 @@
+0	tests/xsh/typing-capability-witnesses.xsh::test_typing_host_result_anchor_and_nested_loops
+0	tests/xsh/typing-capability-witnesses.xsh::test_typing_host_constraints_follow_chains_and_body_order
+0	tests/xsh/typing-capability-witnesses.xsh::test_typing_host_replacement_result_keeps_receiver_ambiguity
+0	tests/xsh/typing-capability-witnesses.xsh::test_typing_host_byte_receiver_keeps_ambiguity_after_bytes_caller
+0	tests/xsh/typing-capability-witnesses.xsh::test_typing_host_inference_preserves_argument_and_effect_errors
+0	tests/xsh/typing-capability-witnesses.xsh::test_typing_host_untemplated_receiver_domains_remain_candidates
