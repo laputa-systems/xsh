@@ -121,6 +121,8 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
   for columns in [24, 120] {
     let reference = contexts.terminal_reference(s, "lsipc", terminal_args, columns:)?
     let candidate = contexts.terminal_candidate(s, "lsipc", terminal_args, columns:)?
+    assert reference.termination == ul.Exited(0), reference.stderr.utf8()?
+    assert ! reference.stdout.is_empty()
     assert reference == candidate, f"lsipc terminal columns={columns}"
   }
   contexts.release_keeper(keeper)
