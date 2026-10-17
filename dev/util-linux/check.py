@@ -205,7 +205,7 @@ PRIVATE_NAMESPACE = r'''
 export XSH_UTIL_LINUX_PARENT_ipc=$(readlink /proc/self/ns/ipc)
 export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt)
 export XSH_UTIL_LINUX_PARENT_pid=$(readlink /proc/self/ns/pid)
-exec /usr/bin/python3 /work/core/tests/fixtures/util-linux/contexts/identity_keeper.py outer -- unshare --mount --ipc --pid --fork --mount-proc sh -ec '
+exec /usr/bin/python3 /work/core/tests/fixtures/util-linux/contexts/identity_keeper.py outer -- unshare --mount --ipc --pid --fork --kill-child=KILL --mount-proc sh -ec '
   mount --make-rprivate /
   mount -t tmpfs -o size=32m tmpfs /dev/shm
   mount -t mqueue mqueue /dev/mqueue
@@ -236,6 +236,19 @@ def native_case(selector: str, *, private: bool = False) -> bytes:
         raise ValueError(f"native case did not execute exactly one passing behavior: {text}")
     print(text, end="")
     return output
+
+
+def native_batch(selectors):
+    from batches import run_exact_batch
+    known = tuple(selector for selector in regression_selectors(source_identity())
+                  if not selector.endswith("test_util_linux_lsns_selects_and_releases_a_live_user_namespace"))
+    products = protected_products()
+    summaries = run_exact_batch(selectors, known_selectors=known, root=ROOT,
+                                products=products, container=container)
+    protected_products()
+    for summary in summaries:
+        print(f"{summary.selector}: {summary.passed} passed; {summary.failed} failed; {summary.skipped} skipped")
+    return summaries
 
 
 def harness() -> None:
