@@ -115,7 +115,7 @@ proc assert_seeded_activity(ready: KeeperReady, snapshot: Bytes) [error] {
       assert json.get(document, ["resources", index, "state", "rtime"])?.require(Str)?.parse_int()? > 0
       assert json.get(document, ["resources", index, "state", "ctime"])?.require(Str)?.parse_int()? > 0
     } elif resource.kind == "sysv_shmem" {
-      assert json.get(document, ["resources", index, "state", "bytes"])?.require(Str)? == "4096"
+      assert json.get(document, ["resources", index, "state", "size"])?.require(Str)? == "4096"
       assert json.get(document, ["resources", index, "state", "nattch"])?.require(Str)? == "1"
       assert json.get(document, ["resources", index, "state", "cpid"])?.require(Str)? == f"{ready.pid}"
       assert json.get(document, ["resources", index, "state", "lpid"])?.require(Str)? == f"{ready.pid}"
