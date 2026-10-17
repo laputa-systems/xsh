@@ -249,7 +249,7 @@ proc first_snapshot_difference(before: Bytes, after: Bytes) [error] -> Result[St
   Ok("no JSON line difference")
 }
 
-proc assert_snapshot_read_preserves_state(ready: KeeperReady, before: Bytes, after: Bytes, mqueue_read: Bool, read_started_ms: Int, read_finished_ms: Int, label: Str) [error] {
+proc assert_snapshot_read_preserves_state(ready: KeeperReady, before: Bytes, after: Bytes, mqueue_read_indices: List[Int], read_started_ms: Int, read_finished_ms: Int, label: Str) [error] {
   let before_document = json.decode(before.utf8() ?? "")?
   let after_document = json.decode(after.utf8() ?? "")?
   let before_resources = json.get(before_document, ["resources"])?.require(List[Any])?
@@ -275,7 +275,7 @@ proc assert_snapshot_read_preserves_state(ready: KeeperReady, before: Bytes, aft
       assert old.size == new.size, f"{label} changed mqueue {index} size"
       assert old.mtime_ns == new.mtime_ns, f"{label} changed mqueue {index} mtime"
       assert old.attributes == new.attributes, f"{label} changed mqueue {index} attributes"
-      if mqueue_read {
+      if index in mqueue_read_indices {
         assert new.ctime_ns >= old.ctime_ns, f"{label} moved mqueue {index} ctime backward: {old.ctime_ns} -> {new.ctime_ns}"
         let earliest_read_ns = (read_started_ms - 1000) * 1000000
         let latest_read_ns = (read_finished_ms + 1000) * 1000000
@@ -701,9 +701,14 @@ test test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them {
   defer ul.stop_keeper(fixture.handle)
 
   let before = keeper_snapshot(fixture.handle)?
+  var mqueue_read_indices: List[Int] = []
+  let reference_started_ms = time.now()
   assert_seeded_activity(fixture.ready, before)
   for mode in RESOURCE_MODES {
     let resource = resource_of(fixture.ready, mode.kind)?
+    if resource.kind == "posix_mqueue" {
+      mqueue_read_indices = mqueue_read_indices.extend([snapshot_resource_index(fixture.ready, resource)?])
+    }
     let args = resource_args(mode, resource)
     let reference = ul.reference(s, "lsipc", args, timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
     let identifier = if resource.kind.starts_with("sysv_") {
@@ -716,7 +721,8 @@ test test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them {
     assert identifier in (reference.stdout.utf8() ?? ""), args.join(" ")
   }
   let after = keeper_snapshot(fixture.handle)?
-  assert before == after, "reference collection changed registered IPC state"
+  let reference_finished_ms = time.now()
+  assert_snapshot_read_preserves_state(fixture.ready, before, after, mqueue_read_indices, reference_started_ms, reference_finished_ms, "reference resource selection")
 
   release_keeper(fixture.handle)?
   for mode in RESOURCE_MODES {
@@ -1062,6 +1068,14 @@ test test_lsipc_collectors_preserve_state_except_mqueue_ctime_read_effect { |ctx
 
   for mode in RESOURCE_MODES {
     let before = keeper_snapshot(fixture.handle)?
+    var mqueue_read_indices: List[Int] = []
+    var index = 0
+    if mode.kind == "posix_mqueue" {
+      for resource in fixture.ready.resources {
+        if resource.kind == "posix_mqueue" { mqueue_read_indices = mqueue_read_indices.extend([index]) }
+        index += 1
+      }
+    }
     let reference_started_ms = time.now()
     let reference = ul.reference(s, "lsipc", [mode.selector], timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
     let after_reference = keeper_snapshot(fixture.handle)?
@@ -1070,10 +1084,9 @@ test test_lsipc_collectors_preserve_state_except_mqueue_ctime_read_effect { |ctx
     let candidate = uu.invoke(s, "lsipc", [mode.selector], vars: {LC_ALL: "C", TZ: "UTC"}, timeout: 5s)?
     let after_candidate = keeper_snapshot(fixture.handle)?
     let candidate_finished_ms = time.now()
-    let mqueue_read = mode.kind == "posix_mqueue"
-    assert_snapshot_read_preserves_state(fixture.ready, before, after_reference, mqueue_read, reference_started_ms, reference_finished_ms, f"reference {mode.kind}")
-    assert_snapshot_read_preserves_state(fixture.ready, after_reference, after_candidate, mqueue_read, candidate_started_ms, candidate_finished_ms, f"candidate {mode.kind}")
-    if mqueue_read {
+    assert_snapshot_read_preserves_state(fixture.ready, before, after_reference, mqueue_read_indices, reference_started_ms, reference_finished_ms, f"reference {mode.kind}")
+    assert_snapshot_read_preserves_state(fixture.ready, after_reference, after_candidate, mqueue_read_indices, candidate_started_ms, candidate_finished_ms, f"candidate {mode.kind}")
+    if ! mqueue_read_indices.is_empty() {
       ul.compare(reference, candidate)
     } else {
       ul.compare(reference, candidate, reference_state: after_reference, candidate_state: after_candidate)
