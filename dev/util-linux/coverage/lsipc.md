@@ -15,7 +15,7 @@ The command contract is in [`sys-utils/lsipc.1.adoc`](https://github.com/util-li
 
 The oracle build must report util-linux 2.42.4 and the same enabled POSIX IPC
 features as the pinned image. The coordinator has run the keeper's six-class
-reference visibility, unchanged-state, explicit-release, and cancellation
+reference visibility, state-observation, explicit-release, and cancellation
 selectors in the guarded image. Candidate parity cases remain open until the
 reference and XSH command run on the same owned fixture and their bytes,
 statuses, and fixture state are compared.
@@ -118,6 +118,12 @@ The manual says the default table output can change. Native comparisons pin
 the exact 2.42.4 output using the owned fixture. Tests that need a stable schema
 use `--output` explicitly.
 
+Reading a POSIX message queue's `QSIZE` through `/dev/mqueue` updates the
+kernel inode's `ctime`. The keeper snapshot exposes `ctime_ns` but not `atime`;
+the state test checks that this timestamp is monotone and falls within the
+observed command interval, while every other exposed state field remains
+unchanged. Output bytes and status remain exact comparisons.
+
 ## Native case map
 
 `core/tests/test-lsipc.xsh` uses these selectors. The source line ranges
@@ -147,7 +153,7 @@ tables and query each selected ID.
 | `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, malformed decimal IDs, signed 32-bit overflow diagnostics, and parser errors before later help | `lsipc.c:1381-1455`; `strutils.c:311-410` | Open. Compare exact diagnostics and status. |
 | `test_lsipc_rejects_each_exclusive_option_pair` | Every pair in the four source-defined exclusivity groups | `lsipc.c:1415-1420` | Open. Stable input. |
 | `test_lsipc_visibility_matches_for_owner_and_unprivileged_observer` | Per-class visibility for two real UIDs with capabilities dropped | `ipcutils.c:131-240,249-300,342-510,521-575,633-713` | Open. Requires the positive two-UID fixture. |
-| `test_lsipc_collectors_leave_registered_resources_unchanged` | IDs, names, permissions, sizes, values, counters, and timestamps remain unchanged after each collector | `lsipc.c:1370-1666`; all six collectors | Open. Keeper state snapshots required. |
+| `test_lsipc_collectors_preserve_state_except_mqueue_ctime_read_effect` | IDs, names, permissions, sizes, values, counters, and every timestamp except the kernel-updated POSIX message-queue `ctime` remain unchanged after each collector; queue `ctime` is monotone and bounded by the command interval | `lsipc.c:1370-1666`; `ipcutils.c:668-680`; Linux `mqueue_read_file` | Open. Keeper state snapshots required. |
 | `test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them` | The reference sees each registered ID or reported name, leaves every seeded state unchanged, and sees no record after successful release | `lsipc.c:559-563,823-827,958-965,1094-1097,1265-1272,1661-1666`; all six collectors | Guarded reference-only proof passed; candidate comparison remains open. |
 | `test_lsipc_keeper_cancellation_removes_registered_resources` | `SIGTERM` cleanup removes only the keeper's six registered resource classes | fixture cleanup handlers; `ipcutils.c:131-714` | Guarded reference-only cancellation proof passed; candidate comparison remains open. |
 

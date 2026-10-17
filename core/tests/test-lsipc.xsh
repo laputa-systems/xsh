@@ -26,6 +26,15 @@ type ApiObservation = {
   pid: Int?,
 }
 type ApiReport = {before: Int, after: Int, observations: List[ApiObservation]}
+type PosixMqueueSnapshot = {
+  uid: Int,
+  gid: Int,
+  mode: Int,
+  size: Int,
+  mtime_ns: Int,
+  ctime_ns: Int,
+  attributes: {maxmsg: Int, msgsize: Int, curmsgs: Int},
+}
 type IpcKeeper = {handle: ul.Keeper, ready: KeeperReady}
 type ResourceMode = {kind: Str, selector: Str, short_selector: Str, all_columns: Str}
 type GlobalMode = {args: List[Str], resource: Str?}
@@ -237,6 +246,44 @@ proc first_snapshot_difference(before: Bytes, after: Bytes) [error] -> Result[St
     return Ok(f"JSON line {index + 1}: before={before_line} after={after_line}")
   }
   Ok("no JSON line difference")
+}
+
+proc assert_snapshot_read_preserves_state(ready: KeeperReady, before: Bytes, after: Bytes, read_started_ms: Int, read_finished_ms: Int, label: Str) [error] {
+  let before_document = json.decode(before.utf8() ?? "")?
+  let after_document = json.decode(after.utf8() ?? "")?
+  let before_resources = json.get(before_document, ["resources"])?.require(List[Any])?
+  let after_resources = json.get(after_document, ["resources"])?.require(List[Any])?
+  assert before_resources.len() == ready.resources.len()
+  assert after_resources.len() == ready.resources.len()
+  var index = 0
+  for resource in ready.resources {
+    assert json.get(before_document, ["resources", index, "kind"])?.require(Str)? == resource.kind
+    assert json.get(after_document, ["resources", index, "kind"])?.require(Str)? == resource.kind
+    assert json.get(before_document, ["resources", index, "id"])?.require(Int?)? == resource.id
+    assert json.get(after_document, ["resources", index, "id"])?.require(Int?)? == resource.id
+    assert json.get(before_document, ["resources", index, "name"])?.require(Str?)? == resource.name
+    assert json.get(after_document, ["resources", index, "name"])?.require(Str?)? == resource.name
+    let before_state = json.get(before_document, ["resources", index, "state"])?
+    let after_state = json.get(after_document, ["resources", index, "state"])?
+    if resource.kind == "posix_mqueue" {
+      let old = before_state.require(PosixMqueueSnapshot)?
+      let new = after_state.require(PosixMqueueSnapshot)?
+      assert old.uid == new.uid, f"{label} changed {resource.name} uid"
+      assert old.gid == new.gid, f"{label} changed {resource.name} gid"
+      assert old.mode == new.mode, f"{label} changed {resource.name} mode"
+      assert old.size == new.size, f"{label} changed {resource.name} size"
+      assert old.mtime_ns == new.mtime_ns, f"{label} changed {resource.name} mtime"
+      assert old.attributes == new.attributes, f"{label} changed {resource.name} attributes"
+      assert new.ctime_ns >= old.ctime_ns, f"{label} moved {resource.name} ctime backward: {old.ctime_ns} -> {new.ctime_ns}"
+      let earliest_read_ns = (read_started_ms - 1000) * 1000000
+      let latest_read_ns = (read_finished_ms + 1000) * 1000000
+      assert new.ctime_ns >= earliest_read_ns, f"{label} {resource.name} ctime predates read interval: {new.ctime_ns} < {earliest_read_ns}"
+      assert new.ctime_ns <= latest_read_ns, f"{label} {resource.name} ctime exceeds read interval: {new.ctime_ns} > {latest_read_ns}"
+    } else {
+      assert before_state == after_state, f"{label} changed {resource.kind} state: {first_snapshot_difference(before, after)?}"
+    }
+    index += 1
+  }
 }
 
 proc release_keeper(handle: ul.Keeper) [fs, net, process, error] -> Result[Unit, Error] {
@@ -1003,19 +1050,23 @@ test test_lsipc_visibility_matches_for_owner_and_unprivileged_observer { |ctx|
   release_keeper(fixture.handle)?
 }
 
-test test_lsipc_collectors_leave_registered_resources_unchanged { |ctx|
+test test_lsipc_collectors_preserve_state_except_mqueue_ctime_read_effect { |ctx|
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
   defer ul.stop_keeper(fixture.handle)
 
   for mode in RESOURCE_MODES {
     let before = keeper_snapshot(fixture.handle)?
+    let reference_started_ms = time.now()
     let reference = ul.reference(s, "lsipc", [mode.selector], timeout: 5s, vars: {LC_ALL: "C", TZ: "UTC"})?
     let after_reference = keeper_snapshot(fixture.handle)?
+    let reference_finished_ms = time.now()
+    let candidate_started_ms = time.now()
     let candidate = uu.invoke(s, "lsipc", [mode.selector], vars: {LC_ALL: "C", TZ: "UTC"}, timeout: 5s)?
     let after_candidate = keeper_snapshot(fixture.handle)?
-    assert before == after_reference, f"reference changed {mode.kind} fixture state: {first_snapshot_difference(before, after_reference)?}"
-    assert before == after_candidate, f"candidate changed {mode.kind} fixture state: {first_snapshot_difference(before, after_candidate)?}"
+    let candidate_finished_ms = time.now()
+    assert_snapshot_read_preserves_state(fixture.ready, before, after_reference, reference_started_ms, reference_finished_ms, f"reference {mode.kind}")
+    assert_snapshot_read_preserves_state(fixture.ready, after_reference, after_candidate, candidate_started_ms, candidate_finished_ms, f"candidate {mode.kind}")
     ul.compare(reference, candidate, reference_state: after_reference, candidate_state: after_candidate)
   }
   release_keeper(fixture.handle)?
