@@ -188,18 +188,178 @@ class RegressionDeclarationTests(unittest.TestCase):
 
 
 class ResourceControlTests(unittest.TestCase):
-    def test_changed_products_between_dispatch_checks_are_rejected(self):
-        paths = iter((Path("products-before"), Path("products-after")))
-        runtime = SimpleNamespace(
-            ROOT=ROOT,
-            COHORT=("lsmem",),
-            PRIVATE_NAMESPACE="private",
-            protected_products=lambda: next(paths),
-            container=lambda *_args, **_kwargs: b"",
+    def test_group_dispatches_each_actual_case_in_a_fresh_private_context(self):
+        names = (
+            "test_lslocks_blocker_flock",
+            "test_lslocks_filter_errors",
+        )
+        calls = []
+
+        def native_case(selector, *, private=False, timeout=30):
+            self.assertTrue(private)
+            self.assertGreater(timeout, 0)
+            calls.append(selector)
+            name = selector.rsplit("::", 1)[1]
+            return (
+                f"running 1 tests\n{selector} ... ok 1ms\n"
+                "test result: ok. 1 passed; 0 failed; 0 skipped\n"
+            ).encode()
+
+        runtime = SimpleNamespace(native_case=native_case)
+        result = acceptance._run_group(runtime, "lslocks", names, monotonic=lambda: 0)
+
+        self.assertEqual(calls, [acceptance._case_selector("lslocks", name) for name in names])
+        self.assertEqual(result, acceptance.NativeResult(len(names), 0, 0, names))
+
+    def test_group_rejects_a_case_that_finishes_past_the_budget(self):
+        names = ("test_lslocks_blocker_flock",)
+        clock = iter((0.0, 0.0, 121.0))
+        selector = acceptance._case_selector("lslocks", names[0])
+        output = (
+            f"running 1 tests\n{selector} ... ok 1ms\n"
+            "test result: ok. 1 passed; 0 failed; 0 skipped\n"
+        ).encode()
+
+        with self.assertRaisesRegex(TimeoutError, "exceeded 120s"):
+            acceptance._run_group(
+                SimpleNamespace(native_case=lambda *_args, **_kwargs: output),
+                "lslocks",
+                names,
+                monotonic=lambda: next(clock),
+            )
+
+    def test_group_stops_dispatching_at_the_aggregate_budget(self):
+        names = ("test_lslocks_blocker_flock", "test_lslocks_filter_errors")
+        clock = iter((0.0, 0.0, 121.0))
+        calls = []
+
+        def native_case(selector, *, private=False, timeout=30):
+            calls.append(selector)
+            name = selector.rsplit("::", 1)[1]
+            return (
+                f"running 1 tests\n{selector} ... ok 1ms\n"
+                "test result: ok. 1 passed; 0 failed; 0 skipped\n"
+            ).encode()
+
+        with self.assertRaisesRegex(TimeoutError, "exceeded 120s"):
+            acceptance._run_group(
+                SimpleNamespace(native_case=native_case),
+                "lslocks",
+                names,
+                monotonic=lambda: next(clock),
+            )
+
+        self.assertEqual(calls, [acceptance._case_selector("lslocks", names[0])])
+
+
+class NativeSuiteParserTests(unittest.TestCase):
+    def test_selector_list_is_nonempty_unique_and_returned_sorted(self):
+        result = acceptance._parse_native_selector_list(
+            "full-native",
+            b"tests/xsh/a.xsh::test_second\ncore/tests/b.xsh::test_first\n"
+            b"showcase/tests/test-showcase.xsh::test_third\n",
+        )
+        self.assertEqual(
+            result,
+            (
+                "core/tests/b.xsh::test_first",
+                "showcase/tests/test-showcase.xsh::test_third",
+                "tests/xsh/a.xsh::test_second",
+            ),
         )
 
-        with self.assertRaisesRegex(ValueError, "products changed"):
-            acceptance._run_group(runtime, "lsmem", acceptance._case_names(ROOT, "lsmem"))
+    def test_selector_list_rejects_zero_tests_duplicates_and_malformed_rows(self):
+        for output, message in (
+            (b"", "empty or malformed"),
+            (b"tests/xsh/a.xsh::test_one\ntests/xsh/a.xsh::test_one\n", "duplicates"),
+            (b"not-a-selector\n", "malformed test identity"),
+        ):
+            with self.subTest(output=output), self.assertRaisesRegex(ValueError, message):
+                acceptance._parse_native_selector_list("full-native", output)
+
+    def test_native_suite_requires_every_listed_selector_and_zero_skips(self):
+        expected = (
+            "core/tests/a.xsh::test_one",
+            "tests/xsh/b.xsh::test_two",
+        )
+        output = (
+            "running 2 tests\n"
+            "core/tests/a.xsh::test_one ... ok 1ms\n"
+            "tests/xsh/b.xsh::test_two ... ok 2ms\n"
+            "test result: ok. 2 passed; 0 failed; 0 skipped\n"
+        ).encode()
+        result = acceptance._parse_native_suite("full-native", expected, output)
+        self.assertEqual(result, acceptance.NativeResult(2, 0, 0, expected))
+
+        skipped = output.replace(
+            b"tests/xsh/b.xsh::test_two ... ok 2ms",
+            b"tests/xsh/b.xsh::test_two ... skipped: unavailable 2ms",
+        ).replace(
+            b"test result: ok. 2 passed; 0 failed; 0 skipped",
+            b"test result: ok. 1 passed; 0 failed; 1 skipped",
+        )
+        with self.assertRaisesRegex(ValueError, "skipped a mandatory behavior"):
+            acceptance._parse_native_suite("full-native", expected, skipped)
+
+    def test_native_suite_accounts_source_declared_skips_by_exact_selector_and_reason(self):
+        expected = (
+            "core/tests/a.xsh::test_one",
+            "dev/tests/b.xsh::test_two",
+        )
+        output = (
+            "running 2 tests\n"
+            "core/tests/a.xsh::test_one ... ok 1ms\n"
+            "dev/tests/b.xsh::test_two ... skipped: needs a fixture 2ms\n"
+            "test result: ok. 1 passed; 0 failed; 1 skipped\n"
+        ).encode()
+        result = acceptance._parse_native_suite_result("full-native", expected, output)
+        self.assertEqual(result.passed, 1)
+        self.assertEqual(result.skipped, ((expected[1], "needs a fixture"),))
+        self.assertEqual(result.selectors, expected)
+
+    def test_native_suite_rejects_unaccounted_skip_reasons_and_count_mismatches(self):
+        valid = (
+            "running 1 tests\n"
+            "tests/xsh/a.xsh::test_one ... skipped: condition 1ms\n"
+            "test result: ok. 0 passed; 0 failed; 1 skipped\n"
+        ).encode()
+        malformed = (
+            (valid.replace(b"skipped: condition", b"skipped:"), "malformed behavior result"),
+            (valid.replace(b"1 skipped", b"0 skipped"), "did not pass every non-skipped"),
+            (valid.replace(b"skipped: condition 1ms", b"FAILED 1ms").replace(
+                b"ok. 0 passed; 0 failed; 1 skipped", b"FAILED. 0 passed; 1 failed; 0 skipped"
+            ), "did not pass every non-skipped"),
+        )
+        for output, reason in malformed:
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                acceptance._parse_native_suite_result(
+                    "full-native",
+                    ("tests/xsh/a.xsh::test_one",),
+                    output,
+                )
+
+    def test_selector_list_rejects_paths_outside_native_test_roots_and_traversal(self):
+        for selector, reason in (
+            ("../tests/a.xsh::test_one", "malformed test identity"),
+            ("tmp/a.xsh::test_one", "malformed test identity"),
+            ("tests/../a.xsh::test_one", "unsafe source path"),
+            ("tests/a.xsh::helper", "malformed test identity"),
+        ):
+            with self.subTest(selector=selector), self.assertRaisesRegex(ValueError, reason):
+                acceptance._parse_native_selector_list("full-native", (selector + "\n").encode())
+
+    def test_case_skip_declaration_is_bound_to_its_exact_test_body(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / ".work" / "tmp", prefix="native-skip-") as temporary:
+            root = Path(temporary)
+            source = root / "tests/xsh/a.xsh"
+            source.parent.mkdir(parents=True)
+            source.write_text(
+                "test test_skips {\n  test.skip(\"conditional\")\n}\n"
+                "test test_passes {\n  return ()\n}\n",
+                encoding="utf-8",
+            )
+            self.assertTrue(acceptance.case_declares_skip(root, "tests/xsh/a.xsh::test_skips"))
+            self.assertFalse(acceptance.case_declares_skip(root, "tests/xsh/a.xsh::test_passes"))
 
     def test_stale_resource_source_is_rejected(self):
         current = acceptance.SourceIdentity("commit", "tree", True)

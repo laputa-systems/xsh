@@ -93,6 +93,15 @@ class RegressionSelectorTests(unittest.TestCase):
 
         self.assertEqual(selectors, tuple(sorted(REGRESSIONS)))
 
+    def test_resource_denominator_is_the_frozen_source_declaration_set(self):
+        runtime = type("Runtime", (), {
+            "ROOT": self.root,
+            "source_identity": lambda _self: SOURCE,
+            "regression_selectors": lambda _self, _source: tuple(sorted(REGRESSIONS)),
+        })()
+        with patch.object(acceptance, "REGRESSION_FILES", self.files):
+            self.assertEqual(resources._selectors(runtime, SOURCE), tuple(sorted(REGRESSIONS)))
+
     def test_dirty_or_stale_source_fails_before_reading_files(self):
         dirty = SourceIdentity(COMMIT, TREE, False)
         stale = SourceIdentity("c" * 40, TREE, True)
@@ -195,6 +204,151 @@ class ProductSignatureTests(unittest.TestCase):
                 resources._product_pair(Runtime(), SOURCE)
 
 
+class FullNativeProducerTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="full-native-producer-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.products = self.root / "candidate"
+        self.products.mkdir()
+        for name in resources.PRODUCTS:
+            product = self.products / name
+            product.write_bytes(name.encode())
+            product.chmod(0o755)
+        self.context = BuildContext(
+            SOURCE.key,
+            "release",
+            resources.TARGET,
+            "pinned-image",
+            "mimalloc",
+            "1cpu/4GiB",
+        )
+        self.cohort = COHORT
+        self.selectors = []
+        for command in COHORT:
+            self.add_source(f"core/tests/test-{command}.xsh", f"test_cohort_{command}")
+        for relative in acceptance.HOST_BOUNDARY_FILES:
+            self.add_source(relative, "test_host_boundary")
+        for relative, name in zip(acceptance.REGRESSION_FILES, ("test_storage_regression", "test_process_regression"), strict=True):
+            self.add_source(relative, name)
+        self.add_source("dev/tests/test-optional.xsh", "test_optional_skip", skip=True)
+        self.mandatory = tuple(sorted(self.selectors[:-1]))
+        self.expected = tuple(sorted((*self.mandatory, self.selectors[-1])))
+
+    def add_source(self, relative, name, *, skip=False):
+        source = self.root / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        body = f'test {name} {{\n  test.skip("fixture unavailable")\n}}\n' if skip else f"test {name} {{\n}}\n"
+        source.write_text(body, encoding="utf-8")
+        self.selectors.append(f"{relative}::{name}")
+
+    def native_output(self, *, skip_selector=None):
+        lines = [f"running {len(self.expected)} tests"]
+        skipped = 0
+        for selector in self.expected:
+            if selector == skip_selector:
+                lines.append(f"{selector} ... skipped: fixture unavailable 1ms")
+                skipped += 1
+            else:
+                lines.append(f"{selector} ... ok 1ms")
+        lines.append(
+            f"test result: ok. {len(self.expected) - skipped} passed; 0 failed; {skipped} skipped"
+        )
+        return "\n".join(lines).encode()
+
+    def framed_output(self, *, skip_selector=None):
+        def frame(label, content):
+            return b"@@xsh-util-linux:" + label.encode() + b":" + str(len(content)).encode() + b"@@\n" + content + b"\n"
+
+        listed = ("\n".join(self.expected) + "\n").encode()
+        return frame("list", listed) + frame("result", self.native_output(skip_selector=skip_selector))
+
+    def runtime(self, *, skip_selector=None, mutate_products=False):
+        case = self
+
+        class Runtime:
+            ROOT = case.root
+            COHORT = case.cohort
+            IMAGE = "pinned-image"
+            PRIVATE_NAMESPACE = "exec private-namespace"
+
+            def source_identity(self):
+                return SOURCE
+
+            def candidate_products(self):
+                return case.products, case.context
+
+            def regression_selectors(self, source):
+                return acceptance.declared_regression_selectors(case.root)
+
+            def container(self, script, **kwargs):
+                case.dispatch = (script, kwargs)
+                if mutate_products:
+                    (case.products / "xsh").write_bytes(b"changed after dispatch")
+                return case.framed_output(skip_selector=skip_selector)
+
+        return Runtime()
+
+    def test_full_native_uses_private_single_job_container_and_accounts_real_skips(self):
+        result = resources.run_full_native(self.runtime(skip_selector=self.selectors[-1]), SOURCE)
+
+        self.assertEqual(result.executed, len(self.expected))
+        self.assertEqual(result.passed, len(self.expected) - 1)
+        self.assertEqual(result.skipped, (f"{self.selectors[-1]}: fixture unavailable",))
+        self.assertEqual(result.accounted_skips, result.skipped)
+        script, options = self.dispatch
+        self.assertIn("private-namespace", script)
+        self.assertIn('"/products/xsht", "test", "--jobs", "1"', script)
+        self.assertEqual((options["cpus"], options["memory_gib"]), (1, 4))
+
+    def test_full_native_rejects_mandatory_skips_and_product_mutation(self):
+        for runtime, reason in (
+            (self.runtime(skip_selector=self.mandatory[0]), "skipped mandatory behavior"),
+            (self.runtime(mutate_products=True), "candidate products changed"),
+        ):
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                resources.run_full_native(runtime, SOURCE)
+
+
+class PrivateHostBoundaryTests(unittest.TestCase):
+    def test_each_declared_boundary_case_uses_a_private_exact_dispatch(self):
+        selector = "core/tests/test-host-boundary.xsh::test_boundary"
+        output = (
+            f"running 1 tests\n{selector} ... ok 1ms\n"
+            "test result: ok. 1 passed; 0 failed; 0 skipped\n"
+        ).encode()
+        calls = []
+        runtime = type("Runtime", (), {
+            "source_identity": lambda _self: SOURCE,
+            "native_case": lambda _self, actual, **kwargs: calls.append((actual, kwargs)) or output,
+        })()
+
+        result = resources._run_private_native(
+            runtime,
+            SOURCE,
+            (selector,),
+            monotonic=lambda: 0,
+        )
+
+        self.assertEqual(result, (selector,))
+        self.assertEqual(calls, [(selector, {"private": True, "timeout": 30.0})])
+
+    def test_private_boundary_rejects_zero_unknown_duplicate_and_skipped_cases(self):
+        runtime = type("Runtime", (), {"source_identity": lambda _self: SOURCE})()
+        for selectors in ((), ("x::test_one", "x::test_one")):
+            with self.subTest(selectors=selectors), self.assertRaisesRegex(ValueError, "nonempty and distinct"):
+                resources._run_private_native(runtime, SOURCE, selectors)
+
+        selector = "tests/xsh/a.xsh::test_boundary"
+        skipped = (
+            f"running 1 tests\n{selector} ... skipped: condition 1ms\n"
+            "test result: ok. 0 passed; 0 failed; 1 skipped\n"
+        ).encode()
+        runtime.native_case = lambda *_args, **_kwargs: skipped
+        with self.assertRaisesRegex(ValueError, "mandatory behavior"):
+            resources._run_private_native(runtime, SOURCE, (selector,), monotonic=lambda: 0)
+
+
 class MeasurementProtocolTests(unittest.TestCase):
     def rows(self, regressions=REGRESSIONS):
         rows = [
@@ -228,6 +382,83 @@ class MeasurementProtocolTests(unittest.TestCase):
         rows.append("\t".join(("unknown", "unexpected", "fixture")))
         with self.assertRaisesRegex(ValueError, "unrecognized measurement"):
             self.parse(rows)
+
+    def test_native_observation_frames_are_exact_and_complete(self):
+        output = b"@@xsh-util-linux:first:3@@\nabc\n@@xsh-util-linux:second:0@@\n"
+        self.assertEqual(resources._parse_frames(output, ("first", "second")), {
+            "first": b"abc",
+            "second": b"",
+        })
+        for malformed in (
+            output + b"unaccounted",
+            output.replace(b"first:3", b"first:4"),
+            output.replace(b"first:3", b"first:x"),
+            output.replace(b"second:0", b"other:0"),
+        ):
+            with self.subTest(malformed=malformed), self.assertRaises(ValueError):
+                resources._parse_frames(malformed, ("first", "second"))
+
+    def test_cargo_results_reconcile_lists_summaries_and_actual_skip_reasons(self):
+        listed = ("api::active", "api::ignored")
+        output = (
+            "running 2 tests\n"
+            "test api::active ... ok\n"
+            "test api::ignored ... ignored, needs root\n"
+            "test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s\n"
+        ).encode()
+        result = resources._rust_test_results("api", listed, output)
+        self.assertEqual(result, (
+            1,
+            2,
+            ("cargo:api::api::active", "cargo:api::api::ignored"),
+            ("cargo:api::api::ignored: needs root",),
+        ))
+
+        filtered = (
+            "running 1 tests\n"
+            "test api::active ... ok\n"
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s\n"
+        ).encode()
+        self.assertEqual(
+            resources._rust_test_results(
+                "api",
+                ("api::active", "split::excluded"),
+                filtered,
+                filtered=("split::excluded",),
+            )[3],
+            ("cargo:api::split::excluded: filtered by --skip split::",),
+        )
+
+    def test_cargo_results_reject_zero_missing_extra_duplicate_and_unaccounted_skips(self):
+        listed = ("api::active", "split::filtered")
+        valid = (
+            "running 1 tests\n"
+            "test api::active ... ok\n"
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s\n"
+        ).encode()
+        invalid = (
+            (
+                (),
+                b"test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n",
+                (),
+                "completed Rust tests",
+            ),
+            (listed, valid, (), "exactly once"),
+            (listed, valid + b"test api::active ... ok\n", ("split::filtered",), "exactly once"),
+            (listed, valid.replace(b"1 filtered out", b"0 filtered out"), ("split::filtered",), "did not account"),
+            (listed, valid, ("not-listed",), "invalid conditional skip set"),
+        )
+        for observed, output, filtered, reason in invalid:
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                resources._rust_test_results("api", observed, output, filtered=filtered)
+
+        ignored_without_reason = (
+            "running 1 tests\n"
+            "test api::ignored ... ignored\n"
+            "test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s\n"
+        ).encode()
+        with self.assertRaisesRegex(ValueError, "omitted its reason"):
+            resources._rust_test_results("api", ("api::ignored",), ignored_without_reason)
 
     def test_failed_skipped_zero_rss_mutated_output_and_state_fail(self):
         mutations = (
@@ -668,18 +899,28 @@ class EffectBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "clean final source"):
             resources.close(runtime)
 
-    def test_close_does_not_infer_missing_gates(self):
+    def test_close_rejects_verification_candidate_before_any_gate(self):
         class Runtime:
             COHORT = COHORT
+            IMAGE = "image"
+            PRODUCT_SOURCE = "baseline"
 
             def source_identity(self):
                 return SOURCE
 
-            def regression_selectors(self, source):
-                raise AssertionError("not reached")
+            def baseline_products(self):
+                return Path("/missing/baseline"), BuildContext(
+                    "baseline", "release", resources.TARGET, "image", "mimalloc", "1cpu/1GiB"
+                )
 
-        with self.assertRaises(AttributeError):
-            resources.close(Runtime())
+            def candidate_products(self):
+                return Path("/missing/candidate"), BuildContext(
+                    SOURCE.key, "verification", resources.TARGET, "image", "mimalloc", "1cpu/1GiB"
+                )
+
+        with patch.object(resources, "_product_signature", side_effect=AssertionError("product read")):
+            with self.assertRaisesRegex(ValueError, "final release products"):
+                resources.close(Runtime())
 
     def test_returned_close_gate_must_be_current_and_passed(self):
         stale = SourceIdentity("old", "old-tree", True)

@@ -5,11 +5,13 @@ from dataclasses import replace
 from pathlib import Path
 import hashlib
 import os
+import re
 import shlex
 import shutil
 import stat
 import subprocess
 import tempfile
+import time
 from typing import Protocol
 
 import acceptance
@@ -46,6 +48,57 @@ POSITIVE_SELECTORS = {
     "mountpoint": "test_mountpoint_private_same_device_bind_mount",
     "namei": "test_namei_private_same_device_bind_mount_matches_reference",
 }
+TARGET = "x86_64-unknown-linux-musl"
+HOST_NATIVE_BUDGET_SECONDS = 1200
+FULL_NATIVE_TIMEOUT_SECONDS = 3600
+RUST_GATE_TIMEOUT_SECONDS = 3600
+REPOSITORY_GATE_TIMEOUT_SECONDS = 900
+DOCS_GATE_TIMEOUT_SECONDS = 3600
+_CARGO_LISTED_TEST = re.compile(r"^(?P<selector>\S+): test$")
+_CARGO_RESULT = re.compile(
+    r"^test (?P<selector>\S+) \.\.\. (?P<result>ok|ignored|FAILED)(?P<detail>(?:, .*)?)$"
+)
+_CARGO_SUMMARY = re.compile(
+    r"^test result: (?P<result>ok|FAILED)\. (?P<passed>\d+) passed; "
+    r"(?P<failed>\d+) failed; (?P<ignored>\d+) ignored; "
+    r"(?P<measured>\d+) measured; (?P<filtered>\d+) filtered out; finished in .+$"
+)
+_RUST_GATE_CASES = (
+    (
+        "core_compat_boundaries",
+        ("cargo", "test", "--locked", "--profile", "verification", "--target", TARGET,
+         "-p", "xsh", "--test", "core_compat_boundaries"),
+        ("--", "--skip", "split::"),
+    ),
+    (
+        "core_compat_extra",
+        ("cargo", "test", "--locked", "--profile", "verification", "--target", TARGET,
+         "-p", "xsh", "--test", "core_compat_extra"),
+        ("--", "--skip", "split::"),
+    ),
+    (
+        "libxsh_api",
+        ("cargo", "test", "--locked", "--profile", "verification", "--target", TARGET,
+         "-p", "xsh", "--test", "integration", "libxsh_api"),
+        (),
+    ),
+    (
+        "xsh_registry",
+        ("cargo", "test", "--locked", "-p", "xsh-registry", "--lib"),
+        (),
+    ),
+    (
+        "xsh_signature",
+        ("cargo", "test", "--locked", "-p", "xsh", "--lib", "modules::signature"),
+        (),
+    ),
+    (
+        "xsht_api",
+        ("cargo", "test", "--locked", "--profile", "verification", "--target", TARGET,
+         "-p", "xsht", "--test", "integration", "api::"),
+        (),
+    ),
+)
 
 
 class ResourceRuntime(Protocol):
@@ -81,7 +134,13 @@ class ResourceRuntime(Protocol):
 
     def baseline(self) -> None: ...
 
-    def native_case(self, selector: str, *, private: bool = False) -> bytes: ...
+    def native_case(
+        self,
+        selector: str,
+        *,
+        private: bool = False,
+        timeout: float = 30,
+    ) -> bytes: ...
 
     def run_full_native(self, source: SourceIdentity) -> GateResult: ...
 
@@ -1418,6 +1477,7 @@ def close(runtime: ResourceRuntime) -> CloseReport:
     source = runtime.source_identity()
     if not source.clean:
         raise ValueError("close acceptance requires a clean final source")
+    _product_pair(runtime, source)
     gates = []
 
     for name in ("inventory", "harness", "baseline"):
@@ -1583,3 +1643,472 @@ def _cleanup_state(gate: GateResult, source: SourceIdentity) -> tuple[int, bool]
     if remaining or unresolved or lost_work:
         raise ValueError("cleanup gate found owned processes, unresolved markers, or lost work")
     return remaining, lost_work
+
+
+def _qualified_candidate(
+    runtime: ResourceRuntime,
+    source: SourceIdentity,
+) -> tuple[Path, BuildContext, ProductSignature]:
+    _require_current(runtime, source, "close products")
+    products, context = runtime.candidate_products()
+    if context.source != source.key or context.profile != "release":
+        raise ValueError("close gates require final release products for the current source")
+    if context.image != runtime.IMAGE or context.target != TARGET:
+        raise ValueError("close products do not identify the pinned Linux target and image")
+    signature = _product_signature(products)
+    _require_current(runtime, source, "close products")
+    return products, context, signature
+
+
+def _recheck_candidate(
+    runtime: ResourceRuntime,
+    source: SourceIdentity,
+    expected: tuple[Path, BuildContext, ProductSignature],
+    gate: str,
+) -> None:
+    current = _qualified_candidate(runtime, source)
+    if current != expected:
+        raise ValueError(f"candidate products changed during {gate}")
+
+
+def _candidate_mounts(runtime: ResourceRuntime, products: Path) -> list[str]:
+    return [
+        f"type=bind,source={runtime.ROOT},target=/work,readonly",
+        f"type=bind,source={products},target=/products,readonly",
+    ]
+
+
+def _framed_script(script: str) -> str:
+    return "cd /work; python3 -c " + shlex.quote(script)
+
+
+def _parse_frames(output: bytes, labels: tuple[str, ...]) -> dict[str, bytes]:
+    remaining = output
+    frames: dict[str, bytes] = {}
+    for label in labels:
+        header, separator, body = remaining.partition(b"\n")
+        prefix = f"@@xsh-util-linux:{label}:".encode()
+        if not separator or not header.startswith(prefix) or not header.endswith(b"@@"):
+            raise ValueError(f"container omitted the {label} observation frame")
+        raw_size = header[len(prefix):-2]
+        if not raw_size.isdigit():
+            raise ValueError(f"container returned a malformed {label} frame size")
+        size = int(raw_size)
+        if len(body) < size + 1 or body[size:size + 1] != b"\n":
+            raise ValueError(f"container truncated the {label} observation frame")
+        frames[label] = body[:size]
+        remaining = body[size + 1:]
+    if remaining:
+        raise ValueError("container returned unaccounted output after its observation frames")
+    return frames
+
+
+_FULL_NATIVE_DRIVER = r'''import subprocess
+import sys
+
+REQUIRED = @REQUIRED@
+
+def emit(label, content):
+    sys.stdout.buffer.write(b"@@xsh-util-linux:" + label.encode() + b":" + str(len(content)).encode() + b"@@\n")
+    sys.stdout.buffer.write(content)
+    sys.stdout.buffer.write(b"\n")
+    sys.stdout.buffer.flush()
+
+for label, command in (
+    ("list", ["/products/xsht", "test", "--list"]),
+    ("result", ["/products/xsht", "test", "--jobs", "1"]),
+):
+    child = subprocess.run(command, cwd="/work", stdin=subprocess.DEVNULL,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=3500)
+    if child.returncode != 0:
+        sys.stderr.buffer.write(child.stdout)
+        sys.stderr.buffer.write(child.stderr)
+        raise SystemExit(child.returncode or 1)
+    if child.stderr:
+        sys.stderr.buffer.write(child.stderr)
+        raise SystemExit(1)
+    if label == "list":
+        listed = set(child.stdout.decode("utf-8").splitlines())
+        missing = set(REQUIRED) - listed
+        if missing:
+            sys.stderr.write("full native list omitted required selectors: " + ", ".join(sorted(missing)) + "\n")
+            raise SystemExit(1)
+    emit(label, child.stdout)
+'''
+
+
+def run_full_native(runtime: ResourceRuntime, source: SourceIdentity) -> GateResult:
+    products = _qualified_candidate(runtime, source)
+    mandatory = {
+        acceptance._case_selector(command, name)
+        for command in runtime.COHORT
+        for name in acceptance._case_names(runtime.ROOT, command)
+    }
+    mandatory.update(acceptance.declared_native_selectors(runtime.ROOT, acceptance.HOST_BOUNDARY_FILES))
+    mandatory.update(_selectors(runtime, source))
+    driver = _FULL_NATIVE_DRIVER.replace("@REQUIRED@", repr(tuple(sorted(mandatory))))
+    output = runtime.container(
+        "cd /work; " + runtime.PRIVATE_NAMESPACE.rstrip() + " "
+        + "python3 -c " + shlex.quote(driver),
+        mounts=_candidate_mounts(runtime, products[0]),
+        capabilities=["SYS_ADMIN"],
+        timeout=FULL_NATIVE_TIMEOUT_SECONDS,
+        cpus=1,
+        memory_gib=4,
+    )
+    _require_current(runtime, source, "full native suite")
+    _recheck_candidate(runtime, source, products, "full native suite")
+    frames = _parse_frames(output, ("list", "result"))
+    expected = acceptance._parse_native_selector_list("full native suite", frames["list"])
+    if not mandatory.issubset(expected):
+        raise ValueError("full native selector list omitted required cohort, host, or regression behavior")
+    result = acceptance._parse_native_suite_result("full native suite", expected, frames["result"])
+    skip_evidence = []
+    for selector, reason in result.skipped:
+        if selector in mandatory:
+            raise ValueError(f"full native suite skipped mandatory behavior: {selector}: {reason}")
+        if not acceptance.case_declares_skip(runtime.ROOT, selector):
+            raise ValueError(f"full native suite skipped behavior without a source-declared condition: {selector}")
+        skip_evidence.append(f"{selector}: {reason}")
+    _require_current(runtime, source, "full native skip accounting")
+    _recheck_candidate(runtime, source, products, "full native skip accounting")
+    skips = tuple(sorted(skip_evidence))
+    return GateResult(
+        name="full-native",
+        source=source,
+        status=0,
+        executed=len(expected),
+        passed=result.passed,
+        failed=0,
+        skipped=skips,
+        accounted_skips=skips,
+        selectors=result.selectors,
+        private_selectors=result.selectors,
+    )
+
+
+def _native_file(
+    runtime: ResourceRuntime,
+    source: SourceIdentity,
+    relative: str,
+    products: tuple[Path, BuildContext, ProductSignature],
+) -> acceptance.NativeResult:
+    expected = acceptance.declared_native_selectors(runtime.ROOT, (relative,))
+    output = runtime.container(
+        "cd /work; " + shlex.join(["/products/xsht", "test", relative]),
+        mounts=_candidate_mounts(runtime, products[0]),
+        capabilities=[],
+        timeout=600,
+    )
+    _require_current(runtime, source, f"native boundary {relative}")
+    _recheck_candidate(runtime, source, products, f"native boundary {relative}")
+    return acceptance._parse_native_suite(relative, expected, output)
+
+
+def _run_private_native(
+    runtime: ResourceRuntime,
+    source: SourceIdentity,
+    selectors: tuple[str, ...],
+    *,
+    monotonic=time.monotonic,
+) -> tuple[str, ...]:
+    if not selectors or len(selectors) != len(set(selectors)):
+        raise ValueError("host boundary selectors must be nonempty and distinct")
+    deadline = monotonic() + HOST_NATIVE_BUDGET_SECONDS
+    passed = []
+    for selector in selectors:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"private host boundaries exceeded {HOST_NATIVE_BUDGET_SECONDS}s")
+        _require_current(runtime, source, "private host boundary")
+        output = runtime.native_case(
+            selector,
+            private=True,
+            timeout=min(30.0, remaining),
+        )
+        result = acceptance._parse_native_suite(selector, (selector,), output)
+        passed.extend(result.selectors)
+        _require_current(runtime, source, "private host boundary")
+    if monotonic() > deadline:
+        raise TimeoutError(f"private host boundaries exceeded {HOST_NATIVE_BUDGET_SECONDS}s")
+    return tuple(passed)
+
+
+def _rust_test_list(output: bytes, label: str) -> tuple[str, ...]:
+    try:
+        lines = output.decode("utf-8").splitlines()
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{label} test list was not UTF-8") from error
+    selectors = tuple(match.group("selector") for line in lines if (match := _CARGO_LISTED_TEST.fullmatch(line)))
+    if not selectors or len(selectors) != len(set(selectors)):
+        raise ValueError(f"{label} returned no unique Rust test selectors")
+    return selectors
+
+
+def _rust_test_results(
+    label: str,
+    listed: tuple[str, ...],
+    output: bytes,
+    *,
+    filtered: tuple[str, ...] = (),
+) -> tuple[int, int, tuple[str, ...], tuple[str, ...]]:
+    try:
+        lines = output.decode("utf-8").splitlines()
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{label} test output was not UTF-8") from error
+    results = [match for line in lines if (match := _CARGO_RESULT.fullmatch(line))]
+    summaries = [match for line in lines if (match := _CARGO_SUMMARY.fullmatch(line))]
+    if not results or not summaries:
+        raise ValueError(f"{label} did not report completed Rust tests")
+    omitted = tuple(selector for selector in listed if selector in filtered)
+    if len(omitted) != len(filtered) or len(set(filtered)) != len(filtered):
+        raise ValueError(f"{label} has an invalid conditional skip set")
+    expected = tuple(selector for selector in listed if selector not in set(filtered))
+    actual = tuple(match.group("selector") for match in results)
+    if len(actual) != len(set(actual)) or tuple(sorted(actual)) != tuple(sorted(expected)):
+        raise ValueError(f"{label} did not execute its listed test selectors exactly once")
+    passed = sum(match.group("result") == "ok" for match in results)
+    ignored = []
+    for match in results:
+        if match.group("result") != "ignored":
+            continue
+        reason = match.group("detail").removeprefix(", ").strip()
+        if not reason:
+            raise ValueError(f"{label} ignored Rust test omitted its reason: {match.group('selector')}")
+        ignored.append(f"cargo:{label}::{match.group('selector')}: {reason}")
+    ignored = tuple(ignored)
+    failed = sum(match.group("result") == "FAILED" for match in results)
+    summary_passed = sum(int(match.group("passed")) for match in summaries)
+    summary_failed = sum(int(match.group("failed")) for match in summaries)
+    summary_ignored = sum(int(match.group("ignored")) for match in summaries)
+    summary_measured = sum(int(match.group("measured")) for match in summaries)
+    summary_filtered = sum(int(match.group("filtered")) for match in summaries)
+    if (summary_passed, summary_failed, summary_ignored) != (passed, failed, len(ignored)):
+        raise ValueError(f"{label} Rust summaries differ from their observed test results")
+    if summary_failed or any(match.group("result") != "ok" for match in summaries):
+        raise ValueError(f"{label} Rust tests failed")
+    if summary_measured or summary_filtered != len(filtered):
+        raise ValueError(f"{label} did not account for each selected and filtered test")
+    accounted_skips = tuple(sorted(
+        (*ignored, *(f"cargo:{label}::{selector}: filtered by --skip split::" for selector in filtered))
+    ))
+    selectors = tuple(f"cargo:{label}::{selector}" for selector in listed)
+    return passed, len(listed), selectors, accounted_skips
+
+
+_CARGO_GATE_DRIVER = r'''import subprocess
+import sys
+
+CASES = @CASES@
+
+def emit(label, content):
+    sys.stdout.buffer.write(b"@@xsh-util-linux:" + label.encode() + b":" + str(len(content)).encode() + b"@@\n")
+    sys.stdout.buffer.write(content)
+    sys.stdout.buffer.write(b"\n")
+    sys.stdout.buffer.flush()
+
+failed = False
+for label, command, run_suffix in CASES:
+    observations = (
+        (label + ".list", command + ("--", "--list")),
+        (label + ".run", command + run_suffix),
+    )
+    for name, argv in observations:
+        try:
+            child = subprocess.run(argv, cwd="/work", stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   timeout=1800, check=False)
+        except subprocess.TimeoutExpired as error:
+            sys.stderr.write(label + " exceeded its 1800 second command limit\n")
+            if error.stdout:
+                sys.stderr.buffer.write(error.stdout)
+            if error.stderr:
+                sys.stderr.buffer.write(error.stderr)
+            raise SystemExit(124)
+        emit(name, child.stdout + child.stderr)
+        if child.returncode != 0:
+            failed = True
+if failed:
+    raise SystemExit(1)
+'''
+
+
+def _rust_gate_script() -> str:
+    cases = tuple((label, command, suffix) for label, command, suffix in _RUST_GATE_CASES)
+    return _framed_script(_CARGO_GATE_DRIVER.replace("@CASES@", repr(cases)))
+
+
+def _cargo_mounts(runtime: ResourceRuntime, target: Path) -> list[str]:
+    kache = shutil.which("kache")
+    mold = shutil.which("mold")
+    linker = runtime.ROOT / "dev" / "musl-linker.sh"
+    if kache is None or mold is None or not linker.is_file() or not os.access(linker, os.X_OK):
+        raise RuntimeError("host and documentation gates require kache, mold, and the repository musl linker")
+    if not LAPUTA_CORPUS.is_dir():
+        raise RuntimeError("host and documentation gates require the qualified Laputa corpus")
+    return [
+        f"type=bind,source={runtime.ROOT},target=/work,readonly",
+        f"type=bind,source={target},target=/cargo-target,rw",
+        f"type=bind,source={kache},target=/usr/local/bin/kache,readonly",
+        f"type=bind,source={mold},target=/usr/local/bin/mold,readonly",
+        f"type=bind,source={linker},target=/usr/local/bin/xsh-mold-linker,readonly",
+        f"type=bind,source={LAPUTA_CORPUS},target={LAPUTA_CORPUS},readonly",
+        "type=volume,source=xsh-cargo-registry,target=/root/.cargo/registry",
+        "type=volume,source=xsh-consolidation-kache,target=/root/.cache/kache",
+    ]
+
+
+def _cargo_environment() -> str:
+    return (
+        "export CARGO_TARGET_DIR=/cargo-target CARGO_NET_OFFLINE=true "
+        "RUSTC_WRAPPER=/usr/local/bin/kache TARGET=" + TARGET + " "
+        "XSH_LAPUTA_CORPUS=" + str(LAPUTA_CORPUS) + " "
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker "
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS='-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol' "
+        "CFLAGS_x86_64_unknown_linux_musl=-march=x86-64-v3; "
+    )
+
+
+def _parse_rust_gate(
+    output: bytes,
+) -> tuple[int, tuple[str, ...], tuple[str, ...]]:
+    labels = tuple(
+        label + suffix
+        for label, _, _ in _RUST_GATE_CASES
+        for suffix in (".list", ".run")
+    )
+    frames = _parse_frames(output, labels)
+    filtered = {
+        label: tuple(
+            selector
+            for selector in _rust_test_list(frames[label + ".list"], label)
+            if "split::" in selector
+        )
+        for label, _, suffix in _RUST_GATE_CASES
+        if suffix == ("--", "--skip", "split::")
+    }
+    total = 0
+    selectors: list[str] = []
+    skips: list[str] = []
+    for label, _, _ in _RUST_GATE_CASES:
+        listed = _rust_test_list(frames[label + ".list"], label)
+        passed, executed, observed, accounted = _rust_test_results(
+            label,
+            listed,
+            frames[label + ".run"],
+            filtered=filtered.get(label, ()),
+        )
+        total += executed
+        selectors.extend(observed)
+        skips.extend(accounted)
+        if passed + len(accounted) != executed:
+            raise ValueError(f"{label} Rust result does not account for all listed tests")
+    return total, tuple(selectors), tuple(sorted(skips))
+
+
+def run_host_boundaries(runtime: ResourceRuntime, source: SourceIdentity) -> GateResult:
+    products = _qualified_candidate(runtime, source)
+    private_files = tuple(
+        relative
+        for relative in acceptance.HOST_BOUNDARY_FILES
+        if relative != "tests/xsh/api-tool.xsh"
+    )
+    private_selectors = acceptance.declared_native_selectors(runtime.ROOT, private_files)
+    passed_private = _run_private_native(runtime, source, private_selectors)
+    _recheck_candidate(runtime, source, products, "private host boundaries")
+    api_file = "tests/xsh/api-tool.xsh"
+    api_result = _native_file(runtime, source, api_file, products)
+    if api_result.passed != len(api_result.selectors):
+        raise ValueError("live API native suite did not pass every declared selector")
+
+    target = products[0].parent.parent
+    cargo_output = runtime.container(
+        _cargo_environment() + _rust_gate_script(),
+        mounts=_cargo_mounts(runtime, target),
+        capabilities=[],
+        timeout=RUST_GATE_TIMEOUT_SECONDS,
+        cpus=2,
+        memory_gib=8,
+    )
+    _require_current(runtime, source, "host boundary Rust gates")
+    _recheck_candidate(runtime, source, products, "host boundary Rust gates")
+    rust_executed, rust_selectors, rust_skips = _parse_rust_gate(cargo_output)
+
+    runtime.container(
+        "/products/xsht check docs/snippets/api",
+        mounts=_candidate_mounts(runtime, products[0]),
+        capabilities=[],
+        timeout=120,
+    )
+    _require_current(runtime, source, "API documentation snippets")
+    _recheck_candidate(runtime, source, products, "API documentation snippets")
+
+    native_selectors = tuple(sorted((*passed_private, *api_result.selectors)))
+    selectors = tuple(sorted((*native_selectors, *rust_selectors, "command:xsht-check-api-snippets")))
+    skipped = tuple(sorted(rust_skips))
+    executed = len(native_selectors) + rust_executed + 1
+    passed = executed - len(skipped)
+    return GateResult(
+        name="host-boundaries",
+        source=source,
+        status=0,
+        executed=executed,
+        passed=passed,
+        failed=0,
+        skipped=skipped,
+        accounted_skips=skipped,
+        selectors=selectors,
+        private_selectors=tuple(sorted(passed_private)),
+    )
+
+
+def run_repository_contract(runtime: ResourceRuntime, source: SourceIdentity) -> GateResult:
+    products = _qualified_candidate(runtime, source)
+    relative = "dev/tests/test-repository-contracts.xsh"
+    expected = acceptance.declared_native_selectors(runtime.ROOT, (relative,))
+    output = runtime.container(
+        shlex.join(["/products/xsht", "test", "-j", "1", relative]),
+        mounts=_candidate_mounts(runtime, products[0]),
+        capabilities=[],
+        timeout=REPOSITORY_GATE_TIMEOUT_SECONDS,
+    )
+    _require_current(runtime, source, "repository contract")
+    _recheck_candidate(runtime, source, products, "repository contract")
+    result = acceptance._parse_native_suite("repository contract", expected, output)
+    return _gate_result(
+        "repository-contract",
+        source,
+        result.passed,
+        selectors=result.selectors,
+    )
+
+
+def run_docs(runtime: ResourceRuntime, source: SourceIdentity) -> GateResult:
+    products = _qualified_candidate(runtime, source)
+    target = products[0].parent.parent
+    script = (
+        "cd /work; "
+        + _cargo_environment().replace("CARGO_TARGET_DIR=/cargo-target", "CARGO_TARGET_DIR=/target")
+        + "cargo dev docs check"
+    )
+    runtime.container(
+        script,
+        mounts=[
+            f"type=bind,source={runtime.ROOT},target=/work,readonly",
+            f"type=bind,source={target},target=/target,rw",
+            f"type=bind,source={products[0]},target=/products,readonly",
+            *[mount for mount in _cargo_mounts(runtime, target) if "/cargo-target" not in mount and "target=/work" not in mount],
+        ],
+        capabilities=[],
+        timeout=DOCS_GATE_TIMEOUT_SECONDS,
+        cpus=2,
+        memory_gib=8,
+    )
+    _require_current(runtime, source, "documentation checks")
+    _recheck_candidate(runtime, source, products, "documentation checks")
+    return _gate_result(
+        "docs",
+        source,
+        1,
+        selectors=("command:cargo-dev-docs-check",),
+    )

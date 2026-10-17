@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 import re
+import time
 from typing import Protocol
 
 
@@ -26,12 +27,25 @@ STARTUP_TARGETS = (
 )
 REFERENCE_PROFILE = "apk-package-2.42.4-r3"
 REFERENCE_ALLOCATOR = "musl-libc"
+GROUP_BUDGET_SECONDS = 120
 REGRESSION_FILES = (
     "core/tests/test-util-linux-storage-regressions.xsh",
     "core/tests/test-util-linux-process-regressions.xsh",
 )
+HOST_BOUNDARY_FILES = (
+    "tests/xsh/stdlib/linux_ipc.xsh",
+    "tests/xsh/stdlib/linux_namespaces.xsh",
+    "tests/xsh/api-tool.xsh",
+    "core/tests/test-util-linux-ipc-waiters.xsh",
+    "core/tests/test-util-linux-contexts.xsh",
+    "core/tests/test-util-linux-io-boundaries.xsh",
+)
 
 _CASE_DECLARATION = re.compile(r"^test (test_[A-Za-z0-9_]+)\s*\{", re.MULTILINE)
+_NATIVE_SELECTOR = re.compile(
+    r"^(?P<path>(?:core/tests|dev/tests|tests|showcase/tests)/[A-Za-z0-9_./-]+\.xsh)::"
+    r"(?P<name>test_[A-Za-z0-9_]+)$"
+)
 _SUMMARY = re.compile(
     r"test result: (?P<result>ok|FAILED)\. (?P<passed>\d+) passed; "
     r"(?P<failed>\d+) failed; (?P<skipped>\d+) skipped"
@@ -42,22 +56,16 @@ _RUNNING = re.compile(r"running (?P<count>\d+) tests")
 class AcceptanceRuntime(Protocol):
     ROOT: Path
     COHORT: tuple[str, ...]
-    PRIVATE_NAMESPACE: str
     PACKAGE_COMMIT: str
     PRODUCT_SOURCE: str
 
-    def protected_products(self) -> Path: ...
-
-    def container(
+    def native_case(
         self,
-        script: str,
+        selector: str,
         *,
-        mounts: list[str],
-        capabilities: list[str],
-        timeout: int,
+        private: bool = False,
+        timeout: float = 30,
     ) -> bytes: ...
-
-    def native_case(self, selector: str, *, private: bool = False) -> bytes: ...
 
     def source_identity(self) -> SourceIdentity: ...
 
@@ -110,6 +118,23 @@ def _case_names(root: Path, command: str) -> tuple[str, ...]:
     return names
 
 
+def declared_native_selectors(root: Path, relative_files: tuple[str, ...]) -> tuple[str, ...]:
+    selectors: list[str] = []
+    for relative in relative_files:
+        path = root / relative
+        if not path.is_file():
+            raise ValueError(f"missing required native behavior source: {relative}")
+        names = tuple(_CASE_DECLARATION.findall(path.read_text(encoding="utf-8")))
+        if not names:
+            raise ValueError(f"native behavior source declares no tests: {relative}")
+        if len(names) != len(set(names)):
+            raise ValueError(f"native behavior source duplicates selectors: {relative}")
+        selectors.extend(f"{relative}::{name}" for name in names)
+    if len(selectors) != len(set(selectors)):
+        raise ValueError("native behavior sources declare duplicate selectors")
+    return tuple(sorted(selectors))
+
+
 def _case_selector(command: str, name: str) -> str:
     return f"core/tests/test-{command}.xsh::{name}"
 
@@ -158,65 +183,156 @@ def _selected_case(args, command: str, names: tuple[str, ...]) -> str | None:
     return name
 
 
+def _parse_native_suite(
+    label: str,
+    expected: tuple[str, ...],
+    output: bytes,
+) -> NativeResult:
+    result = _parse_native_suite_result(label, expected, output)
+    if result.skipped:
+        raise ValueError(f"native runner skipped a mandatory behavior for {label}: {result.skipped}")
+    return NativeResult(result.passed, 0, 0, result.selectors)
+
+
 def _parse_native_group(command: str, expected: tuple[str, ...], output: bytes) -> NativeResult:
-    if not expected:
-        raise ValueError(f"selector matched no behavior: {command}")
+    selectors = tuple(_case_selector(command, name) for name in expected)
+    result = _parse_native_suite(command, selectors, output)
+    names = tuple(selector.rsplit("::", 1)[-1] for selector in result.selectors)
+    return NativeResult(result.passed, result.failed, result.skipped, names)
+
+
+def _parse_native_selector_list(label: str, output: bytes) -> tuple[str, ...]:
     try:
         text = output.decode("utf-8")
     except UnicodeDecodeError as error:
-        raise ValueError("native result was not UTF-8") from error
+        raise ValueError(f"{label} selector list was not UTF-8") from error
+    selectors = tuple(text.splitlines())
+    if not selectors:
+        raise ValueError(f"{label} selector list is empty or malformed")
+    for selector in selectors:
+        match = _NATIVE_SELECTOR.fullmatch(selector)
+        if match is None:
+            raise ValueError(f"{label} selector list contains a malformed test identity: {selector}")
+        if any(part in ("", ".", "..") for part in match.group("path").split("/")):
+            raise ValueError(f"{label} selector list contains an unsafe source path: {selector}")
+    if len(selectors) != len(set(selectors)):
+        raise ValueError(f"{label} selector list contains duplicates")
+    return tuple(sorted(selectors))
+
+
+@dataclass(frozen=True)
+class NativeSuiteResult:
+    passed: int
+    skipped: tuple[tuple[str, str], ...]
+    selectors: tuple[str, ...]
+
+
+_NATIVE_CASE_OUTCOME = re.compile(
+    r"^(?P<outcome>ok|FAILED|TIMEOUT|skipped: .+) "
+    r"(?P<duration>\d+(?:\.\d+)?ms|\d+(?:\.\d+)?s|\d+m(?:\d+s)?|\d+h(?:\d+m)?)$"
+)
+_DECLARED_SKIP = re.compile(r"\btest\.skip\s*\(")
+
+
+def case_declares_skip(root: Path, selector: str) -> bool:
+    match = _NATIVE_SELECTOR.fullmatch(selector)
+    if match is None or any(part in ("", ".", "..") for part in match.group("path").split("/")):
+        raise ValueError(f"invalid native selector for skip accounting: {selector}")
+    source = (root / match.group("path")).read_text(encoding="utf-8")
+    declaration = re.search(
+        rf"^test {re.escape(match.group('name'))}\s*\{{",
+        source,
+        re.MULTILINE,
+    )
+    if declaration is None:
+        raise ValueError(f"native skip selector is not declared by its source: {selector}")
+    following = re.search(r"^test test_[A-Za-z0-9_]+\s*\{", source[declaration.end():], re.MULTILINE)
+    end = declaration.end() + following.start() if following is not None else len(source)
+    return _DECLARED_SKIP.search(source[declaration.start():end]) is not None
+
+
+def _parse_native_suite_result(
+    label: str,
+    expected: tuple[str, ...],
+    output: bytes,
+) -> NativeSuiteResult:
+    if not expected:
+        raise ValueError(f"selector matched no behavior: {label}")
+    if len(expected) != len(set(expected)):
+        raise ValueError(f"native behavior selectors are duplicated: {label}")
+    try:
+        text = output.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"native result was not UTF-8: {label}") from error
     lines = text.splitlines()
     running = [match for line in lines if (match := _RUNNING.fullmatch(line))]
     if len(running) != 1 or int(running[0].group("count")) != len(expected):
-        raise ValueError(f"native runner selected an unexpected test count for {command}: {text}")
+        raise ValueError(f"native runner selected an unexpected test count for {label}: {text}")
     summaries = [match for line in lines if (match := _SUMMARY.fullmatch(line))]
     if len(summaries) != 1 or not lines or _SUMMARY.fullmatch(lines[-1]) is None:
-        raise ValueError(f"native runner omitted its final result summary for {command}: {text}")
-    summary = summaries[0]
-    passed, failed, skipped = (int(summary.group(field)) for field in ("passed", "failed", "skipped"))
-    case_suffix = f"core/tests/test-{command}.xsh::"
+        raise ValueError(f"native runner omitted its final result summary for {label}: {text}")
     actual: list[str] = []
+    skipped: list[tuple[str, str]] = []
+    failed = 0
     for line in lines:
         if " ... " not in line:
             continue
-        selector, result = line.split(" ... ", 1)
-        name = selector.rsplit("::", 1)[-1]
-        if selector != case_suffix + name or name not in expected:
+        selector, raw_outcome = line.split(" ... ", 1)
+        if selector not in expected:
             raise ValueError(f"native runner reported an unselected behavior: {line}")
-        result_fields = result.split()
-        if not result_fields:
-            raise ValueError(f"native result has no outcome: {line}")
-        if result_fields[0] != "ok" or len(result_fields) != 2:
-            raise ValueError(f"native behavior did not pass: {line}")
-        actual.append(name)
+        outcome = _NATIVE_CASE_OUTCOME.fullmatch(raw_outcome)
+        if outcome is None:
+            raise ValueError(f"native runner reported a malformed behavior result: {line}")
+        actual.append(selector)
+        status = outcome.group("outcome")
+        if status == "ok":
+            continue
+        if status.startswith("skipped: "):
+            reason = status.removeprefix("skipped: ").strip()
+            if not reason:
+                raise ValueError(f"native skip omitted its reason: {line}")
+            skipped.append((selector, reason))
+            continue
+        failed += 1
     if len(actual) != len(set(actual)) or tuple(sorted(actual)) != tuple(sorted(expected)):
         raise ValueError(f"native runner did not execute the selected behaviors exactly once: {text}")
-    if summary.group("result") != "ok" or (passed, failed, skipped) != (len(expected), 0, 0):
-        raise ValueError(f"native run did not pass every selected behavior: {text}")
-    return NativeResult(passed=passed, failed=failed, skipped=skipped, selectors=tuple(actual))
+    summary = summaries[0]
+    passed, summary_failed, summary_skipped = (
+        int(summary.group(field)) for field in ("passed", "failed", "skipped")
+    )
+    if (
+        summary.group("result") != "ok"
+        or (passed, summary_failed, summary_skipped) != (len(expected) - len(skipped) - failed, failed, len(skipped))
+        or failed
+    ):
+        raise ValueError(f"native runner did not pass every non-skipped behavior: {text}")
+    return NativeSuiteResult(passed, tuple(skipped), tuple(actual))
 
 
-def _run_group(runtime: AcceptanceRuntime, command: str, names: tuple[str, ...]) -> NativeResult:
-    relative = f"core/tests/test-{command}.xsh"
-    products = runtime.protected_products()
-    script = (
-        "cd /work; export NO_COLOR=1; "
-        + runtime.PRIVATE_NAMESPACE.rstrip()
-        + f" /products/xsht test {relative}"
-    )
-    output = runtime.container(
-        script,
-        mounts=[
-            f"type=bind,source={runtime.ROOT},target=/work,readonly",
-            f"type=bind,source={products},target=/products,readonly",
-        ],
-        capabilities=["SYS_ADMIN"],
-        timeout=120,
-    )
-    after = runtime.protected_products()
-    if after != products:
-        raise ValueError("protected products changed during native acceptance")
-    return _parse_native_group(command, names, output)
+def _run_group(
+    runtime: AcceptanceRuntime,
+    command: str,
+    names: tuple[str, ...],
+    *,
+    monotonic=time.monotonic,
+) -> NativeResult:
+    if not names:
+        raise ValueError(f"selector matched no behavior: {command}")
+    if len(names) != len(set(names)):
+        raise ValueError(f"native behavior selectors are duplicated: {command}")
+    deadline = monotonic() + GROUP_BUDGET_SECONDS
+    results = []
+    for name in names:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"private native acceptance exceeded {GROUP_BUDGET_SECONDS}s: {command}")
+        selector = _case_selector(command, name)
+        output = runtime.native_case(selector, private=True, timeout=min(30.0, remaining))
+        result = _parse_native_group(command, (name,), output)
+        results.extend(result.selectors)
+    if monotonic() > deadline:
+        raise TimeoutError(f"private native acceptance exceeded {GROUP_BUDGET_SECONDS}s: {command}")
+    return NativeResult(passed=len(results), failed=0, skipped=0, selectors=tuple(results))
 
 
 def parity(args, runtime: AcceptanceRuntime) -> None:
