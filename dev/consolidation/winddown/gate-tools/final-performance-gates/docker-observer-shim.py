@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Own and instrument the one Docker run used by the canonical gate batch."""
 
+import csv
 import json
 import os
 from pathlib import Path
@@ -37,17 +38,28 @@ def scratch_target_conflicts(target: str) -> bool:
     return target == "/" or target == SCRATCH_CONTAINER_PATH or target.startswith(SCRATCH_CONTAINER_PATH + "/")
 
 
-def has_scratch_mount(specification: str) -> bool:
-    if "target=" in specification or "destination=" in specification or "dst=" in specification:
-        target = next((
-            field.split("=", 1)[1]
-            for field in specification.split(",")
-            if field.startswith(("target=", "destination=", "dst="))
-        ), "")
+def has_scratch_volume(specification: str) -> bool:
+    fields = specification.rsplit(":", 2)
+    if len(fields) == 3:
+        target = fields[-2]
+    elif len(fields) == 2:
+        source, destination_or_mode = fields
+        target = destination_or_mode if destination_or_mode.startswith("/") else source
     else:
-        fields = specification.rsplit(":", 2)
-        target = fields[-2] if len(fields) == 3 else fields[-1] if len(fields) == 2 else specification
+        target = specification
     return scratch_target_conflicts(target)
+
+
+def has_scratch_mount(specification: str) -> bool:
+    try:
+        fields = next(csv.reader([specification], strict=True))
+    except csv.Error:
+        return True
+    for field in fields:
+        key, separator, target = field.partition("=")
+        if separator and key.strip() in ("target", "destination", "dst") and scratch_target_conflicts(target.strip()):
+            return True
+    return False
 
 
 def has_scratch_tmpfs(specification: str) -> bool:
@@ -90,10 +102,23 @@ def has_resource_override(arguments: list[str]) -> bool:
             return True
         if value in ("-v", "--volume", "--mount"):
             index += 1
-            if index >= len(arguments) or has_scratch_mount(arguments[index]):
+            if index >= len(arguments):
                 return True
-        elif value.startswith("--volume=") or value.startswith("--mount="):
+            has_conflict = (
+                has_scratch_mount(arguments[index])
+                if value == "--mount"
+                else has_scratch_volume(arguments[index])
+            )
+            if has_conflict:
+                return True
+        elif value.startswith("--volume="):
+            if has_scratch_volume(value.split("=", 1)[1]):
+                return True
+        elif value.startswith("--mount="):
             if has_scratch_mount(value.split("=", 1)[1]):
+                return True
+        elif value.startswith("-v") and not value.startswith("--"):
+            if has_scratch_volume(value[2:].lstrip("=")):
                 return True
         elif value == "--tmpfs":
             index += 1
@@ -101,9 +126,6 @@ def has_resource_override(arguments: list[str]) -> bool:
                 return True
         elif value.startswith("--tmpfs="):
             if has_scratch_tmpfs(value.split("=", 1)[1]):
-                return True
-        elif value.startswith("-v") and not value.startswith("--"):
-            if has_scratch_mount(value[2:].lstrip("=")):
                 return True
         if value in ("-e", "--env"):
             index += 1

@@ -450,12 +450,17 @@ def assert_docker_shim_argv(scratch_dir: Path) -> None:
         ["--tmpfs", "/t"],
         ["--tmpfs=/t"],
         ["--mount", "type=tmpfs,target=//t"],
+        ["-v", "/t:ro"],
+        ["--mount", "type=volume,target=/other,destination=/t"],
+        ["--mount", '"type=volume","target=/t"'],
     ):
         assert docker_shim.has_resource_override(conflict), conflict
     for unrelated in (
         ["-v", "/host:/scratch-data"],
+        ["-v", "/t:/scratch-data"],
         ["--tmpfs", "/var/tmp"],
         ["--mount", "type=tmpfs,target=/var/tmp"],
+        ["--mount", '"type=volume","target=/var/tmp"'],
     ):
         assert not docker_shim.has_resource_override(unrelated), unrelated
 
