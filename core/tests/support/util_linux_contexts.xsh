@@ -6,12 +6,8 @@ proc terminal_pair(columns: Int) [process, error] -> Result[UnixPty, Error] {
   assert columns > 0 and columns <= 512
   let pair = unix.open_pty()?
   var ready = false
-  defer {
-    if ! ready {
-      unix.close_fd(pair.replica)
-      unix.close_fd(pair.master)
-    }
-  }
+  defer { if ! ready { unix.close_fd(pair.replica) } }
+  defer { if ! ready { unix.close_fd(pair.master) } }
   unix.set_window_size(24, columns, fd: pair.replica)
   assert unix.window_size(pair.replica)?.cols == columns
   ready = true
