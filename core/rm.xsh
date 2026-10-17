@@ -138,7 +138,24 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
     for child in entries {
       let base = search.basename_bytes(child.path.bytes())
       let child_name = if name.ends_with(b"/") { bytes.concat([name, base]) } else { bytes.concat([name, b"/", base]) }
-      let result = remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+      let result: Removal = if opts.force and ! opts.one_file_system and ! interactive and ! opts.verbose and ! opts.progress and child.kind != "dir" {
+        match child.path.unlink() {
+          Ok(_) => {ok: true, removed: true, write_error: null}
+          Err(failure) => {
+            let became_directory = if let Ok(current) = fs.stat(child.path) { current.kind == "dir" } else { false }
+            if became_directory {
+              remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+            } else if opts.force and nonexistent_errno(gnu.errno(failure)) {
+              {ok: true, removed: true, write_error: null}
+            } else {
+              gnu.error(f"cannot remove {gnu.quote_bytes(child_name)}: {gnu.strerror(failure)}")
+              {ok: false, removed: false, write_error: null}
+            }
+          }
+        }
+      } else {
+        remove_target(child.path, child_name, opts, device, interactive, automatic, presume_input_tty)
+      }
       if ! result.ok { success = false }
       if let failure = result.write_error { if write_error == null { write_error = failure } }
       if ! result.removed { retained = true }

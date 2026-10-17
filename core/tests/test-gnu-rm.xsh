@@ -319,6 +319,15 @@ test test_gnu_rm_r_3_log { |ctx|
   removed(s, ["t"])
 }
 
+test test_gnu_rm_r_symlink_directory_log { |ctx|
+  let s = uu.scene(ctx)?
+  uu.mkdir(s, "target"); uu.touch(s, "target/kept")
+  uu.mkdir(s, "d"); uu.symlink(s, "../target", "d/link")
+  uu.succeeds(uu.invoke(s, "rm", ["-rf", "d"])?)
+  removed(s, ["d"])
+  present(s, ["target/kept"])
+}
+
 # origin: gnu rm/r-4.log
 test test_gnu_rm_r_4_log { |ctx|
   let s = uu.scene(ctx)?
