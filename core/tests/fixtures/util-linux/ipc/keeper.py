@@ -22,6 +22,9 @@ O_EXCL = 0o200
 O_RDWR = 2
 O_RDONLY = 0
 GETVAL = 12
+GETPID = 11
+GETNCNT = 14
+GETZCNT = 15
 OWNER_FIELD = 4
 GROUP_FIELD = 8
 MODE_FIELD = 20
@@ -215,10 +218,9 @@ def make_sysv_semaphore(owner_uid, owner_gid, creator_uid, creator_gid, mode):
         resource = track("sysv_semaphore", identity, None, None, owner_uid, owner_gid, mode)
     set_sysv_owner(lambda identity, command, data: semctl(identity, 0, command, data), identity, owner_uid, owner_gid, mode, creator_uid, creator_gid)
     with identity_scope(owner_uid, owner_gid):
-        operation = Sembuf(0, 1, 0)
-        require_zero(semop(identity, ctypes.byref(operation), 1), "semop")
-        operation = Sembuf(0, -1, 0)
-        require_zero(semop(identity, ctypes.byref(operation), 1), "semop")
+        for index, change in [(0, 1), (0, -1), (0, 2), (1, 3)]:
+            operation = Sembuf(index, change, 0)
+            require_zero(semop(identity, ctypes.byref(operation), 1), "semop")
     return resource
 
 
@@ -322,10 +324,15 @@ def sysv_snapshot(resource):
         if values[id_index] == str(resource["id"]):
             state = dict(zip(columns, values))
             if resource["kind"] == "sysv_semaphore":
-                state["values"] = [
-                    require_nonnegative(semctl(resource["id"], index, GETVAL), "GETVAL")
-                    for index in range(2)
-                ]
+                state["elements"] = []
+                for index in range(2):
+                    state["elements"].append({
+                        "value": require_nonnegative(semctl(resource["id"], index, GETVAL), "GETVAL"),
+                        "waiting_for_increase": require_nonnegative(semctl(resource["id"], index, GETNCNT), "GETNCNT"),
+                        "waiting_for_zero": require_nonnegative(semctl(resource["id"], index, GETZCNT), "GETZCNT"),
+                        "pid": require_nonnegative(semctl(resource["id"], index, GETPID), "GETPID"),
+                    })
+                state["values"] = [element["value"] for element in state["elements"]]
             return state
     raise RuntimeError(f"registered System V IPC id disappeared: {resource['id']}")
 

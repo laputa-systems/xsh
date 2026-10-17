@@ -17,6 +17,15 @@ type IpcResource = {
   size: Int,
 }
 type KeeperReady = {pid: Int, owner_uid: Int, observer_uid: Int, resources: List[IpcResource]}
+type SemaphoreElement = {value: Int, waiting_for_increase: Int, waiting_for_zero: Int, pid: Int}
+type ApiObservation = {
+  errno: Int?,
+  value: Int?,
+  waiting_for_increase: Int?,
+  waiting_for_zero: Int?,
+  pid: Int?,
+}
+type ApiReport = {before: Int, after: Int, observations: List[ApiObservation]}
 type IpcKeeper = {handle: ul.Keeper, ready: KeeperReady}
 type ResourceMode = {kind: Str, selector: Str, short_selector: Str, all_columns: Str}
 type GlobalMode = {args: List[Str], resource: Str?}
@@ -91,6 +100,60 @@ proc resource_of(ready: KeeperReady, kind: Str) [error] -> Result[IpcResource, E
   Err(error.failure(f"fixture did not create {kind}"))
 }
 
+proc private_resource(ready: KeeperReady, kind: Str) [error] -> Result[IpcResource, Error] {
+  for resource in ready.resources {
+    if resource.kind == kind and resource.mode == 0o600 { return Ok(resource) }
+  }
+  Err(error.failure(f"fixture did not create private {kind}"))
+}
+
+proc snapshot_resource_index(ready: KeeperReady, selected: IpcResource) [error] -> Result[Int, Error] {
+  var index = 0
+  for resource in ready.resources {
+    if resource == selected { return Ok(index) }
+    index += 1
+  }
+  Err(error.failure(f"fixture snapshot omitted {selected.kind}"))
+}
+
+proc observe_ipc_api(s: uu.Scene, uid: Int, operation: Str, identity: Str, index: Int = 0) [fs, process, env, error] -> Result[ApiReport, Error] {
+  assert uid in [10001, 10002]
+  let output = fp"{s.root}/api-{uid}-{operation}.out"
+  let errors = fp"{s.root}/api-{uid}-{operation}.err"
+  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/ipc/observe.xsh"
+  let words = [
+    p"/bin/setpriv",
+    fp"--reuid={uid}",
+    fp"--regid={uid}",
+    p"--clear-groups",
+    p"--bounding-set=-all",
+    p"--inh-caps=-all",
+    p"--ambient-caps=-all",
+    p"--no-new-privs",
+    p"--",
+    s.ctx.xsh_bin,
+    script,
+    p"--",
+    fp"{operation}",
+    fp"{identity}",
+    fp"{index}",
+  ]
+  let vars = {LC_ALL: "C", TZ: "UTC", XSH_MODULE_PATH: s.ctx.core_dir.display()}
+  let plan = process.command_argv(p"/bin/setpriv", words, s.root, vars, b"", output, errors, timeout: 10s)
+  let status = process.run(plan)?
+  assert status.exited_with(0), errors.read_text()?
+  assert errors.read_bytes()? == b""
+  json.decode(output.read_text()?)?.require(ApiReport)
+}
+
+proc assert_api_reads(report: ApiReport, expected: ApiObservation) [error] {
+  assert report.before == report.after, f"API call leaked a descriptor: {report.before} -> {report.after}"
+  assert report.observations.len() == 8
+  for observation in report.observations {
+    assert observation == expected
+  }
+}
+
 proc resource_args(mode: ResourceMode, resource: IpcResource) -> List[Str] {
   if resource.kind.starts_with("sysv_") {
     [mode.selector, "--id", f"{resource.id ?? -1}", "--output", "ID"]
@@ -127,7 +190,7 @@ proc assert_seeded_activity(ready: KeeperReady, snapshot: Bytes) [error] {
       assert json.get(document, ["resources", index, "state", "ctime"])?.require(Str)?.parse_int()? > 0
     } else if resource.kind == "sysv_semaphore" {
       assert json.get(document, ["resources", index, "state", "nsems"])?.require(Str)? == "2"
-      assert json.get(document, ["resources", index, "state", "values"])?.require(List[Int])? == [0, 0]
+      assert json.get(document, ["resources", index, "state", "values"])?.require(List[Int])? == [2, 3]
       assert json.get(document, ["resources", index, "state", "otime"])?.require(Str)?.parse_int()? > 0
       assert json.get(document, ["resources", index, "state", "ctime"])?.require(Str)?.parse_int()? > 0
     } else if resource.kind == "posix_mqueue" {
@@ -375,6 +438,27 @@ test test_lsipc_rejects_unknown_and_inapplicable_columns { |ctx|
   assert global_column.candidate.status == 1
   assert global_column.candidate.stdout == b""
   assert global_column.candidate.stderr != b""
+}
+
+test test_lsipc_output_column_capacity_matches_reference { |ctx|
+  let s = uu.scene(ctx)?
+  ul.require_private_namespace()
+  var columns: List[Str] = []
+  for _ in range(74) {
+    columns = columns.extend(["ID"])
+  }
+  let accepted = run_both(s, ["--queues", "--noheadings", "--output", columns.join(",")])?
+  ul.compare(accepted.reference, accepted.candidate)
+  assert accepted.candidate.status == 0
+  assert accepted.candidate.stdout == b""
+  assert accepted.candidate.stderr == b""
+
+  columns = columns.extend(["ID"])
+  let rejected = run_both(s, ["--queues", "--noheadings", "--output", columns.join(",")])?
+  ul.compare(rejected.reference, rejected.candidate)
+  assert rejected.candidate.status == 1
+  assert rejected.candidate.stdout == b""
+  assert rejected.candidate.stderr == b""
 }
 
 test test_lsipc_rejects_invalid_options_and_missing_arguments { |ctx|
@@ -829,4 +913,70 @@ test test_lsipc_collectors_leave_registered_resources_unchanged { |ctx|
     assert before == after_candidate, f"candidate changed {mode.kind} fixture state"
   }
   release_keeper(fixture.handle)?
+}
+
+test test_linux_ipc_readers_match_live_state_permissions_and_descriptor_lifecycle { |ctx|
+  let s = uu.scene(ctx)?
+  ul.require_private_namespace()
+  let fixture = start_keeper(s, RESOURCE_KINDS)?
+  defer ul.stop_keeper(fixture.handle)
+
+  let before = keeper_snapshot(fixture.handle)?
+  assert_seeded_activity(fixture.ready, before)
+  let snapshot = json.decode(before.utf8() ?? "")?
+  let semaphore = private_resource(fixture.ready, "posix_semaphore")?
+  let queue = private_resource(fixture.ready, "posix_mqueue")?
+  let sysv = private_resource(fixture.ready, "sysv_semaphore")?
+  let semaphore_index = snapshot_resource_index(fixture.ready, semaphore)?
+  let queue_index = snapshot_resource_index(fixture.ready, queue)?
+  let sysv_index = snapshot_resource_index(fixture.ready, sysv)?
+  let semaphore_value = json.get(snapshot, ["resources", semaphore_index, "state", "value"])?.require(Int)?
+  let queue_messages = json.get(snapshot, ["resources", queue_index, "state", "attributes", "curmsgs"])?.require(Int)?
+  let sysv_element = json.get(snapshot, ["resources", sysv_index, "state", "elements", 0])?.require(SemaphoreElement)?
+  let sysv_element_second = json.get(snapshot, ["resources", sysv_index, "state", "elements", 1])?.require(SemaphoreElement)?
+
+  let semaphore_identity = semaphore.name ?? ""
+  let semaphore_owner = observe_ipc_api(s, fixture.ready.owner_uid, "posix_semaphore", semaphore_identity)?
+  assert_api_reads(semaphore_owner, {errno: null, value: semaphore_value, waiting_for_increase: null, waiting_for_zero: null, pid: null})
+  let semaphore_observer = observe_ipc_api(s, fixture.ready.observer_uid, "posix_semaphore", semaphore_identity)?
+  assert_api_reads(semaphore_observer, {errno: 13, value: null, waiting_for_increase: null, waiting_for_zero: null, pid: null})
+
+  let queue_identity = queue.name ?? ""
+  let queue_owner = observe_ipc_api(s, fixture.ready.owner_uid, "posix_mqueue", queue_identity)?
+  assert_api_reads(queue_owner, {errno: null, value: queue_messages, waiting_for_increase: null, waiting_for_zero: null, pid: null})
+  let queue_observer = observe_ipc_api(s, fixture.ready.observer_uid, "posix_mqueue", queue_identity)?
+  assert_api_reads(queue_observer, {errno: 13, value: null, waiting_for_increase: null, waiting_for_zero: null, pid: null})
+
+  let sysv_identity = f"{sysv.id ?? -1}"
+  let sysv_owner = observe_ipc_api(s, fixture.ready.owner_uid, "sysv_semaphore", sysv_identity)?
+  assert_api_reads(sysv_owner, {
+    errno: null,
+    value: sysv_element.value,
+    waiting_for_increase: sysv_element.waiting_for_increase,
+    waiting_for_zero: sysv_element.waiting_for_zero,
+    pid: sysv_element.pid,
+  })
+  let sysv_owner_second = observe_ipc_api(s, fixture.ready.owner_uid, "sysv_semaphore", sysv_identity, index: 1)?
+  assert_api_reads(sysv_owner_second, {
+    errno: null,
+    value: sysv_element_second.value,
+    waiting_for_increase: sysv_element_second.waiting_for_increase,
+    waiting_for_zero: sysv_element_second.waiting_for_zero,
+    pid: sysv_element_second.pid,
+  })
+  let sysv_observer = observe_ipc_api(s, fixture.ready.observer_uid, "sysv_semaphore", sysv_identity)?
+  assert_api_reads(sysv_observer, {errno: 13, value: null, waiting_for_increase: null, waiting_for_zero: null, pid: null})
+  let sysv_observer_second = observe_ipc_api(s, fixture.ready.observer_uid, "sysv_semaphore", sysv_identity, index: 1)?
+  assert_api_reads(sysv_observer_second, {errno: 13, value: null, waiting_for_increase: null, waiting_for_zero: null, pid: null})
+
+  let after = keeper_snapshot(fixture.handle)?
+  assert before == after, "read-only Linux IPC observations changed registered fixture state"
+  release_keeper(fixture.handle)?
+
+  let missing_semaphore = observe_ipc_api(s, fixture.ready.owner_uid, "posix_semaphore", semaphore_identity)?
+  assert_api_reads(missing_semaphore, {errno: 2, value: null, waiting_for_increase: null, waiting_for_zero: null, pid: null})
+  let missing_queue = observe_ipc_api(s, fixture.ready.owner_uid, "posix_mqueue", queue_identity)?
+  assert_api_reads(missing_queue, {errno: 2, value: null, waiting_for_increase: null, waiting_for_zero: null, pid: null})
+  let missing_sysv = observe_ipc_api(s, fixture.ready.owner_uid, "sysv_semaphore", sysv_identity)?
+  assert_api_reads(missing_sysv, {errno: 22, value: null, waiting_for_increase: null, waiting_for_zero: null, pid: null})
 }

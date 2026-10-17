@@ -62,6 +62,16 @@ before `IPC_SET`, then changes ownership and mode. This preserves fields such
 as the System V queue byte limit. The keeper blocks handled signals while it
 switches IDs, restores effective root IDs, then restores the prior signal mask.
 
+For System V semaphore snapshots, `keeper.py` also records each registered
+element's value, waiter counts, and last-operation PID. It leaves the two
+elements at values 2 and 3 after real `semop` activity. `observe.xsh` calls the
+three read-only Linux IPC APIs eight times against the private POSIX semaphore,
+POSIX message queue, and both System V semaphore elements. It reports values
+or errno plus its descriptor counts before and after the calls. Native tests
+run it as the owner and as the second UID with all capabilities dropped,
+compare successful values with the keeper snapshot, and verify
+missing-resource errors after release.
+
 The pinned Alpine musl `sem_open` stores a named semaphore at
 `/dev/shm/<name>`, while util-linux discovers named semaphores by scanning for
 `sem.*` and opens the suffix. For each registered semaphore, the keeper adds a

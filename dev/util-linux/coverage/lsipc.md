@@ -95,6 +95,8 @@ assumed last-option-wins behavior.
 The output-column parser accepts case-insensitive column prefixes, resolving
 ambiguous prefixes to the first matching descriptor. It accepts one trailing
 comma, but rejects an empty column list, a leading comma, and repeated commas.
+Its fixed column array accepts 74 repeated valid columns and silently rejects
+the 75th with status 1 and no output or diagnostic.
 Negative IDs below `-1` retain the reference's enumerate-all behavior for
 System V queues, shared memory, and semaphores. ID parsing accepts leading
 whitespace and an optional sign, uses decimal syntax, and rejects prefixes,
@@ -128,6 +130,7 @@ tables and query each selected ID.
 | `test_lsipc_version_preserves_xsh_provenance` | XSH identity and exact XSH version banner through `--version` and `-V` | `lsipc.c:1557-1562`; campaign `version-provenance` decision | Open. Assert XSH banner independently. |
 | `test_lsipc_short_option_aliases_match_long_options` | Short and long aliases for global mode, IDs, names, output, rendering, and value options | `lsipc.c:1381-1421` | Open. Compare exact output for each spelling. |
 | `test_lsipc_rejects_unknown_and_inapplicable_columns` | Unknown and inapplicable columns, default-only POSIX columns, global summary range, and empty/leading/repeated output separators | `lsipc.c:223-243,1526-1535` | Open. Stable input. |
+| `test_lsipc_output_column_capacity_matches_reference` | The parser accepts 74 repeated columns and silently rejects the 75th | `lsipc.c:223-243`; `columns[ARRAY_SIZE(coldescs) * 2]` | Open. Stable input. |
 | `test_lsipc_rejects_unknown_time_format` | Invalid time formats, status, and diagnostics | `lsipc.c:273-290` | Open. Stable input. |
 | `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, malformed decimal IDs, signed 32-bit overflow diagnostics, and parser errors before later help | `lsipc.c:1381-1455`; `strutils.c:311-410` | Open. Compare exact diagnostics and status. |
 | `test_lsipc_rejects_each_exclusive_option_pair` | Every pair in the four source-defined exclusivity groups | `lsipc.c:1415-1420` | Open. Stable input. |
@@ -135,6 +138,22 @@ tables and query each selected ID.
 | `test_lsipc_collectors_leave_registered_resources_unchanged` | IDs, names, permissions, sizes, values, counters, and timestamps remain unchanged after each collector | `lsipc.c:1370-1666`; all six collectors | Open. Keeper state snapshots required. |
 | `test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them` | The reference sees each registered ID or reported name, leaves every seeded state unchanged, and sees no record after successful release | `lsipc.c:559-563,823-827,958-965,1094-1097,1265-1272,1661-1666`; all six collectors | Guarded reference-only proof passed; candidate comparison remains open. |
 | `test_lsipc_keeper_cancellation_removes_registered_resources` | `SIGTERM` cleanup removes only the keeper's six registered resource classes | fixture cleanup handlers; `ipcutils.c:131-714` | Guarded reference-only cancellation proof passed; candidate comparison remains open. |
+
+## Linux IPC observer APIs
+
+The shared keeper also supplies the live resources used to verify the read-only
+Linux IPC APIs. The observer fixture repeats each call eight times as the
+resource owner and as the second UID with all capabilities dropped. Successful
+values and System V semaphore element fields are compared with the registered
+keeper snapshot, including nonzero System V element values 2 and 3;
+private-object permission errors must remain `EACCES`. Each
+child compares its descriptor count before and after the calls. The test then
+checks that all three API families report the expected missing-resource errno
+after the keeper releases its exact registry.
+
+| Native selector | Behavior under test | Disposition |
+|---|---|---|
+| `test_linux_ipc_readers_match_live_state_permissions_and_descriptor_lifecycle` | POSIX semaphore value, POSIX queue message count, System V semaphore value/wait counts/last PID, owner and observer permissions, unchanged keeper state, closed API handles, and missing resources after release | Open. Guarded actual API check required. |
 
 Permission visibility follows each collector: System V collectors read procfs
 records, POSIX shared memory reads directory metadata, and POSIX semaphore and
@@ -150,7 +169,8 @@ only observed PID or ID variation in the comparison rules.
 The fixture snapshot also checks the seeded kernel state before any parity
 case: queue message counts, byte use, sender and receiver PIDs and times;
 shared-memory size, attachment count, creator and last-operation PIDs and
-times; semaphore count, values and operation time; POSIX queue count and times;
+times; semaphore count, values, waiter counts, last-operation PIDs and
+operation time; POSIX queue count and times;
 POSIX shared-memory owner, mode, size and times; and POSIX semaphore owner,
 mode, value and times. The shared-memory command-column case checks the live
 keeper PID and path.
