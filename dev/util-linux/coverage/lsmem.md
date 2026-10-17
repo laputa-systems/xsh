@@ -45,12 +45,13 @@ matrix is only a baseline; it does not cover the complete option surface.
 Every applet comparison runs the reference and XSH candidate against the same
 temporary scene. The `sparse` fixture uses a 4 KiB block size and an offline
 first block, which conflict with the live host values. It includes a gap in
-block numbers, numeric ordering (`memory2` before `memory10`), a missing state
-and removable attribute, malformed state/removable/zone contents, an internal
-state symlink, and the `nodeN` symlinks used by sysfs. The `malformed-block-size`
-fixture also exercises invalid block-size text; `missing-block-size` exercises
-the required-file error. An empty scene is passed as `--sysroot` to ensure a
-missing sysfs tree cannot fall back to host memory.
+block numbers, numeric ordering (`memory2` before `memory10`), adjacent blocks
+that differ by state, node, or zone, a missing state and removable attribute,
+malformed state/removable/zone contents, an internal state symlink, and the
+`nodeN` symlinks used by sysfs. The `malformed-block-size` fixture also
+exercises invalid block-size text; `missing-block-size` exercises the
+required-file error. An empty scene is passed as `--sysroot` to ensure a missing
+sysfs tree cannot fall back to host memory.
 
 The `configured` fixture has system and firmware memory entries, both configured
 and unconfigured blocks, per-block memmap values, node and zone data, and a
