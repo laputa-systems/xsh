@@ -1,0 +1,509 @@
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report.xsh:309:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report.xsh:2189:20
+    var class_keys = set.empty()
+                     ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report.xsh:2220:21
+    var sensor_keys = set.empty()
+                      ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report.xsh:2287:19
+    var idle_keys = set.empty()
+                    ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/sys_block.xsh:124:22
+    var listed_names = set.empty()
+                       ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/sys_mem.xsh:230:20
+    var seen_names = set.empty()
+                     ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/sys_mem.xsh:231:25
+    var duplicate_names = set.empty()
+                          ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/sys_mem.xsh:246:29
+    var recorded_duplicates = set.empty()
+                              ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/sys_mount.xsh:145:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/sys_mount.xsh:210:23
+    var captured_keys = set.empty()
+                        ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report_collect.xsh:110:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report_live.xsh:1094:29
+      var seen_trip_indices = set.empty()
+                              ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report_live.xsh:1773:22
+    var seen_modules = set.empty()
+                       ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report_live.xsh:3601:20
+    var seen_swaps = set.empty()
+                     ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report_live.xsh:4310:27
+        var seen_cpu_stat = set.empty()
+                            ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report_live.xsh:4311:32
+        var duplicate_cpu_stat = set.empty()
+                                 ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report_live.xsh:4505:29
+        var seen_io_devices = set.empty()
+                              ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report_live.xsh:4506:34
+        var duplicate_io_devices = set.empty()
+                                   ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report_live.xsh:4540:30
+          var seen_io_fields = set.empty()
+                               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/core/lib/system_report_live.xsh:4541:35
+          var duplicate_io_fields = set.empty()
+                                    ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:2613:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:2636:21
+    var present_set = set.empty()
+                      ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:2646:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:2679:23
+    var reference_set = set.empty()
+                        ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:2680:23
+    var candidate_set = set.empty()
+                        ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:2845:16
+      var seen = set.empty()
+                 ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:2991:18
+    var seen_cpu = set.empty()
+                   ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:3001:19
+      var seen_id = set.empty()
+                    ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:3189:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:4320:17
+    var matched = set.empty()
+                  ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:7237:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:8468:24
+    var reference_seen = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:8478:24
+    var candidate_seen = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:8021:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:8589:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:8768:15
+    var names = set.empty()
+                ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:9330:15
+    var kinds = set.empty()
+                ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:9344:20
+        var fields = set.empty()
+                     ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:9713:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:9754:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:9897:24
+    var reference_seen = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:9945:24
+    var candidate_seen = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:10075:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:10210:20
+    var references = set.empty()
+                     ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:11922:13
+    var ids = set.empty()
+              ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:11923:15
+    var names = set.empty()
+                ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:11951:23
+        var flag_seen = set.empty()
+                        ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:12015:23
+    var reference_ids = set.empty()
+                        ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:12440:20
+    var interfaces = set.empty()
+                     ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:12441:20
+    var identities = set.empty()
+                     ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:12545:30
+    var candidate_links_seen = set.empty()
+                               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:12571:24
+    var reference_keys = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:12626:20
+    var seen_links = set.empty()
+                     ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:12657:21
+    var seen_before = set.empty()
+                      ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:12868:14
+    var keys = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:12994:24
+    var candidate_keys = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:13120:24
+    var reference_keys = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:13412:14
+    var keys = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:13573:24
+    var candidate_keys = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:13695:24
+    var reference_keys = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:13774:19
+    var edge_seen = set.empty()
+                    ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:13975:25
+    var reference_edges = set.empty()
+                          ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:13980:25
+    var candidate_edges = set.empty()
+                          ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:13986:24
+        var slave_seen = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:13987:25
+        var holder_seen = set.empty()
+                          ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:14097:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:14170:24
+    var candidate_seen = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:14916:25
+    var candidate_edges = set.empty()
+                          ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:14962:25
+    var reference_edges = set.empty()
+                          ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:15278:24
+    var candidate_seen = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:15542:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:15830:24
+    var candidate_seen = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:15728:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:15956:18
+        var seen = set.empty()
+                   ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:16069:22
+    var expected_ids = set.empty()
+                       ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:16074:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:16159:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:16200:18
+    var raw_seen = set.empty()
+                   ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:16285:24
+    var candidate_seen = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:16624:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:18483:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:18521:17
+    var devices = set.empty()
+                  ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:18537:25
+        var seen_fields = set.empty()
+                          ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:19128:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:19240:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:4869:22
+    var changed_seen = set.empty()
+                       ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:6472:23
+    var changing_seen = set.empty()
+                        ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:7815:21
+    var gauge_paths = set.empty()
+                      ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:10844:20
+    var seen_zones = set.empty()
+                     ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:10860:22
+      var seen_trips = set.empty()
+                       ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:11157:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:11233:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:12221:22
+    var seen_indices = set.empty()
+                       ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:12222:20
+    var seen_names = set.empty()
+                     ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:14341:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:14634:16
+    var listed = set.empty()
+                 ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:14641:19
+    var edge_seen = set.empty()
+                    ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:15157:22
+    var changed_seen = set.empty()
+                       ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:19017:22
+    var changed_seen = set.empty()
+                       ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:19796:24
+    var selected_names = set.empty()
+                         ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:19801:23
+    var skipped_names = set.empty()
+                        ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/xsh/dev/system_report_check.xsh:19822:19
+    var seen_pids = set.empty()
+                    ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+xsht check: 10 files in 1.28s (thread time by stage: discover 0.00s, load 0.10s, check 1.32s, lower 0.19s)

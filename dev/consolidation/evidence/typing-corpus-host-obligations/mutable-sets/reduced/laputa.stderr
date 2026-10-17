@@ -1,0 +1,35 @@
+err[check.local-inference]: the empty set needs an element type
+  /views/laputa/pm/recipe.xsh:55:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/laputa/pm/recipe.xsh:71:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/laputa/pm/recipe.xsh:140:27
+    var architecture_seen = set.empty()
+                            ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/laputa/pm/recipe.xsh:158:23
+    var checksum_seen = set.empty()
+                        ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/laputa/pm/recipe.xsh:223:14
+    var seen = set.empty()
+               ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/laputa/pm/catalog.xsh:32:21
+    var local_names = set.empty()
+                      ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+
+err[check.local-inference]: the empty set needs an element type
+  /views/laputa/pm/catalog.xsh:92:18
+    var excluded = set.empty()
+                   ^^^^^^^^^^^ annotate the binding as `Set[T]`, or write this where a `Set[T]` is expected
+xsht check: 1 file in 0.07s (thread time by stage: discover 0.00s, load 0.01s, check 0.06s)

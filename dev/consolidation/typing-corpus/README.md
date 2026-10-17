@@ -245,8 +245,8 @@ behavior qualification has run for this copy.
 
 The required compiler is the isolated Set source `7491228ab`, based on the
 accepted host-obligation source without the pending generic-body changes.
-Qualified product hashes are pending. The old accepted pair is untouched and
-must not be used to claim Set qualification. New runner bindings must hold this
+The first qualified Set products reject the reduced corpus as recorded below.
+The old accepted pair is untouched and supplies no Set qualification. New runner bindings must hold this
 source and the actual qualified product hashes, preserve both view digests on
 failure, and retain exact container cleanup and native-lock ownership checks.
 The next approved execution is all eleven annotated and reduced ordinary
@@ -274,3 +274,28 @@ Sets, and a shadowed `set` binding. Their rejection expectations remain in force
 The positive case fixes the element type through branch and loop writes and
 asserts alias visibility, the empty result, deduplication and insertion order.
 Corpus removals neither replace those tests nor broaden their grammar.
+
+
+The first bounded Set check is red. The annotated original checks all ten XSH
+roots and the Laputa root successfully, including ordinary lowering. Both reduced
+batches exit 2 with 102 XSH and seven Laputa empty-Set inference diagnostics. The
+[raw Set attempt](../evidence/typing-corpus-host-obligations/mutable-sets/)
+retains the exact runner, original and reduced outputs, statuses, source and
+product guards, view digests and container cleanup. No native test ran.
+
+The frozen compiler source is `7491228abdfd77e4be502247675b08682cbf16b8`.
+Its tree and clean status, all three qualified binary hashes and both complete
+view digests match before and after execution. Both owned containers are absent.
+The attempt wrapper also uses `1 files` where the actual summary says `1 file`.
+That matcher error is preserved. It does not change the original exit-0 and
+reduced exit-2 compiler results, and no passing wrapper result is claimed.
+
+Source inspection identifies an initializer admission defect. `check_binding_arena`
+checks `set.empty()` before calling `infer_local_binding`. Without an existing
+binding expectation, the empty Set constructor emits a diagnostic and returns
+`Unknown`. The new Set seed then requires that ordinary result to be `Set`, so it
+returns before creating the inference variable. Empty List admission has a
+container-shaped ordinary result instead. The Set owner has the failure and
+this trace. An initializer seed must carry correct binding, shadowing and element
+domain authority before constructor checking. Restoring the 109 annotations
+would hide this defect. The 986 count remains planned and unqualified.
