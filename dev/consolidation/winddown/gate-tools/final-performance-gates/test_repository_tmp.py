@@ -201,10 +201,16 @@ def test_forced_frames_records_the_yielded_tmp_in_receipt_and_command():
         ):
             assert forced.run(args) == 0
         receipt = json.loads((output / "receipt.json").read_text(encoding="utf-8"))
-        repository_tmp = Path(receipt["environment"]["TMPDIR"])
+        repository_tmp_volume = next(
+            receipt["docker_command"]["argv"][index + 1]
+            for index, argument in enumerate(receipt["docker_command"]["argv"][:-1])
+            if argument == "-v" and receipt["docker_command"]["argv"][index + 1].endswith(":/t:rw")
+        )
+        repository_tmp = Path(repository_tmp_volume.removesuffix(":/t:rw"))
         assert repository_tmp.parent == root / ".work/tmp"
         assert repository_tmp.name.startswith(f"forced-frames-{receipt['run_id']}-")
-        assert any(argument == f"TMPDIR={repository_tmp}" for argument in receipt["docker_command"]["argv"])
+        assert receipt["environment"]["TMPDIR"] == "/t"
+        assert [argument for argument in receipt["docker_command"]["argv"] if argument.startswith("TMPDIR=")] == ["TMPDIR=/t"]
         assert not repository_tmp.exists()
 
 

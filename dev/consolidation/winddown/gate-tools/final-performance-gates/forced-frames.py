@@ -342,6 +342,8 @@ def container_command(
         "-v",
         f"{tree}:{tree}",
         "-v",
+        f"{repository_tmp}:/t:rw",
+        "-v",
         f"{work}:{work}",
         "-v",
         f"{git_common}:{git_common}:ro",
@@ -356,7 +358,7 @@ def container_command(
         "-e",
         "TZ=UTC",
         "-e",
-        f"TMPDIR={repository_tmp}",
+        "TMPDIR=/t",
         "-e",
         f"XSH_BIN={xsh}",
         "-e",
@@ -674,7 +676,7 @@ def run(args: argparse.Namespace) -> int:
             "XSH_BIN": str(Path(profile["directory"]) / "xsh"),
             "PATH_prefix": profile["directory"],
             "XSH_LAPUTA_CORPUS": str(laputa_corpus),
-            "TMPDIR": str(repository_tmp),
+            "TMPDIR": "/t",
             "network": "none",
             "cpuset_cpus": cpus,
             "cpu_limit": CPU_LIMIT,
@@ -686,7 +688,6 @@ def run(args: argparse.Namespace) -> int:
     }
     output_created = False
     with native_suite_lock(), ensure_repository_tmp(repository_tmp) as repository_tmp:
-        receipt["environment"]["TMPDIR"] = str(repository_tmp)
         previous_handlers = install_signal_handlers()
         try:
             output.mkdir(mode=0o755)

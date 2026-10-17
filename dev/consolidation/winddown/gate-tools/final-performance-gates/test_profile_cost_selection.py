@@ -67,6 +67,8 @@ def test_profile_build_context_has_no_baseline_xsh_dependency():
 
         assert not any("baseline-bin" in argument for argument in command)
         assert not any(argument.startswith("XSH_BIN=") for argument in command)
+        assert f"{tree / '.work/tmp/container'}:/t:rw" in command
+        assert [argument for argument in command if argument.startswith("TMPDIR=")] == ["TMPDIR=/t"]
         path = next(
             argument.removeprefix("PATH=")
             for argument in command
@@ -145,8 +147,10 @@ def run_profile_cost(tree, output, close_record, commit, *, artifacts_only=False
         command = [
             "docker",
             "run",
+            "-v",
+            f"{repository_tmp}:/t:rw",
             "-e",
-            f"TMPDIR={repository_tmp}",
+            "TMPDIR=/t",
             "-e",
             f"CARGO_TARGET_DIR={target_dir}",
             "-e",
@@ -236,10 +240,14 @@ def test_profile_cost_emits_only_the_selected_release_profile():
         assert selected["native_suite_command"][-1] == "test"
         assert selected["native_suite_command"][-2].endswith("/opt3/target/x86_64-unknown-linux-musl/release/xsht")
         assert any(argument.startswith("XSH_BIN=") for argument in selected["native_suite_command"])
-        build_tmp = next(argument.removeprefix("TMPDIR=") for argument in selected["build"]["command"] if argument.startswith("TMPDIR="))
-        test_tmp = next(argument.removeprefix("TMPDIR=") for argument in selected["native_suite"]["command"] if argument.startswith("TMPDIR="))
+        build_tmp_volume = next(argument for argument in selected["build"]["command"] if argument.endswith(":/t:rw"))
+        test_tmp_volume = next(argument for argument in selected["native_suite"]["command"] if argument.endswith(":/t:rw"))
+        build_tmp = Path(build_tmp_volume.removesuffix(":/t:rw"))
+        test_tmp = Path(test_tmp_volume.removesuffix(":/t:rw"))
         assert build_tmp == test_tmp
-        assert not Path(build_tmp).exists()
+        assert not build_tmp.exists()
+        assert [argument for argument in selected["build"]["command"] if argument.startswith("TMPDIR=")] == ["TMPDIR=/t"]
+        assert [argument for argument in selected["native_suite"]["command"] if argument.startswith("TMPDIR=")] == ["TMPDIR=/t"]
         receipt_path = output / "receipt.json"
         assert forced.load_profile(receipt_path, tree, commit, receipt["source_identity"])["name"] == "release-opt3"
         with patch.object(observer, "source_identity", return_value=receipt["source_identity"]):
