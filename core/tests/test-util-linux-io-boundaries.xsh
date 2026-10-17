@@ -150,8 +150,8 @@ test test_util_linux_stdout_and_stderr_write_failures_match_reference { |ctx|
   ]
   var write_mismatches: List[Str] = []
   for command in commands {
-    write_mismatches.extend(output_failure_mismatches(s, command.util, command.args, "stdout")?)
-    write_mismatches.extend(output_failure_mismatches(s, command.util, command.error_args, "stderr")?)
+    write_mismatches += output_failure_mismatches(s, command.util, command.args, "stdout")?
+    write_mismatches += output_failure_mismatches(s, command.util, command.error_args, "stderr")?
   }
   assert write_mismatches.is_empty(), write_mismatches.join("\n")
   for command in commands {
