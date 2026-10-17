@@ -1,0 +1,2 @@
+with -N: eof_before_telnet=True reply=empty timed_out=False status=0 stdout=fffd01fffb03 stderr=b''
+without -N: eof_before_telnet=False reply=fffc01fffe03 timed_out=False status=0 stdout=fffd01fffb03 stderr=b''

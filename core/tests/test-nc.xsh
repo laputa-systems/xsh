@@ -556,21 +556,30 @@ test test_nc_answers_telnet_negotiation { |ctx|
   let server = tcp_listener()?
   defer unix.close_fd(server.fd)
   let root = test.temp_dir(ctx, name: "nc-telnet")?
-  let handle = spawn nc_command(ctx, root, "client", ["-t", "-n", "-N", "127.0.0.1", f"{server.port}"])?
+  let handle = spawn nc_command(ctx, root, "client", ["-t", "-n", "127.0.0.1", f"{server.port}"])?
   wait_readable(server.fd)
   let accepted = linux.accept(server.fd)?
-  # IAC DO 1, then IAC WILL 3: refused with WONT and DONT.
-  send_all(accepted.fd, bytes.from_ints([255, 253, 1, 255, 251, 3])?)
-  let reply = unix.poll_fd(accepted.fd, ["readable"], 10000)?
-  assert ! reply.is_empty()
-  var got = b""
-  while got.len() < 6 {
-    got = bytes.concat([got, unix.read_fd(accepted.fd, 6)?])
+  let requests = bytes.from_ints([255, 253, 1, 255, 251, 3])?
+  let refusals = bytes.from_ints([255, 252, 1, 255, 254, 3])?
+  let got = {
+    defer unix.close_fd(accepted.fd)
+    send_all(accepted.fd, requests)
+    let started = time.now()
+    var received = b""
+    while received.len() < refusals.len() {
+      let remaining = 10000 - (time.now() - started)
+      assert remaining > 0, "timed out waiting for TELNET negotiation reply"
+      let events = unix.poll_fd(accepted.fd, ["readable"], remaining)?
+      assert ! events.is_empty(), "timed out waiting for TELNET negotiation reply"
+      let chunk = unix.read_fd(accepted.fd, refusals.len() - received.len())?
+      assert ! chunk.is_empty(), "peer closed before TELNET negotiation reply"
+      received = bytes.concat([received, chunk])
+    }
+    received
   }
-  assert got == bytes.from_ints([255, 252, 1, 255, 254, 3])?
-  unix.close_fd(accepted.fd)
+  assert got == refusals
   let ran = finished(root, "client", wait handle?)?
-  assert ran.stdout == bytes.from_ints([255, 253, 1, 255, 251, 3])?
+  assert ran.stdout == requests
 }
 
 test test_nc_binds_the_requested_source_port { |ctx|
