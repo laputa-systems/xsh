@@ -589,6 +589,17 @@ test test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes { |ctx
   let trailing_comma = run_both(s, ["--queues", "--output", "ID,"])?
   ul.compare(trailing_comma.reference, trailing_comma.candidate)
   assert trailing_comma.candidate.status == 0
+
+  let abbreviated_columns = run_both(s, ["--queues", "--output", "ke,ms"])?
+  ul.compare(abbreviated_columns.reference, abbreviated_columns.candidate)
+  assert abbreviated_columns.candidate.status == 0
+
+  let ambiguous_prefix = run_both(s, ["--queues", "--output", "C"])?
+  let first_matching_column = run_both(s, ["--queues", "--output", "CUID"])?
+  ul.compare(ambiguous_prefix.reference, ambiguous_prefix.candidate)
+  ul.compare(first_matching_column.reference, first_matching_column.candidate)
+  assert ambiguous_prefix.candidate.status == 0
+  assert ambiguous_prefix.candidate.stdout == first_matching_column.candidate.stdout
   release_keeper(fixture.handle)?
 }
 
