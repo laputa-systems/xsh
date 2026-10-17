@@ -306,7 +306,7 @@ proc posix_entries(kind: Str, selection: report.Selection) [fs, time, env, error
       return []
     }
   }
-  let found = fs.children(directory)
+  let found = fs.children(directory, ordered: false)
   if let Err(_) = found {
     if kind == "posix_mqueues" { gnu.error("cannot open /dev/mqueue") } else { gnu.error("cannot open /dev/shm") }
     return []
