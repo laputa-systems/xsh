@@ -767,14 +767,16 @@ pure cell_display_width(value: Str, column: Str) -> Int {
 pure table_width(columns: List[Str], rows: List[List[Str]], headings: Bool) -> List[Int] {
   collect {
     for index in range(columns.len()) {
-      var width = if headings { tui.cell_width(columns[index]) } else { 0 }
+      let header_width = tui.cell_width(columns[index])
+      var width = if headings { header_width } else { 0 }
       for row in rows {
         let measured = cell_display_width(row[index], columns[index])
         if measured > width { width = measured }
       }
-      let minimum = match columns[index] {
+      let minimum = if headings and header_width > 0 { header_width } else { 1 }
+      let hint = match columns[index] {
         "COMMAND" => 15
-        "PID" => 3
+        "PID" => 5
         "TYPE" | "INODE" => 5
         "SIZE" => 4
         "MAJ:MIN" => 6
@@ -783,7 +785,13 @@ pure table_width(columns: List[Str], rows: List[List[Str]], headings: Bool) -> L
         "START" | "END" => 10
         else => 0
       }
-      yield if minimum > width { minimum } else { width }
+      yield if width <= minimum {
+        minimum
+      } else if hint > 0 and width < hint and minimum < hint {
+        hint
+      } else {
+        width
+      }
     }
   }
 }
