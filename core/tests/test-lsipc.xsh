@@ -969,8 +969,14 @@ test test_lsipc_visibility_matches_for_owner_and_unprivileged_observer { |ctx|
     let observer = run_both_as_user(s, [mode.selector], 10002)?
     ul.compare(observer.reference, observer.candidate)
     assert observer.candidate.status == 0, f"observer {mode.selector}"
-    assert observer.candidate.stdout != b"", f"observer {mode.selector}"
-    if mode.kind in ["posix_mqueue", "posix_semaphore"] {
+    if mode.kind == "posix_semaphore" {
+      assert observer.reference.stdout == b""
+      assert observer.candidate.stdout == b""
+      assert owner.candidate.stdout != observer.candidate.stdout, mode.selector
+    } else {
+      assert observer.candidate.stdout != b"", f"observer {mode.selector}"
+    }
+    if mode.kind == "posix_mqueue" {
       assert owner.candidate.stdout != observer.candidate.stdout, mode.selector
     }
   }

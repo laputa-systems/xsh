@@ -168,10 +168,11 @@ after the keeper releases its exact registry.
 | `test_linux_ipc_readers_match_live_state_permissions_and_descriptor_lifecycle` | POSIX semaphore value, POSIX queue message count, System V semaphore value/wait counts/last PID, owner and observer permissions, unchanged keeper state, closed API handles, and missing resources after release | Open. Guarded actual API check required. |
 
 Permission visibility follows each collector: System V collectors read procfs
-records, POSIX shared memory reads directory metadata, and POSIX semaphore and
-message-queue collectors attempt read access to each object. Exercise both
-UIDs and compare against the reference rather than assuming one rule applies
-to every resource class.
+records, POSIX shared memory reads directory metadata, and POSIX message queues
+open each object read-only. The POSIX semaphore collector calls `sem_open`
+without write permission, so a read-only observer skips the semaphore even
+when its mode includes public read bits. Exercise both UIDs and compare against
+the reference rather than assuming one rule applies to every resource class.
 
 Use `LC_ALL=C` and `TZ=UTC` for case runs. Preserve exact stdout and stderr
 bytes. Keep JSON structural assertions beside raw comparisons. Do not sort
