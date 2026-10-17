@@ -202,12 +202,12 @@ proc block_size_value(text: Bytes) [process, env, error] -> U64 {
     let low = number.low * 16 + value
     let carry = low / WORD_BASE
     let high = number.high * 16 + carry
-    if high > WORD_MAX { fail("failed to read memory block size"); return {high: 0, low: 0} }
+    if high > WORD_MAX { fail("failed to read memory block size: Result not representable"); return {high: 0, low: 0} }
     number = {high: high as Word32, low: (low % WORD_BASE) as Word32}
     found = true
     position += 1
   }
-  return {high: 0, low: 0} when ! found
+  if ! found { fail("failed to read memory block size"); return {high: 0, low: 0} }
   if negative and (number.high != 0 or number.low != 0) {
     number = u64_add_small({high: (WORD_MAX - number.high) as Word32, low: (WORD_MAX - number.low) as Word32}, 1)
   }
@@ -613,6 +613,7 @@ proc block_value(inventory: Inventory, block: Block, column: Str, byte_mode: Boo
 
 proc block_json_value(inventory: Inventory, block: Block, column: Str, byte_mode: Bool) [error] -> Str? {
   if column == "REMOVABLE" { return if block.state == "online" and block.removable { "true" } else { "false" } }
+  if column == "ZONES" and inventory.have_zones and block.zones.is_empty() { return null }
   let value = block_value(inventory, block, column, byte_mode)
   if value == null { return null }
   let text = value ?? ""
