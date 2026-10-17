@@ -1,0 +1,188 @@
+{
+  "environment": {
+    "cargo_lock_timeout_seconds": 900,
+    "cleanup_command_timeout_seconds": 10,
+    "cleanup_self_test_sha256": "51064ce454b3db149864ac66c92c66a44038e9d7b97cc6b6e102c943c8b52209",
+    "cleanup_verification": "docker ps --all must succeed and return no container matching the cidfile ID",
+    "container_cpus": 12,
+    "container_memory": "24g",
+    "container_swap": "disabled",
+    "final_runner_sha256": "aa156085c8beb4023660f6191ff16bb2c5bb4d6f94835691dc623313507962ce",
+    "image": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+    "launch_sha256": "1fe5c448252b89d9f89928b6857e4a532158968ff20d3b2f7c77f41f22169bbd",
+    "manifest_generator_sha256": "33a467fbb516650d8e91707e623fa393ff573b16599b3240fcb598e18840563d",
+    "manifest_source_sha256": "0b4699c2f2844b7fabf6439e966277d967316ebdd6288198d81a649ef01be82d",
+    "native_cleanup_marker_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.cleanup-unresolved",
+    "native_lock_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock",
+    "native_lock_scope": "acquired before product, harness, Clippy and supplemental context runs",
+    "native_runner_base_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/run-native.sh",
+    "native_runner_base_sha256": "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15",
+    "runner_kill_timeout_seconds": 5,
+    "runner_term_timeout_seconds": 5,
+    "runtime_cargo_forwarder_sha256": "a60824f4354a8f6b1b62d34c7c82b9a14e2d49c2c4efd31b7d2b7c52087f4e73",
+    "runtime_rustc_wrapper_sha256": "ad726243b5d92b126b7f457dc0055391b911c1a51f284ec589c25f5354068af4",
+    "target": "x86_64-unknown-linux-musl"
+  },
+  "focused_native_files": [],
+  "launcher_self_tests": [
+    {
+      "path": "dev/consolidation/winddown/gate-tools/final-correctness-gates/test_launcher_cleanup.py"
+    }
+  ],
+  "linux_context_runs": [
+    {
+      "filter": "",
+      "harness": "core-compat-boundaries",
+      "memory": "4g",
+      "network": "none",
+      "privileged": false,
+      "skip_filter": "split::"
+    },
+    {
+      "filter": "",
+      "harness": "core-compat-extra",
+      "memory": "4g",
+      "network": "none",
+      "privileged": false,
+      "skip_filter": "split::"
+    },
+    {
+      "cpus": "0.01",
+      "filter": "split::",
+      "harness": "core-compat-extra",
+      "memory": "1g",
+      "network": "none",
+      "privileged": false
+    },
+    {
+      "filter": "cp::privileged::test_cp_recursive_block_device_",
+      "harness": "core-compat-extra-privileged",
+      "memory": "1g",
+      "network": "none",
+      "privileged": true
+    },
+    {
+      "argv": [
+        "test",
+        "core/tests/test-traceroute.xsh",
+        "-j",
+        "1"
+      ],
+      "binary": "xsht",
+      "id": "traceroute-unprivileged",
+      "memory": "1g",
+      "network": "none",
+      "privileged": false,
+      "user": "1000:1000"
+    }
+  ],
+  "native_extra": [],
+  "non_goals": [
+    "No broad Rust or native test loops beyond the five isolated Linux contexts.",
+    "The canonical batch owns the full native suite and docs gate.",
+    "No performance claim is derived from this correctness gate."
+  ],
+  "plan_status": "approved",
+  "product_variants": {
+    "verification": {
+      "binaries": [
+        "xsh",
+        "xsht",
+        "xshi",
+        "xsh-fuzz",
+        "xsh-test-helper"
+      ],
+      "profile": "verification",
+      "target_variant": "products"
+    }
+  },
+  "products": [
+    [
+      "cargo",
+      "build",
+      "--locked",
+      "--offline",
+      "--profile",
+      "verification",
+      "--target",
+      "x86_64-unknown-linux-musl",
+      "-p",
+      "xsh",
+      "-p",
+      "xsht",
+      "-p",
+      "xshi",
+      "-p",
+      "xsh-fuzz",
+      "--bins",
+      "--message-format=json"
+    ]
+  ],
+  "rust_harness_builds": [
+    {
+      "args": [
+        "-p",
+        "xsh",
+        "--test",
+        "core_compat_boundaries"
+      ],
+      "id": "core-compat-boundaries",
+      "profile": "verification",
+      "target_variant": "harness",
+      "targets": [
+        "core_compat_boundaries"
+      ]
+    },
+    {
+      "args": [
+        "-p",
+        "xsh",
+        "--test",
+        "core_compat_extra"
+      ],
+      "id": "core-compat-extra",
+      "profile": "verification",
+      "target_variant": "harness",
+      "targets": [
+        "core_compat_extra"
+      ]
+    },
+    {
+      "args": [
+        "-p",
+        "xsh",
+        "--test",
+        "core_compat_extra_privileged",
+        "--features",
+        "linux-priv-tests"
+      ],
+      "id": "core-compat-extra-privileged",
+      "profile": "verification",
+      "target_variant": "linux-priv",
+      "targets": [
+        "core_compat_extra_privileged"
+      ]
+    }
+  ],
+  "rust_harness_runs": [],
+  "source": {
+    "binding": "execution requires the supplied clean commit and tree"
+  },
+  "warning_deny": [
+    [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--offline",
+      "--workspace",
+      "--target",
+      "x86_64-unknown-linux-musl",
+      "--all-targets",
+      "--all-features",
+      "--quiet",
+      "--",
+      "-D",
+      "warnings"
+    ]
+  ]
+}
