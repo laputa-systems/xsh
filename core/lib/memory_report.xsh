@@ -10,6 +10,8 @@ const PARAMETER_PATH = "sys/module/memory_hotplug/parameters/memmap_on_memory"
 const COLUMN_NAMES = ["RANGE", "SIZE", "STATE", "REMOVABLE", "BLOCK", "NODE", "ZONES", "CONFIGURED", "MEMMAP-ON-MEMORY"]
 const DEFAULT_COLUMNS = ["RANGE", "SIZE", "STATE", "REMOVABLE", "BLOCK"]
 const ZONE_NAMES = ["DMA", "DMA32", "Normal", "Highmem", "Movable", "Device", "None", "Unknown"]
+const WORD_BASE: UInt = 4294967296
+const WORD_MAX: UInt = 4294967295
 
 ## Describes parsed lsmem options passed from the applet entry point.
 export type Options = {
@@ -44,11 +46,92 @@ export type Block = {
   memmap_on_memory: Bool,
 }
 
+## Stores one limb of an unsigned 64-bit sysfs value.
+export type Word32 = UInt range 0..=4294967295
+
+## Represents the unsigned 64-bit values read from the memory sysfs interface.
+export type U64 = {high: Word32, low: Word32}
+
+pure u64_add(left: U64, right: U64) -> U64 {
+  let low = (left.low as UInt) + (right.low as UInt)
+  let high = (left.high as UInt) + (right.high as UInt) + low / WORD_BASE
+  {high: (high % WORD_BASE) as Word32, low: (low % WORD_BASE) as Word32}
+}
+
+pure u64_add_small(value: U64, amount: UInt) -> U64 {
+  let low = (value.low as UInt) + amount
+  let high = (value.high as UInt) + low / WORD_BASE
+  {high: (high % WORD_BASE) as Word32, low: (low % WORD_BASE) as Word32}
+}
+
+pure u64_subtract_one(value: U64) -> U64 {
+  if value.low != 0 {
+    return {high: value.high, low: ((value.low as UInt) - 1) as Word32}
+  }
+  let high = if value.high == 0 { WORD_MAX } else { (value.high as UInt) - 1 }
+  {high: high as Word32, low: WORD_MAX as Word32}
+}
+
+pure u64_multiply_small(value: U64, factor: UInt) -> U64 {
+  let low = (value.low as UInt) * factor
+  let high = (value.high as UInt) * factor + low / WORD_BASE
+  {high: (high % WORD_BASE) as Word32, low: (low % WORD_BASE) as Word32}
+}
+
+pure u32_product_low(left: UInt, right: UInt) -> UInt {
+  let base: UInt = 65536
+  let left0 = left % base
+  let left1 = left / base
+  let right0 = right % base
+  let right1 = right / base
+  let product0 = left0 * right0
+  let cross = left0 * right1 + left1 * right0
+  (product0 + (cross % base) * base) % WORD_BASE
+}
+
+pure u64_multiply(left: U64, right: U64) -> U64 {
+  let base: UInt = 65536
+  let left_low = left.low as UInt
+  let left_high = left.high as UInt
+  let right_low = right.low as UInt
+  let right_high = right.high as UInt
+  let left0 = left_low % base
+  let left1 = left_low / base
+  let right0 = right_low % base
+  let right1 = right_low / base
+  let product0 = left0 * right0
+  let word0 = product0 % base
+  let carry0 = product0 / base
+  let product1 = left1 * right0 + left0 * right1 + carry0
+  let word1 = product1 % base
+  let carry1 = product1 / base
+  let product2 = left1 * right1 + carry1
+  let low = word0 + word1 * base
+  let high = (product2 % base) + (product2 / base) * base + u32_product_low(left_low, right_high) + u32_product_low(left_high, right_low)
+  {high: (high % WORD_BASE) as Word32, low: low as Word32}
+}
+
+pure u64_divide(value: U64, divisor: UInt) -> {quotient: U64, remainder: UInt} {
+  let high = value.high as UInt
+  let quotient_high = high / divisor
+  let high_remainder = high % divisor
+  let combined = high_remainder * WORD_BASE + (value.low as UInt)
+  {
+    quotient: {high: quotient_high as Word32, low: (combined / divisor) as Word32},
+    remainder: combined % divisor,
+  }
+}
+
+proc u64_from_int(value: Int) [error] -> U64 {
+  let number = value as UInt
+  {high: (number / WORD_BASE) as Word32, low: (number % WORD_BASE) as Word32}
+}
+
 ## Holds the rooted block inventory and totals used for rendering.
 export type Inventory = {
-  block_size: Int,
-  online_bytes: Int,
-  offline_bytes: Int,
+  block_size: U64,
+  online_bytes: U64,
+  offline_bytes: U64,
   have_nodes: Bool,
   have_zones: Bool,
   have_config: Bool,
@@ -93,23 +176,29 @@ pure hex_digit(value: Str) -> Int? {
   index
 }
 
-pure block_size_value(text: Str) -> Int {
+proc block_size_value(text: Str) [process, env] -> U64 {
   let value = text.trim().lower()
   let signed = value.starts_with("+") or value.starts_with("-")
   let body = if signed { value.byte_slice(1) } else { value }
   let digits = if body.starts_with("0x") { body.byte_slice(2) } else { body }
-  var number = 0
+  var number: U64 = {high: 0, low: 0}
   var found = false
   for digit in digits {
     if let value = hex_digit(digit) {
-      number = number * 16 + value
+      let low = (number.low as UInt) * 16 + value as UInt
+      let carry = low / WORD_BASE
+      let high = (number.high as UInt) * 16 + carry
+      if high > WORD_MAX { fail("failed to read memory block size"); return {high: 0, low: 0} }
+      number = {high: high as Word32, low: (low % WORD_BASE) as Word32}
       found = true
     } else {
       break
     }
   }
-  return 0 when ! found
-  if value.starts_with("-") { return 0 }
+  return {high: 0, low: 0} when ! found
+  if value.starts_with("-") and (number.high != 0 or number.low != 0) {
+    number = u64_add_small({high: (WORD_MAX - (number.high as UInt)) as Word32, low: (WORD_MAX - (number.low as UInt)) as Word32}, 1)
+  }
   number
 }
 
@@ -217,16 +306,16 @@ pure mergeable(current: Block, next: Block, inventory: Inventory, split: List[St
   true
 }
 
-proc inventory_blocks(root: FsRoot, entries: List[Entry], config_entries: List[Entry], block_size: Int, have_config: Bool, have_nodes: Bool, have_zones: Bool, split: List[Str], all: Bool, include_summary: Bool) [fs, process, env, error] -> Inventory {
+proc inventory_blocks(root: FsRoot, entries: List[Entry], config_entries: List[Entry], block_size: U64, have_config: Bool, have_nodes: Bool, have_zones: Bool, split: List[Str], all: Bool, include_summary: Bool) [fs, process, env, error] -> Inventory {
   var inventory: Inventory = {
-    block_size: block_size, online_bytes: 0, offline_bytes: 0,
+    block_size: block_size, online_bytes: {high: 0, low: 0}, offline_bytes: {high: 0, low: 0},
     have_nodes: have_nodes, have_zones: have_zones, have_config: have_config,
     memmap_parameter: null, blocks: [],
   }
   let selected = if have_config { config_entries } else { entries }
   for entry in selected {
     let block = block_attributes(root, entry, have_config, have_nodes, have_zones)
-    if block.state == "online" { inventory.online_bytes += block_size } else { inventory.offline_bytes += block_size }
+    if block.state == "online" { inventory.online_bytes = u64_add(inventory.online_bytes, block_size) } else { inventory.offline_bytes = u64_add(inventory.offline_bytes, block_size) }
     if ! inventory.blocks.is_empty() and mergeable(inventory.blocks[-1], block, inventory, split, all) {
       let previous = inventory.blocks[-1]
       inventory.blocks[-1] = {...previous, count: previous.count + 1}
@@ -249,7 +338,7 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
     Ok(metadata) => metadata
     Err(failure) => {
       fail(f"cannot open /sys/devices/system/memory: {gnu.strerror(failure)}")
-      return {block_size: 0, online_bytes: 0, offline_bytes: 0, have_nodes: false, have_zones: false, have_config: false, memmap_parameter: null, blocks: []}
+      return {block_size: {high: 0, low: 0}, online_bytes: {high: 0, low: 0}, offline_bytes: {high: 0, low: 0}, have_nodes: false, have_zones: false, have_config: false, memmap_parameter: null, blocks: []}
     }
   }
   if directory.kind != "dir" { fail("cannot open /sys/devices/system/memory: Not a directory") }
@@ -262,6 +351,7 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
       ""
     }
   }
+  if block_size_text == "" { fail("failed to read memory block size") }
   let block_size = block_size_value(block_size_text)
   let memory_paths = children(root, memory_path, "/sys/devices/system/memory")
   let entries = memory_entries(memory_paths)
@@ -412,43 +502,78 @@ pure wider(left: Int, right: Int) -> Int {
   if left > right { left } else { right }
 }
 
-pure range_text(block: Block, block_size: Int) -> Str {
-  let start = block.index * block_size
-  let size = block.count * block_size
-  let end = if size == 0 { -1 } else { start + size - 1 }
-  let start_hex = hex_value(start, 16)
-  let end_hex = if end < 0 { "ffffffffffffffff" } else { hex_value(end, 16) }
-  f"0x{start_hex}-0x{end_hex}"
+proc range_text(block: Block, block_size: U64) [error] -> Str {
+  let start = u64_multiply(u64_from_int(block.index), block_size)
+  let size = u64_multiply(block_size, u64_from_int(block.count))
+  let end = u64_subtract_one(u64_add(start, size))
+  f"0x{u64_hex(start)}-0x{u64_hex(end)}"
 }
 
-pure hex_value(value: Int, width: Int) -> Str {
+pure hex_value(value: UInt, width: Int) -> Str {
   var number = value
   var text = ""
   let digits = "0123456789abcdef"
-  while number > 0 { text = digits.byte_slice(number % 16, 1) + text; number /= 16 }
+  while number > 0 {
+    let digit: Int = number % 16
+    text = digits.byte_slice(digit, length: 1) + text
+    number /= 16
+  }
   while text.byte_len() < width { text = "0" + text }
   text
 }
 
-pure lsmem_size(value: Int) -> Str {
-  var unit = 1
-  var exponent = 0
-  while exponent < 6 and value / unit >= 1024 {
-    unit *= 1024
-    exponent += 1
-  }
-  var whole = value / unit
-  var tenths = if exponent == 0 { 0 } else { (value % unit / (unit / 1024) + 50) / 100 }
-  if tenths == 10 { whole += 1; tenths = 0 }
-  let letter = "BKMGTPE".byte_slice(exponent, length: 1)
-  if tenths > 0 { f"{whole}.{tenths}{letter}" } else { f"{whole}{letter}" }
+pure u64_hex(value: U64) -> Str {
+  hex_value(value.high as UInt, 8) + hex_value(value.low as UInt, 8)
 }
 
-pure block_value(inventory: Inventory, block: Block, column: Str, byte_mode: Bool) -> Str? {
-  let size = block.count * inventory.block_size
+pure u64_decimal(value: U64) -> Str {
+  if value.high == 0 and value.low == 0 { return "0" }
+  var number = value
+  var text = ""
+  while number.high != 0 or number.low != 0 {
+    let division = u64_divide(number, 10)
+    let digit: Int = division.remainder
+    text = "0123456789".byte_slice(digit, 1) + text
+    number = division.quotient
+  }
+  text
+}
+
+pure u64_signed_decimal(value: U64) -> Str {
+  if (value.high as UInt) < 2147483648 { return u64_decimal(value) }
+  let magnitude = u64_add_small({high: (WORD_MAX - (value.high as UInt)) as Word32, low: (WORD_MAX - (value.low as UInt)) as Word32}, 1)
+  "-" + u64_decimal(magnitude)
+}
+
+pure lsmem_size(value: U64) -> Str {
+  var whole = value
+  var exponent = 0
+  var fraction: U64 = {high: 0, low: 0}
+  var place: UInt = 1
+  while exponent < 6 and (whole.high != 0 or whole.low >= 1024) {
+    let division = u64_divide(whole, 1024)
+    whole = division.quotient
+    fraction = u64_add(fraction, u64_multiply_small({high: 0, low: division.remainder as Word32}, place))
+    place *= 1024
+    exponent += 1
+  }
+  var tenths = 0
+  if exponent > 0 {
+    var fractional_digit = fraction
+    for _ in range(exponent - 1) { fractional_digit = u64_divide(fractional_digit, 1024).quotient }
+    tenths = ((fractional_digit.low as UInt) + 50) / 100
+  }
+  if tenths == 10 { whole = u64_add_small(whole, 1); tenths = 0 }
+  let integer = u64_decimal(whole)
+  let letter = "BKMGTPE".byte_slice(exponent, length: 1)
+  if tenths > 0 { f"{integer}.{tenths}{letter}" } else { f"{integer}{letter}" }
+}
+
+proc block_value(inventory: Inventory, block: Block, column: Str, byte_mode: Bool) [error] -> Str? {
+  let size = u64_multiply_small(inventory.block_size, block.count as UInt)
   match column {
     "RANGE" => range_text(block, inventory.block_size)
-    "SIZE" => if byte_mode { f"{size}" } else { lsmem_size(size) }
+    "SIZE" => if byte_mode { u64_signed_decimal(size) } else { lsmem_size(size) }
     "STATE" => block.state
     "REMOVABLE" => if block.state == "online" { if block.removable { "yes" } else { "no" } } else { null }
     "BLOCK" => block_number(block)
@@ -481,7 +606,7 @@ pure pad_right(text: Str, width: Int) -> Str {
   text + spaces
 }
 
-pure table_text(inventory: Inventory, columns: List[Str], opts: Options) -> Str {
+proc table_text(inventory: Inventory, columns: List[Str], opts: Options) [error] -> Str {
   let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
   let rows = [[block_value(inventory, block, column, opts.bytes) ?? "" for column in shown] for block in inventory.blocks]
   var widths = [if column == "SIZE" { wider(column.byte_len(), 5) } else { column.byte_len()} for column in shown]
@@ -508,7 +633,7 @@ pure table_text(inventory: Inventory, columns: List[Str], opts: Options) -> Str 
   output
 }
 
-pure raw_text(inventory: Inventory, columns: List[Str], opts: Options) -> Str {
+proc raw_text(inventory: Inventory, columns: List[Str], opts: Options) [error] -> Str {
   let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
   var output = ""
   if ! opts.noheadings { output += shown.join(" ") + "\n" }
@@ -518,7 +643,7 @@ pure raw_text(inventory: Inventory, columns: List[Str], opts: Options) -> Str {
   output
 }
 
-pure pairs_text(inventory: Inventory, columns: List[Str], opts: Options) -> Str {
+proc pairs_text(inventory: Inventory, columns: List[Str], opts: Options) [error] -> Str {
   let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
   var output = ""
   for block in inventory.blocks {
@@ -556,8 +681,8 @@ proc json_text(inventory: Inventory, columns: List[Str], opts: Options) [error] 
   output
 }
 
-pure summary_value(value: Int, byte_mode: Bool) -> Str {
-  if byte_mode { return f"{value}" }
+pure summary_value(value: U64, byte_mode: Bool) -> Str {
+  if byte_mode { return u64_signed_decimal(value) }
   lsmem_size(value)
 }
 
