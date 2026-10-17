@@ -130,7 +130,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   if opts.show {
-    gnu.write_text(f"{mount.mounted_on.display()}\n")
+    gnu.write_bytes(bytes.concat([mount.mounted_on.bytes(), b"\n"]))
     return
   }
   if resolved != mount.mounted_on {
