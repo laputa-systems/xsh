@@ -303,7 +303,10 @@ proc run_both(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[
 }
 
 proc run_both_with_vars(s: uu.Scene, args: List[Str], vars: Record) [fs, process, env, error] -> Result[LsipcPair, Error] {
-  let reference = ul.reference(s, "lsipc", args, timeout: 5s, vars: vars)?
+  let reference = match ul.reference(s, "lsipc", args, timeout: 5s, vars: vars) {
+    Ok(result) => result,
+    Err(failure) => return Err(error.failure(f"lsipc reference argv {args.join(" ")}: {failure.message}"), cause: failure),
+  }
   let candidate = uu.invoke(s, "lsipc", args, vars: vars, timeout: 5s)?
   Ok({reference: reference, candidate: candidate})
 }
