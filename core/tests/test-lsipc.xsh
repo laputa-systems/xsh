@@ -794,6 +794,28 @@ test test_lsipc_id_and_name_select_registered_objects { |ctx|
   release_keeper(fixture.handle)?
 }
 
+test test_lsipc_id_option_order_controls_detail_columns { |ctx|
+  let s = uu.scene(ctx)?
+  let fixture = start_keeper(s, ["sysv_queue", "sysv_shmem", "sysv_semaphore"])?
+  defer ul.stop_keeper(fixture.handle)
+
+  for mode in RESOURCE_MODES[0..3] {
+    let resource = resource_of(fixture.ready, mode.kind)?
+    let id = f"{resource.id ?? -1}"
+    let id_last = run_both(s, [mode.selector, "--bytes", "--id", id])?
+    ul.compare(id_last.reference, id_last.candidate)
+    assert id_last.candidate.status == 0, mode.selector
+    assert id_last.candidate.stdout != b"", mode.selector
+
+    let flag_last = run_both(s, [mode.selector, "--id", id, "--bytes"])?
+    ul.compare(flag_last.reference, flag_last.candidate)
+    assert flag_last.candidate.status == 0, mode.selector
+    assert flag_last.candidate.stdout != b"", mode.selector
+    assert id_last.candidate.stdout != flag_last.candidate.stdout, mode.selector
+  }
+  release_keeper(fixture.handle)?
+}
+
 test test_lsipc_missing_ids_and_names_preserve_reference_status_and_diagnostics { |ctx|
   let s = uu.scene(ctx)?
   let fixture = start_keeper(s, RESOURCE_KINDS)?
