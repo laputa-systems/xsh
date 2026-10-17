@@ -660,7 +660,27 @@ test test_lsipc_exclusive_options_and_resource_selector_combinations_match_refer
     assert reversed.candidate.status == 0, f"rejected reversed resource selectors {args.join(" ")}"
     assert reversed.reference.stdout == accepted.reference.stdout, f"reference row order changed for {args.join(" ")}"
     assert reversed.candidate.stdout == accepted.candidate.stdout, f"candidate row order changed for {args.join(" ")}"
+
+    let json_output = run_both(s, args.extend(["--json"]))?
+    ul.compare(json_output.reference, json_output.candidate)
+    assert json_output.candidate.status == 0, f"rejected JSON resource selectors {args.join(" ")}"
+    let _ = json.decode(json_output.candidate.stdout.utf8() ?? "")?
+    let reversed_json = run_both(s, [args[1], args[0], "--json"])?
+    ul.compare(reversed_json.reference, reversed_json.candidate)
+    assert reversed_json.candidate.status == 0, f"rejected reversed JSON resource selectors {args.join(" ")}"
+    let _ = json.decode(reversed_json.candidate.stdout.utf8() ?? "")?
+    assert reversed_json.reference.stdout == json_output.reference.stdout, f"reference JSON table order changed for {args.join(" ")}"
+    assert reversed_json.candidate.stdout == json_output.candidate.stdout, f"candidate JSON table order changed for {args.join(" ")}"
   }
+
+  let sysv_columns_last = run_both(s, ["--posix-mqueues", "--queues", "--output", "MSGS"])?
+  ul.compare(sysv_columns_last.reference, sysv_columns_last.candidate)
+  assert sysv_columns_last.candidate.status == 0
+  let posix_columns_last = run_both(s, ["--queues", "--posix-mqueues", "--output", "MSGS"])?
+  ul.compare(posix_columns_last.reference, posix_columns_last.candidate)
+  assert posix_columns_last.candidate.status == 1
+  assert posix_columns_last.candidate.stdout == b""
+  assert posix_columns_last.candidate.stderr != b""
 
   release_keeper(fixture.handle)?
 }
