@@ -9,6 +9,7 @@ from pathlib import Path
 import re
 import signal
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -289,6 +290,23 @@ exec /usr/bin/python3 /work/core/tests/fixtures/util-linux/contexts/identity_kee
 '''
 
 
+def native_source(paths: list[str]) -> bytes:
+    if not paths or len(paths) > 8:
+        raise ValueError("source checks require one to eight explicit XSH files")
+    for name in paths:
+        if not re.fullmatch(r"(?:core|tests/xsh|dev)/[A-Za-z0-9_./-]+\.xsh", name) or ".." in Path(name).parts or not (ROOT / name).is_file():
+            raise ValueError(f"invalid source check path: {name}")
+    products = protected_products()
+    output = container("cd /work; " + shlex.join(["/products/xsht", "check", *paths]), mounts=[
+        f"type=bind,source={ROOT},target=/work,readonly",
+        f"type=bind,source={products},target=/products,readonly",
+    ], timeout=30)
+    protected_products()
+    print(output.decode("utf-8"), end="")
+    print("source check passed: " + " ".join(paths))
+    return output
+
+
 def native_case(selector: str, *, private: bool = False, timeout: float = 30) -> bytes:
     if not 0 < timeout <= 30:
         raise ValueError("exact native execution requires a positive timeout at most 30 seconds")
@@ -392,6 +410,9 @@ def main() -> int:
     modes.add_parser("harness").add_argument("--self-test", action="store_true", required=True)
     for mode in ("baseline", "resources", "close"):
         modes.add_parser(mode).add_argument("--check", action="store_true", required=True)
+    source_parser = modes.add_parser("source")
+    source_parser.add_argument("--check", action="store_true", required=True)
+    source_parser.add_argument("paths", nargs="+")
     parity_parser = modes.add_parser("parity")
     selectors = parity_parser.add_mutually_exclusive_group(required=True)
     selectors.add_argument("--command", choices=COHORT)
@@ -408,6 +429,8 @@ def main() -> int:
                 harness()
             elif args.mode == "baseline":
                 baseline()
+            elif args.mode == "source":
+                native_source(args.paths)
             elif args.mode == "parity":
                 parity(args)
             else:

@@ -78,6 +78,13 @@ class NativeCaseDispatchTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "exactly one passing behavior"):
                 check.native_case("core/tests/test-lslocks.xsh::test_wanted")
 
+    def test_source_check_rejects_traversal_before_launch(self):
+        with patch("check.container") as launch:
+            for paths in ([], ["core/../Cargo.toml.xsh"], ["/core/lsipc.xsh"]):
+                with self.assertRaises(ValueError):
+                    check.native_source(paths)
+        launch.assert_not_called()
+
     def test_unbounded_or_traversing_dispatch_does_not_launch(self):
         with patch("check.container") as launch:
             for timeout in (0, -1, 31, float("nan")):
