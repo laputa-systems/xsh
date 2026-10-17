@@ -14,11 +14,14 @@ test test_util_linux_context_outside_holder_is_invisible_to_private_lock_listing
       ul.observe_candidate(s, "lslocks", [p"--json", p"--output", p"PID,INODE,PATH"])?
     }
     assert observation.termination == ul.Exited(0), observation.stderr.utf8()?
-    let rows = json.get(json.decode(observation.stdout.utf8()?)?, ["locks"])?.require(List[Any])?
-    for row in rows {
-      assert json.get(row, ["inode"])?.require(Int)? != holder.inode, observation.stdout.utf8()?
+    assert observation.stdout.len() <= 65536 and observation.stderr.len() <= 65536
+    ctx f"outside-holder reference={reference} stdout={observation.stdout} stderr={observation.stderr}" {
+      let rows = json.get(json.decode(observation.stdout.utf8()?)?, ["locks"])?.require(List[Any])?
+      for row in rows {
+        assert json.get(row, ["inode"])?.require(Int)? != holder.inode, observation.stdout.utf8()?
+      }
+      assert ! (holder.path.display() in observation.stdout.utf8()?)
     }
-    assert ! (holder.path.display() in observation.stdout.utf8()?)
   }
 }
 
@@ -112,21 +115,28 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
 test test_util_linux_context_terminal_lock_path_truncation { |ctx|
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
-  let operand = uu.at(s, "long-lock-path-with-tab\tand-a-control-\x1b-character")
-  let keeper = ul.start_keeper(s, fp"{ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py",
-    ["hold", "flock-ex", operand.display(), "none"])?
-  defer ul.stop_keeper(keeper)
-  let pid = json.get(json.decode(keeper.ready)?, ["pid"])?.require(Int)?
-  let args = [p"--pid", fp"{pid}", p"--output", p"PID,PATH"]
-  let narrow_reference = contexts.terminal_reference(s, "lslocks", args, columns: 24)?
-  let wide_reference = contexts.terminal_reference(s, "lslocks", args, columns: 120)?
-  assert narrow_reference.stdout != wide_reference.stdout, "reference did not exercise terminal truncation"
-  for columns in [24, 120] {
-    let reference = contexts.terminal_reference(s, "lslocks", args, columns:)?
-    let candidate = contexts.terminal_candidate(s, "lslocks", args, columns:)?
-    assert ul.observed_equal(reference, candidate), "lslocks terminal truncation or escaping differs"
+  let script = fp"{ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let requests = [
+    ["hold", "flock-ex", uu.at(s, "long-lock-path-with-tab\tand-a-control-\x1b-character").display(), "none"],
+    ["hold-bytes", "flock-ex", s.root.display(), "6c6f6e672d6e6f6e757466382dff2d6c6f636b2d70617468", "none"],
+  ]
+  for request in requests {
+    let keeper = ul.start_keeper(s, script, request)?
+    defer ul.stop_keeper(keeper)
+    let pid = json.get(json.decode(keeper.ready)?, ["pid"])?.require(Int)?
+    let selected = [p"--pid", fp"{pid}", p"--output", p"PID,PATH"]
+    let narrow_reference = contexts.terminal_reference(s, "lslocks", selected, columns: 24)?
+    let wide_reference = contexts.terminal_reference(s, "lslocks", selected, columns: 120)?
+    assert narrow_reference.stdout != wide_reference.stdout, "reference did not exercise terminal truncation"
+    for args in [selected, selected.extend([p"-u"])] {
+      for columns in [24, 120] {
+        let reference = contexts.terminal_reference(s, "lslocks", args, columns:)?
+        let candidate = contexts.terminal_candidate(s, "lslocks", args, columns:)?
+        assert ul.observed_equal(reference, candidate), "lslocks terminal truncation or escaping differs"
+      }
+    }
+    contexts.release_keeper(keeper)
   }
-  contexts.release_keeper(keeper)
 }
 
 test test_util_linux_context_terminal_rooted_memory { |ctx|
