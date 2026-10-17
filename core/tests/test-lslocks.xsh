@@ -383,11 +383,14 @@ proc json_environment_case(s: uu.Scene) [fs, process, env, net, time, error] -> 
     if value == "lines" {
       assert json.get(document, ["pid"])?.require(Int)? == ready.pid
       assert json.get(document, ["type"])?.require(Str)? == "POSIX"
-      assert json.get(document, ["locks"])? == null
+      assert json.get(document, ["locks"], null) == null
     } else {
       assert json.get(document, ["locks"])?.require(List[Any])?.len() == 1
     }
   }
+  let empty = compared(s, ["--json", "--pid", "2147483647"], {LIBSMARTCOLS_JSON: "compact"})?
+  let empty_document = json.decode(empty.stdout.utf8() ?? "")?
+  assert json.get(empty_document, ["locks"])?.require(List[Any])?.is_empty()
   let unset = compared(s, ["--json", "--pid", f"{ready.pid}"])?
   let document = json.decode(unset.stdout.utf8() ?? "")?
   assert json.get(document, ["locks"])?.require(List[Any])?.len() == 1

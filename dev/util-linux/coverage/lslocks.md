@@ -147,7 +147,7 @@ that field.
 | Open: owner disappearance during collection | The owned release/wait test covers a later invocation, but no fixture provides a deterministic collection barrier. |
 | `test_lslocks_version_provenance` | Both commands succeed and identify `lslocks`; assert each exact version banner separately. |
 | `test_lslocks_help_and_usage_errors` | Exact help output; missing and invalid option values, invalid PID, unknown short and long options, ambiguous long prefixes, stray operands, and `-J -r`. |
-| `test_lslocks_smartcols_json_environment` | `LIBSMARTCOLS_JSON=compact`, `unknown`, and unset values retain the `locks` object; `lines` emits one standalone object per lock row with lowercase keys. |
+| `test_lslocks_smartcols_json_environment` | `LIBSMARTCOLS_JSON=compact` retains the `locks` object and emits each compact row on its own line, including an empty array when no lock matches; `unknown` and unset values retain the pretty `locks` object; `lines` emits one standalone object per lock row with lowercase keys. |
 
 Every support-scene command starts with `LC_ALL=C`; table ordering and error
 text are compared byte for byte under that baseline. A second locale is

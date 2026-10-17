@@ -892,7 +892,11 @@ pure json_table(rows: List[smart.Object], name: Str, mode: Str) -> Str {
     return lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })
   }
   let document = smart.object([smart.m(name, rows)])
-  if mode == "compact" { return smart.render(document, compact: true) + "\n" }
+  if mode == "compact" {
+    let compact_rows = [smart.render(row, compact: true) for row in rows]
+    let compact_array = "[\n" + compact_rows.join(",\n") + (if compact_rows.is_empty() { "" } else { "\n" }) + "]"
+    return "{" + (json.encode(name) ?? "\"\"") + ":" + compact_array + "}\n"
+  }
   smartcols_json(document, 0) + "\n"
 }
 
