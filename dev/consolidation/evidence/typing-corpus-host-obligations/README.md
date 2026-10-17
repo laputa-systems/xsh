@@ -99,3 +99,32 @@ force. Native execution still awaits the assigned slot. This checkpoint claims
 checker and lowering acceptance, not behavior parity or completion of the
 annotation-removal workstream. The named generic-body seam, broader successor
 acceptance and campaign targets remain open. Main remains untouched.
+
+## First native attempt and fixture correction
+
+On clean checkpoint `338b82238`, the original view selects thirteen tests:
+twelve pass and the lifecycle cleanup test fails. The reduced view does not run.
+`native-attempt-1` preserves every actual output and guard. No 26-pass claim is
+made from that attempt.
+
+The lifecycle witness restricts PATH to its fake Git, Cargo and chown tools.
+Its production path calls `test_workflows.run_commands`, `cargo_steps.run_build`,
+`cargo_steps.execute`, `stage.execute_with_flock` and `require_tool("flock")`.
+The missing flock stops before fake Cargo can exit 23. Cleanup chown still runs.
+This original-view fixture failure is independent of annotation removal.
+
+The accepted fixture correction from `fff7fed23` supplies a helper that invokes
+real `/usr/bin/flock`, then calls that helper once in the affected witness.
+`apply_witness_fixture.py` reproduces only those two insertions in both views.
+The Cargo-failure and chown assertions remain unchanged. All 48 program files,
+source pins, schemas, exported interfaces and 877 removals remain unchanged.
+`fixture-validation.tsv` repeats their protected-span check. The archived test
+witness is explicitly ddc source plus this accepted fixture correction.
+`views.fixture-ready.tsv` records the resulting whole-view digests.
+
+The first attempt's source and product guards pass. Docker reports the owned
+container absent with exit 1 and exact lowercase `error: no such object: CID`.
+The runner's uppercase-only absence predicate conservatively rejects that
+response. Its corrected predicate accepts exactly the two observed spellings,
+with exit 1, one stderr line and the exact owned ID. Other inspect failures still
+fail cleanup. The original attempt remains red and its raw receipts unchanged.

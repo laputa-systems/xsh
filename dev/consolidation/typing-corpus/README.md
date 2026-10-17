@@ -35,6 +35,11 @@ bash dev/consolidation/typing-corpus/check.sh \
   "$PWD/.work/tmp/corpus/reduced-final" "$PWD/.work/tmp/corpus/check-joint"
 ```
 
+Preparation adds the accepted `fff7fed23` flock helper and its one lifecycle
+witness call to both copied test trees. This fixture correction is outside the
+48 program sources and changes no assertion. The pinned program-source views
+and annotation counts remain unchanged.
+
 Run `run-witnesses.sh` only in the assigned native-suite slot. It fails immediately
 if the shared native lock is busy. Each invocation creates a fresh attempt
 folder. Each exact selector must actually select and pass one test with no

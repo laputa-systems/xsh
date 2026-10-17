@@ -27,7 +27,7 @@ prove_absence() {
   else
     inspect_status=$?
     printf '%s\n' "$inspect_status" >"$receipt.status"
-    [ "$inspect_status" = 1 ] && [ "$(wc -l <"$receipt.stderr")" = 1 ] && grep -Fxq "Error: No such object: $inspected_id" "$receipt.stderr"
+    [ "$inspect_status" = 1 ] && [ "$(wc -l <"$receipt.stderr")" = 1 ] && { grep -Fxq "Error: No such object: $inspected_id" "$receipt.stderr" || grep -Fxq "error: no such object: $inspected_id" "$receipt.stderr"; }
   fi
 }
 cleanup() {
