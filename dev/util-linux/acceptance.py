@@ -12,8 +12,12 @@ POSITIVE_BOUNDARIES = {
     "lsipc": "test_lsipc_visibility_matches_for_owner_and_unprivileged_observer",
     "lsmem": "test_lsmem_rooted_sparse_memory_attributes_and_output_modes",
     "mountpoint": "test_mountpoint_private_same_device_bind_mount",
-    "namei": "test_namei_private_same_device_bind_mount_marker",
+    "namei": "test_namei_private_same_device_bind_mount_matches_reference",
 }
+REGRESSION_FILES = (
+    "core/tests/test-util-linux-storage-regressions.xsh",
+    "core/tests/test-util-linux-process-regressions.xsh",
+)
 
 _CASE_DECLARATION = re.compile(r"^test (test_[A-Za-z0-9_]+)\s*\{", re.MULTILINE)
 _SUMMARY = re.compile(
@@ -44,6 +48,8 @@ class AcceptanceRuntime(Protocol):
     def native_case(self, selector: str, *, private: bool = False) -> bytes: ...
 
     def source_identity(self) -> SourceIdentity: ...
+
+    def regression_selectors(self, source: SourceIdentity) -> tuple[str, ...]: ...
 
     def measure_resources(self) -> ResourceReport: ...
 
@@ -94,6 +100,40 @@ def _case_names(root: Path, command: str) -> tuple[str, ...]:
 
 def _case_selector(command: str, name: str) -> str:
     return f"core/tests/test-{command}.xsh::{name}"
+
+
+def _declared_regression_selectors(root: Path) -> tuple[str, ...]:
+    selectors: list[str] = []
+    for relative in REGRESSION_FILES:
+        path = root / relative
+        if not path.is_file():
+            raise ValueError(f"missing required regression source: {relative}")
+        names = tuple(_CASE_DECLARATION.findall(path.read_text(encoding="utf-8")))
+        if not names:
+            raise ValueError(f"regression source declares no behaviors: {relative}")
+        if len(set(names)) != len(names):
+            raise ValueError(f"regression source duplicates behavior selectors: {relative}")
+        selectors.extend(f"{relative}::{name}" for name in names)
+    if len(set(selectors)) != len(selectors):
+        raise ValueError("regression sources declare duplicate selectors")
+    return tuple(sorted(selectors))
+
+
+def _expected_regression_selectors(
+    runtime: AcceptanceRuntime,
+    source: SourceIdentity,
+) -> tuple[str, ...]:
+    before = _current_source(runtime)
+    if before != source:
+        raise ValueError("regression selectors use a stale source")
+    produced = runtime.regression_selectors(source)
+    declared = _declared_regression_selectors(runtime.ROOT)
+    after = _current_source(runtime)
+    if after != before:
+        raise ValueError("source changed while resolving regression selectors")
+    if produced != declared:
+        raise ValueError("regression selector producer differs from actual native declarations")
+    return declared
 
 
 def _selected_case(args, command: str, names: tuple[str, ...]) -> str | None:
@@ -583,6 +623,9 @@ def _validate_resource_report(
                 raise ValueError(f"candidate peak RSS exceeds the existing-command limit: {row.command}")
     if not existing_memory:
         raise ValueError("resource report omits existing-command peak RSS measurements")
+    expected_regressions = _expected_regression_selectors(runtime, source)
+    if tuple(sorted(row.selector for row in existing_memory.values())) != expected_regressions:
+        raise ValueError("existing-command RSS does not cover the frozen regression selectors")
 
     _require_stable_contexts(context_pairs)
     if isinstance(report.timing, DeferredTiming):
@@ -615,6 +658,8 @@ def _validate_resource_report(
         raise ValueError("resource report must time each new command on its positive fixture")
     if not existing_rows:
         raise ValueError("resource report omits existing-command regression measurements")
+    if tuple(sorted(row.selector for row in existing_rows.values())) != expected_regressions:
+        raise ValueError("existing-command CPU does not cover the frozen regression selectors")
     if set(existing_memory) != set(existing_rows):
         raise ValueError("existing-command RSS and CPU samples use different regression fixtures")
 
@@ -718,10 +763,10 @@ def _validate_gate_result(gate: GateResult, source: SourceIdentity) -> None:
         raise ValueError(f"close gate repeats a skipped behavior: {gate.name}")
     if set(gate.skipped) != set(gate.accounted_skips):
         raise ValueError(f"close gate has unaccounted skips: {gate.name}")
-    if gate.name in {"parity", "positive-boundaries"}:
+    if gate.name in {"parity", "positive-boundaries", "focused-regressions"}:
         if len(set(gate.selectors)) != len(gate.selectors) or gate.executed != len(gate.selectors):
             raise ValueError(f"close gate does not account for each selector once: {gate.name}")
-        if set(gate.private_selectors) != set(gate.selectors):
+        if gate.name in {"parity", "positive-boundaries"} and set(gate.private_selectors) != set(gate.selectors):
             raise ValueError(f"close gate did not use private contexts for every selector: {gate.name}")
     if gate.name in {"parity", "positive-boundaries", "focused-regressions"} and gate.skipped:
         raise ValueError(f"mandatory close gate skipped behavior: {gate.name}")
@@ -745,8 +790,11 @@ def close(runtime: AcceptanceRuntime) -> None:
     for gate in report.gates:
         _validate_gate_result(gate, before)
     all_selectors = _all_parity_selectors(runtime)
+    regression_selectors = _expected_regression_selectors(runtime, before)
     if tuple(sorted(gates["parity"].selectors)) != all_selectors:
         raise ValueError("close parity did not execute every declared cohort behavior")
+    if tuple(sorted(gates["focused-regressions"].selectors)) != regression_selectors:
+        raise ValueError("close focused regressions differ from the frozen actual selectors")
     positive_selectors = tuple(sorted(
         _case_selector(command, POSITIVE_BOUNDARIES[command])
         for command in runtime.COHORT
