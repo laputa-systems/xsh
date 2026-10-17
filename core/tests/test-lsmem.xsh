@@ -122,7 +122,7 @@ test test_lsmem_rooted_configured_memory_and_memmap_summary { |ctx|
   compare_lsmem_rooted(s, ["--pairs", "--output-all"])?
   compare_lsmem_rooted(s, ["--raw", "--output-all"])?
   compare_lsmem_rooted(s, ["--output", "BLOCK,CONFIGURED,MEMMAP-ON-MEMORY", "--split", "CONFIGURED,MEMMAP-ON-MEMORY"])?
-  for value in ["force", "Y", "N"] {
+  for value in ["force", "Y", "N", "Y-extra", "Nonsense", "forceful", "unknown", " Y", " N", " force"] {
     uu.write(s, "sys/module/memory_hotplug/parameters/memmap_on_memory", f"{value}\n")?
     compare_lsmem_rooted(s, ["--bytes", "--summary=only"])?
   }
