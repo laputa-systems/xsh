@@ -15,7 +15,7 @@ test test_util_linux_context_outside_holder_is_invisible_to_private_lock_listing
     }
     assert observation.termination == ul.Exited(0), observation.stderr.utf8()?
     assert observation.stdout.len() <= 65536 and observation.stderr.len() <= 65536
-    ctx f"outside-holder reference={reference} stdout={observation.stdout} stderr={observation.stderr}" {
+    ctx f"outside-holder reference={reference} stdout_b64={observation.stdout.base64()} stderr_b64={observation.stderr.base64()}" {
       let rows = json.get(json.decode(observation.stdout.utf8()?)?, ["locks"])?.require(List[Any])?
       for row in rows {
         assert json.get(row, ["inode"])?.require(Int)? != holder.inode, observation.stdout.utf8()?
