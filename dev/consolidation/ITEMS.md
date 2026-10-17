@@ -4,16 +4,18 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `5e66b6b896a47d0c692739135d51200b007a2a67`. The accepted designs and historical
 ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
-**Current status: resumed by the owner, 2026-10-16.** The
-[active handoff](HANDOFF.md#active-resume) owns lane assignments and the live
-queue. Lean and Phase F remain paused; inference remains isolated.
-The approved replacement gate plan stays authorized.
-Reviewed Clippy and collector repairs are integrated. Their focused
-passes do not close canonical, route-matrix, or resource acceptance. The isolated
-generic module export slice is accepted at `8475984a9`, with initialized-value
-ownership verified by binding identity. Its main merge waits for consolidation
-closure. Broader inference, corpus removal, performance
-baselines, and formal work have not been accepted.
+**Current status: candidate assembled on 2026-10-17.** The
+[active handoff](HANDOFF.md#active-candidate) owns the exact pins and live
+queue. The candidate is not frozen or accepted. No full canonical,
+supplemental, route, platform, or resource gate has run on it. W9 parity is
+accepted on the recorded `0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4` pin only;
+the assembled candidate needs fresh captures, admissions, and strict
+comparison. Lean and Phase F remain paused; inference remains isolated from
+main.
+
+The isolated generic module export slice remains accepted at `8475984a9`.
+Its main merge waits for consolidation closure. Broader inference, corpus
+removal, performance baselines, and formal work remain open.
 
 **Earlier checkpoints:** the progress and verification entries below are
 historical and source-specific. They are not the current work queue. The

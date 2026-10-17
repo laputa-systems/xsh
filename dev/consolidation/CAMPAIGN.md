@@ -1,9 +1,25 @@
 # XSH Consolidation Campaign
 
-Status: resumed by the owner on 2026-10-16 after the stop below. Consolidation
-acceptance and the isolated inference ownership repair are active. Lean and
-Phase F remain paused. Inference has not merged to main and has no accepted
-end-to-end first slice. The stop below records the retained starting state.
+Status: resumed on 2026-10-16. The next consolidation candidate is assembled
+on `campaign/consolidation-next-candidate-20261017`. The current source and
+open gates are in [HANDOFF.md](HANDOFF.md#active-candidate). Lean and Phase F
+remain paused. Inference remains isolated from main.
+
+## Current candidate, 2026-10-17
+
+The candidate combines the linked-worktree discovery repair, corrected route
+expectation, batch-only native admission cap, corrected tail fixture, W9
+producer repair, and source-pinned acceptance records. Root must seal the
+post-update candidate before building products.
+
+The focused discovery, tail, and W9 checks pass on their recorded source and
+product pins. The historical route replay had two normal `ExprIf` proof gaps;
+a fresh strict replay remains required. The last canonical run remains red,
+and its focused filesystem and compute selectors do not explain the full-run
+failures. The durable W9 parity proof covers only source `0dc9cff7`; it does
+not qualify this later candidate. The candidate has no full canonical,
+supplemental, route, platform, or resource close. Main stays at `0dc9cff7`;
+root owns the final freeze and promotion.
 
 ## Stop handoff, 2026-10-16
 
@@ -986,6 +1002,12 @@ selection or fastest-profile claim is required.
 | Freeze on expressive surface | Rules |
 
 ## Handoff log
+
+### Candidate assembled, 2026-10-17
+
+The current source pins, gate outcomes, and open acceptance work are in the
+[active candidate handoff](HANDOFF.md#active-candidate). No full-gate
+acceptance or functional close exists for this candidate.
 
 ### 2026-10-16 — failed 7b canonical run
 

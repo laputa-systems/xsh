@@ -1,11 +1,54 @@
 # Consolidation handoff
 
-Status: resumed by the owner on 2026-10-16. Lean and Phase F stay paused.
-Inference remains isolated until consolidation acceptance permits its merge.
-The [stop handoff](CAMPAIGN.md#stop-handoff-2026-10-16) records the starting
-state, parked branches, retained worktrees and completed stop audit.
+Status: candidate assembled on 2026-10-17 in
+`campaign/consolidation-next-candidate-20261017`. Lean and Phase F stay paused.
+Inference remains isolated. The 2026-10-16 stop handoff below is historical.
 
-## Active resume
+## Active candidate
+
+Root must seal the post-update candidate before building products.
+
+The candidate adds the XSHT linked-worktree discovery repair at `c30aed3bc`,
+the same-size tail fixture at `afe2998e4`, the batch admission change at
+`2d882cf6`, and the W9 producer repair at `283dcdeab`. The default scheduler,
+native case selection, Rust and privileged plans, and test deadlines remain
+unchanged. No full canonical or supplemental gate has run on this source.
+
+### Integrated evidence
+
+| Lineage | Pinned result and limit |
+|---|---|
+| Coverage discovery `fd008a789` | On its lane pin, 18 Rust tests, four native cases, Clippy, and product builds pass. These results do not qualify the assembled source. See [coverage discovery](evidence/coverage-discovery/README.md). |
+| Route expectation `1c0187f40` | The 0dc9 replay completed 428 invocations before the expectation correction. It admitted 187 of 188 route proofs and left two normal `ExprIf` gaps. A fresh strict replay is required. See [route evidence](winddown/evidence/route-if-expectation-0dc9cff7/README.md). |
+| Failed canonical `9080e505f` | The 0dc9 run reports 13,906 passes, 9 failures, and 78 skips. Four coverage failures and one tail-fixture failure are reproduced and repaired. Four timeout/rm causes remain unproven. See [canonical evidence](evidence/canonical-0dc9/README.md). |
+| Supplemental `957405a4` | All 13 commands exited zero on 0dc9. Root reviewed two traceroute skips. This record does not qualify the assembled source. See [supplemental evidence](winddown/evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/README.md). |
+| QEMU `5bdd8dd43` | Seven platform cases passed on 0dc9. The assembled source still needs its platform run. See [QEMU evidence](evidence/linux-qemu-0dc9cff7/README.md). |
+| Batch admission `2d882cf6` | Its focused regression passes. The batch gate caps its outer native workers at four. This change does not establish the cause of the earlier timeouts. See [admission evidence](evidence/canonical-admission-0dc9/README.md). |
+| Compute `39175cc7` and filesystem `56e2f137` | Factor, sort, rm, and mv exact selectors pass individually on frozen 0dc9 products. These results do not explain the full-run failures. See [compute evidence](evidence/native-compute-0dc9/README.md) and [filesystem evidence](evidence/native-filesystem-repair-20261017/README.md). |
+| Tail `a45771ea` | The corrected same-size fixture and both truncation controls pass on frozen 0dc9 products. The earlier unqualified proof is withdrawn. See [tail evidence](evidence/tail-same-size-fixture-afe2998e4/README.md). |
+| W9 producer `283dcdeab` | The accepted source/test change keeps the three-worker cap and reviewed GC/lifecycle fixes. Its 64 focused controls pass; the integrated runner passes 91 tests. These checks do not qualify a full W9 cohort on this source. See [focused controls and width diagnostic](evidence/w9-comparator-width/README.md). |
+| W9 parity `d92ab2aff` | Root accepted strict parity for exact source `0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4` and tree `b4f9db3f8ee2f38a6c62fea876976619db424ed7`: 1,690 inputs, 6,760 outcomes, zero mismatches. This proof does not transfer to the assembled candidate. See [durable W9 proof](evidence/w9-current-0dc9/README.md). |
+| W9 width diagnostic `f63b64baf` | The rejected eight-worker memory diagnostic reached the 16 GiB limit using frozen 0dc9 captures. The original three-worker cap remains. This diagnostic grants no parity or resource acceptance. See [diagnostic record](evidence/w9-comparator-width/README.md). |
+
+After integration, the route mapping suite passed 73 tests. The W9 adapter suite
+passed all 91 tests, including the 64 focused controls recorded by its lane.
+The durable W9 proof records a different, earlier source pin and does not
+qualify the candidate.
+
+### Current queue
+
+1. Root seals the post-update candidate, then builds products from that exact commit and tree.
+2. Run fresh W9 captures, source admissions, exact-owner and assignment proofs, derived-reference capture, and strict comparison on the sealed source. The accepted 0dc9 proof and rejected width-eight diagnostic do not replace this cohort. The separate three-worker resource diagnostic remains pending.
+3. Run fresh supplemental and canonical gates, using the batch-only four-worker admission change without changing selections or deadlines.
+4. Run the strict route matrix and source-order cases, then the QEMU platform cases, on the sealed source.
+5. Complete the required resource queue after functional close. Root owns the final freeze, release performance gates, and main promotion.
+
+The canonical, supplemental, route, platform, and resource evidence remains
+bound to older sources. W9 parity is accepted for 0dc9 only. No full-gate
+acceptance or functional close exists for this candidate. Do not merge
+inference work from typing branches.
+
+## Historical resume record (superseded)
 
 The `bb809e1a6` closure attempt stopped on a stale Rust test expectation.
 The schema correctly marks `ExprProcessCommandArgv` as `FrameApply`.
