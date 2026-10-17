@@ -123,7 +123,7 @@ test test_util_linux_stdout_and_stderr_write_failures_match_reference { |ctx|
   let s = uu.scene(ctx)?
   let memory_root = uu.at(s, "memory")
   memory_root.mkdir()
-  fs.copy_tree(
+  let _ = fs.copy_tree(
     fp"{ctx.core_dir}/tests/fixtures/util-linux/memory/sparse",
     memory_root,
     overwrite: true,
@@ -152,7 +152,7 @@ test test_util_linux_closed_reader_termination_matches_reference { |ctx|
   let s = uu.scene(ctx)?
   let memory_root = uu.at(s, "memory")
   memory_root.mkdir()
-  fs.copy_tree(
+  let _ = fs.copy_tree(
     fp"{ctx.core_dir}/tests/fixtures/util-linux/memory/sparse",
     memory_root,
     overwrite: true,
@@ -184,7 +184,7 @@ test test_util_linux_lsmem_preserves_raw_sysroot_argv { |ctx|
   let s = uu.scene(ctx)?
   let memory_root = uu.at_bytes(s, b"memory-\xff")?
   memory_root.mkdir()
-  fs.copy_tree(
+  let _ = fs.copy_tree(
     fp"{ctx.core_dir}/tests/fixtures/util-linux/memory/sparse",
     memory_root,
     overwrite: true,
