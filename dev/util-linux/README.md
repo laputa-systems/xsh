@@ -1,0 +1,48 @@
+# Util-linux acceptance adapter
+
+The oracle is util-linux 2.42.4-r3 in the campaign's pinned x86-64 Linux image.
+`inventory.tsv` lists the 117 installed executable paths owned by packages
+whose APK origin is `util-linux`. The APK source commit is
+`087ea48145e24307010ba91f403c5ff8f402568c`.
+
+The [package build recipe](https://github.com/alpinelinux/aports/blob/087ea48145e24307010ba91f403c5ff8f402568c/main/util-linux/APKBUILD)
+disables translations, uuidd, kill, chfn and chsh. The non-bootstrap build
+enables runuser, Python bindings and libeconf. Login utilities are a separate
+package absent from this image. Runtime capability proofs qualify kernel and
+namespace operations separately from these build features.
+
+The inventory separates cohort membership from implementation disposition.
+`partial` means existing native command code without a full reference proof.
+`absent` means no native implementation was established at this baseline.
+Neither disposition grants parity credit. Outside-cohort commands remain
+inventoried without joining this campaign's behavior denominator.
+
+`python3 dev/util-linux/check.py inventory --check` compares the live package
+inventory and all five exact reference banners against the recorded inventory.
+`python3 dev/util-linux/check.py harness --self-test` runs lease and cleanup
+controls, a real TERM-during-container control, and exact native comparison
+controls. Unimplemented acceptance modes fail. They cannot produce an empty pass.
+
+The adapter resolves shared leases through the original Git common directory.
+Every Docker execution holds the original shared performance guard and exclusive
+native guard. Acquisition is nonblocking. A busy guard exits 75. Scheduling
+priority belongs to the coordinator's dispatch protocol.
+
+Unresolved container cleanup writes the existing native lock's quarantine
+prefix and its shared cleanup marker before releasing guards. The adapter
+preserves the lock inode and retains the affected scratch directory.
+
+Native tests use `support.uu` scenes and `support.util_linux` reference capture.
+Comparisons preserve stdout and stderr bytes, arguments, statuses and explicit
+fixture-state snapshots. No identifiers or whitespace are normalized. Reference
+and candidate observe the same fixture. The sole provenance exception asserts
+each implementation's exact version banner independently.
+
+Protected consolidation products are reusable only while all three product
+hashes and the Rust, Cargo and helper inputs match their source revision.
+Native execution checks that qualification before and after each case.
+The source and product container mounts are read-only. Owned scratch uses `/t`.
+
+P0 remains open until private lock, IPC, rooted memory, mount and baseline
+proofs pass. Expected-signal capture and richer fixture lifetime helpers are
+not yet qualified. No feature implementation is authorized by these controls.
