@@ -1024,7 +1024,11 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
   if opts.json and opts.raw { gnu.usage_error("options --json and --raw are mutually exclusive") }
   if opts.pid != null {
     let value = decimal(opts.pid ?? "")
-    if value == null or (value ?? 0) <= 0 { gnu.error(f"invalid PID argument: {gnu.quote(opts.pid ?? "")}"); exit 1 }
+    if value == null or (value ?? 0) <= 0 or (value ?? 0) > 2147483647 {
+      let suffix = if rx"^[+-]?[0-9]+$".matches(opts.pid ?? "") { ": Result not representable" } else { "" }
+      gnu.error(f"invalid PID argument: {gnu.quote(opts.pid ?? "")}{suffix}")
+      exit 1
+    }
   }
   let output_environment: Str? = if let Ok(value) = env.get("LSLOCKS_COLUMNS") { value } else { null }
   let json_mode = if let Ok(value) = env.get("LIBSMARTCOLS_JSON") { value } else { "" }
