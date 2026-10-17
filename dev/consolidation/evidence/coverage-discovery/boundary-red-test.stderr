@@ -1,0 +1,6 @@
+
+thread 'xsht::cli::files::tests::discovery_stops_gitignore_at_repository_boundaries_and_keeps_parent_ignore_rules' (7) panicked at crates/xsht/src/cli/files.rs:763:9:
+assertion `left == right` failed
+  left: ["nested/restored.xsh"]
+ right: ["nested/restored.xsh", "nested/visible.outside.xsh"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
