@@ -102,7 +102,8 @@ proc observe(s: uu.Scene, command: Str, args: List[Path], words: List[Path], var
   Ok({util: command, args: [word.display() for word in args], termination: termination, stdout: out, stderr: err})
 }
 
-proc reference_words(s: uu.Scene, command: Str, args: List[Path], vars: Record) [error] -> Result[List[Path], Error] {
+## Builds lossless reference argv with the same isolated launcher policy as candidate fixtures.
+export proc reference_argv(s: uu.Scene, command: Str, args: List[Path], vars: Record = {}) [error] -> Result[List[Path], Error] {
   assert command in ["lslocks", "lsipc", "lsmem", "mountpoint", "namei"]
   let executable = if command == "mountpoint" { p"/bin/mountpoint" } else { fp"/usr/bin/{command}" }
   let metadata = json.encode({caller_keys: vars.keys(), umask: null})?
@@ -120,7 +121,7 @@ proc exited(observation: Observed) [error] -> Result[uu.Ran, Error] {
 ## Runs the reference while preserving actual signal termination.
 export proc observe_reference(s: uu.Scene, command: Str, args: List[Path], vars: Record = {}, timeout = 5s) [fs, process, error] -> Result[Observed, Error] {
   assert timeout > 0ms and timeout <= 30s
-  observe(s, command, args, reference_words(s, command, args, vars)?, vars, timeout)
+  observe(s, command, args, reference_argv(s, command, args, vars)?, vars, timeout)
 }
 
 ## Runs the candidate while preserving actual signal termination.
@@ -144,7 +145,7 @@ export proc reference_as_user(s: uu.Scene, command: Str, args: List[Str], uid: I
   assert uid in [10001, 10002]
   require_private_namespace()
   let paths = [fp"{word}" for word in args]
-  exited(observe(s, command, paths, under_uid(reference_words(s, command, paths, vars)?, uid), vars, timeout)?)
+  exited(observe(s, command, paths, under_uid(reference_argv(s, command, paths, vars)?, uid), vars, timeout)?)
 }
 
 ## Runs the candidate as the same unprivileged fixture identity and capability set as the reference.
