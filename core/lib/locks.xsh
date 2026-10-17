@@ -992,7 +992,7 @@ pure json_output(locks: List[Lock], columns: List[Str], as_bytes: Bool, mode: St
 }
 
 ## Runs the lslocks command over Linux procfs state.
-export proc main(argv: List[Str]) [fs, process, env, error, io] {
+export proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
   if let detail = first_option_diagnostic(argv, permute) {
     gnu.usage_error(detail)
