@@ -471,7 +471,7 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
   if entries.is_empty() {
     let root_path = root.host_path()?.display()
     let separator = if root_path.ends_with("/") { "" } else { "/" }
-    fail(f"Failed to read {root_path}{separator}{MEMORY_PATH}: Not a tty")
+    fail(f"Failed to read {root_path}{separator}{MEMORY_PATH}: no numeric memory entries")
   }
   let have_config = root.exists(p"sys/firmware/memory/memory0")?
   let config_paths = if have_config { children(root, p"sys/firmware/memory", "/sys/firmware/memory") } else { [] }
