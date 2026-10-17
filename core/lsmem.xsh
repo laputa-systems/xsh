@@ -35,7 +35,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var selected: List[Str] = []
   var split: List[Str] = []
   if modes.table {
-    let environment_columns = if opts.output == null { env.get("LSMEM_COLUMNS")? } else { null }
+    let environment_columns: Str? = if opts.output == null { if let Ok(value) = env.get("LSMEM_COLUMNS") { value } else { null } } else { null }
     selected = report.columns(opts, environment_columns)
     split = report.split_columns(opts, selected)
   }
@@ -43,6 +43,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let root_path = if opts.sysroot == null { p"/" } else { opts.sysroot ?? p"/" }
   let root = fs.open_root(root_path)?
   defer root.close()
-  let inventory = report.collect(root, split, opts.all, modes.summary)?
-  gnu.write_text(report.render(inventory, opts, selected, modes)?)
+  let inventory = report.collect(root, split, opts.all, modes.summary)
+  gnu.write_text(report.render(inventory, opts, selected, modes))
 }

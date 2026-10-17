@@ -1,3 +1,7 @@
+##! Collects memory block data from a rooted sysfs tree and renders lsmem output.
+##!
+##! All inventory reads stay beneath the supplied root. Rendering preserves
+##! util-linux column, summary, and serialization behavior for the selected mode.
 use lib.gnu as gnu
 
 const MEMORY_PATH = "sys/devices/system/memory"
@@ -7,6 +11,7 @@ const COLUMN_NAMES = ["RANGE", "SIZE", "STATE", "REMOVABLE", "BLOCK", "NODE", "Z
 const DEFAULT_COLUMNS = ["RANGE", "SIZE", "STATE", "REMOVABLE", "BLOCK"]
 const ZONE_NAMES = ["DMA", "DMA32", "Normal", "Highmem", "Movable", "Device", "None", "Unknown"]
 
+## Describes parsed lsmem options passed from the applet entry point.
 export type Options = {
   all: Bool,
   bytes: Bool,
@@ -24,8 +29,10 @@ export type Options = {
   operands: List[Str],
 }
 
+## Selects whether lsmem emits its table and summary sections.
 export type Modes = {table: Bool, summary: Bool}
 
+## Holds one memory block or a contiguous merged range of blocks.
 export type Block = {
   index: Int,
   count: Int,
@@ -37,6 +44,7 @@ export type Block = {
   memmap_on_memory: Bool,
 }
 
+## Holds the rooted block inventory and totals used for rendering.
 export type Inventory = {
   block_size: Int,
   online_bytes: Int,
@@ -73,8 +81,8 @@ pure block_entry(name: Str, prefix: Str) -> Entry? {
 
 pure memory_entries(paths: List[Path]) -> List[Entry] {
   let entries = collect {
-    for path in paths {
-      if let entry = block_entry(path.name(), "memory") { yield entry }
+    for item_path in paths {
+      if let entry = block_entry(item_path.name(), "memory") { yield entry }
     }
   }
   entries |> sort-by .index
@@ -117,8 +125,8 @@ pure decimal_value(text: Str?) -> Int {
   if let Ok(parsed) = value.byte_slice(start, length: end - start).parse_int() { parsed } else { 0 }
 }
 
-proc optional_text(root: FsRoot, path: Path) [fs, error] -> Str? {
-  if let Ok(text) = root.read_text(path) { return without_final_newline(text) }
+proc optional_text(root: FsRoot, attr_path: Path) [fs, error] -> Str? {
+  if let Ok(text) = root.read_text(attr_path) { return without_final_newline(text) }
   null
 }
 
@@ -126,8 +134,8 @@ pure without_final_newline(text: Str) -> Str {
   if text.ends_with("\n") { text.byte_slice(0, length: text.byte_len() - 1) } else { text }
 }
 
-proc children(root: FsRoot, path: Path, label: Str) [fs, process, env, error] -> List[Path] {
-  let listing = root.children(path, max_entries: 65536)?
+proc children(root: FsRoot, directory_path: Path, label: Str) [fs, process, env, error] -> List[Path] {
+  let listing = root.children(directory_path, max_entries: 65536)?
   if listing.state != "complete" {
     let detail = if listing.error_kind == null { "" } else { f": {listing.error_kind}" }
     fail(f"Failed to read {label}{detail}")
@@ -137,8 +145,8 @@ proc children(root: FsRoot, path: Path, label: Str) [fs, process, env, error] ->
 
 proc node_id(root: FsRoot, block_path: Path, block_name: Str) [fs, process, env, error] -> Int {
   let entries = children(root, block_path, f"{block_name}")
-  for path in entries {
-    let name = path.name()
+  for entry_path in entries {
+    let name = entry_path.name()
     continue when ! name.starts_with("node")
     let digits = name.byte_slice(4)
     continue when ! decimal_digits(digits)
@@ -148,8 +156,8 @@ proc node_id(root: FsRoot, block_path: Path, block_name: Str) [fs, process, env,
 }
 
 proc zone_values(root: FsRoot, block_path: Path) [fs, error] -> List[Str] {
-  let path = fp"{block_path}/valid_zones"
-  if let Ok(raw) = root.read_text(path) {
+  let zones_path = fp"{block_path}/valid_zones"
+  if let Ok(raw) = root.read_text(zones_path) {
     let text = without_final_newline(raw)
     var zones = []
     for token in text.split(" ") {
@@ -166,7 +174,7 @@ proc zone_values(root: FsRoot, block_path: Path) [fs, error] -> List[Str] {
 }
 
 proc block_attributes(root: FsRoot, entry: Entry, have_config: Bool, have_nodes: Bool, have_zones: Bool) [fs, process, env, error] -> Block {
-  let path = fp"{MEMORY_PATH}/{entry.name}"
+  let block_path = fp"{MEMORY_PATH}/{entry.name}"
   var state = "?"
   var removable = false
   var node = -1
@@ -183,13 +191,13 @@ proc block_attributes(root: FsRoot, entry: Entry, have_config: Bool, have_nodes:
       return {index: entry.index, count: 1, state: state, removable: removable, node: 0, zones: zones, configured: configured, memmap_on_memory: memmap_on_memory}
     }
   }
-  let removable_text = optional_text(root, fp"{path}/removable")
+  let removable_text = optional_text(root, fp"{block_path}/removable")
   removable = decimal_value(removable_text) == 1
-  if let text = optional_text(root, fp"{path}/state") {
+  if let text = optional_text(root, fp"{block_path}/state") {
     state = if text == "online" { "online" } else if text == "offline" { "offline" } else if text == "going-offline" { "on->off" } else { "?" }
   }
-  if have_nodes { node = node_id(root, path, entry.name) }
-  if have_zones { zones = zone_values(root, path) }
+  if have_nodes { node = node_id(root, block_path, entry.name) }
+  if have_zones { zones = zone_values(root, block_path) }
   {index: entry.index, count: 1, state: state, removable: removable, node: node, zones: zones, configured: configured, memmap_on_memory: memmap_on_memory}
 }
 
@@ -234,6 +242,7 @@ proc inventory_blocks(root: FsRoot, entries: List[Entry], config_entries: List[E
   inventory
 }
 
+## Reads the memory block inventory and optional summary parameter beneath root.
 export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: Bool) [fs, process, env, error] -> Inventory {
   let memory_path = p"sys/devices/system/memory"
   let directory = match root.metadata(memory_path) {
@@ -264,9 +273,9 @@ export proc collect(root: FsRoot, split: List[Str], all: Bool, include_summary: 
   var have_nodes = false
   var have_zones = false
   for entry in entries {
-    let path = fp"{MEMORY_PATH}/{entry.name}"
-    if ! have_nodes and node_id(root, path, entry.name) != -1 { have_nodes = true }
-    if ! have_zones and root.exists(fp"{path}/valid_zones")? { have_zones = true }
+    let block_path = fp"{MEMORY_PATH}/{entry.name}"
+    if ! have_nodes and node_id(root, block_path, entry.name) != -1 { have_nodes = true }
+    if ! have_zones and root.exists(fp"{block_path}/valid_zones")? { have_zones = true }
   }
   inventory_blocks(root, entries, config_entries, block_size, have_config, have_nodes, have_zones, split, all, include_summary)
 }
@@ -306,6 +315,7 @@ pure exclusive_options(argv: List[Str]) -> List[Str] {
   names
 }
 
+## Rejects mutually exclusive output formats and all/split combinations.
 export proc check_exclusive(argv: List[Str]) [process, env] {
   let names = exclusive_options(argv)
   for pair in [["json", "pairs", "raw"], ["split", "all"]] {
@@ -320,6 +330,7 @@ export proc check_exclusive(argv: List[Str]) [process, env] {
   }
 }
 
+## Resolves table and summary emission from the original argument order.
 export proc modes(argv: List[Str]) [process, env] -> Modes {
   var table = true
   var summary = true
@@ -354,11 +365,12 @@ export proc modes(argv: List[Str]) [process, env] -> Modes {
   {table: table, summary: summary}
 }
 
+## Selects output columns from explicit output, environment output, or defaults.
 export proc columns(opts: Options, env_columns: Str?) [process, env] -> List[Str] {
   var selected = if opts.output_all { COLUMN_NAMES } else { DEFAULT_COLUMNS }
-  var output = opts.output ?? env_columns
-  if output == null { return selected }
-  let text = output ?? ""
+  var output = ""
+  if opts.output != null { output = opts.output ?? "" } else if env_columns != null { output = env_columns ?? "" } else { return selected }
+  let text = output
   let append = text.starts_with("+")
   let names = if append { text.byte_slice(1).split(",") } else { text.split(",") }
   if names.is_empty() or names[0] == "" { gnu.error("unknown column: "); exit 1 }
@@ -374,7 +386,8 @@ export proc columns(opts: Options, env_columns: Str?) [process, env] -> List[Str
   selected
 }
 
-proc split_columns(opts: Options, output_columns: List[Str]) [process, env] -> List[Str] {
+## Selects which attributes prevent adjacent memory blocks from merging.
+export proc split_columns(opts: Options, output_columns: List[Str]) [process, env] -> List[Str] {
   if opts.split == null { return output_columns }
   let text = opts.split ?? ""
   return [] when text.lower() == "none"
@@ -447,13 +460,13 @@ pure block_value(inventory: Inventory, block: Block, column: Str, byte_mode: Boo
   }
 }
 
-pure block_json_value(inventory: Inventory, block: Block, column: Str, byte_mode: Bool) -> Str? {
+proc block_json_value(inventory: Inventory, block: Block, column: Str, byte_mode: Bool) [error] -> Str? {
   let value = block_value(inventory, block, column, byte_mode)
-  return null when value == null
+  if value == null { return null }
   let text = value ?? ""
   if column == "REMOVABLE" { return if text == "yes" { "true" } else { "false" } }
   if column == "NODE" or (column == "SIZE" and byte_mode) { return text }
-  json.encode(text)
+  json.encode(text)?
 }
 
 pure pad_left(text: Str, width: Int) -> Str {
@@ -539,7 +552,7 @@ proc json_text(inventory: Inventory, columns: List[Str], opts: Options) [error] 
     output += "\n"
   }
   output += "   ]\n}\n"
-  Ok(output)
+  output
 }
 
 pure summary_value(value: Int, byte_mode: Bool) -> Str {
@@ -566,10 +579,11 @@ pure summary_text(inventory: Inventory, byte_mode: Bool) -> Str {
   output
 }
 
+## Renders the requested table format and summary as one output string.
 export proc render(inventory: Inventory, opts: Options, columns: List[Str], modes: Modes) [error] -> Str {
   var output = ""
   if modes.table {
-    if opts.json { output = json_text(inventory, columns, opts)? } else if opts.pairs { output = pairs_text(inventory, columns, opts) } else if opts.raw { output = raw_text(inventory, columns, opts) } else { output = table_text(inventory, columns, opts) }
+    if opts.json { output = json_text(inventory, columns, opts) } else if opts.pairs { output = pairs_text(inventory, columns, opts) } else if opts.raw { output = raw_text(inventory, columns, opts) } else { output = table_text(inventory, columns, opts) }
     if modes.summary { output += "\n" }
   }
   if modes.summary { output += summary_text(inventory, opts.bytes) }
