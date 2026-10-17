@@ -470,7 +470,7 @@ def arguments():
     parser.add_argument("--owner-gid", type=int, required=True)
     parser.add_argument("--observer-uid", type=int, required=True)
     parser.add_argument("--observer-gid", type=int, required=True)
-    parser.add_argument("--resource", choices=[
+    parser.add_argument("--resource", dest="resources", choices=[
         "sysv_queue",
         "sysv_shmem",
         "sysv_semaphore",
