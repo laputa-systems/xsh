@@ -22,10 +22,13 @@ statuses, and fixture state are compared.
 
 ## Resource modes and default columns
 
-One resource option selects one mode. Without a resource option, `lsipc`
-selects all six modes and shows global summaries. An explicit `--global` may
-combine with System V modes. `--global` without a resource option covers the
-reference's default resource set.
+Without a resource option, `lsipc` selects all six modes and shows global
+summaries. An explicit `--global` may combine with System V modes. System V
+resource selectors conflict with each other, while the 2.42.4 parser accepts
+POSIX resource selectors in pairs with System V or with another POSIX
+selector. Accepted combinations collect resources in the command's fixed
+collector order, independent of selector argument order. `--global` without a
+resource option covers the reference's default resource set.
 
 | Selector | Resource | Default columns |
 |---|---|---|
@@ -89,8 +92,10 @@ The reference accepts these options:
 The reference rejects more than one output mode from `--json`, `--export`,
 `--list`, `--newline`, and `--raw`. It rejects conflicts among `--name`,
 `--global`, and `--id`; among `--creator`, `--output`, and `--time`; and among
-the six resource selectors. These are source-defined option groups, not
-assumed last-option-wins behavior. GNU long-option parsing accepts unique
+the System V resource selectors. These are source-defined option groups, not
+assumed last-option-wins behavior. POSIX selector combinations are compared
+against the live fixture because the upstream exclusivity-group ordering
+leaves them accepted. GNU long-option parsing accepts unique
 abbreviations such as `--que` and `--posix-m`, and reports an ambiguous
 abbreviation such as `--posix`.
 
@@ -151,9 +156,9 @@ tables and query each selected ID.
 | `test_lsipc_long_option_abbreviations_match_reference` | Unique and ambiguous long-option abbreviations | `lsipc.c:1381-1421`; GNU `getopt_long` behavior | Open. Compare exact diagnostics and status. |
 | `test_lsipc_rejects_unknown_and_inapplicable_columns` | Unknown and inapplicable columns, default-only POSIX columns, global summary range, and empty/leading/repeated output separators | `lsipc.c:223-243,1526-1535` | Open. Stable input. |
 | `test_lsipc_output_column_capacity_matches_reference` | The parser accepts 74 repeated columns and silently rejects the 75th, including capacity consumed by default columns when appending | `lsipc.c:210-221`; `strutils.c:667-737` | Open. Stable input. |
-| `test_lsipc_rejects_unknown_time_format` | Invalid time formats, status, and diagnostics | `lsipc.c:273-290` | Open. Stable input. |
-| `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, malformed decimal IDs, signed 32-bit overflow diagnostics, and parser errors before later help | `lsipc.c:1381-1455`; `strutils.c:311-410` | Open. Compare exact diagnostics and status. |
-| `test_lsipc_rejects_each_exclusive_option_pair` | Every pair in the four source-defined exclusivity groups | `lsipc.c:1415-1420` | Open. Stable input. |
+| `test_lsipc_rejects_unknown_time_format` | Invalid time formats, status, and diagnostics | `lsipc.c:273-290` | Guarded native check passed 1/0/0. |
+| `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, malformed decimal IDs, signed 32-bit overflow diagnostics, and parser errors before later help | `lsipc.c:1381-1455`; `strutils.c:311-410` | Guarded native check passed 1/0/0. |
+| `test_lsipc_exclusive_options_and_resource_selector_combinations_match_reference` | Conflicting option pairs plus live POSIX/System V selector combinations in both argv orders, with exact row order and bytes | `lsipc.c:1415-1420,1457-1534,1627-1659`; `optutils.h:176` | Open. Live fixture required. |
 | `test_lsipc_visibility_matches_for_owner_and_unprivileged_observer` | Per-class visibility for two real UIDs with capabilities dropped | `ipcutils.c:131-240,249-300,342-510,521-575,633-713` | Open. Requires the positive two-UID fixture. |
 | `test_lsipc_collectors_preserve_state_except_mqueue_ctime_read_effect` | IDs, names, permissions, sizes, values, counters, and every timestamp except the kernel-updated POSIX message-queue `ctime` remain unchanged after each collector; queue `ctime` is monotone and bounded by the command interval | `lsipc.c:1370-1666`; `ipcutils.c:668-680`; Linux `mqueue_read_file` | Open. Keeper state snapshots required. |
 | `test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them` | The reference sees each registered ID or reported name, preserves every seeded state field except selected POSIX message-queue `ctime`, and sees no record after successful release | `lsipc.c:559-563,823-827,958-965,1094-1097,1265-1272,1661-1666`; `ipcutils.c:668-680`; all six collectors | Guarded reference-only proof passed; candidate comparison remains open. |

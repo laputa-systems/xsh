@@ -600,8 +600,10 @@ test test_lsipc_rejects_invalid_options_and_missing_arguments { |ctx|
   }
 }
 
-test test_lsipc_rejects_each_exclusive_option_pair { |ctx|
+test test_lsipc_exclusive_options_and_resource_selector_combinations_match_reference { |ctx|
   let s = uu.scene(ctx)?
+  let fixture = start_keeper(s, RESOURCE_KINDS)?
+  defer ul.stop_keeper(fixture.handle)
   let pairs = [
     ["--json", "--export"],
     ["--json", "--list"],
@@ -619,21 +621,12 @@ test test_lsipc_rejects_each_exclusive_option_pair { |ctx|
     ["--creator", "--output", "ID"],
     ["--creator", "--time"],
     ["--output", "ID", "--time"],
-    ["--shmems", "--posix-shmems"],
     ["--shmems", "--queues"],
-    ["--shmems", "--posix-mqueues"],
     ["--shmems", "--semaphores"],
-    ["--shmems", "--posix-semaphores"],
-    ["--queues", "--posix-shmems"],
-    ["--queues", "--posix-mqueues"],
+    ["--queues", "--shmems"],
+    ["--semaphores", "--shmems"],
     ["--queues", "--semaphores"],
-    ["--queues", "--posix-semaphores"],
-    ["--posix-shmems", "--posix-mqueues"],
-    ["--posix-shmems", "--semaphores"],
-    ["--posix-shmems", "--posix-semaphores"],
-    ["--posix-mqueues", "--semaphores"],
-    ["--posix-mqueues", "--posix-semaphores"],
-    ["--semaphores", "--posix-semaphores"],
+    ["--semaphores", "--queues"],
   ]
   for pair in pairs {
     let both = run_both(s, pair)?
@@ -642,6 +635,34 @@ test test_lsipc_rejects_each_exclusive_option_pair { |ctx|
     assert both.candidate.stdout == b"", f"wrote stdout for {pair.join(" ")}"
     assert both.candidate.stderr != b"", f"omitted diagnostics for {pair.join(" ")}"
   }
+
+  let accepted_resource_pairs = [
+    ["--shmems", "--posix-shmems"],
+    ["--shmems", "--posix-mqueues"],
+    ["--shmems", "--posix-semaphores"],
+    ["--queues", "--posix-shmems"],
+    ["--queues", "--posix-mqueues"],
+    ["--queues", "--posix-semaphores"],
+    ["--semaphores", "--posix-shmems"],
+    ["--semaphores", "--posix-mqueues"],
+    ["--semaphores", "--posix-semaphores"],
+    ["--posix-shmems", "--posix-mqueues"],
+    ["--posix-shmems", "--posix-semaphores"],
+    ["--posix-mqueues", "--posix-semaphores"],
+  ]
+  for args in accepted_resource_pairs {
+    let accepted = run_both(s, args)?
+    ul.compare(accepted.reference, accepted.candidate)
+    assert accepted.candidate.status == 0, f"rejected reference resource selectors {args.join(" ")}"
+    assert accepted.candidate.stdout != b"", f"omitted selected resource rows {args.join(" ")}"
+    let reversed = run_both(s, [args[1], args[0]])?
+    ul.compare(reversed.reference, reversed.candidate)
+    assert reversed.candidate.status == 0, f"rejected reversed resource selectors {args.join(" ")}"
+    assert reversed.reference.stdout == accepted.reference.stdout, f"reference row order changed for {args.join(" ")}"
+    assert reversed.candidate.stdout == accepted.candidate.stdout, f"candidate row order changed for {args.join(" ")}"
+  }
+
+  release_keeper(fixture.handle)?
 }
 
 test test_lsipc_rejects_id_and_name_without_matching_modes { |ctx|
