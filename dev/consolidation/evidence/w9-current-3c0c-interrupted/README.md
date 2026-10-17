@@ -1,0 +1,9 @@
+# W9 comparison interrupted at 3c0c0120
+
+The fresh 3c0c0120 W9 cohort completed its capture and admission phases before the strict comparison began. The controller and candidate were both pinned to commit `3c0c01206db71443662242167ac5f0a4bfafc62b`, tree `ddfc7e60f70f0de26b618b3c0eabefd8a2b36122`. The original reference and program were pinned to `e240efad273fe35d66d91f4037b6a8193527da2e`, tree `a1ef04ac7b6f759c272e8f841acee3a3b3a6ff08`; the derived reference was pinned to `74f1551ee9e3066b653ae190779e16d511c90293`, tree `3162d2f33076a8c9261d0ffb7a89a9952662f03f`.
+
+The comparison was stopped cooperatively after root applied the Phase A evidence-reuse policy: accepted strict parity at `0deeb9c7fb79e52740c82a264754dbb29d8be693` already qualifies the unchanged W9 semantic and build scope. The 3c0c0120 run is an interrupted duplicate attempt and earns no parity credit. The accepted result remains documented separately in [`w9-current-0deeb9`](../w9-current-0deeb9/README.md).
+
+The comparator log records a last completed prefix of 250/1,690 inputs and 1,000/6,760 outcomes, with zero mismatches observed in that prefix. This is partial progress only. The runner handled SIGTERM and wrote `status=incomplete`; `completed_ranges=0` is the monolithic status writer's range count, not the compared-outcome count. No terminal comparison receipt or finalized mismatch file was produced.
+
+The pre-comparison and stop-time source snapshots match byte-for-byte. They include the controller/candidate and all three reference/program roots. The comparison command, interrupted log, status, and source snapshots are retained here. Full role captures and per-input records remain under `.work/consolidation/w9-current-3c0c01206db7`; they were preserved and are not duplicated in this evidence directory. The owned comparator and worker processes were reaped, and root confirmed the publication lock was free before promoting the next source pin.
