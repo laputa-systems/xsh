@@ -2,7 +2,6 @@ core/tests/test-chroot.xsh::test_chroot_exec_status_and_root_working_directory .
 core/tests/test-setpriv.xsh::test_setpriv_ambient_names_must_be_inheritable_while_all_takes_what_it_can ... skipped: changing credentials requires root 0ms
 core/tests/test-uu-chgrp.xsh::test_uu_chgrp_basic_succeeds ... skipped: requires 1 supplementary groups 0ms
 core/tests/test-chroot.xsh::test_chroot_explicit_and_empty_supplementary_groups ... skipped: setting supplementary groups requires root 0ms
-core/tests/test-ls.xsh::test_ls_capability_colors_precede_executables_and_suffixes ... skipped: file capability fixture unavailable: /work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-183558-1792211045867818653-2721-test_ls_capability_colors_precede_executables_and_suffixes/ls-1/work/cap.txt: Operation not permitted (os error 1) 1ms
 core/tests/test-setpriv.xsh::test_setpriv_bounding_set_edits_drop_and_cannot_grow ... skipped: changing credentials requires root 0ms
 dev/tests/test-native-workflows.xsh::test_linux_root_native_tests_fail_when_setpriv_is_unavailable_or_identity_is_missing ... skipped: requires a root Linux test process 0ms
 tests/xsh/stdlib/unix_process.xsh::test_unix_credentials_transition_inside_namespace ... skipped: credential transitions require root inside a Linux namespace 0ms
@@ -29,6 +28,7 @@ core/tests/test-setpriv.xsh::test_setpriv_supplementary_groups_are_cleared_liste
 core/tests/test-setpriv.xsh::test_setpriv_uid_options_set_real_effective_and_saved_ids ... skipped: changing credentials requires root 0ms
 core/tests/test-traceroute.xsh::test_traceroute_tcp_syn_reaches_open_and_closed_ports ... skipped: TCP probes need a raw ICMP socket 49ms
 core/tests/test-uu-install-2.xsh::test_uu_install_install_root_combined ... skipped: requires root to set arbitrary uid and gid 0ms
+core/tests/test-ss.xsh::test_ss_unix_sockets_print_inodes_as_ports ... skipped: the scratch path is too long for a unix socket 1ms
 core/tests/test-uu-install-2.xsh::test_uu_install_install_set_owner_nonexistent_uid_and_gid ... skipped: requires root to set unused uid and gid 0ms
 core/tests/test-uu-chgrp.xsh::test_uu_chgrp_traverse_symlinks ... skipped: requires 2 supplementary groups 0ms
 core/tests/test-uu-chgrp.xsh::test_uu_chgrp_verbosity_messages ... skipped: requires 1 supplementary groups 0ms

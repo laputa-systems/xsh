@@ -94,18 +94,18 @@ separately; this run does not claim a new b235 guest run.
 
 The [78 extracted rows](native-skips.log) retain each selector and the reason
 printed by the native run. The [36 residual-owned rows](native-skips-residual.log)
-cover 32 root, credential, or supplementary-group cases and four capability
-cases. The four capability cases require file capabilities or `CAP_NET_RAW`.
-They remain uncovered by this unprivileged native context and belong to the
-residual Linux gate.
+match the immutable residual selector list: 32 root, identity, ownership, or
+supplementary-group cases; one raw ICMP socket case; one Unix socket case whose
+scratch path exceeds `sun_path`; and two traceroute raw-networking cases. These
+remain uncovered by this native context and belong to the residual Linux gate.
 
 The remaining [42 rows](native-skips-environment.log) record unavailable
 fixtures, tools, locales, devices, filesystem features, and platform cases,
 plus explicit skip or already-covered test behavior. Examples include absent
 DNS, TLS, and HTTP fixtures; missing oracle tooling; unavailable locales or
-`/dev/sda1`; unsupported reflink behavior; and the Unix socket test whose
-scratch path exceeds `sun_path`. Skips are not passes. The raw list preserves
-the exact rows for residual and acceptance review.
+`/dev/sda1`; the unavailable file-capability fixture; and unsupported reflink
+behavior. Skips are not passes. The raw list preserves the exact rows for
+residual and acceptance review.
 
 ## Interpretation
 
