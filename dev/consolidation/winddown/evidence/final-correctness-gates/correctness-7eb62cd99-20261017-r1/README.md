@@ -1,6 +1,6 @@
 # Successful 7eb62 supplemental run
 
-This archive preserves the fresh R6 run on source and tool commit `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree `736b4bc16b1bcf07a0250b97e849506c19fb0753`. The receipt and thirteen combined step logs are byte-identical copies from the ignored output directory. Their paths still point to that original run. No binaries or Cargo targets are archived.
+This archive preserves the fresh R6 run on source and tool commit `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree `736b4bc16b1bcf07a0250b97e849506c19fb0753`. The receipt, thirteen combined step logs, and each step's separate stdout and stderr logs are byte-identical copies from the ignored output directory. Their filenames match the receipt references. No binaries or Cargo targets are archived.
 
 ## Result
 
@@ -16,7 +16,7 @@ The receipt keeps the runner's original `commands-passed-needs-privilege-skip-an
 | Privileged recursive block-device `cp` | 2 | 0 | 88 filtered |
 | UID-1000 traceroute | 18 | 0 | 2 capability skips |
 
-The ignored tests are `date_clock::test_date_set_valid`, `date_clock::test_date_set_valid_3`, and `date_clock::test_date_set_valid_4`. Root accepted reuse of the [seven-case QEMU proof for source 0deeb9c7](../../../../evidence/linux-qemu-0deeb9c7/README.md) under [Phase A's scope rule](../../../../CAMPAIGN.md#phase-a-finish-the-existing-campaign-without-expanding-it). Three XSH date cases, three GNU date cases, and one BTRFS reflink case passed. Those guest results used the canonical XSH product with SHA-256 `02639f0ee23780371ddc38c0c241d412adc9d79ae32b4cb722c51d74c05fb2c`.
+The ignored tests are `date_clock::test_date_set_valid`, `date_clock::test_date_set_valid_3`, and `date_clock::test_date_set_valid_4`. Root accepted reuse of the [seven-case QEMU proof for source 0deeb9c7](../../../../evidence/linux-qemu-0deeb9c7/README.md) under [Phase A's scope rule](../../../../CAMPAIGN.md#phase-a-finish-the-existing-campaign-without-expanding-it). Three XSH date cases, three GNU date cases, and one BTRFS reflink case passed. Those guest results used the canonical XSH product with SHA-256 `02639f0ee23780371ddc38c0c241d412adc9d79ae32b4cb722c51d74c05fb2c4`.
 
 The UID-1000 skips are `test_traceroute_gateway_adds_a_source_route`, which needs `CAP_NET_RAW` for `IP_OPTIONS`, and `test_traceroute_tcp_syn_reaches_open_and_closed_ports`, which needs a raw ICMP socket. These skips earn no pass credit. The queued Linux residual lane owns positive coverage for both cases.
 
@@ -54,5 +54,7 @@ The product hashes stayed unchanged from the initial build through harness build
 - [Privileged `cp` context](logs/011-linux-special-04-core-compat-extra-privileged.log)
 - [UID-1000 traceroute context](logs/012-linux-special-05-traceroute-unprivileged.log)
 - [Final tracked diff check](logs/013-tracked-diff-check.log)
+
+The corresponding `.stdout` and `.stderr` files for all thirteen steps are preserved in `logs/` beside each combined log.
 
 After the launcher exited, its container-ID directory was empty and the unresolved-cleanup marker was absent. A nonblocking post-run probe acquired both shared locks.

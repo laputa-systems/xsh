@@ -1,6 +1,6 @@
 # Failed b235 R6 attempt
 
-This archive preserves the first R6 run on source and tool commit `b235a1a43d06e44580fde4c1b8c58ff27a17ca78`, tree `08402ddd079228e072f24642fdb82db5196fff11`. The receipt and six combined step logs are byte-identical copies from the ignored output directory. Their paths still point to that original run. No binaries or Cargo targets are archived.
+This archive preserves the first R6 run on source and tool commit `b235a1a43d06e44580fde4c1b8c58ff27a17ca78`, tree `08402ddd079228e072f24642fdb82db5196fff11`. The receipt, six combined step logs, and each step's separate stdout and stderr logs are byte-identical copies from the ignored output directory. Their filenames match the receipt references. No binaries or Cargo targets are archived.
 
 ## Result
 
@@ -35,3 +35,5 @@ Clippy had already exited when the runner sent `docker stop`. Docker reported th
 - [Extra harness build log](logs/004-build-harness-core-compat-extra.log)
 - [Privileged harness build log](logs/005-build-harness-core-compat-extra-privileged.log)
 - [Failed Clippy log and cleanup output](logs/006-warning-deny-01.log)
+
+The corresponding `.stdout` and `.stderr` files for all six recorded steps are preserved in `logs/` beside each combined log.

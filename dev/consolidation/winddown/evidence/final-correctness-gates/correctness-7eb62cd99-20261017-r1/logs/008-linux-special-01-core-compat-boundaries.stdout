@@ -1,0 +1,28 @@
+
+running 23 tests
+test test_binary::tests::optimized_product_paths_are_accepted ... ok
+test test_binary::tests::other_profiles_are_rejected ... ok
+test test_broken_pipe ... ok
+test test_broken_pipe_no_error ... ok
+test test_cat_broken_pipe_nonzero_and_message ... ok
+test test_cat_rw_self_conflict_fails ... ok
+test test_cat_rw_self_succeeds ... ok
+test test_child_when_pipe_in ... ok
+test test_closes_file_descriptors ... ok
+test test_comm_anonymous_pipes ... ok
+test test_deleted_dir ... ok
+test test_dev_full ... ok
+test test_dev_full_show_all ... ok
+test test_dev_random ... ok
+test test_dev_zero_closed_pipe ... ok
+test test_large_tab_stop_without_tabs_does_not_allocate ... ok
+test test_stdin_is_socket ... ok
+test test_uchild_when_no_capture_reading_from_infinite_source ... ok
+test test_uu_mkfifo_create_fifo_with_mode_and_umask ... ok
+test test_uu_mkfifo_create_fifo_with_umask ... ok
+test test_uu_mkfifo_diagnostics_plain_message_when_stderr_is_a_pipe ... ok
+test test_validate_stdin_offset_bytes ... ok
+test test_validate_stdin_offset_lines ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.92s
+
