@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_match_pure_selection","source_hash":"5f96843188c119fcfd835863b7241ece61c49a1669c4218e0c7476ee93728e08","records":[{"tag_name":"ExprMatch","tag_ordinal":36,"route":"explicit_frame_control_path","mode":"forced"}]}

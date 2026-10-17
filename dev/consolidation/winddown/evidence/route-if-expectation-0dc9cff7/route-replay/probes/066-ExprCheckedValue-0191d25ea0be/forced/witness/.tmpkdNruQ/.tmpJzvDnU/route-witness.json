@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_checked_value","source_hash":"96cb19d3e0197e6367f4cc66b48a32ca83c17b635790e9c8f9cb64846de2eb3c","records":[{"tag_name":"ExprCheckedValue","tag_ordinal":66,"route":"explicit_frame_control_path","mode":"forced"}]}

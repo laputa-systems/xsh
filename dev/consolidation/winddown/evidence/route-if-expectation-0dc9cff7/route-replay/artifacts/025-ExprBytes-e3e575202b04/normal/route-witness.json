@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/typed-scalar-route-oracles.xsh::test_expr_bytes","source_hash":"cfa2eca92e06552b4671b800e354ffb0cac07bcbd90aa1978207502d9ee3e794","records":[{"tag_name":"ExprBytes","tag_ordinal":25,"route":"in_place_evaluator_path","mode":"normal"}]}

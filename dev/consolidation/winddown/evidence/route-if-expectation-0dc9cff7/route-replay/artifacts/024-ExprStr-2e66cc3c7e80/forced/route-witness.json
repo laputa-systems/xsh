@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/typed-scalar-route-oracles.xsh::test_expr_str","source_hash":"afebbca3adef9e793380eb13ca73ec8bf2c7a3ec60d3520620a89f5b647e490d","records":[{"tag_name":"ExprStr","tag_ordinal":24,"route":"eager_frame_apply_path","mode":"forced"}]}

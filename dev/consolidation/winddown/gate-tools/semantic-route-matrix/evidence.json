@@ -2553,7 +2553,7 @@
       "test_id": "tests/xsh/expression-route-oracles.xsh::test_expr_if_pure_selection",
       "mode_expectations": {
         "normal": {
-          "route_id": "in_place_evaluator_path",
+          "route_id": "explicit_frame_control_path",
           "status": "supported_by_artifact_format"
         },
         "forced": {

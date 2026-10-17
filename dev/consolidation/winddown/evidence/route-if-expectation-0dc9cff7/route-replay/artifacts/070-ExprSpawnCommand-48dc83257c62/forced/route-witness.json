@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_spawn_command","source_hash":"b83cdf746aa74f64ce7d047ea94c3d94a46cd156f5b49627363796066b535731","records":[{"tag_name":"ExprSpawnCommand","tag_ordinal":70,"route":"explicit_frame_control_path","mode":"forced"}]}
