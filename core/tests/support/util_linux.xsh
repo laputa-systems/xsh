@@ -197,7 +197,12 @@ export pure equal(reference: uu.Ran, candidate: uu.Ran, reference_state = b"", c
 
 ## Asserts exact equality without normalizing identifiers, ordering or whitespace.
 export proc compare(reference: uu.Ran, candidate: uu.Ran, reference_state = b"", candidate_state = b"") {
-  assert equal(reference, candidate, reference_state:, candidate_state:), f"{reference.util}: reference and candidate differ"
+  assert reference.util == candidate.util
+  assert reference.args == candidate.args
+  assert reference.status == candidate.status, candidate.stderr.utf8() ?? "candidate stderr is not UTF-8"
+  assert reference.stdout == candidate.stdout
+  assert reference.stderr == candidate.stderr
+  assert reference_state == candidate_state
 }
 
 ## Asserts each implementation's exact provenance for the sole version exception.
