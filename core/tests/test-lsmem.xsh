@@ -297,6 +297,13 @@ test test_lsmem_rooted_nonnumeric_memory_entries_match_reference { |ctx|
   compare_lsmem_rooted(s, ["--summary=only"])?
 }
 
+test test_lsmem_rooted_nonnumeric_memory_entry_does_not_hide_numeric_block { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "nonnumeric-entry")?
+  compare_lsmem_rooted(s, [])?
+  compare_lsmem_rooted(s, ["--summary=only"])?
+}
+
 test test_lsmem_rooted_missing_sysfs_tree_does_not_use_host_memory { |ctx|
   let s = uu.scene(ctx)?
   compare_lsmem_rooted(s, [])?

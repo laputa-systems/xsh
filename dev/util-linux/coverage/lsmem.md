@@ -75,8 +75,9 @@ The `configured` fixture has system and firmware memory entries, both configured
 and unconfigured blocks, per-block memmap values, node and zone data, and a
 global `force` parameter. The native test changes only the copied scene's global
 parameter to also compare `Y` and `N` summary output. The `no-numeric-blocks`
-fixture contains a nonnumeric `memory` directory to check the empty discovery
-case.
+fixture contains only a nonnumeric `memory` directory. The `nonnumeric-entry`
+fixture adds a valid numeric block beside a nonnumeric `memory` directory; its
+native case verifies the latter does not hide the block.
 
 | Native test | Coverage |
 |---|---|
@@ -98,6 +99,7 @@ case.
 | `test_lsmem_rooted_leading_zero_block_ids_follow_reference_order` | Numeric IDs with leading zeroes and version ordering |
 | `test_lsmem_rooted_missing_block_size_is_an_error` | Missing required block-size attribute |
 | `test_lsmem_rooted_nonnumeric_memory_entries_match_reference` | Nonnumeric `memory` directory with no numeric entries |
+| `test_lsmem_rooted_nonnumeric_memory_entry_does_not_hide_numeric_block` | Nonnumeric `memory` directory is ignored alongside a valid numeric block |
 | `test_lsmem_rooted_missing_sysfs_tree_does_not_use_host_memory` | Missing rooted sysfs data fails without host fallback |
 | `test_lsmem_rooted_option_errors_match_reference` | Format conflicts, invalid arguments, unknown columns/options, and positional operands |
 
