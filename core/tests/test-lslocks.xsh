@@ -51,10 +51,10 @@ proc print_lslocks_bytes(label: Str, value: Bytes) [io] {
   print $label
   let encoded = value.base64()
   var offset = 0
-  while offset < encoded.len() {
-    let remaining = encoded.len() - offset
+  while offset < encoded.byte_len() {
+    let remaining = encoded.byte_len() - offset
     let length = if remaining > 100 { 100 } else { remaining }
-    print $encoded.slice(offset, length: length)
+    print $encoded.byte_slice(offset, length: length)
     offset += length
   }
 }
