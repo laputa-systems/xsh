@@ -121,10 +121,10 @@ that field.
 | `test_lslocks_list_columns_modes` | `-H`, `-H -r`, `-H -J`, and the advertised `SIZE` type. |
 | `test_lslocks_raw_noheadings_and_json` | Raw and heading-free output; JSON/raw conflict status and diagnostics. |
 | `test_lslocks_output_column_names_and_errors` | Case-insensitive names, custom ordering, `+LIST`, repeated names, empty names, and unknown-column failure. |
-| `test_lslocks_pid_filters_holders_and_waiters` | Exact PID filtering for holders and queued waiters; absent PID; `-1` OFD row behavior. |
+| `test_lslocks_default_and_selected_lock_rows`, `test_lslocks_blocker_flock`, `test_lslocks_blocker_posix`, `test_lslocks_blocker_ofd`, `test_lslocks_filter_errors` | Exact PID filtering for holders and queued waiters; absent PID; OFD negative-PID filter rejection. |
 | `test_lslocks_filter_values_and_hidden_columns` | Numeric and string comparisons, regular-expression and logical filters, including filter columns absent from output. |
 | `test_lslocks_filter_errors` | Invalid filter syntax and unknown filter columns fail with reference status and stderr. |
-| `test_lslocks_default_and_selected_lock_rows` | All rows in a private PID namespace; selected rows in the shared namespace; outside holder stays invisible in both commands. |
+| `test_lslocks_default_and_selected_lock_rows` | Two private-namespace locks appear in default output, `LSLOCKS_COLUMNS` and `--output` precedence hold, and `--pid` selects each exact fixture. The outside-namespace holder assertion remains open. |
 | `test_lslocks_ranges_and_eof` | Finite POSIX/OFD byte ranges, zero-length-to-EOF locks, exact `START` and `END`, and non-overlapping ranges. |
 | `test_lslocks_blocker_flock`, `test_lslocks_blocker_posix`, `test_lslocks_blocker_ofd` | Synchronized queued requests have `MODE` suffixed with `*`, the exact `BLOCKER` PID, and release cleanly after the owner exits. |
 | `test_lslocks_posix_holders` | `HOLDERS` behavior for POSIX locks, including the process-wide descriptor association. |
