@@ -16,6 +16,8 @@ proc interrupt(ctx: TestContext, signal: Str) [fs, process, time, error] -> Resu
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let ready = fp"{root}/ready"
+  let input = fp"{root}/input"
+  fs.mkfifo(input, 0o600)?
   let script = fp"{ctx.core_dir}/timeout.xsh"
   let command = [
     ctx.xsh_bin.display(),
@@ -23,9 +25,10 @@ proc interrupt(ctx: TestContext, signal: Str) [fs, process, time, error] -> Resu
     "10",
     "sh",
     "-c",
-    f"trap 'printf forwarded; exit 42' {signal}; printf ready > \"$1\"; while :; do sleep 1; done",
+    f"exec 3<> \"$2\"; trap 'printf forwarded; exit 42' {signal}; printf ready > \"$1\"; while :; do read -r ignored <&3; done",
     "sh",
     ready.display(),
+    input.display(),
   ]
   let plan = process.command_argv(
     ctx.xsh_bin,
