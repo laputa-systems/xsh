@@ -652,7 +652,7 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
   let output_environment = if let Ok(value) = env.get("LSLOCKS_COLUMNS") { value } else { null }
   if opts.list_columns {
     let names = COLUMNS
-    let json_types = ["<string>", "<integer>", "<string>", if opts.bytes { "<integer>" } else { "<string|number>" }, "<integer>", "<string>", "<string>", "<boolean>", "<integer>", "<integer>", "<string>", "<integer>", "<string>"]
+    let json_types = ["<string>", "<integer>", "<string>", "<string|number>", "<integer>", "<string>", "<string>", "<boolean>", "<integer>", "<integer>", "<string>", "<integer>", "<string>"]
     let rows = collect {
       for index in range(names.len()) { yield [names[index], json_types[index], COLUMN_DESCRIPTIONS[index]] }
     }
