@@ -439,9 +439,6 @@ pure option_display(code: Str) -> Str {
 }
 
 pure id_columns(selection: Selection) -> List[Str] {
-  if selection.output_mode == "pretty" and !selection.explicit_columns and !selection.creator and !selection.time {
-    return ALL_COLUMNS
-  }
   if selection.global and !selection.explicit_resources {
     return GLOBAL_COLUMNS
   }
@@ -530,7 +527,34 @@ pure output_columns(raw: Str, selection: Selection) -> Result[List[Str], OptionE
   Ok(columns)
 }
 
-pure select(options: Options) -> Result[Selection, OptionError] {
+pure last_option_has_argument(argv: List[Str], permute: Bool) -> Bool {
+  var has_argument = false
+  var index = 0
+  while index < argv.len() {
+    let argument = argv[index]
+    if argument == "--" { break }
+    if let name = option_name(argument) {
+      has_argument = name in ["id", "name", "output", "time-format"]
+      if has_argument and argument.find("=") == null { index += 1 }
+    } else if argument.starts_with("-") and argument != "-" {
+      let shorts = argument.byte_slice(1)
+      for offset in range(shorts.byte_len()) {
+        let code = shorts.byte_slice(offset, length: 1)
+        has_argument = code in ["i", "N", "o"]
+        if has_argument {
+          if offset + 1 == shorts.byte_len() { index += 1 }
+          break
+        }
+      }
+    } else if !permute {
+      break
+    }
+    index += 1
+  }
+  has_argument
+}
+
+pure select(options: Options, argv: List[Str], permute: Bool) -> Result[Selection, OptionError] {
   if let failure = options.time_format {
     if failure not in ["short", "full", "iso"] {
       return Err(OptionError.Invalid(detail: f"unknown time format: {failure}"))
@@ -587,7 +611,13 @@ pure select(options: Options) -> Result[Selection, OptionError] {
     time: options.time,
     time_format: time_format,
   }
-  let columns = if let output = options.output { output_columns(output, selection)? } else { id_columns(selection) }
+  let columns = if let output = options.output {
+    output_columns(output, selection)?
+  } else if pretty and !options.creator and !options.time and !last_option_has_argument(argv, permute) {
+    ALL_COLUMNS
+  } else {
+    id_columns(selection)
+  }
   selection = {...selection, columns: columns}
   Ok(selection)
 }
@@ -706,5 +736,5 @@ export pure validate_cli_options(argv: List[Str], permute: Bool) -> Result[Unit,
 ## Resolves parsed options into the resource, column and output selection.
 export pure resolve(options: Options, argv: List[Str], permute: Bool) -> Result[Selection, OptionError] {
   validate_cli_options(argv, permute)?
-  select(options)
+  select(options, argv, permute)
 }

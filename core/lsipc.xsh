@@ -521,16 +521,19 @@ proc missing_resource(selection: report.Selection) [process, env] {
   }
 }
 
-proc output_width() [env] -> Int {
+proc output_width() [env, process] -> Int {
   if let Ok(text) = env.get("COLUMNS") {
     if let Ok(width) = text.parse_int() {
       if width > 0 { return width }
     }
   }
+  if !unix.isatty(1) { return 0 }
+  if let Ok(size) = unix.window_size(1) { if size.cols > 0 { return size.cols } }
   80
 }
 
 proc main(...argv: List[Str]) [fs, process, env, time, io, error] {
+  if process.signal_action("PIPE")? == "default" { process.set_signal_action("PIPE", "default")? }
   let permute = env.get("POSIXLY_CORRECT") is Err(_)
   if let Err(failure) = report.validate_cli_options(argv, permute) { report_failure(failure); return }
   let options: report.Options = cli.applet(argv, {
