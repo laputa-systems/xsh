@@ -2,254 +2,60 @@
 
 ## Live checkpoint, 2026-10-17
 
-Main includes the accepted narrow functional close and artifact receipt for
-`b1bc741fcd512d1c71b43116853278a4a3f1521a`. The last broadly qualified
-production source remains `7eb62cd99`. The R4 and R5 observer attempts are
-archived with their failures and resolved cleanup. Neither started its full
-native suite or earned resource or timing credit. R5 passed the formatter
-invariant and failed the layout-perturbation invariant.
-
-Root integrated repair `e9ef913df9ec83cd1bffb4f93fddfbad71031c8c` as
-`0f5cf1247`. Redundant-parentheses diagnostics suppressed local
-annotation and callable-alias warnings. Both regression tests fail before the
-repair and pass afterward. The unchanged 19-input replay also passes with
-the repaired XSHT product. Semantic checker errors still veto both proofs.
-The full exact layout invariant passes with one selected test and 121 filtered.
-It perturbs 1,675 files across all 1,835 audited XSH and configuration inputs.
-The original harness and XSH product are unchanged. Source and product guards
-match, and the owned container is absent. A fresh source seal, artifact
-qualifier, and resource attempt remain required.
-
-Root accepted the isolated inference checkpoint of 1,036 annotation removals:
-498 of 693 local sites and 538 of 2,190 internal sites. The original 9,194-site
-inventory, 149 Map annotations, and 202 private effects remain unchanged.
-Both percentage targets remain unmet. The combined compiler passes 56 paired
-runtime controls and 46 additional named host controls. Inference remains
-outside main, with production compiler source `b045485b8` and corpus proof
-`2bb20b774`. No full-suite or timing acceptance follows from these controls.
-
-The earlier source promotions and gate descriptions below are historical.
-
-Root promoted successor source `19c9aded0ea42c979fbc6be32162320d29ded3b1` to main,
-tree `956ea0056c53b5f006ede4fd980fd7ae364970e2`. The last broadly qualified
-production source remains `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
-`736b4bc16b1bcf07a0250b97e849506c19fb0753`. Root accepted a narrow
-delta-functional close and an exact-source artifacts-only release build for
-`19c9aded`. Full successor canonical and resource acceptance remain open. R4
-stopped at an actual `fmt` corpus failure before its full native suite started.
-It earns no resource credit. Its diagnostic resource capture peaked at
-3,429,998,592 bytes with zero OOM events. Timing gates have not run. They wait
-for successor correctness and resource gates, then fresh readiness checks.
-Lean and Phase F stay paused. Inference remains isolated.
-The 2026-10-16 stop handoff below is historical.
+Status: Main and the frozen source are
+`24cc0d704209a8c0aa0eb27d5cfea1434929dc20`, tree
+`b6efac064ed074c9ee03d8f183bff9b41d353c91`. Root accepted an additive
+functional close and the exact-source R6 canonical and resource run. Timed
+performance acceptance remains open. Inference remains isolated. The sections
+below the historical resume record retain earlier source-specific checkpoints.
 
 ## Active candidate
 
-The last broadly qualified source is `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
-`736b4bc16b1bcf07a0250b97e849506c19fb0753`. On b235, the full canonical
-selection completed with 13,916 passes, 78 skips, and zero failures across
-13,994 selected cases. Root accepted that result for b235 and reused it for
-7eb under Phase A. Its original receipt remains pinned to b235. The only
-source change is two test-only `PermissionsExt::from_mode(0)` spellings changed
-to `from_mode(0o0)`; no production behavior changed.
+The 24cc source passed R6 canonical with 13,916 passes, zero failures, and 78
+skips across 13,994 selected cases. Metrics, documentation, and diff checks
+passed. The resource observer measured a cgroup peak of 5,179,297,792 bytes
+with zero OOM and swap events. The separate repository lint exited zero with
+two findings and 113 notes. It is not lint-clean. See the
+[accepted source-bound archive](evidence/successor-24cc0d704/README.md).
 
-Root promoted successor source
-`19c9aded0ea42c979fbc6be32162320d29ded3b1`, tree
-`956ea0056c53b5f006ede4fd980fd7ae364970e2`. Root accepted a narrow additive
-delta-functional close for that exact source. The close reuses the accepted
-7eb scope and covers factor parallel, non-Unicode factor, and lifecycle checks
-on `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`. It remains selector-level
-acceptance. It does not qualify the successor full canonical or resource run.
-See the [successor evidence](evidence/successor-19c9aded/README.md).
+The artifacts-only release build passed and produced all three release
+products. It recorded no measured memory peak or timing. R1 discarded its
+timing after an outer affinity restriction made readiness count 12 CPUs on the
+32-CPU host. The native suite did not start. R2 removed that restriction.
+R2 passed readiness checks and rebuilt the same products, but its native suite
+failed with 13,853 passes, two failures, and 139 skips. GNU `rm`'s ext3 case
+returned status 3. The `uu sort` buffer-size case timed out after four minutes
+and received SIGTERM. Cleanup is resolved, and the original failed receipt
+remains unchanged. Neither attempt qualifies a profile or timing result. See
+[R1 and R2 evidence](evidence/successor-24cc0d704/README.md#failed-timed-profile-attempts).
 
-The artifacts-only release build qualifies the `19c9` xsh, xsht, and
-xsh-test-helper products. It provides no canonical or timing result. R4
-stopped at the `fmt` corpus failure before starting its full native suite. Its
-resource capture is diagnostic only and earns no resource credit. The exact
-successor resource retry remains open.
+The `rm` and `sort` fixes remain in isolated, unqualified worktrees. Root
+accepted observer repair `90c223487` and profile cleanup repairs `0b0f485` and
+`f73d136`. These tool changes await integration. Root owns the integration and
+next source seal.
 
-Fifteen capability fixtures moved byte-for-byte in
-`b2f3a0624205e68d06f9a439ffe2dea5e7dc4541`. The exact old-source invariant
-replay fails its selected test at `bytes-reduced.xsh:1:17`. Two earlier
-Docker setup attempts exited 125 before test selection and remain preserved.
-The exact candidate replay on `b2f3a0624` passed one selected test, with 121
-filtered and 115 diagnostics. Root verified source and product guards, the
-1,835-input audit, and cleanup. This is narrow red-to-green evidence, not a
-full canonical result. See the [focused corpus proof](evidence/corpus-placement-b2f3a0624/README.md).
-
-The first fresh R6 attempt on b235 passed five of thirteen stages, then failed
-at stage six on all-target, all-feature Clippy diagnostics for those two
-test-only literals. The remaining seven stages did not run. The exact repair
-at `7eb62cd99` passed focused XSHT Clippy with all targets, all features, and
-warnings denied; see [permission-lint evidence](evidence/coverage-permission-lint-7eb62/README.md).
-The fresh 13-stage R6 run on 7eb exited zero at all stages and root accepted
-it. The run recorded 23 boundaries, 58 extra cases with three ignored, two
-split checks, two privileged checks, and 18 traceroute cases with two
-`NET_RAW` skips. Three ignored cases are covered by the accepted QEMU reuse.
-Both positive `NET_RAW` probes passed in the root residual.
-The [R6 evidence archive](winddown/evidence/final-correctness-gates/README.md)
-preserves the failed b235 attempt and accepted 7eb run.
-
-The broadly qualified 7eb source includes the XSHT linked-worktree discovery
-repair at
-`c30aed3bc`, the same-size tail fixture at `afe2998e4`, the batch admission
-change at `2d882cf6`, the W9 producer repair at `283dcdeab`, and the native
-`nc` fixture repair at `94b772ac0`. The root-reviewed tail fixture repair is
-`16abfbed3`. It preserves same-size stress-test writes and both truncation
-controls. The latest change within 7eb is the two-line test-only permission
-spelling repair at `7eb62cd99`; scheduler behavior, selected cases, privileged
-plans, and deadlines remain unchanged.
-
-### Integrated evidence
-
-| Lineage | Pinned result and limit |
-|---|---|
-| Coverage discovery `fd008a789` | On its lane pin, 18 Rust tests, four native cases, Clippy, and product builds pass. These results do not qualify the assembled source. See [coverage discovery](evidence/coverage-discovery/README.md). |
-| Route expectation `1c0187f40` | The 0dc9 replay completed 428 invocations before the expectation correction. It admitted 187 of 188 route proofs and left two normal `ExprIf` gaps. A fresh strict replay is required. See [route evidence](winddown/evidence/route-if-expectation-0dc9cff7/README.md). |
-| Failed canonical `9080e505f` | The 0dc9 run reports 13,906 passes, 9 failures, and 78 skips. Four coverage failures and one tail-fixture failure are reproduced and repaired. Four timeout/rm causes remain unproven. See [canonical evidence](evidence/canonical-0dc9/README.md). |
-| Canonical `0deeb9c7` | The complete attempt reports 13,915 passes, one failed `nc` TELNET fixture test, 78 skips, and exit status 3. The root-reviewed fixture repair is `94b772ac0`; its exact selector and focused file run pass, but the full canonical gate has not been rerun or accepted. The terminal receipt and logs are preserved in [QEMU evidence](evidence/linux-qemu-0deeb9c7/README.md). See also [fixture repair evidence](evidence/native-nc-repair/README.md). |
-| Failed canonical `3c0c01206` | XSHT integration passed 116 cases, then failed the desugared `test_uu_tail_follow_name_hash_table_stress` after 1,854.26 seconds. The written file passed 79 tests; the desugared file passed 78 and emitted an extra `tail : stderr tail: 9: file truncated` line. Exit status 3 stopped the gate before the full native suite, privileged harness, four batch checks, and docs gate. The source was clean; this run predates the accepted fixture repair and earns no credit. See [failed 3c canonical evidence](evidence/canonical-3c0c01206/README.md). |
-| Tail fixture repair `16abfbed3`, proof `845cc84f9` | The controlled probe observed the truncation window. All four exact selectors passed once in both written and desugared form. The test-only repair preserves the real truncation controls. The later b235 canonical run passed; this proof remains focused evidence. See [tail fixture evidence](evidence/tail-hash-table-stress-3c0c0120/README.md). |
-| Canonical `b235a1a43` | Root accepted 13,916 passes, 78 skips, and zero failures across 13,994 selected cases. The receipt stays pinned to b235; Phase A reuses it for 7eb because only two test-only permission literal spellings changed. See [canonical receipt and preserved outputs](evidence/canonical-b235a1a43/README.md), including all 78 raw skip rows and the corrected 36/42 partition. |
-| `nc` fixture `94b772ac0` | The empty-stdin case could half-close before TELNET negotiation, leaving the old fixture spinning on empty reads. The test now keeps its write side open through negotiation and fails on early EOF. The exact selector and 27-case focused file pass. No production Rust or XSHT source changed. See [native fixture evidence](evidence/native-nc-repair/README.md). |
-| Earlier R6 `957405a4` | All 13 commands exited zero on 0dc9, and root reviewed two traceroute skips. Reuse is blocked because XSHT source changed and workspace Clippy uncovered. See [0dc9 R6 evidence](winddown/evidence/final-correctness-gates/correctness-0dc9cff7-20261016-r1/README.md). |
-| R6 on b235 and 7eb repair | The b235 attempt passed stages 1–5 and failed stage 6 of 13 on two `clippy::non_octal_unix_permissions` warnings in `cfg(test)` calls. Stages 7–13 did not run. The two literal-only fixes pass focused all-target, all-feature XSHT Clippy with `-D warnings`; see [repair evidence](evidence/coverage-permission-lint-7eb62/README.md). The fresh 7eb R6 run exited zero at all 13 stages and root accepted it. See the [failed b235 receipt](winddown/evidence/final-correctness-gates/correctness-b235a1a43-20261017-r1/README.md) and [accepted 7eb receipt](winddown/evidence/final-correctness-gates/correctness-7eb62cd99-20261017-r1/README.md). |
-| QEMU `5bdd8dd43` | Seven platform cases passed on 0dc9. This historical result does not qualify a later source. See [QEMU evidence](evidence/linux-qemu-0dc9cff7/README.md). |
-| QEMU `b94c8ce1e`, b235 scope `64f426a71` | Phase A reuse qualifies the b235 platform slice: the four terminal product hashes and sizes match the seven guest receipts pinned to `0deeb9c7`. No b235 guest ran. The two test-only permission spelling changes at 7eb leave this QEMU scope unchanged, so Phase A reuses the seven passes. R6 uses a separate product variant; its hashes are not compared with the protected canonical products. No 7eb canonical build or guest run is claimed. See [0deeb9 QEMU evidence](evidence/linux-qemu-0deeb9c7/README.md) and [current-source scope](evidence/linux-qemu-b235a1a4/README.md). |
-| Batch admission `2d882cf6` | Its focused regression passes. The batch gate caps its outer native workers at four. This change does not establish the cause of the earlier timeouts. See [admission evidence](evidence/canonical-admission-0dc9/README.md). |
-| Compute `39175cc7` and filesystem `56e2f137` | Factor, sort, rm, and mv exact selectors pass individually on frozen 0dc9 products. These results do not explain the full-run failures. See [compute evidence](evidence/native-compute-0dc9/README.md) and [filesystem evidence](evidence/native-filesystem-repair-20261017/README.md). |
-| Tail `a45771ea` | The corrected same-size fixture and both truncation controls pass on frozen 0dc9 products. The earlier unqualified proof is withdrawn. See [tail evidence](evidence/tail-same-size-fixture-afe2998e4/README.md). |
-| W9 producer `283dcdeab` | The accepted source/test change keeps the three-worker cap and reviewed GC/lifecycle fixes. Its 64 focused controls pass; the integrated runner passes 91 tests. These checks do not qualify a full W9 cohort on this source. See [focused controls and width diagnostic](evidence/w9-comparator-width/README.md). |
-| W9 parity `d92ab2aff` | Root accepted strict parity for exact source `0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4` and tree `b4f9db3f8ee2f38a6c62fea876976619db424ed7`: 1,690 inputs, 6,760 outcomes, zero mismatches. This proof does not transfer to the assembled candidate. See [durable W9 proof](evidence/w9-current-0dc9/README.md). |
-| W9 parity `7be37796b` | Root accepted strict parity for exact source `0deeb9c7fb79e52740c82a264754dbb29d8be693` and tree `ffb7736e1c141bbacde71c7a036ef6bcf1433c34`: 1,690 inputs, 6,760 outcomes, zero mismatches, and verified assignment proof. The b235 diff changes no `src/`, `crates/`, `stdlib/`, or W9 publication tool. [Phase A](CAMPAIGN.md#phase-a--finish-the-existing-campaign-without-expanding-it) permits reuse for the unchanged W9 scope. See [durable W9 proof](evidence/w9-current-0deeb9/README.md). |
-| Interrupted W9 repeat `d0e5ac4a2`, correction `a83c77655` | The 3c comparison stopped after 250 of 1,690 inputs and 1,000 of 6,760 outcomes. It observed zero mismatches in that prefix. Signal 15 left the attempt incomplete, with no parity credit. Root removed three raw payload directories after the reuse decision and freed 22.52 GiB. Payload-level verification is no longer replayable. See [interrupted comparison evidence](evidence/w9-current-3c0c-interrupted/README.md). |
-| W9 scope check and input-0 probe `342ae4108` | The source-seal receipt binds b235. The input-0 probe passed for reference, derived-reference, and candidate adapters and both exact-owner roles. No b235 full-corpus capture ran because the shared publication lock was held by the 3c comparison. The README records Phase A reuse; the probe is not a full-corpus result. See [b235 W9 scope evidence](evidence/w9-current-b235a1a43/README.md). |
-| W9 width diagnostic `f63b64baf` | The rejected eight-worker memory diagnostic reached the 16 GiB limit using frozen 0dc9 captures. The original three-worker cap remains. This diagnostic grants no parity or resource acceptance. See [diagnostic record](evidence/w9-comparator-width/README.md). |
-| Compatibility inventory `b235a1a43` | Frozen denominators remain 638 BusyBox IDs across 68 utilities, 514 GNU IDs across 61 groups, and 5,653 uutils IDs across 106 utilities. Native-origin counts are 638, 513, and 5,419. Exception entries are 0, 3, and 235. They overlap native-origin counts at 0, 2, and 1 IDs. The union is 6,570 native-origin IDs plus 235 exception-only IDs. The 282 exclusions are disjoint and grouped as 137 `clap-wording`, 89 `gnu-semantics`, 17 `help-text`, 3 `thread-model`, 34 `uutils-extension`, and 2 `uutils-internal`. Origin, exclusion, and offline-inventory assertions passed. Historical upstream reports retain failures; no b235 full upstream pass is claimed. See [compatibility accounting](evidence/compatibility-close-b235a1a43/README.md). |
-| Structural review `097192fd7`, current readiness `6bddfeeca` | The four hard-zero structural counts are zero at b235. Input-mode `check-current` on 7eb reused the saved report and produced an identical report and audit. This is not a fresh 7eb scan or final ten-row metrics close. Root accepted functional close on exact 7eb source/tree; the immutable receipt is archived in [closure evidence](evidence/closure-b235a1a43/README.md). Final resource and performance gates remain open. |
-| Root residual `6a3a251f0` | All 36 unique selectors passed across 37 executions on the 7eb source and R6 products. The full standard attempt retains one `sun_path` skip, and the exact selector passed through `/t`; both `NET_RAW` cases passed under root with `CAP_NET_RAW`. Both startup-guard attempts selected zero tests. See [residual evidence](evidence/linux-residual-0deeb9c7/README.md). |
-
-The 73 route mapping tests and 91 W9 adapter tests are earlier focused checks.
-The accepted 0deeb9 W9 cohort remains reusable for b235 under Phase A because
-the compiler and W9 scope are unchanged. The b235 input-0 probe produced no
-full-corpus outcomes. The interrupted 3c repeat earns no W9 credit. The strict
-route matrix is now accepted for exact 7eb; its direct-IR `ExprIf` proof and
-full matrix are archived in the current queue link above.
-
-Phase D whole-corpus typing work remains isolated. The accepted checker
-checkpoint `877` is recorded at `338b82238a67ee36dd1b025b7a923f9fc5d2da40`,
-using the qualified pair `a972c8d139ecbb43174271842988eefb2c8638cc`. All
-eleven annotated and eleven reduced root checks pass. It removes 348 of 693
-local annotations (50.22%) and 529 of 2,190 internal annotations (24.16%);
-the 95% and 85% targets remain unmet. Root accepted all 26 unique paired
-behavior slots in proof `54956efd7925818d7c70f82d0c74fa4669eaf1db` across 28
-executions: 27 passes and the preserved original
-lifecycle-fixture failure, including one duplicate reduced lifecycle
-execution. The original view's 13 slots comprise 12 unchanged passes and the
-corrected lifecycle pass; the final reduced matrix passes all 13. See the
-[paired behavior proof](evidence/typing-corpus-host-obligations/README.md#paired-behavior-acceptance).
-The original fixture failed because `flock` was absent from the historical
-`ddc` test PATH. The accepted helper and call correction
-`3059676c39aca75a126893e81d8fcecf96e8d912` stays outside the 48 program
-sources and changes no assertions. All 202 eligible
-effect clauses remain retained because 142 individual proofs do not establish
-joint-cycle equality. Host component `5277` has conditional acceptance for its
-six exact native checks at proof `1edf4ee50c093323accc03f9355bd83795bbfdba`,
-including source/product guards and cleanup; see [host native evidence](evidence/typing-host-native6/README.md). Broader
-inference is not accepted. The earlier 615-removal checkpoint `17be3ff8` on
-freeze `a8d5bd910` remains historical. The generic-body lane remains
-unqualified. Do not merge inference to main before consolidation closes.
-
-The accepted `877` candidate remains the only one with full paired runtime
-qualification. The source-only `891` plan remains source-validated only. The
-`986` Set candidate passes accepted check/lowering on source `020f` for 457 of
-693 local removals, including 109 added mutable `Set[Str]` annotations, and 529
-of 2,190 internal removals. Its 26 exact behavior witnesses pass, 13 per view,
-but that bounded run does not complete Set feature qualification. API fixture
-`a4418a5253dd557f7a96419f4212b09dd29084a1` passes. Driver-slot repair
-`2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has qualified products, but its
-check-only verifier rejects the output-slot identity; the original `2cb3`
-failure remains preserved. The current Definition-role source patch is
-unqualified. Full removal credit remains 877. The planned `1023`-site candidate adds 37
-sites beyond `986`; compiler build `0481479e7`, six native component selectors on `bc96e556f`, and all
-eleven check/lower roots pass. Its original-view runtime passes 15 of 24
-selectors and fails nine; reduced-view runtime has not run. One failure
-reproduces the pre-existing `5277` issue; the other failure causes remain
-unknown while the owner improves module-capture diagnosis. No removal count
-advances. The owner decided to keep `{}` as a record. All 149 `Map`
-annotations on `{}` initializers remain required. The frozen local denominator
-remains 693; the current contract ceiling is 544/693 (78.50%), below the 95%
-target. Only checkpoint `877` has full paired runtime acceptance. The original
-`749` rejection remains preserved.
-See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
-[Set qualification](typing-corpus/README.md#independent-mutable-set-candidate),
-[Set evidence](evidence/typing-corpus-host-obligations/mutable-sets/README.md), and
-[empty-record decision](typing-corpus/README.md#empty-record-contract).
-
-The frozen typing inventory was restored byte-for-byte from its canonical Git
-blob. `cohort.inventory()` passed against the retained originals: 9,194 indexed
-sites across 48 sources, including 693 local, 2,190 internal, 4,364 schema,
-1,920 interface, 23 required, and four entry-effect sites. The original
-14,287-entry input digest is unchanged. No denominator changed.
-
-The isolated combined host run at `a122367bf6a45c80d1977ed97b3c3ab85b2d49b4`
-passed 171 selected tests: 107 producer selectors, two Set mutations, and 62
-constraint tests. It built the verification `xsh`, `xsht`, and
-`xsh-test-helper` products and the xsh library test harness. Only the explicit
-production `xsh --lib` check used `-D warnings`; the product and test commands
-did not use global warning denial. The container exited zero. The outer
-validator exited one because it expected an 8 GiB swap limit, while the
-no-swap cgroup reported zero. Root reconciled the resource check. These focused
-results do not qualify inference acceptance or a full native run. The constant
-record proof patch remains under review.
+Root accepted the bounded isolated typing checkpoint at
+`b823e52cb94d222de64968154d9ceee5ce580e88`.
+It removes 1,038 annotations: 499 of 693 eligible locals and 539 of 2,190
+eligible internal annotations. Both campaign targets remain unmet. The
+denominator is unchanged. All 149 Map annotations on `{}` initializers and all
+202 eligible private effect clauses remain. This result does not complete
+inference or authorize a main merge.
 
 ### Current queue
 
-1. Route qualification and functional close are accepted for exact source
-   `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
-   `736b4bc16b1bcf07a0250b97e849506c19fb0753`. The final matrix has 152 rows,
-   zero gaps, zero unmapped paths, all 188 XSH route proofs, and one separate
-   direct-IR proof. All 428 runtime invocations and 856 source checks passed;
-   see the [matrix archive](winddown/evidence/route-replay-7eb62cd99/direct-ir-admission/README.md).
-   The immutable functional-close receipt is
-   [archived here](evidence/closure-b235a1a43/functional-close-7eb62cd993e578c13bf6befd68a6a6ac15133c78.json).
-2. Residual qualification is complete: 36 distinct selectors passed across 37
-   executions, including the `/t` rerun of the standard-context `sun_path`
-   case, the namespace case, and both root `CAP_NET_RAW` positives. Initial
-   Git-guard attempts selected zero tests and earn no credit. See the
-[residual evidence](evidence/linux-residual-0deeb9c7/README.md).
-3. Final resource and performance gates remain open. The R3 resources-only
-   observer failed after one full native suite: 13,914 passed, two failed, and
-   78 were skipped. The failures were the lifecycle profile expectation and a
-   factor timeout; cleanup resolved without OOM. R3 earns no resource credit.
-   See the [R3 archive](evidence/resource-observer-r3-7eb62cd9/README.md).
-   Successor delta `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8` has accepted
-   narrow delta-functional close: lifecycle and non-Unicode passed in the first
-   integrated run, and the factor parallel selector passed in the isolated
-   quiet control. Root reviewed the unchanged flush, ordering, error, and status
-   paths. See the [integrated run](evidence/factor-buffer-7eb/integrated-candidate-3160bda/README.md)
-   and [quiet control](evidence/factor-buffer-7eb/quiet-control-3160bda/README.md).
-   The initial integrated timeout overlapped builds on disjoint CPU sets for
-   51 seconds and then three seconds, which does not prove causation. Campaign
-   builds were held for the quiet control, but external host jobs remained
-   active; it is not timing evidence. The prior failed run's memory and cleanup
-   observations remain in the linked archive. Root accepted the additive
-   functional close for exact successor `19c9aded` and its artifacts-only
-   release build. Neither acceptance closes the full successor canonical or
-   resource gate. R4 stopped at the actual `fmt` corpus failure before its full
-   native suite started. Its 3,429,998,592-byte resource peak with zero OOM
-   events is diagnostic only and earns no resource credit. The resource retry
-   remains open. No successor full canonical has completed. Timing gates have
-   not run. They remain pending successor correctness and resource completion,
-   followed by fresh readiness checks. Earlier host-busy observations are
-   historical and do not establish a current deferral. Root owns the next gate
-   sequence and promotion.
+After the `rm` and `sort` repairs and accepted tool changes are integrated and
+the source is sealed, run these gates in order:
 
-The b235 canonical gate is accepted and reused for 7eb under Phase A. The fresh
-7eb R6 run is accepted, residual and QEMU scopes are closed, W9 parity is
-reused at 0deeb9 for its unchanged scope, and functional close is complete on
-7eb. Final resource/performance gates and the ten-row metrics close remain
-open. Do not merge inference work from typing branches.
+1. Run a fresh normal profile.
+2. Run one timed canonical observer with resource capture. It includes the
+   full native suite. Do not run a separate resource-only full suite by default.
+3. Run the forced profile.
+4. Run the comparative profile.
+5. Run three scheduler pairs.
+
+The 24cc R6 canonical and resource result does not provide timing acceptance for
+24cc or a later repaired source. No timed gate has completed.
 
 ## Historical resume record (superseded)
 

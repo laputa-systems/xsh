@@ -1,127 +1,27 @@
 # Consolidation items and ownership
 
-Live queue, 2026-10-17: the full layout invariant passes for `e9ef913df`,
-integrated as `0f5cf1247`. Seal and qualify a fresh artifact build and resource
-attempt. Timing waits for correctness and resources. R4 and R5 remain failed.
-The isolated inference checkpoint is accepted at 1,036 removals, with both
-percentage targets unmet and all 149 Map annotations retained. See the
-[live handoff](HANDOFF.md#live-checkpoint-2026-10-17). Historical pins follow.
-
 Approved campaign: `CAMPAIGN.md`. Start commit:
 `5e66b6b896a47d0c692739135d51200b007a2a67`. The accepted designs and historical
 ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
-**Current status: `7eb62cd99` remains the last broadly qualified production
-source.** Root promoted `19c9aded0ea42c979fbc6be32162320d29ded3b1`, tree
-`956ea0056c53b5f006ede4fd980fd7ae364970e2`, to main. Root accepted its narrow
-delta-functional close and exact-source artifacts-only release build. The R4
-attempt stopped at an actual `fmt` corpus failure before its full native suite
-started, so it earns no resource credit. Its diagnostic resource capture
-peaked at 3,429,998,592 bytes with zero OOM events. Successor full canonical
-and resource gates remain open. Timing gates have not run and await correctness
-and resource completion followed by fresh readiness checks. The
-[active handoff](HANDOFF.md#active-candidate) owns exact pins and the live
-queue.
+**Current status: Main and the frozen source are
+`24cc0d704209a8c0aa0eb27d5cfea1434929dc20`, tree
+`b6efac064ed074c9ee03d8f183bff9b41d353c91`.** Root accepted an additive
+functional close and the exact-source R6 canonical and resource run: 13,916
+passed, zero failed, and 78 skipped. Timed performance acceptance remains open.
+See the [active handoff](HANDOFF.md#active-candidate).
 
-The accepted b235 canonical result has 13,916 passes, 78 skips, and zero
-failures across 13,994 cases. Phase A reuses it for 7eb because only two
-test-only permission spellings changed. The b235 receipt remains pinned to its
-original source.
+R1 discarded timing and did not run the native suite. R2 failed two native
+cases, so neither profile attempt qualifies timing. The `rm` and `sort` source
+repairs remain isolated and unqualified. The
+[successor archive](evidence/successor-24cc0d704/README.md) preserves R6 and
+both profile attempts.
 
-The first b235 R6 attempt failed at stage 6 of 13 on two Clippy warnings after
-five passing stages. Stages 7–13 did not run. On 7eb, the fresh R6 run exited
-zero at all 13 stages and root accepted it. It recorded 23 boundaries, 58
-extra cases with three ignored, two split checks, two privileged checks, and
-18 traceroute cases with two `NET_RAW` skips. The [R6 evidence index](winddown/evidence/final-correctness-gates/README.md) preserves the failed b235 attempt and accepted 7eb run.
-
-Phase A reuses the seven accepted QEMU cases for 7eb by scope. R6 products use
-a separate variant and are not compared with the protected canonical
-products. No 7eb canonical build or QEMU guest run is claimed. The accepted
-tail repair passed all eight written/desugared selectors. W9 parity at
-`0deeb9c7` remains reusable under Phase A; the b235 input-0 probe is not a
-full-corpus result, and the interrupted 3c repeat earns no credit.
-
-Compatibility origins and exclusions reconcile to frozen denominators. No
-new upstream pass is claimed. All 428 route invocations and 856 source checks
-passed on 7eb. The final strict matrix has 152 rows, zero gaps, zero unmapped
-paths, 188 XSH proofs, and one separate direct-IR `ExprIf` proof. See the
-[accepted matrix](winddown/evidence/route-replay-7eb62cd99/direct-ir-admission/README.md).
-Root accepted functional close for the exact 7eb source/tree; its immutable
-receipt is [archived here](evidence/closure-b235a1a43/functional-close-7eb62cd993e578c13bf6befd68a6a6ac15133c78.json).
-
-The root residual has 36 distinct passes across 37 executions. The Unix-socket
-`sun_path` selector passed through an owned `/t` alias; the namespace case and
-both positive `NET_RAW` cases passed under root with `CAP_NET_RAW`. Initial
-Git-guard attempts selected zero tests and earn no credit. See the [residual
-evidence](evidence/linux-residual-0deeb9c7/README.md). Root accepted the
-`profile-cost.py --artifacts-only` and `final-observers.py --resources-only`
-modes, and the accepted controller changes are integrated. R3's resources-only
-observer failed after starting one full native suite: 13,914 passed, two failed
-and 78 were skipped. Cleanup resolved with no OOM, but R3 earns no resource
-credit. See the [R3 archive](evidence/resource-observer-r3-7eb62cd9/README.md).
-Root accepted lifecycle fix
-`f4a9fb92f0976ed8fa6680f4ed8597180cc93f32` and factor repair `587814f274e` in
-isolated candidate `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`. The lifecycle
-reproduction is archived [here](evidence/lifecycle-profile-r3/README.md). The
-first integrated run timed out in `test_uu_factor_parallel` at 120 seconds
-while the lifecycle and non-Unicode selectors passed. The parallel selector
-later passed in an isolated quiet control. Root accepted narrow delta-functional
-close for these three selectors after reviewing the unchanged factor flush,
-ordering, error, and status paths. See the [integrated run](evidence/factor-buffer-7eb/integrated-candidate-3160bda/README.md)
-and [quiet control](evidence/factor-buffer-7eb/quiet-control-3160bda/README.md).
-The first timeout overlapped builds on disjoint CPU sets for 51 seconds and
-then three seconds; this does not establish causation. The quiet control ran
-after campaign builds were held, but external host jobs remained active, so it
-is not timing evidence. The successor has no full canonical or resource
-acceptance yet. No timed run has started; timing waits for successor correctness
-and resource completion followed by fresh readiness checks. Binary-size remains
-pending. Lean and Phase F stay paused. Inference remains isolated until
-consolidation closes.
-
-Phase D remains isolated at checkpoint `877`, commit
-`338b82238a67ee36dd1b025b7a923f9fc5d2da40`, on pair
-`a972c8d139ecbb43174271842988eefb2c8638cc`. It removed 348/693 local and
-529/2,190 internal annotations. All eleven annotated and eleven reduced root
-checks pass. The original 13-case native trial had 12 passes and one lifecycle
-failure because `flock` was absent from the historical `ddc` test PATH. Root
-accepted all 26 unique paired behavior slots in proof
-`54956efd7925818d7c70f82d0c74fa4669eaf1db` across 28 executions: 27 passes
-and the preserved original lifecycle-fixture failure, including one duplicate
-reduced lifecycle execution. The original view's 13 slots comprise 12
-unchanged passes and the corrected lifecycle pass; the final reduced matrix
-passes all 13. See the [paired behavior proof](evidence/typing-corpus-host-obligations/README.md#paired-behavior-acceptance).
-The accepted helper and call correction
-`3059676c39aca75a126893e81d8fcecf96e8d912` changes no assertions and
-stays outside the 48 program sources. Targets remain unmet, and all 202
-eligible effects remain retained. Host component `5277` has conditional
-acceptance for its six exact native checks at proof
-`1edf4ee50c093323accc03f9355bd83795bbfdba`, with guarded source/product
-identity and cleanup; see [host native evidence](evidence/typing-host-native6/README.md).
-The generic-body lane remains unqualified.
-The accepted `877` candidate remains the only one with full paired runtime
-qualification. The source-only `891` plan remains source-validated only. The
-`986` Set candidate has accepted check/lowering and 26 paired witnesses, but
-not full feature acceptance. The planned `1023`-site candidate adds 37 sites;
-compiler build `0481479e7`, six native component selectors on `bc96e556f`,
-and all eleven check/lower roots pass. Original-view runtime passes 15 of 24 selectors and fails nine;
-reduced-view runtime has not run. One failure reproduces the pre-existing
-`5277` issue; the other causes remain unknown while the owner improves
-module-capture diagnosis. No removal count advances. The Definition-role
-source patch is unqualified, and the original `2cb3` failure remains
-preserved. The owner decided to keep `{}` as a record. All 149 Map annotations
-on `{}` initializers remain required. The frozen denominator is 693; the
-current contract ceiling is 544/693 (78.50%), below the 95% local target. The
-original `749` rejection remains preserved.
-See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
-[Set qualification](typing-corpus/README.md#independent-mutable-set-candidate),
-[Set evidence](evidence/typing-corpus-host-obligations/mutable-sets/README.md), and
-[empty-record decision](typing-corpus/README.md#empty-record-contract).
-Inference remains isolated. See the [active handoff](HANDOFF.md#active-candidate)
-for the full checkpoint details.
-
-The isolated generic module export slice remains accepted at `8475984a9`.
-Its main merge waits for consolidation closure. Broader inference, corpus
-removal, performance baselines, and formal work remain open.
+The isolated typing checkpoint
+`b823e52cb94d222de64968154d9ceee5ce580e88` records 1,038 removals: 499 of 693 eligible
+locals and 539 of 2,190 eligible internal annotations. Both targets remain
+unmet. The denominator, all 149 Map annotations on `{}` initializers, and all
+202 eligible private effects remain unchanged. Inference is not merged to main.
 
 **Earlier checkpoints:** the progress and verification entries below are
 historical and source-specific. They are not the current work queue. The
