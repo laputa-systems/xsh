@@ -89,8 +89,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   let name = gnu.argument_bytes(opts.operands[0], prepared.raw)
-  let path = Path.parse_bytes(name)?
-  let metadata = match fs.stat(path, follow_symlinks: ! opts.nofollow) {
+  let path_value = Path.parse_bytes(name)?
+  let metadata = match fs.stat(path_value, follow_symlinks: ! opts.nofollow) {
     Ok(value) => value
     Err(failure) => {
       if ! opts.quiet { report_path_error(name, failure) }
@@ -114,7 +114,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     exit 32
   }
 
-  let resolved = match path.resolve() {
+  let resolved = match path_value.resolve() {
     Ok(value) => value
     Err(failure) => {
       if ! opts.quiet { report_path_error(name, failure) }
