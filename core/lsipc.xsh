@@ -3,6 +3,7 @@ use lib.gnu
 use core.lib.ipc_report as report
 
 type IpcEntry = {values: Map[Str, Str], elements: List[report.Element]}
+type DecimalDivision = {quotient: Str, remainder: Int}
 
 proc help_column(name: Str, description: Str) -> Str {
   f" {tui.left_pad(name, 14)}  {description}\n"
@@ -112,15 +113,8 @@ pure hex_key(value: Int) -> Str {
   f"0x{out}"
 }
 
-pure human_size(value: Int) -> Str {
-  const LETTERS = "BKMGTPE"
-  var exponent = 0
-  var divisor = 1
-  while exponent < 60 and value >= divisor * 1024 { exponent += 10; divisor *= 1024 }
-  let unit = LETTERS.byte_slice(exponent / 10, length: 1)
-  if exponent == 0 { return f"{value}B" }
-  var whole = value / divisor
-  let fraction = value % divisor
+pure human_units(whole_value: Int, fraction: Int, divisor: Int, unit: Str) -> Str {
+  var whole = whole_value
   let thousandths = if fraction >= 18446744073709551 {
     fraction / 1024 * 1000 / (divisor / 1024)
   } else {
@@ -129,6 +123,36 @@ pure human_size(value: Int) -> Str {
   var tenth = (thousandths + 50) / 100
   if tenth == 10 { whole += 1; tenth = 0 }
   if tenth == 0 { f"{whole}{unit}" } else { f"{whole}.{tenth}{unit}" }
+}
+
+pure human_size(value: Int) -> Str {
+  const LETTERS = "BKMGTPE"
+  var exponent = 0
+  var divisor = 1
+  while exponent < 60 and value >= divisor * 1024 { exponent += 10; divisor *= 1024 }
+  let unit = LETTERS.byte_slice(exponent / 10, length: 1)
+  if exponent == 0 { return f"{value}B" }
+  human_units(value / divisor, value % divisor, divisor, unit)
+}
+
+pure divide_decimal_1024(value: Str) -> DecimalDivision {
+  var quotient = ""
+  var remainder = 0
+  for digit in value {
+    remainder = remainder * 10 + (digit.byte_at(0) ?? 48) - 48
+    let next = remainder / 1024
+    if next != 0 or !quotient.is_empty() { quotient += f"{next}" }
+    remainder = remainder % 1024
+  }
+  {quotient: if quotient.is_empty() { "0" } else { quotient }, remainder: remainder}
+}
+
+proc human_limit(value: Str) [error] -> Str {
+  if let Ok(number) = value.parse_int() { return human_size(number) }
+  let divided = divide_decimal_1024(value)
+  let quotient = divided.quotient.parse_int()?
+  const DIVISOR = 1125899906842624
+  human_units(quotient / DIVISOR, quotient % DIVISOR * 1024 + divided.remainder, DIVISOR * 1024, "E")
 }
 
 proc display_time(seconds: Int, format: Str) [time, env, error] -> Str? {
@@ -420,16 +444,16 @@ proc selected_rows(selection: report.Selection) [fs, process, time, env, error] 
   rows
 }
 
-proc read_integer(file_path: Path) [fs, error] -> Int {
-  file_path.read_text()?.trim().parse_int()?
+proc read_limit(file_path: Path) [fs, error] -> Str {
+  file_path.read_text()?.trim()
 }
 
-proc global_row(selection: report.Selection, resource: Str, description: Str, used: Int, limit: Int, usage: Bool, byte_unit: Bool) -> report.Row {
+proc global_row(selection: report.Selection, resource: Str, description: Str, used: Int, limit: Str, usage: Bool, byte_unit: Bool) [error] -> report.Row {
   var values: Map[Str, Str] = {"RESOURCE": resource, "DESCRIPTION": description}
-  values = values.set("LIMIT", if byte_unit and !selection.bytes { human_size(limit) } else { f"{limit}" })
+  values = values.set("LIMIT", if byte_unit and !selection.bytes { human_limit(limit) } else { limit })
   if usage {
     values = values.set("USED", if byte_unit and !selection.bytes { human_size(used) } else { f"{used}" })
-    let percentage = used.float() / limit.float() * 100.0
+    let percentage = used.float() / limit.parse_float()? * 100.0
     values = values.set("USE%", f"{percentage.format(precision: 2)}%")
   } else {
     values = values.set("USED", "-")
@@ -442,25 +466,25 @@ proc global_rows(selection: report.Selection) [fs, process, time, env, error] ->
   var rows: List[report.Row] = []
   if "queues" in selection.resources {
     let records = sysv_records("queues")
-    rows += [global_row(selection, "MSGMNI", "Number of System V message queues", records.len(), read_integer(p"/proc/sys/kernel/msgmni"), true, false)]
-    rows += [global_row(selection, "MSGMAX", "Max size of System V message (bytes)", 0, read_integer(p"/proc/sys/kernel/msgmax"), false, true)]
-    rows += [global_row(selection, "MSGMNB", "Default max size of System V queue (bytes)", 0, read_integer(p"/proc/sys/kernel/msgmnb"), false, true)]
+    rows += [global_row(selection, "MSGMNI", "Number of System V message queues", records.len(), read_limit(p"/proc/sys/kernel/msgmni"), true, false)]
+    rows += [global_row(selection, "MSGMAX", "Max size of System V message (bytes)", 0, read_limit(p"/proc/sys/kernel/msgmax"), false, true)]
+    rows += [global_row(selection, "MSGMNB", "Default max size of System V queue (bytes)", 0, read_limit(p"/proc/sys/kernel/msgmnb"), false, true)]
   }
   if "posix_mqueues" in selection.resources {
     let posix = posix_entries("posix_mqueues", selection)
-    rows += [global_row(selection, "MQUMNI", "Number of POSIX message queues", posix.len(), read_integer(p"/proc/sys/fs/mqueue/queues_max"), true, false)]
-    rows += [global_row(selection, "MQUMAX", "Max size of POSIX message (bytes)", 0, read_integer(p"/proc/sys/fs/mqueue/msgsize_max"), false, true)]
-    rows += [global_row(selection, "MQUMNB", "Number of messages in POSIX message queue", 0, read_integer(p"/proc/sys/fs/mqueue/msg_max"), false, false)]
+    rows += [global_row(selection, "MQUMNI", "Number of POSIX message queues", posix.len(), read_limit(p"/proc/sys/fs/mqueue/queues_max"), true, false)]
+    rows += [global_row(selection, "MQUMAX", "Max size of POSIX message (bytes)", 0, read_limit(p"/proc/sys/fs/mqueue/msgsize_max"), false, true)]
+    rows += [global_row(selection, "MQUMNB", "Number of messages in POSIX message queue", 0, read_limit(p"/proc/sys/fs/mqueue/msg_max"), false, false)]
   }
   if "shmems" in selection.resources {
     let records = sysv_records("shmems")
     var bytes_used = 0
     for record in records { bytes_used += number(record, "size") ?? 0 }
     let page_size = system.execution_units()?.page_size_bytes
-    rows += [global_row(selection, "SHMMNI", "Shared memory segments", records.len(), read_integer(p"/proc/sys/kernel/shmmni"), true, false)]
-    rows += [global_row(selection, "SHMALL", "Shared memory pages", bytes_used / page_size, read_integer(p"/proc/sys/kernel/shmall"), true, false)]
-    rows += [global_row(selection, "SHMMAX", "Max size of shared memory segment (bytes)", 0, read_integer(p"/proc/sys/kernel/shmmax"), false, true)]
-    rows += [global_row(selection, "SHMMIN", "Min size of shared memory segment (bytes)", 0, 1, false, true)]
+    rows += [global_row(selection, "SHMMNI", "Shared memory segments", records.len(), read_limit(p"/proc/sys/kernel/shmmni"), true, false)]
+    rows += [global_row(selection, "SHMALL", "Shared memory pages", bytes_used / page_size, read_limit(p"/proc/sys/kernel/shmall"), true, false)]
+    rows += [global_row(selection, "SHMMAX", "Max size of shared memory segment (bytes)", 0, read_limit(p"/proc/sys/kernel/shmmax"), false, true)]
+    rows += [global_row(selection, "SHMMIN", "Min size of shared memory segment (bytes)", 0, "1", false, true)]
   }
   if "semaphores" in selection.resources {
     let records = sysv_records("semaphores")
@@ -471,11 +495,11 @@ proc global_rows(selection: report.Selection) [fs, process, time, env, error] ->
     let semmns = limits[1].parse_int()?
     let semopm = limits[2].parse_int()?
     let semmni = limits[3].parse_int()?
-    rows += [global_row(selection, "SEMMNI", "Number of semaphore identifiers", records.len(), semmni, true, false)]
-    rows += [global_row(selection, "SEMMNS", "Total number of semaphores", elements_used, semmns, true, false)]
-    rows += [global_row(selection, "SEMMSL", "Max semaphores per semaphore set.", 0, semmsl, false, false)]
-    rows += [global_row(selection, "SEMOPM", "Max number of operations per semop(2)", 0, semopm, false, false)]
-    rows += [global_row(selection, "SEMVMX", "Semaphore max value", 0, 32767, false, false)]
+    rows += [global_row(selection, "SEMMNI", "Number of semaphore identifiers", records.len(), f"{semmni}", true, false)]
+    rows += [global_row(selection, "SEMMNS", "Total number of semaphores", elements_used, f"{semmns}", true, false)]
+    rows += [global_row(selection, "SEMMSL", "Max semaphores per semaphore set.", 0, f"{semmsl}", false, false)]
+    rows += [global_row(selection, "SEMOPM", "Max number of operations per semop(2)", 0, f"{semopm}", false, false)]
+    rows += [global_row(selection, "SEMVMX", "Semaphore max value", 0, "32767", false, false)]
   }
   rows
 }
