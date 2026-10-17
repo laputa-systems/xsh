@@ -2,16 +2,16 @@ use lib.gnu as gnu
 use support.uu
 use support.util_linux as ul
 
-proc parity(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[Unit, Error] {
-  let reference = ul.reference(s, "mountpoint", args, timeout: 5s)?
-  let candidate = uu.invoke(s, "mountpoint", args, timeout: 5s)?
+proc parity(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, error] -> Result[Unit, Error] {
+  let reference = ul.reference(s, "mountpoint", args, timeout: 5s, vars:)?
+  let candidate = uu.invoke(s, "mountpoint", args, vars:, timeout: 5s)?
   ul.compare(reference, candidate)
   Ok()
 }
 
-proc parity_paths(s: uu.Scene, args: List[Path]) [fs, process, env, error] -> Result[Unit, Error] {
-  let reference = ul.reference_paths(s, "mountpoint", args, timeout: 5s)?
-  let candidate = uu.invoke_paths(s, "mountpoint", args, timeout: 5s)?
+proc parity_paths(s: uu.Scene, args: List[Path], vars: Record = {}) [fs, process, env, error] -> Result[Unit, Error] {
+  let reference = ul.reference_paths(s, "mountpoint", args, timeout: 5s, vars:)?
+  let candidate = uu.invoke_paths(s, "mountpoint", args, vars:, timeout: 5s)?
   ul.compare(reference, candidate)
   Ok()
 }
@@ -81,6 +81,16 @@ test test_mountpoint_device_number_requires_a_block_device { |ctx|
   parity(s, ["-q", "-x", "/dev/null"])?
 }
 
+test test_mountpoint_devno_reports_owned_block_device { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  let device = uu.at(s, "block-device")
+  fs.mknod(device, "block", 0o600, major: 8, minor: 0)?
+  parity(s, ["--devno", "--", device.display()])?
+  parity(s, ["-x", "--", device.display()])?
+  assert fs.stat(device)?.kind == "block"
+}
+
 test test_mountpoint_show_on_a_real_mount_and_non_mount_path { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
@@ -91,6 +101,8 @@ test test_mountpoint_show_on_a_real_mount_and_non_mount_path { |ctx|
   parity(s, ["--show", "--quiet", "--", s.root.display()])?
   parity(s, ["--show", "--fs-devno", "--", mount.mounted_on.display()])?
   parity(s, ["--show", "--nofollow", "--", fp"{s.root}/mount-link".display()])?
+  parity(s, ["--show", "--", fp"{mount.mounted_on}//.".display()])?
+  parity(s, ["--show", "--", fp"{s.root}//.".display()])?
   parity(s, ["--show", "--", s.root.display()])?
   assert uu.at(s, "mount-link").readlink()? == mount.mounted_on
 }
@@ -115,6 +127,9 @@ test test_mountpoint_path_arguments_preserve_non_utf8_names { |ctx|
   let spaced = fp"{s.root}/space and quote'"
   spaced.write("quoted path\n")
   parity_paths(s, [p"--", spaced])?
+  for locale in ["C", "C.UTF-8"] {
+    parity_paths(s, [p"--", name], vars: {LC_ALL: locale})?
+  }
   assert name.read_text()? == "owned raw path\n"
   assert spaced.read_text()? == "quoted path\n"
 }
@@ -130,10 +145,12 @@ test test_mountpoint_inaccessible_path_from_unprivileged_runner { |ctx|
   defer directory.chmod(0o700)
   directory.chmod(0)
   let operand = fp"{directory}/secret".display()
-  for args in [["--", operand], ["--quiet", "--", operand]] {
-    let reference = ul.reference_as_user(s, "mountpoint", args, uid: 10001, timeout: 5s)?
-    let candidate = ul.candidate_as_user(s, "mountpoint", args, uid: 10001, timeout: 5s)?
-    ul.compare(reference, candidate)
+  for uid in [10001, 10002] {
+    for args in [["--", operand], ["--quiet", "--", operand]] {
+      let reference = ul.reference_as_user(s, "mountpoint", args, uid:, timeout: 5s)?
+      let candidate = ul.candidate_as_user(s, "mountpoint", args, uid:, timeout: 5s)?
+      ul.compare(reference, candidate)
+    }
   }
   assert fs.stat(directory)?.mode.bit_and(0o777) == 0
   assert fp"{directory}/secret".read_text()? == "owned path\n"

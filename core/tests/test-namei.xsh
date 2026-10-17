@@ -2,16 +2,16 @@ use lib.gnu as gnu
 use support.uu
 use support.util_linux as ul
 
-proc parity(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[Unit, Error] {
-  let reference = ul.reference(s, "namei", args, timeout: 5s)?
-  let candidate = uu.invoke(s, "namei", args, timeout: 5s)?
+proc parity(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, error] -> Result[Unit, Error] {
+  let reference = ul.reference(s, "namei", args, timeout: 5s, vars:)?
+  let candidate = uu.invoke(s, "namei", args, vars:, timeout: 5s)?
   ul.compare(reference, candidate)
   Ok()
 }
 
-proc parity_paths(s: uu.Scene, args: List[Path]) [fs, process, env, error] -> Result[Unit, Error] {
-  let reference = ul.reference_paths(s, "namei", args, timeout: 5s)?
-  let candidate = uu.invoke_paths(s, "namei", args, timeout: 5s)?
+proc parity_paths(s: uu.Scene, args: List[Path], vars: Record = {}) [fs, process, env, error] -> Result[Unit, Error] {
+  let reference = ul.reference_paths(s, "namei", args, timeout: 5s, vars:)?
+  let candidate = uu.invoke_paths(s, "namei", args, vars:, timeout: 5s)?
   ul.compare(reference, candidate)
   Ok()
 }
@@ -26,6 +26,18 @@ test test_namei_upstream_logic_plain_relative_paths { |ctx|
   parity(s, ["namei1/namei2/b"])?
   assert uu.read_text(s, "namei1/namei2/a")? == "a\n"
   assert uu.read_text(s, "namei1/namei2/b")? == "b\n"
+}
+
+test test_namei_root_and_repeated_path_separators { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  uu.mkdir(s, "tree/inner")
+  uu.write(s, "tree/inner/file", "file\n")
+  parity(s, ["/"])?
+  parity(s, ["//"])?
+  parity(s, ["///"])?
+  parity(s, ["--", fp"{s.root}//tree///inner//file".display()])?
+  parity(s, ["--", fp"{s.root}/tree/inner/".display()])?
 }
 
 test test_namei_each_output_option_and_long_combination { |ctx|
@@ -65,6 +77,45 @@ test test_namei_component_walk_follows_relative_and_absolute_symlinks { |ctx|
   assert quoted.read_text()? == "quoted path\n"
 }
 
+test test_namei_component_walk_reports_socket_and_block_device { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  let socket = uu.at(s, "socket")
+  let block = uu.at(s, "block")
+  fs.mknod(socket, "socket", 0o600)?
+  fs.mknod(block, "block", 0o600, major: 0, minor: 0)?
+  parity(s, ["--modes", "--", socket.display()])?
+  parity(s, ["-m", "--", block.display()])?
+  assert fs.stat(socket)?.kind == "socket"
+  assert fs.stat(block)?.kind == "block"
+}
+
+test test_namei_modes_and_owner_columns_cover_special_bits { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  let s = uu.scene(ctx)?
+  let setuid = uu.at(s, "setuid-file")
+  let sticky = uu.at(s, "sticky-directory")
+  let owned = uu.at(s, "wide-owner")
+  setuid.write("fixture\n")
+  setuid.chmod(0o4755)
+  sticky.mkdir()
+  sticky.chmod(0o3777)
+  owned.write("fixture\n")
+  fs.chown(owned, {uid: 100000, gid: 100001, name: "", home: p"/", shell: p"/"})?
+  owned.chmod(0o6755)
+  parity(s, ["--modes", "--", setuid.display()])?
+  parity(s, ["-m", "--", sticky.display()])?
+  parity(s, ["-v", "-o", "--", owned.display()])?
+  parity(s, ["-l", "--", owned.display()])?
+  let modes = ul.reference(s, "namei", ["-m", "--", setuid.display()], timeout: 5s)?
+  assert modes.stdout.utf8()?.contains("-rwsr-xr-x"), modes.stdout
+  let long_modes = ul.reference(s, "namei", ["-m", "--", sticky.display()], timeout: 5s)?
+  assert long_modes.stdout.utf8()?.contains("drwxrwsrwt"), long_modes.stdout
+  let owners = ul.reference(s, "namei", ["-o", "--", owned.display()], timeout: 5s)?
+  assert owners.stdout.utf8()?.contains("root   root")
+  assert owners.stdout.utf8()?.contains("100000 100001")
+}
+
 test test_namei_committed_path_fixture_links_and_components { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   let s = uu.scene(ctx)?
@@ -76,13 +127,17 @@ test test_namei_committed_path_fixture_links_and_components { |ctx|
 
 test test_namei_mountpoint_markers_follow_a_real_mount_boundary { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  ul.require_private_namespace()
   let s = uu.scene(ctx)?
-  let mount = fs.mount_for(s.root)?
+  let mount = fs.mount_for(p"/proc/1")?
+  assert mount.mounted_on == p"/proc"
   parity(s, ["--mountpoints", "--", mount.mounted_on.display()])?
-  parity(s, ["-x", "--", s.root.display()])?
+  parity(s, ["-x", "--", p"/proc/1".display()])?
+  let reference = ul.reference(s, "namei", ["-x", "--", p"/proc/1".display()], timeout: 5s)?
+  assert reference.stdout.utf8()?.contains("D proc\n"), reference.stdout
 }
 
-test test_namei_private_same_device_bind_mount_marker { |ctx|
+test test_namei_private_same_device_bind_mount_matches_reference { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
   ul.require_private_namespace()
   let s = uu.scene(ctx)?
@@ -103,7 +158,11 @@ test test_namei_private_same_device_bind_mount_marker { |ctx|
   mounted = true
   assert fp"{target}/entry".exists()?
   assert ! fp"{target}/sentinel".exists()?
-  parity(s, ["-x", "--", target.display()])?
+  let args = ["-x", "--", target.display()]
+  let reference = ul.reference(s, "namei", args, timeout: 5s)?
+  let candidate = uu.invoke(s, "namei", args, timeout: 5s)?
+  assert reference.stdout.utf8()?.ends_with("d target\n"), reference.stdout
+  ul.compare(reference, candidate)
   parity(s, ["-l", "--", fp"{target}/entry".display()])?
   let unmounted = run.capture --text umount -- $target
   assert unmounted.status.exited_with(0), unmounted.stderr
@@ -146,6 +205,9 @@ test test_namei_path_arguments_preserve_non_utf8_components { |ctx|
   name.write("owned raw path\n")
   parity_paths(s, [p"--", name])?
   parity_paths(s, [p"-m", p"--", name])?
+  for locale in ["C", "C.UTF-8"] {
+    parity_paths(s, [p"--", name], vars: {LC_ALL: locale})?
+  }
   assert name.read_text()? == "owned raw path\n"
 }
 
@@ -160,10 +222,12 @@ test test_namei_permission_denied_from_unprivileged_runner { |ctx|
   defer directory.chmod(0o700)
   directory.chmod(0)
   let operand = fp"{directory}/secret".display()
-  for args in [["-l", "--", operand], ["--nosymlinks", "--", operand]] {
-    let reference = ul.reference_as_user(s, "namei", args, uid: 10001, timeout: 5s)?
-    let candidate = ul.candidate_as_user(s, "namei", args, uid: 10001, timeout: 5s)?
-    ul.compare(reference, candidate)
+  for uid in [10001, 10002] {
+    for args in [["-l", "--", operand], ["--nosymlinks", "--", operand]] {
+      let reference = ul.reference_as_user(s, "namei", args, uid:, timeout: 5s)?
+      let candidate = ul.candidate_as_user(s, "namei", args, uid:, timeout: 5s)?
+      ul.compare(reference, candidate)
+    }
   }
   assert fs.stat(directory)?.mode.bit_and(0o777) == 0
   assert fp"{directory}/secret".read_text()? == "owned path\n"
