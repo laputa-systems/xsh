@@ -52,6 +52,8 @@ export type Word32 = UInt range 0..=4294967295
 ## Represents the unsigned 64-bit values read from the memory sysfs interface.
 export type U64 = {high: Word32, low: Word32}
 
+type U64Division = {quotient: U64, remainder: UInt}
+
 pure u64_add(left: U64, right: U64) -> U64 {
   let low = (left.low as UInt) + (right.low as UInt)
   let high = (left.high as UInt) + (right.high as UInt) + low / WORD_BASE
@@ -111,7 +113,7 @@ pure u64_multiply(left: U64, right: U64) -> U64 {
   {high: (high % WORD_BASE) as Word32, low: low as Word32}
 }
 
-pure u64_divide(value: U64, divisor: UInt) -> {quotient: U64, remainder: UInt} {
+pure u64_divide(value: U64, divisor: UInt) -> U64Division {
   let high = value.high as UInt
   let quotient_high = high / divisor
   let high_remainder = high % divisor
