@@ -18,7 +18,9 @@ The deliverables are:
 
 ## Charter
 
-Run the coordinator and four implementation lanes in isolated worktrees.
+Run the coordinator and the twelve util-linux workers in isolated worktrees.
+Four workers implement commands, four own parity corpora, two cover neighboring
+commands, one owns private contexts, and one checks acceptance results.
 The coordinator owns shared host APIs, registries, gate selectors, integration,
 and final verification. It writes no feature code while implementation lanes run.
 Apply the local `orchestrate` skill and its campaign lane contract.
@@ -546,6 +548,9 @@ Read [core behavior](CORE.md), [testing](TESTING.md),
 
 - 2026-10-17: The owner authorized execution alongside consolidation. Launch four lanes on reference corpus and fixture preparation; feature implementation waits for P0 acceptance.
 - 2026-10-17: Admit lanes independently after the common guarded reference controls and their own positive boundary proofs pass. This preserves each proof while allowing rooted memory and path work to proceed independently of IPC activity fixtures. Common inventory, quarantine controls, typed signal capture, two unprivileged identities, rooted no-fallback memory, private same-device bind and nofollow, and five explicit missing-command baselines passed. Memory and path feature work may proceed. Lock and IPC fixture lifetime qualification remains open.
+
+- 2026-10-17: Lock fixture qualification passed for FLOCK, POSIX, OFD, and lease acquisition, exact kernel/descriptor identity, bounded release, and blocked OFD rows. Held OFD rows resolve the actual descriptor owner; blocked OFD rows retain kernel PID -1. Duplicate POSIX descriptor association remains an explicit pending observation. Lock implementation is admitted independently of IPC.
+- 2026-10-17: Integrated mountpoint error diagnostics and option parsing passed the original error selector and the added option matrix. Root separately qualified its full mountpoint group. The shared terminal control passed distinct stdout/stderr PTYs, width, and exit status. Focused neighboring regressions passed UTF-8 read boundaries, signal propagation, and lock ownership through a waited session child. Memory and lock implementations remain in the compiler/parity loop; IPC fixture execution awaits its native test syntax repair. These results do not qualify resource or closing gates.
 
 ## For the owner afterwards
 
