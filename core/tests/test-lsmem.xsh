@@ -10,6 +10,7 @@ proc install_lsmem_fixture(s: uu.Scene, name: Str) [fs, error] -> Result[Unit, E
 proc compare_lsmem(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, error] -> Result[Unit, Error] {
   let reference = ul.reference(s, "lsmem", args, timeout: 5s, vars: vars)?
   let candidate = uu.invoke(s, "lsmem", args, timeout: 5s, vars: vars)?
+  assert reference.stdout == candidate.stdout, f"lsmem stdout differs for {args.join(" ")} reference_b64={reference.stdout.base64()} candidate_b64={candidate.stdout.base64()}"
   ul.compare(reference, candidate)
   Ok()
 }
