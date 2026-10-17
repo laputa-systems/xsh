@@ -1,0 +1,77 @@
+# lsmem reference coverage
+
+The reference is util-linux **v2.42.4**. The behavioral inventory comes from its
+[implementation](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/lsmem.c),
+[manual](https://github.com/util-linux/util-linux/blob/v2.42.4/sys-utils/lsmem.1.adoc),
+and [native integration test](https://github.com/util-linux/util-linux/blob/v2.42.4/tests/ts/lsmem/lsmem).
+
+The upstream test runs two sysfs dumps with nine invocations each. The native
+tests preserve those argument lists and compare status, stdout, and stderr to
+the pinned reference:
+
+| Upstream case | Inputs |
+|---|---|
+| `--split=STATE,REMOVABLE` | `s390-zvm-6g`, `x86_64-16g` |
+| `--output RANGE,SIZE --split none` | both dumps |
+| `--output RANGE,SIZE,STATE --split STATE` | both dumps |
+| `--all --output RANGE,SIZE,STATE,REMOVABLE,BLOCK,NODE,ZONES` | both dumps |
+| `--raw --output RANGE,SIZE,STATE,REMOVABLE,BLOCK,NODE,ZONES --split RANGE,SIZE,STATE,REMOVABLE,BLOCK,NODE,ZONES` | both dumps |
+| `--json --output RANGE,SIZE,STATE,REMOVABLE,BLOCK,NODE,ZONES --split RANGE,SIZE,STATE,REMOVABLE,BLOCK,NODE,ZONES` | both dumps |
+| `-o +ZONES` | both dumps |
+| `--output-all` | both dumps |
+| no options | both dumps |
+
+The imported archives are [`s390-zvm-6g.tar.bz2`](https://github.com/util-linux/util-linux/blob/v2.42.4/tests/ts/lsmem/dumps/s390-zvm-6g.tar.bz2)
+and [`x86_64-16g.tar.bz2`](https://github.com/util-linux/util-linux/blob/v2.42.4/tests/ts/lsmem/dumps/x86_64-16g.tar.bz2), stored in
+`core/tests/fixtures/util-linux/memory/upstream/`. They retain the official
+sysfs content, including sparse memory IDs and node symlinks. The upstream
+matrix is only a baseline; it does not cover the complete option surface.
+
+## Source behavior inventory
+
+| Area | util-linux v2.42.4 contract |
+|---|---|
+| Discovery | `--sysroot` prefixes `/sys/devices/system/memory`; `block_size_bytes` is required. The command accepts `memory` directories with decimal numeric suffixes, sorted by version. `/sys/firmware/memory` and the global hotplug parameter are optional. |
+| Attributes | The block size is hexadecimal. `state` maps `online`, `offline`, and `going-offline` to `online`, `offline`, and `on->off`; absent or unrecognized state remains unknown. `removable` is shown only for online blocks. Node membership comes from `nodeN` entries, including sysfs symlinks. Zones are read from `valid_zones`; an unrecognized zone prints as `Unknown`. |
+| Configured memory | The presence of `sys/firmware/memory/memory0` enables configuration inventory. `config` and `memmap_on_memory` control `CONFIGURED` and `MEMMAP-ON-MEMORY`; an unconfigured block is offline. The summary may show the global `memmap_on_memory` value `Y`, `N`, or `force`. |
+| Ranges and merging | A range end is inclusive. Adjacent blocks merge unless a selected split attribute differs. By default, output columns also select split attributes; `--split=none` ignores attributes, while `--all` keeps each block separate. |
+| Columns | Supported columns are `RANGE`, `SIZE`, `STATE`, `REMOVABLE`, `BLOCK`, `NODE`, `ZONES`, `CONFIGURED`, and `MEMMAP-ON-MEMORY`. Default columns are `RANGE,SIZE,STATE,REMOVABLE,BLOCK`. `--output-all` requests every column; `+LIST` extends defaults; `LSMEM_COLUMNS` supplies the output list when `--output` is absent. |
+| Formats and summaries | `--raw`, `--pairs`, and `--json` select mutually exclusive output formats and suppress summaries. `--bytes` changes size and summary values. `--noheadings` removes headings. `--summary=never`, `always`, or `only` controls summary output; bare `--summary` means only. |
+| Option errors | Positional operands are rejected. `--all` conflicts with `--split`. `--json`, `--pairs`, and `--raw` conflict with each other. A format-only output conflicts with `--summary=only`. Invalid summary arguments and unknown output columns fail. |
+| Identity | `--help` is compared to the pinned reference. `--version` uses the narrow identity assertion so the reference and XSH version banners are checked independently. |
+
+## Rooted fixtures and native cases
+
+Every applet comparison runs the reference and XSH candidate against the same
+temporary scene. The `sparse` fixture uses a 4 KiB block size and an offline
+first block, which conflict with the live host values. It includes a gap in
+block numbers, numeric ordering (`memory2` before `memory10`), a missing state
+and removable attribute, malformed state/removable/zone contents, an internal
+state symlink, and the `nodeN` symlinks used by sysfs. The `malformed-block-size`
+fixture also exercises invalid block-size text; `missing-block-size` exercises
+the required-file error. An empty scene is passed as `--sysroot` to ensure a
+missing sysfs tree cannot fall back to host memory.
+
+The `configured` fixture has system and firmware memory entries, both configured
+and unconfigured blocks, per-block memmap values, node and zone data, and a
+global `force` parameter. The native test changes only the copied scene's global
+parameter to also compare `Y` and `N` summary output.
+
+| Native test | Coverage |
+|---|---|
+| `test_lsmem_util_linux_2_42_4_upstream_s390_zvm_6g` | Nine upstream invocations on the s390 dump |
+| `test_lsmem_util_linux_2_42_4_upstream_x86_64_16g` | Nine upstream invocations on the x86 dump |
+| `test_lsmem_util_linux_2_42_4_version_identity` | Independent exact version identities |
+| `test_lsmem_util_linux_2_42_4_help_matches_reference` | Help output |
+| `test_lsmem_rooted_sparse_memory_attributes_and_output_modes` | Fixture-backed range discovery, merging, columns, output formats, bytes, headings, and summary modes |
+| `test_lsmem_rooted_columns_environment_and_explicit_output_precedence` | `LSMEM_COLUMNS`, explicit `--output`, and `--output-all` |
+| `test_lsmem_rooted_configured_memory_and_memmap_summary` | Firmware configuration, per-block memmap, and global summary modes |
+| `test_lsmem_rooted_malformed_block_attributes` | Invalid hexadecimal block size and malformed block attributes |
+| `test_lsmem_rooted_missing_block_size_is_an_error` | Missing required block-size attribute |
+| `test_lsmem_rooted_missing_sysfs_tree_does_not_use_host_memory` | Missing rooted sysfs data fails without host fallback |
+| `test_lsmem_rooted_option_errors_match_reference` | Option conflicts, invalid arguments, unknown columns/options, and positional operands |
+
+The upstream calls and added rooted cases are differential oracles, not recorded
+expected transcripts. Run them only after the P0 runner is ready. Before feature
+optimization, review and resolve every observed mismatch against the pinned
+reference; no host-derived output is an oracle.
