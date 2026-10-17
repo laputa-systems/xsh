@@ -857,11 +857,11 @@ pure json_output(locks: List[Lock], columns: List[Str], as_bytes: Bool, mode: St
   for index in range(locks.len()) {
     let lock = locks[index]
     var path_override: Str? = null
-    if let path = lock.path {
-      if path.utf8() is Err(_) {
+    if let path_bytes = lock.path {
+      if path_bytes.utf8() is Err(_) {
         let marker = json_path_marker(index)
         path_override = marker
-        replacements += [{marker: bytes.from_text(json.encode(marker) ?? "\"\""), value: json_string_bytes(path)}]
+        replacements += [{marker: bytes.from_text(json.encode(marker) ?? "\"\""), value: json_string_bytes(path_bytes)}]
       }
     }
     rows += [json_lock(lock, columns, as_bytes, byte_locale, path_override)]
