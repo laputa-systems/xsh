@@ -40,6 +40,15 @@ test test_util_linux_context_second_uid_holder_disappears_after_owned_release { 
   let observer_reference = ul.reference_as_user(s, "lslocks", options, uid: 10001)?
   let observer_candidate = ul.candidate_as_user(s, "lslocks", options, uid: 10001)?
   ul.compare(observer_reference, observer_candidate)
+  let visible = json.get(json.decode(observer_reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?
+  assert visible.len() == 1, "inaccessible holder did not exercise the default fallback row"
+  for selector in ["--noinaccessible", "-i"] {
+    let inaccessible_options = options.extend([selector])
+    let filtered_reference = ul.reference_as_user(s, "lslocks", inaccessible_options, uid: 10001)?
+    let filtered_candidate = ul.candidate_as_user(s, "lslocks", inaccessible_options, uid: 10001)?
+    ul.compare(filtered_reference, filtered_candidate)
+    assert json.get(json.decode(filtered_reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.is_empty()
+  }
   contexts.release_keeper(keeper)
   let after_reference = ul.reference(s, "lslocks", options)?
   let after_candidate = uu.invoke(s, "lslocks", options)?

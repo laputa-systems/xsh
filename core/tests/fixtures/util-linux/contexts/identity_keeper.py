@@ -18,11 +18,18 @@ def interrupt(number, frame):
 def stop(child):
     if child.poll() is not None:
         return
-    os.killpg(child.pid, signal.SIGTERM)
+    try:
+        os.killpg(child.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        child.wait(timeout=2)
+        return
     try:
         child.wait(timeout=2)
     except subprocess.TimeoutExpired:
-        os.killpg(child.pid, signal.SIGKILL)
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         child.wait(timeout=2)
 
 
