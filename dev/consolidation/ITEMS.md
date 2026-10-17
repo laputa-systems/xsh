@@ -1,7 +1,7 @@
 # Consolidation items and ownership
 
-Live queue, 2026-10-17: qualify the full layout invariant for `e9ef913df`,
-integrate the reviewed linter repair, then seal and qualify a fresh resource
+Live queue, 2026-10-17: the full layout invariant passes for `e9ef913df`,
+integrated as `0f5cf1247`. Seal and qualify a fresh artifact build and resource
 attempt. Timing waits for correctness and resources. R4 and R5 remain failed.
 The isolated inference checkpoint is accepted at 1,036 removals, with both
 percentage targets unmet and all 149 Map annotations retained. See the

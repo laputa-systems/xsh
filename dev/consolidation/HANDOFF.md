@@ -9,11 +9,16 @@ archived with their failures and resolved cleanup. Neither started its full
 native suite or earned resource or timing credit. R5 passed the formatter
 invariant and failed the layout-perturbation invariant.
 
-Repair `e9ef913df9ec83cd1bffb4f93fddfbad71031c8c` remains isolated pending
-the full layout invariant. Redundant-parentheses diagnostics suppressed local
+Root integrated repair `e9ef913df9ec83cd1bffb4f93fddfbad71031c8c` as
+`0f5cf1247`. Redundant-parentheses diagnostics suppressed local
 annotation and callable-alias warnings. Both regression tests fail before the
 repair and pass afterward. The unchanged 19-input replay also passes with
 the repaired XSHT product. Semantic checker errors still veto both proofs.
+The full exact layout invariant passes with one selected test and 121 filtered.
+It perturbs 1,675 files across all 1,835 audited XSH and configuration inputs.
+The original harness and XSH product are unchanged. Source and product guards
+match, and the owned container is absent. A fresh source seal, artifact
+qualifier, and resource attempt remain required.
 
 Root accepted the isolated inference checkpoint of 1,036 annotation removals:
 498 of 693 local sites and 538 of 2,190 internal sites. The original 9,194-site

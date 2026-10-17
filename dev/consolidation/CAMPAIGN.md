@@ -2,8 +2,8 @@
 
 Live checkpoint, 2026-10-17: main retains the accepted b1bc narrow close and
 artifact receipt. R4 and R5 failed before their full native suites and earn
-no resource or timing credit. The isolated linter repair passes its regression
-tests and reduced replay. Its full layout invariant is running. Root accepted
+no resource or timing credit. The integrated linter repair passes its regression
+tests, reduced replay, and full layout invariant. Root accepted
 1,036 isolated inference removals against the original denominators. Both
 percentage targets remain unmet. The [live handoff](HANDOFF.md#live-checkpoint-2026-10-17)
 owns the current queue. The status paragraphs below retain historical pins.
