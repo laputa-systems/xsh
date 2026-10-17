@@ -81,7 +81,7 @@ type Options = {
 }
 
 pure human_size(value: Int) -> Str {
-  usage.amount(value, {block: 1, human: 1024, label: "Size"})
+  if value < 1024 { f"{value}B" } else { usage.amount(value, {block: 1, human: 1024, label: "Size"}) }
 }
 
 pure decimal(value: Str) -> Int? {
@@ -942,7 +942,7 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     operands: {form: "...ARG"},
   })?
   if opts.help {
-    gnu.help("Usage:\n lslocks [options]\n\nList local system locks.\n\nOptions:\n -b, --bytes            print SIZE in bytes rather than in human readable format\n -J, --json             use JSON output format\n -i, --noinaccessible   ignore locks without read permissions\n -n, --noheadings       don't print headings\n -o, --output <list>    output columns (see --list-columns)\n     --output-all       output all columns\n -p, --pid <pid>        display only locks held by this process\n -Q, --filter <expr>    apply display filter\n -r, --raw              use the raw output format\n -u, --notruncate       don't truncate text in columns\n -H, --list-columns     list the available columns\n -h, --help             display this help\n -V, --version          display version\n")
+    gnu.help("\nUsage:\n lslocks [options]\n\nList local system locks.\n\nOptions:\n -b, --bytes            print SIZE in bytes rather than in human readable format\n -J, --json             use JSON output format\n -i, --noinaccessible   ignore locks without read permissions\n -n, --noheadings       don't print headings\n -o, --output <list>    output columns (see --list-columns)\n     --output-all       output all columns\n -p, --pid <pid>        display only locks held by this process\n -Q, --filter <expr>    apply display filter\n -r, --raw              use the raw output format\n -u, --notruncate       don't truncate text in columns\n -H, --list-columns     list the available columns\n -h, --help             display this help\n -V, --version          display version\n")
     return
   }
   if opts.version { gnu.version("lslocks"); return }
