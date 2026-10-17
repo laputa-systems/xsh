@@ -176,20 +176,22 @@ class MeasurementProtocolTests(unittest.TestCase):
     def test_exact_positive_and_regression_denominators_are_required(self):
         parsed = self.parse(self.rows())
         self.assertEqual(len(parsed), len(COHORT) + len(REGRESSIONS))
+        missing_positive = self.rows()
+        missing_positive.pop(0)
         with self.assertRaisesRegex(ValueError, "positive boundary exactly once"):
-            self.parse(self.rows()[:-1])
+            self.parse(missing_positive)
         with self.assertRaisesRegex(ValueError, "frozen regression selectors exactly once"):
             self.parse(self.rows(), regressions=REGRESSIONS + ("unexpected::test_extra",))
 
     def test_zero_rows_duplicate_selectors_and_unknown_rows_fail(self):
-        with self.assertRaisesRegex(ValueError, "unrecognized measurement"):
+        with self.assertRaisesRegex(ValueError, "positive boundary exactly once"):
             self.parse(())
         rows = self.rows()
         rows.append(rows[0])
         with self.assertRaisesRegex(ValueError, "repeated positive fixture"):
             self.parse(rows)
         rows = self.rows()
-        rows[0] = rows[0].replace("positive", "unknown", 1)
+        rows.append("\t".join(("unknown", "unexpected", "fixture")))
         with self.assertRaisesRegex(ValueError, "unrecognized measurement"):
             self.parse(rows)
 
