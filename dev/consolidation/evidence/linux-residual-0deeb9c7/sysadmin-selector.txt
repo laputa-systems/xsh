@@ -1,0 +1,1 @@
+tests/xsh/stdlib/unix_process.xsh::test_unix_credentials_transition_inside_namespace

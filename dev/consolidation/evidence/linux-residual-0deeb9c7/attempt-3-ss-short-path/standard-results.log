@@ -1,0 +1,10 @@
+
+=== core/tests/test-ss.xsh::test_ss_unix_sockets_print_inodes_as_ports ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-ss.xsh::test_ss_unix_sockets_print_inodes_as_ports (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-ss.xsh::test_ss_unix_sockets_print_inodes_as_ports ... ok 213ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+selected=1 accepted_passes=1 failed_selectors=0 actual_passed_tests=1 actual_failed_tests=0 actual_skipped_tests=0 unclassified=0

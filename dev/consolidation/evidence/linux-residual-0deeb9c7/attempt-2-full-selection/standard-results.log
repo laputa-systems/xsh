@@ -1,0 +1,282 @@
+
+=== core/tests/test-chroot.xsh::test_chroot_exec_status_and_root_working_directory ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-chroot.xsh::test_chroot_exec_status_and_root_working_directory (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-chroot.xsh::test_chroot_exec_status_and_root_working_directory ... ok 92ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-chroot.xsh::test_chroot_explicit_and_empty_supplementary_groups ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-chroot.xsh::test_chroot_explicit_and_empty_supplementary_groups (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-chroot.xsh::test_chroot_explicit_and_empty_supplementary_groups ... ok 61ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-chroot.xsh::test_chroot_inaccessible_command_reports_permission_denied ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-chroot.xsh::test_chroot_inaccessible_command_reports_permission_denied (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-chroot.xsh::test_chroot_inaccessible_command_reports_permission_denied ... ok 37ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-chroot.xsh::test_chroot_numeric_identity_can_use_outer_group_database ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-chroot.xsh::test_chroot_numeric_identity_can_use_outer_group_database (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-chroot.xsh::test_chroot_numeric_identity_can_use_outer_group_database ... ok 37ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-chroot.xsh::test_chroot_relative_command_resolves_inside_new_root ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-chroot.xsh::test_chroot_relative_command_resolves_inside_new_root (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-chroot.xsh::test_chroot_relative_command_resolves_inside_new_root ... ok 36ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-chroot.xsh::test_chroot_sets_explicit_user_group_and_supplementary_groups ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-chroot.xsh::test_chroot_sets_explicit_user_group_and_supplementary_groups (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-chroot.xsh::test_chroot_sets_explicit_user_group_and_supplementary_groups ... ok 61ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-chroot.xsh::test_chroot_unknown_uid_without_primary_group_fails ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-chroot.xsh::test_chroot_unknown_uid_without_primary_group_fails (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-chroot.xsh::test_chroot_unknown_uid_without_primary_group_fails ... ok 31ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-chroot.xsh::test_chroot_uses_accounts_inside_the_new_root ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-chroot.xsh::test_chroot_uses_accounts_inside_the_new_root (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-chroot.xsh::test_chroot_uses_accounts_inside_the_new_root ... ok 67ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-setpriv.xsh::test_setpriv_ambient_names_must_be_inheritable_while_all_takes_what_it_can ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-setpriv.xsh::test_setpriv_ambient_names_must_be_inheritable_while_all_takes_what_it_can (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-setpriv.xsh::test_setpriv_ambient_names_must_be_inheritable_while_all_takes_what_it_can ... ok 82ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-setpriv.xsh::test_setpriv_bounding_set_edits_drop_and_cannot_grow ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-setpriv.xsh::test_setpriv_bounding_set_edits_drop_and_cannot_grow (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-setpriv.xsh::test_setpriv_bounding_set_edits_drop_and_cannot_grow ... ok 235ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-setpriv.xsh::test_setpriv_gid_options_set_real_effective_and_saved_ids ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-setpriv.xsh::test_setpriv_gid_options_set_real_effective_and_saved_ids (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-setpriv.xsh::test_setpriv_gid_options_set_real_effective_and_saved_ids ... ok 165ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-setpriv.xsh::test_setpriv_keeps_capabilities_through_a_uid_change_with_ambient_caps ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-setpriv.xsh::test_setpriv_keeps_capabilities_through_a_uid_change_with_ambient_caps (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-setpriv.xsh::test_setpriv_keeps_capabilities_through_a_uid_change_with_ambient_caps ... ok 82ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-setpriv.xsh::test_setpriv_securebits_are_edited_from_the_current_flags ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-setpriv.xsh::test_setpriv_securebits_are_edited_from_the_current_flags (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-setpriv.xsh::test_setpriv_securebits_are_edited_from_the_current_flags ... ok 154ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-setpriv.xsh::test_setpriv_supplementary_groups_are_cleared_listed_or_initialized ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-setpriv.xsh::test_setpriv_supplementary_groups_are_cleared_listed_or_initialized (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-setpriv.xsh::test_setpriv_supplementary_groups_are_cleared_listed_or_initialized ... ok 164ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-setpriv.xsh::test_setpriv_uid_options_set_real_effective_and_saved_ids ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-setpriv.xsh::test_setpriv_uid_options_set_real_effective_and_saved_ids (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-setpriv.xsh::test_setpriv_uid_options_set_real_effective_and_saved_ids ... ok 205ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== dev/tests/test-native-workflows.xsh::test_linux_root_native_tests_fail_when_setpriv_is_unavailable_or_identity_is_missing ===
+argv=/target/xsht test --jobs 1 --exact dev/tests/test-native-workflows.xsh::test_linux_root_native_tests_fail_when_setpriv_is_unavailable_or_identity_is_missing (default per-test timeout: 120s)
+running 1 tests
+dev/tests/test-native-workflows.xsh::test_linux_root_native_tests_fail_when_setpriv_is_unavailable_or_identity_is_missing ... ok 1ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== dev/tests/test-native-workflows.xsh::test_linux_root_native_tests_use_the_host_identity_and_home ===
+argv=/target/xsht test --jobs 1 --exact dev/tests/test-native-workflows.xsh::test_linux_root_native_tests_use_the_host_identity_and_home (default per-test timeout: 120s)
+running 1 tests
+dev/tests/test-native-workflows.xsh::test_linux_root_native_tests_use_the_host_identity_and_home ... ok 8ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== tests/xsh/stdlib/unix_process.xsh::test_unix_identity_does_not_require_a_group_database ===
+argv=/target/xsht test --jobs 1 --exact tests/xsh/stdlib/unix_process.xsh::test_unix_identity_does_not_require_a_group_database (default per-test timeout: 120s)
+running 1 tests
+tests/xsh/stdlib/unix_process.xsh::test_unix_identity_does_not_require_a_group_database ... ok 3ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-chgrp.xsh::test_chgrp_from_owner_matches_after_group_changes ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-chgrp.xsh::test_chgrp_from_owner_matches_after_group_changes (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-chgrp.xsh::test_chgrp_from_owner_matches_after_group_changes ... ok 62ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-chown.xsh::test_chown_recursive_physical_changes_link_while_logical_changes_referent ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-chown.xsh::test_chown_recursive_physical_changes_link_while_logical_changes_referent (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-chown.xsh::test_chown_recursive_physical_changes_link_while_logical_changes_referent ... ok 51ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-chown.xsh::test_chown_recursive_preserves_non_utf8_child_names ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-chown.xsh::test_chown_recursive_preserves_non_utf8_child_names (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-chown.xsh::test_chown_recursive_preserves_non_utf8_child_names ... ok 31ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-uu-chgrp.xsh::test_uu_chgrp_basic_succeeds ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-uu-chgrp.xsh::test_uu_chgrp_basic_succeeds (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-uu-chgrp.xsh::test_uu_chgrp_basic_succeeds ... ok 31ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-uu-chgrp.xsh::test_uu_chgrp_from_option ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-uu-chgrp.xsh::test_uu_chgrp_from_option (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-uu-chgrp.xsh::test_uu_chgrp_from_option ... ok 93ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-uu-chgrp.xsh::test_uu_chgrp_from_with_reference ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-uu-chgrp.xsh::test_uu_chgrp_from_with_reference (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-uu-chgrp.xsh::test_uu_chgrp_from_with_reference ... ok 93ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-uu-chgrp.xsh::test_uu_chgrp_numeric_group_formats ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-uu-chgrp.xsh::test_uu_chgrp_numeric_group_formats (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-uu-chgrp.xsh::test_uu_chgrp_numeric_group_formats ... ok 93ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-uu-chgrp.xsh::test_uu_chgrp_traverse_symlinks ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-uu-chgrp.xsh::test_uu_chgrp_traverse_symlinks (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-uu-chgrp.xsh::test_uu_chgrp_traverse_symlinks ... ok 248ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-uu-chgrp.xsh::test_uu_chgrp_verbosity_messages ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-uu-chgrp.xsh::test_uu_chgrp_verbosity_messages (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-uu-chgrp.xsh::test_uu_chgrp_verbosity_messages ... ok 32ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-uu-install-2.xsh::test_uu_install_install_root_combined ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-uu-install-2.xsh::test_uu_install_install_root_combined (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-uu-install-2.xsh::test_uu_install_install_root_combined ... ok 236ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-uu-install-2.xsh::test_uu_install_install_set_owner_nonexistent_uid_and_gid ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-uu-install-2.xsh::test_uu_install_install_set_owner_nonexistent_uid_and_gid (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-uu-install-2.xsh::test_uu_install_install_set_owner_nonexistent_uid_and_gid ... ok 41ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-uu-mv-1.xsh::test_uu_mv_mv_cross_device_preserves_ownership ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-uu-mv-1.xsh::test_uu_mv_mv_cross_device_preserves_ownership (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-uu-mv-1.xsh::test_uu_mv_mv_cross_device_preserves_ownership ... ok 41ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-uu-mv-1.xsh::test_uu_mv_mv_cross_device_preserves_ownership_recursive ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-uu-mv-1.xsh::test_uu_mv_mv_cross_device_preserves_ownership_recursive (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-uu-mv-1.xsh::test_uu_mv_mv_cross_device_preserves_ownership_recursive ... ok 42ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== tests/xsh/stdlib/linux_net.xsh::test_raw_icmp_socket_filters_and_checks_replies ===
+argv=/target/xsht test --jobs 1 --exact tests/xsh/stdlib/linux_net.xsh::test_raw_icmp_socket_filters_and_checks_replies (default per-test timeout: 120s)
+running 1 tests
+tests/xsh/stdlib/linux_net.xsh::test_raw_icmp_socket_filters_and_checks_replies ... ok 0ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-ss.xsh::test_ss_unix_sockets_print_inodes_as_ports ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-ss.xsh::test_ss_unix_sockets_print_inodes_as_ports (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-ss.xsh::test_ss_unix_sockets_print_inodes_as_ports ... skipped: the scratch path is too long for a unix socket 0ms
+test result: ok. 0 passed; 0 failed; 1 skipped
+runner_exit=0
+selector_summary=test result: ok. 0 passed; 0 failed; 1 skipped passed=0 failed=0 skipped=1
+
+=== core/tests/test-traceroute.xsh::test_traceroute_gateway_adds_a_source_route ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-traceroute.xsh::test_traceroute_gateway_adds_a_source_route (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-traceroute.xsh::test_traceroute_gateway_adds_a_source_route ... ok 504ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+=== core/tests/test-traceroute.xsh::test_traceroute_tcp_syn_reaches_open_and_closed_ports ===
+argv=/target/xsht test --jobs 1 --exact core/tests/test-traceroute.xsh::test_traceroute_tcp_syn_reaches_open_and_closed_ports (default per-test timeout: 120s)
+running 1 tests
+core/tests/test-traceroute.xsh::test_traceroute_tcp_syn_reaches_open_and_closed_ports ... ok 154ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+selected=35 accepted_passes=34 failed_selectors=1 actual_passed_tests=34 actual_failed_tests=0 actual_skipped_tests=1 unclassified=0

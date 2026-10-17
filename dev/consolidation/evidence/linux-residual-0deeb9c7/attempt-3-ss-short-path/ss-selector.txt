@@ -1,0 +1,1 @@
+core/tests/test-ss.xsh::test_ss_unix_sockets_print_inodes_as_ports
