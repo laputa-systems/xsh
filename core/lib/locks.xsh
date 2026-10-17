@@ -810,7 +810,42 @@ pure json_table(rows: List[smart.Object], name: Str, mode: Str) -> Str {
     return lines.join("\n") + (if lines.is_empty() { "" } else { "\n" })
   }
   let document = smart.object([smart.m(name, rows)])
-  smart.render(document, compact: mode == "compact") + "\n"
+  if mode == "compact" { return smart.render(document, compact: true) + "\n" }
+  smartcols_json(document, 0) + "\n"
+}
+
+pure smartcols_json_indent(depth: Int) -> Str {
+  var output = ""
+  repeat depth times { output += "   " }
+  output
+}
+
+pure smartcols_json(value: Any, depth: Int) -> Str {
+  match value {
+    _ is Null => "null"
+    flag is Bool => if flag { "true" } else { "false" }
+    number is Int => f"{number}"
+    text is Str => json.encode(text) ?? "\"\""
+    items is List[Any] => {
+      return "[]" when items.is_empty()
+      let inner = smartcols_json_indent(depth + 1)
+      let rows = collect {
+        for item in items { yield inner + smartcols_json(item, depth + 1) }
+      }
+      "[\n" + rows.join(",\n") + "\n" + smartcols_json_indent(depth) + "]"
+    }
+    node is smart.Object => {
+      return "{}" when node.members.is_empty()
+      let inner = smartcols_json_indent(depth + 1)
+      let rows = collect {
+        for entry in node.members {
+          yield inner + (json.encode(entry.key) ?? "\"\"") + ": " + smartcols_json(entry.value, depth + 1)
+        }
+      }
+      "{\n" + rows.join(",\n") + "\n" + smartcols_json_indent(depth) + "}"
+    }
+    else => "null"
+  }
 }
 
 pure json_path_marker(index: Int) -> Str {
