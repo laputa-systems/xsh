@@ -576,7 +576,7 @@ test test_lslocks_output_column_names_and_errors { |ctx|
     ["--output", "PID,PID", "--pid", pid], ["--output", "PID", "--output", "TYPE", "--pid", pid],
     ["-o", "path,type", "--pid", pid],
   ] {
-    let result = compared(s, args)?
+    let result = compared_with_stdout_dump(s, args)?
     assert result.status == 0 and ! result.stdout.is_empty(), args.join(" ")
   }
   ul.keeper_send(keeper, "DONE")
