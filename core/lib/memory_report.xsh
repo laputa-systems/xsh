@@ -601,7 +601,7 @@ proc block_value(inventory: Inventory, block: Block, column: Str, byte_mode: Boo
     "RANGE" => range_text(block, inventory.block_size)
     "SIZE" => if byte_mode { u64_signed_decimal(size) } else { lsmem_size(size) }
     "STATE" => block.state
-    "REMOVABLE" => if block.state == "online" { if block.removable { "yes" } else { "no" } } else { null }
+    "REMOVABLE" => if block.state == "online" and block.removable { "yes" } else { "no" }
     "BLOCK" => block_number(block)
     "NODE" => if inventory.have_nodes { f"{block.node}" } else { null }
     "ZONES" => if inventory.have_zones { block.zones.join("/") } else { null }
@@ -691,7 +691,7 @@ proc json_text(inventory: Inventory, columns: List[Str], opts: Options) [error] 
   if ! inventory.blocks.is_empty() { output += "\n" }
   for block_index in range(inventory.blocks.len()) {
     let block = inventory.blocks[block_index]
-    output += "      {\n"
+    if block_index == 0 { output += "      {\n" } else { output += "{\n" }
     var fields = []
     for column in shown {
       let value = block_json_value(inventory, block, column, opts.bytes)
@@ -700,8 +700,7 @@ proc json_text(inventory: Inventory, columns: List[Str], opts: Options) [error] 
       fields += [f"         {key}: {encoded}"]
     }
     output += fields.join(",\n") + "\n      }"
-    if block_index + 1 < inventory.blocks.len() { output += "," }
-    output += "\n"
+    if block_index + 1 < inventory.blocks.len() { output += "," } else { output += "\n" }
   }
   output += "   ]\n}\n"
   output
