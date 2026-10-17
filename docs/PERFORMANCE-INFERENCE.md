@@ -87,8 +87,9 @@ source revisions, clean trees, and product hashes after all commands finish.
 Each exact test must select its requested name and report
 `1 passed; 0 failed; 0 skipped` before the adapter returns success. The adapter
 sets `XSH_BIN` and `XSHT_BIN` to the qualified products and prepends their
-directory to `PATH`. Run `python3 dev/performance/corpus/test_check.py` to test
-the adapter's qualification guards and exact-output parser.
+directory to `PATH`. Set `XSH_LAPUTA_CORPUS` to a Laputa checkout, then run
+`XSH_LAPUTA_CORPUS="$LAPUTA_ROOT" python3 dev/performance/corpus/test_check.py`
+to test the adapter's qualification guards and exact-output parser.
 
 ## Capability and patch order
 

@@ -11,7 +11,18 @@ ROOT = Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], tex
 ADAPTER = ROOT / "dev/performance/corpus/check.sh"
 NATIVE_OUTPUT = ROOT / "dev/consolidation/evidence/typing-corpus-host-obligations/native-attempt-1/original/1.stdout"
 XSH_SOURCE = ROOT
-LAPUTA_SOURCE = Path(os.environ.get("XSH_LAPUTA_CORPUS", ROOT.parents[3] / "laputa"))
+LAPUTA_SOURCE_VALUE = os.environ.get("XSH_LAPUTA_CORPUS")
+if not LAPUTA_SOURCE_VALUE:
+    raise SystemExit("set XSH_LAPUTA_CORPUS to a Laputa checkout before running this test")
+LAPUTA_SOURCE = Path(LAPUTA_SOURCE_VALUE).expanduser().resolve()
+if not LAPUTA_SOURCE.is_dir():
+    raise SystemExit(f"XSH_LAPUTA_CORPUS is not a directory: {LAPUTA_SOURCE}")
+if subprocess.run(
+    ["git", "-C", str(LAPUTA_SOURCE), "rev-parse", "--show-toplevel"],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+).returncode != 0:
+    raise SystemExit(f"XSH_LAPUTA_CORPUS is not a Git checkout: {LAPUTA_SOURCE}")
 
 
 class CorpusAdapterTests(unittest.TestCase):
