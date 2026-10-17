@@ -48,9 +48,7 @@ test test_util_linux_context_second_uid_holder_disappears_after_owned_release { 
   let options = ["--json", "--pid", f"{owner.pid}", "--output", "PID,INODE,PATH"]
   let before = ul.reference(s, "lslocks", options)?
   uu.succeeds(before)
-  ctx f"UID holder root observer stdout_b64={before.stdout.base64()}" {
-    assert json.get(json.decode(before.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.len() == 1
-  }
+  assert json.get(json.decode(before.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.len() == 1
   let observer_reference = ul.reference_as_user(s, "lslocks", options, uid: 10001)?
   let observer_candidate = ul.candidate_as_user(s, "lslocks", options, uid: 10001)?
   ul.compare(observer_reference, observer_candidate)
@@ -60,14 +58,14 @@ test test_util_linux_context_second_uid_holder_disappears_after_owned_release { 
     let inaccessible_options = options.extend([selector])
     let filtered_reference = ul.reference_as_user(s, "lslocks", inaccessible_options, uid: 10001)?
     let filtered_candidate = ul.candidate_as_user(s, "lslocks", inaccessible_options, uid: 10001)?
-    ctx f"UID holder selector={selector} reference_stdout_b64={filtered_reference.stdout.base64()} candidate_stdout_b64={filtered_candidate.stdout.base64()}" {
-      ul.compare(filtered_reference, filtered_candidate)
-      assert json.get(json.decode(filtered_reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.is_empty()
-    }
+    uu.succeeds(filtered_reference)
+    ul.compare(filtered_reference, filtered_candidate)
+    assert filtered_reference.stdout == b"" and filtered_reference.stderr == b""
   }
   contexts.release_keeper(keeper)
   let after_reference = ul.reference(s, "lslocks", options)?
   let after_candidate = uu.invoke(s, "lslocks", options)?
+  uu.succeeds(after_reference)
   ul.compare(after_reference, after_candidate)
   assert after_reference.stdout == b"" and after_reference.stderr == b""
 }
@@ -166,7 +164,7 @@ test test_util_linux_context_terminal_rooted_memory { |ctx|
   for columns in [24, 120] {
     let reference = contexts.terminal_reference(s, "lsmem", args, columns:)?
     let candidate = contexts.terminal_candidate(s, "lsmem", args, columns:)?
-    assert reference == candidate, f"lsmem terminal columns={columns} reference_stdout_b64={reference.stdout.base64()} candidate_stdout_b64={candidate.stdout.base64()} reference_stderr_b64={reference.stderr.base64()} candidate_stderr_b64={candidate.stderr.base64()}"
+    assert reference == candidate, f"lsmem terminal columns={columns}"
   }
 }
 
