@@ -1,5 +1,6 @@
 #![allow(clippy::single_call_fn)]
 use crate::records::{linux_sample_type, linux_module_plan_type, linux_blockdev_info_type, linux_privileges_type, linux_namespace_type};
+use crate::records::linux_system_v_semaphore_element_type;
 
 use super::methods::{bytes_copy_type, cli_token_type};
 use super::streams::fs_entry_stream;
@@ -2591,6 +2592,18 @@ fn linux_module() -> ModuleSig {
             ),
         ),
         (
+            "posix_semaphore_value",
+            sig(vec![param("name", Type::Bytes)], result(Type::Int), false, RuntimeOp::LinuxPosixSemaphoreValue),
+        ),
+        (
+            "posix_message_queue_messages",
+            sig(vec![param("name", Type::Bytes)], result(Type::Int), false, RuntimeOp::LinuxPosixMessageQueueMessages),
+        ),
+        (
+            "system_v_semaphore_element",
+            sig(vec![param("id", Type::Int), param("index", Type::Int)], result(linux_system_v_semaphore_element_type()), false, RuntimeOp::LinuxSystemVSemaphoreElement),
+        ),
+        (
             "disk_usage",
             sig(
                 vec![default_param("path", Type::Path)],
@@ -4891,6 +4904,11 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Reports Linux memory counters.",
             "Counters are a point-in-time kernel observation and can change between fields or calls.",
             &["linux", "memory", "host-state"],
+        ),
+        "LinuxSystemVSemaphoreElement" => (
+            "Reports one System V semaphore element's value, wait counts, and last-operation PID.",
+            "value is GETVAL, waiting_for_increase is GETNCNT, waiting_for_zero is GETZCNT, and pid is GETPID. Each field is a separate semctl observation of the selected element; concurrent operations can change state between calls.",
+            &["linux", "ipc", "semaphore", "record"],
         ),
         "LinuxBlkid" => (
             "Describes Linux block-device identification data.",

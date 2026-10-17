@@ -81,7 +81,11 @@ export pure select(paths: List[Str]) -> Result[Selection, Error] {
       }
       continue
     }
-    if ! changed_path.starts_with("tests/fixtures/") and changed_path.ends_with(".xsh") and (changed_path.starts_with("tests/") or changed_path.starts_with("dev/tests/") or changed_path.starts_with("core/tests/") or changed_path.starts_with("showcase/tests/")) {
+    if changed_path.split("/").len() == 3 and changed_path.starts_with("core/tests/test-") and changed_path.ends_with(".xsh") {
+      native_files += [changed_path] when changed_path not in native_files
+      continue
+    }
+    if ! changed_path.starts_with("tests/fixtures/") and changed_path.ends_with(".xsh") and (changed_path.starts_with("tests/") or changed_path.starts_with("dev/tests/") or changed_path.starts_with("showcase/tests/")) {
       native_files += [changed_path] when changed_path not in native_files
       continue
     }

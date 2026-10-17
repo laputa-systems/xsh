@@ -1049,6 +1049,21 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The result is a point-in-time observation and is unavailable or restricted on hosts without the corresponding Linux interface.",
             &["linux", "inspection", "host-state"],
         )),
+        ("linux", "posix_semaphore_value") => Some((
+            "Reads the current value of an existing named POSIX semaphore.",
+            "Passes the exact name bytes to sem_open with no creation flags, reads sem_getvalue, and closes the handle. Embedded NUL bytes are rejected. Linux reports zero when waiters exist. Missing names and permission failures retain host error causes. Real Linux IPC state is required; fake mode returns an error.",
+            &["linux", "ipc", "semaphore", "inspection"],
+        )),
+        ("linux", "posix_message_queue_messages") => Some((
+            "Reads the number of messages in an existing POSIX message queue.",
+            "Opens the exact name bytes read-only, reads mq_getattr.mq_curmsgs, and closes the descriptor. It neither receives messages nor creates a queue. Missing names and permission failures retain host error causes. Real Linux IPC state is required; fake mode returns an error.",
+            &["linux", "ipc", "message-queue", "inspection"],
+        )),
+        ("linux", "system_v_semaphore_element") => Some((
+            "Reads one existing System V semaphore element's value, wait counts and last-operation PID.",
+            "The ID selects an existing set and index selects one element. Four sequential semctl observations return value, waiting_for_increase, waiting_for_zero and pid; concurrent operations may change state between observations. IDs and indices must fit nonnegative native integers. Permission and disappearance errors retain host causes. No semaphore value is changed. Real Linux IPC state is required; fake mode returns an error.",
+            &["linux", "ipc", "semaphore", "inspection"],
+        )),
         ("linux", "block_signatures") => Some(("Probes recognized storage signatures.", "Reports exact byte offsets and signature bytes. GPT probing validates header and partition array checksums. Probing does not establish filesystem consistency.", &["linux", "storage"])),
         ("linux", "wipe_block_signatures") => Some(("Erases selected recognized storage signatures.", "Validates all requested offsets against current probe results before writing. Selected signature bytes are zeroed; later host write errors may leave earlier signatures erased.", &["linux", "storage", "destructive"])),
         ("linux", "sysctl_get" | "sysctl_load_dirs" | "file_project") => Some((

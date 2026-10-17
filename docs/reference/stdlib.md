@@ -326,6 +326,8 @@ Linux-specific boot, mount, device, and shutdown operations.
 - `linux.open_files(pid: Int = default) -> Result[Stream[{access: Str, command: Str, dev: Int?, fd: Int, fd_label: Str, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}], Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.partition_table(device: Path) -> Result[{id: Str, label: Str, partitions: List[{end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}], sector_size: Int}, Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.pivot_root(new_root: Path, put_old: Path) -> Result[Unit, Error]` — Changes the Linux process root or root-transition state.
+- `linux.posix_message_queue_messages(name: Bytes) -> Result[Int, Error]` — Reads the number of messages in an existing POSIX message queue.
+- `linux.posix_semaphore_value(name: Bytes) -> Result[Int, Error]` — Reads the current value of an existing named POSIX semaphore.
 - `linux.poweroff() -> Result[Unit, Error]` — Requests a Linux system power-state transition.
 - `linux.privileges() -> Result[{ambient: List[Int], bounding: List[Int], effective: List[Int], inheritable: List[Int], last_capability: Int, no_new_privs: Bool, parent_death_signal: Int, permitted: List[Int], securebits: List[Str]}, Error]` — Reads the capability sets, securebits, no_new_privs and parent-death signal of the calling thread.
 - `linux.read_device(device: Path, dest: Path, bytes: Int) -> Result[Unit, Error]` — Reads or changes Linux block-device state.
@@ -369,6 +371,7 @@ Linux-specific boot, mount, device, and shutdown operations.
 - `linux.sysctl_get(key: Str) -> Result[Str, Error]` — Reads Linux sysctl configuration values.
 - `linux.sysctl_load_dirs(dirs: List[Path], fallback: Path = default) -> Result[Unit, Error]` — Reads Linux sysctl configuration values.
 - `linux.sysctl_set(key: Str, value: Str) -> Result[Unit, Error]` — Changes Linux kernel or filesystem attributes.
+- `linux.system_v_semaphore_element(id: Int, index: Int) -> Result[{pid: Int, value: Int, waiting_for_increase: Int, waiting_for_zero: Int}, Error]` — Reads one existing System V semaphore element's value, wait counts and last-operation PID.
 - `linux.uevent_stream() -> Result[Stream[{action: Str, devname: Str, devpath: Str, env: List[{name: Str, value: Str}], subsystem: Str}], Error]` — Reads Linux network interface or route records.
 - `linux.umount(target: Path, lazy: Bool = default, force: Bool = default) -> Result[Unit, Error]` — Controls mounts, filesystems and block devices.
 - `linux.umount_all(types: List[Str] = default) -> Result[Unit, Error]` — Changes Linux mount or swap state.
@@ -970,6 +973,7 @@ Process-scoped utility helpers.
 - `LinuxSgIo {data: Bytes, driver_status: UInt, host_status: UInt, resid: UInt, sense: Bytes, status: UInt}` — Reports one SG_IO command outcome.
 - `LinuxSocketAddress {address: Str, family: Str, port: Int, raw: Bytes, scope_id: Int}` — Describes one socket address: a typed form plus the raw sockaddr bytes.
 - `LinuxStorageCandidate {controller: Path?, firmware: Str?, kind: Str, model: Str?, name: Str, path: Path, protocol: Str, removable: Bool?, rotational: Bool?, serial: Str?, size_bytes: UInt?}` — Describes one device that storage tools can address.
+- `LinuxSystemVSemaphoreElement {pid: Int, value: Int, waiting_for_increase: Int, waiting_for_zero: Int}` — Reports one System V semaphore element's value, wait counts, and last-operation PID.
 - `LinuxUevent {action: Str, devname: Str, devpath: Str, env: List[{name: Str, value: Str}], subsystem: Str}` — Describes one Linux device uevent.
 - `MeasuredCommand {duration_ms: Int, status: Status, system_ns: Int, user_ns: Int, wall_ns: Int}` — Reports status and elapsed time for a measured command.
 - `MimeInfo {exts: List[Str], mime: Str}` — Describes a MIME type lookup result.

@@ -1,5 +1,9 @@
 # XSH Consolidation Campaign
 
+Status: closed, 2026-10-17. The Lean work and clean normal profile are complete.
+The intermittent timeout failure and remaining final acceptance rows are
+deferred as XSH-2 and XSH-3 in `TODO.md`.
+
 Last accepted canonical and resource source:
 `24cc0d704209a8c0aa0eb27d5cfea1434929dc20`, tree
 `b6efac064ed074c9ee03d8f183bff9b41d353c91`. Root accepted the additive
