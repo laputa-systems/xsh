@@ -95,7 +95,9 @@ assumed last-option-wins behavior.
 The output-column parser accepts one trailing comma, but rejects an empty
 column list, a leading comma, and repeated commas. Negative IDs below `-1`
 retain the reference's enumerate-all behavior for System V queues and
-semaphores.
+semaphores. ID parsing accepts leading whitespace and an optional sign, uses
+decimal syntax, and rejects prefixes, separators, trailing whitespace, and
+values outside the signed 32-bit range.
 
 The manual says the default table output can change. Native comparisons pin
 the exact 2.42.4 output using the owned fixture. Tests that need a stable schema
@@ -113,7 +115,7 @@ tables and query each selected ID.
 |---|---|---|---|
 | `test_lsipc_default_and_global_summary_outputs_match_reference` | Default global-summary selection, summary resource rows, explicit summary columns, and all explicit global selector combinations | `lsipc.c:703-724,1044-1084,1348-1369,1565-1579,1627-1659` | Open. Fixture required. |
 | `test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes` | Default columns and every explicitly accepted column for all resource classes; trailing comma acceptance | `lsipc.c:157-203,533-1370`; `ipcutils.c:131-714` | Open. Fixture required. |
-| `test_lsipc_id_and_name_select_registered_objects` | Exact ID and name selection, POSIX message-queue slash spelling, and negative-ID enumeration for queues and semaphores | `lsipc.c:559-563,647-648,823-827,958-965,1094-1097,1265-1272`; `ipcutils.c:283-289,492-498,645-700` | Open. Fixture required. |
+| `test_lsipc_id_and_name_select_registered_objects` | Exact ID and name selection, POSIX message-queue slash spelling, leading-whitespace IDs, and negative-ID enumeration for queues and semaphores | `lsipc.c:559-563,647-648,823-827,958-965,1094-1097,1265-1272`; `ipcutils.c:283-289,492-498,645-700` | Open. Fixture required. |
 | `test_lsipc_missing_ids_and_names_preserve_reference_status_and_diagnostics` | Missing IDs and names, successful exit status, and warning diagnostics for all six resource modes | `lsipc.c:559-563,738-741,823-827,958-961,1094-1097,1265-1268,1661-1666` | Open. Capture exact oracle output. |
 | `test_lsipc_rejects_id_and_name_without_matching_modes` | Selector prerequisites and option conflicts | `lsipc.c:1415-1420,1565-1570` | Open. Capture exact oracle output. |
 | `test_lsipc_creator_and_time_options_report_live_metadata` | Creator/owner identities, operation times, and all supported time formats | `lsipc.c:1591-1617,273-290,457-481` plus the per-mode renderers | Open. Fixture required. |
@@ -124,7 +126,7 @@ tables and query each selected ID.
 | `test_lsipc_short_option_aliases_match_long_options` | Short and long aliases for global mode, IDs, names, output, rendering, and value options | `lsipc.c:1381-1421` | Open. Compare exact output for each spelling. |
 | `test_lsipc_rejects_unknown_and_inapplicable_columns` | Unknown and inapplicable columns, default-only POSIX columns, global summary range, and empty/leading/repeated output separators | `lsipc.c:223-243,1526-1535` | Open. Stable input. |
 | `test_lsipc_rejects_unknown_time_format` | Invalid time formats, status, and diagnostics | `lsipc.c:273-290` | Open. Stable input. |
-| `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, and malformed IDs | `lsipc.c:1381-1455` | Open. Compare exact diagnostics and status. |
+| `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, malformed decimal IDs, and signed 32-bit overflow diagnostics | `lsipc.c:1381-1455`; `strutils.c:311-410` | Open. Compare exact diagnostics and status. |
 | `test_lsipc_rejects_each_exclusive_option_pair` | Every pair in the four source-defined exclusivity groups | `lsipc.c:1415-1420` | Open. Stable input. |
 | `test_lsipc_visibility_matches_for_owner_and_unprivileged_observer` | Per-class visibility for two real UIDs with capabilities dropped | `ipcutils.c:131-240,249-300,342-510,521-575,633-713` | Open. Requires the positive two-UID fixture. |
 | `test_lsipc_collectors_leave_registered_resources_unchanged` | IDs, names, permissions, sizes, values, counters, and timestamps remain unchanged after each collector | `lsipc.c:1370-1666`; all six collectors | Open. Keeper state snapshots required. |

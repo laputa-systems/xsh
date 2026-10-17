@@ -386,6 +386,11 @@ test test_lsipc_rejects_invalid_options_and_missing_arguments { |ctx|
     ["--output"],
     ["--time-format"],
     ["--queues", "--id", "not-an-id"],
+    ["--queues", "--id", "0x1"],
+    ["--queues", "--id", "1_0"],
+    ["--queues", "--id", "1 "],
+    ["--queues", "--id", "2147483648"],
+    ["--queues", "--id", "-2147483649"],
   ]
   for args in cases {
     let pair = run_both(s, args)?
@@ -601,6 +606,16 @@ test test_lsipc_id_and_name_select_registered_objects { |ctx|
       ul.compare(pair.reference, pair.candidate)
       assert pair.candidate.status == 0, mode.kind
       assert pair.candidate.stdout != b"", mode.kind
+
+      let leading_whitespace = run_both(s, [mode.selector, "--id", f" {id}"])?
+      ul.compare(leading_whitespace.reference, leading_whitespace.candidate)
+      assert leading_whitespace.candidate.status == 0, mode.kind
+      assert leading_whitespace.candidate.stdout == pair.candidate.stdout, mode.kind
+
+      let explicit_sign = run_both(s, [mode.selector, "--id", f"+{id}"])?
+      ul.compare(explicit_sign.reference, explicit_sign.candidate)
+      assert explicit_sign.candidate.status == 0, mode.kind
+      assert explicit_sign.candidate.stdout == pair.candidate.stdout, mode.kind
     } else {
       let name = resource.lookup_name ?? ""
       assert name != "", mode.kind
