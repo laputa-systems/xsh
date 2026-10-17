@@ -42,8 +42,8 @@ Git-guard attempts selected zero tests and earn no credit. See the [residual
 evidence](evidence/linux-residual-0deeb9c7/README.md). Root accepted the
 `profile-cost.py --artifacts-only` and `final-observers.py --resources-only`
 modes, and the accepted controller changes are integrated. Resource-only
-observer and binary-size evidence remain pending. No final resource or native
-gate credit is recorded. No timed run has started. **perf gate deferred: host
+observer and binary-size evidence remain pending. No final resource-observer
+result has been accepted. No timed run has started. **perf gate deferred: host
 busy**. Lean and Phase F stay paused. Inference remains isolated until
 consolidation closes.
 
@@ -66,16 +66,20 @@ eligible effects remain retained. Host component `5277` has conditional
 acceptance for its six exact native checks at proof
 `1edf4ee50c093323accc03f9355bd83795bbfdba`, with guarded source/product
 identity and cleanup; see [host native evidence](evidence/typing-host-native6/README.md).
-The generic-body lane remains unqualified. The accepted `877` checkpoint is
-the only qualified annotation result. The source-only `891` candidate plans 14
-additional removals and has source validation only. The separate `986` Set
-candidate plans 109 mutable `Set[Str]` removals. Its first compiler pair passed
-all eleven original roots but rejected all 109 reduced Set sites because the
-Set seed ran after `set.empty()` returned `Unknown`. The [raw failed proof and
-source/product snapshots](evidence/typing-corpus-host-obligations/mutable-sets/)
-remain preserved. A corrected Set admission candidate is being qualified in
-isolation. Neither candidate earns annotation-removal credit. See the [891
-plan](typing-corpus/README.md#next-source-only-candidate) and [Set status](typing-corpus/README.md#independent-mutable-set-candidate). Inference remains isolated. See the [active handoff](HANDOFF.md#active-candidate) for the full checkpoint details.
+The generic-body lane remains unqualified.
+The accepted `877` candidate remains the only one with full paired runtime
+qualification. The source-only `891` plan remains source-validated only. The
+`986` Set candidate has accepted check/lowering results on source `020f` for 457
+of 693 local removals, including 109 added mutable `Set[Str]` annotations, and
+the unchanged 529 of 2,190 internal removals. The original `749` rejection and
+its source/product snapshots remain preserved; they do not replace the accepted
+`020f` result. The 26 paired runtime selections for `986` remain queued, so no
+`986` runtime result is claimed. See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
+[current Set result](typing-corpus/README.md#check-and-lowering-qualification),
+[retained failed proof](evidence/typing-corpus-host-obligations/mutable-sets/), and
+[empty-record decision](typing-corpus/README.md#empty-record-contract).
+Inference remains isolated. See the [active handoff](HANDOFF.md#active-candidate)
+for the full checkpoint details.
 
 The isolated generic module export slice remains accepted at `8475984a9`.
 Its main merge waits for consolidation closure. Broader inference, corpus

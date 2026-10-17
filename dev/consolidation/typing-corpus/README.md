@@ -224,11 +224,12 @@ establish that every element constraint resolves jointly.
 | Laputa `pm/catalog.xsh` | 2 |
 | Laputa `pm/recipe.xsh` | 5 |
 
-The prepared copy has 986 planned removals: 457 of 693 locals and the unchanged
-529 of 2,190 internal sites. All signatures, all 202 private effects, protected
-schemas and entry contracts retain the accepted 877 choices. The accepted
-original and reduced views remain unchanged. The candidate inherits the same
-fixture-only flock correction outside the 48 program sources.
+The `986` candidate removes 457 of 693 eligible locals and the unchanged 529 of
+2,190 eligible internal annotations when fully applied. All signatures, all 202
+private effects, protected schemas and entry contracts retain the accepted 877
+choices. The accepted original and reduced views remain unchanged. The
+candidate inherits the same fixture-only flock correction outside the 48
+program sources.
 
 Prepare a fresh separate copy without invoking compiler products:
 
@@ -240,17 +241,15 @@ python3 dev/consolidation/typing-corpus/prepare_mutable_sets.py \
 The command prints every selected site ID and validates the reconstructed 48
 sources against their frozen AST spans. It rejects an existing plan directory.
 It does not inspect compiler results or change eligibility. The prepared source
-passed that validation with exactly 109 additions. Neither check/lower nor
-behavior qualification has run for this copy.
+passed that validation with exactly 109 additions. The initial compiler attempt
+failed on the reduced view, as recorded below. The corrected retry qualifies
+checking and lowering only. Runtime qualification remains pending.
 
-The required compiler is the isolated Set source `7491228ab`, based on the
-accepted host-obligation source without the pending generic-body changes.
-The first qualified Set products reject the reduced corpus as recorded below.
-The old accepted pair is untouched and supplies no Set qualification. New runner bindings must hold this
-source and the actual qualified product hashes, preserve both view digests on
-failure, and retain exact container cleanup and native-lock ownership checks.
-The next approved execution is all eleven annotated and reduced ordinary
-check/lower roots. Native execution requires a separately assigned slot.
+The initial Set attempt used compiler source `7491228ab`, based on the accepted
+host-obligation source without the pending generic-body changes. Its failure
+remains preserved below. The corrected retry uses source `020f` and qualifies
+checking and lowering only. It does not qualify runtime behavior or replace the
+accepted 877 pair.
 
 The existing thirteen paired witnesses remain the initial behavior matrix.
 Seven wc, tr, cut and date witnesses protect unchanged roots. The two
@@ -275,11 +274,10 @@ The positive case fixes the element type through branch and loop writes and
 asserts alias visibility, the empty result, deduplication and insertion order.
 Corpus removals neither replace those tests nor broaden their grammar.
 
-
-The first bounded Set check is red. The annotated original checks all ten XSH
-roots and the Laputa root successfully, including ordinary lowering. Both reduced
-batches exit 2 with 102 XSH and seven Laputa empty-Set inference diagnostics. The
-[raw Set attempt](../evidence/typing-corpus-host-obligations/mutable-sets/)
+The initial Set attempt used source `749`. The annotated original checked all
+ten XSH roots and the Laputa root successfully, including ordinary lowering.
+Both reduced batches exited 2 with 102 XSH and seven Laputa empty-Set inference
+diagnostics. The [raw Set attempt](../evidence/typing-corpus-host-obligations/mutable-sets/)
 retains the exact runner, original and reduced outputs, statuses, source and
 product guards, view digests and container cleanup. No native test ran.
 
@@ -298,17 +296,18 @@ returns before creating the inference variable. Empty List admission has a
 container-shaped ordinary result instead. The Set owner has the failure and
 this trace. An initializer seed must carry correct binding, shadowing and element
 domain authority before constructor checking. Restoring the 109 annotations
-would hide this defect. The 986 count remains planned and unqualified.
+would hide this defect. This describes the failed 749 attempt only.
 
+### Check and lowering qualification
 
-The unchanged 986 candidate passes the fresh retry with the pre-initializer fix
-at source `020f9c0c799a0e17c2b0006ced779e416a3a8052`, tree
-`1f67a4262727c8779e3135bf0fa49132ef9f7c12`. Both annotated and reduced views check
-all ten XSH roots and the Laputa root, with ordinary lowering in all four actual
-summaries and zero diagnostics. All four compiler statuses and the wrapper status
-are zero. The [020f check proof](../evidence/typing-corpus-host-obligations/mutable-sets/020f-check/)
+The unchanged 986 candidate passes the corrected check/lower retry with the
+pre-initializer fix at source `020f9c0c799a0e17c2b0006ced779e416a3a8052` and
+tree `1f67a4262727c8779e3135bf0fa49132ef9f7c12`. Both views check all ten XSH
+roots and the Laputa root. All four summaries report ordinary lowering with zero
+diagnostics. All four compiler statuses and the wrapper status are zero. The
+[020f check proof](../evidence/typing-corpus-host-obligations/mutable-sets/020f-check/run-check.sh)
 retains the fresh runner and complete outputs. The prior 749 rejection remains
-unchanged alongside it. The singular summary matcher is corrected in the retry.
+unchanged. The retry corrects the singular summary matcher.
 
 All 109 new Set annotations are therefore jointly removable for checking and
 lowering: 457 of 693 locals and the unchanged 529 of 2,190 internal annotations.
@@ -320,7 +319,18 @@ product hashes and both complete source-view digests match before and after.
 The original digest remains `e3429dcf2abe9524754a28458651443bc56523b50130268a1c1ff44c03e36899`.
 The reduced 986 digest is `43ad0beddeb95ef7f695598664156df29605831df3156433a11ea356d39d8c35`.
 Both owned containers are absent. The prepared native runner in that proof is
-shell-validated but not executed. It requires the exact same source, three
-products and expected view digests, preserves failure guards and exact cleanup,
-and requires thirteen actual one-pass/no-skip selections per view under the
-original nonblocking native-suite lock. It starts only in the assigned slot.
+shell-validated but not executed. It requires the exact source, three products,
+expected view digests, failure guards, and exact cleanup. Its thirteen selectors
+per view require one pass with no skips under the original nonblocking
+native-suite lock. All 26 selections remain queued for the assigned slot.
+
+## Empty-record contract
+
+Owner decision: keep `{}` as a record unless a `Map` is already expected. This
+follows [SPEC 5.1](../../../docs/SPEC.md#51-inference-and-annotations) and the
+native
+[`unannotated_empty_record_does_not_become_map_from_later_use`](../../../tests/xsh/local-inference.xsh)
+regression. Later use must not make the record a map. The 149 remaining `Map{}`
+annotations stay required. The denominator remains 693 locals. Removing every
+other eligible local would reach at most 544/693 (78.5%), below the 95% target.
+No waiver or denominator reclassification applies.

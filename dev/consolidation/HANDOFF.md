@@ -99,15 +99,17 @@ inference is not accepted. The earlier 615-removal checkpoint `17be3ff8` on
 freeze `a8d5bd910` remains historical. The generic-body lane remains
 unqualified. Do not merge inference to main before consolidation closes.
 
-The accepted `877` checkpoint remains the only qualified annotation result.
-The source-only `891` candidate plans 14 additional removals and has source
-validation only. The separate `986` Set candidate plans 109 mutable
-`Set[Str]` removals. Its first compiler pair passed all eleven original roots
-but rejected all 109 reduced Set sites because the Set seed ran after
-`set.empty()` returned `Unknown`. The [raw failed proof and source/product
-snapshots](evidence/typing-corpus-host-obligations/mutable-sets/) remain
-preserved. A corrected Set admission candidate is being qualified in isolation.
-Neither candidate earns annotation-removal credit. See the [891 plan](typing-corpus/README.md#next-source-only-candidate) and [Set status](typing-corpus/README.md#independent-mutable-set-candidate).
+The accepted `877` candidate remains the only one with full paired runtime
+qualification. The source-only `891` plan remains source-validated only. The
+`986` Set candidate has accepted check/lowering results on source `020f` for 457
+of 693 local removals, including 109 added mutable `Set[Str]` annotations, and
+the unchanged 529 of 2,190 internal removals. The original `749` rejection and
+its source/product snapshots remain preserved; they do not replace the accepted
+`020f` result. The 26 paired runtime selections for `986` remain queued, so no
+`986` runtime result is claimed. See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
+[current Set result](typing-corpus/README.md#check-and-lowering-qualification),
+[retained failed proof](evidence/typing-corpus-host-obligations/mutable-sets/), and
+[empty-record decision](typing-corpus/README.md#empty-record-contract).
 
 ### Current queue
 
@@ -129,8 +131,8 @@ Neither candidate earns annotation-removal credit. See the [891 plan](typing-cor
    exclusive measurement window. **perf gate deferred: host busy**. Root
    accepted the `performance_prep` artifacts-only build/resources-only observer
    modes, and the accepted controller changes are integrated. The resource-only
-   observer and binary-size evidence remain pending. No final resource or
-   native gate credit is recorded. Run the nine remaining full-native suites
+   observer and binary-size evidence remain pending. No final resource-observer
+   result has been accepted. Run the nine remaining full-native suites
    (profile once, forced once, scheduler six times, observer once). Root owns
    release readiness and main promotion.
 
