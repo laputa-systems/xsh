@@ -26,8 +26,8 @@ const RESOURCE_MODES: List[ResourceMode] = [
   {kind: "sysv_queue", selector: "--queues", short_selector: "-q", all_columns: "KEY,ID,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,UID,USER,GID,GROUP,CTIME,USEDBYTES,MSGS,SEND,RECV,LSPID,LRPID"},
   {kind: "sysv_shmem", selector: "--shmems", short_selector: "-m", all_columns: "KEY,ID,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,UID,USER,GID,GROUP,CTIME,SIZE,NATTCH,STATUS,ATTACH,DETACH,COMMAND,CPID,LPID"},
   {kind: "sysv_semaphore", selector: "--semaphores", short_selector: "-s", all_columns: "KEY,ID,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,UID,USER,GID,GROUP,CTIME,NSEMS,OTIME"},
-  {kind: "posix_mqueue", selector: "--posix-mqueues", short_selector: "-Q", all_columns: "NAME,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,MTIME,USEDBYTES,MSGS"},
-  {kind: "posix_shmem", selector: "--posix-shmems", short_selector: "-M", all_columns: "NAME,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,MTIME,SIZE"},
+  {kind: "posix_mqueue", selector: "--posix-mqueues", short_selector: "-Q", all_columns: "NAME,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,MTIME"},
+  {kind: "posix_shmem", selector: "--posix-shmems", short_selector: "-M", all_columns: "NAME,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,MTIME"},
   {kind: "posix_semaphore", selector: "--posix-semaphores", short_selector: "-S", all_columns: "NAME,OWNER,PERMS,CUID,CUSER,CGID,CGROUP,MTIME"},
 ]
 
@@ -48,6 +48,8 @@ const GLOBAL_MODES: List[GlobalMode] = [
   {args: ["--global", "--posix-shmems"], resource: null},
   {args: ["--global", "--posix-semaphores"], resource: null},
 ]
+
+const GLOBAL_COLUMNS = "RESOURCE,DESCRIPTION,LIMIT,USED,USE%"
 
 proc start_keeper(s: uu.Scene, kinds: List[Str]) [fs, process, env, net, time, error] -> Result[IpcKeeper, Error] {
   ul.require_private_namespace()
@@ -343,6 +345,36 @@ test test_lsipc_rejects_unknown_and_inapplicable_columns { |ctx|
   assert posix_semaphore.candidate.status == 1
   assert posix_semaphore.candidate.stdout == b""
   assert "column SVAL does not apply to the specified IPC" in (posix_semaphore.candidate.stderr.utf8() ?? "")
+
+  let mqueue_default_columns = run_both(s, ["--posix-mqueues", "--output", "USEDBYTES,MSGS"])?
+  ul.compare(mqueue_default_columns.reference, mqueue_default_columns.candidate)
+  assert mqueue_default_columns.candidate.status == 1
+  assert mqueue_default_columns.candidate.stdout == b""
+  assert mqueue_default_columns.candidate.stderr == b"lsipc: column USEDBYTES,MSGS does not apply to the specified IPC\n"
+
+  for entry in [
+    {selector: "--posix-mqueues", column: "MSGS"},
+    {selector: "--posix-shmems", column: "SIZE"},
+  ] {
+    let pair = run_both(s, [entry.selector, "--output", entry.column])?
+    ul.compare(pair.reference, pair.candidate)
+    assert pair.candidate.status == 1, f"{entry.selector} {entry.column}"
+    assert pair.candidate.stdout == b"", f"{entry.selector} {entry.column}"
+    assert pair.candidate.stderr != b"", f"{entry.selector} {entry.column}"
+  }
+
+  for columns in ["", ",ID", "ID,,OWNER"] {
+    let pair = run_both(s, ["--queues", "--output", columns])?
+    ul.compare(pair.reference, pair.candidate)
+    assert pair.candidate.status == 1, columns
+    assert pair.candidate.stdout == b"", columns
+  }
+
+  let global_column = run_both(s, ["--global", "--queues", "--output", "USEDBYTES"])?
+  ul.compare(global_column.reference, global_column.candidate)
+  assert global_column.candidate.status == 1
+  assert global_column.candidate.stdout == b""
+  assert global_column.candidate.stderr != b""
 }
 
 test test_lsipc_rejects_invalid_options_and_missing_arguments { |ctx|
@@ -441,6 +473,10 @@ test test_lsipc_default_and_global_summary_outputs_match_reference { |ctx|
   ul.compare(explicit_global.reference, explicit_global.candidate)
   assert explicit_global.candidate.stdout == default.candidate.stdout
 
+  let explicit_columns = run_both(s, ["--global", "--output", GLOBAL_COLUMNS])?
+  ul.compare(explicit_columns.reference, explicit_columns.candidate)
+  assert explicit_columns.candidate.status == 0
+
   for mode in GLOBAL_MODES {
     let pair = run_both(s, mode.args)?
     ul.compare(pair.reference, pair.candidate)
@@ -448,6 +484,10 @@ test test_lsipc_default_and_global_summary_outputs_match_reference { |ctx|
     if let resource = mode.resource {
       assert resource in (pair.candidate.stdout.utf8() ?? ""), mode.args.join(" ")
     }
+
+    let columns = run_both(s, mode.args.extend(["--output", GLOBAL_COLUMNS]))?
+    ul.compare(columns.reference, columns.candidate)
+    assert columns.candidate.status == 0, mode.args.join(" ")
   }
   release_keeper(fixture.handle)?
 }
@@ -540,6 +580,10 @@ test test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes { |ctx
     assert columns.candidate.status == 0, f"{mode.selector}: {columns.candidate.stderr.utf8() ?? ""}"
     assert columns.candidate.stdout != b"", mode.selector
   }
+
+  let trailing_comma = run_both(s, ["--queues", "--output", "ID,"])?
+  ul.compare(trailing_comma.reference, trailing_comma.candidate)
+  assert trailing_comma.candidate.status == 0
   release_keeper(fixture.handle)?
 }
 
@@ -564,6 +608,17 @@ test test_lsipc_id_and_name_select_registered_objects { |ctx|
       ul.compare(pair.reference, pair.candidate)
       assert pair.candidate.status == 0, mode.kind
       assert pair.candidate.stdout != b"", mode.kind
+    }
+  }
+  for mode in [RESOURCE_MODES[0], RESOURCE_MODES[2]] {
+    let pair = run_both(s, [mode.selector, "--id", "-2", "--raw"])?
+    ul.compare(pair.reference, pair.candidate)
+    assert pair.candidate.status == 0, mode.selector
+    let output = pair.candidate.stdout.utf8() ?? ""
+    for resource in fixture.ready.resources {
+      if resource.kind == mode.kind {
+        assert f"{resource.id ?? -1}" in output, mode.selector
+      }
     }
   }
   release_keeper(fixture.handle)?

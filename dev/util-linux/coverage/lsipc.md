@@ -14,9 +14,11 @@ The command contract is in [`sys-utils/lsipc.1.adoc`](https://github.com/util-li
 `ipcutils.h`.
 
 The oracle build must report util-linux 2.42.4 and the same enabled POSIX IPC
-features as the pinned image. No command comparison has run from this lane.
-Every parity case remains open until the reference and XSH command run on the
-same owned fixture and their bytes, statuses, and fixture state are compared.
+features as the pinned image. The coordinator has run the keeper's six-class
+reference visibility, unchanged-state, explicit-release, and cancellation
+selectors in the guarded image. Candidate parity cases remain open until the
+reference and XSH command run on the same owned fixture and their bytes,
+statuses, and fixture state are compared.
 
 ## Resource modes and default columns
 
@@ -56,11 +58,13 @@ The column source defines these complete ranges:
 | Summary | `RESOURCE,DESCRIPTION,LIMIT,USED,USE%` |
 | POSIX semaphore | `SVAL` |
 
-For `--posix-semaphores`, the reference includes `SVAL` in its default
-columns, but its `--output SVAL` validation rejects that column: the
-POSIX-specific accepted range stops at `MTIME`. The explicit all-column case
-therefore covers the POSIX common columns, while the error case preserves this
-2.42.4 behavior.
+For `--posix-mqueues`, `--posix-shmems`, and `--posix-semaphores`, default
+output includes `USEDBYTES,MSGS`, `SIZE`, and `SVAL` respectively, but
+explicit `--output` validation rejects those columns: the accepted POSIX range
+stops at `MTIME`. The explicit all-column cases therefore cover POSIX common
+columns, while error cases preserve this 2.42.4 behavior. Global mode resets
+the explicit-column range to generic and summary columns, even when combined
+with a resource selector.
 
 `--creator` adds `CUID,CGID` and, for System V resources, `UID,GID`.
 `--time` adds System V queue send/receive/create times, shared-memory attach
@@ -88,9 +92,14 @@ The reference rejects more than one output mode from `--json`, `--export`,
 the six resource selectors. These are source-defined option groups, not
 assumed last-option-wins behavior.
 
-The manual says the default table output can change. The native corpus will
-pin the exact 2.42.4 output after the reference fixture can run. Tests that need
-a stable schema use `--output` explicitly.
+The output-column parser accepts one trailing comma, but rejects an empty
+column list, a leading comma, and repeated commas. Negative IDs below `-1`
+retain the reference's enumerate-all behavior for System V queues and
+semaphores.
+
+The manual says the default table output can change. Native comparisons pin
+the exact 2.42.4 output using the owned fixture. Tests that need a stable schema
+use `--output` explicitly.
 
 ## Native case map
 
@@ -102,9 +111,9 @@ tables and query each selected ID.
 
 | Native selector | Behavior under test | Upstream origin | Disposition |
 |---|---|---|---|
-| `test_lsipc_default_and_global_summary_outputs_match_reference` | Default global-summary selection, summary resource rows, and all explicit global selector combinations | `lsipc.c:703-724,1044-1084,1348-1369,1565-1579,1627-1659` | Open. Fixture required. |
-| `test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes` | Default columns and every explicitly accepted column for all resource classes, including default-only POSIX semaphore `SVAL` | `lsipc.c:157-203,533-1370`; `ipcutils.c:131-714` | Open. Fixture required. |
-| `test_lsipc_id_and_name_select_registered_objects` | Exact ID and name selection, including POSIX message-queue slash spelling | `lsipc.c:559-563,823-827,958-965,1094-1097,1265-1272`; `ipcutils.c:283-289,492-498,645-700` | Open. Fixture required. |
+| `test_lsipc_default_and_global_summary_outputs_match_reference` | Default global-summary selection, summary resource rows, explicit summary columns, and all explicit global selector combinations | `lsipc.c:703-724,1044-1084,1348-1369,1565-1579,1627-1659` | Open. Fixture required. |
+| `test_lsipc_default_and_explicit_columns_cover_all_six_resource_modes` | Default columns and every explicitly accepted column for all resource classes; trailing comma acceptance | `lsipc.c:157-203,533-1370`; `ipcutils.c:131-714` | Open. Fixture required. |
+| `test_lsipc_id_and_name_select_registered_objects` | Exact ID and name selection, POSIX message-queue slash spelling, and negative-ID enumeration for queues and semaphores | `lsipc.c:559-563,647-648,823-827,958-965,1094-1097,1265-1272`; `ipcutils.c:283-289,492-498,645-700` | Open. Fixture required. |
 | `test_lsipc_missing_ids_and_names_preserve_reference_status_and_diagnostics` | Missing IDs and names, successful exit status, and warning diagnostics for all six resource modes | `lsipc.c:559-563,738-741,823-827,958-961,1094-1097,1265-1268,1661-1666` | Open. Capture exact oracle output. |
 | `test_lsipc_rejects_id_and_name_without_matching_modes` | Selector prerequisites and option conflicts | `lsipc.c:1415-1420,1565-1570` | Open. Capture exact oracle output. |
 | `test_lsipc_creator_and_time_options_report_live_metadata` | Creator/owner identities, operation times, and all supported time formats | `lsipc.c:1591-1617,273-290,457-481` plus the per-mode renderers | Open. Fixture required. |
@@ -113,14 +122,14 @@ tables and query each selected ID.
 | `test_lsipc_help_lists_resource_modes_and_columns` | Help output through `--help` and `-h`, option names, and all documented columns | `lsipc.c:292-360,1381-1421` | Open. Stable input. |
 | `test_lsipc_version_preserves_xsh_provenance` | XSH identity and exact XSH version banner through `--version` and `-V` | `lsipc.c:1557-1562`; campaign `version-provenance` decision | Open. Assert XSH banner independently. |
 | `test_lsipc_short_option_aliases_match_long_options` | Short and long aliases for global mode, IDs, names, output, rendering, and value options | `lsipc.c:1381-1421` | Open. Compare exact output for each spelling. |
-| `test_lsipc_rejects_unknown_and_inapplicable_columns` | Unknown columns, inapplicable columns, and POSIX semaphore `SVAL` explicit-selection behavior | `lsipc.c:223-243,1526-1535` | Open. Stable input. |
+| `test_lsipc_rejects_unknown_and_inapplicable_columns` | Unknown and inapplicable columns, default-only POSIX columns, global summary range, and empty/leading/repeated output separators | `lsipc.c:223-243,1526-1535` | Open. Stable input. |
 | `test_lsipc_rejects_unknown_time_format` | Invalid time formats, status, and diagnostics | `lsipc.c:273-290` | Open. Stable input. |
 | `test_lsipc_rejects_invalid_options_and_missing_arguments` | Unknown options, missing option operands, and malformed IDs | `lsipc.c:1381-1455` | Open. Compare exact diagnostics and status. |
 | `test_lsipc_rejects_each_exclusive_option_pair` | Every pair in the four source-defined exclusivity groups | `lsipc.c:1415-1420` | Open. Stable input. |
 | `test_lsipc_visibility_matches_for_owner_and_unprivileged_observer` | Per-class visibility for two real UIDs with capabilities dropped | `ipcutils.c:131-240,249-300,342-510,521-575,633-713` | Open. Requires the positive two-UID fixture. |
 | `test_lsipc_collectors_leave_registered_resources_unchanged` | IDs, names, permissions, sizes, values, counters, and timestamps remain unchanged after each collector | `lsipc.c:1370-1666`; all six collectors | Open. Keeper state snapshots required. |
-| `test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them` | The reference sees each registered ID or reported name, leaves every seeded state unchanged, and sees no record after successful release | `lsipc.c:559-563,823-827,958-965,1094-1097,1265-1272,1661-1666`; all six collectors | Open. Reference-only fixture proof. |
-| `test_lsipc_keeper_cancellation_removes_registered_resources` | `SIGTERM` cleanup removes only the keeper's six registered resource classes | fixture cleanup handlers; `ipcutils.c:131-714` | Open. Reference-only cancellation proof. |
+| `test_lsipc_keeper_reference_observes_all_classes_and_release_removes_them` | The reference sees each registered ID or reported name, leaves every seeded state unchanged, and sees no record after successful release | `lsipc.c:559-563,823-827,958-965,1094-1097,1265-1272,1661-1666`; all six collectors | Guarded reference-only proof passed; candidate comparison remains open. |
+| `test_lsipc_keeper_cancellation_removes_registered_resources` | `SIGTERM` cleanup removes only the keeper's six registered resource classes | fixture cleanup handlers; `ipcutils.c:131-714` | Guarded reference-only cancellation proof passed; candidate comparison remains open. |
 
 Permission visibility follows each collector: System V collectors read procfs
 records, POSIX shared memory reads directory metadata, and POSIX semaphore and
