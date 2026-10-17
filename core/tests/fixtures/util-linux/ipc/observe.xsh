@@ -8,7 +8,7 @@ type ApiObservation = {
 
 type ApiReport = {before: Int, after: Int, observations: List[ApiObservation]}
 
-proc observe_api(operation: Str, identity: Str, index: Int) [error] -> Result[ApiObservation, Error] {
+proc observe_api(operation: Str, identity: Str, index: Int) [process, error] -> Result[ApiObservation, Error] {
   if operation == "posix_semaphore" {
     match linux.posix_semaphore_value(bytes.from_text(identity)) {
       Ok(value) => Ok({errno: null, value: value, waiting_for_increase: null, waiting_for_zero: null, pid: null})
