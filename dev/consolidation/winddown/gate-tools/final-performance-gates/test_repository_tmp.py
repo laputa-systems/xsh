@@ -1,7 +1,7 @@
 import io
 import json
 from argparse import Namespace
-from contextlib import contextmanager, nullcontext, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from importlib.util import module_from_spec, spec_from_file_location
 import os
 from pathlib import Path
@@ -222,6 +222,12 @@ def test_forced_frames_cleanup_error_does_not_mask_gate_error():
                     except forced.GateFailure as error:
                         assert error is gate_error
                         assert any("forced-frame temporary cleanup also failed" in note for note in error.__notes__)
+                        stderr = io.StringIO()
+                        with patch.object(forced, "parse_args", return_value=Namespace()), patch.object(forced, "run", side_effect=error), redirect_stderr(stderr):
+                            assert forced.main() == 1
+                        assert "gate failed" in stderr.getvalue()
+                        assert "forced-frame temporary cleanup also failed" in stderr.getvalue()
+                        assert "cleanup failed" in stderr.getvalue()
                     else:
                         raise AssertionError("forced-frame cleanup replaced the gate failure")
             finally:

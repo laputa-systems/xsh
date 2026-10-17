@@ -783,6 +783,8 @@ def main() -> int:
         return 130
     except Exception as error:
         print(f"forced-frame acceptance failed: {error}", file=sys.stderr)
+        for note in getattr(error, "__notes__", ()):
+            print(note, file=sys.stderr)
         return 1
 
 
