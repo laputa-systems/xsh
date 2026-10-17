@@ -49,9 +49,9 @@ class FakeRuntime:
     def container(self, script, *, mounts, capabilities, timeout, cpus=1, memory_gib=1):
         self.calls.append((script, mounts, capabilities, timeout, cpus, memory_gib))
         target = next(
-            Path(mount.split("source=", 1)[1].split(",target=/cargo-target", 1)[0])
+            Path(mount.split("source=", 1)[1].split(",target=", 1)[0])
             for mount in mounts
-            if ",target=/cargo-target," in mount
+            if ",target=/cargo-target" in mount
         )
         if script.startswith("python3 -c "):
             if self.cleanup_error is not None:
@@ -98,7 +98,7 @@ class ReleaseProducerTests(unittest.TestCase):
     def cargo_mounts(self, runtime, target):
         return [
             f"type=bind,source={runtime.ROOT},target=/work,readonly",
-            f"type=bind,source={target},target=/cargo-target,rw",
+            f"type=bind,source={target},target=/cargo-target",
         ]
 
     def run_with_fake_build(self, runtime, operation, source=SOURCE):
@@ -127,6 +127,8 @@ class ReleaseProducerTests(unittest.TestCase):
         self.assertEqual(self.run_with_fake_build(runtime, operation), "measured")
         self.assertIsNone(release.active_products(runtime))
         self.assertEqual([(call[4], call[5]) for call in runtime.calls], [(2, 8), (1, 1)])
+        cleanup_mount = runtime.calls[-1][1][0]
+        self.assertRegex(cleanup_mount, r"^type=bind,source=.+,target=/cargo-target$")
         self.assertEqual(list(self.scratch.iterdir()), [])
 
     def test_build_script_uses_the_pinned_release_recipe_without_cflags_override(self):

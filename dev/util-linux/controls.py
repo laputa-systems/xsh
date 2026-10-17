@@ -56,3 +56,26 @@ except check.Cancelled as error:
             if cleanup.returncode and b"No such container" not in cleanup.stderr:
                 mark_cleanup_unresolved(f"TERM-control container={name} cause={cleanup.stderr!r}")
                 raise RuntimeError(f"TERM control cleanup unresolved: {name}")
+
+
+def writable_target_bind(root: Path) -> None:
+    if _native_descriptor.get() is None:
+        raise RuntimeError("writable target control requires the native lease")
+    import check
+    import release
+
+    value = b"xsh-writable-target"
+    with tempfile.TemporaryDirectory(dir=root / ".work/tmp", prefix="writable-target-") as directory:
+        target = Path(directory)
+        output = check.container(
+            "printf xsh-writable-target >/cargo-target/probe; cat /cargo-target/probe",
+            mounts=[f"type=bind,source={target},target=/cargo-target"],
+            timeout=30,
+        )
+        marker = target / "probe"
+        if output != value or marker.read_bytes() != value:
+            raise RuntimeError("writable target bind did not preserve container writes on the host")
+        release._remove_target(check, target)
+        if any(target.iterdir()):
+            raise RuntimeError("release target cleanup left the writable bind probe")
+    print("Writable target bind control: host-visible write and release cleanup passed")

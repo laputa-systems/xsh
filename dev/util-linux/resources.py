@@ -1948,7 +1948,7 @@ def _cargo_mounts(runtime: ResourceRuntime, target: Path) -> list[str]:
         raise RuntimeError("host and documentation gates require the qualified Laputa corpus")
     return [
         f"type=bind,source={runtime.ROOT},target=/work,readonly",
-        f"type=bind,source={target},target=/cargo-target,rw",
+        f"type=bind,source={target},target=/cargo-target",
         f"type=bind,source={kache},target=/usr/local/bin/kache,readonly",
         f"type=bind,source={mold},target=/usr/local/bin/mold,readonly",
         f"type=bind,source={linker},target=/usr/local/bin/xsh-mold-linker,readonly",
@@ -2094,7 +2094,7 @@ def run_docs(runtime: ResourceRuntime, source: SourceIdentity) -> GateResult:
         script,
         mounts=[
             f"type=bind,source={runtime.ROOT},target=/work,readonly",
-            f"type=bind,source={target},target=/target,rw",
+            f"type=bind,source={target},target=/target",
             f"type=bind,source={products[0]},target=/products,readonly",
             *[mount for mount in _cargo_mounts(runtime, target) if "/cargo-target" not in mount and "target=/work" not in mount],
         ],

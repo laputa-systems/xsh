@@ -466,11 +466,12 @@ def native_private_batch(selectors):
 
 
 def harness() -> None:
-    from controls import term_during_container
+    from controls import term_during_container, writable_target_bind
     subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "dev/util-linux", "-p", "test_*.py"],
                    cwd=ROOT, check=True, timeout=30,
                    env={**os.environ, "TMPDIR": str(ROOT / ".work/tmp"), "PYTHONDONTWRITEBYTECODE": "1"})
     term_during_container(ROOT)
+    writable_target_bind(ROOT)
     for name in ("comparison_rejects_observable_mutants", "reference_preserves_raw_path_arguments"):
         native_case("core/tests/test-util-linux-support.xsh::test_util_linux_" + name)
     native_case("core/tests/test-util-linux-support.xsh::test_util_linux_observation_distinguishes_signal_from_shell_exit")

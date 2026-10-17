@@ -233,7 +233,7 @@ def _remove_target(runtime: ReleaseRuntime, target: Path) -> None:
     )
     runtime.container(
         script,
-        mounts=[f"type=bind,source={target},target=/cargo-target,rw"],
+        mounts=[f"type=bind,source={target},target=/cargo-target"],
         capabilities=[],
         timeout=30,
     )
