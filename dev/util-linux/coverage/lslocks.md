@@ -158,6 +158,18 @@ case stays open until it executes in its qualified context.
 The current `linux.open_files()` collector establishes process and descriptor
 identity, path, inode, optional device, and access mode. It does not report
 lock class, range, blocker, or holders. XSH `/proc/locks` parsing can establish
-class, mode, wait state, PID, device, inode, and range, but the campaign still
-needs the coordinator's approved lock-aware fixture and host boundary for
-private procfs, exact owner joins, and race-safe snapshots.
+class, mode, wait state, PID, device, inode, and range. The lane fixture helper
+is prepared; its native lifecycle adapter and the product-side owner join are
+still open.
+
+## Requests for shared test support
+
+`support.util_linux` supplies the reference, exact comparator, version-banner,
+and namespace checks used by the ordinary native cases. The lock cases still
+need an adapter that launches this fixture helper and owns its process handles,
+control input, timeout, and cleanup. It must expose a private PID namespace
+with fresh procfs for isolated row tests and a separate unprivileged UID with
+capabilities dropped for inaccessible-path tests. The current helper API does
+not provide a captured PTY with a selected width; terminal truncation remains
+open until that seam exists. Owner-disappearance-during-collection also needs
+a deterministic synchronization point before it can be a passing parity case.
