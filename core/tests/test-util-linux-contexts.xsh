@@ -131,7 +131,7 @@ test test_util_linux_context_second_uid_ipc_creator_and_observer { |ctx|
   uu.succeeds(released_reference)
   let removed = json.decode(released_reference.stdout.utf8()?)?
   assert json.get(removed, [""])?.require(List[Any])?.is_empty()
-  assert released_reference.stderr == b""
+  assert released_reference.stderr == bytes.from_text(f"lsipc: id {owner.id} not found\n")
   ul.compare(released_reference, released_candidate)
   for line in p"/proc/sysvipc/shm".read_text()?.lines() {
     let fields = line.fields()
