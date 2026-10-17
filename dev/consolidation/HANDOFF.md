@@ -108,7 +108,12 @@ That bounded run does not complete Set feature qualification. API fixture
 `a4411` passes, but the documentation slot verifier rejects valid nested
 destructuring for `5277` and `020f`. Repair source
 `2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has qualified source-bound products;
-focused check-only probes remain pending. The original wrapper cleanup-check
+the minimal SPEC 18 check-only probe now fails because the verifier reports
+`driver slot identity is not the currently visible binding`. The first repair
+added the missing writer slot but exposed a fresh-output versus prior-input
+identity mismatch; the same-name top-level duplicate check also rejects. The
+owner is tracing the output-slot representation, and no rebuild is authorized
+before root reviews a source proposal. The original wrapper cleanup-check
 failure is preserved separately. Full removal credit remains 877. The
 1,065-site collection plan remains red with 92 reduced-XSH diagnostics on
 `76caa` and earns no count. The original `749` rejection remains preserved.
@@ -142,11 +147,18 @@ See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidat
    Root accepted lifecycle fix
    `f4a9fb92f0976ed8fa6680f4ed8597180cc93f32` and factor repair `587814f274e`;
    they remain in isolated candidate
-   `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`, outside main. The lifecycle
-   reproduction is archived [here](evidence/lifecycle-profile-r3/README.md).
-   Three post-integration selectors, memory capture, a new seal and R4 remain
-   pending. Binary-size and final resource evidence remain pending. Root owns
-   release readiness and main promotion.
+   `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`, outside main. Its
+   post-integration lifecycle and non-Unicode selectors each passed once, but
+   `test_uu_factor_parallel` timed out again at 120 seconds. The candidate is
+   not qualified; no new seal or R4 has started. The run observed a cgroup
+   memory peak of 260,632,576 bytes (about 249 MiB), zero OOM and OOM-kill
+   counts, stable guards, absent owned containers, and the original lock
+   released. Docker reported no OOM. Builds overlapped the run for 51 seconds
+   and then three seconds on disjoint CPU sets; this does not establish the
+   cause. A stronger read-only factor-cost diagnosis and a quiet rerun after
+   build drain are pending. The lifecycle reproduction is archived [here](evidence/lifecycle-profile-r3/README.md).
+   Binary-size and final resource evidence remain pending. Root owns release
+   readiness and main promotion.
 
 The b235 canonical gate is accepted and reused for 7eb under Phase A. The fresh
 7eb R6 run is accepted, residual and QEMU scopes are closed, W9 parity is
