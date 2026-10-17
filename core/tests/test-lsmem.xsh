@@ -10,7 +10,20 @@ proc install_lsmem_fixture(s: uu.Scene, name: Str) [fs, error] -> Result[Unit, E
 proc compare_lsmem(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, error] -> Result[Unit, Error] {
   let reference = ul.reference(s, "lsmem", args, timeout: 5s, vars: vars)?
   let candidate = uu.invoke(s, "lsmem", args, timeout: 5s, vars: vars)?
-  assert reference.stdout == candidate.stdout, f"lsmem stdout differs for {args.join(" ")} reference_b64={reference.stdout.base64()} candidate_b64={candidate.stdout.base64()}"
+  assert reference.util == candidate.util
+  assert reference.args == candidate.args
+  assert reference.status == candidate.status, candidate.stderr.utf8() ?? "candidate stderr is not UTF-8"
+  if reference.stdout != candidate.stdout {
+    var offset = 0
+    let limit = if reference.stdout.len() < candidate.stdout.len() { reference.stdout.len() } else { candidate.stdout.len() }
+    while offset < limit and reference.stdout.slice(offset, length: 1) == candidate.stdout.slice(offset, length: 1) { offset += 1 }
+    let context_start = if offset > 24 { offset - 24 } else { 0 }
+    let reference_remaining = reference.stdout.len() - context_start
+    let candidate_remaining = candidate.stdout.len() - context_start
+    let reference_context_len = if reference_remaining > 48 { 48 } else { reference_remaining }
+    let candidate_context_len = if candidate_remaining > 48 { 48 } else { candidate_remaining }
+    assert false, f"lsmem stdout differs for {args.join(" ")} at byte {offset}; reference length {reference.stdout.len()} context {reference.stdout.slice(context_start, length: reference_context_len).base64()}; candidate length {candidate.stdout.len()} context {candidate.stdout.slice(context_start, length: candidate_context_len).base64()}"
+  }
   ul.compare(reference, candidate)
   Ok()
 }
