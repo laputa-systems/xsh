@@ -7,13 +7,30 @@ proc install_lsmem_fixture(s: uu.Scene, name: Str) [fs, error] -> Result[Unit, E
   Ok()
 }
 
-proc compare_lsmem(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, error] -> Result[Unit, Error] {
+proc print_lsmem_bytes(label: Str, value: Bytes) [io] {
+  print $label
+  let encoded = value.base64()
+  var offset = 0
+  while offset < encoded.len() {
+    let remaining = encoded.len() - offset
+    let length = if remaining > 100 { 100 } else { remaining }
+    let chunk = encoded.slice(offset, length: length)
+    print $chunk
+    offset += length
+  }
+}
+
+proc compare_lsmem(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, io, error] -> Result[Unit, Error] {
   let reference = ul.reference(s, "lsmem", args, timeout: 5s, vars: vars)?
   let candidate = uu.invoke(s, "lsmem", args, timeout: 5s, vars: vars)?
   assert reference.util == candidate.util
   assert reference.args == candidate.args
   assert reference.status == candidate.status, f"lsmem status differs: reference={reference.status} stderr_b64={reference.stderr.base64()} candidate={candidate.status} stderr_b64={candidate.stderr.base64()}"
   if reference.stdout != candidate.stdout {
+    if reference.stdout.len() <= 1024 and candidate.stdout.len() <= 1024 {
+      print_lsmem_bytes("reference stdout base64", reference.stdout)
+      print_lsmem_bytes("candidate stdout base64", candidate.stdout)
+    }
     var offset = 0
     let limit = if reference.stdout.len() < candidate.stdout.len() { reference.stdout.len() } else { candidate.stdout.len() }
     while offset < limit and reference.stdout.slice(offset, length: 1) == candidate.stdout.slice(offset, length: 1) { offset += 1 }
@@ -22,8 +39,7 @@ proc compare_lsmem(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process
     let candidate_remaining = candidate.stdout.len() - context_start
     let reference_context_len = if reference_remaining > 48 { 48 } else { reference_remaining }
     let candidate_context_len = if candidate_remaining > 48 { 48 } else { candidate_remaining }
-    let complete_streams = if reference.stdout.len() <= 1024 and candidate.stdout.len() <= 1024 { f"; reference_base64 {reference.stdout.base64()}; candidate_base64 {candidate.stdout.base64()}" } else { "" }
-    assert false, f"lsmem stdout differs for {args.join(" ")} at byte {offset}; reference length {reference.stdout.len()} context {reference.stdout.slice(context_start, length: reference_context_len).base64()}; candidate length {candidate.stdout.len()} context {candidate.stdout.slice(context_start, length: candidate_context_len).base64()}{complete_streams}"
+    assert false, f"lsmem stdout differs for {args.join(" ")} at byte {offset}; reference length {reference.stdout.len()} context {reference.stdout.slice(context_start, length: reference_context_len).base64()}; candidate length {candidate.stdout.len()} context {candidate.stdout.slice(context_start, length: candidate_context_len).base64()}"
   }
   if reference.stderr != candidate.stderr {
     assert false, f"lsmem stderr differs for {args.join(" ")}; reference length {reference.stderr.len()} base64 {reference.stderr.base64()}; candidate length {candidate.stderr.len()} base64 {candidate.stderr.base64()}"
@@ -32,11 +48,11 @@ proc compare_lsmem(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process
   Ok()
 }
 
-proc compare_lsmem_rooted(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, error] -> Result[Unit, Error] {
+proc compare_lsmem_rooted(s: uu.Scene, args: List[Str], vars: Record = {}) [fs, process, env, io, error] -> Result[Unit, Error] {
   compare_lsmem(s, args.extend(["--sysroot", s.root.display()]), vars)
 }
 
-proc compare_lsmem_upstream_dump(ctx: TestContext, name: Str) [fs, process, env, error] -> Result[Unit, Error] {
+proc compare_lsmem_upstream_dump(ctx: TestContext, name: Str) [fs, process, env, io, error] -> Result[Unit, Error] {
   let s = uu.scene(ctx)?
   let dump_archive = fp"{ctx.core_dir}/tests/fixtures/util-linux/memory/upstream/{name}.tar.bz2"
   uu.succeeds(uu.invoke(s, "tar", ["-C", s.root.display(), "-jxf", dump_archive.display()])?)
