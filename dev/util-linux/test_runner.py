@@ -224,11 +224,20 @@ class OwnedCleanupTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory(dir=check.ROOT / ".work/tmp")
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
+        self.worktree = self.root / "util-linux-cleanup-fixture"
+        self.worktree.mkdir()
         self.infra = self.root / ".work/consolidation/infra"
         self.infra.mkdir(parents=True)
         for name in ("final-performance.lock", "native-suite.lock", "cargo.lock"):
             (self.infra / name).write_bytes(b"")
-        for target, value in (("check.require_native_lease", None), ("check.source_identity", self.source), ("check.original_root", self.root)):
+        root_patch = patch("check.ROOT", new=self.worktree)
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
+        for target, value in (
+            ("check.require_native_lease", None),
+            ("check.source_identity", self.source),
+            ("check.original_root", self.root),
+        ):
             handle = patch(target, return_value=value)
             handle.start()
             self.addCleanup(handle.stop)
