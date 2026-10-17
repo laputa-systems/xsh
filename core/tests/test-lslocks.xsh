@@ -482,9 +482,12 @@ proc reference_path_case(s: uu.Scene) [fs, process, env, net, time, error] -> Re
   let invalid_raw = ul.reference(s, "lslocks", ["--raw", "--noheadings", "--pid", invalid_pid, "--output", "PATH"])?
   assert invalid_raw.status == 0 and invalid_raw.stderr.is_empty()
   assert invalid_raw.stdout == bytes.concat([invalid_utf8.bytes(), b"\n"])
-  let invalid_json = ul.reference(s, "lslocks", ["--json", "--pid", invalid_pid, "--output", "PID,INODE,PATH"])?
+  let invalid_json = ul.reference(s, "lslocks", ["--json", "--pid", invalid_pid, "--output", "PATH"])?
   assert invalid_json.status == 0 and invalid_json.stderr.is_empty()
-  assert ! invalid_json.stdout.is_empty()
+  assert invalid_json.stdout == bytes.concat([
+    b"{\n   \"locks\": [\n      {\n         \"path\": \"",
+    invalid_utf8.bytes(), b"\"\n      }\n   ]\n}\n",
+  ])
   ul.keeper_send(invalid_keeper, "DONE")
   ul.finish_keeper(invalid_keeper)
 
