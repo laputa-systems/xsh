@@ -134,10 +134,103 @@ test test_lsmem_rooted_malformed_block_attributes { |ctx|
   compare_lsmem_rooted(s, ["--bytes", "--summary=only"])?
 }
 
+test test_lsmem_rooted_numeric_and_state_parsing_matches_reference { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  let block_size = "sys/devices/system/memory/block_size_bytes"
+  for value in ["1000\n", "0x1000 trailing\n", "+1000\n", "-1\n", "not-hex\n"] {
+    uu.write(s, block_size, value)?
+    compare_lsmem_rooted(s, ["--bytes", "--summary=only"])?
+  }
+  let state = "sys/devices/system/memory/memory0/state"
+  for value in ["online\n", " online\n", "online \n", "not-a-kernel-memory-state\n"] {
+    uu.write(s, state, value)?
+    compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,STATE"])?
+  }
+  let removable = "sys/devices/system/memory/memory0/removable"
+  for value in ["1\n", "+1\n", "1trailing\n", "not-a-number\n"] {
+    uu.write(s, removable, value)?
+    compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,REMOVABLE"])?
+  }
+}
+
+test test_lsmem_rooted_zone_tokenization_and_invalid_bytes_match_reference { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  let zones = "sys/devices/system/memory/memory0/valid_zones"
+  for value in ["DMA Normal\n", "DMA  Normal\n", "DMA\tNormal\n", "\tDMA\n"] {
+    uu.write(s, zones, value)?
+    compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,ZONES"])?
+  }
+  uu.write_bytes(s, zones, b"DMA \xff\n")?
+  compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,ZONES"])?
+}
+
+test test_lsmem_rooted_dangling_and_cyclic_attribute_symlinks_match_reference { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  let state = uu.at(s, "sys/devices/system/memory/memory1/state")
+  state.remove()?
+  state.symlink(to: uu.at(s, "missing-state"))?
+  compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,STATE"])?
+  state.remove()?
+  state.symlink(to: state)?
+  compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,STATE"])?
+  let removable = uu.at(s, "sys/devices/system/memory/memory1/removable")
+  removable.remove()?
+  removable.symlink(to: removable)?
+  compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,REMOVABLE"])?
+  let zones = uu.at(s, "sys/devices/system/memory/memory1/valid_zones")
+  zones.remove()?
+  zones.symlink(to: zones)?
+  compare_lsmem_rooted(s, ["--all", "--output", "BLOCK,ZONES"])?
+}
+
+test test_lsmem_rooted_required_block_size_wrong_types_match_reference { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  let block_size = uu.at(s, "sys/devices/system/memory/block_size_bytes")
+  block_size.remove()?
+  block_size.mkdir()?
+  compare_lsmem_rooted(s, [])?
+  compare_lsmem_rooted(s, ["--summary=only"])?
+  block_size.remove()?
+  block_size.symlink(to: uu.at(s, "missing-block-size"))?
+  compare_lsmem_rooted(s, [])?
+  compare_lsmem_rooted(s, ["--summary=only"])?
+}
+
+test test_lsmem_rooted_firmware_inventory_can_differ_from_sysfs_blocks { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "configured")?
+  uu.mkdir(s, "sys/firmware/memory/memory12")?
+  uu.write(s, "sys/firmware/memory/memory12/config", "1\n")?
+  uu.write(s, "sys/firmware/memory/memory12/memmap_on_memory", "1\n")?
+  compare_lsmem_rooted(s, ["--all", "--output-all"])?
+  compare_lsmem_rooted(s, ["--json", "--bytes", "--output-all"])?
+  compare_lsmem_rooted(s, ["--summary=only"])?
+}
+
+test test_lsmem_rooted_leading_zero_block_ids_follow_reference_order { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "sparse")?
+  uu.mkdir(s, "sys/devices/system/memory/memory01")?
+  uu.write(s, "sys/devices/system/memory/memory01/state", "online\n")?
+  uu.write(s, "sys/devices/system/memory/memory01/removable", "1\n")?
+  compare_lsmem_rooted(s, ["--all", "--output", "RANGE,BLOCK,STATE,REMOVABLE"])?
+}
+
 test test_lsmem_rooted_missing_block_size_is_an_error { |ctx|
   let s = uu.scene(ctx)?
   install_lsmem_fixture(s, "missing-block-size")?
   compare_lsmem_rooted(s, [])?
+}
+
+test test_lsmem_rooted_nonnumeric_memory_entries_match_reference { |ctx|
+  let s = uu.scene(ctx)?
+  install_lsmem_fixture(s, "no-numeric-blocks")?
+  compare_lsmem_rooted(s, [])?
+  compare_lsmem_rooted(s, ["--summary=only"])?
 }
 
 test test_lsmem_rooted_missing_sysfs_tree_does_not_use_host_memory { |ctx|

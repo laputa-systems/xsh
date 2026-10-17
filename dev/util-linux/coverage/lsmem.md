@@ -74,7 +74,9 @@ sysfs tree cannot fall back to host memory.
 The `configured` fixture has system and firmware memory entries, both configured
 and unconfigured blocks, per-block memmap values, node and zone data, and a
 global `force` parameter. The native test changes only the copied scene's global
-parameter to also compare `Y` and `N` summary output.
+parameter to also compare `Y` and `N` summary output. The `no-numeric-blocks`
+fixture contains a nonnumeric `memory` directory to check the empty discovery
+case.
 
 | Native test | Coverage |
 |---|---|
@@ -87,11 +89,24 @@ parameter to also compare `Y` and `N` summary output.
 | `test_lsmem_rooted_short_option_aliases` | Short aliases for the supported output, byte, split, and sysroot options |
 | `test_lsmem_rooted_configured_memory_and_memmap_summary` | Firmware configuration, per-block memmap, and global summary modes |
 | `test_lsmem_rooted_malformed_block_attributes` | Invalid hexadecimal block size and malformed block attributes |
+| `test_lsmem_rooted_numeric_and_state_parsing_matches_reference` | Block-size syntax, exact state matching, and removable-value parsing |
+| `test_lsmem_rooted_zone_tokenization_and_invalid_bytes_match_reference` | Space-delimited zones, tabs, leading whitespace, and invalid UTF-8 |
+| `test_lsmem_rooted_dangling_and_cyclic_attribute_symlinks_match_reference` | Unreadable state, removable, and zone symlink targets |
+| `test_lsmem_rooted_required_block_size_wrong_types_match_reference` | Required block-size directory and dangling-symlink errors |
+| `test_lsmem_rooted_firmware_inventory_can_differ_from_sysfs_blocks` | Firmware-only memory entry across table, JSON, and summary output |
+| `test_lsmem_rooted_leading_zero_block_ids_follow_reference_order` | Numeric IDs with leading zeroes and version ordering |
 | `test_lsmem_rooted_missing_block_size_is_an_error` | Missing required block-size attribute |
+| `test_lsmem_rooted_nonnumeric_memory_entries_match_reference` | Nonnumeric `memory` directory with no numeric entries |
 | `test_lsmem_rooted_missing_sysfs_tree_does_not_use_host_memory` | Missing rooted sysfs data fails without host fallback |
 | `test_lsmem_rooted_option_errors_match_reference` | Option conflicts, invalid arguments, unknown columns/options, and positional operands |
 
 The upstream calls and added rooted cases are differential oracles, not recorded
-expected transcripts. Run them only after the P0 runner is ready. Before feature
-optimization, review and resolve every observed mismatch against the pinned
-reference; no host-derived output is an oracle.
+expected transcripts. The cases compare each candidate invocation against the
+pinned reference using the same scene and arguments. They cover deterministic
+malformed files, wrong file types, and dangling or cyclic links. They do not
+assert a result while sysfs changes concurrently: util-linux does not read a
+coherent snapshot, so a sequential differential comparison cannot define that
+behavior. Root descriptor race and confinement behavior is tested at the
+filesystem boundary instead. Before feature optimization, review and resolve
+every observed mismatch against the pinned reference; no host-derived output is
+an oracle.
