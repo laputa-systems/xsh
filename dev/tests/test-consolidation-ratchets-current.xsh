@@ -802,3 +802,39 @@ test test_final_close_cli_keeps_source_totals_advisory_and_preserves_final_gates
   json.write(fp"{fixture.root}/current.json", blanket_remaining)
   assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path])?.success
 }
+
+
+test test_check_current_cli_validates_explicit_semantic_review { |ctx|
+  let fixture = review_fixture(ctx)?
+  let measured = metrics.measure(fixture.root, ["src", "crates/xsht/src"])?
+  let required = current_source_report()
+  let report = {...measured, metrics: collect {
+    for row in measured.metrics {
+      let policy = required.metrics |> where .name == row.name |> collect
+      yield if policy.is_empty() { row } else { policy[0] }
+    }
+  }}
+  let complete = proof_bundle(report, fixture)
+  let proof = {...complete, rows: complete.rows |> where .name != "timings" |> collect}
+  metrics.verify_review_evidence(report, proof, fixture.root, scope: metrics.Functional)
+  assert review_failure(report, proof, fixture.root) != "accepted"
+  let omitted = {...proof, rows: proof.rows |> where .name != "operand_behavior_differences" |> collect}
+  match metrics.verify_review_evidence(report, omitted, fixture.root, scope: metrics.Functional) {
+    Ok(_) => fail "missing functional semantic row was accepted"
+    Err(_) => {}
+  }
+  let proof_path = fp"{fixture.root}/.work/proofs/bundle.json"
+  json.write(proof_path, proof)
+  json.write(fp"{fixture.root}/.work/current.json", report)
+  let driver = p"dev/consolidation/metrics.xsh".read_text()?
+  let flags = ["--root", fixture.root.display(), "--source-root", "src", "--xsht-source-root", "crates/xsht/src", "--input", fp"{fixture.root}/.work/current.json".display(), "--baseline", fp"{fixture.root}/.work/current.json".display(), "--output", fp"{fixture.root}/.work/saved.json".display(), "--audit", fp"{fixture.root}/.work/audit.json".display()]
+  assert test.run_script(ctx, driver, ["check-current", @flags])?.success
+  assert test.run_script(ctx, driver, ["check-current", @flags, "--review-evidence", proof_path])?.success
+  assert ! test.run_script(ctx, driver, ["final-close", @flags, "--review-evidence", proof_path])?.success
+  let missing = {...proof, rows: proof.rows |> where .name != "operand_behavior_differences" |> collect}
+  json.write(proof_path, missing)
+  assert ! test.run_script(ctx, driver, ["check-current", @flags, "--review-evidence", proof_path])?.success
+  json.write(proof_path, proof)
+  fp"{fixture.root}/.work/proofs/review.txt".write("changed evidence\n")
+  assert ! test.run_script(ctx, driver, ["check-current", @flags, "--review-evidence", proof_path])?.success
+}

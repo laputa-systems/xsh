@@ -11,7 +11,6 @@ type Metadata = {start_commit: Str}
 type Rise = {metric: Str, baseline: Int, current: Int, ceiling: Int, approval: Str, reason: Str, remove_when: Str}
 type Audit = {schema: Int, mode: Str, envelope: Str, rises: List[Rise]}
 
-# Envelope approvals annotate rises in the audit; structural acceptance remains tied to the baseline.
 proc execute(o: Options) [fs, error, io] -> Result[Unit] {
   if o.action not in ["measure", "check", CURRENT_SOURCE_ACTION, "final-close"] { fail f"expected measure, check, {CURRENT_SOURCE_ACTION}, or final-close" }
   if ([o.source, o.xsht_source] |> sort) != ["crates/xsht/src", "src"] { fail "explicit source roots must be src and crates/xsht/src" }
@@ -35,7 +34,6 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
     let old = baseline.metrics |> where .name == row.name |> collect
     if old.len() == 1 and row.value > old[0].value { rises += [{metric: row.name, baseline: old[0].value, current: row.value, ceiling: old[0].value, approval: "", reason: "", remove_when: ""}] }
   }
-  # Persist the unapproved inventory even when an envelope is malformed.
   let initial_audit: Audit = Audit(schema: 1, mode: o.action, envelope: o.envelope, rises:)
   json.write(fp"{o.audit}", initial_audit)
   if o.action == "final-close" and o.envelope != "" { fail "final-close rejects temporary envelopes" }
@@ -68,7 +66,11 @@ proc execute(o: Options) [fs, error, io] -> Result[Unit] {
     metrics.verify_review_evidence(current, evidence, o.root)
   } else {
     metrics.assert_structural_not_risen(current, baseline)
-    if o.review_evidence != "" { fail "--review-evidence is only valid with final-close" }
+    if o.review_evidence != "" {
+      if o.action != CURRENT_SOURCE_ACTION { fail "--review-evidence requires check-current or final-close" }
+      let evidence = json.read(fp"{o.review_evidence}")?.require(metrics.ReviewEvidenceBundle)?
+      metrics.verify_review_evidence(current, evidence, o.root, scope: metrics.Functional)
+    }
   }
 }
 

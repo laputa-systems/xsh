@@ -1802,14 +1802,21 @@ proc verify_artifact(root: Path, artifact: ReviewArtifact) [fs, error] {
   }
 }
 
+## Functional review excludes timings; final review requires every canonical row.
+export enum ReviewScope { Functional, Final }
+
 ## Evidence stays separate from the fixed requirements; code and test trees bind it to reviewed behavior.
-export proc verify_review_evidence(current: Report, bundle: ReviewEvidenceBundle, root: Path) [fs, process, error] -> Result[Unit, Error] {
+export proc verify_review_evidence(current: Report, bundle: ReviewEvidenceBundle, root: Path, scope: ReviewScope = Final) [fs, process, error] -> Result[Unit, Error] {
   guard bundle.schema == 1 else { return Err(MetricError.Contract(detail: "unsupported review evidence schema")) }
   let expected_names = REVIEW_REQUIREMENTS |> map .name |> sort
   let current_names = current.reviews |> map .name |> sort
   if current_names != expected_names { return Err(MetricError.Contract(detail: "current report does not contain the canonical review rows")) }
+  let required_names = match scope {
+    Functional => REVIEW_REQUIREMENTS |> where .name != "timings" |> map .name |> sort
+    Final => expected_names
+  }
   let proof_names = bundle.rows |> map .name |> sort
-  if bundle.rows.len() != expected_names.len() or proof_names != expected_names {
+  if bundle.rows.len() != required_names.len() or proof_names != required_names {
     return Err(MetricError.Contract(detail: "review evidence must contain each canonical row exactly once"))
   }
   if ! valid_object_id(bundle.source_commit) { return Err(MetricError.Contract(detail: "review source_commit must be a full hexadecimal Git object ID")) }
