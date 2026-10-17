@@ -56,7 +56,7 @@ classes. The retained-site table identifies those declaration groups.
 ## Minimal capability witnesses
 
 The source pairs are in
-[capability-witnesses](../../typing-corpus/capability-witnesses/).
+[capability-witnesses](capability-witnesses/).
 Their stderr files here are the actual qualified-product results.
 
 | Pair | Annotated | Reduced | Interpretation |

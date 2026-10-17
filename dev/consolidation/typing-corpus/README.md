@@ -17,6 +17,11 @@ It removes only AST inventory edit spans. Sites restored after a failed joint
 check stay in their frozen eligible denominator. `--retain` accepts a TSV whose
 first column identifies those restored sites.
 
+The [minimal capability fixtures](../evidence/typing-corpus-b235/capability-witnesses/)
+are retained evidence for explicit checks with the qualified typing successor.
+They include intentionally rejected inputs and syntax unsupported by the
+consolidation compiler, so they live outside the current repository source corpus.
+
 The source pins are XSH `ddc17d3d53c819c343f9ecaa738ac67d59e9033a` and Laputa
 `ca658ce1da9d89c55209c25268dfdf687ff4fdc6`. The checking compiler is the qualified
 typing successor, not either program-source pin. Compiler or runtime inference,
