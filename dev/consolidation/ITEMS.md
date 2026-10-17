@@ -4,28 +4,44 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `5e66b6b896a47d0c692739135d51200b007a2a67`. The accepted designs and historical
 ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
-**Current status: active frozen source `b235a1a43`.** The
-[active handoff](HANDOFF.md#active-candidate) owns the exact pins and live
-queue. Main and the frozen candidate use tree
-`08402ddd079228e072f24642fdb82db5196fff11`. The b235 canonical replay is still
-running; integration (223), symbol (1), boundary (23), extra (58 passed, 3
-ignored), debug (748 passed, 3 ignored), XSHT (117), soundness (14), privileged
-extra (82 passed, 4 ignored, 4 filtered), and Linux privileged (10) checks
-passed.
-The 13,994-case full native selection has no terminal result or acceptance
-credit. The accepted tail fixture repair passed all eight written/desugared
-selectors. W9 parity at `0deeb9c7` remains reusable for the unchanged b235 W9
-scope under Phase A, but the b235 input-0 probe is not a full-corpus result.
-The 3c repeat is incomplete and earns no parity credit. All four b235 product
-hashes currently match the qualified QEMU hashes; reuse still requires
-terminal equality. Compatibility origins and exclusions reconcile to the
-frozen denominators without claiming a new upstream pass. R6, strict routes,
-the 36-case root residual, functional close, and the ten-suite performance
-sequence remain open. Lean and Phase F remain paused; inference stays isolated
-until consolidation closes. Phase D remains isolated at checkpoint
-`17be3ff8fc8740868612ba94cc0ff0a187ce1e27` on freeze `a8d5bd910`: 615 joint
-removals leave 236/693 local (34.05%) and
-379/2,190 internal (17.31%) annotations removed; its targets are not met.
+**Current status: active frozen source `7eb62cd99`.** Main and the frozen
+candidate use tree `736b4bc16b1bcf07a0250b97e849506c19fb0753`. The
+[active handoff](HANDOFF.md#active-candidate) owns exact pins and the live
+queue.
+
+The accepted b235 canonical result has 13,916 passes, 78 skips, and zero
+failures across 13,994 cases. Phase A reuses it for 7eb because only two
+test-only permission spellings changed. The b235 receipt remains pinned to its
+original source.
+
+The first b235 R6 attempt failed at stage 6 of 13 on two Clippy warnings after
+five passing stages. Stages 7–13 did not run. On 7eb, the fresh R6 run exited
+zero at all 13 stages and root accepted it. It recorded 23 boundaries, 58
+extra cases with three ignored, two split checks, two privileged checks, and
+18 traceroute cases with two `NET_RAW` skips. The [R6 evidence index](winddown/evidence/final-correctness-gates/README.md) preserves the failed b235 attempt and accepted 7eb run.
+
+Phase A reuses the seven accepted QEMU cases for 7eb by scope. R6 products use
+a separate variant and are not compared with the protected canonical
+products. No 7eb canonical build or QEMU guest run is claimed. The accepted
+tail repair passed all eight written/desugared selectors. W9 parity at
+`0deeb9c7` remains reusable under Phase A; the b235 input-0 probe is not a
+full-corpus result, and the interrupted 3c repeat earns no credit.
+
+Compatibility origins and exclusions reconcile to frozen denominators. No
+new upstream pass is claimed. All 428 route invocations completed without
+failures, with source checks clean. AST-extractor build and admission checks
+remain open. The root residual has a Unix-socket `sun_path` length case under
+rerun after 34 of 35 standard cases and the namespace case passed. Functional close and the
+ten-suite performance sequence remain open. Lean and Phase F stay paused.
+Inference remains isolated until consolidation closes.
+
+Phase D remains isolated at checkpoint `877`, commit
+`338b82238a67ee36dd1b025b7a923f9fc5d2da40`, on pair
+`a972c8d139ecbb43174271842988eefb2c8638cc`. It removed 348/693 local and
+529/2,190 internal annotations. All eleven annotated and eleven reduced root
+checks pass. The 26-case native runner is pending, targets remain unmet, and
+all 202 eligible effects remain retained. Host component `5277` is
+conditionally accepted pending six native checks. See the [active handoff](HANDOFF.md#active-candidate) for the full checkpoint details.
 
 The isolated generic module export slice remains accepted at `8475984a9`.
 Its main merge waits for consolidation closure. Broader inference, corpus

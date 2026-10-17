@@ -1,8 +1,8 @@
 # XSH Consolidation Campaign
 
 Status: resumed on 2026-10-16. The active frozen source is
-`b235a1a43d06e44580fde4c1b8c58ff27a17ca78`, tree
-`08402ddd079228e072f24642fdb82db5196fff11`. Its open gates are in
+`7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
+`736b4bc16b1bcf07a0250b97e849506c19fb0753`. Its open gates are in
 [HANDOFF.md](HANDOFF.md#active-candidate). Lean and Phase F remain paused.
 Inference remains isolated from main.
 
@@ -10,15 +10,27 @@ Inference remains isolated from main.
 
 The active source combines the linked-worktree discovery repair, corrected
 route expectation, batch-only native admission cap, W9 producer repair, and
-fixture repairs. Main and the frozen candidate are pinned to `b235a1a43`.
+fixture repairs. Main and the frozen candidate are pinned to `7eb62cd99`.
 
-The canonical replay at
-`.work/tmp/canonical-b235a1a43-20261017-r1` is still running. Integration
-(223), symbol (1), boundary (23), extra (58 passed, 3 ignored), and debug
-(748 passed, 3 ignored), XSHT (117), soundness (14), privileged extra
-(82 passed, 4 ignored, 4 filtered), and Linux privileged (10) checks passed.
-The 13,994-case full native selection remains active. It has no terminal
-result or acceptance credit.
+The full canonical run on b235 completed with 13,916 passes, 78 skips, and no
+failures across 13,994 selected cases. Root accepted that result and reused it
+for 7eb under Phase A: its only source change is two `#[cfg(test)]` permission
+mode spellings from `0` to `0o0`. The original canonical receipt remains
+pinned to b235; no full canonical rerun is needed for this unchanged semantic
+scope. See the [canonical receipt and preserved outputs](evidence/canonical-b235a1a43/README.md).
+
+The first b235 R6 attempt passed five of thirteen stages, then failed at stage
+six on two all-target, all-feature Clippy warnings. Its remaining seven stages
+did not run. The exact two-literal repair at `7eb62cd99` passes focused XSHT
+Clippy with all targets, all features, and warnings denied; see
+[permission-lint evidence](evidence/coverage-permission-lint-7eb62/README.md).
+The fresh 13-stage R6 run on the 7eb freeze exited zero at every stage and was
+accepted. It recorded 23 boundaries, 58 extra cases with three ignored, two
+split checks, two privileged checks, and 18 traceroute cases with two
+`NET_RAW` skips. Three ignored cases remain covered by the accepted QEMU reuse;
+two positive `NET_RAW` probes remain in the root residual. The [R6 evidence
+index](winddown/evidence/final-correctness-gates/README.md) preserves the
+failed b235 attempt and accepted 7eb run.
 
 The root-accepted tail fixture repair `16abfbed3` has a controlled truncation
 probe and eight exact selector passes across written and desugared forms; see
@@ -29,19 +41,31 @@ unchanged. The fresh b235 source and input-0 probe passed, but no b235 full
 corpus capture ran; see [b235 W9 scope evidence](evidence/w9-current-b235a1a43/README.md).
 The 3c repeat stopped after 250 inputs and 1,000 outcomes, with zero observed
 mismatches in that prefix and no parity credit; see [interrupted W9 evidence](evidence/w9-current-3c0c-interrupted/README.md).
-All four b235 product hashes currently match the qualified 0deeb9 QEMU hashes,
-but reuse awaits terminal `products_after` equality; see [b235 QEMU scope](evidence/linux-qemu-b235a1a4/README.md).
-A fresh strict route replay and the root residual remain open. Root owns final
-freeze and promotion.
+Phase A qualifies QEMU reuse for b235 after all four terminal product hashes
+and sizes matched the old 0deeb9 guest receipts. The seven guest receipts
+remain pinned to 0de; no b235 guest ran. The test-only spelling change at 7eb
+leaves that QEMU scope unchanged, so Phase A reuses those seven guest passes.
+No 7eb product build or guest run is claimed. See [QEMU scope](evidence/linux-qemu-b235a1a4/README.md).
+The 428 strict route invocations completed without failures, and source
+checks stayed clean. The matrix's AST-extractor build and admission checks are
+still running, so route acceptance is pending. The root residual has 34 of 35
+standard cases pass, one path-length skip, and its namespace case pass. Root
+is rerunning the skipped case through an owned alias with the same privileges.
+If it passes, the residual will have 36 unique passes across 37 executions.
+The initial Git-guard failure ran zero tests and remains excluded. Root owns
+subsequent freeze and promotion.
 
-Phase D whole-corpus typing work remains isolated in
-`.work/wt/typing-corpus-b235`, at checkpoint
-`17be3ff8fc8740868612ba94cc0ff0a187ce1e27` on freeze `a8d5bd910`.
-After 615 joint removals, 236 of 693 local annotations (34.05%) and 379 of
-2,190 internal annotations (17.31%) are removed. Eleven root checks and the
-lower checks pass; the targets are not met, and the 26-case paired witness
-runner is pending the residual slot. The broader successor corpus gate remains
-open and does not authorize an inference merge to main.
+Phase D whole-corpus typing work remains isolated. Root accepted checker
+checkpoint `877` at `338b82238a67ee36dd1b025b7a923f9fc5d2da40`, using the
+qualified pair `a972c8d139ecbb43174271842988eefb2c8638cc`. All eleven annotated
+and eleven reduced root checks pass. It removes 348 of 693 local annotations
+(50.22%) and 529 of 2,190 internal annotations (24.16%). The 95% and 85%
+targets remain unmet. The 26-case native witness runner is pending. All 202
+eligible effect clauses remain retained because 142 individual proofs do not
+establish joint-cycle equality. Host component `5277` is conditionally
+accepted pending six native checks. The prior 615-removal checkpoint remains
+historical. The generic-body lane is unqualified, and inference remains
+isolated from main.
 
 ## Stop handoff, 2026-10-16
 
