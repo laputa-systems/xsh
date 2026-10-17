@@ -202,3 +202,75 @@ physical kinds. It must not guess an unconstrained numeric domain. Aggregate
 construction and control flow remain separate compiler work. Joint effect
 elision still lacks authoritative equality evidence through declared calls.
 The 142 individual proofs neither establish that equality nor prove a cycle.
+
+## Independent mutable Set candidate
+
+The Set tranche starts from accepted 877, independently of the generic-body plan.
+It removes all 109 retained eligible local annotations whose inventory owner is
+exactly `var name: Set[...] = set.empty()`. All 109 are `Set[Str]` annotations.
+The nine affected sources contain no binding, parameter or import alias named
+`set`. The declarations are inside ordinary functions. Source review does not
+establish that every element constraint resolves jointly.
+
+| Source | Additional planned removals |
+|---|---:|
+| `core/lib/system_report.xsh` | 4 |
+| `core/lib/system_report_live.xsh` | 9 |
+| `core/lib/sys_mem.xsh` | 3 |
+| `core/lib/sys_mount.xsh` | 2 |
+| `core/lib/sys_block.xsh` | 1 |
+| `core/lib/system_report_collect.xsh` | 1 |
+| `dev/system_report_check.xsh` | 82 |
+| Laputa `pm/catalog.xsh` | 2 |
+| Laputa `pm/recipe.xsh` | 5 |
+
+The prepared copy has 986 planned removals: 457 of 693 locals and the unchanged
+529 of 2,190 internal sites. All signatures, all 202 private effects, protected
+schemas and entry contracts retain the accepted 877 choices. The accepted
+original and reduced views remain unchanged. The candidate inherits the same
+fixture-only flock correction outside the 48 program sources.
+
+Prepare a fresh separate copy without invoking compiler products:
+
+```sh
+python3 dev/consolidation/typing-corpus/prepare_mutable_sets.py \
+  "$PWD/.work/tmp/corpus/original" "$PWD/.work/tmp/corpus/mutable-set-plan"
+```
+
+The command prints every selected site ID and validates the reconstructed 48
+sources against their frozen AST spans. It rejects an existing plan directory.
+It does not inspect compiler results or change eligibility. The prepared source
+passed that validation with exactly 109 additions. Neither check/lower nor
+behavior qualification has run for this copy.
+
+The required compiler is the isolated Set source `7491228ab`, based on the
+accepted host-obligation source without the pending generic-body changes.
+Qualified product hashes are pending. The old accepted pair is untouched and
+must not be used to claim Set qualification. New runner bindings must hold this
+source and the actual qualified product hashes, preserve both view digests on
+failure, and retain exact container cleanup and native-lock ownership checks.
+The next approved execution is all eleven annotated and reduced ordinary
+check/lower roots. Native execution requires a separately assigned slot.
+
+The existing thirteen paired witnesses remain the initial behavior matrix.
+Seven wc, tr, cut and date witnesses protect unchanged roots. The two
+system-report replay witnesses reach serialization and rejection contracts but
+do not exercise all live collector accumulators. The gate, target and lifecycle
+witnesses protect tooling behavior, not every one of the 82 checker accumulators.
+The Laputa plan witness exercises recipe and catalog dependencies but does not
+prove every duplicate-input branch. No per-site coverage claim is made.
+
+Existing focused oracles for the additional paths include CPU-list rejection,
+malformed and duplicate meminfo, duplicate swap identity, cgroup CPU and IO
+counters, layered block identity, kernel-module duplicate identity, and Laputa
+`test_recipe_rejects_duplicate_dependency`. Their exact source selectors are
+available in `tests/xsh/system-report.xsh` and Laputa `tests/pm/pm_recipe.xsh`.
+They require explicit selection review before extending the named slot.
+
+The Set feature's existing `tests/xsh/local-inference.xsh` tests contain the
+minimal safety cases: incompatible branch writes, a conflicting alias contract,
+unsupported Float elements, an unsolved local, immutable and top-level empty
+Sets, and a shadowed `set` binding. Their rejection expectations remain in force.
+The positive case fixes the element type through branch and loop writes and
+asserts alias visibility, the empty result, deduplication and insertion order.
+Corpus removals neither replace those tests nor broaden their grammar.
