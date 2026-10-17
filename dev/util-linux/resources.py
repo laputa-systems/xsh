@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
 import hashlib
 import os
@@ -8,28 +9,36 @@ import shlex
 import shutil
 import stat
 import subprocess
+import tempfile
 from typing import Protocol
 
 import acceptance
 from acceptance import (
     AppletSourceSize,
     BinarySize,
+    BuildCost,
+    BuildPair,
     BuildContext,
+    CommandTiming,
     DeferredTiming,
     MemorySample,
     MeasurementKind,
     CloseReport,
     GateResult,
     MeasuredTiming,
+    PairOrder,
     POSITIVE_BOUNDARIES,
+    ResourceMetric,
     ResourceReport,
     Readiness,
     SourceIdentity,
+    TimedPair,
 )
 
 
 GitRunner = Callable[..., subprocess.CompletedProcess[str]]
 PRODUCTS = ("xsh", "xsht", "xsh-test-helper")
+LAPUTA_CORPUS = Path("/home/josh/d/laputa-systems/laputa")
 POSITIVE_SELECTORS = {
     "lslocks": "test_lslocks_blocker_flock",
     "lsipc": "test_lsipc_visibility_matches_for_owner_and_unprivileged_observer",
@@ -54,6 +63,8 @@ class ResourceRuntime(Protocol):
         mounts: list[str],
         capabilities: list[str],
         timeout: int,
+        cpus: int = 1,
+        memory_gib: int = 1,
     ) -> bytes: ...
 
     def source_identity(self) -> SourceIdentity: ...
@@ -84,7 +95,7 @@ class ResourceRuntime(Protocol):
 
     def owned_cleanup(self, source: SourceIdentity) -> GateResult: ...
 
-    def measure_timing(self, source: SourceIdentity) -> MeasuredTiming: ...
+    def measure_timing(self, source: SourceIdentity) -> MeasuredTiming | DeferredTiming: ...
 
 
 def _git_text(root: Path, args: Sequence[str], run: GitRunner) -> str:
@@ -193,6 +204,8 @@ def _product_pair(runtime: ResourceRuntime, source: SourceIdentity):
         raise ValueError("protected products do not identify the frozen baseline source")
     if candidate_context.source != source.key:
         raise ValueError("candidate products do not identify the current clean source")
+    if baseline_context.profile != "release" or candidate_context.profile != "release":
+        raise ValueError("resource acceptance requires final release products on both sides")
     if baseline_context.image != runtime.IMAGE or candidate_context.image != runtime.IMAGE:
         raise ValueError("products do not identify the pinned acceptance image")
     if baseline_context.target != candidate_context.target:
@@ -236,6 +249,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import selectors
 import shutil
 import signal
 import subprocess
@@ -245,6 +259,10 @@ import time
 
 REGRESSION_SELECTORS = @REGRESSION_SELECTORS@
 POSITIVE = @POSITIVE@
+MODE = @MODE@
+TIMING_COMMAND = @TIMING_COMMAND@
+TIMING_SELECTOR = @TIMING_SELECTOR@
+TIMING_ORDER = @TIMING_ORDER@
 ROOT = Path("/work")
 BASELINE = Path("/baseline")
 CANDIDATE = Path("/candidate")
@@ -318,22 +336,77 @@ def fixture_tree(root):
 
 def start_keeper(argv):
     child = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, text=True, bufsize=1,
+                             stderr=subprocess.PIPE, bufsize=0,
                              env=ENV, start_new_session=True)
-    line = child.stdout.readline()
-    if not line:
-        detail = child.stderr.read()
-        raise RuntimeError(f"fixture keeper failed before readiness: {detail}")
-    return child, json.loads(line)
+    selector = selectors.DefaultSelector()
+    output = bytearray()
+    errors = bytearray()
+    deadline = time.monotonic() + 8
+    succeeded = False
+    try:
+        os.set_blocking(child.stdout.fileno(), False)
+        os.set_blocking(child.stderr.fileno(), False)
+        selector.register(child.stdout, selectors.EVENT_READ, output)
+        selector.register(child.stderr, selectors.EVENT_READ, errors)
+        while time.monotonic() < deadline:
+            if b"\n" in output:
+                line, extra = output.split(b"\n", 1)
+                if extra:
+                    raise RuntimeError("fixture keeper emitted data after readiness")
+                ready = json.loads(line)
+                os.set_blocking(child.stdout.fileno(), True)
+                os.set_blocking(child.stderr.fileno(), True)
+                succeeded = True
+                return child, ready
+            if child.poll() is not None and not selector.get_map():
+                break
+            for key, _ in selector.select(min(0.1, deadline - time.monotonic())):
+                chunk = os.read(key.fileobj.fileno(), 65536)
+                if not chunk:
+                    selector.unregister(key.fileobj)
+                else:
+                    key.data.extend(chunk)
+        raise RuntimeError(f"fixture keeper did not report readiness: {bytes(errors)!r}")
+    except BaseException:
+        try:
+            os.killpg(child.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        try:
+            child.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        if child.poll() is None:
+            child.wait(timeout=1)
+        raise
+    finally:
+        selector.close()
+        if not succeeded:
+            for pipe in (child.stdin, child.stdout, child.stderr):
+                if pipe is not None:
+                    pipe.close()
 
 
 def finish_keeper(child, request):
-    if child.poll() is None:
-        child.stdin.write(request + "\n")
-        child.stdin.flush()
+    failure = None
     try:
-        stdout, stderr = child.communicate(timeout=8)
-    except subprocess.TimeoutExpired:
+        if child.poll() is None:
+            child.stdin.write((request + "\n").encode())
+            child.stdin.flush()
+    except BaseException as error:
+        failure = error
+    if failure is None:
+        try:
+            stdout, stderr = child.communicate(timeout=8)
+        except subprocess.TimeoutExpired:
+            failure = RuntimeError("fixture keeper exceeded its cleanup bound")
+        except BaseException as error:
+            failure = error
+    if failure is not None:
         try:
             os.killpg(child.pid, signal.SIGTERM)
         except ProcessLookupError:
@@ -341,12 +414,27 @@ def finish_keeper(child, request):
         try:
             stdout, stderr = child.communicate(timeout=1)
         except subprocess.TimeoutExpired:
+            stdout, stderr = b"", b""
+        except BaseException as error:
+            failure.add_note(f"keeper cleanup also failed: {error}")
+            stdout, stderr = b"", b""
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        if child.poll() is None:
             try:
-                os.killpg(child.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            stdout, stderr = child.communicate(timeout=1)
-        raise RuntimeError(f"fixture keeper exceeded its cleanup bound: stdout={stdout!r} stderr={stderr!r}")
+                child.wait(timeout=1)
+            except BaseException as error:
+                failure.add_note(f"keeper reap also failed: {error}")
+        failure.add_note(f"keeper cleanup output: stdout={stdout!r} stderr={stderr!r}")
+        for pipe in (child.stdin, child.stdout, child.stderr):
+            if pipe is not None and not pipe.closed:
+                try:
+                    pipe.close()
+                except BaseException as error:
+                    failure.add_note(f"keeper pipe close also failed: {error}")
+        raise failure
     if child.returncode != 0:
         raise RuntimeError(f"fixture keeper failed to clean up: stdout={stdout!r} stderr={stderr!r}")
 
@@ -396,23 +484,23 @@ def ipc_fixture(root):
     for kind in ("sysv_queue", "sysv_shmem", "sysv_semaphore", "posix_mqueue", "posix_shmem", "posix_semaphore"):
         args.extend(["--resource", kind])
     child, ready = start_keeper(args)
-    queue = next(row for row in ready["resources"] if row["kind"] == "sysv_queue")
-    command_args = ["--queues", "--id", str(queue["id"]), "--output", "ID"]
-
-    def snapshot():
-        child.stdin.write("snapshot\n")
-        child.stdin.flush()
-        line = child.stdout.readline()
-        if not line:
-            raise RuntimeError("IPC keeper omitted its state snapshot")
-        return line
-
-    def owner():
-        os.setgroups([])
-        os.setgid(10001)
-        os.setuid(10001)
-
     try:
+        queue = next(row for row in ready["resources"] if row["kind"] == "sysv_queue")
+        command_args = ["--queues", "--id", str(queue["id"]), "--output", "ID"]
+
+        def snapshot():
+            child.stdin.write(b"snapshot\n")
+            child.stdin.flush()
+            line = child.stdout.readline()
+            if not line:
+                raise RuntimeError("IPC keeper omitted its state snapshot")
+            return line
+
+        def owner():
+            os.setgroups([])
+            os.setgid(10001)
+            os.setuid(10001)
+
         yield command_args, snapshot, owner
     finally:
         finish_keeper(child, "release")
@@ -478,6 +566,7 @@ def positive(command, selector):
             if (
                 reference[0] != 0
                 or candidate[0] != 0
+                or not reference[1]
                 or reference[1] != candidate[1]
                 or reference[2]
                 or candidate[2]
@@ -515,25 +604,118 @@ def exact_native(products, selector):
         return peak, cpu, status, stdout
 
 
-for command, selector in POSITIVE:
-    positive(command, selector)
+def normalized_native_output(raw):
+    lines = raw.decode("utf-8").splitlines()
+    normalized = []
+    for line in lines:
+        if " ... ok " in line:
+            selector, duration = line.rsplit(" ... ok ", 1)
+            if not duration or any(character.isspace() for character in duration):
+                raise RuntimeError("native runner emitted an invalid case duration")
+            line = selector + " ... ok"
+        normalized.append(line)
+    return "\n".join(normalized).encode("utf-8")
 
-for selector in REGRESSION_SELECTORS:
-    baseline = exact_native(BASELINE, selector)
-    candidate = exact_native(CANDIDATE, selector)
-    if baseline[2] or candidate[2] or baseline[3] != candidate[3]:
+
+def positive_timing(command, selector):
+    with tempfile.TemporaryDirectory(dir="/t", prefix=f"timing-{command}-") as temporary:
+        root = Path(temporary) / command
+        with FIXTURES[command](root) as prepared:
+            args, snapshot = prepared[0], prepared[1]
+            preexec = prepared[2] if len(prepared) > 2 else None
+            before = snapshot()
+            commands = (("reference", "baseline"), (CANDIDATE, "candidate"))
+            if TIMING_ORDER == "candidate-first":
+                commands = tuple(reversed(commands))
+            results = {}
+            for products, side in commands:
+                results[side] = measured(applet_argv(products, command, args), root, preexec_fn=preexec)
+                if snapshot() != before:
+                    raise RuntimeError(f"positive fixture changed after {side}: {command} {selector}")
+            baseline, candidate = results["baseline"], results["candidate"]
+            equal_output = baseline[1] == candidate[1] and baseline[2] == candidate[2]
+            equal_state = snapshot() == before
+            if baseline[0] or candidate[0] or not baseline[1] or not equal_output or not equal_state:
+                raise RuntimeError(f"timed positive fixture failed parity: {command} {selector}")
+            print("\t".join(("timing", command, selector, str(baseline[4]), str(candidate[4]),
+                             str(baseline[0]), str(candidate[0]), str(int(equal_output)), str(int(equal_state)))))
+
+
+def regression_timing(selector):
+    commands = ((BASELINE, "baseline"), (CANDIDATE, "candidate"))
+    if TIMING_ORDER == "candidate-first":
+        commands = tuple(reversed(commands))
+    results = {}
+    for products, side in commands:
+        results[side] = exact_native(products, selector)
+    baseline, candidate = results["baseline"], results["candidate"]
+    equal_output = normalized_native_output(baseline[3]) == normalized_native_output(candidate[3])
+    if baseline[2] or candidate[2] or not equal_output:
         raise RuntimeError(f"regression selector differs across protected and candidate products: {selector}")
-    print("\t".join(("regression", selector, str(baseline[0]), str(candidate[0]),
-                     str(baseline[2]), str(candidate[2]), "1", "1")))
+    print("\t".join(("timing", "native-regression", selector, str(baseline[1]), str(candidate[1]),
+                     str(baseline[2]), str(candidate[2]), str(int(equal_output)), "1")))
+
+
+def startup_timing(command, selector):
+    with tempfile.TemporaryDirectory(dir="/t", prefix=f"startup-{command}-") as temporary:
+        root = Path(temporary)
+        before = fixture_tree(root)
+        commands = ((BASELINE, "baseline"), (CANDIDATE, "candidate"))
+        if TIMING_ORDER == "candidate-first":
+            commands = tuple(reversed(commands))
+        results = {}
+        for products, side in commands:
+            argv = [str(products / "xsh"), f"/work/core/{command}.xsh", "--version"]
+            results[side] = measured(argv, ROOT, timeout=30, env={"TMPDIR": str(root)})
+        baseline, candidate = results["baseline"], results["candidate"]
+        equal_output = baseline[1] == candidate[1] and baseline[2] == candidate[2]
+        equal_state = fixture_tree(root) == before
+        if baseline[0] or candidate[0] or not (baseline[1] or baseline[2]) or not equal_output or not equal_state:
+            raise RuntimeError(f"startup command failed output or state parity: {command} {selector}")
+        print("\t".join(("timing", command, selector, str(baseline[4]), str(candidate[4]),
+                         str(baseline[0]), str(candidate[0]), str(int(equal_output)), str(int(equal_state)))))
+
+
+if MODE == "resources":
+    for command, selector in POSITIVE:
+        positive(command, selector)
+    for selector in REGRESSION_SELECTORS:
+        baseline = exact_native(BASELINE, selector)
+        candidate = exact_native(CANDIDATE, selector)
+        if baseline[2] or candidate[2] or normalized_native_output(baseline[3]) != normalized_native_output(candidate[3]):
+            raise RuntimeError(f"regression selector differs across protected and candidate products: {selector}")
+        print("\t".join(("regression", selector, str(baseline[0]), str(candidate[0]),
+                         str(baseline[2]), str(candidate[2]), "1", "1")))
+elif MODE == "command":
+    if TIMING_SELECTOR in REGRESSION_SELECTORS:
+        regression_timing(TIMING_SELECTOR)
+    else:
+        positive_timing(TIMING_COMMAND, TIMING_SELECTOR)
+elif MODE == "startup":
+    startup_timing(TIMING_COMMAND, TIMING_SELECTOR)
+else:
+    raise RuntimeError("unknown resource driver mode")
 '''
 
 
-def _driver_source(selectors: tuple[str, ...], cohort: tuple[str, ...]) -> str:
+def _driver_source(
+    selectors: tuple[str, ...],
+    cohort: tuple[str, ...],
+    *,
+    mode: str = "resources",
+    command: str = "",
+    selector: str = "",
+    order: str = "baseline-first",
+) -> str:
     positives = tuple((command, POSITIVE_SELECTORS[command]) for command in cohort)
     return (
         _MEASUREMENT_DRIVER
         .replace("@REGRESSION_SELECTORS@", repr(selectors))
         .replace("@POSITIVE@", repr(positives))
+        .replace("@MODE@", repr(mode))
+        .replace("@TIMING_COMMAND@", repr(command))
+        .replace("@TIMING_SELECTOR@", repr(selector))
+        .replace("@TIMING_ORDER@", repr(order))
     )
 
 
@@ -585,9 +767,173 @@ def _parse_measurements(
             raise ValueError(f"regression resource sample did not complete: {selector}")
         if (equal_output, equal_state) != (1, 1):
             raise ValueError(f"regression resource sample changed behavior or state: {selector}")
-        command = selector.partition("::")[0].rsplit("/", 1)[-1].removesuffix(".xsh")
-        samples.append((command, selector, baseline_rss, candidate_rss))
+        samples.append(("native-regression", selector, baseline_rss, candidate_rss))
     return tuple(samples)
+
+
+def _parse_timed_pair(
+    output: bytes,
+    command: str,
+    selector: str,
+    order: PairOrder,
+    before: Readiness,
+    after: Readiness,
+) -> TimedPair:
+    try:
+        lines = output.decode("utf-8").splitlines()
+    except UnicodeDecodeError as error:
+        raise ValueError("timing child output was not UTF-8") from error
+    if len(lines) != 1:
+        raise ValueError("timing child must report exactly one paired sample")
+    fields = tuple(lines[0].split("\t"))
+    if len(fields) != 9 or fields[:3] != ("timing", command, selector):
+        raise ValueError("timing child reported an unexpected measurement target")
+    values = _integers(fields[3:], lines[0])
+    baseline_cpu, candidate_cpu, baseline_status, candidate_status, output_equal, state_equal = values
+    if min(baseline_cpu, candidate_cpu) <= 0:
+        raise ValueError("timing child reported no positive CPU sample")
+    if (baseline_status, candidate_status) != (0, 0):
+        raise ValueError("timing child reported a failed process")
+    if (output_equal, state_equal) != (1, 1):
+        raise ValueError("timing child reported changed output or state")
+    return TimedPair(
+        baseline_cpu,
+        candidate_cpu,
+        before,
+        after,
+        order,
+        baseline_status,
+        candidate_status,
+        True,
+        True,
+    )
+
+
+_BUILD_DRIVER = r'''import hashlib
+import os
+from pathlib import Path
+import signal
+import stat
+import subprocess
+import tempfile
+import time
+
+EXPECTED = @EXPECTED@
+TARGET = "x86_64-unknown-linux-musl"
+JOBS = 2
+RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol"
+BUILD = ["/root/.cargo/bin/cargo", "build", "--locked", "--offline", "--release", "--target", TARGET,
+         "-p", "xsh", "--bins", "-p", "xsht", "--bin", "xsht", "-p", "xsh", "--bin", "xsh-test-helper"]
+
+
+def build(source, side, sample):
+    target = Path(f"/t/targets/{side}-{sample}")
+    target.mkdir(parents=True)
+    env = dict(os.environ)
+    env.update({
+        "CARGO_HOME": "/root/.cargo",
+        "RUSTUP_HOME": "/root/.rustup",
+        "CARGO_NET_OFFLINE": "true",
+        "CARGO_TARGET_DIR": str(target),
+        "CARGO_BUILD_JOBS": str(JOBS),
+        "CARGO_PROFILE_RELEASE_OPT_LEVEL": "3",
+        "CARGO_PROFILE_RELEASE_LTO": "thin",
+        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": "16",
+        "RUSTC_WRAPPER": "/usr/local/bin/kache",
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER": "/usr/local/bin/xsh-mold-linker",
+        "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS": RUSTFLAGS,
+        "XSH_LAPUTA_CORPUS": "/home/josh/d/laputa-systems/laputa",
+        "CC": "/usr/bin/clang-23",
+        "AR": "/usr/local/bin/llvm-ar",
+        "LD_PRELOAD": "/usr/lib/libjemalloc.so.2",
+        "TMPDIR": "/t",
+        "PATH": "/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+    })
+    with tempfile.TemporaryFile(dir="/t") as stdout, tempfile.TemporaryFile(dir="/t") as stderr:
+        child = subprocess.Popen(BUILD, cwd=source, env=env, stdin=subprocess.DEVNULL,
+                                 stdout=stdout, stderr=stderr, start_new_session=True)
+        deadline = time.monotonic() + 1800
+        try:
+            while True:
+                try:
+                    pid, status, usage = os.wait4(child.pid, os.WNOHANG)
+                except InterruptedError:
+                    continue
+                if pid:
+                    child.returncode = os.waitstatus_to_exitcode(status)
+                    break
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("release build exceeded its bounded runtime")
+                time.sleep(0.01)
+        except BaseException:
+            try:
+                os.killpg(child.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            time.sleep(0.1)
+            try:
+                os.killpg(child.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            try:
+                os.wait4(child.pid, 0)
+            except ChildProcessError:
+                pass
+            raise
+        stdout.seek(0)
+        stderr.seek(0)
+        out, err = stdout.read(), stderr.read()
+    elapsed = int((usage.ru_utime + usage.ru_stime) * 1_000_000_000)
+    valid = child.returncode == 0
+    if valid:
+        product_root = target / TARGET / "release"
+        for name, digest in EXPECTED[side]:
+            product = product_root / name
+            try:
+                info = product.lstat()
+                if not stat.S_ISREG(info.st_mode) or not info.st_mode & 0o111:
+                    valid = False
+                    break
+                with product.open("rb") as stream:
+                    if hashlib.file_digest(stream, "sha256").hexdigest() != digest:
+                        valid = False
+                        break
+            except OSError:
+                valid = False
+                break
+    return child.returncode, elapsed, valid, out, err
+
+
+baseline_source = Path("/t/baseline-source")
+baseline_source.mkdir()
+subprocess.run(["tar", "-xf", "/baseline.tar", "-C", str(baseline_source)], check=True)
+order = @ORDER@
+sample = @SAMPLE@
+commands = ((baseline_source, "baseline"), (Path("/candidate-src"), "candidate"))
+if order == "candidate-first":
+    commands = tuple(reversed(commands))
+results = {}
+for source, side in commands:
+    results[side] = build(source, side, sample)
+baseline, candidate = results["baseline"], results["candidate"]
+print("\t".join(("build", str(baseline[1]), str(candidate[1]), str(baseline[0]),
+                 str(candidate[0]), str(int(baseline[2])), str(int(candidate[2])))))
+if baseline[0] or candidate[0] or not baseline[2] or not candidate[2]:
+    raise RuntimeError(f"release build or product qualification failed: {baseline[3]!r} {baseline[4]!r} {candidate[3]!r} {candidate[4]!r}")
+'''
+
+
+def _build_driver_source(
+    expected: dict[str, tuple[tuple[str, str], ...]],
+    order: PairOrder,
+    sample: int,
+) -> str:
+    return (
+        _BUILD_DRIVER
+        .replace("@EXPECTED@", repr(expected))
+        .replace("@ORDER@", repr(order.value))
+        .replace("@SAMPLE@", repr(sample))
+    )
 
 
 def _integers(values: tuple[str, ...], line: str) -> tuple[int, ...]:
@@ -600,6 +946,359 @@ def _readiness(program: Path, arguments: tuple[str, ...], run=subprocess.run) ->
     result = run([str(program), *arguments], capture_output=True, check=False, timeout=30)
     host_quiet = result.returncode == 0 and not result.stdout and not result.stderr
     return Readiness(result.returncode, result.stdout, result.stderr, host_quiet)
+
+
+def _readied_container(
+    runtime: ResourceRuntime,
+    program: Path,
+    script: str,
+    *,
+    mounts: list[str],
+    capabilities: list[str],
+    timeout: int,
+    cpus: int = 1,
+    memory_gib: int = 1,
+) -> tuple[bytes, Readiness, Readiness] | None:
+    before = _readiness(program, ())
+    if not before.host_quiet:
+        return None
+    failure = None
+    output = None
+    try:
+        output = runtime.container(
+            script,
+            mounts=mounts,
+            capabilities=capabilities,
+            timeout=timeout,
+            cpus=cpus,
+            memory_gib=memory_gib,
+        )
+    except BaseException as error:
+        failure = error
+    try:
+        after = _readiness(program, ("-1",))
+    except BaseException as error:
+        if failure is None:
+            raise
+        failure.add_note(f"post-measurement readiness failed: {error}")
+        raise failure
+    if failure is not None:
+        if not after.host_quiet:
+            failure.add_note("perf gate deferred: host busy after failed measurement")
+        raise failure
+    if not after.host_quiet:
+        return None
+    if output is None:
+        raise ValueError("timed container returned no output")
+    return output, before, after
+
+
+def _readied_timing_driver(
+    runtime: ResourceRuntime,
+    program: Path,
+    source: SourceIdentity,
+    selectors: tuple[str, ...],
+    products: tuple[Path, BuildContext, ProductSignature, Path, BuildContext, ProductSignature],
+    *,
+    mode: str,
+    command: str,
+    selector: str,
+    order: PairOrder,
+) -> tuple[TimedPair, Readiness, Readiness] | None:
+    _require_current(runtime, source, "timed resource sample")
+    driver = _driver_source(
+        selectors,
+        runtime.COHORT,
+        mode=mode,
+        command=command,
+        selector=selector,
+        order=order.value,
+    )
+    script = "cd /work; " + runtime.PRIVATE_NAMESPACE.rstrip() + " python3 -c " + shlex.quote(driver)
+    result = _readied_container(
+        runtime,
+        program,
+        script,
+        mounts=[
+            f"type=bind,source={runtime.ROOT},target=/work,readonly",
+            f"type=bind,source={products[0]},target=/baseline,readonly",
+            f"type=bind,source={products[3]},target=/candidate,readonly",
+        ],
+        capabilities=["SYS_ADMIN"],
+        timeout=120,
+    )
+    if result is None:
+        return None
+    output, before, after = result
+    _require_current(runtime, source, "timed resource sample")
+    pair = _parse_timed_pair(output, command, selector, order, before, after)
+    return pair, before, after
+
+
+def _build_result(output: bytes, order: PairOrder, before: Readiness, after: Readiness) -> BuildPair:
+    try:
+        lines = output.decode("utf-8").splitlines()
+    except UnicodeDecodeError as error:
+        raise ValueError("build child output was not UTF-8") from error
+    if len(lines) != 1:
+        raise ValueError("build child must report exactly one paired sample")
+    fields = tuple(lines[0].split("\t"))
+    if len(fields) != 7 or fields[0] != "build":
+        raise ValueError("build child reported an unexpected measurement")
+    baseline_cpu, candidate_cpu, baseline_status, candidate_status, baseline_valid, candidate_valid = _integers(fields[1:], lines[0])
+    if min(baseline_cpu, candidate_cpu) <= 0:
+        raise ValueError("build child reported no positive CPU sample")
+    if (baseline_status, candidate_status) != (0, 0) or (baseline_valid, candidate_valid) != (1, 1):
+        raise ValueError("build child failed or produced stale products")
+    return BuildPair(
+        baseline_cpu,
+        candidate_cpu,
+        before,
+        after,
+        order,
+        baseline_status,
+        candidate_status,
+        True,
+        True,
+    )
+
+
+def _git_archive(root: Path, commit: str, destination: Path) -> Path:
+    with destination.open("wb") as archive:
+        result = subprocess.run(
+            ["git", "archive", "--format=tar", commit],
+            cwd=root,
+            stdout=archive,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    if result.returncode != 0:
+        raise RuntimeError(f"cannot archive the frozen build source: {result.stderr.decode(errors='replace')}")
+    if destination.stat().st_size <= 0:
+        raise ValueError("frozen build source archive is empty")
+    return destination
+
+
+def _expected_build_products(products: tuple[Path, BuildContext, ProductSignature, Path, BuildContext, ProductSignature]):
+    return {
+        "baseline": tuple((row[0], row[-1].hex()) for row in products[2]),
+        "candidate": tuple((row[0], row[-1].hex()) for row in products[5]),
+    }
+
+
+def _readied_build_pair(
+    runtime: ResourceRuntime,
+    program: Path,
+    source: SourceIdentity,
+    archive: Path,
+    expected: dict[str, tuple[tuple[str, str], ...]],
+    order: PairOrder,
+    sample: int,
+) -> BuildPair | None:
+    _require_current(runtime, source, "build-cost sample")
+    driver = _build_driver_source(expected, order, sample)
+    kache = shutil.which("kache")
+    mold = shutil.which("mold")
+    if kache is None or mold is None:
+        raise RuntimeError("build-cost measurement requires the installed kache and mold tools")
+    linker = runtime.ROOT / "dev" / "musl-linker.sh"
+    if not linker.is_file() or not os.access(linker, os.X_OK):
+        raise RuntimeError("build-cost measurement requires the repository musl linker adapter")
+    if not LAPUTA_CORPUS.is_dir():
+        raise RuntimeError("build-cost measurement requires the qualified Laputa corpus")
+    jemalloc = Path("/usr/lib/libjemalloc.so.2")
+    if not jemalloc.is_file():
+        raise RuntimeError("build-cost measurement requires the pinned jemalloc preload")
+    result = _readied_container(
+        runtime,
+        program,
+        "cd /candidate-src; python3 -c " + shlex.quote(driver),
+        mounts=[
+            f"type=bind,source={runtime.ROOT},target=/candidate-src,readonly",
+            f"type=bind,source={archive},target=/baseline.tar,readonly",
+            f"type=bind,source={kache},target=/usr/local/bin/kache,readonly",
+            f"type=bind,source={mold},target=/usr/local/bin/mold,readonly",
+            f"type=bind,source={linker},target=/usr/local/bin/xsh-mold-linker,readonly",
+            f"type=bind,source={LAPUTA_CORPUS},target=/home/josh/d/laputa-systems/laputa,readonly",
+            f"type=bind,source={jemalloc},target=/usr/lib/libjemalloc.so.2,readonly",
+            "type=volume,source=xsh-cargo-registry,target=/root/.cargo/registry",
+            "type=volume,source=xsh-consolidation-kache,target=/root/.cache/kache",
+        ],
+        capabilities=[],
+        timeout=3600,
+        cpus=2,
+        memory_gib=8,
+    )
+    if result is None:
+        return None
+    output, before, after = result
+    _require_current(runtime, source, "build-cost sample")
+    return _build_result(output, order, before, after)
+
+
+_PAIR_ORDERS = (
+    PairOrder.BASELINE_FIRST,
+    PairOrder.CANDIDATE_FIRST,
+    PairOrder.BASELINE_FIRST,
+    PairOrder.CANDIDATE_FIRST,
+    PairOrder.BASELINE_FIRST,
+)
+
+
+def _assert_timing_inputs(
+    runtime: ResourceRuntime,
+    source: SourceIdentity,
+    expected: tuple[Path, BuildContext, ProductSignature, Path, BuildContext, ProductSignature],
+) -> None:
+    _require_current(runtime, source, "resource timing")
+    current = _product_pair(runtime, source)
+    if current[2] != expected[2] or current[5] != expected[5]:
+        raise ValueError("products changed during timed resource acceptance")
+
+
+def measure_timing(runtime: ResourceRuntime, source: SourceIdentity) -> MeasuredTiming | DeferredTiming:
+    _require_current(runtime, source, "resource timing")
+    if tuple(runtime.COHORT) != tuple(POSITIVE_SELECTORS):
+        raise ValueError("timing cohort does not match the five qualified positive fixtures")
+    products = _product_pair(runtime, source)
+    baseline_path, baseline_context = products[0], products[1]
+    candidate_path, candidate_context = products[3], products[4]
+    selectors = _selectors(runtime, source)
+    acceptance._validate_startup_targets(set(acceptance.STARTUP_TARGETS), selectors)
+    program_name = shutil.which("perf-gate-ready")
+    if program_name is None:
+        raise RuntimeError("perf-gate-ready is unavailable; timing cannot be qualified")
+    program = Path(program_name)
+    reference_context = BuildContext(
+        source=runtime.PACKAGE_COMMIT,
+        profile=acceptance.REFERENCE_PROFILE,
+        target=candidate_context.target,
+        image=runtime.IMAGE,
+        allocator=acceptance.REFERENCE_ALLOCATOR,
+        allocation=candidate_context.allocation,
+    )
+    command_rows = []
+
+    def collect_command(command: str, selector: str, kind: MeasurementKind, mode: str) -> CommandTiming | None:
+        samples = []
+        for order in _PAIR_ORDERS:
+            result = _readied_timing_driver(
+                runtime,
+                program,
+                source,
+                selectors,
+                products,
+                mode=mode,
+                command=command,
+                selector=selector,
+                order=order,
+            )
+            if result is None:
+                _assert_timing_inputs(runtime, source, products)
+                return None
+            pair, _, _ = result
+            samples.append(pair)
+            _assert_timing_inputs(runtime, source, products)
+        return CommandTiming(
+            command=command,
+            selector=selector,
+            kind=kind,
+            metric=ResourceMetric.COMMAND,
+            baseline=reference_context if kind is MeasurementKind.NEW_REFERENCE else baseline_context,
+            candidate=candidate_context,
+            samples=tuple(samples),
+        )
+
+    for command in runtime.COHORT:
+        selector = POSITIVE_SELECTORS[command]
+        row = collect_command(command, selector, MeasurementKind.NEW_REFERENCE, "command")
+        if row is None:
+            return DeferredTiming("host busy")
+        command_rows.append(row)
+    for selector in selectors:
+        command = "native-regression"
+        row = collect_command(command, selector, MeasurementKind.EXISTING_BASELINE, "command")
+        if row is None:
+            return DeferredTiming("host busy")
+        command_rows.append(row)
+
+    startup_rows = []
+    for command, selector in acceptance.STARTUP_TARGETS:
+        samples = []
+        for order in _PAIR_ORDERS:
+            result = _readied_timing_driver(
+                runtime,
+                program,
+                source,
+                selectors,
+                products,
+                mode="startup",
+                command=command,
+                selector=selector,
+                order=order,
+            )
+            if result is None:
+                _assert_timing_inputs(runtime, source, products)
+                return DeferredTiming("host busy")
+            pair, _, _ = result
+            samples.append(pair)
+            _assert_timing_inputs(runtime, source, products)
+        startup_rows.append(CommandTiming(
+            command=command,
+            selector=selector,
+            kind=MeasurementKind.EXISTING_BASELINE,
+            metric=ResourceMetric.STARTUP,
+            baseline=baseline_context,
+            candidate=candidate_context,
+            samples=tuple(samples),
+        ))
+
+    scratch = runtime.ROOT / ".work" / "tmp"
+    scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=scratch, prefix="util-linux-build-source-") as temporary:
+        archive = _git_archive(runtime.ROOT, runtime.PRODUCT_SOURCE, Path(temporary) / "baseline.tar")
+        expected = _expected_build_products(products)
+        warmup = _readied_build_pair(
+            runtime,
+            program,
+            source,
+            archive,
+            expected,
+            PairOrder.BASELINE_FIRST,
+            -1,
+        )
+        if warmup is None:
+            _assert_timing_inputs(runtime, source, products)
+            return DeferredTiming("host busy")
+        _assert_timing_inputs(runtime, source, products)
+        build_samples = []
+        for index, order in enumerate(_PAIR_ORDERS):
+            pair = _readied_build_pair(runtime, program, source, archive, expected, order, index)
+            if pair is None:
+                _assert_timing_inputs(runtime, source, products)
+                return DeferredTiming("host busy")
+            build_samples.append(pair)
+            _assert_timing_inputs(runtime, source, products)
+
+    build_cache = "warm:xsh-consolidation-kache"
+    build_baseline = replace(
+        baseline_context,
+        allocation="2cpu/8GiB",
+        cache_state=build_cache,
+        compile_jobs=2,
+    )
+    build_candidate = replace(
+        candidate_context,
+        allocation="2cpu/8GiB",
+        cache_state=build_cache,
+        compile_jobs=2,
+    )
+    _assert_timing_inputs(runtime, source, products)
+    return MeasuredTiming(
+        commands=tuple(command_rows),
+        startup=tuple(startup_rows),
+        build_cost=BuildCost(build_baseline, build_candidate, tuple(build_samples)),
+    )
 
 
 def _resource_rows(
@@ -650,10 +1349,10 @@ def _resource_rows(
             baseline=(
                 BuildContext(
                     source=runtime.PACKAGE_COMMIT,
-                    profile="apk-package-2.42.4-r3",
+                    profile=acceptance.REFERENCE_PROFILE,
                     target=candidate_context.target,
                     image=runtime.IMAGE,
-                    allocator=candidate_context.allocator,
+                    allocator=acceptance.REFERENCE_ALLOCATOR,
                     allocation=candidate_context.allocation,
                 )
                 if (command, selector) in positive_keys
@@ -677,33 +1376,9 @@ def measure(runtime: ResourceRuntime) -> ResourceReport:
         raise ValueError("resource acceptance requires a clean final source")
     product_pair = _product_pair(runtime, source)
     binary_sizes, source_sizes, memory = _resource_rows(runtime, source)
-    program = shutil.which("perf-gate-ready")
-    if program is None:
-        raise RuntimeError("perf-gate-ready is unavailable; timing cannot be qualified")
-    readiness = _readiness(Path(program), ())
-    if not readiness.host_quiet:
-        timing = DeferredTiming("host busy")
-    else:
-        failure = None
-        try:
-            measured_timing = runtime.measure_timing(source)
-        except BaseException as error:
-            failure = error
-            measured_timing = None
-        post = _readiness(Path(program), ("-1",))
-        if failure is not None:
-            if not post.host_quiet:
-                failure.add_note("perf gate deferred: host busy after failed timing producer")
-            raise failure
-        if not post.host_quiet:
-            timing = DeferredTiming("host busy")
-        elif measured_timing is None:
-            raise ValueError("timing producer returned no measured samples")
-        else:
-            timing = measured_timing
-        current = runtime.source_identity()
-        if current != source:
-            raise ValueError("source changed during timed resource measurement")
+    timing = runtime.measure_timing(source)
+    if timing is None:
+        raise ValueError("timing producer returned no result")
     current_products = _product_pair(runtime, source)
     if current_products != product_pair:
         raise ValueError("products changed during resource acceptance")

@@ -14,6 +14,18 @@ POSITIVE_BOUNDARIES = {
     "mountpoint": "test_mountpoint_private_same_device_bind_mount",
     "namei": "test_namei_private_same_device_bind_mount_matches_reference",
 }
+STARTUP_TARGETS = (
+    ("flock", "core/tests/test-util-linux-process-regressions.xsh::test_util_linux_flock_keeps_lock_through_waited_new_session_child"),
+    ("setsid", "core/tests/test-util-linux-process-regressions.xsh::test_util_linux_flock_keeps_lock_through_waited_new_session_child"),
+    ("rev", "core/tests/test-util-linux-process-regressions.xsh::test_util_linux_rev_reverses_utf8_split_across_read_chunks"),
+    ("chrt", "core/tests/test-util-linux-process-regressions.xsh::test_util_linux_chrt_preserves_signal_termination"),
+    ("lsblk", "core/tests/test-util-linux-storage-regressions.xsh::test_util_linux_rooted_storage_commands_join_block_and_mount_identity"),
+    ("findmnt", "core/tests/test-util-linux-storage-regressions.xsh::test_util_linux_rooted_storage_commands_join_block_and_mount_identity"),
+    ("lscpu", "core/tests/test-util-linux-storage-regressions.xsh::test_util_linux_lscpu_json_summary_keeps_field_values_as_strings"),
+    ("lsns", "core/tests/test-util-linux-storage-regressions.xsh::test_util_linux_lsns_selects_and_releases_a_live_user_namespace"),
+)
+REFERENCE_PROFILE = "apk-package-2.42.4-r3"
+REFERENCE_ALLOCATOR = "musl-libc"
 REGRESSION_FILES = (
     "core/tests/test-util-linux-storage-regressions.xsh",
     "core/tests/test-util-linux-process-regressions.xsh",
@@ -447,16 +459,24 @@ def _validate_contexts(
         raise ValueError("candidate resource sample names stale source")
     if baseline.target != candidate.target or baseline.image != candidate.image:
         raise ValueError("resource comparison uses different targets or images")
-    if baseline.allocator != candidate.allocator or baseline.allocation != candidate.allocation:
-        raise ValueError("resource comparison uses different allocators or allocations")
+    if baseline.allocation != candidate.allocation:
+        raise ValueError("resource comparison uses different allocations")
     if baseline.source == candidate.source:
         raise ValueError("resource comparison does not identify a distinct baseline")
     if kind is MeasurementKind.EXISTING_BASELINE and baseline.source != product_source:
         raise ValueError("existing-command comparison does not use the protected product source")
-    if kind is MeasurementKind.EXISTING_BASELINE and baseline.profile != candidate.profile:
-        raise ValueError("existing-command comparison uses different profiles")
+    if kind is MeasurementKind.EXISTING_BASELINE:
+        if baseline.profile != candidate.profile:
+            raise ValueError("existing-command comparison uses different profiles")
+        if baseline.allocator != candidate.allocator:
+            raise ValueError("existing-command comparison uses different allocators")
     if kind is MeasurementKind.NEW_REFERENCE and baseline.source != package_commit:
         raise ValueError("new-command comparison does not use the qualified util-linux source")
+    if kind is MeasurementKind.NEW_REFERENCE:
+        if baseline.profile != REFERENCE_PROFILE:
+            raise ValueError("new-command comparison does not use the qualified util-linux profile")
+        if baseline.allocator != REFERENCE_ALLOCATOR:
+            raise ValueError("new-command comparison does not identify the util-linux allocator")
 
 
 def _context_core(context: BuildContext) -> tuple[str, str, str, str, str, str]:
@@ -525,6 +545,12 @@ def _require_cpu_threshold(samples: tuple[TimedPair, ...], *, startup: bool = Fa
     if candidate_median - baseline_median > allowance:
         suffix = " including the startup allowance" if startup else ""
         raise ValueError(f"candidate CPU time exceeds the 10%-and-spread limit{suffix}")
+
+
+def _require_peak_rss_threshold(row: MemorySample, comparison: str) -> None:
+    allowance = max(row.baseline_peak_bytes // 10, 8 * _MIB)
+    if row.candidate_peak_bytes - row.baseline_peak_bytes > allowance:
+        raise ValueError(f"candidate peak RSS exceeds the {comparison} limit: {row.command}")
 
 
 def _require_build_threshold(samples: tuple[BuildPair, ...]) -> None:
@@ -613,14 +639,13 @@ def _validate_resource_report(
         if row.kind is MeasurementKind.NEW_REFERENCE:
             if expected_memory.get(row.command) != row.selector:
                 raise ValueError(f"new-command RSS sample does not use its positive fixture: {row.command}")
+            _require_peak_rss_threshold(row, "new-command")
             continue
         if row.command in runtime.COHORT:
             raise ValueError(f"new cohort command has an existing-command RSS baseline: {row.command}")
         existing_memory[(row.command, row.selector)] = row
         if row.kind is MeasurementKind.EXISTING_BASELINE:
-            allowance = max(row.baseline_peak_bytes // 10, 8 * _MIB)
-            if row.candidate_peak_bytes - row.baseline_peak_bytes > allowance:
-                raise ValueError(f"candidate peak RSS exceeds the existing-command limit: {row.command}")
+            _require_peak_rss_threshold(row, "existing-command")
     if not existing_memory:
         raise ValueError("resource report omits existing-command peak RSS measurements")
     expected_regressions = _expected_regression_selectors(runtime, source)
@@ -676,19 +701,28 @@ def _validate_resource_report(
         _validate_timed_pairs(row.samples)
         startup_rows[key] = row
         _require_cpu_threshold(row.samples, startup=True)
-    if set(startup_rows) != set(existing_rows):
-        raise ValueError("startup measurements must cover each existing regression target")
+    _validate_startup_targets(set(startup_rows), expected_regressions)
 
     build = report.timing.build_cost
     _validate_contexts(MeasurementKind.EXISTING_BASELINE, build.baseline, build.candidate,
                        source, runtime.PACKAGE_COMMIT, runtime.PRODUCT_SOURCE)
-    context_pairs.append((MeasurementKind.EXISTING_BASELINE, build.baseline, build.candidate))
     if not build.baseline.cache_state or build.baseline.cache_state != build.candidate.cache_state:
         raise ValueError("build-cost samples use different cache states")
     if build.baseline.compile_jobs <= 0 or build.baseline.compile_jobs != build.candidate.compile_jobs:
         raise ValueError("build-cost samples use different compile concurrency")
     _require_build_threshold(build.samples)
     _require_stable_contexts(context_pairs)
+    _require_stable_contexts([(MeasurementKind.EXISTING_BASELINE, build.baseline, build.candidate)])
+
+
+def _validate_startup_targets(
+    actual: set[tuple[str, str]],
+    regression_selectors: tuple[str, ...],
+) -> None:
+    if actual != set(STARTUP_TARGETS):
+        raise ValueError("startup measurements must cover the fixed command targets exactly")
+    if {selector for _, selector in STARTUP_TARGETS} != set(regression_selectors):
+        raise ValueError("startup command mapping differs from the actual regression declarations")
 
 
 def resources(runtime: AcceptanceRuntime) -> None:

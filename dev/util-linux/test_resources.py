@@ -1,12 +1,26 @@
+import ast
+import json
+import os
 from pathlib import Path
+import select
+import signal
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 import acceptance
 import resources
-from acceptance import GateResult, SourceIdentity
+from acceptance import (
+    BuildContext,
+    GateResult,
+    MeasurementKind,
+    MemorySample,
+    PairOrder,
+    Readiness,
+    SourceIdentity,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -160,6 +174,25 @@ class ProductSignatureTests(unittest.TestCase):
         with self.assertRaises((NotADirectoryError, OSError)):
             resources._product_signature(self.directory / "xsh")
 
+    def test_verification_profile_is_rejected_before_product_reads(self):
+        class Runtime:
+            PRODUCT_SOURCE = "protected-source"
+            IMAGE = "pinned-image"
+
+            def baseline_products(self):
+                return Path("/missing/baseline"), BuildContext(
+                    "protected-source", "release", "target", "pinned-image", "mimalloc", "1cpu/1GiB"
+                )
+
+            def candidate_products(self):
+                return Path("/missing/candidate"), BuildContext(
+                    SOURCE.key, "verification", "target", "pinned-image", "mimalloc", "1cpu/1GiB"
+                )
+
+        with patch.object(resources, "_product_signature", side_effect=AssertionError("product read")):
+            with self.assertRaisesRegex(ValueError, "final release products"):
+                resources._product_pair(Runtime(), SOURCE)
+
 
 class MeasurementProtocolTests(unittest.TestCase):
     def rows(self, regressions=REGRESSIONS):
@@ -215,6 +248,119 @@ class MeasurementProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "nonnumeric measurement"):
             self.parse(rows)
 
+    def test_startup_targets_bind_each_command_to_the_actual_regression_set(self):
+        expected = set(acceptance.STARTUP_TARGETS)
+        regression_selectors = tuple(sorted({selector for _, selector in expected}))
+        acceptance._validate_startup_targets(expected, regression_selectors)
+
+        with self.assertRaisesRegex(ValueError, "fixed command targets exactly"):
+            acceptance._validate_startup_targets(expected - {next(iter(expected))}, regression_selectors)
+        with self.assertRaisesRegex(ValueError, "actual regression declarations"):
+            acceptance._validate_startup_targets(expected, regression_selectors + ("unexpected::test_extra",))
+
+    def test_new_reference_allows_distinct_allocator_but_existing_baseline_does_not(self):
+        reference = BuildContext(
+            "package",
+            acceptance.REFERENCE_PROFILE,
+            "target",
+            "image",
+            acceptance.REFERENCE_ALLOCATOR,
+            "1cpu/1GiB",
+        )
+        candidate = BuildContext(SOURCE.key, "release", "target", "image", "mimalloc", "1cpu/1GiB")
+        acceptance._validate_contexts(
+            acceptance.MeasurementKind.NEW_REFERENCE,
+            reference,
+            candidate,
+            SOURCE,
+            "package",
+            "product",
+        )
+        for invalid, reason in (
+            (
+                BuildContext("package", "unqualified", "target", "image", acceptance.REFERENCE_ALLOCATOR, "1cpu/1GiB"),
+                "qualified util-linux profile",
+            ),
+            (
+                BuildContext("package", acceptance.REFERENCE_PROFILE, "target", "image", "unknown", "1cpu/1GiB"),
+                "util-linux allocator",
+            ),
+        ):
+            with self.subTest(reference=invalid), self.assertRaisesRegex(ValueError, reason):
+                acceptance._validate_contexts(
+                    acceptance.MeasurementKind.NEW_REFERENCE,
+                    invalid,
+                    candidate,
+                    SOURCE,
+                    "package",
+                    "product",
+                )
+
+        baseline = BuildContext("product", "release", "target", "image", "jemalloc", "1cpu/1GiB")
+        with self.assertRaisesRegex(ValueError, "different allocators"):
+            acceptance._validate_contexts(
+                acceptance.MeasurementKind.EXISTING_BASELINE,
+                baseline,
+                candidate,
+                SOURCE,
+                "package",
+                "product",
+            )
+
+    def test_peak_rss_cap_applies_to_new_reference_and_existing_commands(self):
+        context = BuildContext("source", "release", "target", "image", "allocator", "1cpu/1GiB")
+        baseline = 100 * 1024 * 1024
+        allowance = baseline // 10
+        for kind, comparison in (
+            (MeasurementKind.NEW_REFERENCE, "new-command"),
+            (MeasurementKind.EXISTING_BASELINE, "existing-command"),
+        ):
+            with self.subTest(kind=kind):
+                at_limit = MemorySample(
+                    "command", "selector", kind, baseline, baseline + allowance, context, context
+                )
+                acceptance._require_peak_rss_threshold(at_limit, comparison)
+                over_limit = MemorySample(
+                    "command", "selector", kind, baseline, baseline + allowance + 1, context, context
+                )
+                with self.assertRaisesRegex(ValueError, f"{comparison} limit"):
+                    acceptance._require_peak_rss_threshold(over_limit, comparison)
+
+    def test_timed_pair_requires_exact_target_completion_and_readiness(self):
+        before = Readiness(0, b"", b"", True)
+        after = Readiness(0, b"", b"", True)
+        output = b"timing\tlslocks\ttest_lslocks_blocker_flock\t100\t110\t0\t0\t1\t1\n"
+        pair = resources._parse_timed_pair(
+            output,
+            "lslocks",
+            "test_lslocks_blocker_flock",
+            PairOrder.BASELINE_FIRST,
+            before,
+            after,
+        )
+        self.assertEqual((pair.baseline_cpu_ns, pair.candidate_cpu_ns), (100, 110))
+        self.assertIs(pair.before, before)
+        self.assertIs(pair.after, after)
+        self.assertIs(pair.order, PairOrder.BASELINE_FIRST)
+
+        invalid = (
+            (output.replace(b"lslocks", b"unknown", 1), "unexpected measurement target"),
+            (output.replace(b"\t0\t0\t1\t1", b"\t1\t0\t1\t1"), "failed process"),
+            (output.replace(b"\t1\t1\n", b"\t0\t1\n"), "changed output or state"),
+            (output + output, "exactly one paired sample"),
+            (b"timing\tlslocks\ttest_lslocks_blocker_flock\t0\t1\t0\t0\t1\t1\n", "no positive CPU sample"),
+        )
+        for observed, reason in invalid:
+            with self.subTest(reason=reason), self.assertRaisesRegex(ValueError, reason):
+                resources._parse_timed_pair(
+                    observed,
+                    "lslocks",
+                    "test_lslocks_blocker_flock",
+                    PairOrder.BASELINE_FIRST,
+                    before,
+                    after,
+                )
+
 
 class EffectBoundaryTests(unittest.TestCase):
     def test_readiness_uses_the_named_program_and_preserves_quiet_result(self):
@@ -228,6 +374,205 @@ class EffectBoundaryTests(unittest.TestCase):
 
         self.assertTrue(ready.host_quiet)
         self.assertEqual(calls, [(["/tools/perf-gate-ready", "-1"], {"capture_output": True, "check": False, "timeout": 30})])
+
+    def test_busy_pre_readiness_skips_child_and_post_readiness(self):
+        calls = []
+
+        def readiness(program, arguments):
+            calls.append([str(program), *arguments])
+            return Readiness(1, b"busy", b"", False)
+
+        class Runtime:
+            def container(self, *args, **kwargs):
+                raise AssertionError("measurement ran while host was busy")
+
+        with patch.object(resources, "_readiness", side_effect=readiness):
+            result = resources._readied_container(
+                Runtime(),
+                Path("/tools/perf-gate-ready"),
+                "measurement",
+                mounts=[],
+                capabilities=[],
+                timeout=1,
+            )
+
+        self.assertIsNone(result)
+        self.assertEqual(calls, [["/tools/perf-gate-ready"]])
+
+    def test_readied_container_checks_the_host_immediately_after_child(self):
+        calls = []
+
+        def readiness(program, arguments):
+            calls.append([str(program), *arguments])
+            return Readiness(0, b"", b"", True)
+
+        class Runtime:
+            def container(self, script, **kwargs):
+                calls.append((script, kwargs))
+                return b"measured"
+
+        with patch.object(resources, "_readiness", side_effect=readiness):
+            result = resources._readied_container(
+                Runtime(),
+                Path("/tools/perf-gate-ready"),
+                "measurement",
+                mounts=["mount"],
+                capabilities=["SYS_ADMIN"],
+                timeout=9,
+                cpus=2,
+                memory_gib=8,
+            )
+
+        self.assertEqual(result[0], b"measured")
+        self.assertEqual(calls[0], ["/tools/perf-gate-ready"])
+        self.assertEqual(calls[1], (
+            "measurement",
+            {
+                "mounts": ["mount"],
+                "capabilities": ["SYS_ADMIN"],
+                "timeout": 9,
+                "cpus": 2,
+                "memory_gib": 8,
+            },
+        ))
+        self.assertEqual(calls[2], ["/tools/perf-gate-ready", "-1"])
+
+    def test_readied_container_runs_post_gate_even_when_child_fails(self):
+        calls = []
+
+        def readiness(program, arguments):
+            calls.append([str(program), *arguments])
+            return Readiness(0, b"", b"", True)
+
+        class Runtime:
+            def container(self, *args, **kwargs):
+                raise RuntimeError("measurement failed")
+
+        with patch.object(resources, "_readiness", side_effect=readiness):
+            with self.assertRaisesRegex(RuntimeError, "measurement failed"):
+                resources._readied_container(
+                    Runtime(),
+                    Path("/tools/perf-gate-ready"),
+                    "measurement",
+                    mounts=[],
+                    capabilities=[],
+                    timeout=1,
+                )
+        self.assertEqual(calls, [["/tools/perf-gate-ready"], ["/tools/perf-gate-ready", "-1"]])
+
+    def test_post_readiness_error_does_not_hide_measurement_failure(self):
+        calls = []
+
+        def readiness(program, arguments):
+            calls.append(tuple(arguments))
+            if arguments:
+                raise OSError("readiness command failed")
+            return Readiness(0, b"", b"", True)
+
+        class Runtime:
+            def container(self, *args, **kwargs):
+                raise RuntimeError("measurement failed")
+
+        with patch.object(resources, "_readiness", side_effect=readiness):
+            with self.assertRaisesRegex(RuntimeError, "measurement failed") as raised:
+                resources._readied_container(
+                    Runtime(),
+                    Path("/tools/perf-gate-ready"),
+                    "measurement",
+                    mounts=[],
+                    capabilities=[],
+                    timeout=1,
+                )
+        self.assertEqual(calls, [(), ("-1",)])
+        self.assertTrue(any("post-measurement readiness failed" in note for note in raised.exception.__notes__))
+
+    def test_generated_container_programs_are_valid_python(self):
+        driver = resources._driver_source(REGRESSIONS, COHORT)
+        compile(driver, "resource-driver", "exec")
+        build = resources._build_driver_source(
+            {"baseline": (("xsh", "a" * 64),), "candidate": (("xsh", "b" * 64),)},
+            PairOrder.BASELINE_FIRST,
+            0,
+        )
+        compile(build, "build-driver", "exec")
+
+    def test_keeper_startup_failure_reaps_child_and_closes_pipes(self):
+        tree = ast.parse(resources._driver_source(REGRESSIONS, COHORT))
+        start_keeper = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "start_keeper"
+        )
+        namespace = {
+            "selectors": resources.selectors if hasattr(resources, "selectors") else __import__("selectors"),
+            "os": os,
+            "time": __import__("time"),
+            "subprocess": subprocess,
+            "signal": __import__("signal"),
+            "json": json,
+            "ENV": os.environ.copy(),
+        }
+        function = ast.fix_missing_locations(ast.Module(body=[start_keeper], type_ignores=[]))
+        exec(compile(function, "start-keeper-control", "exec"), namespace)
+        original_popen = subprocess.Popen
+        children = []
+
+        def spawn(*args, **kwargs):
+            child = original_popen(*args, **kwargs)
+            children.append(child)
+            return child
+
+        with patch.object(subprocess, "Popen", side_effect=spawn):
+            with self.assertRaises(json.JSONDecodeError):
+                namespace["start_keeper"]([sys.executable, "-c", "print('invalid', flush=True)"])
+
+        self.assertEqual(len(children), 1)
+        child = children[0]
+        self.assertIsNotNone(child.poll())
+        self.assertTrue(child.stdin.closed)
+        self.assertTrue(child.stdout.closed)
+        self.assertTrue(child.stderr.closed)
+
+    def test_keeper_request_failure_terminates_reaps_and_closes_pipes(self):
+        tree = ast.parse(resources._driver_source(REGRESSIONS, COHORT))
+        finish_keeper = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "finish_keeper"
+        )
+        namespace = {
+            "os": os,
+            "subprocess": subprocess,
+            "signal": signal,
+        }
+        module = ast.fix_missing_locations(ast.Module(body=[finish_keeper], type_ignores=[]))
+        exec(compile(module, "finish-keeper-control", "exec"), namespace)
+        child = subprocess.Popen(
+            [sys.executable, "-c", "import os,time; os.close(0); print('ready', flush=True); time.sleep(20)"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+            start_new_session=True,
+        )
+        try:
+            ready, _, _ = select.select([child.stdout], [], [], 2)
+            self.assertTrue(ready, "keeper child did not announce its closed-input state")
+            self.assertEqual(child.stdout.readline(), b"ready\n")
+            with self.assertRaises(BrokenPipeError):
+                namespace["finish_keeper"](child, "DONE")
+            self.assertIsNotNone(child.poll())
+            self.assertTrue(child.stdin.closed)
+            self.assertTrue(child.stdout.closed)
+            self.assertTrue(child.stderr.closed)
+        finally:
+            if child.poll() is None:
+                try:
+                    os.killpg(child.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                child.wait(timeout=2)
+            for pipe in (child.stdin, child.stdout, child.stderr):
+                if pipe is not None and not pipe.closed:
+                    pipe.close()
 
     def test_dirty_source_stops_resource_and_close_effects(self):
         class Runtime:
