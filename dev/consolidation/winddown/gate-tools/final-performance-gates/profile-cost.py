@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Measure the selected release opt-level 3 build plus native-suite cost."""
+"""Qualify release opt3 artifacts or measure their build and native-suite cost."""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import argparse
 from datetime import datetime, timezone
 import fcntl
@@ -307,12 +307,12 @@ def perf_gate_check(after=False):
     }
 
 
-def run_stage(command, log, *, run_id, stage, verify_after=None):
+def run_stage(command, log, *, run_id, stage, verify_after=None, measure_timing=True):
     cidfile = log.with_suffix(".cid")
     cidfile.unlink(missing_ok=True)
     owned_command = owned_docker_command(command, cidfile=cidfile, owner=run_id, stage=stage)
-    precheck = perf_gate_check()
-    if precheck["exit_code"] != 0:
+    precheck = perf_gate_check() if measure_timing else None
+    if measure_timing and precheck["exit_code"] != 0:
         return {
             "command": owned_command,
             "status": None,
@@ -327,7 +327,7 @@ def run_stage(command, log, *, run_id, stage, verify_after=None):
     stage_validation = None
     validation_error = None
     try:
-        started = time.perf_counter_ns()
+        started = time.perf_counter_ns() if measure_timing else None
         with log.open("wb") as output:
             process = subprocess.Popen(
                 owned_command,
@@ -339,8 +339,8 @@ def run_stage(command, log, *, run_id, stage, verify_after=None):
                 process,
                 lambda: cleanup_cidfile_container(cidfile, owner=run_id, stage=stage),
             )
-        elapsed = time.perf_counter_ns() - started
-        postcheck = perf_gate_check(after=True)
+        elapsed = time.perf_counter_ns() - started if started is not None else None
+        postcheck = perf_gate_check(after=True) if started is not None else None
         if verify_after is not None:
             try:
                 stage_validation = verify_after()
@@ -398,8 +398,8 @@ def run_stage(command, log, *, run_id, stage, verify_after=None):
         cleanup = cleanup_cidfile_container(cidfile, owner=run_id, stage=stage)
     if cleanup["resolved"]:
         cidfile.unlink(missing_ok=True)
-    accepted = postcheck["exit_code"] == 0 and cleanup["resolved"] and validation_error is None
-    return {
+    accepted = postcheck is not None and postcheck["exit_code"] == 0 and cleanup["resolved"] and validation_error is None
+    result = {
         "command": owned_command,
         "status": status,
         "wall_ns": elapsed if accepted else None,
@@ -413,6 +413,9 @@ def run_stage(command, log, *, run_id, stage, verify_after=None):
         "stage_validation": stage_validation,
         "stage_validation_error": validation_error,
     }
+    if not measure_timing:
+        result["timing_discard_reason"] = "artifacts-only mode"
+    return result
 
 
 def profile_build(tree, target_dir, level, cpus, image, repository_tmp):
@@ -493,7 +496,7 @@ def run(args):
         raise ValueError("choose a new output path under the source tree's .work/consolidation")
     run_id = secrets.token_hex(16)
     ownership = exclusive_lock(PROFILE_LOCK, reject_unresolved=True)
-    native_suite_lock = exclusive_lock(INFRA / "native-suite.lock")
+    native_suite_lock = nullcontext() if args.artifacts_only else exclusive_lock(INFRA / "native-suite.lock")
     with ownership as ownership_stream, native_suite_lock, repository_tmp_dir(run_id) as repository_tmp:
         no_active_native_containers(image["image_id"])
         output.mkdir(parents=True)
@@ -504,7 +507,7 @@ def run(args):
             "run_id": run_id,
             "ownership_lock": str(PROFILE_LOCK),
             "native_suite_lock": str(INFRA / "native-suite.lock"),
-            "native_suite_lock_held_across_gate": True,
+            "native_suite_lock_held_across_gate": not args.artifacts_only,
             "source_commit": args.commit,
             "source_tree": str(tree),
             "source_status": "clean",
@@ -516,12 +519,16 @@ def run(args):
             "kache_cache_volume": "xsh-consolidation-kache",
             "toolchain": {"clang_driver": image["clang_driver"], **image["tool_hashes"]},
             "resources": {"host_allowed_cpus": allowed_cpus, "cpuset_cpus": cpus, "cpu_limit": CPU_LIMIT, "memory_limit": MEMORY_LIMIT, "memory_swap_limit": MEMORY_LIMIT, "cargo_build_jobs": CPU_LIMIT},
-            "timing_claim_policy": "one-shot profile timings are resource and correctness diagnostics only; they do not support speed comparisons or profile selection",
+            "timing_claim_policy": "artifacts-only mode does not measure timing" if args.artifacts_only else "one-shot profile timings are resource and correctness diagnostics only; they do not support speed comparisons or profile selection",
             "cargo_lock_sha256": digest(tree / "Cargo.lock"),
             "cargo_toml_sha256": digest(tree / "Cargo.toml"),
             "rust_toolchain_sha256": digest(tree / "rust-toolchain.toml"),
             "results": [],
         }
+        if args.artifacts_only:
+            receipt["qualification_mode"] = "artifacts-only"
+            tool_path = Path(__file__).resolve()
+            receipt["qualification_tool"] = {"path": str(tool_path), "sha256": digest(tool_path)}
         write_json(receipt_path, receipt)
         try:
             for level in (PROFILE_OPT_LEVEL,):
@@ -538,6 +545,7 @@ def run(args):
                         run_id=run_id,
                         stage=f"release-opt{level}-build",
                         verify_after=lambda: verify_profile_stage(tree, source_identity, binaries),
+                        measure_timing=not args.artifacts_only,
                     )
                 result = {"name": f"release-opt{level}", "profile": "release", "opt_level": level, "lto": "thin", "codegen_units": 16, "build_command": build["command"], "build": build}
                 receipt["results"].append(result)
@@ -548,14 +556,25 @@ def run(args):
                 if not build["container_cleanup"]["resolved"]:
                     terminal_receipt(receipt, receipt_path, ownership_stream, run_id, "incomplete-cleanup", f"container cleanup after release opt{level} build could not be verified", build["container_cleanup"])
                     return 1
-                if not build["timing_accepted"]:
+                if not args.artifacts_only and not build["timing_accepted"]:
                     reason = build.get("stage_validation_error") or "performance readiness or cleanup validation failed"
                     raise ValueError(f"release opt{level} build timing was discarded: {reason}")
+                if args.artifacts_only and build.get("stage_validation_error"):
+                    raise ValueError(f"release opt{level} build validation failed: {build['stage_validation_error']}")
                 if build["status"] != 0:
                     raise ValueError(f"release opt{level} build failed; inspect {profile_dir / 'build.log'}")
                 result["binaries"] = build["stage_validation"]["binary_hashes"]
                 result["container_resources"] = probe_profile_resources(tree, target_dir, cpus, image["image_id"], binaries["xsh"], run_id=run_id, output_dir=profile_dir, repository_tmp=repository_tmp)
                 verify_profile_stage(tree, source_identity, binaries, result["binaries"])
+                if args.artifacts_only:
+                    tool = receipt["qualification_tool"]
+                    if digest(Path(tool["path"])) != tool["sha256"]:
+                        raise ValueError("artifacts-only profile tool changed during qualification")
+                    receipt["state"] = "artifact-qualified"
+                    receipt["finished_utc"] = datetime.now(timezone.utc).isoformat()
+                    write_json(receipt_path, receipt)
+                    print(json.dumps(receipt, sort_keys=True))
+                    return 0
                 test_command = profile_test(tree, target_dir, cpus, image["image_id"], repository_tmp)
                 no_active_native_containers(image["image_id"])
                 test = run_stage(
@@ -618,6 +637,7 @@ def main():
     parser.add_argument("--commit", required=True)
     parser.add_argument("--functional-close", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--artifacts-only", action="store_true", help="write a separate artifact-qualified opt3 receipt without timing or running the native suite")
     args = parser.parse_args()
     previous = install_signal_handlers()
     try:

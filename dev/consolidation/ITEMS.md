@@ -4,18 +4,108 @@ Approved campaign: `CAMPAIGN.md`. Start commit:
 `5e66b6b896a47d0c692739135d51200b007a2a67`. The accepted designs and historical
 ownership records remain below. The [handoff](HANDOFF.md) owns the live queue.
 
-**Current status: candidate assembled on 2026-10-17.** The
-[active handoff](HANDOFF.md#active-candidate) owns the exact pins and live
-queue. The candidate is not frozen or accepted. Its canonical attempt on
-`3c0c01206` failed during XSHT integration on a desugared tail stress fixture,
-before the full native suite or privileged harness. Root accepted the
-fixture-only repair at `16abfbed3`; the focused deterministic probe and
-written/desugared checks remain pending with the tail owner. Seven QEMU cases
-are accepted for exact source `0deeb9c7`; W9 parity is accepted for exact
-sources `0deeb9c7` and
-`0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4`. The later assembled candidate
-needs its own source-bound W9 qualification. Lean and Phase F remain paused;
-inference remains isolated from main.
+**Current status: active frozen source `7eb62cd99`.** Main and the frozen
+candidate use tree `736b4bc16b1bcf07a0250b97e849506c19fb0753`. The
+[active handoff](HANDOFF.md#active-candidate) owns exact pins and the live
+queue.
+
+The accepted b235 canonical result has 13,916 passes, 78 skips, and zero
+failures across 13,994 cases. Phase A reuses it for 7eb because only two
+test-only permission spellings changed. The b235 receipt remains pinned to its
+original source.
+
+The first b235 R6 attempt failed at stage 6 of 13 on two Clippy warnings after
+five passing stages. Stages 7–13 did not run. On 7eb, the fresh R6 run exited
+zero at all 13 stages and root accepted it. It recorded 23 boundaries, 58
+extra cases with three ignored, two split checks, two privileged checks, and
+18 traceroute cases with two `NET_RAW` skips. The [R6 evidence index](winddown/evidence/final-correctness-gates/README.md) preserves the failed b235 attempt and accepted 7eb run.
+
+Phase A reuses the seven accepted QEMU cases for 7eb by scope. R6 products use
+a separate variant and are not compared with the protected canonical
+products. No 7eb canonical build or QEMU guest run is claimed. The accepted
+tail repair passed all eight written/desugared selectors. W9 parity at
+`0deeb9c7` remains reusable under Phase A; the b235 input-0 probe is not a
+full-corpus result, and the interrupted 3c repeat earns no credit.
+
+Compatibility origins and exclusions reconcile to frozen denominators. No
+new upstream pass is claimed. All 428 route invocations and 856 source checks
+passed on 7eb. The final strict matrix has 152 rows, zero gaps, zero unmapped
+paths, 188 XSH proofs, and one separate direct-IR `ExprIf` proof. See the
+[accepted matrix](winddown/evidence/route-replay-7eb62cd99/direct-ir-admission/README.md).
+Root accepted functional close for the exact 7eb source/tree; its immutable
+receipt is [archived here](evidence/closure-b235a1a43/functional-close-7eb62cd993e578c13bf6befd68a6a6ac15133c78.json).
+
+The root residual has 36 distinct passes across 37 executions. The Unix-socket
+`sun_path` selector passed through an owned `/t` alias; the namespace case and
+both positive `NET_RAW` cases passed under root with `CAP_NET_RAW`. Initial
+Git-guard attempts selected zero tests and earn no credit. See the [residual
+evidence](evidence/linux-residual-0deeb9c7/README.md). Root accepted the
+`profile-cost.py --artifacts-only` and `final-observers.py --resources-only`
+modes, and the accepted controller changes are integrated. R3's resources-only
+observer failed after starting one full native suite: 13,914 passed, two failed
+and 78 were skipped. Cleanup resolved with no OOM, but R3 earns no resource
+credit. See the [R3 archive](evidence/resource-observer-r3-7eb62cd9/README.md).
+Root accepted lifecycle fix
+`f4a9fb92f0976ed8fa6680f4ed8597180cc93f32` and factor repair `587814f274e` in
+isolated candidate `3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`. The lifecycle
+reproduction is archived [here](evidence/lifecycle-profile-r3/README.md). The
+candidate is outside main. Its post-integration lifecycle and non-Unicode
+selectors each passed once, but `test_uu_factor_parallel` timed out again at
+120 seconds. It is not qualified; no new seal or R4 has started. The run
+observed a 260,632,576-byte cgroup memory peak (about 249 MiB), zero OOM and
+OOM-kill counts, stable guards, absent owned containers, and the original lock
+released; Docker reported no OOM. Build overlap lasted 51 seconds and then
+three seconds on disjoint CPU sets, which does not establish the cause. A
+stronger read-only factor-cost diagnosis and a quiet rerun after build drain
+remain pending.
+No timed run has started. **perf gate deferred: host
+busy**. Binary-size and final resource evidence remain pending. Lean and Phase F
+stay paused. Inference remains isolated until consolidation closes.
+
+Phase D remains isolated at checkpoint `877`, commit
+`338b82238a67ee36dd1b025b7a923f9fc5d2da40`, on pair
+`a972c8d139ecbb43174271842988eefb2c8638cc`. It removed 348/693 local and
+529/2,190 internal annotations. All eleven annotated and eleven reduced root
+checks pass. The original 13-case native trial had 12 passes and one lifecycle
+failure because `flock` was absent from the historical `ddc` test PATH. Root
+accepted all 26 unique paired behavior slots in proof
+`54956efd7925818d7c70f82d0c74fa4669eaf1db` across 28 executions: 27 passes
+and the preserved original lifecycle-fixture failure, including one duplicate
+reduced lifecycle execution. The original view's 13 slots comprise 12
+unchanged passes and the corrected lifecycle pass; the final reduced matrix
+passes all 13. See the [paired behavior proof](evidence/typing-corpus-host-obligations/README.md#paired-behavior-acceptance).
+The accepted helper and call correction
+`3059676c39aca75a126893e81d8fcecf96e8d912` changes no assertions and
+stays outside the 48 program sources. Targets remain unmet, and all 202
+eligible effects remain retained. Host component `5277` has conditional
+acceptance for its six exact native checks at proof
+`1edf4ee50c093323accc03f9355bd83795bbfdba`, with guarded source/product
+identity and cleanup; see [host native evidence](evidence/typing-host-native6/README.md).
+The generic-body lane remains unqualified.
+The accepted `877` candidate remains the only one with full paired runtime
+qualification. The source-only `891` plan remains source-validated only. The
+`986` Set candidate passes accepted check/lowering on source `020f` for 457 of
+693 local removals, including 109 added mutable `Set[Str]` annotations, and 529
+of 2,190 internal removals. Its 26 exact behavior witnesses pass, 13 per view.
+That bounded run does not complete Set feature qualification. API fixture
+`a4418a5253dd557f7a96419f4212b09dd29084a1` passes. The documentation slot
+verifier rejects valid nested destructuring for `5277` and `020f`. Repair source
+`2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has qualified source-bound products;
+the minimal SPEC 18 check-only probe now fails because the verifier reports
+`driver slot identity is not the currently visible binding`. The first repair
+added the missing writer slot but exposed a fresh-output versus prior-input
+identity mismatch; the same-name top-level duplicate check also rejects. The
+owner is tracing the output-slot representation, and no rebuild is authorized
+before root reviews a source proposal. The original wrapper cleanup-check
+failure is preserved separately. Full removal credit remains 877. The
+1,065-site collection plan remains red with 92 reduced-XSH diagnostics on
+`76caa` and earns no count. The original `749` rejection remains preserved.
+See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
+[Set qualification](typing-corpus/README.md#independent-mutable-set-candidate),
+[Set evidence](evidence/typing-corpus-host-obligations/mutable-sets/README.md), and
+[empty-record decision](typing-corpus/README.md#empty-record-contract).
+Inference remains isolated. See the [active handoff](HANDOFF.md#active-candidate)
+for the full checkpoint details.
 
 The isolated generic module export slice remains accepted at `8475984a9`.
 Its main merge waits for consolidation closure. Broader inference, corpus

@@ -5593,7 +5593,7 @@ def route_witness_route_id_for_path(
     selected_when = path.get("selected_when")
     if selected_when == "execution.is_in_place(instruction)":
         route_id = "in_place_evaluator_path"
-        return route_id if route_id in route_ids else None
+        return route_id if route_id in route_ids or route_witness_route_allowed(row, mode, route_id) else None
     if selected_when == "execution.is_in_place(instruction) is false":
         frame_route = (
             "explicit_frame_control_path"
@@ -6594,7 +6594,143 @@ def final_correctness_receipts(
     return reusable
 
 
-def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any]) -> dict[str, Any]:
+DIRECT_IR_TEST_ID = "runtime::eval::indexed::full::tests::direct_if_children_are_marked_and_selected"
+DIRECT_IR_FUNCTION_HASHES = {
+    "direct_if_fixture": "544dfe4876f4a42f1369b6fb8ebbde2b69415fc910aa5705ef406dd35487fd73",
+    "direct_if_children_are_marked_and_selected": "012b152df87ea9154885b5286bdb73eb7adb0395a0f1b5ad9606f8ba1a523e3f",
+}
+
+
+def direct_ir_source_matches(root: pathlib.Path, build_source: dict[str, Any], actual: dict[str, Any]) -> bool:
+    commit = build_source.get("commit")
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+        return False
+    if git_value(root, "rev-parse", f"{commit}^{{tree}}") != build_source.get("tree"):
+        return False
+    changed = git_value(root, "diff", "--name-only", commit, actual["head"]).splitlines()
+    if changed:
+        allowed = "crates/xsht/src/cli/files.rs"
+        if changed != [allowed]:
+            return False
+        before = git_value(root, "show", f"{commit}:{allowed}")
+        after = git_value(root, "show", f"{actual['head']}:{allowed}")
+        if before != after.replace("from_mode(0o0)", "from_mode(0)"):
+            return False
+    source = (root / PIPELINE_STAGE_SOURCE_PATH).read_text()
+    return all(
+        sha256_bytes(rust_function_body(source, name).encode()) == digest
+        for name, digest in DIRECT_IR_FUNCTION_HASHES.items()
+    )
+
+
+def direct_ir_route_receipt(
+    root: pathlib.Path, path: pathlib.Path, actual: dict[str, Any], row: dict[str, Any]
+) -> dict[str, Any]:
+    try:
+        return validate_direct_ir_route_receipt(root, path, actual, row)
+    except (AttributeError, KeyError, TypeError, ValueError, OSError, subprocess.CalledProcessError) as error:
+        raise EvidenceError(f"invalid direct IR receipt: {error}") from error
+
+
+def validate_direct_ir_route_receipt(
+    root: pathlib.Path, path: pathlib.Path, actual: dict[str, Any], row: dict[str, Any]
+) -> dict[str, Any]:
+    receipt = json.loads(path.read_text(), object_pairs_hook=duplicate_json_object)
+    if not isinstance(receipt, dict):
+        raise EvidenceError("direct IR receipt must be an object")
+    identity = {"commit": actual["head"], "tree": actual["tree"]}
+    if receipt.get("source_expected") != identity:
+        raise EvidenceError("direct IR receipt source does not match current source")
+    product = receipt.get("qualified_product", {})
+    build_source = product.get("build_source", {})
+    if not direct_ir_source_matches(root, build_source, actual):
+        raise EvidenceError("direct IR harness build source does not match reviewed input scope")
+    build_ref = product.get("build_receipt", {})
+    build_path = pathlib.Path(build_ref.get("path", ""))
+    if not build_path.is_absolute() or sha256_file(build_path) != build_ref.get("sha256"):
+        raise EvidenceError("direct IR canonical build receipt digest mismatch")
+    build = json.loads(build_path.read_text(), object_pairs_hook=duplicate_json_object)
+    if (
+        build.get("source_expected") != build_source
+        or build.get("status") != "passed"
+        or type(build.get("exit_code")) is not int
+        or build["exit_code"] != 0
+    ):
+        raise EvidenceError("direct IR harness has no successful source-matched canonical build")
+    binary = pathlib.Path(product.get("path", ""))
+    digest = product.get("sha256")
+    if (
+        not binary.is_absolute() or binary.is_symlink() or not binary.is_file()
+        or not os.access(binary, os.X_OK) or sha256_file(binary) != digest
+    ):
+        raise EvidenceError("direct IR harness product digest mismatch")
+    stderr_ref = build.get("logs", {}).get("stderr", {})
+    stderr_path = (build_path.parent / stderr_ref.get("path", "")).resolve(strict=True)
+    if not stderr_path.is_relative_to(build_path.parent.resolve()) or sha256_file(stderr_path) != stderr_ref.get("sha256"):
+        raise EvidenceError("direct IR canonical build stderr digest mismatch")
+    suffix = pathlib.PurePath("target", *binary.parts[binary.parts.index("x86_64-unknown-linux-musl"):]).as_posix()
+    stderr = stderr_path.read_text()
+    if any(f"{prefix} unittests src/lib.rs ({suffix})" not in stderr for prefix in ("Executable", "Running")):
+        raise EvidenceError("direct IR product was not the canonical Rust library harness")
+    hashes = receipt.get("hashes", {})
+    if any(hashes.get(phase, {}).get("xsh-lib") != digest for phase in ("binaries_before_tests", "binaries_after_tests")):
+        raise EvidenceError("direct IR harness changed across execution")
+    steps = receipt.get("steps", [])
+    if not isinstance(steps, list) or len(steps) != 1 or not receipt_steps_are_unique(steps):
+        raise EvidenceError("direct IR proof requires one unique exact-test step")
+    step = steps[0]
+    argv = step.get("argv", [])
+    env = step.get("env", {})
+    if (
+        argv[:3] != [str(binary), DIRECT_IR_TEST_ID, "--exact"]
+        or argv[3:] not in ([], ["--nocapture"], ["--test-threads=1"], ["--nocapture", "--test-threads=1"])
+        or not isinstance(env, dict)
+        or set(env) - {"TMPDIR", "LC_ALL", "TZ"}
+        or any(not isinstance(value, str) for value in env.values())
+        or any(type(step.get(key)) is not int or step[key] != 0 for key in ("exit_code", "process_exit_code"))
+    ):
+        raise EvidenceError("direct IR execution must successfully select the exact Rust test")
+    checks = receipt.get("source_checks", [])
+    if not isinstance(checks, list) or len(checks) != 2:
+        raise EvidenceError("direct IR execution needs clean before/after source checks")
+    for phase in ("before", "after"):
+        expected = {"where": f"{phase}:{step['id']}", "head": actual["head"], "tree": actual["tree"], "status": ""}
+        if sum(isinstance(check, dict) and check.get("clean") is True and all(check.get(key) == value for key, value in expected.items()) for check in checks) != 1:
+            raise EvidenceError("direct IR execution source check mismatch")
+    stdout = receipt_step_log_stdout(root, step)
+    if stdout is None:
+        raise EvidenceError("direct IR execution log digest mismatch")
+    output = stdout.decode("utf-8", errors="strict")
+    if (
+        re.findall(r"(?m)^running (\d+) tests?$", output) != ["1"]
+        or re.findall(r"(?m)^test ([^\n]+) \.\.\. ([^\n]+)$", output) != [(DIRECT_IR_TEST_ID, "ok")]
+        or len(re.findall(r"(?m)^test result:", output)) != 1
+        or len(re.findall(r"(?m)^test result: ok\. 1 passed; 0 failed; 0 ignored; 0 measured; \d+ filtered out; finished in [^\n]+$", output)) != 1
+    ):
+        raise EvidenceError("direct IR log does not prove one selected successful Rust test")
+    if row.get("tag") != "ExprIf" or not route_witness_route_allowed(row, "normal", "in_place_evaluator_path"):
+        raise EvidenceError("direct IR proof does not match the schema route")
+    return {
+        "proof_kind": "direct_ir_rust_test", "tag": "ExprIf", "mode": "normal",
+        "route_id": "in_place_evaluator_path", "test_id": DIRECT_IR_TEST_ID,
+        "receipt": str(path.resolve()), "receipt_sha256": sha256_file(path),
+        "product": product, "step": step["id"], "log_sha256": step["log_sha256"],
+        "reviewed_function_hashes": DIRECT_IR_FUNCTION_HASHES,
+    }
+
+
+def attach_direct_ir_route_evidence(
+    rows: list[dict[str, Any]], evidence: dict[str, Any], proof: dict[str, Any]
+) -> None:
+    row = next(row for row in rows if row["tag"] == proof["tag"])
+    row["direct_ir_route_evidence"] = proof
+    mode_evidence = evidence[proof["tag"]][proof["mode"]]
+    mode_evidence.setdefault("routes", {})[proof["route_id"]] = {
+        "status": "credited", "proof_kind": "direct_ir_rust_test", "witnesses": [proof],
+    }
+
+
+def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any], direct_ir_receipt: pathlib.Path | None = None) -> dict[str, Any]:
     unmapped_paths = defensive_path_inventory(config)
     source_paths = source_lock_paths(config)
     actual = source_snapshot(root, source_paths)
@@ -7095,6 +7231,10 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
         row["runtime_operand_order"]["source_order_execution"] = order_execution
 
     route_path_evidence = build_route_path_evidence(routed, route_witness_reusable)
+    if direct_ir_receipt is not None:
+        direct_row = next(row for row in routed if row["tag"] == "ExprIf")
+        proof = direct_ir_route_receipt(root, direct_ir_receipt, actual, direct_row)
+        attach_direct_ir_route_evidence(routed, route_path_evidence, proof)
     for row in routed:
         row["execution_paths"]["evidence"] = route_path_evidence[row["tag"]]
     rows_by_tag = {row["tag"]: row for row in routed}
@@ -7469,6 +7609,14 @@ def build_matrix(root: pathlib.Path, config: dict[str, Any], lock: dict[str, Any
             "binary, its successful step argv is the exact row oracle command, step IDs are unique, "
             "the force-frame environment matches the mode, and a log hash is present. The launcher plan is not a receipt."
         ),
+        "direct_ir_receipt_policy": (
+            "An explicitly supplied direct-IR receipt credits only the normal ExprIf in-place route. "
+            "It requires the reviewed Rust fixture and route assertions, unchanged harness build inputs, "
+            "a successful canonical library-harness build, an unchanged executable digest, clean current "
+            "source before and after execution, and a digest-verified log selecting exactly that passing test. "
+            "The only permitted build-source difference is the equivalent XSHT from_mode(0) to from_mode(0o0) spelling. "
+            "This proof is recorded separately from XSH route artifacts."
+        ),
         "route_witness": {
             "artifact_version": 1,
             "candidate_mappings": sum(
@@ -7604,6 +7752,7 @@ def main() -> int:
         help="validate exact route-witness source mappings without building the matrix",
     )
     parser.add_argument("--output", type=pathlib.Path)
+    parser.add_argument("--direct-ir-receipt", type=pathlib.Path, help="admit the reviewed exact Rust direct-IR selection proof separately from XSH artifacts")
     args = parser.parse_args()
     root = args.root.resolve()
     try:
@@ -7636,7 +7785,7 @@ def main() -> int:
             return 0
         lock_path = root / SOURCE_LOCK_RELATIVE
         lock = json.loads(lock_path.read_text(), object_pairs_hook=duplicate_json_object)
-        matrix = build_matrix(root, config, lock)
+        matrix = build_matrix(root, config, lock, args.direct_ir_receipt)
         output = args.output or root / OUTPUT_RELATIVE
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(matrix, indent=2, sort_keys=True) + "\n")

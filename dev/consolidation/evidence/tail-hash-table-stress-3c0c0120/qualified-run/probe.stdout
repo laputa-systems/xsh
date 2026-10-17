@@ -1,0 +1,6 @@
+running 1 tests
+in_place_identity=66307:70280565:10->66307:70280565:10; stderr=
+held_identity=66307:70280565:0; stderr=tail: file: file truncated
+
+core/tests/test-uu-tail-1.xsh::test_tail_hash_table_held_truncate_probe ... ok 1.7s
+test result: ok. 1 passed; 0 failed; 0 skipped

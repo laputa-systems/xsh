@@ -1,0 +1,11 @@
+err[check.local-inference]: generic pure body must directly compose parameter reads or required field projections through generic pure functions
+  /inputs/generic-row-body-gap.xsh:3:49
+  pure append(items: List[Int], row) -> List[Int] { items.push(item(row.value)) }
+                                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ generic pure body must directly compose parameter reads or required field projections through generic pure functions
+
+err[check.local-inference]: material type needs an annotation
+  /inputs/generic-row-body-gap.xsh:3:67
+  pure append(items: List[Int], row) -> List[Int] { items.push(item(row.value)) }
+                                --- type inference started here
+  pure append(items: List[Int], row) -> List[Int] { items.push(item(row.value)) }
+                                                                    ^^^ no unique concrete type is established for this value

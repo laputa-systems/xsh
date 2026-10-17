@@ -1,0 +1,5 @@
+err[compact.indexed-build]: this function cannot be compiled yet: call `line.split`
+  /repo/.work/wt/typing-host-obligations/.work/tmp/typing-host-obligations/indirect-trim-reduced.xsh:7:17
+      for word in line.split("\t") { count += 1 }
+                  ^^^^^^^^^^ this function cannot be compiled yet: call `line.split`
+xsht check: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s, check 0.00s, lower 0.00s)

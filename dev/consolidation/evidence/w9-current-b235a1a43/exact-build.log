@@ -1,0 +1,5 @@
+exact_helper=/home/josh/d/laputa-systems/xsh/dev/consolidation/w9-publication-exact-owners.rs sha256=8056e761741414339cd10ffb6f2440aaeceeae63efa6eb3eca738af86949a048
+reference_binary=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-b235a1a43/.work/consolidation/w9-publication-adapter-v1-m9whfj2j/w9-publication-adapter-reference-e240efad273f
+reference_build_receipt=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-b235a1a43/.work/consolidation/w9-publication-adapter-v1-m9whfj2j/w9-publication-adapter-reference-e240efad273f.receipt
+candidate_binary=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-b235a1a43/.work/consolidation/w9-publication-adapter-v1-m9whfj2j/w9-publication-adapter-candidate-b235a1a43d06
+candidate_build_receipt=/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-b235a1a43/.work/consolidation/w9-publication-adapter-v1-m9whfj2j/w9-publication-adapter-candidate-b235a1a43d06.receipt

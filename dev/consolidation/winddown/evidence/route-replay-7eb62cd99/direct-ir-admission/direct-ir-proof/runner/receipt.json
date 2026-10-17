@@ -1,0 +1,61 @@
+{
+  "source_expected": {
+    "commit": "7eb62cd993e578c13bf6befd68a6a6ac15133c78",
+    "tree": "736b4bc16b1bcf07a0250b97e849506c19fb0753"
+  },
+  "qualified_product": {
+    "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-b235a1a43/.work/target-final-canonical/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2",
+    "sha256": "045f2690bf1de99ec55324f458ab2be454e4a581c6dd5d8d1e43b7d110da7d22",
+    "build_source": {
+      "commit": "b235a1a43d06e44580fde4c1b8c58ff27a17ca78",
+      "tree": "08402ddd079228e072f24642fdb82db5196fff11"
+    },
+    "build_receipt": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/canonical-evidence-b235/dev/consolidation/evidence/canonical-b235a1a43/canonical-replay.json",
+      "sha256": "5f316e45b2d716b6272046adbafce80c94bb3180b0e2d5dbd66152092a3c5714"
+    }
+  },
+  "hashes": {
+    "binaries_before_tests": {
+      "xsh-lib": "045f2690bf1de99ec55324f458ab2be454e4a581c6dd5d8d1e43b7d110da7d22"
+    },
+    "binaries_after_tests": {
+      "xsh-lib": "045f2690bf1de99ec55324f458ab2be454e4a581c6dd5d8d1e43b7d110da7d22"
+    }
+  },
+  "source_checks": [
+    {
+      "where": "before:direct-if-route",
+      "head": "7eb62cd993e578c13bf6befd68a6a6ac15133c78",
+      "tree": "736b4bc16b1bcf07a0250b97e849506c19fb0753",
+      "clean": true,
+      "status": ""
+    },
+    {
+      "where": "after:direct-if-route",
+      "head": "7eb62cd993e578c13bf6befd68a6a6ac15133c78",
+      "tree": "736b4bc16b1bcf07a0250b97e849506c19fb0753",
+      "clean": true,
+      "status": ""
+    }
+  ],
+  "steps": [
+    {
+      "id": "direct-if-route",
+      "argv": [
+        "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-b235a1a43/.work/target-final-canonical/x86_64-unknown-linux-musl/debug/build/xsh/692c8c084af82ba2/out/xsh-692c8c084af82ba2",
+        "runtime::eval::indexed::full::tests::direct_if_children_are_marked_and_selected",
+        "--exact"
+      ],
+      "env": {
+        "TMPDIR": "/scratch/tmp",
+        "LC_ALL": "C",
+        "TZ": "UTC"
+      },
+      "exit_code": 0,
+      "process_exit_code": 0,
+      "log": ".work/tmp/direct-if-route-7eb62/step.log",
+      "log_sha256": "a034fdeecf351585f5615b2fcb9a3d9b167f9fc3f645b5ad3c0f9a158926ea10"
+    }
+  ]
+}

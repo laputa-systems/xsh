@@ -1,0 +1,27 @@
+source_commit=7eb62cd993e578c13bf6befd68a6a6ac15133c78
+source_tree=736b4bc16b1bcf07a0250b97e849506c19fb0753
+source_status=clean
+git_common_dir=/home/josh/d/laputa-systems/xsh/.git
+product_xsh_sha256_expected=d817ed7e8e43e5b7db5670068eb6fe76186178416233360aa535a5d07b5917af
+product_xsh_sha256_before=d817ed7e8e43e5b7db5670068eb6fe76186178416233360aa535a5d07b5917af
+product_xsht_sha256_expected=4e0322037add1138f0e3a67f6696e3b27e7ae60ea794f198e0c5ea0d6bae8a6e
+product_xsht_sha256_before=4e0322037add1138f0e3a67f6696e3b27e7ae60ea794f198e0c5ea0d6bae8a6e
+context=standard
+docker_argv= docker run --rm --init --cidfile /home/josh/d/laputa-systems/xsh/.work/wt/linux-residual-0deeb9c7/.work/tmp/linux-residual-standard-12958.cid --name linux-residual-standard-12958 --platform linux/amd64 --network=none --cpus=4 --memory=8g --memory-swap=8g --user=0:0 --group-add=123 --group-add=456 --cap-add=CHOWN --cap-add=SETUID --cap-add=SETGID --cap-add=SETPCAP --cap-add=SYS_CHROOT --cap-add=NET_RAW --cap-drop=SYS_ADMIN --volume /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-7eb62cd99:/repo:ro --volume /home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-7eb62cd99-20261017-r1/target/products/x86_64-unknown-linux-musl/verification:/target:ro --volume /home/josh/d/laputa-systems/xsh/.work/wt/linux-residual-0deeb9c7/.work/tmp:/w/.work/tmp:rw --volume /home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro --workdir=/repo --env XSH_BIN=/target/xsh --env XSHT_BIN=/target/xsht --env SELECTORS=/w/.work/tmp/linux-residual-selectors-default.txt --env EXPECTED_COUNT=35 --env RESULTS=/w/.work/tmp/linux-residual-standard-results.log --env CURRENT=/w/.work/tmp/linux-residual-standard-current.log --env COMMON_ROOT=/home/josh/d/laputa-systems/xsh --env SOURCE_COMMIT=7eb62cd993e578c13bf6befd68a6a6ac15133c78 --env SOURCE_TREE=736b4bc16b1bcf07a0250b97e849506c19fb0753 --env PRODUCT_XSH_SHA256=d817ed7e8e43e5b7db5670068eb6fe76186178416233360aa535a5d07b5917af --env PRODUCT_XSHT_SHA256=4e0322037add1138f0e3a67f6696e3b27e7ae60ea794f198e0c5ea0d6bae8a6e --env TMPDIR=/w/.work/tmp/t --env HOST_UID=1000 --env HOST_GID=1000 --env HOME=/root --env LC_ALL=C --env GIT_OPTIONAL_LOCKS=0 --entrypoint=/bin/sh sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c /w/.work/tmp/linux-residual-run-native.sh
+container_name=linux-residual-standard-12958
+cidfile=/home/josh/d/laputa-systems/xsh/.work/wt/linux-residual-0deeb9c7/.work/tmp/linux-residual-standard-12958.cid
+qualified_product_xsh_sha256=d817ed7e8e43e5b7db5670068eb6fe76186178416233360aa535a5d07b5917af actual=d817ed7e8e43e5b7db5670068eb6fe76186178416233360aa535a5d07b5917af
+qualified_product_xsht_sha256=4e0322037add1138f0e3a67f6696e3b27e7ae60ea794f198e0c5ea0d6bae8a6e actual=4e0322037add1138f0e3a67f6696e3b27e7ae60ea794f198e0c5ea0d6bae8a6e
+fatal: detected dubious ownership in repository at '/repo'
+To add an exception for this directory, call:
+
+	git config --global --add safe.directory /repo
+container_id=9719f2d707a86517e07808e086708bf40c1bb321b64ac2f81fd3b4092904de60
+container_terminal=absent
+docker_exit=2 cleanup_exit=0 signal_exit=0
+source_commit_after=7eb62cd993e578c13bf6befd68a6a6ac15133c78
+source_tree_after=736b4bc16b1bcf07a0250b97e849506c19fb0753
+source_status_after=''
+product_xsh_sha256_after=d817ed7e8e43e5b7db5670068eb6fe76186178416233360aa535a5d07b5917af
+product_xsht_sha256_after=4e0322037add1138f0e3a67f6696e3b27e7ae60ea794f198e0c5ea0d6bae8a6e
+docker_exit=2 cleanup_exit=0 signal_exit=0

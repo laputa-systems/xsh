@@ -1,0 +1,5 @@
+err[check.local-inference]: generic pure body must directly compose parameter reads or required field projections through generic pure functions
+  /views/xsh/core/cut.xsh:79:37
+  pure blank_size(data, at, unicode)  {
+                                      ^ generic pure body must directly compose parameter reads or required field projections through generic pure functions
+

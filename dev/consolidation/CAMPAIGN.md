@@ -1,31 +1,138 @@
 # XSH Consolidation Campaign
 
-Status: resumed on 2026-10-16. The next consolidation candidate is assembled
-on `campaign/consolidation-next-candidate-20261017`. The current source and
-open gates are in [HANDOFF.md](HANDOFF.md#active-candidate). Lean and Phase F
-remain paused. Inference remains isolated from main.
+Status: resumed on 2026-10-16. The active frozen source is
+`7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree
+`736b4bc16b1bcf07a0250b97e849506c19fb0753`. Its open gates are in
+[HANDOFF.md](HANDOFF.md#active-candidate). Lean and Phase F remain paused.
+Inference remains isolated from main.
 
 ## Current candidate, 2026-10-17
 
-The candidate combines the linked-worktree discovery repair, corrected route
-expectation, batch-only native admission cap, W9 producer repair, and fixture
-repairs. Root may bind products to this candidate while focused tail checks
-finish; final acceptance still depends on those checks and the campaign gates.
+The active source combines the linked-worktree discovery repair, corrected
+route expectation, batch-only native admission cap, W9 producer repair, and
+fixture repairs. Main and the frozen candidate are pinned to `7eb62cd99`.
 
-The fixture-only `nc` repair passes its exact selector and a 27-case focused
-native file run. The canonical attempt on `3c0c01206` failed during XSHT
-integration after 1,854 seconds: 116 tests passed and the desugared
-`test_uu_tail_follow_name_hash_table_stress` failed with an extra truncation
-diagnostic. The run exited 3 before the full native suite, privileged harness,
-batch checks, or docs gate. Root accepted fixture-only repair `16abfbed3` for
-integration. The focused deterministic probe and written/desugared checks are
-pending with the tail owner; the failed run predates this repair and earns no
-acceptance. Seven QEMU cases are accepted for exact source `0deeb9c7`; W9
-parity is accepted for exact sources `0dc9cff7` and `0deeb9c7`. The historical route
-replay had two normal `ExprIf` proof gaps; a fresh strict replay remains
-required. This candidate has no full canonical, supplemental, route,
-platform, or resource close. Main and the frozen W9 source remain at
-`3c0c01206`; root owns the final freeze and promotion.
+The full canonical run on b235 completed with 13,916 passes, 78 skips, and no
+failures across 13,994 selected cases. Root accepted that result and reused it
+for 7eb under Phase A: its only source change is two `#[cfg(test)]` permission
+mode spellings from `0` to `0o0`. The original canonical receipt remains
+pinned to b235; no full canonical rerun is needed for this unchanged semantic
+scope. See the [canonical receipt and preserved outputs](evidence/canonical-b235a1a43/README.md).
+
+The first b235 R6 attempt passed five of thirteen stages, then failed at stage
+six on two all-target, all-feature Clippy warnings. Its remaining seven stages
+did not run. The exact two-literal repair at `7eb62cd99` passes focused XSHT
+Clippy with all targets, all features, and warnings denied; see
+[permission-lint evidence](evidence/coverage-permission-lint-7eb62/README.md).
+The fresh 13-stage R6 run on the 7eb freeze exited zero at every stage and was
+accepted. It recorded 23 boundaries, 58 extra cases with three ignored, two
+split checks, two privileged checks, and 18 traceroute cases with two
+`NET_RAW` skips. Three ignored cases remain covered by the accepted QEMU reuse;
+two positive `NET_RAW` probes passed in the root residual. The [R6 evidence
+index](winddown/evidence/final-correctness-gates/README.md) preserves the
+failed b235 attempt and accepted 7eb run.
+
+The root-accepted tail fixture repair `16abfbed3` has a controlled truncation
+probe and eight exact selector passes across written and desugared forms; see
+[tail evidence](evidence/tail-hash-table-stress-3c0c0120/README.md). The earlier
+3c canonical failure predates this repair. W9 parity at `0deeb9c7` remains
+reusable for b235 under Phase A because the W9 semantic/build scope is
+unchanged. The fresh b235 source and input-0 probe passed, but no b235 full
+corpus capture ran; see [b235 W9 scope evidence](evidence/w9-current-b235a1a43/README.md).
+The 3c repeat stopped after 250 inputs and 1,000 outcomes, with zero observed
+mismatches in that prefix and no parity credit; see [interrupted W9 evidence](evidence/w9-current-3c0c-interrupted/README.md).
+Phase A qualifies QEMU reuse for b235 after all four terminal product hashes
+and sizes matched the old 0deeb9 guest receipts. The seven guest receipts
+remain pinned to 0de; no b235 guest ran. The test-only spelling change at 7eb
+leaves that QEMU scope unchanged, so Phase A reuses those seven guest passes.
+No 7eb product build or guest run is claimed. See [QEMU scope](evidence/linux-qemu-b235a1a4/README.md).
+The final strict route matrix is accepted for 7eb: 152 rows, zero gaps, and
+zero unmapped paths. It retains all 188 XSH route-artifact proofs and admits a
+separate normal `ExprIf` direct-IR proof; it does not relabel an XSH artifact.
+The 428 normal/forced invocations, 856 source checks, 120 source-order outcomes,
+and 120 behavior outcomes completed cleanly. No runtime rerun is required. See
+the [strict matrix and admission proof](winddown/evidence/route-replay-7eb62cd99/direct-ir-admission/README.md)
+and [replay archive](winddown/evidence/route-replay-7eb62cd99/README.md).
+Root accepted functional close for the exact 7eb source and tree; the immutable
+receipt is [archived here](evidence/closure-b235a1a43/functional-close-7eb62cd993e578c13bf6befd68a6a6ac15133c78.json).
+Final performance closure is not complete. No timed run has started: although
+`perf-gate-ready` returned zero, shared-host load prevents an exclusive window.
+**perf gate deferred: host busy**. Root accepted the `performance_prep`
+artifacts-only build/resources-only observer modes, and the accepted controller
+changes are integrated. R3's resources-only observer failed after starting one
+full native suite: 13,914 passed, two failed and 78 were skipped. The failures
+were the lifecycle profile expectation and a factor timeout. Cleanup resolved
+with no OOM, but R3 earns no resource credit. See the [R3 archive](evidence/resource-observer-r3-7eb62cd9/README.md).
+Root accepted lifecycle fix
+`f4a9fb92f0976ed8fa6680f4ed8597180cc93f32` and factor repair `587814f274e`;
+neither is integrated into main. The factor repair's separate focused proof is
+accepted, but it does not qualify the integrated selector result. Both repairs
+are in isolated source candidate
+`3160bda38f5fb4cdb05e6b279efc57b296d4fcf8`. Its post-integration lifecycle
+and non-Unicode selectors each passed once, but `test_uu_factor_parallel` timed
+out again at 120 seconds. The candidate is not qualified; no new seal or R4 has
+started. The run observed a cgroup memory peak of 260,632,576 bytes (about 249
+MiB), zero OOM and OOM-kill counts, stable guards, absent owned containers, and
+the original lock released. Docker reported no OOM. Builds overlapped this run
+for 51 seconds and then three seconds on disjoint CPU sets; this does not
+establish the cause. A stronger read-only factor-cost diagnosis and a quiet
+rerun after build drain are pending. The lifecycle reproduction is archived
+[here](evidence/lifecycle-profile-r3/README.md). Binary-size and final resource
+evidence remain pending.
+
+The root residual has 36 unique passes across 37 executions. The standard
+context passed 34 cases and retained one Unix-socket `sun_path` skip; the exact
+selector passed through an owned `/t` alias. The namespace case and both
+positive `NET_RAW` cases passed, with the latter run as root with
+`CAP_NET_RAW`. Initial Git-guard attempts selected zero tests and earn no
+credit. See the [root residual evidence](evidence/linux-residual-0deeb9c7/README.md).
+Root owns subsequent freeze and promotion.
+
+Phase D whole-corpus typing work remains isolated. Root accepted checker
+checkpoint `877` at `338b82238a67ee36dd1b025b7a923f9fc5d2da40`, using the
+qualified pair `a972c8d139ecbb43174271842988eefb2c8638cc`. All eleven annotated
+and eleven reduced root checks pass. It removes 348 of 693 local annotations
+(50.22%) and 529 of 2,190 internal annotations (24.16%). The 95% and 85%
+targets remain unmet. Root accepted all 26 unique paired behavior slots in
+proof `54956efd7925818d7c70f82d0c74fa4669eaf1db` across 28 executions: 27
+passes and the preserved original lifecycle-fixture
+failure, including one duplicate reduced lifecycle execution. The original
+view's 13 slots comprise 12 unchanged passes and the corrected lifecycle pass;
+the final reduced matrix passes all 13. See the [paired behavior proof](evidence/typing-corpus-host-obligations/README.md#paired-behavior-acceptance).
+The original failure occurred because `flock` was absent from the historical
+`ddc` test PATH. The accepted helper and call correction
+`3059676c39aca75a126893e81d8fcecf96e8d912` changes no assertions and stays
+outside the 48 program sources. All 202 eligible effect
+clauses remain retained because 142 individual proofs do not establish
+joint-cycle equality. Host component `5277` has conditional acceptance for its
+six exact native checks at proof `1edf4ee50c093323accc03f9355bd83795bbfdba`,
+with source/product guards and cleanup passing; see the [host native
+evidence](evidence/typing-host-native6/README.md). Broader inference is not
+accepted or merged. The prior 615-removal checkpoint remains historical. The
+generic-body lane remains unqualified.
+
+The accepted `877` candidate remains the only one with full paired runtime
+qualification. The source-only `891` plan remains source-validated only. The
+`986` Set candidate passes accepted check/lowering on source `020f` for 457 of
+693 local removals, including 109 added mutable `Set[Str]` annotations, and 529
+of 2,190 internal removals. Its 26 exact behavior witnesses pass, 13 per view.
+That bounded run does not complete Set feature qualification. API fixture
+`a4418a5253dd557f7a96419f4212b09dd29084a1` passes. The documentation slot
+verifier rejects valid nested destructuring for `5277` and `020f`. Repair source
+`2cb3abd0c9be1a7b04f2bf7e9d9f7243c24c239f` has qualified source-bound products;
+the minimal SPEC 18 check-only probe now fails because the verifier reports
+`driver slot identity is not the currently visible binding`. The first repair
+added the missing writer slot but exposed a fresh-output versus prior-input
+identity mismatch; the same-name top-level duplicate check also rejects. The
+owner is tracing the output-slot representation, and no rebuild is authorized
+before root reviews a source proposal. The original wrapper cleanup-check
+failure is preserved separately. Full removal credit remains 877. The
+1,065-site collection plan remains red with 92 reduced-XSH diagnostics on
+`76caa` and earns no count. The original `749` rejection remains preserved.
+See the [891 source-only plan](typing-corpus/README.md#next-source-only-candidate),
+[Set qualification](typing-corpus/README.md#independent-mutable-set-candidate),
+[Set evidence](evidence/typing-corpus-host-obligations/mutable-sets/README.md), and
+[empty-record decision](typing-corpus/README.md#empty-record-contract).
 
 ## Stop handoff, 2026-10-16
 
@@ -1011,9 +1118,9 @@ selection or fastest-profile claim is required.
 
 ### Candidate assembled, 2026-10-17
 
-The current source pins, gate outcomes, and open acceptance work are in the
-[active candidate handoff](HANDOFF.md#active-candidate). No full-gate
-acceptance or functional close exists for this candidate.
+The active source pins and remaining gates are in the
+[active candidate handoff](HANDOFF.md#active-candidate). Functional close is
+accepted for 7eb; final resource and performance gates remain open.
 
 ### 2026-10-16 — failed 7b canonical run
 

@@ -1,0 +1,7 @@
+
+running 2 tests
+test split::test_dev_zero ... ok
+test split::test_number_by_bytes_dev_zero ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 61 filtered out; finished in 26.49s
+

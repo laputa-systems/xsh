@@ -1,0 +1,1 @@
+/home/josh/d/laputa-systems/xsh/.work/wt/lifecycle-profile-repair/.work/tmp/native-tests-1000-1000/tmp/xsh-test-7-1792223864938444421-0-test_docker_container_failure_runs_target_ownership_cleanup/container-cleanup-1/cleanup-marker

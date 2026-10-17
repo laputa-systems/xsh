@@ -1,0 +1,13 @@
+
+thread 'test_binary::tests::other_profiles_are_rejected' (391) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/debug/xsh has an unsupported profile; run `cargo test --profile verification`
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'test_binary::tests::other_profiles_are_rejected' (391) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/dist/xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_binary::tests::other_profiles_are_rejected' (391) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but /target/custom/xsh has an unsupported profile; run `cargo test --profile verification`
+
+thread 'test_binary::tests::other_profiles_are_rejected' (391) panicked at tests/test_binary.rs:19:5:
+process tests require verification or release binaries, but xsh has an unsupported profile; run `cargo test --profile verification`

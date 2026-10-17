@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_run_capture","source_hash":"2b163b62fdaa143bc031866b98148863e249c3550f5db37f2594e8552972f284","records":[{"tag_name":"ExprRunCapture","tag_ordinal":67,"route":"explicit_frame_control_path","mode":"normal"}]}

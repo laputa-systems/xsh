@@ -1,0 +1,165 @@
+{
+  "command": [
+    "cargo",
+    "dev",
+    "gate",
+    "--batch"
+  ],
+  "schema_version": 1,
+  "source": {
+    "commit": "7eb62cd993e578c13bf6befd68a6a6ac15133c78",
+    "git_tree": "736b4bc16b1bcf07a0250b97e849506c19fb0753",
+    "status": "clean"
+  },
+  "stage": {
+    "command": [
+      "cargo",
+      "dev",
+      "gate",
+      "--batch"
+    ],
+    "container_cleanup": {
+      "cidfile": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r3/canonical-gate-batch/container.cid",
+      "cleaned_container_ids": [],
+      "commands": [
+        {
+          "command": [
+            "docker",
+            "ps",
+            "--all",
+            "--quiet",
+            "--no-trunc",
+            "--filter",
+            "label=org.xsh.final-performance.owner=6de5734cb16c1f2aca115ee6663d3125",
+            "--filter",
+            "label=org.xsh.final-performance.stage=canonical-gate-batch"
+          ],
+          "exit_code": 0,
+          "stderr": "",
+          "stdout": ""
+        },
+        {
+          "absent": true,
+          "command": [
+            "docker",
+            "inspect",
+            "75587bf9ed282f5c5aa9d00d24ccc5f36847b9e2b97cd1fd55b6922787fee7de"
+          ],
+          "exit_code": 1,
+          "stderr": "error: no such object: 75587bf9ed282f5c5aa9d00d24ccc5f36847b9e2b97cd1fd55b6922787fee7de\n",
+          "stdout": "[]\n"
+        }
+      ],
+      "container_ids": [
+        "75587bf9ed282f5c5aa9d00d24ccc5f36847b9e2b97cd1fd55b6922787fee7de"
+      ],
+      "resolved": true
+    },
+    "container_resource_error": "container command or its resource observer did not complete successfully",
+    "container_resources": null,
+    "deferred_signals": {
+      "counts": {},
+      "first": null
+    },
+    "environment": {
+      "CARGO_NET_GIT_FETCH_WITH_CLI": "true",
+      "CARGO_TARGET_DIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/gate-batch-target",
+      "CHARSET": "UTF-8",
+      "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION": "9001",
+      "CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS": "1",
+      "CODEX_CI": "1",
+      "CODEX_SESSION_ID": "01a14680-dfb9-7ad0-a581-5eec4b3e9798",
+      "CODEX_THREAD_ID": "01a14685-2296-7361-85eb-e3b96863e298",
+      "CODEX_TOOL_CALL_ID": "exec-6f463bdb-15e5-4b1d-89e5-e3a34a82db9f",
+      "CODEX_VERSION": "0.163.0",
+      "COLORTERM": "truecolor",
+      "DIST_PROFILE": "release",
+      "DOCKER_PLATFORM": "linux/amd64",
+      "EDITOR": "/home/josh/usr/bin/e",
+      "GH_PAGER": "cat",
+      "GIT_PAGER": "cat",
+      "HOME": "/home/josh",
+      "HOMEBREW_NO_ANALYTICS": "1",
+      "HOMEBREW_NO_AUTO_UPDATE": "1",
+      "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK": "1",
+      "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C",
+      "LC_COLLATE": "C",
+      "LC_CTYPE": "C.UTF-8",
+      "LOGNAME": "josh",
+      "LS_COLORS": "su=00:sg=00:ca=00:or=40;31;01:",
+      "NO_COLOR": "1",
+      "OLDPWD": "/home/josh/d",
+      "PAGER": "less",
+      "PATH": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r3/host-bin:/home/josh/.cargo/bin:/home/josh/.local/share/codex/releases/0.163.0/codex-path:/home/josh/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "PWD": "/home/josh/d/laputa-systems/xsh",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "SHELL": "/home/josh/.local/bin/ish",
+      "SHLVL": "1",
+      "SSH_CLIENT": "100.74.141.56 62480 22",
+      "SSH_CONNECTION": "100.74.141.56 62480 100.98.145.91 22",
+      "SSH_TTY": "/dev/pts/0",
+      "TARGET": "x86_64-unknown-linux-musl",
+      "TERM": "tmux-256color",
+      "TERM_PROGRAM": "tmux",
+      "TERM_PROGRAM_VERSION": "3.8",
+      "TMPDIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r3/tmp",
+      "TMUX": "/tmp/tmux-1000/default,4284,0",
+      "TMUX_PANE": "%1",
+      "TZ": "UTC",
+      "USER": "josh",
+      "XDG_CACHE_HOME": "/home/josh/.cache",
+      "XDG_CONFIG_HOME": "/home/josh/.config",
+      "XDG_DATA_HOME": "/home/josh/.local/share",
+      "XSH_OBSERVER_CIDFILE": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r3/canonical-gate-batch/container.cid",
+      "XSH_OBSERVER_CONTAINER_RESOURCE": "/work/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r3/canonical-gate-batch/container-resources.json",
+      "XSH_OBSERVER_CONTAINER_SCRIPT": "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py",
+      "XSH_OBSERVER_CPUSET": "0,1,2,3,4,5,6,7,8,9,10,11",
+      "XSH_OBSERVER_DOCKER_LOG": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r3/canonical-gate-batch/docker-commands.jsonl",
+      "XSH_OBSERVER_REAL_DOCKER": "/usr/bin/docker",
+      "XSH_OBSERVER_RESOURCES_ONLY": "1",
+      "XSH_OBSERVER_RUN_ID": "6de5734cb16c1f2aca115ee6663d3125",
+      "XSH_TEST_IMAGE": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+      "XSH_TEST_IMAGE_BUILD": "0",
+      "_": "/usr/bin/python3",
+      "__DENV_DIR": "/home/josh/d/laputa-systems/xsh",
+      "__DENV_PID": "4531",
+      "__DENV_SHELL": "bash",
+      "__DENV_STATE": "1791124275 0 /home/josh/d/laputa-systems/xsh"
+    },
+    "name": "canonical-gate-batch",
+    "observation_accepted": false,
+    "performance_gate": {
+      "after": null,
+      "before": {
+        "command": [
+          "perf-gate-ready"
+        ],
+        "exit_code": 0,
+        "stderr": "",
+        "stdout": ""
+      }
+    },
+    "post_stage_validation": null,
+    "post_stage_validation_error": "container command or its resource observer did not complete successfully",
+    "status": 3,
+    "stderr": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r3/canonical-gate-batch/stderr.log",
+      "sha256": "ae5cbe8ccc3e19b8c6e1becb855656f1ec5dc84a402796d55cf14eee74195582",
+      "size_bytes": 16759
+    },
+    "stderr_path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r3/canonical-gate-batch/stderr.log",
+    "stdout": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r3/canonical-gate-batch/stdout.log",
+      "sha256": "40ee432c1d41ac675ffc04abc413ef1915174b6ca150d1c6cf8f6ac0258f202e",
+      "size_bytes": 1374640
+    },
+    "stdout_path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r3/canonical-gate-batch/stdout.log",
+    "timing_accepted": false,
+    "timing_discard_reason": "stage observations did not complete successfully",
+    "timing_discarded": true,
+    "wall_ns": null
+  },
+  "state": "failed"
+}

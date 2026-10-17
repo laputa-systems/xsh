@@ -1,0 +1,10 @@
+
+=== tests/xsh/stdlib/unix_process.xsh::test_unix_credentials_transition_inside_namespace ===
+argv=/target/xsht test --jobs 1 --exact tests/xsh/stdlib/unix_process.xsh::test_unix_credentials_transition_inside_namespace (default per-test timeout: 120s)
+running 1 tests
+tests/xsh/stdlib/unix_process.xsh::test_unix_credentials_transition_inside_namespace ... ok 11ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+runner_exit=0
+selector_summary=test result: ok. 1 passed; 0 failed; 0 skipped passed=1 failed=0 skipped=0
+
+selected=1 accepted_passes=1 failed_selectors=0 actual_passed_tests=1 actual_failed_tests=0 actual_skipped_tests=0 unclassified=0

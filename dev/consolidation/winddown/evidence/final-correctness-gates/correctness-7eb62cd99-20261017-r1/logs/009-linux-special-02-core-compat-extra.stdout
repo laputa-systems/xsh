@@ -1,0 +1,67 @@
+
+running 61 tests
+test cp::test_closes_file_descriptors ... ok
+test cp::test_cp_absolute_paths_from_deleted_cwd_existing_target ... ok
+test cp::test_cp_absolute_paths_from_deleted_cwd_new_target ... ok
+test date_clock::test_date_set_valid ... ignored, requires a disposable QEMU guest
+test date_clock::test_date_set_valid_3 ... ignored, requires a disposable QEMU guest
+test date_clock::test_date_set_valid_4 ... ignored, requires a disposable QEMU guest
+test descriptor::exact_descriptor_creation_mode_ignores_umask_and_preserves_existing_files ... ok
+test descriptor::saved_descriptor_is_closed_on_exec ... ok
+test fd::test_block_stats_are_reported_when_a_write_fails ... ok
+test fd::test_bytes_oseek_bytes_trunc_oflag ... ok
+test fd::test_large_bs_does_not_fault_in_copy_buffer ... ok
+test fd::test_multiple_processes_reading_stdin ... ok
+test fd::test_read_bytes ... ok
+test fd::test_stats_are_reported_when_a_write_fails ... ok
+test fd::test_stdin_stdout_not_rewound_even_when_connected_to_seekable_file ... ok
+test lifecycle::test_couldnt_rename ... ok
+test lifecycle::test_kill_out_of_range_signal_is_rejected_not_sent ... ok
+test lifecycle::test_sigchld_ignored_by_parent ... ok
+test lifecycle::test_uchild_when_run_no_wait_with_a_non_blocking_util ... ok
+test more::basic_display ... ok
+test more::file_errors ... ok
+test more::invalid_arguments_fail ... ok
+test more::missing_raw_filename_is_not_lossy_filename ... ok
+test more::no_arguments_read_terminal_stdin ... ok
+test more::shared_valid_options_exit_at_short_file_eof ... ok
+test more::squeeze_option_displays_original_first_line ... ok
+test pty::btop_input_to_present_latency_is_separate_from_replay_sample_interval ... btop input-to-present measurement: runner=Alpine x86_64 musl release size=80x24 samples=100 replay_interval_ms=60000 p95_ms=6.713 p99_ms=7.010
+ok
+test pty::btop_replay_ctrl_c_byte_exits_and_restores_terminal ... ok
+test pty::btop_replay_filter_sort_selection_and_resize_use_the_decoded_input ... ok
+test pty::btop_replay_finite_completion_restores_terminal_attributes ... ok
+test pty::btop_replay_initial_view_waits_for_frame_completion ... ok
+test pty::btop_replay_network_and_cpu_view_keys_change_rendered_cells ... ok
+test pty::btop_replay_stdin_eof_restores_terminal_attributes ... ok
+test pty::btop_replay_updates_after_resize_and_quits_with_restored_terminal ... ok
+test pty::btop_replay_write_failure_restores_input_terminal_attributes ... ok
+test pty::btop_surface_delta_reconstructs_the_same_cells_as_a_fresh_full_frame ... ok
+test pty::btop_terminal_cleanup_runs_after_runtime_error_during_presentation ... ok
+test pty::btop_terminal_partial_start_failure_restores_input_terminal_attributes ... ok
+test pty::cp_update_older_prompt_no ... ok
+test pty::cp_update_older_prompt_yes ... ok
+test pty::dd_plain_terminal_diagnostic ... ok
+test pty::env_sigpipe_after_reader_closes ... ok
+test pty::env_terminal_all_streams ... ok
+test pty::env_terminal_dimensions ... ok
+test pty::env_terminal_eot ... ok
+test pty::env_terminal_forwarded_input_eot ... ok
+test pty::env_terminal_stderr_only ... ok
+test pty::env_terminal_stdin_only ... ok
+test pty::env_terminal_stdout_only ... ok
+test pty::env_terminal_written_input_eot ... ok
+test pty::expr_terminal_computed_operand ... ok
+test pty::expr_terminal_errors_without_position ... ok
+test pty::native_terminal_redirection_does_not_hang_up_its_session_leader ... ok
+test startup::absent_stdin_does_not_alias_loaded_source_and_can_be_reopened ... ok
+test startup::absent_stdout_can_be_redirected_and_inherited_by_exec ... ok
+test startup::gnu_dd_misc_preserves_initial_stderr_absence ... ok
+test startup::gnu_misc_close_stdout_preserves_initial_absence ... ok
+test startup::gnu_misc_no_fork_runs_initial_evaluation_when_threads_are_forbidden ... ok
+test startup::gnu_touch_dash_closed_stdout ... ok
+test test_binary::tests::optimized_product_paths_are_accepted ... ok
+test test_binary::tests::other_profiles_are_rejected ... ok
+
+test result: ok. 58 passed; 0 failed; 3 ignored; 0 measured; 2 filtered out; finished in 15.60s
+

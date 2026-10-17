@@ -1,0 +1,76 @@
+
+running 52 tests
+test sema::constraints::tests::any_bearing_row_binding_fails_and_rolls_back_prior_field_constraints ... ok
+test sema::constraints::tests::aliases_share_one_solution_and_conflicts_retain_source_contributions ... ok
+test sema::constraints::tests::authoritative_dynamic_destination_accepts_concrete_contributions ... ok
+test sema::constraints::tests::checked_annotations_can_choose_types_that_ordinary_evidence_cannot_anchor ... ok
+test sema::constraints::tests::closed_rows_reject_a_missing_required_field ... ok
+test sema::constraints::tests::callable_body_generalization_rejects_call_only_binders ... ok
+unrelated_wide_records=0 touched=1 previous_clone_cells=1 actual_trial_work=(1, 1, 1, 0, 1)
+test sema::constraints::tests::compatible_open_record_aliases_close_through_either_variable ... ok
+
+thread 'sema::constraints::tests::constraint_trials_restore_an_in_flight_journal_on_panic' (18) panicked at src/sema/constraints.rs:3782:17:
+interrupt active unification
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test sema::constraints::tests::constraint_trials_restore_an_in_flight_journal_on_panic ... ok
+test sema::constraints::tests::alias_chain_metrics_scale_with_chain_length ... ok
+test sema::constraints::tests::constraint_type_ground_and_record_preserve_operand_direction ... ok
+unrelated_wide_records=8 touched=1 previous_clone_cells=17 actual_trial_work=(1, 1, 1, 0, 1)
+test sema::constraints::tests::constraint_type_ground_and_variable_preserve_operand_direction ... ok
+test sema::constraints::tests::container_record_width_cannot_bypass_invariance_during_substitution ... ok
+test sema::constraints::tests::dynamic_values_cannot_satisfy_resolved_concrete_constraints ... ok
+
+thread 'sema::constraints::tests::constraint_trials_restore_cells_rows_provenance_and_fresh_id_ownership' (19) panicked at src/sema/constraints.rs:3743:39:
+interrupt candidate trial
+test sema::constraints::tests::failed_constraint_does_not_compress_nested_alias_paths ... ok
+test sema::constraints::tests::constraint_trials_restore_cells_rows_provenance_and_fresh_id_ownership ... ok
+test sema::constraints::tests::failed_row_unification_rolls_back_type_bindings ... ok
+test sema::constraints::tests::failed_unification_after_alias_walk_keeps_probes_independent ... ok
+test sema::constraints::tests::failed_row_unification_rolls_back_row_lacks_and_fresh_tails ... ok
+test sema::constraints::tests::flexible_row_tail_accepts_a_rigid_row_tail ... ok
+test sema::constraints::tests::flexible_type_variables_accept_rigid_type_identities ... ok
+unrelated_wide_records=32 touched=1 previous_clone_cells=65 actual_trial_work=(1, 1, 1, 0, 1)
+unrelated_wide_records=0 touched=4 previous_clone_cells=4 actual_trial_work=(4, 4, 4, 0, 4)
+test sema::constraints::tests::failed_unification_rolls_back_rank_binding_and_path_compression ... ok
+test sema::constraints::tests::generic_call_resolution_counts_fresh_evidence_separately_from_scheme_instantiation ... ok
+test sema::constraints::tests::indirect_recursive_type_equations_are_rejected ... ok
+test sema::constraints::tests::monomorphic_callable_does_not_generalize_absent_result_arms ... ok
+test sema::constraints::tests::nested_conflicts_roll_back_earlier_variable_bindings ... ok
+unrelated_wide_records=8 touched=4 previous_clone_cells=20 actual_trial_work=(4, 4, 4, 0, 4)
+test sema::constraints::tests::nested_dynamic_and_recovery_operands_do_not_establish_contracts ... ok
+test sema::constraints::tests::occurs_check_traverses_open_record_bindings_before_aliasing ... ok
+test sema::constraints::tests::ground_record_resolution_preserves_depth_errors ... ok
+test sema::constraints::tests::open_record_requirements_identify_a_missing_field ... ok
+test sema::constraints::tests::optional_record_contributions_keep_one_shape_in_either_order ... ok
+test sema::constraints::tests::optional_evidence_and_reversed_alias_order_have_canonical_solutions ... ok
+test sema::constraints::tests::probes_keep_existing_aliases_but_new_variables_cannot_cross_problems ... ok
+test sema::constraints::tests::projecting_into_outer_record_lowers_new_field_and_tail_levels ... ok
+test sema::constraints::tests::ranked_aliases_compress_per_clone_and_keep_canonical_identity ... ok
+test sema::constraints::tests::record_binding_resolution_propagates_enclosing_type_depth ... ok
+test sema::constraints::tests::record_resolution_preserves_foreign_variable_errors ... ok
+test sema::constraints::tests::retained_bytes_cover_solver_tables_and_owned_row_structure ... ok
+test sema::constraints::tests::alias_chain_of_400_variables_resolves_to_ground_type ... ok
+unrelated_wide_records=32 touched=4 previous_clone_cells=68 actual_trial_work=(4, 4, 4, 0, 4)
+unrelated_wide_records=0 touched=16 previous_clone_cells=16 actual_trial_work=(16, 16, 16, 0, 16)
+unrelated_wide_records=8 touched=16 previous_clone_cells=32 actual_trial_work=(16, 16, 16, 0, 16)
+unrelated_wide_records=32 touched=16 previous_clone_cells=80 actual_trial_work=(16, 16, 16, 0, 16)
+unrelated_wide_records=0 touched=64 previous_clone_cells=64 actual_trial_work=(64, 64, 64, 0, 64)
+test sema::constraints::tests::rigid_row_lacks_are_fixed_in_both_operand_orientations ... ok
+test sema::constraints::tests::rigid_row_lacks_reject_explicit_fields_in_both_operand_orientations ... ok
+test sema::constraints::tests::rigid_row_tails_preserve_identity_and_reject_distinct_skolems ... ok
+test sema::constraints::tests::rigid_type_variables_reject_ground_unification ... ok
+test sema::constraints::tests::row_occurs_rejects_a_recursive_tail ... ok
+test sema::constraints::tests::row_constraint_probes_keep_clones_independent ... ok
+test sema::constraints::tests::shared_nested_records_resolve_independently ... ok
+test sema::constraints::tests::type_occurs_rejects_a_nested_recursive_binding ... ok
+test sema::constraints::tests::type_scheme_generalization_and_instantiation_reuse_one_fresh_binder ... ok
+test sema::constraints::tests::type_scheme_generalization_rejects_monomorphic_environment_variables ... ok
+test sema::constraints::tests::type_scheme_generalization_preserves_open_record_rows ... ok
+test sema::constraints::tests::union_lowers_levels_of_inherited_open_record_descendants ... ok
+unrelated_wide_records=8 touched=64 previous_clone_cells=80 actual_trial_work=(64, 64, 64, 0, 64)
+test sema::constraints::tests::row_field_visit_metrics_count_both_operand_scans ... ok
+unrelated_wide_records=32 touched=64 previous_clone_cells=128 actual_trial_work=(64, 64, 64, 0, 64)
+test sema::constraints::tests::constraint_trial_work_follows_touched_cells_instead_of_unrelated_wide_state ... ok
+
+test result: ok. 52 passed; 0 failed; 0 ignored; 0 measured; 855 filtered out; finished in 0.01s
+

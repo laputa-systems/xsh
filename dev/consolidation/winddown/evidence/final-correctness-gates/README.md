@@ -1,6 +1,6 @@
 # Final correctness gate evidence
 
-This index preserves failed attempts and the latest supplemental reference record. Receipts and raw logs remain unchanged and retain their original scratch paths.
+This index preserves failed attempts and source-qualified supplemental records. Receipts and raw logs remain unchanged and retain their original scratch paths.
 
 - `correctness-be0b-20261016` failed preflight before a command ran. Its receipt has no steps and the original `logs` directory was empty.
 - `correctness-be0b-20261016-r2` failed the pinned-image check. Its image-inspect log is preserved.
@@ -38,3 +38,9 @@ The five-context acceptance matrix remains open: `core-compat-boundaries` passed
 ## Frozen 0dc9 supplemental
 
 The [reference-mode record](correctness-0dc9cff7-20261016-r1/README.md) covers the approved replacement protocol on source and tool commit `0dc9cff7c2b16e4c201adb3abca11d7ebda8e1f4`, tree `b4f9db3f8ee2f38a6c62fea876976619db424ed7`. The successful product and harness builds, warning-denied Clippy, staging step, and all five Linux contexts are documented there. Earlier failed receipts remain unchanged. Root's separate skip and QEMU review accepts this supplemental protocol result; canonical, W9, routes, and resource closure remain open.
+
+## Fresh b235 and 7eb62 R6 runs
+
+The [b235 record](correctness-b235a1a43-20261017-r1/README.md) preserves a failed attempt on source and tool commit `b235a1a43d06e44580fde4c1b8c58ff27a17ca78`. The image check, product build, and three harness builds passed. Workspace Clippy then rejected two non-octal permission literals. The receipt remains failed, and no later steps are credited.
+
+The [7eb62 record](correctness-7eb62cd99-20261017-r1/README.md) preserves the fresh attempt on source and tool commit `7eb62cd993e578c13bf6befd68a6a6ac15133c78`, tree `736b4bc16b1bcf07a0250b97e849506c19fb0753`. All thirteen R6 steps exited zero. Root separately reviewed the three ignored date tests against the QEMU evidence. The two UID-1000 traceroute capability skips still require positive Linux residual coverage. The R6 and canonical product variants have distinct binary hashes.

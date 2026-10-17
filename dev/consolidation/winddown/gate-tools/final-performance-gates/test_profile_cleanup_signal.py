@@ -16,7 +16,7 @@ profile = module_from_spec(spec)
 spec.loader.exec_module(profile)
 
 
-def exercise_cleanup(resolved):
+def exercise_cleanup(resolved, *, measure_timing=True):
     with tempfile.TemporaryDirectory(dir=root / ".work/tmp") as temporary:
         directory = Path(temporary)
         log = directory / "stage.log"
@@ -33,7 +33,7 @@ def exercise_cleanup(resolved):
             raise profile.SignalReceived(signal.SIGTERM)
 
         with (
-            patch.object(profile, "perf_gate_check", return_value={"exit_code": 0}),
+            patch.object(profile, "perf_gate_check", return_value={"exit_code": 0}) as readiness,
             patch.object(profile.subprocess, "Popen", return_value=process),
             patch.object(profile, "wait_for_owned_process", side_effect=interrupt_wait),
             patch.object(profile, "cleanup_container_process", return_value=cleanup),
@@ -43,11 +43,17 @@ def exercise_cleanup(resolved):
                 log,
                 run_id="self-test-run",
                 stage="self-test-stage",
+                measure_timing=measure_timing,
             )
 
         assert result["interrupted"] is True
         assert result["cleanup_resolved"] is resolved
         assert result["container_cleanup"]["resolved"] is resolved
+        if not measure_timing:
+            assert result["performance_gate"] == {"before": None, "after": None}
+            assert result["wall_ns"] is None
+            assert result["timing_discarded"] is True
+            readiness.assert_not_called()
         assert result["cidfile"] == (None if resolved else str(cidfile))
         assert cidfile.exists() is (not resolved)
 
@@ -83,7 +89,45 @@ def exercise_cleanup(resolved):
 
 exercise_cleanup(True)
 exercise_cleanup(False)
+exercise_cleanup(True, measure_timing=False)
 print("resolved and unresolved SIGTERM cleanup paths passed")
+
+
+def exercise_untimed_build_cleanup():
+    with tempfile.TemporaryDirectory(dir=root / ".work/tmp") as temporary:
+        directory = Path(temporary)
+        log = directory / "build.log"
+        process = MagicMock()
+        cleanup = {"resolved": True, "container_ids": [], "commands": []}
+        with (
+            patch.object(profile, "perf_gate_check") as readiness,
+            patch.object(profile.time, "perf_counter_ns") as clock,
+            patch.object(profile.subprocess, "Popen", return_value=process),
+            patch.object(profile, "wait_for_owned_process", return_value=(0, None, None)),
+            patch.object(profile, "cleanup_cidfile_container", return_value=cleanup),
+        ):
+            result = profile.run_stage(
+                ["docker", "run", "--rm", "pinned-image"],
+                log,
+                run_id="artifact-run",
+                stage="release-opt3-build",
+                verify_after=lambda: {"source": {"status": "clean"}},
+                measure_timing=False,
+            )
+
+        assert result["status"] == 0
+        assert result["wall_ns"] is None
+        assert result["timing_accepted"] is False
+        assert result["timing_discarded"] is True
+        assert result["timing_discard_reason"] == "artifacts-only mode"
+        assert result["container_cleanup"]["resolved"] is True
+        assert result["stage_validation"] == {"source": {"status": "clean"}}
+        readiness.assert_not_called()
+        clock.assert_not_called()
+
+
+exercise_untimed_build_cleanup()
+print("artifacts-only build performs no readiness or timing probes and retains cleanup")
 
 
 def exercise_absent_container():
@@ -110,3 +154,37 @@ def exercise_absent_container():
 
 exercise_absent_container()
 print("absent containers are resolved; daemon errors remain unresolved")
+
+
+def exercise_autoremoval_race():
+    import owned_containers
+    with tempfile.TemporaryDirectory(dir=root / ".work/tmp") as temporary:
+        cidfile = Path(temporary) / "batch.cid"
+        container_id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        cidfile.write_text(container_id + "\n")
+        present = json.dumps([{
+            "Config": {"Labels": {
+                "org.xsh.final-performance.owner": "self-test-run",
+                "org.xsh.final-performance.stage": "self-test-stage",
+            }},
+        }])
+        absent = {"exit_code": 1, "stdout": "[]\n", "stderr": f"error: no such object: {container_id}\n"}
+        with patch.object(owned_containers, "_command", side_effect=[
+            {"exit_code": 0, "stdout": container_id + "\n", "stderr": ""},
+            {"exit_code": 0, "stdout": present, "stderr": ""},
+            {"exit_code": 1, "stdout": "", "stderr": f"Error: No such container: {container_id}\n"},
+            {"exit_code": 0, "stdout": "", "stderr": ""},
+            absent,
+        ]) as command:
+            result = owned_containers.cleanup_cidfile_container(
+                cidfile, owner="self-test-run", stage="self-test-stage"
+            )
+        assert "--no-trunc" in command.call_args_list[0].args[0]
+        assert result["resolved"] is True
+        assert result["container_ids"] == [container_id]
+        assert result["cleaned_container_ids"] == [container_id]
+        assert command.call_count == 5
+
+
+exercise_autoremoval_race()
+print("owned-container cleanup deduplicates full IDs and accepts verified auto-removal")

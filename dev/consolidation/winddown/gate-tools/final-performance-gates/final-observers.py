@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure isolated repository lint and the canonical full Linux gate batch."""
+"""Measure or collect resources for isolated lint and the canonical Linux gate batch."""
 
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -204,9 +204,113 @@ def sealed_binary_set(directory: Path, expected: dict[str, dict[str, Any]]) -> d
     return observed
 
 
-def load_profile_binaries(receipt_path: Path, tree: Path, commit: str, opt_level: int) -> dict[str, Any]:
+def profile_cpu_ids(raw: object) -> list[int]:
+    if not isinstance(raw, str) or not raw:
+        raise ObserverFailure("artifact-qualified profile receipt has no CPU affinity")
+    try:
+        values = [int(value) for value in raw.split(",")]
+    except ValueError as error:
+        raise ObserverFailure("artifact-qualified profile CPU affinity is invalid") from error
+    if len(values) != CPU_LIMIT or len(set(values)) != len(values) or any(value < 0 for value in values):
+        raise ObserverFailure("artifact-qualified profile CPU affinity does not match the pinned CPU limit")
+    return values
+
+
+def validate_artifact_qualification(receipt_path: Path, receipt: dict[str, Any], result: dict[str, Any], current: dict[str, str]) -> dict[str, Any]:
+    build = result.get("build")
+    build_validation = build.get("stage_validation") if isinstance(build, dict) else None
+    resources = result.get("container_resources")
+    profile_resources = receipt.get("resources")
+    native_image_record = receipt.get("native_image")
+    cleanup = build.get("container_cleanup") if isinstance(build, dict) else None
+    qualification_tool = receipt.get("qualification_tool")
+    if not isinstance(qualification_tool, dict) or not isinstance(qualification_tool.get("path"), str):
+        raise ObserverFailure("artifact-qualified profile receipt lacks its qualification tool identity")
+    tool_path = Path(qualification_tool["path"])
+    try:
+        tool_info = tool_path.lstat()
+        tool_hash = sha256(tool_path)
+    except OSError as error:
+        raise ObserverFailure(f"artifact qualification tool is unavailable: {error}") from error
+    if (
+        not tool_path.is_absolute()
+        or not stat.S_ISREG(tool_info.st_mode)
+        or str(tool_path.resolve()) != qualification_tool.get("path")
+        or qualification_tool.get("sha256") != tool_hash
+        or tool_path.name != "profile-cost.py"
+    ):
+        raise ObserverFailure("artifact-qualified profile tool identity is invalid")
+    close = receipt.get("functional_close")
+    if not isinstance(close, dict) or not isinstance(close.get("record"), dict):
+        raise ObserverFailure("artifact-qualified profile receipt lacks functional-close evidence")
+    if not isinstance(close.get("path"), str):
+        raise ObserverFailure("artifact-qualified profile receipt has an invalid functional-close path")
+    close_path = Path(close["path"])
+    try:
+        close_hash = sha256(close_path)
+    except OSError as error:
+        raise ObserverFailure(f"artifact profile functional-close record is unavailable: {error}") from error
+    validated_close = functional_close(close_path, current["commit"])
+    if close.get("sha256") != close_hash or close["record"] != validated_close:
+        raise ObserverFailure("artifact profile functional-close evidence differs from the validated record")
+    work_root = (Path(receipt["source_tree"]) / ".work/consolidation").resolve()
+    resolved_receipt_path = receipt_path.resolve(strict=True)
+    try:
+        resolved_receipt_path.relative_to(work_root)
+    except ValueError as error:
+        raise ObserverFailure("artifact profile receipt must remain under the source .work/consolidation directory") from error
+    expected_profile_dir = resolved_receipt_path.parent / "opt3" / "target" / TARGET / "release"
+    build_timing_gate = build.get("performance_gate") if isinstance(build, dict) else None
+    if (
+        receipt.get("qualification_mode") != "artifacts-only"
+        or receipt.get("native_suite_lock_held_across_gate") is not False
+        or receipt.get("source_status") != "clean"
+        or not isinstance(profile_resources, dict)
+        or profile_resources.get("cpu_limit") != CPU_LIMIT
+        or profile_resources.get("cargo_build_jobs") != CPU_LIMIT
+        or profile_resources.get("memory_limit") != MEMORY_LIMIT
+        or profile_resources.get("memory_swap_limit") != MEMORY_LIMIT
+        or not isinstance(build, dict)
+        or type(build.get("status")) is not int
+        or build.get("status") != 0
+        or build.get("wall_ns") is not None
+        or build.get("timing_accepted") is not False
+        or build.get("timing_discarded") is not True
+        or build.get("timing_claim_eligible") is not False
+        or not isinstance(build_timing_gate, dict)
+        or build_timing_gate.get("before") is not None
+        or build_timing_gate.get("after") is not None
+        or not isinstance(cleanup, dict)
+        or cleanup.get("resolved") is not True
+        or not isinstance(build_validation, dict)
+        or build_validation.get("source") != current
+        or not isinstance(resources, dict)
+        or resources.get("affinity_cpus") != profile_cpu_ids(profile_resources.get("cpuset_cpus"))
+        or resources.get("memory_limit_bytes") != MEMORY_LIMIT_BYTES
+        or resources.get("memory_swap_max_bytes") != 0
+        or receipt.get("target") != TARGET
+        or not isinstance(native_image_record, dict)
+        or native_image_record.get("image_id") != NATIVE_IMAGE_ID
+    ):
+        raise ObserverFailure("artifact-qualified profile receipt lacks successful source, resource, and cleanup evidence")
+    return {
+        "build_validation": build_validation,
+        "expected_profile_dir": expected_profile_dir,
+        "qualification_tool": {"path": str(tool_path.resolve()), "sha256": tool_hash},
+    }
+
+
+def load_profile_binaries(
+    receipt_path: Path, tree: Path, commit: str, opt_level: int,
+    *, allow_artifact_qualified: bool = False,
+) -> dict[str, Any]:
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"), object_pairs_hook=unique_json_object)
-    if receipt.get("state") != "complete" or receipt.get("source_commit") != commit:
+    state = receipt.get("state")
+    artifacts_only = receipt.get("qualification_mode") == "artifacts-only"
+    artifact_qualified = state == "artifact-qualified" and artifacts_only
+    if artifacts_only and (not artifact_qualified or not allow_artifact_qualified):
+        raise ObserverFailure("artifacts-only profile receipts are accepted only by the resources-only observer")
+    if (state != "complete" and not (allow_artifact_qualified and artifact_qualified)) or receipt.get("source_commit") != commit:
         raise ObserverFailure("profile-cost receipt must be complete and name the exact source commit")
     if Path(receipt.get("source_tree", "")).resolve() != tree.resolve():
         raise ObserverFailure("profile-cost receipt names a different source tree")
@@ -232,12 +336,21 @@ def load_profile_binaries(receipt_path: Path, tree: Path, commit: str, opt_level
     result = results[0]
     if result.get("profile") != "release" or result.get("opt_level") != RELEASE_OPT_LEVEL or result.get("lto") != "thin" or result.get("codegen_units") != 16:
         raise ObserverFailure("selected profile-cost result has an unexpected release profile")
+    artifact_evidence = None
+    if artifact_qualified:
+        if "native_suite" in result:
+            raise ObserverFailure("artifact-qualified profile receipt must not contain a native suite")
+        artifact_evidence = validate_artifact_qualification(receipt_path, receipt, result, current)
     recorded = result.get("binaries")
     if not isinstance(recorded, dict) or set(recorded) != set(BINARY_NAMES):
         raise ObserverFailure("selected profile-cost result must bind xsh, xsht, and xsh-test-helper")
+    if artifact_qualified and artifact_evidence["build_validation"].get("binary_hashes") != recorded:
+        raise ObserverFailure("artifact-qualified build hashes differ from its selected binaries")
     paths = {Path(recorded[name].get("path", "")).resolve() for name in BINARY_NAMES}
     if len(paths) != 3 or len({path.parent for path in paths}) != 1:
         raise ObserverFailure("selected release binaries must share one profile output directory")
+    if artifact_qualified and next(iter(paths)).parent != artifact_evidence["expected_profile_dir"].resolve():
+        raise ObserverFailure("artifact-qualified binaries are outside their dedicated opt3 output directory")
     observed = binary_set(next(iter(paths)).parent)
     for name in BINARY_NAMES:
         if observed[name]["path"] != str(Path(recorded[name]["path"]).resolve()) or observed[name]["sha256"] != recorded[name].get("sha256"):
@@ -247,7 +360,22 @@ def load_profile_binaries(receipt_path: Path, tree: Path, commit: str, opt_level
         "profile": {"name": result["name"], "profile": result["profile"], "opt_level": opt_level, "lto": result.get("lto")},
         "directory": str(next(iter(paths)).parent),
         "binaries": observed,
+        "qualification_tool": artifact_evidence["qualification_tool"] if artifact_evidence is not None else None,
     }
+
+
+def validate_qualification_tool(selected: dict[str, Any]) -> dict[str, str] | None:
+    tool = selected.get("qualification_tool")
+    if tool is None:
+        return None
+    path = Path(tool["path"])
+    try:
+        info = path.lstat()
+    except OSError as error:
+        raise ObserverFailure(f"profile artifact qualification tool is unavailable: {error}") from error
+    if not stat.S_ISREG(info.st_mode) or sha256(path) != tool["sha256"]:
+        raise ObserverFailure("profile artifact qualification tool changed during an observer stage")
+    return tool
 
 
 def native_image(docker: str) -> dict[str, Any]:
@@ -291,6 +419,15 @@ def exclusive_lock(path: Path, *, reject_unresolved: bool = False):
         stream.close()
 
 
+@contextmanager
+def observer_locks():
+    with (
+        exclusive_lock(PROFILE_LOCK, reject_unresolved=True) as ownership_stream,
+        exclusive_lock(NATIVE_SUITE_LOCK),
+    ):
+        yield ownership_stream
+
+
 def retain_unresolved_lock(stream: Any, run_id: str, cleanup: dict[str, Any], stage: str) -> None:
     stream.seek(0)
     stream.truncate()
@@ -315,7 +452,7 @@ def perf_gate_check(after: bool = False) -> dict[str, Any]:
         return {"command": command, "exit_code": None, "stdout": "", "stderr": str(error)}
 
 
-def resource_receipt(path: Path) -> dict[str, Any]:
+def resource_receipt(path: Path, *, resources_only: bool = False) -> dict[str, Any]:
     if not path.is_file():
         raise ObserverFailure(f"container resource receipt is missing: {path}")
     value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_json_object)
@@ -324,7 +461,7 @@ def resource_receipt(path: Path) -> dict[str, Any]:
     cgroup = value.get("cgroup_limits_and_peaks")
     if not isinstance(cgroup, dict):
         raise ObserverFailure("container resource receipt lacks cgroup limits and peaks")
-    required = ("memory_peak", "memory_max", "memory_swap_peak", "memory_swap_max", "memory_events", "memory_swap_events", "cpu_max")
+    required = ("memory_peak", "memory_max", "memory_swap_peak", "memory_swap_max", "memory_events", "memory_swap_events", "cpu_max", "cpuset_cpus_effective")
     missing = [name for name in required if name not in cgroup]
     if missing:
         raise ObserverFailure(f"container resource receipt lacks required cgroup fields: {missing}")
@@ -335,11 +472,80 @@ def resource_receipt(path: Path) -> dict[str, Any]:
         raise ObserverFailure("container resource receipt lacks memory OOM event counters")
     if not isinstance(cgroup["memory_swap_events"], dict):
         raise ObserverFailure("container resource receipt lacks swap event counters")
-    if value.get("status") != 0 or value.get("timing_discarded") is not False:
+    expected_mode = "resources-only" if resources_only else "timed"
+    if value.get("execution_mode") != expected_mode:
+        raise ObserverFailure("container resource receipt execution mode does not match the observer")
+    if (
+        type(value.get("status")) is not int
+        or value["status"] != 0
+        or value.get("received_signal") is not None
+        or value.get("spawn_error") is not None
+    ):
         raise ObserverFailure("container command or its resource observer did not complete successfully")
+    if resources_only:
+        if value.get("timing_discarded") is not True or value.get("wall_ns") is not None:
+            raise ObserverFailure("resources-only container receipt must discard timing")
+    elif (
+        value.get("timing_discarded") is not False
+        or type(value.get("wall_ns")) is not int
+        or value["wall_ns"] < 0
+    ):
+        raise ObserverFailure("timed container receipt lacks an accepted command duration")
     if not isinstance(value.get("process_rss_peak_bytes"), int) or value["process_rss_peak_bytes"] <= 0:
         raise ObserverFailure("container resource receipt lacks a sampled RSS peak")
     return {"path": str(path), "sha256": sha256(path), "receipt": value}
+
+
+def parse_cpu_set(value: object) -> list[int]:
+    if not isinstance(value, str) or not value:
+        raise ObserverFailure("container resource receipt lacks effective CPU affinity")
+    cpus: set[int] = set()
+    try:
+        for item in value.split(","):
+            if "-" in item:
+                first_text, last_text = item.split("-", 1)
+                first, last = int(first_text), int(last_text)
+                if first > last or last - first + 1 > CPU_LIMIT:
+                    raise ValueError
+                expanded = set(range(first, last + 1))
+            else:
+                expanded = {int(item)}
+            if cpus.intersection(expanded) or len(cpus) + len(expanded) > CPU_LIMIT:
+                raise ValueError
+            cpus.update(expanded)
+    except ValueError as error:
+        raise ObserverFailure("container resource receipt has invalid effective CPU affinity") from error
+    if len(cpus) != CPU_LIMIT or any(cpu < 0 for cpu in cpus):
+        raise ObserverFailure("container resource receipt has invalid effective CPU affinity")
+    return sorted(cpus)
+
+
+def validate_gate_batch_resources(path: Path, expected_cpuset: str, *, resources_only: bool = False) -> dict[str, Any]:
+    observed = resource_receipt(path, resources_only=resources_only)
+    cgroup = observed["receipt"]["cgroup_limits_and_peaks"]
+    try:
+        memory_max = int(cgroup["memory_max"])
+        memory_swap_max = int(cgroup["memory_swap_max"])
+        quota_text, period_text = cgroup["cpu_max"].split()
+        quota, period = int(quota_text), int(period_text)
+    except (TypeError, ValueError) as error:
+        raise ObserverFailure("canonical gate batch cgroup limits are invalid") from error
+    if memory_max != MEMORY_LIMIT_BYTES or memory_swap_max != 0:
+        raise ObserverFailure("canonical gate batch must be limited to 24 GiB memory with no swap")
+    if period <= 0 or quota != CPU_LIMIT * period:
+        raise ObserverFailure("canonical gate batch CPU quota must be exactly 12 CPUs")
+    if parse_cpu_set(cgroup["cpuset_cpus_effective"]) != parse_cpu_set(expected_cpuset):
+        raise ObserverFailure("canonical gate batch effective CPU affinity differs from its pinned CPU set")
+    events = cgroup["memory_events"]
+    if events["oom"] != 0 or events["oom_kill"] != 0:
+        raise ObserverFailure("canonical gate batch exceeded its memory limit")
+    return {
+        "memory_max_bytes": memory_max,
+        "memory_swap_max_bytes": memory_swap_max,
+        "cpu_quota": quota,
+        "cpu_period": period,
+        "cpuset_cpus_effective": cgroup["cpuset_cpus_effective"],
+    }
 
 
 def source_check(tree: Path, expected: dict[str, str]) -> dict[str, str]:
@@ -422,6 +628,7 @@ def finalize_normal_stage(
     ownership_stream: Any,
     validate_after: Callable[[], dict[str, Any]],
     pending: dict[str, Any],
+    resources_only: bool,
 ) -> None:
     def clean_owned_work() -> dict[str, Any]:
         if process is not None and process.poll() is None:
@@ -446,7 +653,7 @@ def finalize_normal_stage(
     stage["container_resources"] = None
     resource_error = None
     try:
-        stage["container_resources"] = resource_receipt(resource_file)
+        stage["container_resources"] = resource_receipt(resource_file, resources_only=resources_only)
     except (OSError, ValueError, ObserverFailure) as error:
         resource_error = str(error)
     stage["container_resource_error"] = resource_error
@@ -465,7 +672,8 @@ def finalize_normal_stage(
         and validation_error is None
     )
     timing_accepted = (
-        observation_accepted
+        not resources_only
+        and observation_accepted
         and stage["performance_gate"]["before"]["exit_code"] == 0
         and after is not None
         and after["exit_code"] == 0
@@ -477,7 +685,9 @@ def finalize_normal_stage(
     if elapsed is not None and not timing_accepted:
         stage["wall_ns_discarded"] = elapsed
     if not timing_accepted:
-        if stage["performance_gate"]["before"]["exit_code"] != 0:
+        if resources_only and observation_accepted:
+            stage["timing_discard_reason"] = "resources-only mode"
+        elif stage["performance_gate"]["before"]["exit_code"] != 0:
             stage["timing_discard_reason"] = "pre-stage readiness failed; stage ran for resource observations only"
         elif after is not None and after["exit_code"] != 0:
             stage["timing_discard_reason"] = "post-stage readiness failed"
@@ -500,6 +710,7 @@ def run_stage(
     resource_file: Path,
     ownership_stream: Any,
     validate_after: Callable[[], dict[str, Any]],
+    resources_only: bool = False,
 ) -> dict[str, Any]:
     stdout_path = stage_dir / "stdout.log"
     stderr_path = stage_dir / "stderr.log"
@@ -520,7 +731,7 @@ def run_stage(
         "timing_discarded": True,
     }
     process = None
-    started = time.perf_counter_ns() if before["exit_code"] == 0 else None
+    started = time.perf_counter_ns() if before["exit_code"] == 0 and not resources_only else None
     spawn_error = None
     try:
         with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
@@ -541,6 +752,7 @@ def run_stage(
                         stage_name=stage_name, container_id_file=cidfile,
                         resource_file=resource_file, ownership_stream=ownership_stream,
                         validate_after=validate_after, pending=pending,
+                        resources_only=resources_only,
                     )
     except SignalReceived as error:
         with deferred_signals() as pending:
@@ -596,6 +808,7 @@ def run_stage(
                 stage_name=stage_name, container_id_file=cidfile,
                 resource_file=resource_file, ownership_stream=ownership_stream,
                 validate_after=validate_after, pending=pending,
+                resources_only=resources_only,
             )
     return stage
 
@@ -613,6 +826,7 @@ def lint_command(
     output_dir: Path,
     cpus: str,
     run_id: str,
+    resources_only: bool = False,
 ) -> list[str]:
     observer = "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py"
     cidfile = output_dir / "container.cid"
@@ -640,7 +854,9 @@ def lint_command(
         "-e", "XSH_BIN=/release/xsh",
         "-e", "PATH=/release:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         NATIVE_IMAGE_ID,
-        "/usr/bin/python3", observer, resource_in_container, "--", "/release/xsht", "lint",
+        "/usr/bin/python3", observer,
+        *( ["--resources-only"] if resources_only else [] ),
+        resource_in_container, "--", "/release/xsht", "lint",
     ]
 
 
@@ -727,7 +943,16 @@ def gate_target_build_input(requested: Path | None, actual: Path, reused: bool) 
     }
 
 
-def prepare_docker_shim(output: Path, environment: dict[str, str], docker: str, run_id: str, batch_stage: Path) -> Path:
+def prepare_docker_shim(
+    output: Path,
+    environment: dict[str, str],
+    docker: str,
+    run_id: str,
+    batch_stage: Path,
+    cpuset_cpus: str,
+    *,
+    resources_only: bool = False,
+) -> Path:
     shim_dir = output / "host-bin"
     shim_dir.mkdir()
     shim_path = shim_dir / "docker"
@@ -740,6 +965,8 @@ def prepare_docker_shim(output: Path, environment: dict[str, str], docker: str, 
     environment["XSH_OBSERVER_CONTAINER_SCRIPT"] = "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py"
     output_relative = manifest_relative_output(batch_stage / "container-resources.json", ROOT)
     environment["XSH_OBSERVER_CONTAINER_RESOURCE"] = "/work/" + output_relative
+    environment["XSH_OBSERVER_CPUSET"] = cpuset_cpus
+    environment["XSH_OBSERVER_RESOURCES_ONLY"] = "1" if resources_only else "0"
     environment["PATH"] = str(shim_dir) + os.pathsep + environment["PATH"]
     return shim_path
 
@@ -766,7 +993,10 @@ def run(args: argparse.Namespace) -> int:
     supplemental_handoff = plan_data()["post_batch_supplemental_launcher"]
     source = source_identity(tree, args.commit)
     close = functional_close(args.functional_close.resolve(), args.commit)
-    selected = load_profile_binaries(args.profile_receipt.resolve(), tree, args.commit, args.release_opt_level)
+    selected = load_profile_binaries(
+        args.profile_receipt.resolve(), tree, args.commit, args.release_opt_level,
+        allow_artifact_qualified=args.resources_only,
+    )
     docker = shutil.which("docker")
     cargo = shutil.which("cargo")
     if docker is None or cargo is None:
@@ -813,11 +1043,15 @@ def run(args: argparse.Namespace) -> int:
         "DOCKER_PLATFORM": "linux/amd64",
     })
     host_env = dict(baseline_environment)
-    batch_shim = prepare_docker_shim(output, host_env, docker, run_id, batch_dir)
+    batch_shim = prepare_docker_shim(
+        output, host_env, docker, run_id, batch_dir, lint_cpus, resources_only=args.resources_only,
+    )
     batch_env = dict(host_env)
     batch_env["PATH"] = str(batch_shim.parent) + os.pathsep + os.environ.get("PATH", "")
     profile_before = selected["binaries"]
-    lint_command_argv = lint_command(docker, tree, Path(selected["directory"]), lint_dir, lint_cpus, run_id)
+    lint_command_argv = lint_command(
+        docker, tree, Path(selected["directory"]), lint_dir, lint_cpus, run_id, resources_only=args.resources_only,
+    )
     batch_command_argv = gate_batch_command()
     receipt_path = output / "receipt.json"
     receipt: dict[str, Any] = {
@@ -839,22 +1073,29 @@ def run(args: argparse.Namespace) -> int:
         },
         "release_profile": selected["profile"],
         "profile_cost_receipt": selected["receipt"],
+        "profile_qualification_tool": selected["qualification_tool"],
         "selected_release_binaries": profile_before,
         "locks": {
             "performance": str(PROFILE_LOCK),
             "native_suite": str(NATIVE_SUITE_LOCK),
             "cargo": str(CARGO_LOCK),
-            "held_for_both_stages": True,
+            "observer_holds_performance_and_native_suite_across_both_stages": True,
+            "observer_holds_cargo": False,
+            "canonical_batch_cargo_lock_owner": "canonical gate batch devtool",
         },
         "resource_policy": {
             "isolated_lint_cpuset": lint_cpus,
             "isolated_lint_cpu_limit": CPU_LIMIT,
             "isolated_lint_memory_limit": MEMORY_LIMIT,
             "isolated_lint_swap_limit": MEMORY_LIMIT,
-            "gate_batch_limits": "record the pinned Docker command's actual cgroup limits without changing its canonical settings",
+            "gate_batch_cpu_set": lint_cpus,
+            "gate_batch_cpu_limit": CPU_LIMIT,
+            "gate_batch_memory_limit": MEMORY_LIMIT,
+            "gate_batch_swap_limit": MEMORY_LIMIT,
             "rss_method": "container-local sum of resident pages sampled every 100 ms; retain kernel cgroup peak and events independently",
         },
-        "timing_policy": "run timed observations only when pre-stage readiness passes and post-stage readiness passes immediately afterward; run memory and binary observations without timing when the host is busy",
+        "execution_mode": "resources-only" if args.resources_only else "timed",
+        "timing_policy": "resources-only mode always discards timing; timed mode requires readiness before and after each stage",
         "canonical_batch_rust_exclusions": ["cp::privileged::test_cp_recursive_block_device_"],
         "supplemental_isolated_tests": {
             "owner": str(FINAL_CORRECTNESS_LAUNCHER),
@@ -867,10 +1108,7 @@ def run(args: argparse.Namespace) -> int:
     }
     json_write(receipt_path, receipt)
 
-    ownership = exclusive_lock(PROFILE_LOCK, reject_unresolved=True)
-    native_lock = exclusive_lock(NATIVE_SUITE_LOCK)
-    cargo_lock = exclusive_lock(CARGO_LOCK)
-    with ownership as ownership_stream, native_lock, cargo_lock:
+    with observer_locks() as ownership_stream:
         try:
             ensure_native_marker_clear()
             no_active_native_containers(docker, native["image_id"])
@@ -886,7 +1124,9 @@ def run(args: argparse.Namespace) -> int:
                 validate_after=lambda: {
                     "source": source_check(tree, source),
                     "selected_release_binaries": sealed_binary_set(Path(selected["directory"]), profile_before),
+                    "profile_qualification_tool": validate_qualification_tool(selected),
                 },
+                resources_only=args.resources_only,
             )
             receipt["stages"]["isolated_repository_lint"] = lint_stage
             after_lint = binary_set(Path(selected["directory"]))
@@ -923,7 +1163,12 @@ def run(args: argparse.Namespace) -> int:
                     "selected_release_binaries": sealed_binary_set(Path(selected["directory"]), profile_before),
                     "gate_batch_release_binaries": binary_set(gate_target_binaries),
                     "docker_commands": read_docker_observer_log(batch_dir / "docker-commands.jsonl"),
+                    "gate_batch_resource_limits": validate_gate_batch_resources(
+                        gate_resource_path, lint_cpus, resources_only=args.resources_only,
+                    ),
+                    "profile_qualification_tool": validate_qualification_tool(selected),
                 },
+                resources_only=args.resources_only,
             )
             receipt["stages"]["canonical_gate_batch"] = gate_stage
             batch_receipt_path = batch_dir / "receipt.json"
@@ -1057,7 +1302,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--plan", action="store_true", help="print the static observer inventory")
-    mode.add_argument("--execute", action="store_true", help="run both observers for one clean frozen source")
+    mode.add_argument("--execute", action="store_true", help="run both timed observers for one clean frozen source")
+    mode.add_argument("--resources-only", action="store_true", help="run both observers and discard timing regardless of readiness")
     parser.add_argument("--tree", type=Path, default=ROOT)
     parser.add_argument("--commit")
     parser.add_argument("--functional-close", type=Path)
@@ -1071,7 +1317,7 @@ def main() -> int:
         return 0
     missing = [name for name in ("commit", "functional_close", "profile_receipt", "release_opt_level", "output") if getattr(args, name) is None]
     if missing:
-        parser.error("--execute requires --" + ", --".join(name.replace("_", "-") for name in missing))
+        parser.error("observer execution requires --" + ", --".join(name.replace("_", "-") for name in missing))
     previous = install_signal_handlers()
     try:
         return run(args)

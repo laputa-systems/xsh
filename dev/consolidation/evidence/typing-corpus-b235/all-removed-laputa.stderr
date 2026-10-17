@@ -1,0 +1,20 @@
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/laputa/pm/plan_json.xsh:98:27
+  proc plan_json_dependency(value)  {
+                            ^^^^^ parameters declare their types: write `value: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/laputa/pm/plan_json.xsh:106:23
+  proc plan_json_remote(value)   {
+                        ^^^^^ parameters declare their types: write `value: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/laputa/pm/plan_json.xsh:116:21
+  proc plan_json_node(value)  {
+                      ^^^^^ parameters declare their types: write `value: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/laputa/pm/plan_json.xsh:146:25
+  proc plan_json_from_dto(value)  {
+                          ^^^^^ parameters declare their types: write `value: Type`
+xsht check: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s)

@@ -1,0 +1,334 @@
+{
+  "schema_version": 1,
+  "stage": {
+    "command": [
+      "/usr/bin/docker",
+      "run",
+      "--rm",
+      "--init",
+      "--cidfile",
+      "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/isolated-repository-lint/container.cid",
+      "--label",
+      "org.xsh.final-performance.owner=d5a4e0edc32c6edd5a4f3cdd85d695fe",
+      "--label",
+      "org.xsh.final-performance.stage=isolated-repository-lint",
+      "--platform",
+      "linux/amd64",
+      "--cpuset-cpus",
+      "0,1,2,3,4,5,6,7,8,9,10,11",
+      "--cpus",
+      "12",
+      "--memory",
+      "24g",
+      "--memory-swap",
+      "24g",
+      "--network",
+      "none",
+      "--tmpfs",
+      "/tmp:rw,exec,nosuid,mode=1777",
+      "-v",
+      "/home/josh/d/laputa-systems/xsh:/work:ro",
+      "-v",
+      "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-artifacts-7eb62cd9-20261017-r1/opt3/target/x86_64-unknown-linux-musl/release:/release:ro",
+      "-v",
+      "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/isolated-repository-lint:/observer:rw",
+      "-w",
+      "/work",
+      "-e",
+      "LC_ALL=C",
+      "-e",
+      "TZ=UTC",
+      "-e",
+      "TMPDIR=/tmp",
+      "-e",
+      "XSH_BIN=/release/xsh",
+      "-e",
+      "PATH=/release:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+      "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+      "/usr/bin/python3",
+      "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py",
+      "/observer/container-resources.json",
+      "--",
+      "/release/xsht",
+      "lint"
+    ],
+    "container_cleanup": {
+      "cidfile": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/isolated-repository-lint/container.cid",
+      "cleaned_container_ids": [],
+      "commands": [
+        {
+          "command": [
+            "docker",
+            "ps",
+            "--all",
+            "--quiet",
+            "--filter",
+            "label=org.xsh.final-performance.owner=d5a4e0edc32c6edd5a4f3cdd85d695fe",
+            "--filter",
+            "label=org.xsh.final-performance.stage=isolated-repository-lint"
+          ],
+          "exit_code": 0,
+          "stderr": "",
+          "stdout": ""
+        },
+        {
+          "absent": true,
+          "command": [
+            "docker",
+            "inspect",
+            "69918d14983469d7be50af4b64f1ead4d1a854a1a0a83789ee8a201eee641383"
+          ],
+          "exit_code": 1,
+          "stderr": "error: no such object: 69918d14983469d7be50af4b64f1ead4d1a854a1a0a83789ee8a201eee641383\n",
+          "stdout": "[]\n"
+        }
+      ],
+      "container_ids": [
+        "69918d14983469d7be50af4b64f1ead4d1a854a1a0a83789ee8a201eee641383"
+      ],
+      "resolved": true
+    },
+    "container_resource_error": null,
+    "container_resources": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/isolated-repository-lint/container-resources.json",
+      "receipt": {
+        "cgroup_limits_and_peaks": {
+          "cpu_max": "1200000 100000",
+          "memory_current": "39616512",
+          "memory_events": {
+            "high": 0,
+            "low": 0,
+            "max": 0,
+            "oom": 0,
+            "oom_group_kill": 0,
+            "oom_kill": 0,
+            "sock_throttled": 0
+          },
+          "memory_max": "25769803776",
+          "memory_peak": "1466568704",
+          "memory_swap_current": "0",
+          "memory_swap_events": {
+            "fail": 0,
+            "high": 0,
+            "max": 0
+          },
+          "memory_swap_max": "0",
+          "memory_swap_peak": "0",
+          "pids_current": "2",
+          "pids_max": "max",
+          "pids_peak": "15"
+        },
+        "command": [
+          "/release/xsht",
+          "lint"
+        ],
+        "final": {
+          "cgroup": {
+            "cpu_max": "1200000 100000",
+            "memory_current": "39616512",
+            "memory_events": {
+              "high": 0,
+              "low": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_group_kill": 0,
+              "oom_kill": 0,
+              "sock_throttled": 0
+            },
+            "memory_max": "25769803776",
+            "memory_peak": "1466568704",
+            "memory_swap_current": "0",
+            "memory_swap_events": {
+              "fail": 0,
+              "high": 0,
+              "max": 0
+            },
+            "memory_swap_max": "0",
+            "memory_swap_peak": "0",
+            "pids_current": "2",
+            "pids_max": "max",
+            "pids_peak": "15"
+          },
+          "process_rss_sum_bytes": 10829824,
+          "sampled_utc": "2026-10-17T05:48:38.376+00:00",
+          "visible_process_count": 2
+        },
+        "initial": {
+          "cgroup": {
+            "cpu_max": "1200000 100000",
+            "memory_current": "9244672",
+            "memory_events": {
+              "high": 0,
+              "low": 0,
+              "max": 0,
+              "oom": 0,
+              "oom_group_kill": 0,
+              "oom_kill": 0,
+              "sock_throttled": 0
+            },
+            "memory_max": "25769803776",
+            "memory_peak": "12656640",
+            "memory_swap_current": "0",
+            "memory_swap_events": {
+              "fail": 0,
+              "high": 0,
+              "max": 0
+            },
+            "memory_swap_max": "0",
+            "memory_swap_peak": "0",
+            "pids_current": "2",
+            "pids_max": "max",
+            "pids_peak": "6"
+          },
+          "process_rss_sum_bytes": 10600448,
+          "sampled_utc": "2026-10-17T05:48:22.345+00:00",
+          "visible_process_count": 2
+        },
+        "oom_events": 0,
+        "oom_kill_events": 0,
+        "process_rss_peak_bytes": 1306886144,
+        "process_rss_peak_method": "sum of resident pages for visible container processes, sampled every 100 ms",
+        "received_signal": null,
+        "resource_sample_interval_ms": 100,
+        "resource_samples": 161,
+        "schema_version": 1,
+        "spawn_error": null,
+        "status": 0,
+        "swap_events": {
+          "fail": 0,
+          "high": 0,
+          "max": 0
+        },
+        "timing_discarded": false,
+        "wall_ns": 16031587992
+      },
+      "sha256": "4df0f56d53bcd44cc89d9c4793e53b56180b68f7098478979a775586ddcf74dd"
+    },
+    "deferred_signals": {
+      "counts": {},
+      "first": null
+    },
+    "environment": {
+      "CARGO_NET_GIT_FETCH_WITH_CLI": "true",
+      "CARGO_TARGET_DIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/gate-batch-target",
+      "CHARSET": "UTF-8",
+      "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION": "9001",
+      "CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS": "1",
+      "CODEX_CI": "1",
+      "CODEX_SESSION_ID": "01a14680-dfb9-7ad0-a581-5eec4b3e9798",
+      "CODEX_THREAD_ID": "01a14685-2296-7361-85eb-e3b96863e298",
+      "CODEX_TOOL_CALL_ID": "exec-8a442544-9684-4f9a-847a-874a129be96c",
+      "CODEX_VERSION": "0.163.0",
+      "COLORTERM": "truecolor",
+      "DIST_PROFILE": "release",
+      "DOCKER_PLATFORM": "linux/amd64",
+      "EDITOR": "/home/josh/usr/bin/e",
+      "GH_PAGER": "cat",
+      "GIT_PAGER": "cat",
+      "HOME": "/home/josh",
+      "HOMEBREW_NO_ANALYTICS": "1",
+      "HOMEBREW_NO_AUTO_UPDATE": "1",
+      "HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK": "1",
+      "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C",
+      "LC_COLLATE": "C",
+      "LC_CTYPE": "C.UTF-8",
+      "LOGNAME": "josh",
+      "LS_COLORS": "su=00:sg=00:ca=00:or=40;31;01:",
+      "NO_COLOR": "1",
+      "OLDPWD": "/home/josh/d",
+      "PAGER": "less",
+      "PATH": "/home/josh/.cargo/bin:/home/josh/.local/share/codex/releases/0.163.0/codex-path:/home/josh/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "PWD": "/home/josh/d/laputa-systems/xsh",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "SHELL": "/home/josh/.local/bin/ish",
+      "SHLVL": "1",
+      "SSH_CLIENT": "100.74.141.56 62480 22",
+      "SSH_CONNECTION": "100.74.141.56 62480 100.98.145.91 22",
+      "SSH_TTY": "/dev/pts/0",
+      "TARGET": "x86_64-unknown-linux-musl",
+      "TERM": "tmux-256color",
+      "TERM_PROGRAM": "tmux",
+      "TERM_PROGRAM_VERSION": "3.8",
+      "TMPDIR": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/tmp",
+      "TMUX": "/tmp/tmux-1000/default,4284,0",
+      "TMUX_PANE": "%1",
+      "TZ": "UTC",
+      "USER": "josh",
+      "XDG_CACHE_HOME": "/home/josh/.cache",
+      "XDG_CONFIG_HOME": "/home/josh/.config",
+      "XDG_DATA_HOME": "/home/josh/.local/share",
+      "XSH_TEST_IMAGE": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+      "XSH_TEST_IMAGE_BUILD": "0",
+      "_": "/usr/bin/python3",
+      "__DENV_DIR": "/home/josh/d/laputa-systems/xsh",
+      "__DENV_PID": "4531",
+      "__DENV_SHELL": "bash",
+      "__DENV_STATE": "1791124275 0 /home/josh/d/laputa-systems/xsh"
+    },
+    "name": "isolated-repository-lint",
+    "observation_accepted": true,
+    "performance_gate": {
+      "after": null,
+      "before": {
+        "command": [
+          "perf-gate-ready"
+        ],
+        "exit_code": 0,
+        "stderr": "",
+        "stdout": ""
+      }
+    },
+    "post_stage_validation": {
+      "profile_qualification_tool": {
+        "path": "/home/josh/d/laputa-systems/xsh/.work/wt/profile-resource-split/dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py",
+        "sha256": "39948e7c9f6ca85fb06c33ee4fab8a777e53b1f4b40733ac66776a8473739556"
+      },
+      "selected_release_binaries": {
+        "xsh": {
+          "mode": "0o0755",
+          "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-artifacts-7eb62cd9-20261017-r1/opt3/target/x86_64-unknown-linux-musl/release/xsh",
+          "sha256": "e79fd4820b23b840c0bbface75a8b24780eae8fb7aedc34a01d76045f9aeae6b",
+          "size_bytes": 30158976
+        },
+        "xsh-test-helper": {
+          "mode": "0o0755",
+          "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-artifacts-7eb62cd9-20261017-r1/opt3/target/x86_64-unknown-linux-musl/release/xsh-test-helper",
+          "sha256": "cf8005649749a43cc22aa5e40092a8f90365efc370b857fce5de2004adb2e621",
+          "size_bytes": 657104
+        },
+        "xsht": {
+          "mode": "0o0755",
+          "path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/final-performance-gates/profile-artifacts-7eb62cd9-20261017-r1/opt3/target/x86_64-unknown-linux-musl/release/xsht",
+          "sha256": "54bb342ae14e77cdacac6db01974f60606ea42ad1a27a6ee3185cbcfe1b01b02",
+          "size_bytes": 40737840
+        }
+      },
+      "source": {
+        "commit": "7eb62cd993e578c13bf6befd68a6a6ac15133c78",
+        "git_tree": "736b4bc16b1bcf07a0250b97e849506c19fb0753",
+        "status": "clean"
+      }
+    },
+    "post_stage_validation_error": null,
+    "status": 0,
+    "stderr": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/isolated-repository-lint/stderr.log",
+      "sha256": "8ce7a7b9664ffd0d7179aec32568fc78999417f7f9ec1f000c5df47543a28182",
+      "size_bytes": 58802
+    },
+    "stderr_path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/isolated-repository-lint/stderr.log",
+    "stdout": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/isolated-repository-lint/stdout.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size_bytes": 0
+    },
+    "stdout_path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/isolated-repository-lint/stdout.log",
+    "timing_accepted": false,
+    "timing_discard_reason": "resources-only mode",
+    "timing_discarded": true,
+    "wall_ns": null
+  },
+  "state": "complete"
+}

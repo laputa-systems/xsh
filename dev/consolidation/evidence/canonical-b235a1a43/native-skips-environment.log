@@ -1,0 +1,42 @@
+core/tests/test-uu-mv-1.xsh::test_uu_mv_acl ... skipped: setfacl is not installed 3ms
+tests/xsh/stdlib/dns.xsh::test_dns_explicit_server_transport ... skipped: requires XSH_DNS_TEST_SERVER fixture 0ms
+tests/xsh/stdlib/net.xsh::test_net_job_cancel_keeps_h2_siblings_and_pool_healthy ... skipped: requires HTTPS H2 cancellation fixture 0ms
+core/tests/test-ls.xsh::test_ls_capability_colors_precede_executables_and_suffixes ... skipped: file capability fixture unavailable: /work/.work/tmp/native-tests-1000-1000/tmp/xsh-test-183558-1792211045867818653-2721-test_ls_capability_colors_precede_executables_and_suffixes/ls-1/work/cap.txt: Operation not permitted (os error 1) 1ms
+core/tests/test-mdev.xsh::test_mdev_wrapper_preserves_platform_boundary ... skipped: mdev scan behavior is covered by tests/xsh/stdlib/auth.xsh 0ms
+core/tests/test-nslookup.xsh::test_nslookup_owned_dns_server ... skipped: requires the owned loopback DNS fixture 0ms
+tests/xsh/stdlib/net.xsh::test_net_job_progresses_while_synchronous_request_waits ... skipped: requires concurrent NetJob transport fixture 6ms
+core/tests/test-dig.xsh::test_dig_owned_dns_server ... skipped: requires the owned loopback DNS fixture 0ms
+tests/xsh/stdlib/linux_fileattrs.xsh::test_linux_project_ids_preserve_flags_on_temporary_inodes ... skipped: fixture project-ID update refused (errno 95): Not supported (os error 95) 0ms
+tests/xsh/stdlib/net.xsh::test_net_job_trace_is_correlated_and_redacts_request_secrets ... skipped: requires XSH_NET_TEST_URL fixture 0ms
+tests/xsh/stdlib/net.xsh::test_net_request_wait_stops_at_a_within_deadline ... skipped: requires XSH_NET_TEST_URL fixture 0ms
+tests/xsh/stdlib/test.xsh::test_skip_function_is_covered ... skipped: covered skip 0ms
+tests/xsh/stdlib/net.xsh::test_net_runtime_descriptors_do_not_survive_exec ... skipped: requires local network and descriptor fixtures 0ms
+tests/xsh/tooling-trace.xsh::test_trace_rejects_syscalls_outside_linux ... skipped: syscall tracing is supported on Linux 0ms
+core/tests/test-basename.xsh::test_basename_runs_as_executable_shebang_script ... skipped: /bin/xsh is not installed 0ms
+core/tests/test-curl.xsh::test_curl_https_with_an_empty_trust_store_fails_unless_told_otherwise ... skipped: requires openssl and perl for the TLS fixture 8ms
+tests/xsh/stdlib/fs_prims.xsh::test_copy_file_reflink_clones_or_fails_with_an_errno ... skipped: the filesystem cannot clone files 2ms
+tests/xsh/stdlib/net.xsh::test_net_transport_batch_contracts ... skipped: requires XSH_NET_TEST_URL fixture 0ms
+tests/xsh/basic.xsh::test_skip ... skipped: later 0ms
+tests/xsh/stdlib/net.xsh::test_net_transport_batch_download_error_contract ... skipped: requires XSH_NET_TEST_URL fixture 0ms
+tests/xsh/stdlib/net.xsh::test_net_transport_download_many_https_h2_contract ... skipped: requires HTTPS H2 fixture 0ms
+tests/xsh/stdlib/net.xsh::test_net_transport_error_contracts ... skipped: requires XSH_NET_TEST_URL fixture 0ms
+tests/xsh/stdlib/net.xsh::test_net_transport_http_contracts ... skipped: requires XSH_NET_TEST_URL fixture 0ms
+core/tests/test-wget.xsh::test_wget_tls_verification ... skipped: requires openssl and perl for the TLS fixture 8ms
+tests/xsh/stdlib/net.xsh::test_net_transport_https_http1_contract ... skipped: requires HTTPS H1 fixture 0ms
+tests/xsh/stdlib/linux_storage.xsh::test_storage_primitives_report_unsupported_off_linux ... skipped: covers non-Linux hosts 0ms
+tests/xsh/stdlib/net.xsh::test_net_transport_linux_system_ca_dir ... skipped: requires Linux TLS fixture 0ms
+tests/xsh/stdlib/net.xsh::test_net_transport_request_many_https_h2_contract ... skipped: requires HTTPS H2 fixture 0ms
+core/tests/test-uu-comm.xsh::test_uu_comm_locale_collation ... skipped: en_US.UTF-8 locale is unavailable 0ms
+tests/xsh/stdlib/net.xsh::test_net_transport_timeout_contracts ... skipped: requires XSH_NET_TEST_URL fixture 0ms
+tests/xsh/stdlib/net.xsh::test_net_transport_tls_contracts ... skipped: requires TLS fixture 0ms
+core/tests/test-uu-cp-5.xsh::test_uu_cp_cp_xattr_enotsup_handling ... skipped: /dev/shm supports xattrs on this system 0ms
+core/tests/test-curl.xsh::test_curl_tls_verification ... skipped: requires openssl and perl for the TLS fixture 6ms
+core/tests/test-uu-dd-2.xsh::test_uu_dd_seek_past_dev ... skipped: no /dev/sda1 device found 0ms
+core/tests/test-compress.xsh::test_option_matrix_matches_the_reference_tools ... skipped: requires docker with the xsh-oracle image (dev/reference/oracle.sh) 7ms
+core/tests/test-uu-dd-2.xsh::test_uu_dd_skip_past_dev ... skipped: no /dev/sda1 device found 0ms
+core/tests/test-compress.xsh::test_reference_tools_accept_archives_written_by_xsh ... skipped: requires docker with the xsh-oracle image (dev/reference/oracle.sh) 9ms
+core/tests/test-compress.xsh::test_xsh_decodes_archives_written_by_reference_tools ... skipped: requires docker with the xsh-oracle image (dev/reference/oracle.sh) 8ms
+core/tests/test-uu-sort-2.xsh::test_uu_sort_month_sort_french_embedded_blanks ... skipped: requested UTF-8 locale unavailable 0ms
+core/tests/test-uu-sort-2.xsh::test_uu_sort_month_sort_french_locale ... skipped: requested UTF-8 locale unavailable 0ms
+core/tests/test-uu-sort-2.xsh::test_uu_sort_month_sort_hungarian_locale ... skipped: requested UTF-8 locale unavailable 0ms
+core/tests/test-uu-sort-2.xsh::test_uu_sort_month_sort_japanese_locale ... skipped: requested UTF-8 locale unavailable 0ms

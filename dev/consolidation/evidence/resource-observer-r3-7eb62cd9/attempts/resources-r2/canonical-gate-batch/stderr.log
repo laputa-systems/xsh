@@ -1,0 +1,24 @@
+cleanup error [StageError.Failed] at /work/dev/main.xsh:355:29: StageError.Failed
+err: canceled: process work was canceled by signal 15
+executable: target/x86_64-unknown-linux-musl/debug/xsh
+at /work/dev/stage.xsh:44:16-44:106
+call path:
+  1. proc main at /work/dev/main.xsh:1:1-1:1
+  2. proc dispatch at /work/dev/main.xsh:372:10-372:40
+  3. proc /work/dev/internal.xsh.gate_batch at /work/dev/main.xsh:355:29-355:63
+  4. proc /work/dev/gates.xsh.batch at /work/dev/internal.xsh:107:3-107:19
+  5. proc /work/dev/test_workflows.xsh.run_commands at /work/dev/gates.xsh:219:3-219:91
+  6. proc /work/dev/cargo_steps.xsh.run_build at /work/dev/test_workflows.xsh:182:7-182:34
+  7. proc /work/dev/cargo_steps.xsh.execute_with_cargo_lock at /work/dev/cargo_steps.xsh:333:5-333:45
+  8. proc /work/dev/stage.xsh.execute_with_flock at /work/dev/cargo_steps.xsh:235:5-235:52
+  9. proc /work/dev/stage.xsh.execute_with at /work/dev/stage.xsh:74:3-74:44
+err: canceled: process work was canceled by signal 15
+executable: .work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/gate-batch-target/debug/xsh
+at /home/josh/d/laputa-systems/xsh/dev/stage.xsh:44:16-44:106
+call path:
+  1. proc main at /home/josh/d/laputa-systems/xsh/dev/main.xsh:1:1-1:1
+  2. proc dispatch at /home/josh/d/laputa-systems/xsh/dev/main.xsh:372:10-372:40
+  3. proc /home/josh/d/laputa-systems/xsh/dev/gates.xsh.execute at /home/josh/d/laputa-systems/xsh/dev/main.xsh:218:14-218:38
+  4. proc /home/josh/d/laputa-systems/xsh/dev/docker.xsh.run_internal at /home/josh/d/laputa-systems/xsh/dev/gates.xsh:232:12-233:69
+  5. proc /home/josh/d/laputa-systems/xsh/dev/stage.xsh.execute at /home/josh/d/laputa-systems/xsh/dev/docker.xsh:240:3-249:4
+  6. proc /home/josh/d/laputa-systems/xsh/dev/stage.xsh.execute_with at /home/josh/d/laputa-systems/xsh/dev/stage.xsh:59:3-59:49

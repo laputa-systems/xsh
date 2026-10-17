@@ -1,0 +1,18 @@
+running 1 tests
+dev/tests/test-lifecycle.xsh::test_docker_container_failure_runs_target_ownership_cleanup ... FAILED 133ms
+
+failures:
+
+---- dev/tests/test-lifecycle.xsh::test_docker_container_failure_runs_target_ownership_cleanup ----
+AssertionError.Failed: test.expect: the script did not behave as expected
+  stdout does not contain "[test-products target=x86_64-unknown-linux-musl] cargo build --locked --profile verification --target x86_64-unknown-linux-musl"
+  stdout does not contain "StageError.Failed"
+status: 0
+stdout:
+[linux-git-safe-directory target=x86_64-unknown-linux-musl] git config --global --add safe.directory /scratch/tmp/xsh-test-361-1792214066103074715-0-test_docker_container_failure_runs_target_ownership_cleanup/container-cleanup-1
+[container-ownership-repair target=x86_64-unknown-linux-musl] chown -R 501:20 /scratch/tmp/xsh-test-361-1792214066103074715-0-test_docker_container_failure_runs_target_ownership_cleanup/container-cleanup-1/target
+StageError.MissingTool
+
+stderr:
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped

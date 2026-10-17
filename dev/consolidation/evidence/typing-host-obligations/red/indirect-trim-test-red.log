@@ -1,0 +1,18 @@
+
+running 1 test
+test runtime::eval::indexed::full::tests::inferred_indirect_host_anchor_executes_after_frontend_drop_on_both_routes ... FAILED
+
+failures:
+
+---- runtime::eval::indexed::full::tests::inferred_indirect_host_anchor_executes_after_frontend_drop_on_both_routes stdout ----
+
+thread '<unnamed>' (9) panicked at src/runtime/eval/indexed/full.rs:19027:9:
+[Diagnostic { severity: Error, code: Some(CheckLocalInference), message: "material type needs an annotation", span: None, labels: [Label { style: Primary, span: Span { source_id: SourceId(0), start: 92, len: 4 }, message: Some("no unique concrete type is established for this value") }, Label { style: Secondary, span: Span { source_id: SourceId(0), start: 66, len: 4 }, message: Some("type inference started here") }], notes: [], fix_hints: [] }]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    runtime::eval::indexed::full::tests::inferred_indirect_host_anchor_executes_after_frontend_drop_on_both_routes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 896 filtered out; finished in 0.01s
+

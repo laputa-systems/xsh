@@ -1,0 +1,10 @@
+err[check.dynamic-boundary]: unchecked Any used as a method receiver must be validated; validate with `.require(Type)` or use a checked type pattern
+  /inputs/invalid-dynamic.xsh:2:48
+  pure invalid(text: Any) -> Str { let changed = text.replace("\t", with: " "); let anchored = anchor(text); changed }
+                                                 ^^^^ unchecked Any used as a method receiver must be validated; validate with `.require(Type)` or use a checked type pattern
+
+err[check.dynamic-boundary]: unchecked Any cannot establish Str; validate with `.require(Type)` or use a checked type pattern
+  /inputs/invalid-dynamic.xsh:2:101
+  pure invalid(text: Any) -> Str { let changed = text.replace("\t", with: " "); let anchored = anchor(text); changed }
+                                                                                                      ^^^^ unchecked Any cannot establish Str; validate with `.require(Type)` or use a checked type pattern
+xsht check: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s, check 0.00s)

@@ -1,0 +1,1 @@
+0	1	xsh	dev/tests/test-lifecycle.xsh::test_docker_container_failure_runs_target_ownership_cleanup

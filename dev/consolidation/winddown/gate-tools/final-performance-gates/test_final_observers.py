@@ -30,32 +30,37 @@ container_resources = load_module("capture_container_resources", HERE / "capture
 docker_shim = load_module("docker_observer_shim", HERE / "docker-observer-shim.py")
 
 
-def successful_resource_receipt(path: Path) -> None:
+def successful_resource_receipt(path: Path, *, resources_only: bool = False) -> None:
     cgroup = {
         "memory_peak": "4096",
-        "memory_max": "8192",
+        "memory_max": str(24 * 1024**3),
         "memory_swap_peak": "0",
         "memory_swap_max": "0",
         "memory_events": {"oom": 0, "oom_kill": 0},
         "memory_swap_events": {"high": 0},
         "cpu_max": "1200000 100000",
+        "cpuset_cpus_effective": "0-11",
     }
     path.write_text(json.dumps({
         "schema_version": 1,
+        "execution_mode": "resources-only" if resources_only else "timed",
         "status": 0,
-        "timing_discarded": False,
+        "spawn_error": None,
+        "received_signal": None,
+        "wall_ns": None if resources_only else 1,
+        "timing_discarded": resources_only,
         "process_rss_peak_bytes": 2048,
         "cgroup_limits_and_peaks": cgroup,
     }) + "\n", encoding="utf-8")
 
 
-def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0)) -> dict[str, object]:
+def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0), resources_only: bool = False) -> dict[str, object]:
     with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
         root = Path(temporary)
         stage_dir = root / "stage"
         stage_dir.mkdir()
         resource_path = stage_dir / "container-resources.json"
-        successful_resource_receipt(resource_path)
+        successful_resource_receipt(resource_path, resources_only=resources_only)
         process = MagicMock()
         process.wait.return_value = status
         cleanup = {"resolved": True, "container_ids": [], "commands": []}
@@ -80,6 +85,7 @@ def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0)) ->
                 resource_file=resource_path,
                 ownership_stream=ownership_stream,
                 validate_after=lambda: {"source": "sealed"},
+                resources_only=resources_only,
             )
         return {
             "stage": stage,
@@ -90,6 +96,69 @@ def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0)) ->
             "receipt_exists": (stage_dir / "receipt.json").is_file(),
             "receipt": json.loads((stage_dir / "receipt.json").read_text(encoding="utf-8")),
         }
+
+
+def assert_container_resource_timing_modes() -> None:
+    cgroup = {
+        "memory_peak": "4096",
+        "memory_max": str(24 * 1024**3),
+        "memory_swap_peak": "0",
+        "memory_swap_max": "0",
+        "memory_events": {"oom": 0, "oom_kill": 0},
+        "memory_swap_events": {"high": 0},
+        "cpu_max": "1200000 100000",
+        "cpuset_cpus_effective": "0-11",
+    }
+    sample = {"process_rss_sum_bytes": 2048, "cgroup": cgroup}
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
+        output = Path(temporary) / "container-resources.json"
+        process = MagicMock()
+        process.wait.return_value = 0
+        process.poll.return_value = 0
+        with (
+            patch.object(container_resources, "snapshot", side_effect=[sample, sample]),
+            patch.object(container_resources.subprocess, "Popen", return_value=process) as popen,
+            patch.object(container_resources.time, "perf_counter_ns", side_effect=[100, 250]) as clock,
+        ):
+            assert container_resources.run(output, ["synthetic-command"]) == 0
+        timed = json.loads(output.read_text(encoding="utf-8"))
+        assert timed["execution_mode"] == "timed"
+        assert timed["wall_ns"] == 150
+        assert timed["timing_discarded"] is False
+        assert observer.resource_receipt(output)["receipt"] == timed
+        assert clock.call_count == 2
+        assert popen.call_count == 1
+
+        with (
+            patch.object(container_resources, "snapshot", side_effect=[sample, sample]),
+            patch.object(container_resources.subprocess, "Popen", return_value=process) as popen,
+            patch.object(container_resources.time, "perf_counter_ns", side_effect=AssertionError("resources-only mode must not read a timing clock")) as clock,
+        ):
+            assert container_resources.run(output, ["synthetic-command"], resources_only=True) == 0
+        resource_only = json.loads(output.read_text(encoding="utf-8"))
+        assert resource_only["execution_mode"] == "resources-only"
+        assert resource_only["wall_ns"] is None
+        assert resource_only["timing_discarded"] is True
+        assert observer.resource_receipt(output, resources_only=True)["receipt"] == resource_only
+        assert clock.call_count == 0
+        assert popen.call_count == 1
+        try:
+            observer.resource_receipt(output)
+        except observer.ObserverFailure:
+            pass
+        else:
+            raise AssertionError("resources-only container receipts must not qualify timed observers")
+
+        for field, value in (("status", False), ("received_signal", "SIGTERM"), ("spawn_error", "missing command")):
+            rejected = dict(resource_only)
+            rejected[field] = value
+            output.write_text(json.dumps(rejected), encoding="utf-8")
+            try:
+                observer.resource_receipt(output, resources_only=True)
+            except observer.ObserverFailure:
+                pass
+            else:
+                raise AssertionError(f"resource-only receipt must reject invalid {field}")
 
 
 def assert_helper_pin_detects_drift() -> None:
@@ -281,6 +350,85 @@ def assert_gate_target_cli_forwarding() -> None:
     assert run.call_args.args[0].gate_target_dir == cache
     restore.assert_called_once_with(sentinel)
 
+    arguments[1] = "--resources-only"
+    with (
+        patch.object(sys, "argv", arguments),
+        patch.object(observer, "install_signal_handlers", return_value=sentinel),
+        patch.object(observer, "restore_signal_handlers"),
+        patch.object(observer, "run", return_value=0) as run,
+    ):
+        assert observer.main() == 0
+    assert run.call_args.args[0].resources_only is True
+
+
+def assert_batch_shim_cpu_affinity() -> None:
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
+        root = Path(temporary)
+        output = root / "output"
+        batch_stage = output / "canonical-gate-batch"
+        output.mkdir()
+        batch_stage.mkdir()
+        environment = {"PATH": "/usr/bin"}
+        cpuset = ",".join(str(cpu) for cpu in range(12))
+        with patch.object(observer, "manifest_relative_output", return_value=".work/test/container-resources.json"):
+            shim_path = observer.prepare_docker_shim(
+                output, environment, "/usr/bin/docker", "synthetic-run", batch_stage, cpuset, resources_only=True,
+            )
+        assert shim_path.is_file()
+        assert environment["XSH_OBSERVER_CPUSET"] == cpuset
+        assert environment["XSH_OBSERVER_REAL_DOCKER"] == "/usr/bin/docker"
+        assert environment["XSH_OBSERVER_RESOURCES_ONLY"] == "1"
+        lint = observer.lint_command(
+            "/usr/bin/docker", observer.ROOT, Path("/release"), output, cpuset, "synthetic-run", resources_only=True,
+        )
+        image_at = lint.index(observer.NATIVE_IMAGE_ID)
+        assert lint[image_at + 1:] == [
+            "/usr/bin/python3", "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py",
+            "--resources-only", "/observer/container-resources.json", "--", "/release/xsht", "lint",
+        ]
+
+
+def assert_batch_child_owns_cargo_lock() -> None:
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
+        root = Path(temporary)
+        performance_lock = root / "final-performance.lock"
+        native_lock = root / "native-suite.lock"
+        cargo_lock = root / "cargo.lock"
+        container_cargo_lock = root / "container" / "cargo.lock"
+        container_cargo_lock.parent.mkdir()
+        cargo_lock.touch()
+        container_cargo_lock.hardlink_to(cargo_lock)
+        assert cargo_lock.stat().st_ino == container_cargo_lock.stat().st_ino
+        probe = "\n".join([
+            "import fcntl,sys",
+            "def acquired(path):",
+            "    stream = open(path, 'a+')",
+            "    try:",
+            "        fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)",
+            "    except BlockingIOError:",
+            "        return False",
+            "    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)",
+            "    return True",
+            "cargo, performance, native = sys.argv[1:]",
+            "assert acquired(cargo)",
+            "assert not acquired(performance)",
+            "assert not acquired(native)",
+        ])
+        with (
+            patch.object(observer, "PROFILE_LOCK", performance_lock),
+            patch.object(observer, "NATIVE_SUITE_LOCK", native_lock),
+            patch.object(observer, "CARGO_LOCK", cargo_lock),
+            observer.observer_locks(),
+        ):
+            child = observer.subprocess.run(
+                [sys.executable, "-B", "-c", probe, str(container_cargo_lock), str(performance_lock), str(native_lock)],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+        assert child.returncode == 0, child.stderr
+
 
 def exercise_repeated_signal_cleanup(*, process_exited: bool) -> tuple[dict[str, object], list[str]]:
     with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
@@ -354,6 +502,9 @@ def main() -> None:
     assert plan["supplemental_isolated_tests"]["context"].find("nodev /tmp") >= 0
     assert_gate_target_reuse_contract()
     assert_gate_target_cli_forwarding()
+    assert_batch_shim_cpu_affinity()
+    assert_batch_child_owns_cargo_lock()
+    assert_container_resource_timing_modes()
 
     args = [
         "run", "--rm", "--init", "--platform", "linux/amd64", "-v", "/source:/work",
@@ -365,6 +516,7 @@ def main() -> None:
         owner="synthetic-run",
         container_observer="/work/observer.py",
         container_resource_file="/work/resource.json",
+        cpuset_cpus=",".join(str(cpu) for cpu in range(12)),
     )
     assert transformed is not None
     image_at = transformed.index(docker_shim.NATIVE_IMAGE_ID)
@@ -372,8 +524,27 @@ def main() -> None:
         "/usr/bin/python3", "/work/observer.py", "/work/resource.json", "--",
         "/root/.cargo/bin/cargo", *docker_shim.GATE_BATCH_TAIL[1:],
     ]
+    resource_only_transformed = docker_shim.instrument_batch_argv(
+        args,
+        cidfile="/evidence/container.cid",
+        owner="synthetic-run",
+        container_observer="/work/observer.py",
+        container_resource_file="/work/resource.json",
+        cpuset_cpus=",".join(str(cpu) for cpu in range(12)),
+        resources_only=True,
+    )
+    assert resource_only_transformed is not None
+    resource_image_at = resource_only_transformed.index(docker_shim.NATIVE_IMAGE_ID)
+    assert resource_only_transformed[resource_image_at + 1:resource_image_at + 5] == [
+        "/usr/bin/python3", "/work/observer.py", "--resources-only", "/work/resource.json",
+    ]
     assert transformed[1:5] == [
         "--cidfile", "/evidence/container.cid", "--label", "org.xsh.final-performance.owner=synthetic-run",
+    ]
+    assert transformed[7:17] == [
+        "--cpuset-cpus", ",".join(str(cpu) for cpu in range(12)),
+        "--cpus", "12", "--memory", "24g", "--memory-swap", "24g",
+        "-e", "CARGO_BUILD_JOBS=12",
     ]
     assert docker_shim.instrument_batch_argv(
         args[:-1] + ["gate-lane"],
@@ -381,6 +552,32 @@ def main() -> None:
         owner="synthetic-run",
         container_observer="/work/observer.py",
         container_resource_file="/work/resource.json",
+        cpuset_cpus=",".join(str(cpu) for cpu in range(12)),
+    ) is None
+    for override in (
+        ["--cpus", "2"], ["--cpus=2"], ["--cpu-quota=1200000"], ["--memory", "1g"],
+        ["-m1g"], ["--memory-swap=1g"], ["--cpuset-cpus", "0"], ["--cpuset-cpus=0-11"],
+        ["--env", "CARGO_BUILD_JOBS=2"], ["--env", "CARGO_BUILD_JOBS"],
+        ["--env=CARGO_BUILD_JOBS=2"], ["--env=CARGO_BUILD_JOBS"],
+        ["-e", "CARGO_BUILD_JOBS"], ["-eCARGO_BUILD_JOBS=2"],
+        ["-e=CARGO_BUILD_JOBS=2"], ["--env-file", "/work/container.env"],
+        ["--env-file=/work/container.env"],
+    ):
+        assert docker_shim.instrument_batch_argv(
+            args[:1] + override + args[1:],
+            cidfile="/evidence/container.cid",
+            owner="synthetic-run",
+            container_observer="/work/observer.py",
+            container_resource_file="/work/resource.json",
+            cpuset_cpus=",".join(str(cpu) for cpu in range(12)),
+        ) is None, override
+    assert docker_shim.instrument_batch_argv(
+        args,
+        cidfile="/evidence/container.cid",
+        owner="synthetic-run",
+        container_observer="/work/observer.py",
+        container_resource_file="/work/resource.json",
+        cpuset_cpus="0,1,2",
     ) is None
 
     with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
@@ -401,6 +598,7 @@ def main() -> None:
             "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\n",
             "memory.swap.events": "high 0\nmax 0\nfail 0\n",
             "cpu.max": "1200000 100000\n",
+            "cpuset.cpus.effective": "0-11\n",
             "pids.current": "3\n",
             "pids.peak": "5\n",
             "pids.max": "max\n",
@@ -411,6 +609,7 @@ def main() -> None:
         assert sample["process_rss_sum_bytes"] == 4 * os.sysconf("SC_PAGE_SIZE")
         assert sample["cgroup"]["memory_peak"] == "2048"
         assert sample["cgroup"]["memory_events"]["oom_kill"] == 0
+        assert sample["cgroup"]["cpuset_cpus_effective"] == "0-11"
         sample_path = root / "resource.json"
         successful_resource_receipt(sample_path)
         assert observer.resource_receipt(sample_path)["receipt"]["process_rss_peak_bytes"] == 2048
@@ -424,6 +623,40 @@ def main() -> None:
             pass
         else:
             raise AssertionError("unavailable cgroup evidence must reject a resource receipt")
+
+        expected_cpuset = ",".join(str(cpu) for cpu in range(12))
+        limits = observer.validate_gate_batch_resources(sample_path, expected_cpuset)
+        assert limits == {
+            "memory_max_bytes": 24 * 1024**3,
+            "memory_swap_max_bytes": 0,
+            "cpu_quota": 1200000,
+            "cpu_period": 100000,
+            "cpuset_cpus_effective": "0-11",
+        }
+        for field, value in (
+            ("memory_max", "8192"),
+            ("memory_swap_max", "1024"),
+            ("cpu_max", "1100000 100000"),
+            ("cpuset_cpus_effective", "0-10"),
+        ):
+            changed = json.loads(sample_path.read_text(encoding="utf-8"))
+            changed["cgroup_limits_and_peaks"][field] = value
+            unavailable_path.write_text(json.dumps(changed), encoding="utf-8")
+            try:
+                observer.validate_gate_batch_resources(unavailable_path, expected_cpuset)
+            except observer.ObserverFailure:
+                pass
+            else:
+                raise AssertionError(f"canonical gate batch must reject an incorrect {field}")
+        changed = json.loads(sample_path.read_text(encoding="utf-8"))
+        changed["cgroup_limits_and_peaks"]["memory_events"]["oom_kill"] = 1
+        unavailable_path.write_text(json.dumps(changed), encoding="utf-8")
+        try:
+            observer.validate_gate_batch_resources(unavailable_path, expected_cpuset)
+        except observer.ObserverFailure:
+            pass
+        else:
+            raise AssertionError("canonical gate batch must reject an OOM event")
 
         binary_dir = root / "release"
         binary_dir.mkdir()
@@ -488,6 +721,20 @@ def main() -> None:
     assert rejected_after["stage"]["wall_ns_discarded"] > 0
     assert rejected_after["receipt"]["state"] == "complete"
 
+    resource_only = exercise_stage(ready_codes=(0, 0), resources_only=True)
+    assert resource_only["stage"]["observation_accepted"] is True
+    assert resource_only["stage"]["timing_accepted"] is False
+    assert resource_only["stage"]["timing_discarded"] is True
+    assert resource_only["stage"]["wall_ns"] is None
+    assert "wall_ns_discarded" not in resource_only["stage"]
+    assert resource_only["stage"]["timing_discard_reason"] == "resources-only mode"
+    assert resource_only["stage"]["performance_gate"]["before"]["exit_code"] == 0
+    assert resource_only["stage"]["performance_gate"]["after"] is None
+    assert resource_only["perf"].call_count == 1
+    assert resource_only["clock"].call_count == 0
+    assert resource_only["popen"].call_count == 1
+    assert resource_only["stage"]["container_resources"] is not None
+
     failed_command = exercise_stage(status=7)
     assert failed_command["stage"]["status"] == 7
     assert failed_command["stage"]["observation_accepted"] is False
@@ -502,7 +749,7 @@ def main() -> None:
     assert exited_signal["stage"]["signal"] == "SIGTERM"
     assert exited_events == ["before", "cleanup", "after"]
 
-    print("final observer pin, supplemental handoff, cgroup, sealing, readiness, discard, and repeated-signal cleanup self-tests passed")
+    print("final observer pin, supplemental handoff, cgroup, sealing, readiness, resource-only discard, and repeated-signal cleanup self-tests passed")
 
 
 if __name__ == "__main__":

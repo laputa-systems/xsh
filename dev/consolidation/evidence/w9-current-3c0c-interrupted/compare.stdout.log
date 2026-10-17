@@ -1,0 +1,46 @@
+role=reference owners=1690 proof_receipt=/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-current-3c0c01206db7/compare-derived/exact-reference/proof.receipt
+role=candidate owners=1690 proof_receipt=/home/josh/d/laputa-systems/xsh/.work/consolidation/w9-current-3c0c01206db7/compare-derived/exact-candidate/proof.receipt
+comparison_progress inputs=25/1690 outcomes=100/6760 mismatches=0
+comparison_progress inputs=50/1690 outcomes=200/6760 mismatches=0
+comparison_progress inputs=75/1690 outcomes=300/6760 mismatches=0
+comparison_progress inputs=100/1690 outcomes=400/6760 mismatches=0
+comparison_progress inputs=125/1690 outcomes=500/6760 mismatches=0
+comparison_progress inputs=150/1690 outcomes=600/6760 mismatches=0
+comparison_progress inputs=175/1690 outcomes=700/6760 mismatches=0
+comparison_progress inputs=200/1690 outcomes=800/6760 mismatches=0
+comparison_progress inputs=225/1690 outcomes=900/6760 mismatches=0
+comparison_progress inputs=250/1690 outcomes=1000/6760 mismatches=0
+Traceback (most recent call last):
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9_publication_adapter_runner.py", line 4063, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9_publication_adapter_runner.py", line 4042, in main
+    return compare_captured_publications(args, runner)
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9_publication_adapter_runner.py", line 3823, in compare_captured_publications
+    compare_result = compare_full_publications(
+        runner,
+    ...<20 lines>...
+        assignment_facts_module=assignment_facts_module,
+    )
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9_publication_adapter_runner.py", line 3579, in compare_full_publications
+    _run_parallel_publication_comparisons(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        comparison_context,
+        ^^^^^^^^^^^^^^^^^^^
+        count,
+        ^^^^^^
+        accept_input_result,
+        ^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9_publication_adapter_runner.py", line 3237, in _run_parallel_publication_comparisons
+    ready = multiprocessing.connection.wait([*active, *sentinels])
+  File "/usr/lib/python3.14/multiprocessing/connection.py", line 1190, in wait
+    ready = selector.select(timeout)
+  File "/usr/lib/python3.14/selectors.py", line 398, in select
+    fd_event_list = self._selector.poll(timeout)
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9_publication_adapter_runner.py", line 3183, in interrupt
+    return previous_handler(_signum, _frame)
+  File "/home/josh/d/laputa-systems/xsh/dev/consolidation/w9-publication-run.py", line 2673, in handle_termination
+    raise KeyboardInterrupt(f"received signal {signum}")
+KeyboardInterrupt: received signal 15

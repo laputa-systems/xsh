@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_dynamic_call","source_hash":"6ff7a274edf273d92f21c6c0e1d967094d3dc599af7f250abb61876b4b3e421f","records":[{"tag_name":"ExprDynamicCall","tag_ordinal":111,"route":"explicit_frame_control_path","mode":"normal"}]}

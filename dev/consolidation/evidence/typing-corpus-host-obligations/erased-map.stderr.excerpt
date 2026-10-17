@@ -1,0 +1,4 @@
+err[check.dynamic-boundary]: unchecked Any used as an interpolation must be validated; validate with `.require(Type)` or use a checked type pattern
+  /views/xsh/dev/tour_html.xsh:779:80
+    f"<figure class=\"code code-{block.lang}\"><figcaption><span class=\"lang\">{label}</span></figcaption><pre><code>{colored}</code></pre></figure>"
+                                                                                 ^^^^^ unchecked Any used as an interpolation must be validated; validate with `.require(Type)` or use a checked type pattern

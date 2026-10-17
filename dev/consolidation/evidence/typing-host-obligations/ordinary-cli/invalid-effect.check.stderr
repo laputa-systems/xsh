@@ -1,0 +1,10 @@
+err[check.standard-module-shadow]: name `path` shadows the standard module `path`
+  /inputs/invalid-effect.xsh:1:14
+  pure invalid(path) -> Str { path.read_text() ?? "" }
+               ^^^^ name `path` shadows the standard module `path`
+
+err[check.pure-effect]: effectful method is not allowed in pure functions
+  /inputs/invalid-effect.xsh:1:29
+  pure invalid(path) -> Str { path.read_text() ?? "" }
+                              ^^^^^^^^^^^^^^^^ effectful method is not allowed in pure functions
+xsht check: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s, check 0.00s)

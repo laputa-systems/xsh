@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_path_mkdir","source_hash":"4e610f71b3225523bc3ef160bd57c67bebaa7f7fd826683e990d83635ce60a4e","records":[{"tag_name":"ExprPathMkdir","tag_ordinal":93,"route":"generic_operand_apply_path","mode":"forced"}]}

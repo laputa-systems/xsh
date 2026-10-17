@@ -1,0 +1,5 @@
+err[compact.indexed-build]: this function cannot be compiled yet: call `text.replace`
+  replace-reduced.xsh:3:17
+    let changed = text.replace("\t", with: " ")
+                  ^^^^^^^^^^^^ this function cannot be compiled yet: call `text.replace`
+xsht check: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s, check 0.00s, lower 0.00s)

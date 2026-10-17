@@ -1,0 +1,14 @@
+site	path	owner	final-treatment
+70	core/wc.xsh	pure longest_line parameter text	restored eligible group
+71	core/wc.xsh	pure longest_line return	restored eligible group
+768	core/lib/date_parse.xsh	pure zone_suffix parameter text	jointly removed
+769	core/lib/date_parse.xsh	pure zone_suffix return	jointly removed
+2238	core/lib/system_report_live.xsh	pure parse_proc_stat_with_policy parameter text	restored eligible group
+2239	core/lib/system_report_live.xsh	pure parse_proc_stat_with_policy parameter allow_wide_start_ticks	restored eligible group
+2240	core/lib/system_report_live.xsh	pure parse_proc_stat_with_policy return	restored eligible group
+7927	dev/system_report_check.xsh	pure traced_syscall parameter line	restored eligible group
+7928	dev/system_report_check.xsh	pure traced_syscall parameter name	restored eligible group
+7929	dev/system_report_check.xsh	pure traced_syscall return	restored eligible group
+7930	dev/system_report_check.xsh	pure traced_call_arguments parameter line	restored eligible group
+7931	dev/system_report_check.xsh	pure traced_call_arguments parameter name	restored eligible group
+7932	dev/system_report_check.xsh	pure traced_call_arguments return	restored eligible group

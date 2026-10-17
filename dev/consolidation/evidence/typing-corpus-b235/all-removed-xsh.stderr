@@ -1,0 +1,256 @@
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/cut.xsh:8:12
+  proc bound(raw, remaining, fields)  {
+             ^^^ parameters declare their types: write `raw: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/cut.xsh:21:13
+  proc ranges(spec, fields)  {
+              ^^^^ parameters declare their types: write `spec: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/date.xsh:8:17
+  proc parse_date(text, utc, base = null)   {
+                  ^^^^ parameters declare their types: write `text: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/date.xsh:44:25
+  proc format_nanoseconds(instant, flags, width_text, utc)   {
+                          ^^^^^^^ parameters declare their types: write `instant: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/date.xsh:100:18
+  proc format_date(instant, format, utc, style)   {
+                   ^^^^^^^ parameters declare their types: write `instant: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/date.xsh:123:27
+  proc reject_extra_operand(raw)   {
+                            ^^^ parameters declare their types: write `raw: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/date.xsh:282:23
+  proc format_directive(instant, spec, utc, style)   {
+                        ^^^^^^^ parameters declare their types: write `instant: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/date.xsh:338:18
+  proc format_text(instant, format, utc, style)   {
+                   ^^^^^^^ parameters declare their types: write `instant: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/date.xsh:406:17
+  proc debug_date(text, instant, base, utc)  {
+                  ^^^^ parameters declare their types: write `text: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/date.xsh:483:16
+  proc emit_date(raw, format, utc, debug, style)   {
+                 ^^^ parameters declare their types: write `raw: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/date_parse.xsh:277:20
+  proc civil_instant(year, month, day, hour, minute, second, utc, normalize = false)  {
+                     ^^^^ parameters declare their types: write `year: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/date_parse.xsh:283:15
+  proc relative(base, unit, count, utc)  {
+                ^^^^ parameters declare their types: write `base: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/date_parse.xsh:319:18
+  proc civil_epoch(year, month, day, clock_text, utc, offset)  {
+                   ^^^^ parameters declare their types: write `year: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/date_parse.xsh:325:15
+  proc absolute(text, utc, base)  {
+                ^^^^ parameters declare their types: write `text: Type`
+err[parse.module-load]: failed to load module
+  /views/xsh/core/system-report.xsh:3:1
+  use lib.system_report_live as live_collector
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `core/lib/system_report_live.xsh` has parse errors
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:200:17
+  proc read_value(root, source_path, max_bytes = 65536)   {
+                  ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:207:3
+    root,
+    ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:332:20
+  proc read_cpu_info(root)   {
+                     ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:405:35
+  proc read_effective_cgroup_cpuset(root)   {
+                                    ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:830:3
+    root,
+    ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:931:3
+    root,
+    ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:1179:20
+  proc collect_power(root)   {
+                     ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:1523:19
+  proc read_process(root, process_path, pid, page_size_bytes)   {
+                    ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:1719:24
+  proc collect_processes(root, page_size_bytes)   {
+                         ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:1768:21
+  proc collect_kernel(root)   {
+                      ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:1913:3
+    root,
+    ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:2054:23
+  proc collect_firmware(root)   {
+                        ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:2481:18
+  proc collect_usb(root, pci_functions)   {
+                   ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:2507:23
+  proc collect_identity(root, base)   {
+                        ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:2675:28
+  proc namespace_observation(root, source_path)   {
+                             ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:2696:29
+  proc read_firmware_identity(root)   {
+                              ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:2785:18
+  proc collect_cpu(root, base)   {
+                   ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:3279:33
+  proc collect_frequency_policies(root, issues)   {
+                                  ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:3536:26
+  proc read_huge_page_pool(root, huge_path, node_id, field)   {
+                           ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:3592:21
+  proc collect_memory(root, base)   {
+                      ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:4075:22
+  proc collect_cgroups(root)   {
+                       ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:4965:26
+  proc network_link_target(root, source_path, field)   {
+                           ^^^^ parameters declare their types: write `root: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/lib/system_report_live.xsh:5049:3
+    root,
+    ^^^^ parameters declare their types: write `root: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/tr.xsh:16:16
+  proc set_error(message) {
+                 ^^^^^^^ parameters declare their types: write `message: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/tr.xsh:21:15
+  proc warnings(data) {
+                ^^^^ parameters declare their types: write `data: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/tr.xsh:97:19
+  proc repeat_count(raw)  {
+                    ^^^ parameters declare their types: write `raw: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/tr.xsh:110:16
+  proc parse_set(data, fill, second)  {
+                 ^^^^ parameters declare their types: write `data: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/tr.xsh:173:23
+  proc validate_classes(second_spec, first, second, truncate) {
+                        ^^^^^^^^^^^ parameters declare their types: write `second_spec: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/wc.xsh:297:19
+  proc number_width(inputs, shown)   {
+                    ^^^^^^ parameters declare their types: write `inputs: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/wc.xsh:340:16
+  proc read_file(file)   {
+                 ^^^^ parameters declare their types: write `file: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/wc.xsh:358:19
+  proc files0_input(name, list, index, from_stdin)   {
+                    ^^^^ parameters declare their types: write `name: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/wc.xsh:381:3
+    input,
+    ^^^^^ parameters declare their types: write `input: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/wc.xsh:469:26
+  proc write_streamed_line(output)  {
+                           ^^^^^^ parameters declare their types: write `output: Type`
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/core/wc.xsh:486:3
+    state,
+    ^^^^^ parameters declare their types: write `state: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/dev/docker.xsh:9:22
+  proc host_link_tools(ctx)   {
+                       ^^^ parameters declare their types: write `ctx: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/dev/gates.xsh:159:16
+  proc docs_gate(ctx, profile)  {
+                 ^^^ parameters declare their types: write `ctx: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/dev/internal.xsh:89:25
+  proc gate_git_directory(ctx)  {
+                          ^^^ parameters declare their types: write `ctx: Type`
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /views/xsh/dev/main.xsh:197:15
+  proc dispatch(command, args)  {
+                ^^^^^^^ parameters declare their types: write `command: Type`
+xsht check: 10 files in 0.08s (thread time by stage: discover 0.00s, load 0.08s)

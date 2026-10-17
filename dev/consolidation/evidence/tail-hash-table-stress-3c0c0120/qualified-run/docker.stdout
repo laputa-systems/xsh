@@ -1,0 +1,11 @@
+/target/xsh: OK
+/target/xsht: OK
+0	core/tests/test-uu-tail-1.xsh::test_tail_hash_table_held_truncate_probe
+written	0	core/tests/test-uu-tail-1.xsh::test_uu_tail_follow_name_hash_table_stress
+written	0	core/tests/test-uu-tail-1.xsh::test_uu_tail_follow_name_truncate2
+written	0	core/tests/test-uu-tail-1.xsh::test_uu_tail_follow_name_truncate4
+written	0	core/tests/test-uu-tail-2.xsh::test_uu_tail_retry_descriptor_detects_truncation
+desugared	0	core/tests/test-uu-tail-1.xsh::test_uu_tail_follow_name_hash_table_stress
+desugared	0	core/tests/test-uu-tail-1.xsh::test_uu_tail_follow_name_truncate2
+desugared	0	core/tests/test-uu-tail-1.xsh::test_uu_tail_follow_name_truncate4
+desugared	0	core/tests/test-uu-tail-2.xsh::test_uu_tail_retry_descriptor_detects_truncation

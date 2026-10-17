@@ -4270,5 +4270,140 @@ fn eval_indexed_expr() { FullTag::ExprIf; FullTag::ExprMatch; }
             generate.validate_runtime_error_boundary_inventory("ExprUnknown", base)
 
 
+class DirectIrRouteReceiptTests(unittest.TestCase):
+    def setUp(self) -> None:
+        scratch = generate.HERE.parents[4] / ".work/tmp"
+        scratch.mkdir(parents=True, exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(dir=scratch)
+        self.addCleanup(self.temporary.cleanup)
+        self.root = pathlib.Path(self.temporary.name)
+        self.binary = self.root / "target/x86_64-unknown-linux-musl/debug/build/xsh/abc/out/xsh-abc"
+        self.binary.parent.mkdir(parents=True)
+        self.binary.write_bytes(b"qualified harness")
+        self.binary.chmod(0o755)
+        self.digest = generate.sha256_file(self.binary)
+        self.actual = {"head": "head", "tree": "tree"}
+        self.identity = {"commit": "head", "tree": "tree"}
+        self.row = {"tag": "ExprIf", "kind": "Expr", "frame_strategy": "FrameControl", "in_place": "Operands"}
+        self.stderr = self.root / "stderr.log"
+        suffix = self.binary.relative_to(self.root).as_posix()
+        self.stderr.write_text(f"Executable unittests src/lib.rs ({suffix})\nRunning unittests src/lib.rs ({suffix})\n")
+        build_path = self.root / "canonical.json"
+        build_path.write_text(json.dumps({
+            "source_expected": self.identity, "status": "passed", "exit_code": 0,
+            "logs": {"stderr": {"path": "stderr.log", "sha256": generate.sha256_file(self.stderr)}},
+        }))
+        self.log = self.root / "test.log"
+        self.output = (
+            f"running 1 test\ntest {generate.DIRECT_IR_TEST_ID} ... ok\n\n"
+            "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 216 filtered out; finished in 0.00s\n"
+        ).encode()
+        self.receipt = {
+            "source_expected": self.identity,
+            "qualified_product": {
+                "path": str(self.binary), "sha256": self.digest, "build_source": self.identity,
+                "build_receipt": {"path": str(build_path), "sha256": generate.sha256_file(build_path)},
+            },
+            "hashes": {phase: {"xsh-lib": self.digest} for phase in ("binaries_before_tests", "binaries_after_tests")},
+            "source_checks": [{"where": f"{phase}:direct-if-route", "head": "head", "tree": "tree", "clean": True, "status": ""} for phase in ("before", "after")],
+            "steps": [{"id": "direct-if-route", "argv": [str(self.binary), generate.DIRECT_IR_TEST_ID, "--exact"], "env": {}, "exit_code": 0, "process_exit_code": 0, "log": "test.log"}],
+        }
+        self.path = self.root / "receipt.json"
+        self.write_log(self.output)
+
+    def write_log(self, output: bytes) -> None:
+        self.log.write_bytes(b"argv: []\n\n[stdout]\n" + output + b"\n[stderr]\n")
+        self.receipt["steps"][0]["log_sha256"] = generate.sha256_file(self.log)
+
+    def collect(self) -> dict:
+        self.path.write_text(json.dumps(self.receipt))
+        with mock.patch.object(generate, "direct_ir_source_matches", return_value=True):
+            return generate.direct_ir_route_receipt(self.root, self.path, self.actual, self.row)
+
+    def test_qualified_rust_route_closes_only_the_direct_selection_gap(self) -> None:
+        proof = self.collect()
+        self.assertEqual(proof["proof_kind"], "direct_ir_rust_test")
+        evidence = {"ExprIf": {"normal": {"routes": {"explicit_frame_control_path": {"status": "credited"}}}}}
+        generate.attach_direct_ir_route_evidence([self.row], evidence, proof)
+        gaps = [
+            {"tag": "ExprIf", "path": "normal", "expected_runtime_route_id": "in_place_evaluator_path"},
+            {"tag": "ExprIf", "path": "forced", "expected_runtime_route_id": "explicit_frame_control_path"},
+        ]
+        self.assertEqual(generate.retain_unwitnessed_route_gaps(gaps, evidence, {"ExprIf": self.row}), gaps[1:])
+        self.assertNotIn("route_witness_expectations", self.row)
+
+    def test_route_identity_does_not_require_a_fictitious_xsh_probe(self) -> None:
+        self.assertEqual(generate.route_witness_route_id_for_path(
+            self.row, "normal", {"selected_when": "execution.is_in_place(instruction)"},
+            {"probes": [{"route_id": "explicit_frame_control_path"}]},
+        ), "in_place_evaluator_path")
+
+    def test_wrong_source_binary_selection_failure_and_duplicate_are_rejected(self) -> None:
+        original = copy.deepcopy(self.receipt)
+        mutations = [
+            lambda r: r["source_expected"].update(commit="wrong"),
+            lambda r: r["qualified_product"].update(sha256="wrong"),
+            lambda r: r["qualified_product"]["build_receipt"].update(sha256="wrong"),
+            lambda r: r["hashes"]["binaries_after_tests"].update({"xsh-lib": "wrong"}),
+            lambda r: r["source_checks"][1].update(clean=False),
+            lambda r: r["source_checks"][1].update(clean=1),
+            lambda r: r["source_checks"][1].update(status=" M src/runtime/eval/indexed/full.rs"),
+            lambda r: r["steps"][0].update(exit_code=1),
+            lambda r: r["steps"][0].update(process_exit_code=1),
+            lambda r: r["steps"][0].update(env={"XSH_INTERNAL_TEST_FORCE_FRAMES": "1"}),
+            lambda r: r["steps"][0]["argv"].__setitem__(1, "other_test"),
+            lambda r: r["steps"][0]["argv"].remove("--exact"),
+            lambda r: r["steps"].append(copy.deepcopy(r["steps"][0])),
+            lambda r: r["steps"][0].update(log_sha256="wrong"),
+            lambda r: r.update(qualified_product=[]),
+        ]
+        for mutation in mutations:
+            with self.subTest(mutation=mutations.index(mutation)):
+                self.receipt = copy.deepcopy(original)
+                mutation(self.receipt)
+                with self.assertRaises(generate.EvidenceError):
+                    self.collect()
+
+    def test_zero_selection_wrong_name_ignored_or_failed_output_is_rejected(self) -> None:
+        for output in (
+            self.output.replace(b"running 1 test", b"running 0 tests"),
+            self.output.replace(generate.DIRECT_IR_TEST_ID.encode(), b"wrong_test"),
+            self.output.replace(b"0 ignored", b"1 ignored"),
+            self.output.replace(b"0 failed", b"1 failed"),
+            self.output + b"test wrong_test ... FAILED\n",
+            self.output + b"test result: FAILED. 0 passed; 1 failed\n",
+            self.output + self.output,
+        ):
+            with self.subTest(output=output):
+                self.write_log(output)
+                with self.assertRaises(generate.EvidenceError):
+                    self.collect()
+
+    def test_product_build_scope_and_reviewed_assertions_are_required(self) -> None:
+        self.path.write_text(json.dumps(self.receipt))
+        with mock.patch.object(generate, "direct_ir_source_matches", return_value=False):
+            with self.assertRaises(generate.EvidenceError):
+                generate.direct_ir_route_receipt(self.root, self.path, self.actual, self.row)
+
+    def test_build_source_scope_allows_only_the_verified_xsht_literal_change(self) -> None:
+        source = generate.HERE.parents[4]
+        build_source = {"commit": "a" * 40, "tree": "build-tree"}
+        with mock.patch.object(generate, "git_value", side_effect=["build-tree", ""]):
+            self.assertTrue(generate.direct_ir_source_matches(source, build_source, self.actual))
+        with mock.patch.object(generate, "git_value", side_effect=[
+            "build-tree", "crates/xsht/src/cli/files.rs", "from_mode(0)", "from_mode(0o0)",
+        ]):
+            self.assertTrue(generate.direct_ir_source_matches(source, build_source, self.actual))
+        for values in (
+            ["wrong-tree"],
+            ["build-tree", "src/runtime/eval/indexed/full.rs"],
+            ["build-tree", "crates/xsht/src/cli/files.rs", "from_mode(0)", "from_mode(1)"],
+        ):
+            with self.subTest(values=values), mock.patch.object(generate, "git_value", side_effect=values):
+                self.assertFalse(generate.direct_ir_source_matches(source, build_source, self.actual))
+        with mock.patch.object(generate, "git_value", side_effect=["build-tree", ""]), mock.patch.object(generate, "rust_function_body", return_value="weakened test"):
+            self.assertFalse(generate.direct_ir_source_matches(source, build_source, self.actual))
+
+
 if __name__ == "__main__":
     unittest.main()

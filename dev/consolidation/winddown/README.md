@@ -92,6 +92,46 @@ resumed source. Use the repository's current [testing owner](../../../docs/TESTI
 and the campaign's existing gate requirements. Do not reuse old binaries or
 launch scripts as qualification for a changed source tree.
 
+To admit the direct-IR selection proof, pass its receipt explicitly:
+
+```sh
+python3 -B dev/consolidation/winddown/gate-tools/semantic-route-matrix/generate.py \
+  --root "$FROZEN" \
+  --direct-ir-receipt "$FROZEN/.work/tmp/direct-if-route-7eb62/receipt.json" \
+  --output "$FROZEN/.work/tmp/semantic-route-matrix.json"
+```
+
+Set `FROZEN` to the clean `7eb62cd99` checkout. The receipt keeps the harness
+build source `b235a1a43` distinct from the current source `7eb62cd99`.
+The collector checks the passed canonical library-harness build, unchanged
+executable digest, and clean source before and after the exact Rust test.
+It requires the reviewed fixture and assertions in
+`runtime::eval::indexed::full::tests::direct_if_children_are_marked_and_selected`.
+Build inputs must match, apart from the equivalent XSHT `from_mode(0)` to
+`from_mode(0o0)` spelling. This separate Rust proof credits only the normal
+`ExprIf` in-place route. It neither credits nor relabels XSH artifacts.
+
+The pinned opt3 resource flow has two modes. `profile-cost.py --artifacts-only`
+builds only the release `xsh`, `xsht`, and `xsh-test-helper` binaries, probes
+their container limits, and writes an `artifact-qualified` receipt to a fresh
+output under the source tree's `.work/consolidation`. It takes the final
+performance and Cargo locks, but not the native-suite lock, and makes no timing
+claim. Pass that receipt to `final-observers.py --resources-only` to run the
+existing lint and single canonical gate batch while discarding timing even
+when readiness passes. Both Docker stages are bounded to the first 12 allowed
+host CPUs, 24 GiB of memory, no swap, and 12 Cargo jobs; the batch receipt
+validates its effective cgroup limits. Each nested resource receipt also keeps
+wall time null and marks timing discarded; resource acceptance depends on a
+successful command, no signal, valid resource samples, and resolved cleanup.
+The observer holds the performance and native-suite locks across both stages;
+the canonical gate batch acquires the Cargo lock itself. This mode writes a
+fresh observer output directly under
+`.work/final-review-evidence/final-performance-gates`; its receipt binds the
+profile tool path and hash as well as the selected binaries.
+Only this explicit observer mode accepts an `artifact-qualified` profile
+receipt. Timed profile, forced-frame, scheduler, comparative, and observer gates
+still require a `complete` profile-cost receipt.
+
 Build products, Cargo caches, disposable test fixtures, process state, and
 unselected historical captures can be regenerated. Their ignored locations are
 not needed to recover the committed source or these unfinished overlays.

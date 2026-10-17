@@ -1,0 +1,10 @@
+
+running 1 test
+
+thread 'sema::check::method::host_obligations::tests::method_dispatch_preserves_receiver_resolution_error_categories' (9) panicked at src/sema/check/method.rs:25:17:
+host inference belongs to another checker
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test sema::check::method::host_obligations::tests::method_dispatch_preserves_receiver_resolution_error_categories ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 906 filtered out; finished in 0.00s
+

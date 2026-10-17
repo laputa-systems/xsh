@@ -1,0 +1,6 @@
+err[check.inferred-variant]: `.InvalidCpuList` has no expected enum or error family type to select a variant from
+  /views/xsh/core/lib/system_report.xsh:242:3
+    .InvalidCpuList(message)
+    ^^^^^^^^^^^^^^^^^^^^^^^^ target-typed variant
+note: give the target a type (an annotation, a parameter, or a declared return type), or qualify the variant where it is not the operand of `fail`; `.name` reads an item only inside a stream stage block
+

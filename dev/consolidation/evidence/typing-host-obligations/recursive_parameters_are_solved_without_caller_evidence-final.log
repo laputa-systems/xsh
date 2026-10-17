@@ -1,0 +1,6 @@
+
+running 1 test
+test sema::check::module_driver::tests::recursive_parameters_are_solved_without_caller_evidence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 906 filtered out; finished in 0.01s
+

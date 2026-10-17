@@ -1,0 +1,6 @@
+
+running 1 test
+test sema::check::module_driver::tests::repeated_generic_calls_add_call_facts_without_increasing_final_checker_body_entries ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 906 filtered out; finished in 0.01s
+

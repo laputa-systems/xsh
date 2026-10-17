@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_pipeline","source_hash":"1ad4ea6a6c6db6c2f67267a3e96ed42778c647462fbf7cdc3f1fa9be9f3c4151","records":[{"tag_name":"ExprPipeline","tag_ordinal":55,"route":"explicit_frame_control_path","mode":"forced"}]}

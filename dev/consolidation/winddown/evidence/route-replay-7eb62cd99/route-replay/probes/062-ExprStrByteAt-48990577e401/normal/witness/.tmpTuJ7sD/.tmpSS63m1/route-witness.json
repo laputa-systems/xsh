@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_str_byte_at","source_hash":"73b791a6d8585a9e0ec21b6fc4fae92c014441e212e83c46f2778969c3e5024b","records":[{"tag_name":"ExprStrByteAt","tag_ordinal":62,"route":"explicit_frame_apply_path","mode":"normal"}]}

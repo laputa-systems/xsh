@@ -1,0 +1,2007 @@
+site	reason
+18	joint check check.local-inference in pure add_bytes parameter left; restore declaration group
+19	joint check check.local-inference in pure add_bytes parameter right; restore declaration group
+21	joint check check.local-inference in pure byte_text parameter count; restore declaration group
+54	joint check check.result-fallback in pure continuation parameter data; restore declaration group
+55	joint check check.result-fallback in pure continuation parameter at; restore declaration group
+57	joint check check.result-fallback in pure within parameter data; restore declaration group
+58	joint check check.result-fallback in pure within parameter at; restore declaration group
+59	joint check check.result-fallback in pure within parameter low; restore declaration group
+60	joint check check.result-fallback in pure within parameter high; restore declaration group
+62	joint check check.result-fallback in pure sequence_width parameter data; restore declaration group
+63	joint check check.result-fallback in pure sequence_width parameter at; restore declaration group
+70	joint check check.ambiguous-overload in pure longest_line parameter text; restore declaration group
+72	joint check check.result-fallback in pure byte_words parameter data; restore declaration group
+73	joint check check.result-fallback in pure byte_words parameter posix; restore declaration group
+75	joint check check.local-inference in pure count_data parameter data; restore declaration group
+76	joint check check.local-inference in pure count_data parameter shown; restore declaration group
+77	joint check check.local-inference in pure count_data parameter posix; restore declaration group
+78	joint check check.local-inference in pure count_data parameter utf8; restore declaration group
+80	joint check check.local-inference in pure add_counts parameter left; restore declaration group
+81	joint check check.local-inference in pure add_counts parameter right; restore declaration group
+86	joint check check.local-inference in pure line_for parameter counts; restore declaration group
+87	joint check check.local-inference in pure line_for parameter shown; restore declaration group
+88	joint check check.local-inference in pure line_for parameter width; restore declaration group
+89	joint check check.local-inference in pure line_for parameter title; restore declaration group
+92	joint check check.local-inference in pure shown_count parameter shown; restore declaration group
+94	current grammar requires nondefault proc/stream parameter type
+95	current grammar requires nondefault proc/stream parameter type
+96	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+97	omitted proc return defaults to Unit; preserve explicit value-return contract
+100	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+101	omitted proc return defaults to Unit; preserve explicit value-return contract
+102	current grammar requires nondefault proc/stream parameter type
+103	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+104	omitted proc return defaults to Unit; preserve explicit value-return contract
+106	current grammar requires nondefault proc/stream parameter type
+107	current grammar requires nondefault proc/stream parameter type
+108	current grammar requires nondefault proc/stream parameter type
+109	current grammar requires nondefault proc/stream parameter type
+110	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+111	omitted proc return defaults to Unit; preserve explicit value-return contract
+112	current grammar requires nondefault proc/stream parameter type
+113	current grammar requires nondefault proc/stream parameter type
+114	current grammar requires nondefault proc/stream parameter type
+115	current grammar requires nondefault proc/stream parameter type
+116	current grammar requires nondefault proc/stream parameter type
+117	current grammar requires nondefault proc/stream parameter type
+118	current grammar requires nondefault proc/stream parameter type
+119	current grammar requires nondefault proc/stream parameter type
+120	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+121	omitted proc return defaults to Unit; preserve explicit value-return contract
+123	current grammar requires nondefault proc/stream parameter type
+124	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+125	current grammar requires nondefault proc/stream parameter type
+126	current grammar requires nondefault proc/stream parameter type
+127	current grammar requires nondefault proc/stream parameter type
+128	current grammar requires nondefault proc/stream parameter type
+129	current grammar requires nondefault proc/stream parameter type
+130	current grammar requires nondefault proc/stream parameter type
+131	current grammar requires nondefault proc/stream parameter type
+132	current grammar requires nondefault proc/stream parameter type
+133	current grammar requires nondefault proc/stream parameter type
+134	current grammar requires nondefault proc/stream parameter type
+135	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+136	omitted proc return defaults to Unit; preserve explicit value-return contract
+160	current grammar requires nondefault proc/stream parameter type
+161	current grammar requires nondefault proc/stream parameter type
+162	current grammar requires nondefault proc/stream parameter type
+163	omitted proc return defaults to Unit; preserve explicit value-return contract
+164	current grammar requires nondefault proc/stream parameter type
+165	current grammar requires nondefault proc/stream parameter type
+166	omitted proc return defaults to Unit; preserve explicit value-return contract
+170	omitted proc return defaults to Unit; preserve explicit value-return contract
+171	joint check check.result-fallback in pure char_width parameter line; restore declaration group
+172	joint check check.result-fallback in pure char_width parameter at; restore declaration group
+173	joint check check.result-fallback in pure char_width parameter encoding; restore declaration group
+175	joint check check.local-inference in pure blank_size parameter data; restore declaration group
+176	joint check check.local-inference in pure blank_size parameter at; restore declaration group
+177	joint check check.local-inference in pure blank_size parameter unicode; restore declaration group
+179	joint check check.if-condition in pure selected parameter index; restore declaration group
+180	joint check check.if-condition in pure selected parameter spans; restore declaration group
+181	joint check check.if-condition in pure selected parameter complement; restore declaration group
+203	current grammar requires nondefault proc/stream parameter type
+204	current grammar requires nondefault proc/stream parameter type
+205	joint check check.result-fallback in pure atom parameter data; restore declaration group
+206	joint check check.result-fallback in pure atom parameter at; restore declaration group
+208	joint check check.slice-type in pure find_sequence parameter data; restore declaration group
+209	joint check check.slice-type in pure find_sequence parameter sequence; restore declaration group
+210	joint check check.slice-type in pure find_sequence parameter start; restore declaration group
+215	joint check check.local-inference in pure compare parameter a; restore declaration group
+216	joint check check.local-inference in pure compare parameter b; restore declaration group
+218	joint check check.local-inference in pure add parameter a; restore declaration group
+219	joint check check.local-inference in pure add parameter b; restore declaration group
+221	joint check check.local-inference in pure subtract parameter a; restore declaration group
+222	joint check check.local-inference in pure subtract parameter b; restore declaration group
+224	joint check check.for-iterator in pure total parameter runs; restore declaration group
+226	joint check check.for-iterator in pure contains parameter runs; restore declaration group
+227	joint check check.for-iterator in pure contains parameter byte; restore declaration group
+229	current grammar requires nondefault proc/stream parameter type
+230	omitted proc return defaults to Unit; preserve explicit value-return contract
+231	current grammar requires nondefault proc/stream parameter type
+232	current grammar requires nondefault proc/stream parameter type
+233	current grammar requires nondefault proc/stream parameter type
+234	omitted proc return defaults to Unit; preserve explicit value-return contract
+236	current grammar requires nondefault proc/stream parameter type
+237	current grammar requires nondefault proc/stream parameter type
+238	current grammar requires nondefault proc/stream parameter type
+239	current grammar requires nondefault proc/stream parameter type
+240	joint check check.infer-return in pure value_at parameter runs; restore declaration group
+241	joint check check.infer-return in pure value_at parameter position; restore declaration group
+249	current grammar requires nondefault proc/stream parameter type
+250	current grammar requires nondefault proc/stream parameter type
+251	joint check check.infer-param in proc parse_date parameter base; restore declaration group
+252	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+253	omitted proc return defaults to Unit; preserve explicit value-return contract
+254	current grammar requires nondefault proc/stream parameter type
+255	current grammar requires nondefault proc/stream parameter type
+256	current grammar requires nondefault proc/stream parameter type
+257	current grammar requires nondefault proc/stream parameter type
+258	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+259	omitted proc return defaults to Unit; preserve explicit value-return contract
+260	joint check check.slice-type in pure utf8_char_width parameter raw; restore declaration group
+261	joint check check.slice-type in pure utf8_char_width parameter at; restore declaration group
+263	current grammar requires nondefault proc/stream parameter type
+264	current grammar requires nondefault proc/stream parameter type
+265	current grammar requires nondefault proc/stream parameter type
+266	current grammar requires nondefault proc/stream parameter type
+267	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+268	omitted proc return defaults to Unit; preserve explicit value-return contract
+269	current grammar requires nondefault proc/stream parameter type
+270	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+290	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+291	omitted proc return defaults to Unit; preserve explicit value-return contract
+307	joint check check.local-inference in pure needs_pieces parameter style; restore declaration group
+308	joint check check.local-inference in pure needs_pieces parameter shift; restore declaration group
+310	current grammar requires nondefault proc/stream parameter type
+311	current grammar requires nondefault proc/stream parameter type
+312	current grammar requires nondefault proc/stream parameter type
+313	current grammar requires nondefault proc/stream parameter type
+314	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+315	omitted proc return defaults to Unit; preserve explicit value-return contract
+316	current grammar requires nondefault proc/stream parameter type
+317	current grammar requires nondefault proc/stream parameter type
+318	current grammar requires nondefault proc/stream parameter type
+319	current grammar requires nondefault proc/stream parameter type
+320	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+321	omitted proc return defaults to Unit; preserve explicit value-return contract
+324	current grammar requires nondefault proc/stream parameter type
+325	current grammar requires nondefault proc/stream parameter type
+326	current grammar requires nondefault proc/stream parameter type
+327	current grammar requires nondefault proc/stream parameter type
+328	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+331	current grammar requires nondefault proc/stream parameter type
+332	current grammar requires nondefault proc/stream parameter type
+333	current grammar requires nondefault proc/stream parameter type
+334	current grammar requires nondefault proc/stream parameter type
+335	current grammar requires nondefault proc/stream parameter type
+336	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+337	omitted proc return defaults to Unit; preserve explicit value-return contract
+355	joint check check.dynamic-boundary in var selected; restore declaration group
+383	joint check check.local-inference in pure usage parameter message; restore declaration group
+385	joint check check.infer-return in pure parse_global parameter args; restore declaration group
+388	current grammar requires nondefault proc/stream parameter type
+389	current grammar requires nondefault proc/stream parameter type
+390	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+431	joint check check.infer-return in pure plan_json_write_dto parameter value; restore declaration group
+436	current grammar requires nondefault proc/stream parameter type
+437	omitted proc return defaults to Unit; preserve explicit value-return contract
+438	current grammar requires nondefault proc/stream parameter type
+439	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+440	omitted proc return defaults to Unit; preserve explicit value-return contract
+441	current grammar requires nondefault proc/stream parameter type
+442	omitted proc return defaults to Unit; preserve explicit value-return contract
+445	current grammar requires nondefault proc/stream parameter type
+446	omitted proc return defaults to Unit; preserve explicit value-return contract
+491	joint check check.result-fallback in pure decode_name parameter raw; restore declaration group
+492	joint check check.result-fallback in pure decode_name parameter utf8; restore declaration group
+494	joint check check.index-type in pure quote_pieces parameter pieces; restore declaration group
+495	joint check check.index-type in pure quote_pieces parameter always; restore declaration group
+497	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+498	omitted proc return defaults to Unit; preserve explicit value-return contract
+590	current grammar requires nondefault proc/stream parameter type
+591	current grammar requires nondefault proc/stream parameter type
+592	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+593	omitted proc return defaults to Unit; preserve explicit value-return contract
+600	current grammar requires nondefault proc/stream parameter type
+601	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+602	omitted proc return defaults to Unit; preserve explicit value-return contract
+628	joint check check.slice-type in pure inline_value_prefix parameter raw; restore declaration group
+629	joint check check.slice-type in pure inline_value_prefix parameter options; restore declaration group
+667	current grammar requires nondefault proc/stream parameter type
+668	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+727	joint check check.local-inference in pure invalid parameter text; restore declaration group
+752	joint check check.local-inference in pure instant_add parameter instant; restore declaration group
+753	joint check check.local-inference in pure instant_add parameter seconds; restore declaration group
+754	joint check check.local-inference in pure instant_add parameter nanoseconds; restore declaration group
+760	joint check check.for-iterator in pure uncomment parameter text; restore declaration group
+787	current grammar requires nondefault proc/stream parameter type
+788	current grammar requires nondefault proc/stream parameter type
+789	current grammar requires nondefault proc/stream parameter type
+790	current grammar requires nondefault proc/stream parameter type
+791	current grammar requires nondefault proc/stream parameter type
+792	current grammar requires nondefault proc/stream parameter type
+793	current grammar requires nondefault proc/stream parameter type
+794	omitted proc return defaults to Unit; preserve explicit value-return contract
+795	current grammar requires nondefault proc/stream parameter type
+796	current grammar requires nondefault proc/stream parameter type
+797	current grammar requires nondefault proc/stream parameter type
+798	current grammar requires nondefault proc/stream parameter type
+799	omitted proc return defaults to Unit; preserve explicit value-return contract
+804	current grammar requires nondefault proc/stream parameter type
+805	current grammar requires nondefault proc/stream parameter type
+806	current grammar requires nondefault proc/stream parameter type
+807	current grammar requires nondefault proc/stream parameter type
+808	current grammar requires nondefault proc/stream parameter type
+809	current grammar requires nondefault proc/stream parameter type
+810	omitted proc return defaults to Unit; preserve explicit value-return contract
+811	current grammar requires nondefault proc/stream parameter type
+812	current grammar requires nondefault proc/stream parameter type
+813	current grammar requires nondefault proc/stream parameter type
+814	omitted proc return defaults to Unit; preserve explicit value-return contract
+972	joint check check.infer-return in pure cpu_list_error parameter message; restore declaration group
+973	joint check check.infer-return in pure cpu_list_error return; restore declaration group
+979	joint check check.local-inference in var seen; restore declaration group
+1366	joint check check.local-inference in pure report_section_name parameter section; restore declaration group
+1371	joint check check.infer-return in pure not_requested_text return; restore declaration group
+1372	joint check check.infer-return in pure not_requested_cpu parameter section; restore declaration group
+1373	joint check check.infer-return in pure not_requested_cpu return; restore declaration group
+1374	joint check check.infer-return in pure not_requested_memory parameter section; restore declaration group
+1375	joint check check.infer-return in pure not_requested_memory return; restore declaration group
+1376	joint check check.infer-return in pure not_requested_pci parameter section; restore declaration group
+1377	joint check check.infer-return in pure not_requested_pci return; restore declaration group
+1378	joint check check.infer-return in pure not_requested_usb parameter section; restore declaration group
+1379	joint check check.infer-return in pure not_requested_usb return; restore declaration group
+1380	joint check check.infer-return in pure not_requested_storage parameter section; restore declaration group
+1381	joint check check.infer-return in pure not_requested_storage return; restore declaration group
+1382	joint check check.infer-return in pure not_requested_network parameter section; restore declaration group
+1383	joint check check.infer-return in pure not_requested_network return; restore declaration group
+1384	joint check check.infer-return in pure not_requested_sensors parameter section; restore declaration group
+1385	joint check check.infer-return in pure not_requested_sensors return; restore declaration group
+1386	joint check check.infer-return in pure not_requested_power parameter section; restore declaration group
+1387	joint check check.infer-return in pure not_requested_power return; restore declaration group
+1388	joint check check.infer-return in pure not_requested_firmware parameter section; restore declaration group
+1389	joint check check.infer-return in pure not_requested_firmware return; restore declaration group
+1390	joint check check.infer-return in pure not_requested_kernel parameter section; restore declaration group
+1391	joint check check.infer-return in pure not_requested_kernel return; restore declaration group
+1392	joint check check.infer-return in pure not_requested_processes parameter section; restore declaration group
+1393	joint check check.infer-return in pure not_requested_processes return; restore declaration group
+1394	joint check check.infer-return in pure clear_process_cgroup_resource_links parameter section; restore declaration group
+1395	joint check check.infer-return in pure clear_process_cgroup_resource_links return; restore declaration group
+1396	joint check check.type-mismatch in var processes; restore declaration group
+1397	joint check check.infer-return in pure not_requested_devices parameter section; restore declaration group
+1398	joint check check.infer-return in pure not_requested_devices return; restore declaration group
+1401	joint check check.infer-return in pure select_report_domain parameter report; restore declaration group
+1402	joint check check.infer-return in pure select_report_domain parameter selected; restore declaration group
+1403	joint check check.infer-return in pure select_report_domain return; restore declaration group
+1757	joint check check.local-inference in pure observation_state_json parameter state; restore declaration group
+1759	joint check check.local-inference in pure observation_state_xsh parameter value; restore declaration group
+1761	joint check check.local-inference in pure section_state_json parameter state; restore declaration group
+1763	joint check check.local-inference in pure section_state_xsh parameter value; restore declaration group
+1765	joint check check.local-inference in pure source_mode_json parameter mode; restore declaration group
+1767	joint check check.local-inference in pure source_mode_xsh parameter value; restore declaration group
+1769	joint check check.local-inference in pure text_observation_json parameter value; restore declaration group
+1771	joint check check.local-inference in pure text_observation_xsh parameter value; restore declaration group
+1772	joint check check.try-context in pure text_observation_xsh return; restore declaration group
+1773	joint check check.local-inference in pure section_status_json parameter value; restore declaration group
+1775	joint check check.local-inference in pure section_status_xsh parameter value; restore declaration group
+1776	joint check check.try-error in pure section_status_xsh return; restore declaration group
+1777	joint check check.local-inference in pure collection_issue_json parameter value; restore declaration group
+1779	joint check check.local-inference in pure collection_issue_xsh parameter value; restore declaration group
+1780	joint check check.infer-return in pure collection_issue_xsh return; restore declaration group
+1781	joint check check.local-inference in pure observation_scope_json parameter value; restore declaration group
+1783	joint check check.local-inference in pure observation_scope_xsh parameter value; restore declaration group
+1784	joint check check.infer-return in pure observation_scope_xsh return; restore declaration group
+1785	joint check check.local-inference in pure firmware_identity_json parameter value; restore declaration group
+1787	joint check check.local-inference in pure firmware_identity_xsh parameter value; restore declaration group
+1788	joint check check.infer-return in pure firmware_identity_xsh return; restore declaration group
+1789	joint check check.local-inference in pure optional_firmware_identity_json parameter value; restore declaration group
+1791	joint check check.infer-return in pure optional_firmware_identity_xsh parameter value; restore declaration group
+1792	joint check check.infer-return in pure optional_firmware_identity_xsh return; restore declaration group
+1793	joint check check.local-inference in pure identity_section_json parameter value; restore declaration group
+1795	joint check check.local-inference in pure identity_section_xsh parameter value; restore declaration group
+1796	joint check check.infer-return in pure identity_section_xsh return; restore declaration group
+1797	joint check check.local-inference in pure cpu_section_json parameter value; restore declaration group
+1799	joint check check.local-inference in pure cpu_section_xsh parameter value; restore declaration group
+1800	joint check check.infer-return in pure cpu_section_xsh return; restore declaration group
+1801	joint check check.local-inference in pure cgroup_resource_json parameter value; restore declaration group
+1803	joint check check.local-inference in pure cgroup_resource_xsh parameter value; restore declaration group
+1804	joint check check.infer-return in pure cgroup_resource_xsh return; restore declaration group
+1805	joint check check.local-inference in pure swap_device_json parameter value; restore declaration group
+1807	joint check check.local-inference in pure swap_device_xsh parameter value; restore declaration group
+1808	joint check check.infer-return in pure swap_device_xsh return; restore declaration group
+1809	joint check check.local-inference in pure memory_section_json parameter value; restore declaration group
+1811	joint check check.local-inference in pure memory_section_xsh parameter value; restore declaration group
+1812	joint check check.infer-return in pure memory_section_xsh return; restore declaration group
+1813	joint check check.local-inference in pure pci_section_json parameter value; restore declaration group
+1815	joint check check.local-inference in pure pci_section_xsh parameter value; restore declaration group
+1816	joint check check.infer-return in pure pci_section_xsh return; restore declaration group
+1817	joint check check.local-inference in pure usb_device_json parameter value; restore declaration group
+1819	joint check check.local-inference in pure usb_device_xsh parameter value; restore declaration group
+1820	joint check check.infer-return in pure usb_device_xsh return; restore declaration group
+1821	joint check check.local-inference in pure usb_section_json parameter value; restore declaration group
+1823	joint check check.local-inference in pure usb_section_xsh parameter value; restore declaration group
+1824	joint check check.infer-return in pure usb_section_xsh return; restore declaration group
+1825	joint check check.local-inference in pure mount_json parameter value; restore declaration group
+1827	joint check check.local-inference in pure mount_xsh parameter value; restore declaration group
+1828	joint check check.infer-return in pure mount_xsh return; restore declaration group
+1829	joint check check.local-inference in pure block_device_json parameter value; restore declaration group
+1831	joint check check.local-inference in pure block_device_xsh parameter value; restore declaration group
+1832	joint check check.infer-return in pure block_device_xsh return; restore declaration group
+1833	joint check check.local-inference in pure storage_section_json parameter value; restore declaration group
+1835	joint check check.local-inference in pure storage_section_xsh parameter value; restore declaration group
+1836	joint check check.infer-return in pure storage_section_xsh return; restore declaration group
+1837	joint check check.local-inference in pure network_attributes_json parameter values; restore declaration group
+1839	joint check check.local-inference in pure network_attributes_xsh parameter values; restore declaration group
+1840	joint check check.infer-return in pure network_attributes_xsh return; restore declaration group
+1841	joint check check.local-inference in pure network_address_json parameter value; restore declaration group
+1843	joint check check.local-inference in pure network_address_xsh parameter value; restore declaration group
+1844	joint check check.infer-return in pure network_address_xsh return; restore declaration group
+1845	joint check check.local-inference in pure network_link_json parameter value; restore declaration group
+1847	joint check check.local-inference in pure network_link_xsh parameter value; restore declaration group
+1848	joint check check.infer-return in pure network_link_xsh return; restore declaration group
+1849	joint check check.local-inference in pure network_nexthops_json parameter values; restore declaration group
+1851	joint check check.local-inference in pure network_nexthops_xsh parameter values; restore declaration group
+1852	joint check check.infer-return in pure network_nexthops_xsh return; restore declaration group
+1853	joint check check.local-inference in pure network_route_json parameter value; restore declaration group
+1855	joint check check.local-inference in pure network_route_xsh parameter value; restore declaration group
+1856	joint check check.infer-return in pure network_route_xsh return; restore declaration group
+1857	joint check check.local-inference in pure network_rule_json parameter value; restore declaration group
+1859	joint check check.local-inference in pure network_rule_xsh parameter value; restore declaration group
+1860	joint check check.infer-return in pure network_rule_xsh return; restore declaration group
+1861	joint check check.local-inference in pure network_section_json parameter value; restore declaration group
+1863	joint check check.local-inference in pure network_section_xsh parameter value; restore declaration group
+1864	joint check check.infer-return in pure network_section_xsh return; restore declaration group
+1865	joint check check.local-inference in pure sensor_channel_json parameter value; restore declaration group
+1867	joint check check.local-inference in pure sensor_channel_xsh parameter value; restore declaration group
+1868	joint check check.infer-return in pure sensor_channel_xsh return; restore declaration group
+1869	joint check check.local-inference in pure sensor_section_json parameter value; restore declaration group
+1871	joint check check.local-inference in pure sensor_section_xsh parameter value; restore declaration group
+1872	joint check check.infer-return in pure sensor_section_xsh return; restore declaration group
+1873	joint check check.local-inference in pure power_section_json parameter value; restore declaration group
+1875	joint check check.local-inference in pure power_section_xsh parameter value; restore declaration group
+1876	joint check check.infer-return in pure power_section_xsh return; restore declaration group
+1877	joint check check.local-inference in pure firmware_record_json parameter value; restore declaration group
+1879	joint check check.local-inference in pure firmware_record_xsh parameter value; restore declaration group
+1880	joint check check.infer-return in pure firmware_record_xsh return; restore declaration group
+1881	joint check check.local-inference in pure firmware_section_json parameter value; restore declaration group
+1883	joint check check.local-inference in pure firmware_section_xsh parameter value; restore declaration group
+1884	joint check check.infer-return in pure firmware_section_xsh return; restore declaration group
+1885	joint check check.local-inference in pure kernel_parameter_json parameter value; restore declaration group
+1887	joint check check.local-inference in pure kernel_parameter_xsh parameter value; restore declaration group
+1888	joint check check.infer-return in pure kernel_parameter_xsh return; restore declaration group
+1889	joint check check.local-inference in pure kernel_section_json parameter value; restore declaration group
+1891	joint check check.local-inference in pure kernel_section_xsh parameter value; restore declaration group
+1892	joint check check.infer-return in pure kernel_section_xsh return; restore declaration group
+1893	joint check check.local-inference in pure process_record_json parameter value; restore declaration group
+1895	joint check check.local-inference in pure process_record_xsh parameter value; restore declaration group
+1896	joint check check.infer-return in pure process_record_xsh return; restore declaration group
+1897	joint check check.local-inference in pure process_section_json parameter value; restore declaration group
+1899	joint check check.local-inference in pure process_section_xsh parameter value; restore declaration group
+1900	joint check check.infer-return in pure process_section_xsh return; restore declaration group
+1901	joint check check.local-inference in pure device_record_json parameter value; restore declaration group
+1903	joint check check.local-inference in pure device_record_xsh parameter value; restore declaration group
+1904	joint check check.infer-return in pure device_record_xsh return; restore declaration group
+1905	joint check check.local-inference in pure device_section_json parameter value; restore declaration group
+1907	joint check check.local-inference in pure device_section_xsh parameter value; restore declaration group
+1908	joint check check.infer-return in pure device_section_xsh return; restore declaration group
+1909	joint check check.local-inference in pure report_json parameter value; restore declaration group
+1911	joint check check.local-inference in pure report_xsh parameter value; restore declaration group
+1912	joint check check.infer-return in pure report_xsh return; restore declaration group
+1913	joint check check.infer-return in pure require_report_v1 parameter report; restore declaration group
+1914	joint check check.infer-return in pure require_report_v1 return; restore declaration group
+1915	joint check check.local-inference in var class_keys; restore declaration group
+1916	joint check check.local-inference in var sensor_keys; restore declaration group
+1917	joint check check.local-inference in var idle_keys; restore declaration group
+1919	joint check check.type-mismatch in pure encode_typed_report_json parameter sensitive; restore declaration group
+1920	joint check check.type-mismatch in pure encode_typed_report_json parameter pretty; restore declaration group
+1929	joint check check.type-mismatch in let replacement; restore declaration group
+1935	joint check check.local-inference in pure observation_display parameter value; restore declaration group
+1936	joint check check.infer-return in pure observation_display return; restore declaration group
+1937	joint check check.infer-return in pure optional_text_display parameter value; restore declaration group
+1938	joint check check.infer-return in pure optional_text_display return; restore declaration group
+1939	joint check check.guard-binding in pure byte_quantity parameter value; restore declaration group
+1941	joint check check.local-inference in pure optional_frequency parameter value; restore declaration group
+1943	joint check check.local-inference in pure optional_int_display parameter value; restore declaration group
+1945	joint check check.listcomp-iterator in pure integer_list_display parameter values; restore declaration group
+1947	joint check check.local-inference in pure key_part parameter prefix; restore declaration group
+1948	joint check check.local-inference in pure key_part parameter value; restore declaration group
+1949	joint check check.local-inference in pure optional_int_key parameter value; restore declaration group
+1951	joint check check.type-mismatch in pure optional_str_key parameter value; restore declaration group
+1953	joint check check.local-inference in pure optional_bool_key parameter value; restore declaration group
+1955	joint check check.local-inference in pure cpu_policy_key parameter policy; restore declaration group
+1957	joint check check.display-conversion in pure grouped_policy_lines parameter policies; restore declaration group
+1958	joint check check.try-context in pure grouped_policy_lines return; restore declaration group
+1959	joint check check.local-inference in pure section_entity_summary parameter status; restore declaration group
+1960	joint check check.local-inference in pure section_entity_summary parameter count; restore declaration group
+1961	joint check check.local-inference in pure section_entity_summary parameter label; restore declaration group
+1963	joint check check.for-iterator in pure mount_usage_summary parameter section; restore declaration group
+1966	joint check check.try-context in pure render_typed_text parameter full; restore declaration group
+1967	joint check check.try-context in pure render_typed_text parameter sensitive; restore declaration group
+1968	joint check check.try-context in pure render_typed_text return; restore declaration group
+1975	joint check check.local-inference in pure redact_firmware_identity parameter identity; restore declaration group
+1977	joint check check.local-inference in pure redact_identity_section parameter section; restore declaration group
+1978	joint check check.infer-return in pure redact_identity_section return; restore declaration group
+1979	joint check check.spread-not-record in pure redact_memory_section parameter section; restore declaration group
+1981	joint check check.infer-return in pure redact_pci_section parameter section; restore declaration group
+1982	joint check check.infer-return in pure redact_pci_section return; restore declaration group
+1983	joint check check.type-mismatch in var functions; restore declaration group
+1984	joint check check.infer-return in pure redact_usb_section parameter section; restore declaration group
+1985	joint check check.infer-return in pure redact_usb_section return; restore declaration group
+1987	joint check check.type-mismatch in var interfaces; restore declaration group
+2001	joint check check.record-update-field in pure sanitize_report_mount_options parameter report; restore declaration group
+2003	joint check check.local-inference in pure redact_mount_options parameter options; restore declaration group
+2005	joint check check.infer-return in pure redact_storage_section parameter section; restore declaration group
+2006	joint check check.infer-return in pure redact_storage_section return; restore declaration group
+2007	joint check check.type-mismatch in var devices; restore declaration group
+2008	joint check check.type-mismatch in var mounts; restore declaration group
+2009	joint check check.spread-not-record in pure redact_network_section parameter section; restore declaration group
+2013	joint check check.local-inference in pure redact_network_attributes parameter values; restore declaration group
+2015	joint check check.spread-not-record in pure redact_sensor_section parameter section; restore declaration group
+2017	joint check check.spread-not-record in pure redact_firmware_section parameter section; restore declaration group
+2020	joint check check.spread-not-record in pure redact_kernel_section parameter section; restore declaration group
+2022	joint check check.spread-not-record in pure redact_process_section parameter section; restore declaration group
+2024	joint check check.spread-not-record in pure redact_device_section parameter section; restore declaration group
+2032	joint check check.infer-return in pure empty_text parameter state; restore declaration group
+2033	joint check check.infer-return in pure empty_text return; restore declaration group
+2034	joint check check.local-inference in pure empty_status parameter state; restore declaration group
+2036	joint check check.infer-return in pure empty_cpu parameter state; restore declaration group
+2037	joint check check.infer-return in pure empty_cpu return; restore declaration group
+2038	joint check check.infer-return in pure empty_memory parameter state; restore declaration group
+2039	joint check check.infer-return in pure empty_memory return; restore declaration group
+2040	joint check check.infer-return in pure empty_report parameter started; restore declaration group
+2041	joint check check.infer-return in pure empty_report parameter page_size_bytes; restore declaration group
+2042	joint check check.infer-return in pure empty_report parameter clock_ticks_per_second; restore declaration group
+2043	joint check check.infer-return in pure empty_report return; restore declaration group
+2044	joint check check.infer-return in pure issue parameter section; restore declaration group
+2045	joint check check.infer-return in pure issue parameter field; restore declaration group
+2046	joint check check.infer-return in pure issue parameter state; restore declaration group
+2047	joint check check.infer-return in pure issue parameter error_kind; restore declaration group
+2048	joint check check.infer-return in pure issue parameter errno; restore declaration group
+2049	joint check check.infer-return in pure issue return; restore declaration group
+2050	joint check check.infer-return in pure issue_with_detail parameter section; restore declaration group
+2051	joint check check.infer-return in pure issue_with_detail parameter field; restore declaration group
+2052	joint check check.infer-return in pure issue_with_detail parameter state; restore declaration group
+2053	joint check check.infer-return in pure issue_with_detail parameter error_kind; restore declaration group
+2054	joint check check.infer-return in pure issue_with_detail parameter errno; restore declaration group
+2055	joint check check.infer-return in pure issue_with_detail parameter detail; restore declaration group
+2056	joint check check.infer-return in pure issue_with_detail return; restore declaration group
+2057	current grammar requires nondefault proc/stream parameter type
+2058	current grammar requires nondefault proc/stream parameter type
+2060	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2061	omitted proc return defaults to Unit; preserve explicit value-return contract
+2065	current grammar requires nondefault proc/stream parameter type
+2066	current grammar requires nondefault proc/stream parameter type
+2067	current grammar requires nondefault proc/stream parameter type
+2068	current grammar requires nondefault proc/stream parameter type
+2069	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2070	omitted proc return defaults to Unit; preserve explicit value-return contract
+2082	joint check check.type-mismatch in pure parse_list parameter value; restore declaration group
+2099	joint check check.infer-return in pure empty_cpu_info parameter id; restore declaration group
+2100	joint check check.infer-return in pure empty_cpu_info return; restore declaration group
+2103	current grammar requires nondefault proc/stream parameter type
+2104	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2105	omitted proc return defaults to Unit; preserve explicit value-return contract
+2107	joint check check.infer-return in pure cpu_info_for_id parameter infos; restore declaration group
+2108	joint check check.infer-return in pure cpu_info_for_id parameter id; restore declaration group
+2109	joint check check.infer-return in pure cpu_info_for_id return; restore declaration group
+2115	current grammar requires nondefault proc/stream parameter type
+2116	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2117	omitted proc return defaults to Unit; preserve explicit value-return contract
+2233	joint check check.type-mismatch in pure proc_counter parameter raw; restore declaration group
+2235	joint check check.type-mismatch in pure proc_optional_number parameter raw; restore declaration group
+2236	joint check check.type-mismatch in pure proc_optional_number parameter positive; restore declaration group
+2246	joint check check.infer-return in pure report_block_device parameter device; restore declaration group
+2247	joint check check.infer-return in pure report_block_device parameter pci_indices; restore declaration group
+2249	joint check check.infer-return in pure report_mount parameter entry; restore declaration group
+2250	joint check check.infer-return in pure report_mount parameter block_indices; restore declaration group
+2251	joint check check.infer-return in pure report_mount return; restore declaration group
+2252	current grammar requires nondefault proc/stream parameter type
+2253	current grammar requires nondefault proc/stream parameter type
+2254	current grammar requires nondefault proc/stream parameter type
+2255	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2256	omitted proc return defaults to Unit; preserve explicit value-return contract
+2261	joint check check.local-inference in pure append_number_issue parameter issues; restore declaration group
+2262	joint check check.local-inference in pure append_number_issue parameter section; restore declaration group
+2263	joint check check.local-inference in pure append_number_issue parameter field; restore declaration group
+2264	joint check check.local-inference in pure append_number_issue parameter number; restore declaration group
+2266	joint check check.local-inference in pure append_text_issue parameter issues; restore declaration group
+2267	joint check check.local-inference in pure append_text_issue parameter section; restore declaration group
+2268	joint check check.local-inference in pure append_text_issue parameter field; restore declaration group
+2269	joint check check.local-inference in pure append_text_issue parameter source; restore declaration group
+2271	current grammar requires nondefault proc/stream parameter type
+2272	current grammar requires nondefault proc/stream parameter type
+2273	current grammar requires nondefault proc/stream parameter type
+2274	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2275	omitted proc return defaults to Unit; preserve explicit value-return contract
+2279	joint check check.local-inference in var seen_trip_indices; restore declaration group
+2280	joint check check.type-mismatch in let trips; restore declaration group
+2281	current grammar requires nondefault proc/stream parameter type
+2282	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2283	omitted proc return defaults to Unit; preserve explicit value-return contract
+2285	joint check check.type-mismatch in var monitor_batteries; restore declaration group
+2288	joint check check.type-mismatch in let capacity_value; restore declaration group
+2298	joint check check.result-fallback in pure checked_page_bytes parameter pages; restore declaration group
+2299	joint check check.result-fallback in pure checked_page_bytes parameter page_size_bytes; restore declaration group
+2301	joint check check.local-inference in pure process_cgroup_resource_index parameter cgroup_path; restore declaration group
+2302	joint check check.local-inference in pure process_cgroup_resource_index parameter resources; restore declaration group
+2304	joint check check.listcomp-iterator in pure link_process_cgroups parameter processes; restore declaration group
+2305	joint check check.listcomp-iterator in pure link_process_cgroups parameter resources; restore declaration group
+2310	current grammar requires nondefault proc/stream parameter type
+2311	current grammar requires nondefault proc/stream parameter type
+2312	current grammar requires nondefault proc/stream parameter type
+2313	current grammar requires nondefault proc/stream parameter type
+2314	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2315	omitted proc return defaults to Unit; preserve explicit value-return contract
+2320	current grammar requires nondefault proc/stream parameter type
+2321	current grammar requires nondefault proc/stream parameter type
+2322	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2323	omitted proc return defaults to Unit; preserve explicit value-return contract
+2326	current grammar requires nondefault proc/stream parameter type
+2327	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2328	omitted proc return defaults to Unit; preserve explicit value-return contract
+2331	joint check check.local-inference in var seen_modules; restore declaration group
+2332	joint check check.type-mismatch in let users; restore declaration group
+2335	joint check check.infer-return in pure usb_device_index_from_target parameter indices; restore declaration group
+2336	joint check check.infer-return in pure usb_device_index_from_target parameter target; restore declaration group
+2338	current grammar requires nondefault proc/stream parameter type
+2339	current grammar requires nondefault proc/stream parameter type
+2340	current grammar requires nondefault proc/stream parameter type
+2341	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2342	omitted proc return defaults to Unit; preserve explicit value-return contract
+2346	current grammar requires nondefault proc/stream parameter type
+2347	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2348	omitted proc return defaults to Unit; preserve explicit value-return contract
+2351	joint check check.local-inference in pure smbios_string_index parameter value; restore declaration group
+2352	joint check check.local-inference in pure smbios_string_index parameter name; restore declaration group
+2354	joint check check.local-inference in pure smbios_raw_field parameter value; restore declaration group
+2355	joint check check.local-inference in pure smbios_raw_field parameter name; restore declaration group
+2357	joint check check.try-context in pure smbios_fields parameter record_type; restore declaration group
+2358	joint check check.try-context in pure smbios_fields parameter data; restore declaration group
+2359	joint check check.try-context in pure smbios_fields parameter offset; restore declaration group
+2360	joint check check.try-context in pure smbios_fields parameter length; restore declaration group
+2361	joint check check.try-context in pure smbios_fields return; restore declaration group
+2362	joint check check.try-context in let fields; restore declaration group
+2366	joint check check.type-mismatch in let strings; restore declaration group
+2367	joint check check.listcomp-iterator in pure usb_device_indices parameter devices; restore declaration group
+2393	joint check check.local-inference in pure report_usb_device parameter device; restore declaration group
+2394	joint check check.local-inference in pure report_usb_device parameter pci_indices; restore declaration group
+2396	current grammar requires nondefault proc/stream parameter type
+2397	current grammar requires nondefault proc/stream parameter type
+2398	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2399	omitted proc return defaults to Unit; preserve explicit value-return contract
+2400	joint check check.inferred-variant in pure value_or_null parameter value; restore declaration group
+2402	current grammar requires nondefault proc/stream parameter type
+2403	current grammar requires nondefault proc/stream parameter type
+2404	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2405	omitted proc return defaults to Unit; preserve explicit value-return contract
+2407	current grammar requires nondefault proc/stream parameter type
+2408	current grammar requires nondefault proc/stream parameter type
+2409	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2410	omitted proc return defaults to Unit; preserve explicit value-return contract
+2414	current grammar requires nondefault proc/stream parameter type
+2415	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2416	omitted proc return defaults to Unit; preserve explicit value-return contract
+2418	joint check check.type-mismatch in var compatible; restore declaration group
+2419	current grammar requires nondefault proc/stream parameter type
+2420	current grammar requires nondefault proc/stream parameter type
+2421	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2422	omitted proc return defaults to Unit; preserve explicit value-return contract
+2423	joint check check.dynamic-boundary in var cpus; restore declaration group
+2424	joint check check.dynamic-boundary in var caches; restore declaration group
+2425	joint check check.unknown-method in var cache_by_key; restore declaration group
+2426	joint check check.unknown-method in var cache_ids_by_cpu; restore declaration group
+2427	joint check check.dynamic-boundary in let linked_cpus; restore declaration group
+2429	joint check check.type-mismatch in var idle_states; restore declaration group
+2430	joint check check.type-mismatch in let cpu_section; restore declaration group
+2434	current grammar requires nondefault proc/stream parameter type
+2435	current grammar requires nondefault proc/stream parameter type
+2436	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2437	omitted proc return defaults to Unit; preserve explicit value-return contract
+2440	current grammar requires nondefault proc/stream parameter type
+2441	current grammar requires nondefault proc/stream parameter type
+2442	current grammar requires nondefault proc/stream parameter type
+2443	current grammar requires nondefault proc/stream parameter type
+2444	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2445	omitted proc return defaults to Unit; preserve explicit value-return contract
+2446	joint check check.type-mismatch in let error_kind; restore declaration group
+2448	current grammar requires nondefault proc/stream parameter type
+2449	current grammar requires nondefault proc/stream parameter type
+2450	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2451	omitted proc return defaults to Unit; preserve explicit value-return contract
+2453	joint check check.local-inference in var seen_swaps; restore declaration group
+2455	joint check check.type-mismatch in var pressure; restore declaration group
+2457	joint check check.type-mismatch in let memory; restore declaration group
+2460	joint check check.infer-return in pure cgroup_observation_state parameter maximum; restore declaration group
+2461	joint check check.infer-return in pure cgroup_observation_state parameter current; restore declaration group
+2463	joint check check.infer-return in pure cgroup_numeric_state parameter maximum; restore declaration group
+2464	joint check check.infer-return in pure cgroup_numeric_state parameter current; restore declaration group
+2465	joint check check.infer-return in pure cgroup_numeric_state parameter maximum_number; restore declaration group
+2466	joint check check.infer-return in pure cgroup_numeric_state parameter current_number; restore declaration group
+2468	joint check check.infer-return in pure cgroup_resource parameter visible_path; restore declaration group
+2469	joint check check.infer-return in pure cgroup_resource parameter level; restore declaration group
+2470	joint check check.infer-return in pure cgroup_resource parameter controller; restore declaration group
+2471	joint check check.infer-return in pure cgroup_resource parameter resource; restore declaration group
+2472	joint check check.infer-return in pure cgroup_resource parameter state; restore declaration group
+2473	joint check check.infer-return in pure cgroup_resource parameter maximum; restore declaration group
+2474	joint check check.infer-return in pure cgroup_resource parameter current; restore declaration group
+2475	joint check check.infer-return in pure cgroup_resource parameter unit; restore declaration group
+2476	joint check check.infer-return in pure cgroup_resource parameter unlimited; restore declaration group
+2477	joint check check.infer-return in pure cgroup_resource parameter quota; restore declaration group
+2478	joint check check.infer-return in pure cgroup_resource parameter period; restore declaration group
+2479	joint check check.infer-return in pure cgroup_resource parameter cpus; restore declaration group
+2480	joint check check.infer-return in pure cgroup_resource return; restore declaration group
+2481	joint check check.local-inference in pure cgroup_unlimited parameter source; restore declaration group
+2483	joint check requires original SourceRead parameter schema for cgroup_maximum; inferred field shape disagrees
+2485	joint check check.local-inference in pure cgroup_token_number parameter source; restore declaration group
+2486	joint check check.local-inference in pure cgroup_token_number parameter token; restore declaration group
+2488	joint check check.infer-return in pure first_errno parameter primary; restore declaration group
+2489	joint check check.infer-return in pure first_errno parameter secondary; restore declaration group
+2491	current grammar requires nondefault proc/stream parameter type
+2492	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2493	omitted proc return defaults to Unit; preserve explicit value-return contract
+2498	joint check check.local-inference in var seen_cpu_stat; restore declaration group
+2499	joint check check.local-inference in var duplicate_cpu_stat; restore declaration group
+2500	joint check check.local-inference in var seen_io_devices; restore declaration group
+2501	joint check check.local-inference in var duplicate_io_devices; restore declaration group
+2502	joint check check.local-inference in var seen_io_fields; restore declaration group
+2503	joint check check.local-inference in var duplicate_io_fields; restore declaration group
+2504	joint check check.infer-return in pure network_text parameter value; restore declaration group
+2505	joint check check.infer-return in pure network_text return; restore declaration group
+2506	joint check check.local-inference in pure network_link_name parameter value; restore declaration group
+2507	joint check check.infer-return in pure network_link_name return; restore declaration group
+2508	joint check check.infer-return in pure network_mac parameter value; restore declaration group
+2509	joint check check.infer-return in pure network_mac return; restore declaration group
+2511	joint check check.infer-return in pure network_attributes parameter values; restore declaration group
+2512	joint check check.infer-return in pure network_attributes return; restore declaration group
+2515	joint check check.display-conversion in pure network_link_flags parameter value; restore declaration group
+2518	joint check check.result-fallback in pure network_operstate parameter value; restore declaration group
+2532	joint check check.local-inference in pure link_index_by_name parameter links; restore declaration group
+2533	joint check check.local-inference in pure link_index_by_name parameter name; restore declaration group
+2537	joint check check.unknown-method in var addresses_by_link; restore declaration group
+2538	joint check check.type-mismatch in let address_value; restore declaration group
+2539	joint check check.unknown-method in let address; restore declaration group
+2542	joint check check.type-mismatch in var routes; restore declaration group
+2543	joint check check.type-mismatch in let default_destination; restore declaration group
+2544	joint check check.type-mismatch in let destination; restore declaration group
+2545	joint check check.type-mismatch in var link_indices_by_name; restore declaration group
+2546	joint check check.type-mismatch in var rules; restore declaration group
+2547	joint check check.local-inference in pure source_error_kind parameter failure; restore declaration group
+2549	current grammar requires nondefault proc/stream parameter type
+2550	current grammar requires nondefault proc/stream parameter type
+2551	current grammar requires nondefault proc/stream parameter type
+2552	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2553	omitted proc return defaults to Unit; preserve explicit value-return contract
+2561	current grammar requires nondefault proc/stream parameter type
+2562	current grammar requires nondefault proc/stream parameter type
+2563	current grammar requires nondefault proc/stream parameter type
+2564	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2565	omitted proc return defaults to Unit; preserve explicit value-return contract
+2569	joint check check.infer-return in pure unsupported_issue parameter section; restore declaration group
+2570	joint check check.infer-return in pure unsupported_issue parameter field; restore declaration group
+2571	joint check check.infer-return in pure unsupported_issue return; restore declaration group
+2581	joint check check.local-inference in pure mark_unsupported parameter value; restore declaration group
+2582	joint check check.local-inference in pure mark_unsupported parameter name; restore declaration group
+2583	joint check check.infer-return in pure mark_unsupported return; restore declaration group
+2637	joint check check.local-inference in pure block_name_index parameter indices; restore declaration group
+2638	joint check check.local-inference in pure block_name_index parameter name; restore declaration group
+2642	joint check check.type-mismatch in var indices; restore declaration group
+2651	joint check check.index-type in var candidates; restore declaration group
+2652	joint check check.local-inference in var listed_names; restore declaration group
+2656	joint check check.type-mismatch in var block_indices_by_name; restore declaration group
+2657	joint check check.local-inference in var linked_devices; restore declaration group
+2658	joint check check.type-mismatch in let holders; restore declaration group
+2659	joint check check.type-mismatch in let slaves; restore declaration group
+2679	joint check check.local-inference in pure parse_hex_component parameter value; restore declaration group
+2687	current grammar requires nondefault proc/stream parameter type
+2688	current grammar requires nondefault proc/stream parameter type
+2689	current grammar requires nondefault proc/stream parameter type
+2691	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2692	omitted proc return defaults to Unit; preserve explicit value-return contract
+2693	joint check check.ambiguous-overload in pure section_state parameter enumeration; restore declaration group
+2694	joint check check.ambiguous-overload in pure section_state parameter issues; restore declaration group
+2699	current grammar requires nondefault proc/stream parameter type
+2700	current grammar requires nondefault proc/stream parameter type
+2701	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+2702	omitted proc return defaults to Unit; preserve explicit value-return contract
+2707	joint check check.type-mismatch in var functions; restore declaration group
+2708	joint check check.unknown-method in var function_index_by_address; restore declaration group
+2709	joint check check.type-mismatch in let linked_functions; restore declaration group
+2714	joint check check.type-mismatch in var indices; restore declaration group
+2841	joint check check.infer-return in pure empty_field parameter state; restore declaration group
+2842	joint check check.infer-return in pure empty_field parameter error_kind; restore declaration group
+2843	joint check check.infer-return in pure empty_field return; restore declaration group
+2844	joint check check.infer-return in pure meminfo_field parameter name; restore declaration group
+2845	joint check check.infer-return in pure meminfo_field parameter state; restore declaration group
+2846	joint check check.infer-return in pure meminfo_field parameter value; restore declaration group
+2847	joint check check.infer-return in pure meminfo_field parameter unit; restore declaration group
+2848	joint check check.infer-return in pure meminfo_field parameter error_kind; restore declaration group
+2850	joint check check.local-inference in pure meminfo_issue parameter field; restore declaration group
+2851	joint check check.local-inference in pure meminfo_issue parameter state; restore declaration group
+2852	joint check check.local-inference in pure meminfo_issue parameter error_kind; restore declaration group
+2854	joint check check.infer-return in pure error_field parameter name; restore declaration group
+2855	joint check check.infer-return in pure error_field parameter error_kind; restore declaration group
+2856	joint check check.infer-return in pure error_field parameter state; restore declaration group
+2858	joint check check.infer-return in pure parse_value parameter name; restore declaration group
+2859	joint check check.infer-return in pure parse_value parameter values; restore declaration group
+2861	joint check check.infer-return in pure missing_field parameter name; restore declaration group
+2862	joint check check.infer-return in pure missing_field parameter fields; restore declaration group
+2863	joint check check.infer-return in pure missing_field return; restore declaration group
+2864	joint check check.infer-return in pure project_fields parameter state; restore declaration group
+2865	joint check check.infer-return in pure project_fields parameter fields; restore declaration group
+2866	joint check check.infer-return in pure project_fields return; restore declaration group
+2867	joint check check.local-inference in pure source_error parameter source; restore declaration group
+2869	joint check check.infer-return in pure make_source parameter source; restore declaration group
+2870	joint check check.infer-return in pure make_source parameter fields; restore declaration group
+2871	joint check check.infer-return in pure make_source parameter issues; restore declaration group
+2872	joint check check.infer-return in pure make_source return; restore declaration group
+2875	joint check check.local-inference in var seen_names; restore declaration group
+2876	joint check check.local-inference in var duplicate_names; restore declaration group
+2879	joint check check.local-inference in var recorded_duplicates; restore declaration group
+2933	joint check check.unknown-method in pure mount_usage_index parameter mountinfo; restore declaration group
+2935	joint check check.unknown-method in var rows; restore declaration group
+2936	joint check check.unknown-method in var by_id; restore declaration group
+2937	joint check check.unknown-method in var target_counts; restore declaration group
+2938	joint check check.local-inference in pure mount_usage_safe parameter index; restore declaration group
+2939	joint check check.local-inference in pure mount_usage_safe parameter mount_id; restore declaration group
+2941	joint check check.local-inference in var seen; restore declaration group
+2942	joint check check.local-inference in pure mount_identity_key parameter mount_id; restore declaration group
+2943	joint check check.local-inference in pure mount_identity_key parameter major; restore declaration group
+2944	joint check check.local-inference in pure mount_identity_key parameter minor; restore declaration group
+2945	joint check check.local-inference in pure mount_identity_key parameter target; restore declaration group
+2953	joint check check.local-inference in var captured_keys; restore declaration group
+2954	joint check check.unknown-method in var captured_by_key; restore declaration group
+2963	joint check check.type-mismatch in var usage_path; restore declaration group
+3020	joint check check.field-access in var active; restore declaration group
+3021	joint check check.field-access in let alternates; restore declaration group
+3022	joint check check.field-access in let endpoint; restore declaration group
+3030	joint check check.type-mismatch in var indices; restore declaration group
+3035	joint check check.index-type in pure link_parents parameter devices; restore declaration group
+3041	joint check check.type-mismatch in pure hex_optional parameter value; restore declaration group
+3042	joint check check.type-mismatch in pure hex_optional parameter width; restore declaration group
+3052	joint check check.type-mismatch in let version_value; restore declaration group
+3054	joint check check.type-mismatch in var interfaces; restore declaration group
+3083	joint check check.local-inference in var seen; restore declaration group
+3209	current grammar requires nondefault proc/stream parameter type
+3210	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3211	omitted proc return defaults to Unit; preserve explicit value-return contract
+3256	current grammar requires nondefault proc/stream parameter type
+3257	current grammar requires nondefault proc/stream parameter type
+3258	current grammar requires nondefault proc/stream parameter type
+3259	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3370	joint check check.for-iterator in pure shown_outputs parameter templates; restore declaration group
+3371	joint check check.for-iterator in pure shown_outputs parameter collection; restore declaration group
+3374	joint check check.for-iterator in pure shown_expansions parameter templates; restore declaration group
+3375	joint check check.for-iterator in pure shown_expansions parameter collection; restore declaration group
+3380	joint check check.local-inference in pure dedent parameter lines; restore declaration group
+3382	joint check check.infer-return in pure trim_blank_edges parameter lines; restore declaration group
+3384	joint check check.display-conversion in pure shown_source parameter name; restore declaration group
+3385	joint check check.display-conversion in pure shown_source parameter source; restore declaration group
+3387	current grammar requires nondefault proc/stream parameter type
+3388	current grammar requires nondefault proc/stream parameter type
+3389	current grammar requires nondefault proc/stream parameter type
+3390	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3391	omitted proc return defaults to Unit; preserve explicit value-return contract
+3392	current grammar requires nondefault proc/stream parameter type
+3393	current grammar requires nondefault proc/stream parameter type
+3394	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3395	omitted proc return defaults to Unit; preserve explicit value-return contract
+3396	current grammar requires nondefault proc/stream parameter type
+3397	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3398	omitted proc return defaults to Unit; preserve explicit value-return contract
+3400	current grammar requires nondefault proc/stream parameter type
+3401	current grammar requires nondefault proc/stream parameter type
+3402	current grammar requires nondefault proc/stream parameter type
+3403	current grammar requires nondefault proc/stream parameter type
+3404	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3405	omitted proc return defaults to Unit; preserve explicit value-return contract
+3406	joint check check.type-mismatch in let output; restore declaration group
+3407	joint check check.type-mismatch in let desugared; restore declaration group
+3408	joint check check.type-mismatch in var table; restore declaration group
+3409	joint check check.index-type in pure expected_diagnostics parameter source; restore declaration group
+3412	joint check check.for-iterator in pure reported_diagnostics parameter report; restore declaration group
+3415	current grammar requires nondefault proc/stream parameter type
+3416	current grammar requires nondefault proc/stream parameter type
+3417	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3418	current grammar requires nondefault proc/stream parameter type
+3419	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3420	omitted proc return defaults to Unit; preserve explicit value-return contract
+3421	joint check check.type-mismatch in var files; restore declaration group
+3422	joint check check.local-inference in pure index_line parameter found; restore declaration group
+3424	current grammar requires nondefault proc/stream parameter type
+3425	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3426	omitted proc return defaults to Unit; preserve explicit value-return contract
+3427	joint check check.dynamic-boundary in var answers; restore declaration group
+3430	joint check check.index-type in pure line_index parameter lines; restore declaration group
+3431	joint check check.index-type in pure line_index parameter heading; restore declaration group
+3433	current grammar requires nondefault proc/stream parameter type
+3434	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3435	omitted proc return defaults to Unit; preserve explicit value-return contract
+3436	current grammar requires nondefault proc/stream parameter type
+3437	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3438	omitted proc return defaults to Unit; preserve explicit value-return contract
+3439	current grammar requires nondefault proc/stream parameter type
+3440	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3441	omitted proc return defaults to Unit; preserve explicit value-return contract
+3442	current grammar requires nondefault proc/stream parameter type
+3443	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3445	current grammar requires nondefault proc/stream parameter type
+3446	current grammar requires nondefault proc/stream parameter type
+3447	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3448	omitted proc return defaults to Unit; preserve explicit value-return contract
+3459	current grammar requires nondefault proc/stream parameter type
+3460	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3461	omitted proc return defaults to Unit; preserve explicit value-return contract
+3476	joint check check.type-mismatch in let configured; restore declaration group
+3485	joint check check.inferred-variant in pure uses_shared_cargo_lock parameter host_os; restore declaration group
+3487	current grammar requires nondefault proc/stream parameter type
+3488	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3499	current grammar requires nondefault proc/stream parameter type
+3500	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3501	omitted proc return defaults to Unit; preserve explicit value-return contract
+3502	current grammar requires nondefault proc/stream parameter type
+3503	current grammar requires nondefault proc/stream parameter type
+3504	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3505	omitted proc return defaults to Unit; preserve explicit value-return contract
+3518	joint check check.local-inference in pure product_name parameter product; restore declaration group
+3598	joint check requires original typed fence_labels map; erased map becomes unchecked dynamic Record
+3599	joint check check.infer-return in pure esc parameter text; restore declaration group
+3601	joint check check.infer-return in pure attr parameter text; restore declaration group
+3603	joint check check.infer-return in pure span parameter kind; restore declaration group
+3604	joint check check.infer-return in pure span parameter text; restore declaration group
+3612	joint check check.required-return in pure inline parameter text; restore declaration group
+3613	joint check check.required-return in pure inline return; restore declaration group
+3616	joint check check.local-inference in pure take_fence parameter lines; restore declaration group
+3617	joint check check.local-inference in pure take_fence parameter start; restore declaration group
+3619	joint check check.local-inference in pure take_list parameter lines; restore declaration group
+3620	joint check check.local-inference in pure take_list parameter start; restore declaration group
+3624	joint check check.local-inference in pure take_table parameter lines; restore declaration group
+3625	joint check check.local-inference in pure take_table parameter start; restore declaration group
+3627	joint check check.local-inference in pure take_paragraph parameter lines; restore declaration group
+3628	joint check check.local-inference in pure take_paragraph parameter start; restore declaration group
+3630	joint check check.required-return in pure parse_blocks parameter lines; restore declaration group
+3631	joint check check.required-return in pure parse_blocks return; restore declaration group
+3636	joint check check.infer-return in pure ini_line parameter line; restore declaration group
+3638	current grammar requires nondefault proc/stream parameter type
+3639	current grammar requires nondefault proc/stream parameter type
+3640	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3641	omitted proc return defaults to Unit; preserve explicit value-return contract
+3642	current grammar requires nondefault proc/stream parameter type
+3643	current grammar requires nondefault proc/stream parameter type
+3644	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3645	omitted proc return defaults to Unit; preserve explicit value-return contract
+3646	joint check check.display-conversion in pure table_html parameter table; restore declaration group
+3648	joint check check.display-conversion in pure heading_html parameter heading; restore declaration group
+3650	current grammar requires nondefault proc/stream parameter type
+3651	current grammar requires nondefault proc/stream parameter type
+3652	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3653	omitted proc return defaults to Unit; preserve explicit value-return contract
+3654	current grammar requires nondefault proc/stream parameter type
+3655	current grammar requires nondefault proc/stream parameter type
+3656	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3657	omitted proc return defaults to Unit; preserve explicit value-return contract
+3658	current grammar requires nondefault proc/stream parameter type
+3659	current grammar requires nondefault proc/stream parameter type
+3660	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3661	omitted proc return defaults to Unit; preserve explicit value-return contract
+3662	joint check check.display-conversion in pure toc_html parameter headings; restore declaration group
+3665	joint check check.infer-return in pure plain_text parameter markup; restore declaration group
+3667	joint check check.pattern-type in pure tour_title parameter first; restore declaration group
+3669	current grammar requires nondefault proc/stream parameter type
+3670	current grammar requires nondefault proc/stream parameter type
+3671	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3672	omitted proc return defaults to Unit; preserve explicit value-return contract
+3751	joint check check.try-context in pure rust_gate parameter ctx; restore declaration group
+3752	joint check check.try-context in pure rust_gate parameter profile; restore declaration group
+3753	joint check check.try-context in pure rust_gate parameter name; restore declaration group
+3754	joint check check.try-context in pure rust_gate parameter args; restore declaration group
+3755	joint check check.try-context in pure rust_gate parameter debug; restore declaration group
+3756	joint check check.infer-return in pure rust_gate return; restore declaration group
+3757	joint check check.infer-return in pure native_gate parameter ctx; restore declaration group
+3758	joint check check.infer-return in pure native_gate parameter profile; restore declaration group
+3759	joint check check.infer-return in pure native_gate parameter filter; restore declaration group
+3760	joint check check.infer-return in pure native_gate return; restore declaration group
+3761	joint check check.infer-return in pure native_exact_gate parameter ctx; restore declaration group
+3762	joint check check.infer-return in pure native_exact_gate parameter profile; restore declaration group
+3763	joint check check.infer-return in pure native_exact_gate parameter name; restore declaration group
+3764	joint check check.infer-return in pure native_exact_gate parameter exact_test; restore declaration group
+3765	joint check check.infer-return in pure native_exact_gate return; restore declaration group
+3766	joint check check.pattern-type in pure requires_process_products parameter area; restore declaration group
+3768	joint check check.membership-type in pure required_products parameter selection; restore declaration group
+3774	current grammar requires nondefault proc/stream parameter type
+3775	current grammar requires nondefault proc/stream parameter type
+3776	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3814	joint check check.type-mismatch in let environment; restore declaration group
+3852	current grammar requires nondefault proc/stream parameter type
+3853	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3913	joint check check.infer-return in pure check_failure parameter message; restore declaration group
+3914	joint check check.infer-return in pure check_failure return; restore declaration group
+3915	current grammar requires nondefault proc/stream parameter type
+3916	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+3917	omitted proc return defaults to Unit; preserve explicit value-return contract
+6189	current grammar requires nondefault proc/stream parameter type
+6190	current grammar requires nondefault proc/stream parameter type
+6191	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6192	omitted proc return defaults to Unit; preserve explicit value-return contract
+6199	joint check check.local-inference in var seen; restore declaration group
+6204	joint check check.local-inference in var present_set; restore declaration group
+6205	joint check check.local-inference in var seen; restore declaration group
+6207	joint check check.local-inference in pure topology_group_signatures parameter groups; restore declaration group
+6210	joint check check.for-iterator in pure topology_group_difference parameter reference; restore declaration group
+6211	joint check check.for-iterator in pure topology_group_difference parameter candidate; restore declaration group
+6213	joint check check.local-inference in var reference_set; restore declaration group
+6214	joint check check.local-inference in var candidate_set; restore declaration group
+6220	joint check check.unknown-method in var reference_by_id; restore declaration group
+6221	joint check check.dynamic-boundary in var candidate_by_id; restore declaration group
+6222	joint check check.type-mismatch in var reference_packages; restore declaration group
+6223	joint check check.type-mismatch in var reference_cores; restore declaration group
+6224	joint check check.type-mismatch in var candidate_packages; restore declaration group
+6225	joint check check.type-mismatch in var candidate_cores; restore declaration group
+6227	joint check check.display-conversion in pure cache_instance_key parameter source; restore declaration group
+6229	joint check check.infer-return in pure cache_reference_sources parameter rows; restore declaration group
+6230	joint check check.infer-return in pure cache_reference_sources return; restore declaration group
+6231	joint check check.type-mismatch in var sources; restore declaration group
+6232	joint check check.local-inference in var seen; restore declaration group
+6237	joint check check.unknown-method in var instances; restore declaration group
+6238	joint check check.for-iterator in var reference_by_key; restore declaration group
+6239	joint check check.unknown-method in var candidate_by_key; restore declaration group
+6240	joint check check.operator-type in var candidate_key_by_id; restore declaration group
+6241	joint check check.dynamic-boundary in var expected_by_cpu; restore declaration group
+6243	joint check check.dynamic-boundary in var actual_by_cpu; restore declaration group
+6244	joint check check.local-inference in var seen_cpu; restore declaration group
+6245	joint check check.local-inference in var seen_id; restore declaration group
+6248	current grammar requires nondefault proc/stream parameter type
+6249	current grammar requires nondefault proc/stream parameter type
+6250	current grammar requires nondefault proc/stream parameter type
+6251	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6252	omitted proc return defaults to Unit; preserve explicit value-return contract
+6253	current grammar requires nondefault proc/stream parameter type
+6254	current grammar requires nondefault proc/stream parameter type
+6255	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6256	omitted proc return defaults to Unit; preserve explicit value-return contract
+6266	joint check check.local-inference in var seen; restore declaration group
+6271	joint check check.dynamic-boundary in var before_by_name; restore declaration group
+6272	joint check check.dynamic-boundary in var after_by_name; restore declaration group
+6273	joint check check.dynamic-boundary in var candidate_by_name; restore declaration group
+6275	joint check check.infer-return in pure usb_topology_decimal parameter value; restore declaration group
+6276	joint check check.infer-return in pure usb_topology_decimal return; restore declaration group
+6283	joint check check.unknown-method in var before_by_name; restore declaration group
+6284	joint check check.dynamic-boundary in var after_by_name; restore declaration group
+6285	joint check check.dynamic-boundary in var candidate_by_name; restore declaration group
+6286	joint check check.type-mismatch in let actual_parent; restore declaration group
+6288	current grammar requires nondefault proc/stream parameter type
+6289	current grammar requires nondefault proc/stream parameter type
+6290	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6291	omitted proc return defaults to Unit; preserve explicit value-return contract
+6292	current grammar requires nondefault proc/stream parameter type
+6293	current grammar requires nondefault proc/stream parameter type
+6294	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6295	omitted proc return defaults to Unit; preserve explicit value-return contract
+6304	joint check check.unknown-method in var before_by_name; restore declaration group
+6305	joint check check.dynamic-boundary in var after_by_name; restore declaration group
+6306	joint check check.dynamic-boundary in var candidate_by_name; restore declaration group
+6311	current grammar requires nondefault proc/stream parameter type
+6312	current grammar requires nondefault proc/stream parameter type
+6313	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6314	omitted proc return defaults to Unit; preserve explicit value-return contract
+6315	current grammar requires nondefault proc/stream parameter type
+6316	current grammar requires nondefault proc/stream parameter type
+6317	current grammar requires nondefault proc/stream parameter type
+6318	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6319	omitted proc return defaults to Unit; preserve explicit value-return contract
+6327	current grammar requires nondefault proc/stream parameter type
+6328	current grammar requires nondefault proc/stream parameter type
+6329	current grammar requires nondefault proc/stream parameter type
+6330	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6331	omitted proc return defaults to Unit; preserve explicit value-return contract
+6338	joint check check.field-access in var current; restore declaration group
+6339	joint check check.field-access in let settings; restore declaration group
+6344	joint check check.try-context in pure parse_usb_interface_name parameter name; restore declaration group
+6345	joint check check.infer-return in pure parse_usb_interface_name return; restore declaration group
+6346	current grammar requires nondefault proc/stream parameter type
+6347	current grammar requires nondefault proc/stream parameter type
+6348	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6349	omitted proc return defaults to Unit; preserve explicit value-return contract
+6355	joint check check.for-iterator in pure usb_interface_has_issue parameter issues; restore declaration group
+6356	joint check check.for-iterator in pure usb_interface_has_issue parameter field; restore declaration group
+6358	joint check check.for-iterator in pure usb_interface_settings_match parameter reference; restore declaration group
+6359	joint check check.for-iterator in pure usb_interface_settings_match parameter candidate; restore declaration group
+6360	joint check check.for-iterator in pure usb_interface_settings_match parameter interface_number; restore declaration group
+6362	joint check check.local-inference in var matched; restore declaration group
+6367	joint check check.unknown-method in var before_by_name; restore declaration group
+6368	joint check check.dynamic-boundary in var after_by_name; restore declaration group
+6369	joint check check.dynamic-boundary in var candidate_by_name; restore declaration group
+6370	joint check check.dynamic-boundary in var candidate_interfaces; restore declaration group
+6371	joint check check.type-mismatch in var active_setting; restore declaration group
+6372	joint check check.type-mismatch in let actual_class; restore declaration group
+6373	joint check check.type-mismatch in let actual_subclass; restore declaration group
+6374	joint check check.type-mismatch in let actual_protocol; restore declaration group
+6375	joint check check.type-mismatch in let actual_endpoints; restore declaration group
+6380	current grammar requires nondefault proc/stream parameter type
+6381	current grammar requires nondefault proc/stream parameter type
+6382	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6383	omitted proc return defaults to Unit; preserve explicit value-return contract
+6384	current grammar requires nondefault proc/stream parameter type
+6385	current grammar requires nondefault proc/stream parameter type
+6386	current grammar requires nondefault proc/stream parameter type
+6387	current grammar requires nondefault proc/stream parameter type
+6388	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6389	omitted proc return defaults to Unit; preserve explicit value-return contract
+6394	joint check check.infer-return in pure power_supply_bundle_storage_path parameter name; restore declaration group
+6395	joint check check.infer-return in pure power_supply_bundle_storage_path parameter target; restore declaration group
+6396	joint check check.infer-return in pure power_supply_bundle_storage_path return; restore declaration group
+6397	current grammar requires nondefault proc/stream parameter type
+6398	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6399	omitted proc return defaults to Unit; preserve explicit value-return contract
+6414	joint check check.local-inference in var changed_seen; restore declaration group
+6418	joint check check.for-iterator in pure power_supply_has_issue parameter issues; restore declaration group
+6419	joint check check.for-iterator in pure power_supply_has_issue parameter field; restore declaration group
+6425	joint check check.unknown-method in var before_by_name; restore declaration group
+6426	joint check check.dynamic-boundary in var after_by_name; restore declaration group
+6427	joint check check.dynamic-boundary in var candidate_by_name; restore declaration group
+6429	joint check check.try-context in pure powercap_constraint_index parameter name; restore declaration group
+6430	joint check check.infer-return in pure powercap_constraint_index return; restore declaration group
+6431	current grammar requires nondefault proc/stream parameter type
+6432	current grammar requires nondefault proc/stream parameter type
+6433	current grammar requires nondefault proc/stream parameter type
+6434	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6435	omitted proc return defaults to Unit; preserve explicit value-return contract
+6436	joint check check.type-mismatch in let parent_value; restore declaration group
+6443	joint check check.infer-return in pure powercap_bundle_storage_path parameter entry_name; restore declaration group
+6444	joint check check.infer-return in pure powercap_bundle_storage_path parameter target; restore declaration group
+6445	joint check check.infer-return in pure powercap_bundle_storage_path return; restore declaration group
+6447	current grammar requires nondefault proc/stream parameter type
+6448	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6449	omitted proc return defaults to Unit; preserve explicit value-return contract
+6465	joint check check.display-conversion in pure powercap_constraint_issue parameter issues; restore declaration group
+6466	joint check check.display-conversion in pure powercap_constraint_issue parameter entry_name; restore declaration group
+6472	joint check check.unknown-method in var before_by_name; restore declaration group
+6473	joint check check.dynamic-boundary in var after_by_name; restore declaration group
+6474	joint check check.dynamic-boundary in var candidate_by_name; restore declaration group
+6475	joint check check.unknown-method in var before_by_index; restore declaration group
+6476	joint check check.dynamic-boundary in var after_by_index; restore declaration group
+6477	joint check check.dynamic-boundary in var candidate_by_index; restore declaration group
+6479	current grammar requires nondefault proc/stream parameter type
+6480	current grammar requires nondefault proc/stream parameter type
+6481	current grammar requires nondefault proc/stream parameter type
+6482	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6483	omitted proc return defaults to Unit; preserve explicit value-return contract
+6484	current grammar requires nondefault proc/stream parameter type
+6485	current grammar requires nondefault proc/stream parameter type
+6486	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6487	omitted proc return defaults to Unit; preserve explicit value-return contract
+6494	joint check check.type-mismatch in pure device_class_parent_ids parameter target; restore declaration group
+6496	joint check check.for-iterator in pure device_class_has_issue parameter issues; restore declaration group
+6497	joint check check.for-iterator in pure device_class_has_issue parameter field; restore declaration group
+6503	joint check check.unknown-method in var before_by_key; restore declaration group
+6504	joint check check.dynamic-boundary in var after_by_key; restore declaration group
+6505	joint check check.dynamic-boundary in var candidate_by_key; restore declaration group
+6510	current grammar requires nondefault proc/stream parameter type
+6511	current grammar requires nondefault proc/stream parameter type
+6512	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6513	omitted proc return defaults to Unit; preserve explicit value-return contract
+6514	current grammar requires nondefault proc/stream parameter type
+6515	current grammar requires nondefault proc/stream parameter type
+6516	current grammar requires nondefault proc/stream parameter type
+6517	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6518	omitted proc return defaults to Unit; preserve explicit value-return contract
+6523	joint check check.infer-return in pure hwmon_bundle_storage_path parameter name; restore declaration group
+6524	joint check check.infer-return in pure hwmon_bundle_storage_path parameter target; restore declaration group
+6525	joint check check.infer-return in pure hwmon_bundle_storage_path return; restore declaration group
+6531	current grammar requires nondefault proc/stream parameter type
+6532	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6533	omitted proc return defaults to Unit; preserve explicit value-return contract
+6547	joint check check.local-inference in var changing_seen; restore declaration group
+6551	joint check check.for-iterator in pure hwmon_has_issue parameter issues; restore declaration group
+6552	joint check check.for-iterator in pure hwmon_has_issue parameter field; restore declaration group
+6554	joint check check.for-iterator in pure hwmon_enumeration_issue parameter issues; restore declaration group
+6560	joint check check.unknown-method in var before_by_key; restore declaration group
+6561	joint check check.dynamic-boundary in var after_by_key; restore declaration group
+6562	joint check check.dynamic-boundary in var candidate_by_key; restore declaration group
+6564	joint check check.type-mismatch in let alarm; restore declaration group
+6570	joint check check.unknown-method in var before_by_name; restore declaration group
+6571	joint check check.dynamic-boundary in var after_by_name; restore declaration group
+6572	joint check check.dynamic-boundary in var candidate_by_name; restore declaration group
+6578	joint check check.unknown-method in var before_by_key; restore declaration group
+6579	joint check check.dynamic-boundary in var after_by_key; restore declaration group
+6580	joint check check.dynamic-boundary in var candidate_by_key; restore declaration group
+6582	current grammar requires nondefault proc/stream parameter type
+6583	current grammar requires nondefault proc/stream parameter type
+6584	current grammar requires nondefault proc/stream parameter type
+6585	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6586	omitted proc return defaults to Unit; preserve explicit value-return contract
+6587	current grammar requires nondefault proc/stream parameter type
+6588	current grammar requires nondefault proc/stream parameter type
+6589	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6590	omitted proc return defaults to Unit; preserve explicit value-return contract
+6591	joint check check.infer-return in pure reference_cpuidle_words parameter value; restore declaration group
+6597	joint check check.try-context in pure reference_cpufreq_members parameter output; restore declaration group
+6598	joint check check.infer-return in pure reference_cpufreq_members return; restore declaration group
+6599	joint check check.local-inference in var seen; restore declaration group
+6600	joint check check.infer-return in pure reference_cpufreq_words parameter value; restore declaration group
+6605	current grammar requires nondefault proc/stream parameter type
+6606	current grammar requires nondefault proc/stream parameter type
+6607	current grammar requires nondefault proc/stream parameter type
+6608	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6609	omitted proc return defaults to Unit; preserve explicit value-return contract
+6610	current grammar requires nondefault proc/stream parameter type
+6611	current grammar requires nondefault proc/stream parameter type
+6612	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6613	omitted proc return defaults to Unit; preserve explicit value-return contract
+6614	current grammar requires nondefault proc/stream parameter type
+6615	current grammar requires nondefault proc/stream parameter type
+6616	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6617	omitted proc return defaults to Unit; preserve explicit value-return contract
+6624	current grammar requires nondefault proc/stream parameter type
+6625	current grammar requires nondefault proc/stream parameter type
+6626	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6627	omitted proc return defaults to Unit; preserve explicit value-return contract
+6628	current grammar requires nondefault proc/stream parameter type
+6629	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6630	omitted proc return defaults to Unit; preserve explicit value-return contract
+6649	current grammar requires nondefault proc/stream parameter type
+6650	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6651	omitted proc return defaults to Unit; preserve explicit value-return contract
+6666	joint check check.local-inference in var gauge_paths; restore declaration group
+6670	current grammar requires nondefault proc/stream parameter type
+6671	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6672	omitted proc return defaults to Unit; preserve explicit value-return contract
+6675	current grammar requires nondefault proc/stream parameter type
+6676	current grammar requires nondefault proc/stream parameter type
+6677	current grammar requires nondefault proc/stream parameter type
+6678	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6679	omitted proc return defaults to Unit; preserve explicit value-return contract
+6680	current grammar requires nondefault proc/stream parameter type
+6681	current grammar requires nondefault proc/stream parameter type
+6682	current grammar requires nondefault proc/stream parameter type
+6683	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6684	omitted proc return defaults to Unit; preserve explicit value-return contract
+6692	joint check check.dynamic-boundary in var by_id; restore declaration group
+6693	joint check check.local-inference in var seen; restore declaration group
+6710	current grammar requires nondefault proc/stream parameter type
+6711	current grammar requires nondefault proc/stream parameter type
+6712	current grammar requires nondefault proc/stream parameter type
+6713	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6714	omitted proc return defaults to Unit; preserve explicit value-return contract
+6715	current grammar requires nondefault proc/stream parameter type
+6716	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6717	omitted proc return defaults to Unit; preserve explicit value-return contract
+6734	joint check check.infer-return in pure compare_cpu_id_sets parameter reference; restore declaration group
+6735	joint check check.infer-return in pure compare_cpu_id_sets return; restore declaration group
+6736	joint check check.local-inference in var reference_seen; restore declaration group
+6737	joint check check.local-inference in var candidate_seen; restore declaration group
+6749	joint check check.infer-return in pure meminfo_reference_number parameter raw; restore declaration group
+6750	joint check check.infer-return in pure meminfo_reference_number parameter max_value; restore declaration group
+6751	joint check check.infer-return in pure meminfo_reference_number return; restore declaration group
+6756	joint check check.local-inference in var seen; restore declaration group
+6764	joint check check.unknown-method in var before_by_name; restore declaration group
+6765	joint check check.dynamic-boundary in var after_by_name; restore declaration group
+6766	joint check check.dynamic-boundary in var candidate_by_name; restore declaration group
+6770	joint check check.local-inference in var names; restore declaration group
+6775	joint check check.unknown-method in var before_by_name; restore declaration group
+6776	joint check check.dynamic-boundary in var after_by_name; restore declaration group
+6777	joint check check.unknown-method in var candidate_by_name; restore declaration group
+6785	joint check check.unknown-method in var before_by_name; restore declaration group
+6786	joint check check.unknown-method in var after_by_name; restore declaration group
+6787	joint check check.unknown-method in var candidate_by_name; restore declaration group
+6805	joint check check.display-conversion in pure huge_page_pool_key parameter pool; restore declaration group
+6807	joint check check.result-fallback in pure valid_huge_page_reference parameter pool; restore declaration group
+6813	joint check check.unknown-method in var before_by_key; restore declaration group
+6814	joint check check.dynamic-boundary in var after_by_key; restore declaration group
+6815	joint check check.dynamic-boundary in var candidate_by_key; restore declaration group
+6820	joint check check.try-context in pure psi_reference_total parameter value; restore declaration group
+6821	joint check check.infer-return in pure psi_reference_total return; restore declaration group
+6825	joint check check.local-inference in var kinds; restore declaration group
+6826	joint check check.local-inference in let rows; restore declaration group
+6827	joint check check.local-inference in var fields; restore declaration group
+6828	joint check check.local-inference in pure psi_reference_key parameter resource; restore declaration group
+6829	joint check check.local-inference in pure psi_reference_key parameter kind; restore declaration group
+6831	joint check check.local-inference in pure valid_psi_reference_row parameter row; restore declaration group
+6837	joint check check.unknown-method in var before_by_key; restore declaration group
+6838	joint check check.dynamic-boundary in var after_by_key; restore declaration group
+6839	joint check check.dynamic-boundary in var candidate_by_key; restore declaration group
+6841	current grammar requires nondefault proc/stream parameter type
+6842	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6843	omitted proc return defaults to Unit; preserve explicit value-return contract
+6859	joint check check.try-context in pure reference_swap_number parameter value; restore declaration group
+6860	joint check check.try-context in pure reference_swap_number parameter signed; restore declaration group
+6861	joint check check.infer-return in pure reference_swap_number return; restore declaration group
+6864	joint check check.local-inference in var seen; restore declaration group
+6866	joint check check.infer-return in pure proc_swap_words parameter line; restore declaration group
+6868	joint check check.local-inference in pure proc_swap_name parameter value; restore declaration group
+6872	joint check check.local-inference in var seen; restore declaration group
+6890	joint check check.local-inference in var reference_seen; restore declaration group
+6891	joint check check.local-inference in var candidate_seen; restore declaration group
+6904	joint check check.try-context in pure pci_reference_bdf parameter value; restore declaration group
+6905	joint check check.infer-return in pure pci_reference_bdf return; restore declaration group
+6906	joint check check.local-inference in pure pci_reference_optional_hex parameter fields; restore declaration group
+6907	joint check check.local-inference in pure pci_reference_optional_hex parameter key; restore declaration group
+6908	joint check check.local-inference in pure pci_reference_optional_hex parameter width; restore declaration group
+6909	joint check check.infer-return in pure pci_reference_optional_hex return; restore declaration group
+6914	joint check check.local-inference in var seen; restore declaration group
+6915	joint check check.type-mismatch in var fields; restore declaration group
+6922	joint check check.unknown-method in var candidates; restore declaration group
+6923	joint check check.local-inference in var references; restore declaration group
+6928	joint check check.unknown-method in var before_by_address; restore declaration group
+6929	joint check check.dynamic-boundary in var after_by_address; restore declaration group
+6930	joint check check.dynamic-boundary in var candidate_by_address; restore declaration group
+6936	joint check check.unknown-method in var before_by_address; restore declaration group
+6937	joint check check.dynamic-boundary in var after_by_address; restore declaration group
+6938	joint check check.dynamic-boundary in var candidate_by_address; restore declaration group
+6944	joint check check.unknown-method in var before_by_id; restore declaration group
+6945	joint check check.dynamic-boundary in var after_by_id; restore declaration group
+6946	joint check check.dynamic-boundary in var candidate_by_id; restore declaration group
+6947	joint check check.unknown-method in var before_trips; restore declaration group
+6948	joint check check.dynamic-boundary in var after_trips; restore declaration group
+6949	joint check check.dynamic-boundary in var candidate_trips; restore declaration group
+6950	current grammar requires nondefault proc/stream parameter type
+6951	current grammar requires nondefault proc/stream parameter type
+6952	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6953	omitted proc return defaults to Unit; preserve explicit value-return contract
+6954	current grammar requires nondefault proc/stream parameter type
+6955	current grammar requires nondefault proc/stream parameter type
+6956	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6957	omitted proc return defaults to Unit; preserve explicit value-return contract
+6958	joint check check.try-context in pure reference_thermal_index parameter value; restore declaration group
+6959	joint check check.infer-return in pure reference_thermal_index return; restore declaration group
+6964	joint check check.local-inference in var seen_zones; restore declaration group
+6965	joint check check.local-inference in var seen_trips; restore declaration group
+6969	current grammar requires nondefault proc/stream parameter type
+6970	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6971	omitted proc return defaults to Unit; preserve explicit value-return contract
+6989	current grammar requires nondefault proc/stream parameter type
+6990	current grammar requires nondefault proc/stream parameter type
+6991	current grammar requires nondefault proc/stream parameter type
+6992	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6993	omitted proc return defaults to Unit; preserve explicit value-return contract
+6994	current grammar requires nondefault proc/stream parameter type
+6995	current grammar requires nondefault proc/stream parameter type
+6996	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+6997	omitted proc return defaults to Unit; preserve explicit value-return contract
+7001	joint check check.local-inference in var seen; restore declaration group
+7003	current grammar requires nondefault proc/stream parameter type
+7004	current grammar requires nondefault proc/stream parameter type
+7005	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7006	omitted proc return defaults to Unit; preserve explicit value-return contract
+7007	current grammar requires nondefault proc/stream parameter type
+7008	current grammar requires nondefault proc/stream parameter type
+7009	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7010	omitted proc return defaults to Unit; preserve explicit value-return contract
+7014	joint check check.local-inference in var seen; restore declaration group
+7016	current grammar requires nondefault proc/stream parameter type
+7017	current grammar requires nondefault proc/stream parameter type
+7018	current grammar requires nondefault proc/stream parameter type
+7019	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7020	omitted proc return defaults to Unit; preserve explicit value-return contract
+7024	joint check check.type-mismatch in let rows; restore declaration group
+7025	joint check check.infer-return in pure pci_bundle_storage_path parameter address; restore declaration group
+7026	joint check check.infer-return in pure pci_bundle_storage_path parameter target; restore declaration group
+7027	joint check check.infer-return in pure pci_bundle_storage_path return; restore declaration group
+7029	current grammar requires nondefault proc/stream parameter type
+7030	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7031	omitted proc return defaults to Unit; preserve explicit value-return contract
+7049	joint check check.infer-return in pure usb_bundle_storage_path parameter name; restore declaration group
+7050	joint check check.infer-return in pure usb_bundle_storage_path parameter target; restore declaration group
+7051	joint check check.infer-return in pure usb_bundle_storage_path return; restore declaration group
+7055	joint check check.try-context in pure usb_bundle_root_hub_interface parameter name; restore declaration group
+7056	joint check check.infer-return in pure usb_bundle_root_hub_interface return; restore declaration group
+7057	current grammar requires nondefault proc/stream parameter type
+7058	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7059	omitted proc return defaults to Unit; preserve explicit value-return contract
+7082	joint check check.local-inference in var ids; restore declaration group
+7083	joint check check.local-inference in var names; restore declaration group
+7084	joint check check.local-inference in let links; restore declaration group
+7085	joint check check.local-inference in var flag_seen; restore declaration group
+7095	joint check check.dynamic-boundary in var candidate_by_id; restore declaration group
+7096	joint check check.local-inference in var reference_ids; restore declaration group
+7097	joint check check.dynamic-boundary in var reference_by_name; restore declaration group
+7098	joint check check.display-conversion in pure network_link_raw_flags parameter bits; restore declaration group
+7100	joint check check.for-iterator in pure network_link_candidate_bits parameter flags; restore declaration group
+7102	joint check check.infer-return in pure network_link_sysfs_comparable_flags parameter bits; restore declaration group
+7104	current grammar requires nondefault proc/stream parameter type
+7105	current grammar requires nondefault proc/stream parameter type
+7106	current grammar requires nondefault proc/stream parameter type
+7107	current grammar requires nondefault proc/stream parameter type
+7108	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7109	omitted proc return defaults to Unit; preserve explicit value-return contract
+7113	joint check check.local-inference in var seen_indices; restore declaration group
+7114	joint check check.local-inference in var seen_names; restore declaration group
+7120	joint check check.unknown-method in var before_by_index; restore declaration group
+7121	joint check check.dynamic-boundary in var after_by_index; restore declaration group
+7122	joint check check.dynamic-boundary in var candidate_by_index; restore declaration group
+7123	joint check check.dynamic-boundary in var counter_by_name; restore declaration group
+7125	joint check check.infer-return in pure ip_address_scope return; restore declaration group
+7126	joint check check.local-inference in pure ip_address_key parameter ifindex; restore declaration group
+7127	joint check check.local-inference in pure ip_address_key parameter family; restore declaration group
+7128	joint check check.local-inference in pure ip_address_key parameter address; restore declaration group
+7129	joint check check.local-inference in pure ip_address_key parameter prefix_length; restore declaration group
+7134	joint check check.local-inference in var interfaces; restore declaration group
+7135	joint check check.local-inference in var identities; restore declaration group
+7144	joint check check.unknown-method in var candidate_by_key; restore declaration group
+7145	joint check check.local-inference in var candidate_links_seen; restore declaration group
+7146	joint check check.local-inference in var reference_keys; restore declaration group
+7151	joint check check.unknown-method in var observed_by_key; restore declaration group
+7152	joint check check.local-inference in var seen_links; restore declaration group
+7153	joint check check.unknown-method in var after_by_key; restore declaration group
+7154	joint check check.local-inference in var seen_before; restore declaration group
+7155	joint check check.try-context in pure ip_rule_table parameter value; restore declaration group
+7156	joint check check.infer-return in pure ip_rule_table return; restore declaration group
+7157	joint check check.infer-return in pure ip_rule_prefix parameter value; restore declaration group
+7158	joint check check.infer-return in pure ip_rule_prefix parameter length; restore declaration group
+7159	joint check check.infer-return in pure ip_rule_prefix parameter family; restore declaration group
+7160	joint check check.infer-return in pure ip_rule_prefix return; restore declaration group
+7162	joint check check.infer-return in pure ip_rule_hex return; restore declaration group
+7165	joint check check.result-fallback in pure ip_rule_key parameter rule; restore declaration group
+7174	joint check check.local-inference in var keys; restore declaration group
+7182	joint check check.type-mismatch in var names_by_index; restore declaration group
+7183	joint check check.local-inference in var candidate_keys; restore declaration group
+7184	joint check check.type-mismatch in let candidate_key_list; restore declaration group
+7185	joint check check.local-inference in var reference_keys; restore declaration group
+7187	joint check check.try-context in pure ip_route_destination parameter value; restore declaration group
+7188	joint check check.try-context in pure ip_route_destination parameter family; restore declaration group
+7189	joint check check.infer-return in pure ip_route_destination return; restore declaration group
+7190	joint check check.try-context in pure ip_route_numeric_enum parameter value; restore declaration group
+7191	joint check check.infer-return in pure ip_route_numeric_enum return; restore declaration group
+7192	joint check check.display-conversion in pure ip_route_protocol parameter value; restore declaration group
+7194	joint check check.infer-return in pure ip_route_type parameter value; restore declaration group
+7195	joint check check.infer-return in pure ip_route_type return; restore declaration group
+7196	joint check check.infer-return in pure ip_route_scope parameter value; restore declaration group
+7197	joint check check.infer-return in pure ip_route_scope return; restore declaration group
+7199	joint check check.infer-return in pure ip_route_flags parameter route_level; restore declaration group
+7200	joint check check.infer-return in pure ip_route_flags return; restore declaration group
+7203	joint check check.try-context in pure route_multipath_representable parameter raw; restore declaration group
+7204	joint check check.infer-return in pure route_multipath_representable return; restore declaration group
+7205	joint check check.local-inference in pure ip_route_nexthop_key parameter hop; restore declaration group
+7207	joint check check.display-conversion in pure ip_route_key parameter route; restore declaration group
+7213	joint check check.local-inference in var keys; restore declaration group
+7221	joint check check.dynamic-boundary in var names_by_index; restore declaration group
+7222	joint check check.local-inference in var candidate_keys; restore declaration group
+7224	joint check check.local-inference in var reference_keys; restore declaration group
+7227	joint check check.try-context in pure parse_major_minor_reference parameter adapter; restore declaration group
+7228	joint check check.infer-return in pure parse_major_minor_reference return; restore declaration group
+7230	joint check check.local-inference in pure block_edge_key parameter edge; restore declaration group
+7234	joint check check.type-mismatch in var pending; restore declaration group
+7235	joint check check.unknown-method in var devices; restore declaration group
+7237	joint check check.unknown-method in var by_name; restore declaration group
+7238	joint check check.unknown-method in var by_major_minor; restore declaration group
+7239	joint check check.local-inference in var edge_seen; restore declaration group
+7243	joint check check.dynamic-boundary in var reference_by_name; restore declaration group
+7244	joint check check.unknown-method in var candidate_by_name; restore declaration group
+7245	joint check check.local-inference in var reference_edges; restore declaration group
+7246	joint check check.local-inference in var candidate_edges; restore declaration group
+7247	joint check check.local-inference in let candidate_edge_keys; restore declaration group
+7248	joint check check.local-inference in var slave_seen; restore declaration group
+7249	joint check check.local-inference in var holder_seen; restore declaration group
+7255	joint check check.local-inference in var seen; restore declaration group
+7260	joint check check.dynamic-boundary in var reference_by_name; restore declaration group
+7261	joint check check.local-inference in var candidate_seen; restore declaration group
+7265	joint check check.infer-return in pure parse_block_queue_stat parameter output; restore declaration group
+7266	joint check check.infer-return in pure parse_block_queue_stat return; restore declaration group
+7268	current grammar requires nondefault proc/stream parameter type
+7269	current grammar requires nondefault proc/stream parameter type
+7270	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7271	omitted proc return defaults to Unit; preserve explicit value-return contract
+7276	joint check check.local-inference in var seen; restore declaration group
+7278	joint check check.infer-return in pure block_bundle_storage_path parameter name; restore declaration group
+7279	joint check check.infer-return in pure block_bundle_storage_path parameter target; restore declaration group
+7280	joint check check.infer-return in pure block_bundle_storage_path return; restore declaration group
+7281	joint check check.local-inference in pure block_bundle_link_path parameter storage; restore declaration group
+7282	joint check check.local-inference in pure block_bundle_link_path parameter directory; restore declaration group
+7283	joint check check.local-inference in pure block_bundle_link_path parameter target; restore declaration group
+7285	current grammar requires nondefault proc/stream parameter type
+7286	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7287	omitted proc return defaults to Unit; preserve explicit value-return contract
+7291	joint check check.unknown-method in var storage_by_name; restore declaration group
+7292	joint check check.try-context in pure block_raw_decimal parameter raw; restore declaration group
+7293	joint check check.try-context in pure block_raw_decimal parameter label; restore declaration group
+7294	joint check check.infer-return in pure block_raw_decimal return; restore declaration group
+7295	joint check check.infer-return in pure block_raw_optional_number parameter raw; restore declaration group
+7296	joint check check.infer-return in pure block_raw_optional_number parameter label; restore declaration group
+7297	joint check check.infer-return in pure block_raw_optional_number return; restore declaration group
+7298	joint check check.infer-return in pure block_raw_optional_bool parameter raw; restore declaration group
+7299	joint check check.infer-return in pure block_raw_optional_bool parameter label; restore declaration group
+7300	joint check check.infer-return in pure block_raw_optional_bool return; restore declaration group
+7301	joint check check.infer-return in pure block_raw_scheduler parameter raw; restore declaration group
+7302	joint check check.infer-return in pure block_raw_scheduler return; restore declaration group
+7306	joint check check.local-inference in var listed; restore declaration group
+7309	joint check check.local-inference in var edge_seen; restore declaration group
+7315	joint check check.dynamic-boundary in var reference_by_name; restore declaration group
+7316	joint check check.unknown-method in var candidate_by_name; restore declaration group
+7320	joint check check.local-inference in var candidate_edges; restore declaration group
+7322	joint check check.local-inference in var reference_edges; restore declaration group
+7336	joint check check.local-inference in var changed_seen; restore declaration group
+7344	joint check check.dynamic-boundary in var before_by_name; restore declaration group
+7345	joint check check.dynamic-boundary in var after_by_name; restore declaration group
+7346	joint check check.local-inference in var candidate_seen; restore declaration group
+7347	joint check check.dynamic-boundary in let unexpected_names; restore declaration group
+7348	joint check check.dynamic-boundary in var candidate_by_counter; restore declaration group
+7353	joint check check.listcomp-iterator in pure reference_mount_sanitized_options parameter options; restore declaration group
+7355	joint check check.for-iterator in pure reference_mount_sanitized_optional_fields parameter fields; restore declaration group
+7358	joint check check.membership-type in pure reference_mount_source_sensitive parameter source; restore declaration group
+7360	joint check check.for-iterator in pure reference_mount_propagation parameter fields; restore declaration group
+7362	joint check check.infer-return in pure decode_mountinfo_reference_field parameter value; restore declaration group
+7363	joint check check.infer-return in pure decode_mountinfo_reference_field return; restore declaration group
+7366	joint check check.type-mismatch in var mounts; restore declaration group
+7367	joint check check.local-inference in var seen; restore declaration group
+7384	joint check check.local-inference in var seen; restore declaration group
+7385	joint check check.type-mismatch in let mounts; restore declaration group
+7389	joint check check.dynamic-boundary in var reference_by_id; restore declaration group
+7390	joint check check.local-inference in var candidate_seen; restore declaration group
+7398	joint check check.dynamic-boundary in var by_id; restore declaration group
+7399	joint check check.unknown-method in var target_counts; restore declaration group
+7400	joint check check.dynamic-boundary in let eligible; restore declaration group
+7401	joint check check.local-inference in var seen; restore declaration group
+7405	joint check check.result-fallback in pure mount_usage_between parameter value; restore declaration group
+7406	joint check check.result-fallback in pure mount_usage_between parameter first; restore declaration group
+7407	joint check check.result-fallback in pure mount_usage_between parameter last; restore declaration group
+7414	joint check check.dynamic-boundary in var before_by_id; restore declaration group
+7415	joint check check.dynamic-boundary in var after_by_id; restore declaration group
+7416	joint check check.local-inference in var expected_ids; restore declaration group
+7417	joint check check.local-inference in var seen; restore declaration group
+7418	joint check check.dynamic-boundary in let mismatched_ids; restore declaration group
+7419	joint check check.try-context in pure reference_module_number parameter value; restore declaration group
+7420	joint check check.infer-return in pure reference_module_number return; restore declaration group
+7421	joint check check.infer-return in pure module_reference_words parameter line; restore declaration group
+7425	joint check check.local-inference in var seen; restore declaration group
+7426	joint check check.type-mismatch in let modules; restore declaration group
+7427	joint check check.type-mismatch in let users; restore declaration group
+7431	joint check check.unknown-method in var formatted_by_name; restore declaration group
+7432	joint check check.local-inference in var raw_seen; restore declaration group
+7433	joint check check.type-mismatch in let modules; restore declaration group
+7437	joint check check.dynamic-boundary in var reference_by_name; restore declaration group
+7438	joint check check.local-inference in var candidate_seen; restore declaration group
+7474	joint check check.dynamic-boundary in var reference_by_key; restore declaration group
+7476	joint check check.local-inference in var seen; restore declaration group
+7478	current grammar requires nondefault proc/stream parameter type
+7479	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7480	omitted proc return defaults to Unit; preserve explicit value-return contract
+7481	joint check check.type-mismatch in let reference; restore declaration group
+7500	joint check check.infer-return in pure parse_reference_os_release_value parameter raw; restore declaration group
+7501	joint check check.infer-return in pure parse_reference_os_release_value return; restore declaration group
+7528	joint check check.infer-return in pure parse_reference_device_tree_strings parameter raw; restore declaration group
+7529	joint check check.infer-return in pure parse_reference_device_tree_strings return; restore declaration group
+7550	joint check check.type-mismatch in let raw_values; restore declaration group
+7554	current grammar requires nondefault proc/stream parameter type
+7555	current grammar requires nondefault proc/stream parameter type
+7556	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7557	omitted proc return defaults to Unit; preserve explicit value-return contract
+7562	joint check check.local-inference in pure dmi_identity_reference_scoreable parameter reference; restore declaration group
+7578	joint check check.display-conversion in pure dmi_reference_has_issue parameter issues; restore declaration group
+7579	joint check check.display-conversion in pure dmi_reference_has_issue parameter name; restore declaration group
+7604	joint check check.infer-return in pure process_reference_number parameter value; restore declaration group
+7605	joint check check.infer-return in pure process_reference_number return; restore declaration group
+7606	joint check check.infer-return in pure process_reference_stat_fields parameter output; restore declaration group
+7607	joint check check.infer-return in pure process_reference_stat_fields return; restore declaration group
+7734	joint check check.local-inference in pure visible_cgroup2_decode_mount_field parameter value; restore declaration group
+7736	joint check check.try-context in pure find_visible_cgroup2_location parameter membership; restore declaration group
+7737	joint check check.try-context in pure find_visible_cgroup2_location parameter mountinfo; restore declaration group
+7738	joint check check.infer-return in pure find_visible_cgroup2_location return; restore declaration group
+7747	joint check check.try-context in pure cgroup2_reference_number parameter value; restore declaration group
+7748	joint check check.infer-return in pure cgroup2_reference_number return; restore declaration group
+7749	joint check check.infer-return in pure cgroup2_reference_words parameter value; restore declaration group
+7755	joint check check.local-inference in var seen; restore declaration group
+7759	joint check check.local-inference in var devices; restore declaration group
+7760	joint check check.local-inference in let counters; restore declaration group
+7761	joint check check.local-inference in var seen_fields; restore declaration group
+7762	joint check check.local-inference in pure cgroup2_reference_resource parameter visible_path; restore declaration group
+7763	joint check check.local-inference in pure cgroup2_reference_resource parameter level; restore declaration group
+7764	joint check check.local-inference in pure cgroup2_reference_resource parameter controller; restore declaration group
+7765	joint check check.local-inference in pure cgroup2_reference_resource parameter resource; restore declaration group
+7766	joint check check.local-inference in pure cgroup2_reference_resource parameter unit; restore declaration group
+7767	joint check check.local-inference in pure cgroup2_reference_resource parameter maximum; restore declaration group
+7768	joint check check.local-inference in pure cgroup2_reference_resource parameter current; restore declaration group
+7769	joint check check.local-inference in pure cgroup2_reference_resource parameter unlimited; restore declaration group
+7770	joint check check.local-inference in pure cgroup2_reference_resource parameter quota; restore declaration group
+7771	joint check check.local-inference in pure cgroup2_reference_resource parameter period; restore declaration group
+7772	joint check check.local-inference in pure cgroup2_reference_resource parameter cpus; restore declaration group
+7774	current grammar requires nondefault proc/stream parameter type
+7775	current grammar requires nondefault proc/stream parameter type
+7776	current grammar requires nondefault proc/stream parameter type
+7777	current grammar requires nondefault proc/stream parameter type
+7778	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7779	omitted proc return defaults to Unit; preserve explicit value-return contract
+7780	joint check check.infer-return in pure cgroup2_mount_row_present parameter mountinfo; restore declaration group
+7781	joint check check.infer-return in pure cgroup2_mount_row_present return; restore declaration group
+7782	current grammar requires nondefault proc/stream parameter type
+7783	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7784	omitted proc return defaults to Unit; preserve explicit value-return contract
+7789	current grammar requires nondefault proc/stream parameter type
+7790	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7791	omitted proc return defaults to Unit; preserve explicit value-return contract
+7806	joint check check.local-inference in var changed_seen; restore declaration group
+7814	joint check check.unknown-method in var before_by_key; restore declaration group
+7815	joint check check.unknown-method in var after_by_key; restore declaration group
+7816	joint check check.local-inference in var seen; restore declaration group
+7821	joint check check.type-mismatch in let ancestors; restore declaration group
+7822	joint check check.type-mismatch in let cpus; restore declaration group
+7823	joint check check.type-mismatch in let quota; restore declaration group
+7828	joint check check.unknown-method in var by_level; restore declaration group
+7829	joint check check.local-inference in var seen; restore declaration group
+7830	current grammar requires nondefault proc/stream parameter type
+7831	current grammar requires nondefault proc/stream parameter type
+7832	current grammar requires nondefault proc/stream parameter type
+7833	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7834	omitted proc return defaults to Unit; preserve explicit value-return contract
+7844	joint check check.infer-return in pure process_bundle_skip parameter name; restore declaration group
+7845	joint check check.infer-return in pure process_bundle_skip parameter source; restore declaration group
+7846	joint check check.infer-return in pure process_bundle_skip parameter state; restore declaration group
+7847	joint check check.infer-return in pure process_bundle_skip return; restore declaration group
+7863	joint check check.local-inference in var selected_names; restore declaration group
+7864	joint check check.local-inference in var skipped_names; restore declaration group
+7865	joint check check.unknown-method in var source_by_path; restore declaration group
+7866	joint check check.local-inference in var seen_pids; restore declaration group
+7874	joint check check.unknown-method in var before_by_pid; restore declaration group
+7875	joint check check.dynamic-boundary in var after_by_pid; restore declaration group
+7876	joint check check.dynamic-boundary in var candidate_by_pid; restore declaration group
+7877	joint check check.local-inference in pure valid_process_resource_reference parameter item; restore declaration group
+7883	joint check check.unknown-method in var before_by_pid; restore declaration group
+7884	joint check check.dynamic-boundary in var after_by_pid; restore declaration group
+7885	joint check check.dynamic-boundary in var candidate_by_pid; restore declaration group
+7909	current grammar requires nondefault proc/stream parameter type
+7910	current grammar requires nondefault proc/stream parameter type
+7911	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+7919	joint check check.local-inference in pure trace_resume_marker_is_unquoted parameter prefix; restore declaration group
+7921	joint check check.unknown-method in pure reassemble_syscall_trace parameter trace; restore declaration group
+7923	joint check check.unknown-method in var pending; restore declaration group
+7930	joint check check.display-conversion in pure traced_call_arguments parameter line; restore declaration group
+7931	joint check check.display-conversion in pure traced_call_arguments parameter name; restore declaration group
+7941	joint check check.local-inference in pure unresolved_source_directory parameter line; restore declaration group
+7942	joint check check.local-inference in pure unresolved_source_directory parameter name; restore declaration group
+7957	joint check check.index-type in pure replay_live_source_path parameter components; restore declaration group
+7967	joint check check.unknown-method in var allowed; restore declaration group
+7968	joint check check.unknown-method in let violations; restore declaration group
+7969	current grammar requires nondefault proc/stream parameter type
+7970	current grammar requires nondefault proc/stream parameter type
+7971	current grammar requires nondefault proc/stream parameter type
+7972	current grammar requires nondefault proc/stream parameter type
+7973	current grammar requires nondefault proc/stream parameter type
+7974	current grammar requires nondefault proc/stream parameter type
+7975	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8000	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8001	omitted proc return defaults to Unit; preserve explicit value-return contract
+8002	current grammar requires nondefault proc/stream parameter type
+8003	current grammar requires nondefault proc/stream parameter type
+8004	current grammar requires nondefault proc/stream parameter type
+8005	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8006	omitted proc return defaults to Unit; preserve explicit value-return contract
+8007	current grammar requires nondefault proc/stream parameter type
+8008	current grammar requires nondefault proc/stream parameter type
+8009	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8010	omitted proc return defaults to Unit; preserve explicit value-return contract
+8011	current grammar requires nondefault proc/stream parameter type
+8012	current grammar requires nondefault proc/stream parameter type
+8013	current grammar requires nondefault proc/stream parameter type
+8014	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8015	omitted proc return defaults to Unit; preserve explicit value-return contract
+8022	current grammar requires nondefault proc/stream parameter type
+8023	current grammar requires nondefault proc/stream parameter type
+8024	current grammar requires nondefault proc/stream parameter type
+8025	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8026	omitted proc return defaults to Unit; preserve explicit value-return contract
+8027	current grammar requires nondefault proc/stream parameter type
+8028	current grammar requires nondefault proc/stream parameter type
+8029	current grammar requires nondefault proc/stream parameter type
+8030	current grammar requires nondefault proc/stream parameter type
+8031	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8032	omitted proc return defaults to Unit; preserve explicit value-return contract
+8033	current grammar requires nondefault proc/stream parameter type
+8034	current grammar requires nondefault proc/stream parameter type
+8035	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8036	omitted proc return defaults to Unit; preserve explicit value-return contract
+8038	current grammar requires nondefault proc/stream parameter type
+8039	current grammar requires nondefault proc/stream parameter type
+8040	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8042	current grammar requires nondefault proc/stream parameter type
+8043	current grammar requires nondefault proc/stream parameter type
+8044	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8045	current grammar requires nondefault proc/stream parameter type
+8046	current grammar requires nondefault proc/stream parameter type
+8047	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8048	omitted proc return defaults to Unit; preserve explicit value-return contract
+8049	current grammar requires nondefault proc/stream parameter type
+8050	current grammar requires nondefault proc/stream parameter type
+8051	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8052	current grammar requires nondefault proc/stream parameter type
+8053	current grammar requires nondefault proc/stream parameter type
+8054	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8055	omitted proc return defaults to Unit; preserve explicit value-return contract
+8057	current grammar requires nondefault proc/stream parameter type
+8058	current grammar requires nondefault proc/stream parameter type
+8059	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8060	omitted proc return defaults to Unit; preserve explicit value-return contract
+8063	joint check check.try-context in pure parse_huge_page_size_reference parameter name; restore declaration group
+8064	joint check check.infer-return in pure parse_huge_page_size_reference return; restore declaration group
+8065	current grammar requires nondefault proc/stream parameter type
+8066	current grammar requires nondefault proc/stream parameter type
+8067	current grammar requires nondefault proc/stream parameter type
+8068	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8069	omitted proc return defaults to Unit; preserve explicit value-return contract
+8070	current grammar requires nondefault proc/stream parameter type
+8071	current grammar requires nondefault proc/stream parameter type
+8072	current grammar requires nondefault proc/stream parameter type
+8073	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8074	omitted proc return defaults to Unit; preserve explicit value-return contract
+8079	current grammar requires nondefault proc/stream parameter type
+8080	current grammar requires nondefault proc/stream parameter type
+8081	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8082	omitted proc return defaults to Unit; preserve explicit value-return contract
+8083	current grammar requires nondefault proc/stream parameter type
+8084	current grammar requires nondefault proc/stream parameter type
+8085	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8086	omitted proc return defaults to Unit; preserve explicit value-return contract
+8089	current grammar requires nondefault proc/stream parameter type
+8090	current grammar requires nondefault proc/stream parameter type
+8091	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8092	omitted proc return defaults to Unit; preserve explicit value-return contract
+8093	current grammar requires nondefault proc/stream parameter type
+8094	current grammar requires nondefault proc/stream parameter type
+8095	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8096	omitted proc return defaults to Unit; preserve explicit value-return contract
+8098	current grammar requires nondefault proc/stream parameter type
+8099	current grammar requires nondefault proc/stream parameter type
+8100	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8101	omitted proc return defaults to Unit; preserve explicit value-return contract
+8102	current grammar requires nondefault proc/stream parameter type
+8103	current grammar requires nondefault proc/stream parameter type
+8104	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8105	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8106	omitted proc return defaults to Unit; preserve explicit value-return contract
+8107	current grammar requires nondefault proc/stream parameter type
+8108	current grammar requires nondefault proc/stream parameter type
+8109	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8110	omitted proc return defaults to Unit; preserve explicit value-return contract
+8111	current grammar requires nondefault proc/stream parameter type
+8112	current grammar requires nondefault proc/stream parameter type
+8113	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8114	current grammar requires nondefault proc/stream parameter type
+8115	current grammar requires nondefault proc/stream parameter type
+8116	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8117	omitted proc return defaults to Unit; preserve explicit value-return contract
+8118	current grammar requires nondefault proc/stream parameter type
+8119	current grammar requires nondefault proc/stream parameter type
+8120	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8121	omitted proc return defaults to Unit; preserve explicit value-return contract
+8122	current grammar requires nondefault proc/stream parameter type
+8123	current grammar requires nondefault proc/stream parameter type
+8124	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8125	omitted proc return defaults to Unit; preserve explicit value-return contract
+8126	current grammar requires nondefault proc/stream parameter type
+8127	current grammar requires nondefault proc/stream parameter type
+8128	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8129	omitted proc return defaults to Unit; preserve explicit value-return contract
+8130	current grammar requires nondefault proc/stream parameter type
+8131	current grammar requires nondefault proc/stream parameter type
+8132	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8133	omitted proc return defaults to Unit; preserve explicit value-return contract
+8134	current grammar requires nondefault proc/stream parameter type
+8135	current grammar requires nondefault proc/stream parameter type
+8136	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8137	omitted proc return defaults to Unit; preserve explicit value-return contract
+8138	current grammar requires nondefault proc/stream parameter type
+8139	current grammar requires nondefault proc/stream parameter type
+8140	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8141	omitted proc return defaults to Unit; preserve explicit value-return contract
+8142	current grammar requires nondefault proc/stream parameter type
+8143	current grammar requires nondefault proc/stream parameter type
+8144	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8145	omitted proc return defaults to Unit; preserve explicit value-return contract
+8146	current grammar requires nondefault proc/stream parameter type
+8147	current grammar requires nondefault proc/stream parameter type
+8148	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8149	omitted proc return defaults to Unit; preserve explicit value-return contract
+8150	current grammar requires nondefault proc/stream parameter type
+8151	current grammar requires nondefault proc/stream parameter type
+8152	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8153	omitted proc return defaults to Unit; preserve explicit value-return contract
+8154	current grammar requires nondefault proc/stream parameter type
+8155	current grammar requires nondefault proc/stream parameter type
+8156	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8157	omitted proc return defaults to Unit; preserve explicit value-return contract
+8158	current grammar requires nondefault proc/stream parameter type
+8159	current grammar requires nondefault proc/stream parameter type
+8160	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8161	omitted proc return defaults to Unit; preserve explicit value-return contract
+8162	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8163	omitted proc return defaults to Unit; preserve explicit value-return contract
+8164	current grammar requires nondefault proc/stream parameter type
+8165	current grammar requires nondefault proc/stream parameter type
+8166	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8167	omitted proc return defaults to Unit; preserve explicit value-return contract
+8168	current grammar requires nondefault proc/stream parameter type
+8169	current grammar requires nondefault proc/stream parameter type
+8170	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8171	omitted proc return defaults to Unit; preserve explicit value-return contract
+8172	current grammar requires nondefault proc/stream parameter type
+8173	current grammar requires nondefault proc/stream parameter type
+8174	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8175	omitted proc return defaults to Unit; preserve explicit value-return contract
+8176	current grammar requires nondefault proc/stream parameter type
+8177	current grammar requires nondefault proc/stream parameter type
+8178	current grammar requires nondefault proc/stream parameter type
+8179	current grammar requires nondefault proc/stream parameter type
+8180	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8181	omitted proc return defaults to Unit; preserve explicit value-return contract
+8182	current grammar requires nondefault proc/stream parameter type
+8183	current grammar requires nondefault proc/stream parameter type
+8184	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8185	omitted proc return defaults to Unit; preserve explicit value-return contract
+8186	current grammar requires nondefault proc/stream parameter type
+8187	current grammar requires nondefault proc/stream parameter type
+8188	current grammar requires nondefault proc/stream parameter type
+8189	current grammar requires nondefault proc/stream parameter type
+8190	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8191	omitted proc return defaults to Unit; preserve explicit value-return contract
+8192	current grammar requires nondefault proc/stream parameter type
+8193	current grammar requires nondefault proc/stream parameter type
+8194	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8195	omitted proc return defaults to Unit; preserve explicit value-return contract
+8196	current grammar requires nondefault proc/stream parameter type
+8197	current grammar requires nondefault proc/stream parameter type
+8198	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8199	current grammar requires nondefault proc/stream parameter type
+8200	current grammar requires nondefault proc/stream parameter type
+8201	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8202	current grammar requires nondefault proc/stream parameter type
+8203	current grammar requires nondefault proc/stream parameter type
+8204	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8205	current grammar requires nondefault proc/stream parameter type
+8206	current grammar requires nondefault proc/stream parameter type
+8207	current grammar requires nondefault proc/stream parameter type
+8208	current grammar requires nondefault proc/stream parameter type
+8209	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8210	omitted proc return defaults to Unit; preserve explicit value-return contract
+8212	current grammar requires nondefault proc/stream parameter type
+8213	current grammar requires nondefault proc/stream parameter type
+8214	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8215	current grammar requires nondefault proc/stream parameter type
+8216	current grammar requires nondefault proc/stream parameter type
+8217	current grammar requires nondefault proc/stream parameter type
+8218	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8219	omitted proc return defaults to Unit; preserve explicit value-return contract
+8220	current grammar requires nondefault proc/stream parameter type
+8221	current grammar requires nondefault proc/stream parameter type
+8222	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8223	current grammar requires nondefault proc/stream parameter type
+8224	current grammar requires nondefault proc/stream parameter type
+8225	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8226	omitted proc return defaults to Unit; preserve explicit value-return contract
+8227	current grammar requires nondefault proc/stream parameter type
+8228	current grammar requires nondefault proc/stream parameter type
+8229	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8231	current grammar requires nondefault proc/stream parameter type
+8232	current grammar requires nondefault proc/stream parameter type
+8233	current grammar requires nondefault proc/stream parameter type
+8234	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8235	omitted proc return defaults to Unit; preserve explicit value-return contract
+8236	joint check check.type-mismatch in let values; restore declaration group
+8237	current grammar requires nondefault proc/stream parameter type
+8238	current grammar requires nondefault proc/stream parameter type
+8239	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8244	current grammar requires nondefault proc/stream parameter type
+8245	current grammar requires nondefault proc/stream parameter type
+8246	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8247	omitted proc return defaults to Unit; preserve explicit value-return contract
+8248	current grammar requires nondefault proc/stream parameter type
+8249	current grammar requires nondefault proc/stream parameter type
+8250	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8251	omitted proc return defaults to Unit; preserve explicit value-return contract
+8252	current grammar requires nondefault proc/stream parameter type
+8253	current grammar requires nondefault proc/stream parameter type
+8254	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8255	omitted proc return defaults to Unit; preserve explicit value-return contract
+8256	current grammar requires nondefault proc/stream parameter type
+8257	current grammar requires nondefault proc/stream parameter type
+8258	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8259	omitted proc return defaults to Unit; preserve explicit value-return contract
+8260	current grammar requires nondefault proc/stream parameter type
+8261	current grammar requires nondefault proc/stream parameter type
+8262	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8263	omitted proc return defaults to Unit; preserve explicit value-return contract
+8264	current grammar requires nondefault proc/stream parameter type
+8265	current grammar requires nondefault proc/stream parameter type
+8266	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8267	omitted proc return defaults to Unit; preserve explicit value-return contract
+8268	current grammar requires nondefault proc/stream parameter type
+8269	current grammar requires nondefault proc/stream parameter type
+8270	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8271	omitted proc return defaults to Unit; preserve explicit value-return contract
+8272	current grammar requires nondefault proc/stream parameter type
+8273	current grammar requires nondefault proc/stream parameter type
+8274	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8275	current grammar requires nondefault proc/stream parameter type
+8276	current grammar requires nondefault proc/stream parameter type
+8277	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8294	current grammar requires nondefault proc/stream parameter type
+8295	current grammar requires nondefault proc/stream parameter type
+8296	current grammar requires nondefault proc/stream parameter type
+8297	current grammar requires nondefault proc/stream parameter type
+8298	current grammar requires nondefault proc/stream parameter type
+8299	current grammar requires nondefault proc/stream parameter type
+8300	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8301	omitted proc return defaults to Unit; preserve explicit value-return contract
+8302	joint check check.unknown-method in var test_results; restore declaration group
+8303	joint check check.unknown-method in var test_failures; restore declaration group
+8308	joint check check.infer-return in pure plan_canonical_field parameter value; restore declaration group
+8310	current grammar requires nondefault proc/stream parameter type
+8311	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8312	omitted proc return defaults to Unit; preserve explicit value-return contract
+8313	joint check check.local-inference in pure dependency_key parameter value; restore declaration group
+8315	joint check check.local-inference in pure node_is_before parameter left; restore declaration group
+8316	joint check check.local-inference in pure node_is_before parameter right; restore declaration group
+8318	joint check check.infer-return in pure plan_sorted_unique_names parameter names; restore declaration group
+8320	joint check check.assign-target in var seen; restore declaration group
+8321	joint check check.assign-target in let result; restore declaration group
+8322	current grammar requires nondefault proc/stream parameter type
+8323	current grammar requires nondefault proc/stream parameter type
+8324	current grammar requires nondefault proc/stream parameter type
+8325	current grammar requires nondefault proc/stream parameter type
+8326	current grammar requires nondefault proc/stream parameter type
+8327	omitted proc return defaults to Unit; preserve explicit value-return contract
+8328	current grammar requires nondefault proc/stream parameter type
+8329	current grammar requires nondefault proc/stream parameter type
+8330	omitted proc return defaults to Unit; preserve explicit value-return contract
+8331	current grammar requires nondefault proc/stream parameter type
+8332	current grammar requires nondefault proc/stream parameter type
+8333	current grammar requires nondefault proc/stream parameter type
+8334	omitted proc return defaults to Unit; preserve explicit value-return contract
+8335	current grammar requires nondefault proc/stream parameter type
+8336	current grammar requires nondefault proc/stream parameter type
+8337	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8338	omitted proc return defaults to Unit; preserve explicit value-return contract
+8339	current grammar requires nondefault proc/stream parameter type
+8340	current grammar requires nondefault proc/stream parameter type
+8341	omitted proc return defaults to Unit; preserve explicit value-return contract
+8342	current grammar requires nondefault proc/stream parameter type
+8343	current grammar requires nondefault proc/stream parameter type
+8344	omitted proc return defaults to Unit; preserve explicit value-return contract
+8345	current grammar requires nondefault proc/stream parameter type
+8346	current grammar requires nondefault proc/stream parameter type
+8347	omitted proc return defaults to Unit; preserve explicit value-return contract
+8348	current grammar requires nondefault proc/stream parameter type
+8349	current grammar requires nondefault proc/stream parameter type
+8350	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8351	omitted proc return defaults to Unit; preserve explicit value-return contract
+8353	joint check check.local-inference in pure plan_compare_lex parameter left; restore declaration group
+8354	joint check check.local-inference in pure plan_compare_lex parameter right; restore declaration group
+8363	joint check check.local-inference in pure plan_compare_version_run parameter left; restore declaration group
+8364	joint check check.local-inference in pure plan_compare_version_run parameter right; restore declaration group
+8374	current grammar requires nondefault proc/stream parameter type
+8375	current grammar requires nondefault proc/stream parameter type
+8376	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8377	joint check check.local-inference in pure remote_is_exact parameter remote; restore declaration group
+8378	joint check check.local-inference in pure remote_is_exact parameter recipe_sha256; restore declaration group
+8379	joint check check.local-inference in pure remote_is_exact parameter proof_sha256; restore declaration group
+8380	joint check check.local-inference in pure remote_is_exact parameter artifact_key; restore declaration group
+8381	joint check check.local-inference in pure remote_is_exact parameter proof_key; restore declaration group
+8383	current grammar requires nondefault proc/stream parameter type
+8384	current grammar requires nondefault proc/stream parameter type
+8385	current grammar requires nondefault proc/stream parameter type
+8386	current grammar requires nondefault proc/stream parameter type
+8387	omitted proc return defaults to Unit; preserve explicit value-return contract
+8389	current grammar requires nondefault proc/stream parameter type
+8390	current grammar requires nondefault proc/stream parameter type
+8391	current grammar requires nondefault proc/stream parameter type
+8392	current grammar requires nondefault proc/stream parameter type
+8393	omitted proc return defaults to Unit; preserve explicit value-return contract
+8395	current grammar requires nondefault proc/stream parameter type
+8396	current grammar requires nondefault proc/stream parameter type
+8397	current grammar requires nondefault proc/stream parameter type
+8398	current grammar requires nondefault proc/stream parameter type
+8399	omitted proc return defaults to Unit; preserve explicit value-return contract
+8407	joint check check.type-mismatch in var nodes; restore declaration group
+8408	joint check check.type-mismatch in var keys; restore declaration group
+8409	joint check check.assign-target in var actions; restore declaration group
+8410	joint check check.assign-target in var action; restore declaration group
+8412	current grammar requires nondefault proc/stream parameter type
+8413	current grammar requires nondefault proc/stream parameter type
+8414	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8417	current grammar requires nondefault proc/stream parameter type
+8418	current grammar requires nondefault proc/stream parameter type
+8419	current grammar requires nondefault proc/stream parameter type
+8420	current grammar requires nondefault proc/stream parameter type
+8421	current grammar requires nondefault proc/stream parameter type
+8422	current grammar requires nondefault proc/stream parameter type
+8423	current grammar requires nondefault proc/stream parameter type
+8424	joint check check.assign-target in var dependency_seen; restore declaration group
+8430	current grammar requires nondefault proc/stream parameter type
+8431	joint check check.assign-target in var names; restore declaration group
+8432	joint check check.type-mismatch in var levels; restore declaration group
+8433	joint check check.type-mismatch in var artifact_keys; restore declaration group
+8435	joint check check.assign-target in var seen; restore declaration group
+8436	current grammar requires nondefault proc/stream parameter type
+8437	omitted proc return defaults to Unit; preserve explicit value-return contract
+8443	joint check check.infer-return in pure color parameter text; restore declaration group
+8444	joint check check.infer-return in pure color parameter code; restore declaration group
+8445	joint check check.infer-return in pure color parameter colors; restore declaration group
+8451	joint check check.infer-return in pure sorted_unique_names parameter names; restore declaration group
+8453	joint check check.assign-target in var seen; restore declaration group
+8454	joint check check.assign-target in let unique; restore declaration group
+8455	joint check check.infer-return in pure package_dependencies parameter pkg; restore declaration group
+8457	current grammar requires nondefault proc/stream parameter type
+8458	current grammar requires nondefault proc/stream parameter type
+8459	current grammar requires nondefault proc/stream parameter type
+8460	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8461	omitted proc return defaults to Unit; preserve explicit value-return contract
+8462	joint check check.local-inference in var local_names; restore declaration group
+8481	joint check check.local-inference in var excluded; restore declaration group
+8506	current grammar requires nondefault proc/stream parameter type
+8507	current grammar requires nondefault proc/stream parameter type
+8508	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+8509	current grammar requires nondefault proc/stream parameter type
+8510	current grammar requires nondefault proc/stream parameter type
+8511	current grammar requires nondefault proc/stream parameter type
+8512	current grammar requires nondefault proc/stream parameter type
+8513	current grammar requires nondefault proc/stream parameter type
+8514	joint check check.local-inference in var seen; restore declaration group
+8515	current grammar requires nondefault proc/stream parameter type
+8516	current grammar requires nondefault proc/stream parameter type
+8517	current grammar requires nondefault proc/stream parameter type
+8518	joint check check.local-inference in var seen; restore declaration group
+8519	current grammar requires nondefault proc/stream parameter type
+8520	current grammar requires nondefault proc/stream parameter type
+8521	current grammar requires nondefault proc/stream parameter type
+8522	omitted proc return defaults to Unit; preserve explicit value-return contract
+8523	current grammar requires nondefault proc/stream parameter type
+8524	current grammar requires nondefault proc/stream parameter type
+8525	omitted proc return defaults to Unit; preserve explicit value-return contract
+8528	current grammar requires nondefault proc/stream parameter type
+8529	current grammar requires nondefault proc/stream parameter type
+8530	omitted proc return defaults to Unit; preserve explicit value-return contract
+8535	joint check check.local-inference in var architecture_seen; restore declaration group
+8536	joint check check.local-inference in var checksum_seen; restore declaration group
+8538	current grammar requires nondefault proc/stream parameter type
+8539	current grammar requires nondefault proc/stream parameter type
+8540	omitted proc return defaults to Unit; preserve explicit value-return contract
+8543	current grammar requires nondefault proc/stream parameter type
+8544	current grammar requires nondefault proc/stream parameter type
+8545	omitted proc return defaults to Unit; preserve explicit value-return contract
+8547	current grammar requires nondefault proc/stream parameter type
+8548	current grammar requires nondefault proc/stream parameter type
+8549	omitted proc return defaults to Unit; preserve explicit value-return contract
+8550	joint check check.local-inference in var seen; restore declaration group
+8570	current grammar requires nondefault proc/stream parameter type
+8571	omitted proc return defaults to Unit; preserve explicit value-return contract
+8572	current grammar requires nondefault proc/stream parameter type
+8573	omitted proc return defaults to Unit; preserve explicit value-return contract
+8574	joint check check.local-inference in pure select_filetree parameter metadata; restore declaration group
+8575	joint check check.local-inference in pure select_filetree parameter arch; restore declaration group
+8576	joint check check.infer-return in pure select_filetree return; restore declaration group
+8577	current grammar requires nondefault proc/stream parameter type
+8578	omitted proc return defaults to Unit; preserve explicit value-return contract
+8579	current grammar requires nondefault proc/stream parameter type
+8580	omitted proc return defaults to Unit; preserve explicit value-return contract
+8592	current grammar requires nondefault proc/stream parameter type
+8593	omitted proc return defaults to Unit; preserve explicit value-return contract
+9060	joint check check.infer-return in pure canonical_field parameter value; restore declaration group
+9066	current grammar requires nondefault proc/stream parameter type
+9067	current grammar requires nondefault proc/stream parameter type
+9068	current grammar requires nondefault proc/stream parameter type
+9069	omitted proc return defaults to Unit; preserve explicit value-return contract
+9070	current grammar requires nondefault proc/stream parameter type
+9071	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+9072	omitted proc return defaults to Unit; preserve explicit value-return contract
+9073	joint check check.display-conversion in pure applicable_checksum parameter source; restore declaration group
+9074	joint check check.display-conversion in pure applicable_checksum parameter target; restore declaration group
+9079	current grammar requires nondefault proc/stream parameter type
+9080	omitted proc return defaults to Unit; preserve explicit value-return contract
+9082	current grammar requires nondefault proc/stream parameter type
+9083	current grammar requires nondefault proc/stream parameter type
+9084	current grammar requires nondefault proc/stream parameter type
+9085	omitted proc return defaults to Unit; preserve explicit value-return contract
+9092	current grammar requires nondefault proc/stream parameter type
+9093	omitted proc return defaults to Unit; preserve explicit value-return contract
+9107	joint check check.infer-return in pure graph_sorted_unique_names parameter names; restore declaration group
+9109	joint check check.assign-target in var seen; restore declaration group
+9110	joint check check.assign-target in let unique; restore declaration group
+9111	joint check check.local-inference in pure kind_is_selected parameter kind; restore declaration group
+9112	joint check check.local-inference in pure kind_is_selected parameter kinds; restore declaration group
+9116	joint check check.local-inference in pure edge_key parameter from; restore declaration group
+9117	joint check check.local-inference in pure edge_key parameter to; restore declaration group
+9119	joint check check.infer-return in pure package_edges parameter pkg; restore declaration group
+9120	joint check check.infer-return in pure package_edges parameter value; restore declaration group
+9123	joint check check.infer-return in pure selected_edges parameter dependency_edges; restore declaration group
+9124	joint check check.infer-return in pure selected_edges parameter kinds; restore declaration group
+9126	joint check check.local-inference in pure direct_dependencies parameter name; restore declaration group
+9127	joint check check.local-inference in pure direct_dependencies parameter dependency_edges; restore declaration group
+9129	joint check check.local-inference in pure index_in_path parameter trail; restore declaration group
+9130	joint check check.local-inference in pure index_in_path parameter name; restore declaration group
+9132	joint check check.local-inference in pure cycle_from parameter name; restore declaration group
+9133	joint check check.local-inference in pure cycle_from parameter selected; restore declaration group
+9134	joint check check.local-inference in pure cycle_from parameter dependency_edges; restore declaration group
+9135	joint check check.local-inference in pure cycle_from parameter trail; restore declaration group
+9136	joint check check.required-return in pure cycle_from return; restore declaration group
+9138	joint check check.local-inference in pure find_cycle parameter selected_names; restore declaration group
+9139	joint check check.local-inference in pure find_cycle parameter dependency_edges; restore declaration group
+9140	joint check check.infer-return in pure find_cycle return; restore declaration group
+9141	current grammar requires nondefault proc/stream parameter type
+9142	current grammar requires nondefault proc/stream parameter type
+9143	current grammar requires nondefault proc/stream parameter type
+9144	current grammar requires nondefault proc/stream parameter type
+9145	retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles
+9146	omitted proc return defaults to Unit; preserve explicit value-return contract
+9147	joint check check.dynamic-boundary in var included; restore declaration group
+9152	joint check check.dynamic-boundary in var declared_pairs; restore declaration group
+9153	joint check check.dynamic-boundary in let result; restore declaration group
+9163	joint check check.dynamic-boundary in var unresolved; restore declaration group
+9164	joint check check.assign-target in var emitted; restore declaration group
+9165	joint check check.dynamic-boundary in let levels; restore declaration group

@@ -1,0 +1,8 @@
+argv: ["docker", "run", "--rm", "--init", "--cidfile", "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-7eb62cd99/.work/final-review-evidence/final-correctness-gates/route-replay-7eb62cd99-20261017-r1/container-ids/route-replay-7eb62cd99-20261017-r1-source-order-017a6b4cfacd-forced.cid", "--name", "route-route-replay-7eb62cd99-20261017-r1-source-order-017a6b4cfacd-forced", "--platform", "linux/amd64", "--network", "none", "--cpus=8", "--memory=16g", "--memory-swap=16g", "--user", "1000:1000", "--env", "HOME=/scratch/home", "--env", "TMPDIR=/scratch", "--env", "PATH=/usr/local/bin:/usr/bin:/bin", "--env", "LC_ALL=C", "--env", "TZ=UTC", "--env", "NO_COLOR=1", "--env", "LD_PRELOAD=", "--volume", "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-7eb62cd99:/repo:ro", "--volume", "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-7eb62cd99/.work/target-final-canonical:/artifacts/target:ro", "--volume", "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-7eb62cd99/.work/final-review-evidence/final-correctness-gates/route-replay-7eb62cd99-20261017-r1:/scratch:rw", "--workdir", "/repo", "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c", "/usr/bin/env", "XSH_BIN=/artifacts/target/x86_64-unknown-linux-musl/verification/xsh", "CARGO_BIN_EXE_xsh=/artifacts/target/x86_64-unknown-linux-musl/verification/xsh", "XSH_INTERNAL_TEST_FORCE_FRAMES=1", "/artifacts/target/x86_64-unknown-linux-musl/verification/xsht", "test", "--exact", "tests/xsh/operand-order-scalars.xsh::test_operand_order_int_binary_is_left_to_right"]
+
+[stdout]
+running 1 tests
+tests/xsh/operand-order-scalars.xsh::test_operand_order_int_binary_is_left_to_right ... ok 6ms
+test result: ok. 1 passed; 0 failed; 0 skipped
+
+[stderr]

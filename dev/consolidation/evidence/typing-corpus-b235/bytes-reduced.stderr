@@ -1,0 +1,5 @@
+err[check.result-fallback]: `??` requires a Result or Optional value
+  bytes-reduced.xsh:2:3
+    raw.byte_at(0) ?? 0
+    ^^^^^^^^^^^^^^ `??` requires a Result or Optional value
+xsht check: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s, check 0.00s)

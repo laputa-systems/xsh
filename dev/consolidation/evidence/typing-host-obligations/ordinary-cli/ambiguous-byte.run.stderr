@@ -1,0 +1,9 @@
+err[check.ambiguous-overload]: method receiver has no unique registered operation
+  /inputs/ambiguous-byte.xsh:1:25
+  pure byte(raw) -> Int { raw.byte_at(0) ?? 0 }
+                          ^^^^^^^^^^^^^^ method receiver has no unique registered operation
+
+err[check.result-fallback]: `??` requires a Result or Optional value
+  /inputs/ambiguous-byte.xsh:1:25
+  pure byte(raw) -> Int { raw.byte_at(0) ?? 0 }
+                          ^^^^^^^^^^^^^^ `??` requires a Result or Optional value

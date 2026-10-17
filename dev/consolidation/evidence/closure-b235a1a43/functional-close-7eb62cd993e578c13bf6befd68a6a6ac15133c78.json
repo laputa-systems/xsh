@@ -1,0 +1,50 @@
+{
+  "functional_complete": true,
+  "commit": "7eb62cd993e578c13bf6befd68a6a6ac15133c78",
+  "tree": "736b4bc16b1bcf07a0250b97e849506c19fb0753",
+  "reviewer": "/root",
+  "evidence": {
+    "canonical": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/canonical-evidence-b235/dev/consolidation/evidence/canonical-b235a1a43/canonical-replay.json",
+      "sha256": "5f316e45b2d716b6272046adbafce80c94bb3180b0e2d5dbd66152092a3c5714"
+    },
+    "supplemental": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-correctness-gates/correctness-7eb62cd99-20261017-r1/receipt.json",
+      "sha256": "22ebd31a344c5e3977310340d2b45459ff932c0ff729ba3566f009aa949a6fbd"
+    },
+    "routes": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/consolidation-final-7eb62cd99/.work/tmp/route-matrix-7eb62cd99-direct-ir.json",
+      "sha256": "68f2b3fb2ce32798cf75bbcf6ebb7ed1ef25e05a5a133decb272620924f8191b"
+    },
+    "residual": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/linux-residual-0deeb9c7/dev/consolidation/evidence/linux-residual-0deeb9c7/README.md",
+      "sha256": "fb57d3a45305319bef569ca2b56ab1497711f32748726780bb1de4c65dd77706"
+    },
+    "qemu": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/closure-handoff-b235/dev/consolidation/evidence/linux-qemu-b235a1a4/README.md",
+      "sha256": "c813624b0b12759ea6f1e1e7d4d2e202ba075c5a101a8719aac7fb820f677f36"
+    },
+    "w9": {
+      "path": "/home/josh/d/laputa-systems/xsh/dev/consolidation/evidence/w9-current-0deeb9/README.md",
+      "sha256": "690344d1807834617b9f955de683beedc5348ce5359adc6fdb1a23891b7dc292"
+    },
+    "structural": {
+      "path": "/home/josh/d/laputa-systems/xsh/.work/wt/closure-evidence-b235/dev/consolidation/evidence/closure-b235a1a43/metrics-report.json",
+      "sha256": "d14b1644bb2538b3a50ef82d894131a2fc669ba8f604904a1c8683d7280b3a07"
+    }
+  },
+  "scope": {
+    "canonical": "Accepted b235 functional run: 13916 native passes, 78 disclosed skips. Reused for 7eb because its only delta is two equivalent cfg(test) Unix permission literal spellings; original receipt remains pinned to b235.",
+    "routes": "428 normal/forced executions pass, 188 XSH artifacts admitted, 60 source-order selectors in both modes. One separate exact Rust test proves direct-IR normal ExprIf; separately qualified collector code 9f5d12725. Matrix has 152 rows, zero gaps and zero unmapped paths.",
+    "residual": "36 distinct selectors have passing results across 37 executions. The original ss path-length skip remains recorded and is resolved by its exact /t rerun. Both NET_RAW positives and the single SYS_ADMIN namespace case pass.",
+    "qemu": "Seven guest passes remain pinned to 0de and use the unchanged protected canonical b235 product set. Phase A reuses this scope for the cfg(test)-only 7eb delta; no R6-to-canonical byte-equivalence or fresh 7eb guest claim.",
+    "w9": "Accepted 0de full cohort: 1690 inputs, 6760 outcomes, zero mismatches and assignment/owner proofs. Its compiler/build/W9 scope is unchanged by fixture/docs changes and the 7eb test-literal spellings. No fresh 7eb full-corpus claim.",
+    "structural": "Existing b235 report has hard structural zeros. Input-mode check-current on 7eb reproduced identical report/audit with current source OIDs. Source growth remains advisory."
+  },
+  "remaining": [
+    "release resource and performance gates",
+    "final ten-row metrics evidence bundle",
+    "evidence and documentation integration"
+  ],
+  "inference": "Isolated and excluded from this consolidation source; broader inference targets remain open."
+}

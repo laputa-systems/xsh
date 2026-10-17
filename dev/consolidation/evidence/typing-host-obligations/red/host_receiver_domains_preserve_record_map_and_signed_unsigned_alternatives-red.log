@@ -1,0 +1,20 @@
+
+running 1 test
+test sema::check::infer_param::host_anchor_tests::host_receiver_domains_preserve_record_map_and_signed_unsigned_alternatives ... FAILED
+
+failures:
+
+---- sema::check::infer_param::host_anchor_tests::host_receiver_domains_preserve_record_map_and_signed_unsigned_alternatives stdout ----
+
+thread 'sema::check::infer_param::host_anchor_tests::host_receiver_domains_preserve_record_map_and_signed_unsigned_alternatives' (11) panicked at src/sema/check/infer_param.rs:282:13:
+pure keys(value) -> List[Str] { value.keys() }
+let output = keys({value: 1})
+: []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    sema::check::infer_param::host_anchor_tests::host_receiver_domains_preserve_record_map_and_signed_unsigned_alternatives
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 902 filtered out; finished in 0.01s
+

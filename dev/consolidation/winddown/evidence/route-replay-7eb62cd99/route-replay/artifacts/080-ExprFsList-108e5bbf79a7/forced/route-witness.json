@@ -1,0 +1,1 @@
+{"version":1,"test_id":"tests/xsh/expression-route-oracles.xsh::test_expr_fs_list","source_hash":"c9feabbb2f144ae088b15d29f4a5d60eee205009b82656c17681ff666e989261","records":[{"tag_name":"ExprFsList","tag_ordinal":80,"route":"generic_operand_apply_path","mode":"forced"}]}

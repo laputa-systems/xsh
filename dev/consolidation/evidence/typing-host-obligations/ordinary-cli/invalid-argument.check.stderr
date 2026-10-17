@@ -1,0 +1,5 @@
+err[check.type-mismatch]: type mismatch
+  /inputs/invalid-argument.xsh:2:56
+  pure invalid(text) -> Str { let changed = text.replace(1, with: " "); let anchored = anchor(text); changed }
+                                                         ^ expected Str, found Int
+xsht check: 1 file in 0.00s (thread time by stage: discover 0.00s, load 0.00s, check 0.00s)

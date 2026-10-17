@@ -1,0 +1,92 @@
+[docker-image-inspect target=x86_64-unknown-linux-musl] docker image inspect sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
+[
+    {
+        "Id": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+        "RepoTags": [
+            "xsh-comparative-base:amd64-3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+            "xsh-gnu-reference-base:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+            "xsh-test:consolidation-native",
+            "xsh-test:consolidation-x86_64"
+        ],
+        "RepoDigests": [
+            "xsh-comparative-base@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+            "xsh-gnu-reference-base@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+            "xsh-test@sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
+        ],
+        "Comment": "buildkit.dockerfile.v0",
+        "Created": "2026-10-11T05:07:54.056684865Z",
+        "Config": {
+            "Env": [
+                "PATH=/usr/local/bin:/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                "CC=/usr/bin/clang-23",
+                "AR=/usr/local/bin/llvm-ar",
+                "RANLIB=/usr/bin/ranlib",
+                "LIBCLANG_PATH=/usr/lib/llvm23/lib",
+                "CC_AARCH64_UNKNOWN_LINUX_MUSL=/usr/bin/clang-23",
+                "CC_X86_64_UNKNOWN_LINUX_MUSL=/usr/bin/clang-23",
+                "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld",
+                "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld",
+                "CFLAGS_aarch64_unknown_linux_musl=--target=aarch64-unknown-linux-musl -B/usr/lib/xsh-crt/aarch64-unknown-linux-musl -I/usr/include",
+                "CFLAGS_x86_64_unknown_linux_musl=--target=x86_64-unknown-linux-musl -B/usr/lib/xsh-crt/x86_64-unknown-linux-musl -I/usr/include"
+            ],
+            "Cmd": [
+                "/bin/sh"
+            ],
+            "WorkingDir": "/"
+        },
+        "Architecture": "amd64",
+        "Os": "linux",
+        "Size": 4451600841,
+        "RootFS": {
+            "Type": "layers",
+            "Layers": [
+                "sha256:3783642dbaf4383d4c48f6ae3646ae3135d317f504a5e8ae5e0103b3c63af2d0",
+                "sha256:04fa387cbfc40b99218ae18d4d7779c048ebd643467a808e20e1fab1587e35b2",
+                "sha256:4a4f24f6bfb644270fc01dcd37532ad833d5cc15be59689e3dfaf302581d49f8",
+                "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
+                "sha256:ff600508b23e49a4a23e998d385614151b3101e2e73fc79ca3f2e2bb9e1d2db2",
+                "sha256:391ba0362988c12ecd5583eb723f0c348af3127f29b1e46cc246e8e1d9b8f12f",
+                "sha256:be1927ef87c04f75d2a790ec9bd9edd16adb1585b5802346983da4bebc8f8caa",
+                "sha256:0f88858e9cbca6bcbb7115dcd268c9a37a8c2aad4a39bcd05e64466bc529e2ee",
+                "sha256:2c5337249365a69c5393c5db3fa87a29df5ae52e1d88977f4ff10c63b558cf2b",
+                "sha256:696fbef56ab86666c1f77e4f7773fe9051de506984cee6e114aa31a05ac978bf",
+                "sha256:d9ce0da3ef176a71a01baff529accb5b0614c7278588047c5307ee13b9db7f30",
+                "sha256:20e2ebf591001ee55f0f59006f2faef364c3ee54960d080b7fb6d726a2dc90af",
+                "sha256:19a2b205c3da815e5a7486375709d1d950548dc2437cd38f5ee92fff05352f16",
+                "sha256:5ba700f0abfd149033cb49a36faf4788a8a322c03bdeb512c66fb244e60e0288",
+                "sha256:ca04005267089e748bcce1e42f221a5b6f54422a141eac78cf5152974f73f81d"
+            ]
+        },
+        "Metadata": {
+            "LastTagTime": "2026-10-15T18:57:58.393400226Z"
+        },
+        "Descriptor": {
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "digest": "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c",
+            "size": 856
+        },
+        "Identity": {
+            "Pull": [
+                {
+                    "Repository": "docker.io/library/xsh-comparative-base"
+                },
+                {
+                    "Repository": "docker.io/library/xsh-gnu-reference-base"
+                },
+                {
+                    "Repository": "docker.io/library/xsh-test"
+                }
+            ],
+            "Build": [
+                {
+                    "Ref": "l2xj77hfyjmcdb5ob1f6enwe1",
+                    "CreatedAt": "2026-10-11T13:54:44.495136853Z"
+                }
+            ]
+        }
+    }
+]
+[docker-gate-batch target=x86_64-unknown-linux-musl] docker run --rm --init --platform linux/amd64 --privileged -v /home/josh/d/laputa-systems/xsh:/work -v /home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/gate-batch-target:/work/target -v xsh-cargo-registry:/root/.cargo/registry -w /work -e TARGET=x86_64-unknown-linux-musl -e DIST_PROFILE=release -e CARGO_TARGET_DIR=/work/target -e CARGO_BUILD_WARNINGS=deny -e HOST_UID=1000 -e HOST_GID=1000 -v /home/josh/d/laputa-systems/xsh/dev/musl-linker.sh:/usr/local/bin/xsh-mold-linker:ro -v /usr/local/bin/mold:/usr/local/bin/mold:ro -v /home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro -e RUSTC_WRAPPER=/usr/local/bin/kache -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol -v /home/josh/d/laputa-systems/xsh/.git:/home/josh/d/laputa-systems/xsh/.git:ro sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c cargo run --quiet --target x86_64-unknown-linux-musl -p xsh --bin xsh -- dev/main.xsh -- internal gate-batch
+[gate-git-safe-directory target=x86_64-unknown-linux-musl] git config --global --add safe.directory /work
+[test-products target=x86_64-unknown-linux-musl] cargo build --locked --profile release --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht -p xshi --bin xshi
+[container-ownership-repair target=x86_64-unknown-linux-musl] chown -R 1000:1000 /work/target
