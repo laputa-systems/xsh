@@ -159,7 +159,7 @@ PRIVATE_NAMESPACE = r'''
 export XSH_UTIL_LINUX_PARENT_ipc=$(readlink /proc/self/ns/ipc)
 export XSH_UTIL_LINUX_PARENT_mnt=$(readlink /proc/self/ns/mnt)
 export XSH_UTIL_LINUX_PARENT_pid=$(readlink /proc/self/ns/pid)
-exec unshare --mount --ipc --pid --fork --mount-proc sh -ec '
+exec /usr/bin/python3 /work/core/tests/fixtures/util-linux/contexts/identity_keeper.py outer -- unshare --mount --ipc --pid --fork --mount-proc sh -ec '
   mount --make-rprivate /
   mount -t tmpfs -o size=32m tmpfs /dev/shm
   mount -t mqueue mqueue /dev/mqueue
