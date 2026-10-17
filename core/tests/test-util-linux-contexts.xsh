@@ -48,7 +48,9 @@ test test_util_linux_context_second_uid_holder_disappears_after_owned_release { 
   let options = ["--json", "--pid", f"{owner.pid}", "--output", "PID,INODE,PATH"]
   let before = ul.reference(s, "lslocks", options)?
   uu.succeeds(before)
-  assert json.get(json.decode(before.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.len() == 1
+  ctx f"UID holder root observer stdout_b64={before.stdout.base64()}" {
+    assert json.get(json.decode(before.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.len() == 1
+  }
   let observer_reference = ul.reference_as_user(s, "lslocks", options, uid: 10001)?
   let observer_candidate = ul.candidate_as_user(s, "lslocks", options, uid: 10001)?
   ul.compare(observer_reference, observer_candidate)
@@ -58,8 +60,10 @@ test test_util_linux_context_second_uid_holder_disappears_after_owned_release { 
     let inaccessible_options = options.extend([selector])
     let filtered_reference = ul.reference_as_user(s, "lslocks", inaccessible_options, uid: 10001)?
     let filtered_candidate = ul.candidate_as_user(s, "lslocks", inaccessible_options, uid: 10001)?
-    ul.compare(filtered_reference, filtered_candidate)
-    assert json.get(json.decode(filtered_reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.is_empty()
+    ctx f"UID holder selector={selector} reference_stdout_b64={filtered_reference.stdout.base64()} candidate_stdout_b64={filtered_candidate.stdout.base64()}" {
+      ul.compare(filtered_reference, filtered_candidate)
+      assert json.get(json.decode(filtered_reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.is_empty()
+    }
   }
   contexts.release_keeper(keeper)
   let after_reference = ul.reference(s, "lslocks", options)?
