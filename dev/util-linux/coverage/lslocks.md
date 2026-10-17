@@ -175,10 +175,10 @@ in its qualified context.
 
 The current `linux.open_files()` collector establishes process and descriptor
 identity, path, inode, optional device, and access mode. It does not report
-lock class, range, blocker, or holders. XSH `/proc/locks` parsing can establish
-class, mode, wait state, PID, device, inode, and range. The lane fixture helper
-is prepared; its native lifecycle adapter and the product-side owner join are
-still open.
+lock class, range, blocker, or holders. The lock fixture reads `/proc/locks`
+to synchronize held and blocked requests, then checks the reference output
+against the kernel-reported device, inode, and owner identity. The shared
+keeper adapter owns readiness, release, cancellation, and reaping.
 
 ## Requests for shared test support
 
