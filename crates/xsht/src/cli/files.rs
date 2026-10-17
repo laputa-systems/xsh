@@ -608,6 +608,40 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
+    fn discovery_skips_linked_worktree_shared_excludes_before_reading_directories() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("linked-worktree-excludes");
+        let worktree = root.join("worktree");
+        let git_dir = root.join("common.git/worktrees/linked");
+        let excluded = worktree.join("private");
+        fs::create_dir_all(&git_dir).unwrap();
+        fs::create_dir_all(root.join("common.git/info")).unwrap();
+        fs::create_dir_all(&excluded).unwrap();
+        fs::write(worktree.join(".git"), format!("gitdir: {}\n", git_dir.display())).unwrap();
+        fs::write(git_dir.join("commondir"), "../..\n").unwrap();
+        fs::write(root.join("common.git/info/exclude"), "/private/\n").unwrap();
+        fs::write(worktree.join("visible.xsh"), "let value = 1\n").unwrap();
+        fs::write(excluded.join("hidden.xsh"), "let value = 1\n").unwrap();
+        fs::set_permissions(&excluded, fs::Permissions::from_mode(0)).unwrap();
+
+        let mut files = Vec::new();
+        let result = collect_xsh_files(
+            &worktree,
+            &ConfigCache::default(),
+            DiscoveryFor::Scripts,
+            &mut files,
+        );
+        fs::set_permissions(&excluded, fs::Permissions::from_mode(0o755)).unwrap();
+        let actual = relative_paths(&worktree, &files);
+        fs::remove_dir_all(root).unwrap();
+
+        result.expect("discover without entering the excluded directory");
+        assert_eq!(actual, vec!["visible.xsh"]);
+    }
+
+    #[test]
     fn discovery_applies_config_excludes_after_gitignore() {
         let root = temp_root("excludes");
         fs::create_dir_all(root.join("nested")).expect("create nested dir");
