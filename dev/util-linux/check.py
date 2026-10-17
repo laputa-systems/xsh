@@ -62,11 +62,12 @@ def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = 
     argv.extend([IMAGE, "sh", "-ec", script])
     primary = None
     scratch = tempfile.mkdtemp(dir=ROOT / ".work/tmp")
+    os.chmod(scratch, 0o755)
     argv[3:3] = ["--mount", f"type=bind,source={scratch},target=/t"]
     try:
         result = subprocess.run(argv, capture_output=True, timeout=30)
         if result.returncode:
-            raise RuntimeError(f"reference container exited {result.returncode}: {result.stderr.decode(errors='backslashreplace')}")
+            raise RuntimeError(f"reference container exited {result.returncode}: stdout={result.stdout.decode(errors='backslashreplace')} stderr={result.stderr.decode(errors='backslashreplace')}")
         return result.stdout
     except BaseException as error:
         primary = error
@@ -197,6 +198,52 @@ def harness() -> None:
     term_during_container(ROOT)
     for name in ("comparison_rejects_observable_mutants", "reference_preserves_raw_path_arguments"):
         native_case("core/tests/test-util-linux-support.xsh::test_util_linux_" + name)
+    native_case("core/tests/test-util-linux-support.xsh::test_util_linux_observation_distinguishes_signal_from_shell_exit")
+    native_case("core/tests/test-util-linux-support.xsh::test_util_linux_private_namespace_and_unprivileged_identity", private=True)
+
+
+BASELINE_SCRIPT = r'''
+cd /work
+python3 - <<'PY'
+import subprocess
+for command in ("lslocks", "lsipc", "lsmem", "mountpoint", "namei"):
+    reference = subprocess.run([command, "--version"], capture_output=True, timeout=5)
+    candidate = subprocess.run(["/usr/bin/time", "-f", "%M", "-o", "/t/rss", "/products/xsh", f"/work/core/{command}.xsh", "--", "--version"], capture_output=True, timeout=5)
+    with open("/t/rss") as resource:
+        rss = resource.read().splitlines()[-1]
+    print("\t".join([command, str(reference.returncode), reference.stdout.hex(), reference.stderr.hex(), str(candidate.returncode), candidate.stdout.hex(), candidate.stderr.hex(), rss]))
+PY
+'''
+
+
+def baseline() -> None:
+    products = protected_products()
+    output = container(BASELINE_SCRIPT, mounts=[
+        f"type=bind,source={ROOT},target=/work,readonly",
+        f"type=bind,source={products},target=/products,readonly",
+    ])
+    protected_products()
+    rows = output.decode("ascii").splitlines()
+    if len(rows) != 5:
+        raise ValueError("baseline did not execute five command pairs")
+    for expected, line in zip(COHORT, rows):
+        command, ref_status, ref_out, ref_err, status, stdout, stderr, rss = line.split("\t")
+        if command != expected or ref_status != "0" or bytes.fromhex(ref_err) or bytes.fromhex(ref_out) != f"{command} from util-linux 2.42.4\n".encode():
+            raise ValueError(f"unqualified baseline reference: {command}")
+        if not rss.isdecimal() or int(rss) <= 0:
+            raise ValueError(f"missing peak RSS sample: {command}")
+        source = ROOT / f"core/{command}.xsh"
+        if source.is_file():
+            if status != "0" or bytes.fromhex(stderr) or bytes.fromhex(stdout) != f"{command} (XSH core) 0.0.1\n".encode():
+                raise ValueError(f"candidate version baseline differs: {command}")
+            disposition = "implemented; ordinary behaviors require parity selectors"
+        else:
+            diagnostic = bytes.fromhex(stderr)
+            if status != "2" or bytes.fromhex(stdout) or f"core/{command}.xsh".encode() not in diagnostic:
+                raise ValueError(f"unaccounted missing-command baseline: {command}: {status}: {diagnostic!r}")
+            disposition = "absent; ordinary behaviors remain open"
+        print(f"{command}: {disposition}; reference=0 candidate={status} peak_rss_kib={rss}")
+    print("five command pairs executed within the 30-second selector bound; timing gates remain separate")
 
 
 def main() -> int:
@@ -215,13 +262,15 @@ def main() -> int:
     parity.add_argument("--require-positive-boundaries", action="store_true")
     args = parser.parse_args()
     try:
-        if args.mode not in {"inventory", "harness"}:
+        if args.mode not in {"inventory", "harness", "baseline"}:
             raise ValueError(f"{args.mode}: acceptance is not implemented; no result can pass")
         with cancellation_scope(), campaign_leases(ROOT, native=True):
             if args.mode == "inventory":
                 inventory()
-            else:
+            elif args.mode == "harness":
                 harness()
+            else:
+                baseline()
         return 0
     except Cancelled as error:
         print(str(error), file=sys.stderr)

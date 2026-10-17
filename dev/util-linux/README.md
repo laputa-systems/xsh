@@ -43,6 +43,16 @@ hashes and the Rust, Cargo and helper inputs match their source revision.
 Native execution checks that qualification before and after each case.
 The source and product container mounts are read-only. Owned scratch uses `/t`.
 
-P0 remains open until private lock, IPC, rooted memory, mount and baseline
-proofs pass. Expected-signal capture and richer fixture lifetime helpers are
-not yet qualified. No feature implementation is authorized by these controls.
+`baseline --check` executes all five reference and candidate version paths,
+accounts for missing candidate commands explicitly, and samples candidate peak RSS.
+The selector has a 30-second execution bound. Final timing gates remain separate.
+
+Signal-aware `observe_reference` and `observe_candidate` preserve the distinction
+between a signal and its shell exit-code convention. The exact native control
+distinguishes SIGTERM from ordinary exit 143. The private runner proves changed
+IPC, mount and PID namespaces, fresh procfs, and two unprivileged identities
+with zero effective capabilities.
+
+Lane admission requires the common controls and that lane's own positive boundary
+proofs. Rooted memory and private bind proofs pass. Lock and IPC fixture lifetime
+qualification remains open. Full cohort acceptance still requires every proof.

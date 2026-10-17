@@ -155,13 +155,16 @@ an assertion-based native fixture covering all required lock classes.
 ### P0: qualify the reference and prove the loop
 
 Width: coordinator plus up to four read-only or corpus-preparation lanes.
-No feature implementation starts until P0 acceptance passes.
+Feature implementation starts per lane after common U0.1 and U0.2 acceptance
+and that lane's required positive U0.3 and baseline U0.4 proofs pass.
+Every P0 proof remains required before its dependent behavior and campaign closure.
+Independent rooted memory and path work does not wait for live IPC or lock fixtures.
 
 | Item | Size | Prerequisites | Owned files | Acceptance |
 |---|---|---|---|---|
 | U0.1 reference and inventory | One coordinator slice | Execution grant | `dev/util-linux/`, this document | `python3 dev/util-linux/check.py inventory --check`: zero missing cohort reference commands, version conflicts, or unclassified installed commands. |
 | U0.2 behavior proof harness | One coordinator slice | U0.1 | `dev/util-linux/`, new `core/tests/fixtures/util-linux/`, shared test registration | `python3 dev/util-linux/check.py harness --self-test`: zero failed controls and at least one rejected output, stderr, exit-status, side-effect, and over-normalization mutant. |
-| U0.3 shared OS seams and gate mapping | One coordinator slice | U0.2 | Required `src/modules/`, registry, API docs and tests, gate mappings | `cargo dev gate` with the exact changed shared paths: zero new failures. The fixture proofs must acquire, observe, release, and reap an owned lock-holder; create and remove every IPC resource class; read a rooted memory fixture; and identify a private bind mount. Zero leaked resources. Freeze these shared contracts before P1. |
+| U0.3 shared OS seams and gate mapping | One coordinator slice | U0.2 | Required `src/modules/`, registry, API docs and tests, gate mappings | `cargo dev gate` with the exact changed shared paths: zero new failures. The fixture proofs must acquire, observe, release, and reap an owned lock-holder; create and remove every IPC resource class; read a rooted memory fixture; and identify a private bind mount. Zero leaked resources. Freeze each lane's required contracts before that lane starts P1. |
 | U0.4 baseline and resource schedule | One coordinator slice | U0.2 | `dev/util-linux/` and this document | `python3 dev/util-linux/check.py baseline --check`: five command results, selector timings, resource samples, and explicit missing behaviors. Zero unaccounted skips or stale-product results. |
 
 The commands under `dev/util-linux/` are planned P0 deliverables. They do not
@@ -229,7 +232,8 @@ parsing independently, then integrate the host seam after the freeze lease ends.
 ### P1: complete the command cohort
 
 Width: four implementation lanes. Begin independent corpus work as soon as
-U0.2 lands. Begin feature work only after all P0 acceptance passes.
+U0.2 lands. Begin each lane's feature work after common U0.1 and U0.2 acceptance
+and its required positive U0.3 and baseline U0.4 proofs pass.
 `lslocks` is the first capability the coordinator accepts. Other lanes may
 work concurrently, but no first-cohort close substitutes for complete `lslocks`.
 
@@ -517,6 +521,7 @@ Read [core behavior](CORE.md), [testing](TESTING.md),
 ## Campaign log
 
 - 2026-10-17: The owner authorized execution alongside consolidation. Launch four lanes on reference corpus and fixture preparation; feature implementation waits for P0 acceptance.
+- 2026-10-17: Admit lanes independently after the common guarded reference controls and their own positive boundary proofs pass. This preserves each proof while allowing rooted memory and path work to proceed independently of IPC activity fixtures. Common inventory, quarantine controls, typed signal capture, two unprivileged identities, rooted no-fallback memory, private same-device bind and nofollow, and five explicit missing-command baselines passed. Memory and path feature work may proceed. Lock and IPC fixture lifetime qualification remains open.
 
 ## For the owner afterwards
 
