@@ -337,10 +337,7 @@ export proc modes(argv: List[Str]) [process, env] -> Modes {
       if name == "summary" {
         if parts.len() == 1 { table = false } else {
           let value = parts[1]
-          if value == "never" { summary = false }
-          else if value == "only" { table = false }
-          else if value == "always" { summary = true }
-          else { gnu.error("unsupported --summary argument"); exit 1 }
+          if value == "never" { summary = false } else if value == "only" { table = false } else if value == "always" { summary = true } else { gnu.error("unsupported --summary argument"); exit 1 }
         }
       }
       if name in ["output", "sysroot", "split"] and parts.len() == 1 { index += 1 }
@@ -502,7 +499,7 @@ pure raw_text(inventory: Inventory, columns: List[Str], opts: Options) -> Str {
   let shown = [column for column in columns if inventory.have_config or column not in ["CONFIGURED", "MEMMAP-ON-MEMORY"]]
   var output = ""
   for block in inventory.blocks {
-    output += [for column in shown { block_value(inventory, block, column, opts.bytes) ?? "" }].join(" ") + "\n"
+    output += [block_value(inventory, block, column, opts.bytes) ?? "" for column in shown].join(" ") + "\n"
   }
   output
 }
@@ -533,7 +530,9 @@ proc json_text(inventory: Inventory, columns: List[Str], opts: Options) [error] 
     var fields = []
     for column in shown {
       let value = block_json_value(inventory, block, column, opts.bytes)
-      fields += [f"         {json.encode(column.lower())?}: {value ?? \"null\"}"]
+      let key = json.encode(column.lower())?
+      let encoded = value ?? "null"
+      fields += [f"         {key}: {encoded}"]
     }
     output += fields.join(",\n") + "\n      }"
     if block_index + 1 < inventory.blocks.len() { output += "," }
@@ -559,7 +558,10 @@ pure summary_text(inventory: Inventory, byte_mode: Bool) -> Str {
     output += f"{pad_right(item.label, 32)} {pad_left(item.value, if byte_mode { 15 } else { 5 })}\n"
   }
   if inventory.memmap_parameter != null {
-    output += f"{pad_right(\"Memmap on memory parameter:\", 32)} {pad_left(inventory.memmap_parameter ?? \"\", if byte_mode { 15 } else { 5 })}\n"
+    let label = "Memmap on memory parameter:"
+    let value = inventory.memmap_parameter ?? ""
+    let width = if byte_mode { 15 } else { 5 }
+    output += f"{pad_right(label, 32)} {pad_left(value, width)}\n"
   }
   output
 }
@@ -567,10 +569,7 @@ pure summary_text(inventory: Inventory, byte_mode: Bool) -> Str {
 export proc render(inventory: Inventory, opts: Options, columns: List[Str], modes: Modes) [error] -> Str {
   var output = ""
   if modes.table {
-    if opts.json { output = json_text(inventory, columns, opts)? }
-    else if opts.pairs { output = pairs_text(inventory, columns, opts) }
-    else if opts.raw { output = raw_text(inventory, columns, opts) }
-    else { output = table_text(inventory, columns, opts) }
+    if opts.json { output = json_text(inventory, columns, opts)? } else if opts.pairs { output = pairs_text(inventory, columns, opts) } else if opts.raw { output = raw_text(inventory, columns, opts) } else { output = table_text(inventory, columns, opts) }
     if modes.summary { output += "\n" }
   }
   if modes.summary { output += summary_text(inventory, opts.bytes) }
