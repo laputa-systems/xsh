@@ -1,0 +1,10 @@
+running 1 tests
+core/tests/test-uu-factor.xsh::test_uu_factor_parallel ... TIMEOUT 2m
+
+failures:
+
+---- core/tests/test-uu-factor.xsh::test_uu_factor_parallel ----
+TIMEOUT after 2m
+canceled: process work was canceled by signal 15
+
+test result: FAILED. 0 passed; 1 failed; 0 skipped

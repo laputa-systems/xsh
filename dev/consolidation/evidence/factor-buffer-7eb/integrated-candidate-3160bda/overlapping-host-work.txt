@@ -1,0 +1,7 @@
+Factor container: started 2026-10-17T08:19:45.747564368Z; finished 2026-10-17T08:21:45.909624882Z with test status 1.
+
+Pinned Cargo verification build container: started 2026-10-17T08:20:54.044181019Z; it was still running when inspected at 08:22:11Z. Its Docker CPU quota was 4 CPUs and memory limit was 8 GiB. Its command ran `cargo build --locked --offline --profile verification --target x86_64-unknown-linux-musl --bins -p xsh -p xsht`.
+
+A second pinned Cargo test-build container started at 2026-10-17T08:21:42.600941911Z, about three seconds before the factor timeout. Its Docker CPU quota was 4 CPUs and memory limit was 8 GiB. It ran `cargo test --locked --offline --target x86_64-unknown-linux-musl -p xsh --lib --no-run`.
+
+At 08:22:11Z, host `uptime` reported load averages 20.79, 14.12, and 11.92. The factor test used a 12-CPU quota on a 32-CPU host. The overlap is observed; its causal contribution to the timeout is unknown.

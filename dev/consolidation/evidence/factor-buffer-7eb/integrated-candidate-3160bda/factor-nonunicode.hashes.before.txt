@@ -1,0 +1,5 @@
+47b0714bc148ea8bef7f2cf345f0cdde6ca23c1ccd67bdabbd2f2ff84288bbd2  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-r3-repair/core/factor.xsh
+634e01ec92e53df226cf33e56780abd130c3fc418ea4c3df09d434590f050238  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-r3-repair/core/tests/test-uu-factor.xsh
+466cb41d2c4f4b006e117503f64952dd23fcdafb4046bdb2a56808d062638959  /home/josh/d/laputa-systems/xsh/.work/wt/consolidation-r3-repair/dev/tests/test-lifecycle.xsh
+1d7690114501313ffc4706b7f78ab6154ecd668f79d3735700219a00501dbe33  /home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/gate-batch-target/x86_64-unknown-linux-musl/release/xsh
+0cd37140bd43ca0ca5104d43d11bc1732084fc2342ee3bb69a73fda38452f1c4  /home/josh/d/laputa-systems/xsh/.work/final-review-evidence/final-performance-gates/resources-7eb62cd9-20261017-r1/gate-batch-target/x86_64-unknown-linux-musl/release/xsht
