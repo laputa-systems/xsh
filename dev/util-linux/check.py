@@ -214,6 +214,54 @@ def measure_timing(source):
     return resources.measure_timing(sys.modules[__name__], source)
 
 
+def owned_cleanup(source):
+    import acceptance
+    require_native_lease()
+    if source_identity() != source or not source.clean:
+        raise ValueError("cleanup requires the current clean source")
+    containers = subprocess.check_output(["docker", "ps", "--all", "--quiet", "--filter", "name=xsh-util-linux-"], timeout=10)
+    if containers.strip():
+        raise ValueError(f"owned containers remain: {containers!r}")
+    processes = subprocess.check_output(["ps", "-eo", "pid=,comm=,args="], text=True, timeout=10)
+    for line in processes.splitlines():
+        fields = line.split(None, 2)
+        if len(fields) != 3:
+            raise ValueError(f"cannot classify process during cleanup: {line}")
+        pid, command, arguments = fields
+        if int(pid) == os.getpid():
+            continue
+        executable = Path(command).name
+        if executable in {"xsh", "xsht", "xsh-test-helper", "cargo", "rustc", "python3", "docker"} and (
+            "/.work/wt/util-linux-" in arguments or "/core/tests/fixtures/util-linux/" in arguments
+        ):
+            raise ValueError(f"owned process remains: {line}")
+    infra = original_root(ROOT) / ".work/consolidation/infra"
+    for name in ("final-performance.lock", "native-suite.lock", "cargo.lock"):
+        path = infra / name
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            unresolved = os.pread(descriptor, 19, 0) == b"cleanup-unresolved:"
+        finally:
+            os.close(descriptor)
+        marker = path.with_suffix(".cleanup-unresolved")
+        if unresolved or marker.exists() or marker.is_symlink():
+            raise ValueError(f"unresolved cleanup remains: {path}")
+    listing = subprocess.check_output(["git", "worktree", "list", "--porcelain", "-z"], cwd=ROOT)
+    for field in listing.split(b"\0"):
+        if not field.startswith(b"worktree "):
+            continue
+        worktree = Path(os.fsdecode(field.removeprefix(b"worktree ")))
+        if not worktree.name.startswith("util-linux-"):
+            continue
+        changes = subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=normal"], cwd=worktree)
+        if changes:
+            raise ValueError(f"uncommitted campaign work remains: {worktree}")
+    if source_identity() != source:
+        raise ValueError("source changed during cleanup inspection")
+    observations = ("remaining-owned-processes:0", "unresolved-markers:0", "lost-work:false")
+    return acceptance.GateResult("cleanup", source, 0, len(observations), len(observations), 0, (), (), observations, ())
+
+
 def close_gates():
     import resources
     return resources.close(sys.modules[__name__])
