@@ -49,7 +49,7 @@ def cancellation_scope():
             signal.signal(number, handler)
 
 
-def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = ()) -> bytes:
+def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = (), timeout: int = 30) -> bytes:
     require_native_lease()
     name = "xsh-util-linux-" + uuid.uuid4().hex
     argv = ["docker", "run", "--rm", "--name", name, "--network=none", "--cpus=1",
@@ -65,7 +65,7 @@ def container(script: str, *, mounts: list[str] = (), capabilities: list[str] = 
     os.chmod(scratch, 0o755)
     argv[3:3] = ["--mount", f"type=bind,source={scratch},target=/t"]
     try:
-        result = subprocess.run(argv, capture_output=True, timeout=30)
+        result = subprocess.run(argv, capture_output=True, timeout=timeout)
         if result.returncode:
             raise RuntimeError(f"reference container exited {result.returncode}: stdout={result.stdout.decode(errors='backslashreplace')} stderr={result.stderr.decode(errors='backslashreplace')}")
         return result.stdout
@@ -246,6 +246,39 @@ def baseline() -> None:
     print("five command pairs executed within the 30-second selector bound; timing gates remain separate")
 
 
+def parity(args) -> None:
+    if args.require_positive_boundaries:
+        raise ValueError("mandatory positive boundary acceptance is not implemented; no result can pass")
+    commands = list(COHORT) if args.all else ([args.command] if args.command else args.commands.split(","))
+    if not commands or len(set(commands)) != len(commands) or not set(commands).issubset(COHORT):
+        raise ValueError("commands must name a nonempty, distinct subset of the cohort")
+    if args.case and len(commands) != 1:
+        raise ValueError("a case selector requires one command")
+    for command in commands:
+        relative = f"core/tests/test-{command}.xsh"
+        source = ROOT / relative
+        cases = re.findall(r"^test (test_[A-Za-z0-9_]+)\s*\{", source.read_text(), re.MULTILINE)
+        if not cases:
+            raise ValueError(f"selector matched no behavior: {command}")
+        if args.case:
+            name = args.case.removeprefix(relative + "::")
+            if name not in cases:
+                raise ValueError(f"selector matched no behavior: {command}::{args.case}")
+            native_case(relative + "::" + name, private=True)
+        else:
+            products = protected_products()
+            script = "cd /work; " + PRIVATE_NAMESPACE.rstrip() + f" /products/xsht test {relative}"
+            output = container(script, mounts=[
+                f"type=bind,source={ROOT},target=/work,readonly",
+                f"type=bind,source={products},target=/products,readonly",
+            ], capabilities=["SYS_ADMIN"], timeout=120)
+            protected_products()
+            result = output.decode("utf-8")
+            if f"{len(cases)} passed; 0 failed; 0 skipped" not in result:
+                raise ValueError(f"command group did not execute every selected behavior: {result}")
+            print(result, end="")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     modes = parser.add_subparsers(dest="mode", required=True)
@@ -262,15 +295,17 @@ def main() -> int:
     parity.add_argument("--require-positive-boundaries", action="store_true")
     args = parser.parse_args()
     try:
-        if args.mode not in {"inventory", "harness", "baseline"}:
+        if args.mode not in {"inventory", "harness", "baseline", "parity"}:
             raise ValueError(f"{args.mode}: acceptance is not implemented; no result can pass")
         with cancellation_scope(), campaign_leases(ROOT, native=True):
             if args.mode == "inventory":
                 inventory()
             elif args.mode == "harness":
                 harness()
-            else:
+            elif args.mode == "baseline":
                 baseline()
+            else:
+                parity(args)
         return 0
     except Cancelled as error:
         print(str(error), file=sys.stderr)

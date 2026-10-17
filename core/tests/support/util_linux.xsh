@@ -41,15 +41,21 @@ export proc keeper_send(keeper: Keeper, request: Str) [net, process, error] {
   }
 }
 
-## Closes fixture input, observes completion, cancels and reaps a remaining child, then closes output.
+## Cancels and reaps the fixture if needed, then closes its two owned control descriptors.
 export proc stop_keeper(keeper: Keeper) [fs, process, error] {
-  unix.close_fd(keeper.input_fd)
   defer unix.close_fd(keeper.output_fd)
+  defer unix.close_fd(keeper.input_fd)
+  keeper.child.cancel(signal: "TERM", kill_after: 2s)
+}
+
+## Observes successful fixture completion after a release request while its owning scope is live.
+export proc finish_keeper(keeper: Keeper) [fs, process, error] {
   let completed = process.wait_timeout([keeper.child], 2s)?
   if let result = completed {
     assert result.status.exited_with(0), keeper.stderr.read_text()?
   } else {
     keeper.child.cancel(signal: "TERM", kill_after: 2s)
+    assert false, "fixture did not finish after release"
   }
 }
 
@@ -83,6 +89,7 @@ export proc start_keeper(s: uu.Scene, script: Path, args: List[Str]) [fs, proces
 }
 
 proc observe(s: uu.Scene, command: Str, args: List[Path], words: List[Path], vars: Record, timeout: Duration) [fs, process, error] -> Result[Observed, Error] {
+  assert timeout > 0ms and timeout <= 30s
   let stdout = uu.at(s, ".util-linux-stdout")
   let stderr = uu.at(s, ".util-linux-stderr")
   let plan = process.command_argv(words[0], words, s.root, vars, b"", stdout, stderr, timeout:)

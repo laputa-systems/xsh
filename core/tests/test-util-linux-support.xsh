@@ -2,6 +2,7 @@ use support.uu
 use support.util_linux as ul
 
 type LockReady = {method: Str, pid: Int, fd: Int, duplicate_fds: List[Int], device: Str, inode: Int, path: Str, lock_id: Int}
+type WaiterReady = {method: Str, pid: Int, fd: Int, duplicate_fds: List[Int], device: Str, inode: Int, path: Str, lock_id: Int, owner_pid: Int}
 
 test test_util_linux_comparison_rejects_observable_mutants { |_ctx|
   let reference: uu.Ran = {util: "lslocks", args: ["--raw"], status: 0,
@@ -75,6 +76,7 @@ test test_util_linux_lock_fixture_preserves_kernel_holder_identity { |ctx|
     uu.stdout_contains(reference, f"{held.pid} {held.inode} ")
     uu.stdout_contains(reference, target.display())
     ul.keeper_send(keeper, "DONE")
+    ul.finish_keeper(keeper)
   }
 }
 
@@ -95,6 +97,33 @@ test test_util_linux_rooted_memory_reference_cannot_use_host_sysfs { |ctx|
   let missing = ul.reference(s, "lsmem", ["--sysroot", root.host_path()?.display()])?
   uu.fails(missing)
   uu.stdout_is(missing, "")
+}
+
+test test_util_linux_blocked_ofd_reference_preserves_kernel_and_holder_ids { |ctx|
+  ul.require_private_namespace()
+  let s = uu.scene(ctx)?
+  let script = fp"{ctx.core_dir}/tests/fixtures/util-linux/locks/keeper.py"
+  let target = uu.at(s, "blocked-ofd")
+  let owner = ul.start_keeper(s, script, ["hold", "ofd--w", target.display(), "none"])?
+  defer ul.stop_keeper(owner)
+  let owner_ready = json.decode(owner.ready)?.require(LockReady)?
+  let waiter = ul.start_keeper(s, script, ["wait", "ofd--w", target.display(), f"{owner_ready.pid}"])?
+  defer ul.stop_keeper(waiter)
+  let waiter_ready = json.decode(waiter.ready)?.require(WaiterReady)?
+  assert owner_ready.inode == waiter_ready.inode and owner_ready.pid != waiter_ready.pid
+  let reference = ul.reference(s, "lslocks", ["--json", "--output", "PID,TYPE,MODE,BLOCKER,INODE,MAJ:MIN"])?
+  uu.succeeds(reference)
+  let rows = json.get(json.decode(reference.stdout.utf8()?)?, ["locks"])?.require(List[Any])?
+  let blocked = [row for row in rows if json.get(row, ["mode"])?.require(Str)? == "WRITE*"]
+  assert blocked.len() == 1, reference.stdout.utf8()?
+  assert json.get(blocked[0], ["pid"])?.require(Int)? == -1, reference.stdout.utf8()?
+  assert json.get(blocked[0], ["blocker"])?.require(Int)? == owner_ready.pid, reference.stdout.utf8()?
+  let selected = ul.reference(s, "lslocks", ["--json", "--pid", f"{waiter_ready.pid}", "--output", "PID,TYPE,MODE,BLOCKER,INODE,MAJ:MIN"])?
+  uu.succeeds(selected)
+  assert json.get(json.decode(selected.stdout.utf8()?)?, ["locks"])?.require(List[Any])?.is_empty(), selected.stdout.utf8()?
+  ul.keeper_send(owner, "DONE")
+  ul.finish_keeper(owner)
+  ul.finish_keeper(waiter)
 }
 
 test test_util_linux_private_bind_reference_observes_same_device_mount { |ctx|
