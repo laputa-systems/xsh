@@ -109,6 +109,7 @@ test test_namei_modes_and_owner_columns_cover_special_bits { |ctx|
   sticky.chmod(0o3777)
   owned.write("fixture\n")
   fs.chown(owned, {uid: 100000, gid: 100001, name: "", home: p"/", shell: "/"})?
+  fs.chgrp(owned, {gid: 100001, members: [], name: ""})?
   owned.chmod(0o6755)
   parity(s, ["--modes", "--", setuid.display()])?
   parity(s, ["-m", "--", sticky.display()])?
