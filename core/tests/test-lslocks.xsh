@@ -589,7 +589,8 @@ test test_lslocks_output_column_names_and_errors { |ctx|
   ul.keeper_send(keeper, "DONE")
   ul.finish_keeper(keeper)
   for args in [
-    ["--output", ""], ["--output", "UNKNOWN"], ["-o", "UNKNOWN"], ["-o"],
+    ["--output", ""], ["--output", "PID,"], ["--output", "UNKNOWN"],
+    ["-o", "UNKNOWN"], ["-o"],
   ] {
     rejected(s, args)?
   }
