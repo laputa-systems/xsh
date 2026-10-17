@@ -564,7 +564,7 @@ pure lock_cell(lock: Lock, column: Str, bytes: Bool) -> Any {
     "END" => lock.end
     "PATH" => lock.path ?? ""
     "BLOCKER" => lock.blocker
-    "HOLDERS" => lock.holders.join("\n")
+    "HOLDERS" => lock.holders
     else => null
   }
 }
