@@ -133,10 +133,10 @@ def set_sysv_owner(function, identity, owner_uid, owner_gid, mode, creator_uid, 
     data = ctypes.create_string_buffer(256)
     with identity_scope(creator_uid, creator_gid):
         require_zero(function(identity, IPC_STAT, ctypes.byref(data)), "IPC_STAT")
-    struct.pack_into("=I", data, OWNER_FIELD, owner_uid)
-    struct.pack_into("=I", data, GROUP_FIELD, owner_gid)
-    struct.pack_into("=H", data, MODE_FIELD, mode & 0o777)
-    require_zero(function(identity, IPC_SET, ctypes.byref(data)), "IPC_SET")
+        struct.pack_into("=I", data, OWNER_FIELD, owner_uid)
+        struct.pack_into("=I", data, GROUP_FIELD, owner_gid)
+        struct.pack_into("=H", data, MODE_FIELD, mode & 0o777)
+        require_zero(function(identity, IPC_SET, ctypes.byref(data)), "IPC_SET")
 
 
 def privileged_ids():
