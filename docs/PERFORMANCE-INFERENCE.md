@@ -4,10 +4,15 @@ The inference checkpoint is accepted as an isolated capability and corpus
 result. It is not an integration source. Commit
 `15243e97f6fd751016ab28690ada2cadb6fc973a` changes evidence and reproduction
 instructions; it contains no compiler implementation. Its 1,040-removal source
-view was checked with the protected compiler source
-`0fe1469d1808b5f963bd841165af6c10f2c3e93b` and the verified products recorded
-in `dev/consolidation/evidence/typing-corpus-host-obligations/`. The implementation
-is in that compiler revision's ancestry, not in the checkpoint's own patch.
+view was checked with compiler source `0fe1469d1808b5f963bd841165af6c10f2c3e93b`,
+tree `79fdb956ee01e3bf4cced9b85ff109bcb8b7d662`. The protected local `xsh` and
+`xsht` products still match the checkpoint's recorded hashes
+`38b848c828591d6aa46a902d0404dfe42298e36cc2a6c6512eb2af9c1f460736` and
+`23ca0dd9ccb8b9723f41d199ab41d4a242c90c96277ce83e13b002e67b23a2b2`. The
+checkpoint binds these products and source in
+`dev/consolidation/evidence/typing-corpus-host-obligations/combined-b045/README.md`;
+the products were hash-checked locally. They qualify the historical 1,040
+checker result, not the future G1 baseline.
 
 The frozen cohort contains 9,194 AST sites across 48 loaded files, from eleven
 roots: ten XSH roots and Laputa `pm/plan_json.xsh`. It has 693 eligible local
@@ -18,34 +23,51 @@ clauses remain. Schemas, exported contracts, entry decoding and validation
 targets retain their frozen treatment. The historical 95% and 85% goals remain
 unmet; no denominator or semantic rule changes.
 
-The source generator and frozen AST inventory already provide the original
-annotated and 1,040-reduced 48-file views. From this worktree, use the documented
-reproducer in `dev/consolidation/typing-corpus/README.md`: run its `prepare.sh`,
-then `cohort.py` validation and the original/reduced check commands. The
-reproduction uses the original XSH and Laputa pins and keeps scratch under
-`.work/tmp`. Its `check.sh` points at a historical qualified product location;
-after integration, substitute the accepted G1 `xsht` product while preserving
-the exact view roots. The paired behavior selectors remain in
-`dev/consolidation/typing-corpus/witnesses.tsv` and are executed by
-`run-witnesses.sh` in the assigned native slot. They cover the original 13
-behavior witnesses in both views, including the Laputa build-plan JSON and
-corruption witness.
+The current `dev/consolidation/typing-corpus/README.md` describes a later
+877-removal result. The accepted 1,040 retained table and recipe are the versions
+at `15243e97`; replay those files explicitly rather than using the current
+`retained.tsv`. The original and reduced source views both contain 14,287
+entries, with digests `e3429dcf2abe9524754a28458651443bc56523b50130268a1c1ff44c03e36899`
+and `b67b498467a1dfe613573690288a8c514b9c03d0f895a4a3b20e4fd3b55968f9`.
+The retained table there is built on the accepted 1,038 set plus two removals
+in `sys_mem.meminfo_issue`; it is not the mutable-sets branch's later 877 view.
+The current `dev/consolidation/typing-corpus/witnesses.tsv` belongs to the later
+877 checkpoint and must not be presented as fresh 1,040 behavior evidence. The
+1,038 checkpoint has one paired truncated-source witness, once per view. The
+1,040 checkpoint adds the targeted
+`tests/xsh/system-report.xsh::test_system_report_memory_reports_malformed_and_oversized_meminfo_fields`
+once in each view. That exact selector covers both removed `meminfo_issue`
+parameters. The 1,040 receipt records an 11-root check/lowering result and
+these targeted executions; it does not record a broad paired behavior matrix.
 
 The source-view reproduction commands are:
 
 ```sh
-bash dev/consolidation/typing-corpus/prepare.sh
+scratch="$PWD/.work/tmp/performance-inference-audit"
+mkdir -p "$scratch/original/xsh" "$scratch/original/laputa"
+git archive ddc17d3d53c819c343f9ecaa738ac67d59e9033a | tar -x -C "$scratch/original/xsh"
+git -C "$LAPUTA_ROOT" archive ca658ce1da9d89c55209c25268dfdf687ff4fdc6 | tar -x -C "$scratch/original/laputa"
+git show 15243e97:dev/consolidation/typing-corpus/retained.tsv > "$scratch/retained-1040.tsv"
+python3 dev/consolidation/typing-corpus/cohort.py \
+  "$scratch/original" --reduced "$scratch/reduced-1040" --retain "$scratch/retained-1040.tsv"
+python3 dev/consolidation/typing-corpus/apply_witness_fixture.py \
+  "$scratch/original/xsh" "$scratch/reduced-1040/xsh"
+python3 dev/consolidation/typing-corpus/validate.py \
+  "$scratch/original" "$scratch/reduced-1040" --retain "$scratch/retained-1040.tsv"
 python3 dev/consolidation/typing-corpus/view_digest.py \
-  .work/tmp/corpus/original .work/tmp/corpus/reduced-final
-bash dev/consolidation/typing-corpus/check.sh \
-  "$PWD/.work/tmp/corpus/original" "$PWD/.work/tmp/corpus/check-original"
-bash dev/consolidation/typing-corpus/check.sh \
-  "$PWD/.work/tmp/corpus/reduced-final" "$PWD/.work/tmp/corpus/check-joint"
+  "$scratch/original" "$scratch/reduced-1040"
 ```
 
-The historical `check.sh` verifies the archived product pair before and after
-each check. For a new accepted compiler baseline, preserve those source-view
-and output checks while pointing the invocation at the G1-qualified pair.
+The historical checker command is preserved in
+`git show 15243e97:dev/consolidation/typing-corpus/check.sh`. It uses the
+source-qualified 0fe product pair above. Do not use the current corpus
+`check.sh` for this source view: its product path and retained table belong to a
+later checkpoint. After G1 accepts integration, check both views with that
+accepted pair and retain the exact source and product guards. The source-only
+reconstruction and AST validation were reproduced for this audit: 1,040 removals,
+499 locals, 541 internal annotations, all 48 loaded files protected, with the
+recorded original and reduced digests above. No checker or runtime execution
+was performed in this follow-up.
 
 The practical current-source extension is `dev/performance/corpus/check.sh`.
 After G1 accepts a compiler baseline, invoke it with that `xsht`, this XSH
@@ -54,7 +76,12 @@ checkout, and the Laputa checkout. It checks the frozen XSH utility roots plus
 checks Laputa plan and generation modules and runs deterministic generation
 and JSON identity tests. The practical extension has no annotation score and
 does not replace the frozen corpus.
-Run it as `bash dev/performance/corpus/check.sh "$XSHT" "$PWD" "$LAPUTA_ROOT"`.
+Run it as `bash dev/performance/corpus/check.sh "$XSH_SOURCE" "$LAPUTA_SOURCE" \
+  "$XSH_PRODUCT" "$XSHT_PRODUCT" "$XSH_SHA256" "$XSHT_SHA256" \
+  "$XSH_ROOT" "$LAPUTA_ROOT"`. Set the source revisions and product digests
+from the accepted G1 qualification. The adapter checks the checkout revisions,
+both product hashes, required source files, and each exact test's selected name
+and `1 passed; 0 failed; 0 skipped` summary before returning success.
 
 ## Capability and patch order
 
@@ -67,8 +94,9 @@ preserve its dependencies; do not merge the divergent branch wholesale.
    scope, followed by omitted-annotation preparation and preserving parameter
    and row-level facts. The relevant lineage begins at `39b3b32c0` and
    `62b07b443`; parser retention is separately repaired by `2d90f6d0a`.
-2. Scheme collection and checking: capture call/body facts, generalize only
-   exported pure rank-1 schemes, partition generalized facts at compaction,
+2. Scheme collection and checking: capture call/body facts, generalize eligible
+   pure rank-1 declarations (including private identity and constrained exported
+   functions), partition generalized facts at compaction,
    and reject unsupported body forms before publishing them. Key changes are
    `afceaec9d`, `255a4af6d`, `dfaec0559`, `9ec3483dd`, and `114052481` with
    `28b39aa51`.
