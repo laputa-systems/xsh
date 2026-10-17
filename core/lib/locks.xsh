@@ -285,12 +285,12 @@ pure columns(output: Str?, output_all: Bool, environment: Str?) -> Result[List[S
   let value = if output != null { output ?? "" } else { environment ?? "" }
   let extend = value.starts_with("+")
   let names = (if extend { value.byte_slice(1) } else { value }).split(",")
-  if names.is_empty() or (names.len() == 1 and names[0] == "") { return Err(ColumnSelectionError.UnknownColumn) }
+  if names.is_empty() or (names.len() == 1 and names[0] == "") { return Err(UnknownColumn) }
   if ! extend { selected = [] }
   for name in names {
     let column = canonical_column(name)
-    return Err(ColumnSelectionError.UnknownColumn) when column == null
-    return Err(ColumnSelectionError.TooManyColumns) when selected.len() == 25
+    return Err(UnknownColumn) when column == null
+    return Err(TooManyColumns) when selected.len() == 25
     selected += [column ?? ""]
   }
   Ok(selected)
@@ -564,7 +564,9 @@ pure lock_cell(lock: Lock, column: Str, as_bytes: Bool, byte_locale: Bool) -> An
     "M" => lock.mandatory
     "START" => lock.start
     "END" => lock.end
-    "PATH" => if let path_bytes = lock.path { safe_table_text(path_bytes, column, byte_locale) } else { "" }
+    "PATH" => if let path_bytes = lock.path {
+      if let text = path_bytes.utf8() { text } else { safe_table_text(path_bytes, column, byte_locale) }
+    } else { "" }
     "BLOCKER" => lock.blocker
     "HOLDERS" => lock.holders
     else => null
@@ -855,10 +857,17 @@ export proc main(argv: List[Str]) [fs, process, env, error, io] {
     }
     return
   }
-  let chosen = match columns(opts.output, opts.output_all, output_environment) {
-    Ok(value) => value
-    Err(ColumnSelectionError.TooManyColumns) => gnu.usage_error("too many columns specified, the limit is 25 columns")
-    Err(_) => gnu.usage_error("unknown column")
+  var chosen: List[Str] = []
+  match columns(opts.output, opts.output_all, output_environment) {
+    Ok(value) => chosen = value
+    Err(TooManyColumns) => {
+      gnu.usage_error("too many columns specified, the limit is 25 columns")
+      return
+    }
+    Err(_) => {
+      gnu.usage_error("unknown column")
+      return
+    }
   }
   let program: List[FilterToken]? = if opts.filter == null {
     null
