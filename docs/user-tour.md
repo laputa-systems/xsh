@@ -1746,8 +1746,9 @@ Resolution is file-relative first, then each directory in `XSH_MODULE_PATH`
   project roots in either tool, and the current directory is never searched;
   install such a script's modules next to it or set `XSH_MODULE_PATH` in the
   unit file or wrapper that launches it.
-- File-relative lookup wins, so a test file named `tests/sshd.xsh` that says
-  `use sshd` imports itself. Name test files `test-*.xsh`.
+- File-relative lookup wins. The example test is `tests/test-sshd.xsh`, so
+  `use sshd` resolves to the project `lib/sshd.xsh`; naming it
+  `tests/sshd.xsh` would make it import itself. Prefix test files with `test-`.
 
 ### `xsht-config.ini`
 

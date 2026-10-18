@@ -17,6 +17,7 @@ Choose the `xsh` and `xsht` binaries for your platform from the
 [release assets](https://github.com/laputa-systems/xsh/releases), rename them
 to `xsh` and `xsht`, and put both in a directory on your `PATH`.
 Make them executable with `chmod +x xsh xsht`.
+For an interactive shell, install the matching `xshi` binary and run `xshi`.
 
 ```bash
 cat > hello.xsh <<'EOF'
@@ -35,8 +36,7 @@ Tool configuration lives in `xsht-config.ini`; see
 
 ## Learn
 
-- Start with [`docs/user-tour.md`](docs/user-tour.md). Read it end to end
-  before writing your first script.
+- Start with the [user tour](docs/user-tour.md).
 - [`docs/SPEC.md`](docs/SPEC.md) is the language contract.
 - `xsht api summary` lists every standard module, method, and record;
   `xsht api api:fs.files` or `xsht api search:timeout` answers the rest.

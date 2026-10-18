@@ -20,7 +20,7 @@ the topic owner below.
 | Topic | Owner |
 |---|---|
 | language, OS, streams, JSON, interactive behavior | [SPEC](docs/SPEC.md), [interactive SPEC](docs/SPEC-INTERACTIVE.md) |
-| API signatures and details | registry queried by `xsht api` |
+| API signatures and generated references | `xsht api`, [stdlib](docs/reference/stdlib.md), [CLI](docs/reference/cli.md), [grammar](docs/reference/grammar.md), [lints](docs/reference/lints.md) |
 | architecture, invariants, contribution and content tiers | [Architecture](docs/ARCHITECTURE.md) |
 | syntax rationale | [Design](docs/DESIGN.md) |
 | builds, test gates, profiles, platforms, generated docs | [Testing](docs/TESTING.md) |
@@ -29,3 +29,6 @@ the topic owner below.
 | core commands and system reporting | [Core](docs/CORE.md), [system report](docs/SYSTEM-REPORT.md), [btop](docs/BTOP.md) |
 | substantial example and showcase programs | [Examples](examples/README.md), [Showcase](docs/SHOWCASE.md) |
 | formal models and proof coverage | [Formal verification](formal/README.md) |
+| current performance and deployment work | [Campaign](docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md), [inference evidence](docs/PERFORMANCE-INFERENCE.md) |
+| open work and design drafts | [TODO](TODO.md), [handle ownership](docs/rfc/XSH-4-affine-runtime-handles.md), [record validation](docs/rfc/XSH-7-record-json-exactness.md) |
+| generated documentation sources | [Templates](docs/templates/), [generation commands](docs/TESTING.md) |

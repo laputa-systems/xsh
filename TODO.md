@@ -1,32 +1,23 @@
 # TODO
 
 Prefix: XSH
-Next: 20
+Next: 21
 
-### XSH-1 · P2 · Qualify util-linux resource acceptance after the staging repair
+### XSH-1 · P2 · Complete private and resource baseline acceptance
 
 - **Area:** Performance
-- **Where:** `dev/util-linux/resources.py:1560`, `dev/util-linux/acceptance.py:845`
-- **Problem:** The final resource gate is unproven. Commit `64e016328` fixes the source-path mismatch and passes 146 controller checks, but the container resource and close gates have not run on that repair.
-- **Recommendation:** On an idle host, run `python3 -B dev/util-linux/check.py resources --check`. Check readiness before and after timing, then run `python3 -B dev/util-linux/check.py close --check` on the same clean source.
+- **Where:** `dev/util-linux/resources.py:1632`, `dev/util-linux/acceptance.py:926`
+- **Problem:** Final private/resource qualification remains unrun on the current frozen source. The scheduler comparison failed, so composed baseline close cannot proceed.
+- **Recommendation:** After scheduler qualification, run the private and resource gates on the same source. Complete baseline close with its one-use independent review and readiness checks.
 - **Fix with:** benchmark-checklist
-- **Effort:** S
-
-### XSH-2 · P3 · Remove the timeout interrupt forwarding race
-
-- **Area:** Concurrency
-- **Where:** `core/tests/test-timeout.xsh:228`
-- **Problem:** The final observer suite recorded empty `stdout` from `timeout_forwards_interrupt_signals_and_reports_shell_status`. The selector then passed five focused repetitions, so the failure is intermittent.
-- **Recommendation:** Reproduce the failure under bounded suite concurrency. Fix the child-readiness or output-collection race before rerunning the observer.
-- **Fix with:** root-cause
 - **Effort:** S
 
 ### XSH-3 · P3 · Finish the deferred consolidation acceptance matrix
 
 - **Area:** Tests
-- **Where:** `dev/consolidation/CAMPAIGN.md:1`, `dev/consolidation/HANDOFF.md:71`
-- **Problem:** The clean normal profile passed 13,857 tests with zero failures and 138 skips. The final observer failed on XSH-2, and six source-bound acceptance groups remain unrun.
-- **Recommendation:** Resolve XSH-2 and rerun the final observer once. Then run supplemental correctness, forced, comparative, three scheduler pairs, and final metrics.
+- **Where:** `docs/CAMPAIGN-PERFORMANCE-DEPLOYMENT.md`, `dev/performance/check.py`
+- **Problem:** Canonical, supplemental, profile, observer, forced and comparative checks passed on R13. Scheduler pairs failed. Focused repairs need qualification, and UDP failures and full-corpus timeouts remain unexplained. Private/resource close remains unrun.
+- **Recommendation:** Complete G1's remaining queue on one qualified source, then publish the accepted baseline and retire obsolete infrastructure under XSH-19.
 - **Fix with:** xsh-consolidation-campaign
 - **Effort:** M
 
@@ -80,7 +71,7 @@ Next: 20
 ### XSH-11 · P3 · Isolate Linux CI products from the host target
 
 - **Area:** Build
-- **Where:** `docs/TESTING.md:349`, `dev/cargo_steps.py`
+- **Where:** `dev/test_workflows.xsh:256`, `dev/docker.xsh:168`
 - **Problem:** `cargo dev test linux --ci` passes the host target into the container and shares `target/`. It works only on Linux and overwrites host release products.
 - **Recommendation:** Give the container an explicit Linux target and an isolated product directory while retaining shared reusable build inputs where safe.
 - **Fix with:** isolate-effects
@@ -139,6 +130,15 @@ Next: 20
 - **Recommendation:** Execute G5 immediately after G1. Trace current callers, move reusable checks behind ordinary developer commands, and delete obsolete adapters, duplicate entry points and historical-pin dependencies. Preserve required gates and their rejection controls. Update testing and baseline docs. Keep historical evidence outside the everyday command path.
 - **Fix with:** dead-code-archaeology
 - **Effort:** M
+
+### XSH-20 · P3 · Move mdev command policy out of the native backend
+
+- **Area:** Architecture
+- **Where:** `core/mdev.xsh:2`, `crates/xsh-applets/src/mdev.rs:212`, `crates/xsh-applets/src/mdev.rs:379`
+- **Problem:** The XSH command delegates argument parsing, configuration rules and event policy to Rust. This conflicts with the documented division between XSH command policy and Rust host operations.
+- **Recommendation:** Preserve the existing behavior in XSH and retain only required device and sysfs operations in Rust. Require measurements and an XSH implementation for any native performance exception.
+- **Fix with:** api-surface-and-module-boundaries
+- **Effort:** L
 
 ### XSH-5 · P4 · Decide whether inferred proc returns become default
 

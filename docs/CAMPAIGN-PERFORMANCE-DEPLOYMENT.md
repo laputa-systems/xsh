@@ -635,7 +635,7 @@ gates. Do not update pinned Lean or Rust tools as part of this campaign.
 
 | Source | Disposition | Role |
 |---|---|---|
-| `docs/ARCHITECTURE.md:1`, `docs/ARCHITECTURE.md:60` | Reuse | One checked/indexed execution path and XSH policy/Rust mechanism boundary. |
+| [Architecture](ARCHITECTURE.md#the-libxsh-facade) | Reuse | One checked/indexed execution path and XSH policy/Rust mechanism boundary. |
 | `src/stdlib.rs:51`, `src/stdlib.rs:183` | Change after profiling | Six embedded module sources and required-module selection. |
 | `src/runner.rs:205`, `src/runner.rs:377` | Extend narrowly | Construction allocations and ordinary preparation boundary. |
 | `src/frontend_stats.rs:37` | Extend narrowly | Existing stage memory/count report, not phase CPU timers. |
@@ -645,11 +645,11 @@ gates. Do not update pinned Lean or Rust tools as part of this campaign.
 | `dev/consolidation/winddown/gate-tools/` | Reuse | Finite inherited correctness, resource, forced, comparative, and scheduler gates. |
 | `dev/util-linux/resources.py:1560`, `docs/CAMPAIGN-UTIL-LINUX.md:79` | Reuse | Same-source resource measurement and exact approved parity exceptions. |
 | `bench/stdlib-port/run.py:25`, `bench/consolidation/README.md:1` | Reuse fixtures/sampling | Startup and complete glue workloads; ARM-only routes remain separate. |
-| `docs/TESTING.md:494`, `crates/xsht/src/stats.rs:29` | Reuse | Benchmark policy, allocation reports, and syscall diagnostics. |
+| [Benchmarking](TESTING.md#benchmarking), `crates/xsht/src/stats.rs:29` | Reuse | Benchmark policy, allocation reports, and syscall diagnostics. |
 | `tests/xsh/stdlib/fs.xsh:309`, `tests/runtime/process.rs:303` | Extend | Actual confinement and process cleanup boundaries. |
 | `../laputa/docs/PM.md:81`, `../laputa/tests/pm/pm_execute.xsh:294` | Reuse/extend in isolated tree | Immutable build, proof, and generation operations. |
 | `../laputa/docs/QEMU.md:24`, `../laputa/tests/system/qemu.xsh:199` | Reuse/extend | Hardware-backed guest proof and supervised shutdown. |
-| `formal/README.md:578`, `formal/README.md:595` | Maintain | Trust-check bounds and explicit absence of a general source/IR replay corpus. |
+| [Formal scope](../formal/README.md), [trust checks](../formal/README.md#build-and-check) | Maintain | Trust-check bounds and explicit absence of a general source/IR replay corpus. |
 | `dev/performance/check.py` | New in G2 | Thin selection/qualification adapter for the existing mechanisms. |
 | `docs/PERFORMANCE-BASELINE.md`, isolated Laputa deployment reproduction doc | New at G1, updated at close | Concise accepted source/products/platform/gates/limitations for everyday use. |
 
