@@ -704,6 +704,48 @@ mod tests {
         }
     }
 
+    fn referenced_path_basenames(root: &Path, text: &str) -> BTreeSet<String> {
+        let mut basenames = BTreeSet::new();
+        for token in text.split(|character: char| {
+            !(character.is_ascii_alphanumeric()
+                || matches!(character, '.' | '_' | '-' | '/' | '\\'))
+        }) {
+            let path = Path::new(token.trim_end_matches('.'));
+            if token.contains('/') && root.join(path).is_file() {
+                if let Some(basename) = path.file_name().and_then(|name| name.to_str()) {
+                    basenames.insert(basename.to_string());
+                }
+            }
+        }
+        basenames
+    }
+
+    fn unknown_documentation_codes(root: &Path, text: &str) -> BTreeSet<String> {
+        let mut unknown = BTreeSet::new();
+        let path_basenames = referenced_path_basenames(root, text);
+        for family in FAMILY_PREFIXES {
+            let prefix = format!("{}.", family.prefix());
+            for (start, _) in text.match_indices(&prefix) {
+                let at_word_start = text[..start].chars().next_back().is_none_or(|before| {
+                    !(before.is_ascii_alphanumeric() || matches!(before, '.' | '_' | '-' | '/'))
+                });
+                let rest = &text[start + prefix.len()..];
+                let len = rest
+                    .find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
+                    .unwrap_or(rest.len());
+                let name = text[start..start + prefix.len() + len].trim_end_matches('-');
+                if at_word_start
+                    && len > 0
+                    && DiagnosticCode::from_name(name).is_none()
+                    && !path_basenames.contains(name)
+                {
+                    unknown.insert(name.to_string());
+                }
+            }
+        }
+        unknown
+    }
+
     #[test]
     fn names_are_unique_family_prefixed_and_round_trip() {
         let mut names = BTreeSet::new();
@@ -786,34 +828,36 @@ mod tests {
         assert!(unused.is_empty(), "codes with no emission site: {unused:?}");
     }
 
-    // Documentation cites codes by name; a renamed or deleted code must not
-    // leave a stale citation behind.
+    #[test]
+    fn source_paths_do_not_look_like_unknown_diagnostic_codes() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let unknown = unknown_documentation_codes(
+            root,
+            concat!(
+                "The source path `dev/performance/corpus/check.sh` is `check.sh`; ",
+                "the adjacent code `check.arity` is valid, but `check.arry` and ",
+                "`check.no-such-code` are not. `missing/check.arry` is not a source path."
+            ),
+        );
+        assert_eq!(
+            unknown,
+            BTreeSet::from([
+                "check.arry".to_string(),
+                "check.no-such-code".to_string()
+            ])
+        );
+    }
+
     #[test]
     fn every_code_cited_in_docs_exists() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let mut files = Vec::new();
-        files_with_extension(
-            &Path::new(env!("CARGO_MANIFEST_DIR")).join("docs"),
-            "md",
-            &mut files,
-        );
+        files_with_extension(&root.join("docs"), "md", &mut files);
         let mut unknown = BTreeSet::new();
         for path in files {
             let text = std::fs::read_to_string(&path).unwrap();
-            for family in FAMILY_PREFIXES {
-                let prefix = format!("{}.", family.prefix());
-                for (start, _) in text.match_indices(&prefix) {
-                    let at_word_start = text[..start].chars().next_back().is_none_or(|before| {
-                        !(before.is_ascii_alphanumeric() || matches!(before, '.' | '_' | '-' | '/'))
-                    });
-                    let rest = &text[start + prefix.len()..];
-                    let len = rest
-                        .find(|c: char| !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'))
-                        .unwrap_or(rest.len());
-                    let name = text[start..start + prefix.len() + len].trim_end_matches('-');
-                    if at_word_start && len > 0 && DiagnosticCode::from_name(name).is_none() {
-                        unknown.insert(format!("{}: {name}", path.display()));
-                    }
-                }
+            for name in unknown_documentation_codes(root, &text) {
+                unknown.insert(format!("{}: {name}", path.display()));
             }
         }
         assert!(
