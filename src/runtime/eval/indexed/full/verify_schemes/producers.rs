@@ -724,6 +724,21 @@ impl<'a> ProducerProof<'a> {
                         schema::StmtView::Let { value, .. } => self.declared_type(decoder, value.raw() as usize),
                         schema::StmtView::LetInt { .. } => Ok(Some(Arc::new(Type::Int))),
                         schema::StmtView::LetBool { .. } => Ok(Some(Arc::new(Type::Bool))),
+                        schema::StmtView::With { mut bindings, else_param_slot, .. } => {
+                            if else_param_slot == Some(slot) {
+                                return Ok(self.index.owners[&decoder.owner].with_errors.get(&declaration).cloned().map(Arc::new));
+                            }
+                            for binding in &mut bindings {
+                                self.budget.charge(1)?;
+                                let (bound, value) = binding?;
+                                if bound != slot { continue; }
+                                return Ok(self.need_context(decoder, value.raw() as usize)?.map(|source| match source.unvalidated() {
+                                    Type::Result(ok, _) => Arc::new((**ok).clone()),
+                                    _ => source,
+                                }));
+                            }
+                            Ok(None)
+                        }
                         _ => Ok(None),
                     };
                 }

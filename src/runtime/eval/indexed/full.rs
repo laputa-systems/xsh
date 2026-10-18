@@ -27201,6 +27201,15 @@ pure matched(value: Int) -> Int { return match value { 1 => 11, _ => 12 } }
     }
 
     #[test]
+    fn generic_ground_helper_with_bound_arithmetic_retains_producer_proof() {
+        run_with_large_stack(|| assert_ordinary_ground_helper(r###"pure helper() -> Int {
+  with value = Ok(1) { return value + 6 } else { |_| return 0 }
+}
+pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
+"###));
+    }
+
+    #[test]
     fn generic_ground_helper_comprehension_retains_ordinary_behavior() {
         run_with_large_stack(|| assert_ordinary_ground_helper(r###"pure helper() -> Int { let values = [value for value in [7]]; values[0] }
 pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
