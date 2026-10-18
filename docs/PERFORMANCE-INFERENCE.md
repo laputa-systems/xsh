@@ -133,6 +133,39 @@ semantic restriction, or a specific inference relationship. Keep those rows
 pending source-level witnesses rather than assigning a cause from the code
 alone.
 
+The 288 `infer-return` rows cover 128 return annotations and 160 parameter
+annotations across 158 declarations. Sixty-four declarations retain both
+kinds, 64 retain only a return, and 30 retain only parameters. The accepted
+implementation's `infer_local_pure_returns` checks each pure body before its
+callers, and `return_type_is_concrete` rejects `Null`, `Unknown`, `Any`, and
+`ErasedRecord` return shapes, including those nested in optionals, lists, maps,
+results, and records. That makes caller context unavailable to this return
+inference pass. The source supports this mechanism, but does not show whether
+each retained declaration should remain annotated or whether a later inference
+relationship should supply its missing type.
+
+Three retained examples expose the boundary. `system_report_live.xsh`'s
+`empty_text` builds a `TextObservation` record with two `null` fields (site
+2033). `system_report.xsh`'s `optional_firmware_identity_xsh` returns `null`
+on one branch and a converted identity on the other (site 1796).
+`system_report_check.xsh`'s `ip_rule_prefix` returns `Ok(null)` for a valid
+zero-prefix case (site 7160). Each body contains a null value whose optional
+payload type is not stated by that expression. The functions have concrete
+return annotations, but source inspection alone cannot decide whether those
+annotations are required semantic witnesses or whether inference should gain
+more context. The annotations remain pending, with no removal credit.
+
+The largest source groups also contain direct typed data flow: the
+`not_requested_*` helpers receive report sections at `system_report.xsh:1004`
+and following, `cgroup_resource` is called from live collection paths, and
+reference parsers such as `process_reference_number` feed structured process
+records. These call sites show where a caller has useful types. They do not
+prove a missing inference relationship because the accepted return pass
+checks bodies before callers. After I1, test this boundary by removing return
+and parameter annotations separately for representative null-bearing builders,
+report converters, and reference parsers. Compare exact diagnostics and
+retained source views; do not generalize from `infer-return` alone.
+
 All 202 effect clauses remain pending joint proof. The accepted source lint
 records individual equality and rewrite-equivalence results for 142 clauses;
 the other 60 have no retained per-site effect fact or unknown-call chain. The
