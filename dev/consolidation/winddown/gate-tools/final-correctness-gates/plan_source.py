@@ -14,6 +14,11 @@ def plan_data() -> dict[str, Any]:
         "environment": {
             "target": TARGET,
             "image": IMAGE,
+            "laputa_corpus_binding": {
+                "form": "--laputa-corpus PATH",
+                "required": True,
+                "must_be_clean_git_root": True,
+            },
             "native_runner_base_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/run-native.sh",
             "native_lock_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.lock",
             "native_cleanup_marker_path": "/home/josh/d/laputa-systems/xsh/.work/consolidation/infra/native-suite.cleanup-unresolved",

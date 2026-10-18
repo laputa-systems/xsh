@@ -46,7 +46,7 @@ BASE_RUNNER = INFRA / "run-native.sh"
 NATIVE_LOCK = INFRA / "native-suite.lock"
 NATIVE_CLEANUP_MARKER = INFRA / "native-suite.cleanup-unresolved"
 BASE_RUNNER_SHA256 = "5c06b77b6c838d1bf7c63e6078c7a708db54e4ff12f6fd23e23b67f2915e9d15"
-APPROVED_MANIFEST_BODY_SHA256 = "cc86848e387d2dbd03c509dd5a63b12eaaa0f9ec7bad22c3547cbf65b467e409"
+APPROVED_MANIFEST_BODY_SHA256 = "86198679469d1d497cda5544e8b8d4a34f441ebf053ef14f2dea9a1a5ba78a72"
 RUNTIME_CARGO_FORWARDER = TOOL_DIR / "cargo-forwarder.sh"
 RUNTIME_RUSTC_WRAPPER = TOOL_DIR / "rustc-jemalloc.sh"
 TOOL_HASHES = {
@@ -145,6 +145,40 @@ def resolve_source_root(requested: pathlib.Path) -> tuple[pathlib.Path, pathlib.
     return requested, resolved_common_dir
 
 
+def laputa_corpus_source(requested: pathlib.Path) -> tuple[pathlib.Path, dict[str, str]]:
+    if not requested.is_absolute():
+        raise GateFailure("Laputa corpus must use an absolute canonical path")
+    try:
+        resolved = requested.resolve(strict=True)
+        if not resolved.is_dir():
+            raise GateFailure(f"Laputa corpus is not a directory: {requested}")
+        top_level = pathlib.Path(subprocess.run(
+            ["git", "-C", str(requested), "rev-parse", "--show-toplevel"],
+            check=True, text=True, capture_output=True, timeout=30,
+        ).stdout.strip()).resolve(strict=True)
+        commit = subprocess.run(
+            ["git", "-C", str(requested), "rev-parse", "HEAD"],
+            check=True, text=True, capture_output=True, timeout=30,
+        ).stdout.strip()
+        tree = subprocess.run(
+            ["git", "-C", str(requested), "rev-parse", "HEAD^{tree}"],
+            check=True, text=True, capture_output=True, timeout=30,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "-C", str(requested), "status", "--porcelain=v1", "--untracked-files=all"],
+            check=True, text=True, capture_output=True, timeout=30,
+        ).stdout
+    except GateFailure:
+        raise
+    except (OSError, RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise GateFailure(f"cannot inspect Laputa corpus checkout: {requested}: {error}") from error
+    if resolved != requested or top_level != requested:
+        raise GateFailure("Laputa corpus must be the exact checkout root without symlink paths")
+    if status:
+        raise GateFailure("Laputa corpus checkout must be clean")
+    return requested, {"commit": commit, "git_tree": tree, "status": "clean"}
+
+
 def resolve_tool_root() -> tuple[pathlib.Path, pathlib.Path, dict[str, str]]:
     try:
         root_path = subprocess.run(
@@ -207,6 +241,8 @@ class Launch:
         tool_snapshot: dict[str, str],
         expected_commit: str,
         expected_tree: str,
+        laputa_corpus: pathlib.Path,
+        laputa_identity: dict[str, str],
         out: pathlib.Path,
     ):
         self.source_root = source_root
@@ -215,6 +251,8 @@ class Launch:
         self.tool_expected = {"commit": tool_snapshot["head"], "tree": tool_snapshot["tree"]}
         self.expected_commit = expected_commit
         self.expected_tree = expected_tree
+        self.laputa_corpus = laputa_corpus
+        self.laputa_identity = laputa_identity
         self.out = out
         self.target_root = out / "target"
         self.target_dir = self.target_root / "products"
@@ -256,6 +294,10 @@ class Launch:
                 "output_root": str(OUTPUT_ROOT),
             },
             "environment": {"target": TARGET, "image": IMAGE},
+            "laputa_corpus": {
+                "path": str(laputa_corpus),
+                "source_identity": laputa_identity,
+            },
             "cargo_target_dirs": {
                 "products": str(self.target_dir),
                 "harness": str(self.harness_target_dir),
@@ -290,6 +332,12 @@ class Launch:
             self.save()
             raise GateFailure(f"source changed or is dirty at {where}")
         return current
+
+    def verify_laputa_corpus(self, where: str) -> dict[str, str]:
+        path, identity = laputa_corpus_source(self.laputa_corpus)
+        if path != self.laputa_corpus or identity != self.laputa_identity:
+            raise GateFailure(f"Laputa corpus changed or is dirty at {where}")
+        return identity
 
     def verify_tool(self, where: str) -> dict[str, str]:
         current = git_snapshot(self.tool_root)
@@ -452,6 +500,11 @@ class Launch:
         stdout_log = self.logs / f"{self.step_number:03d}-{step_id}.stdout"
         stderr_log = self.logs / f"{self.step_number:03d}-{step_id}.stderr"
         env_values = dict(env or {})
+        docker_argv_capture: pathlib.Path | None = None
+        if cidfile is not None and argv and argv[0] == str(RUNNER):
+            docker_argv_capture = self.logs / f"{self.step_number:03d}-{step_id}.docker-argv"
+            docker_argv_capture.unlink(missing_ok=True)
+            env_values["XSH_GATE_DOCKER_ARGV_CAPTURE"] = str(docker_argv_capture)
         if cidfile is not None:
             if cidfile.exists():
                 cidfile.unlink()
@@ -469,6 +522,8 @@ class Launch:
         if check_source:
             self.verify_source(f"before:{step_id}")
             self.verify_tool(f"before:{step_id}")
+            if getattr(self, "laputa_corpus", None) is not None:
+                self.verify_laputa_corpus(f"before:{step_id}")
         monotonic_start = time.monotonic()
         interrupted: str | None = None
         process: subprocess.Popen[bytes] | None = None
@@ -543,6 +598,21 @@ class Launch:
         step["stdout_sha256"] = sha256(stdout_log)
         step["stderr_sha256"] = sha256(stderr_log)
         step["finished_utc"] = utc_now()
+        capture_failure: str | None = None
+        if cidfile is not None and argv[:2] == ["docker", "run"]:
+            step["docker_argv"] = argv
+        elif docker_argv_capture is not None and docker_argv_capture.exists():
+            captured = docker_argv_capture.read_bytes()
+            step["docker_argv_capture"] = {
+                "path": str(docker_argv_capture),
+                "sha256": sha256(docker_argv_capture),
+            }
+            if not captured.endswith(b"\0"):
+                capture_failure = f"{step_id} Docker argv capture is truncated"
+            else:
+                step["docker_argv"] = [os.fsdecode(value) for value in captured[:-1].split(b"\0")]
+        elif cidfile is not None and not process_start_failed and exit_code == 0 and argv and argv[0] == str(RUNNER):
+            capture_failure = f"{step_id} completed without recording its Docker argv"
         self.receipt["steps"].append(step)
         self.save()
         if cleanup_result is not None and not cleanup_result["resolved"]:
@@ -557,10 +627,14 @@ class Launch:
         if check_source:
             self.verify_source(f"after:{step_id}")
             self.verify_tool(f"after:{step_id}")
+            if getattr(self, "laputa_corpus", None) is not None:
+                self.verify_laputa_corpus(f"after:{step_id}")
         if cleanup_result is not None and not cleanup_result["resolved"]:
             raise GateFailure(f"{step_id} cleanup could not be confirmed; cidfile and native-suite lock marker were retained")
         if interrupted is not None:
             raise GateInterrupted(f"{step_id} interrupted: {interrupted}")
+        if capture_failure is not None:
+            raise GateFailure(capture_failure)
         if exit_code != 0:
             raise GateFailure(f"{step_id} exited {exit_code}; see {log}")
         return step
@@ -572,6 +646,7 @@ class Launch:
             "XSH_GATE_TOOL_DIR": str(TOOL_DIR),
             "XSH_GATE_TARGET_DIR": str(self.target_dir),
             "XSH_GATE_CARGO_LOCK_TIMEOUT": str(CARGO_LOCK_TIMEOUT_SECONDS),
+            "XSH_GATE_LAPUTA_CORPUS": str(self.laputa_corpus),
         }
         pass_fds: tuple[int, ...] = ()
         if native_fd is not None:
@@ -609,6 +684,7 @@ class Launch:
             "XSH_GATE_TOOL_DIR": str(TOOL_DIR),
             "XSH_GATE_TARGET_DIR": str(target_dir),
             "XSH_GATE_CARGO_LOCK_TIMEOUT": str(CARGO_LOCK_TIMEOUT_SECONDS),
+            "XSH_GATE_LAPUTA_CORPUS": str(self.laputa_corpus),
         }
         environment.update(extra_env or {})
         native_fd = self.native_lock_file.fileno() if self.native_lock_file is not None else None
@@ -1306,6 +1382,12 @@ class Launch:
             raise GateFailure("the approved host runner identity is UID/GID 1000")
         if plan["environment"]["target"] != TARGET or plan["environment"]["image"] != IMAGE:
             raise GateFailure("the manifest target or image differs from the pinned launcher")
+        if plan["environment"].get("laputa_corpus_binding") != {
+            "form": "--laputa-corpus PATH",
+            "required": True,
+            "must_be_clean_git_root": True,
+        }:
+            raise GateFailure("the manifest's explicit Laputa corpus binding differs from the launcher")
         if plan["environment"].get("native_runner_base_path") != str(BASE_RUNNER):
             raise GateFailure("the manifest's native runner path is not the in-tree infrastructure copy")
         if (
@@ -1465,7 +1547,7 @@ class Launch:
             "-v", f"{self.source_root}:{self.source_root}:rw",
             *scratch_mount,
             "-v", f"{CONTROLLER_ROOT}/.git:{CONTROLLER_ROOT}/.git:ro",
-            "-v", "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
+            "-v", f"{self.laputa_corpus}:{self.laputa_corpus}:ro",
             "-v", f"{target_dir}:{target_dir}:ro",
             *([] if target_dir == self.target_dir else ["-v", f"{self.target_dir}:{self.target_dir}:ro"]),
             "-w", str(self.source_root),
@@ -1474,11 +1556,17 @@ class Launch:
             "-e", "HOME=/home/compat", "-e", "RUSTUP_HOME=/root/.rustup",
             "-e", f"TARGET={TARGET}", "-e", "DIST_PROFILE=verification",
             "-e", f"XSH_BIN={self.target_dir / TARGET / 'verification' / 'xsh'}",
-            "-e", "XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa",
+            "-e", f"XSH_LAPUTA_CORPUS={self.laputa_corpus}",
             "-e", f"PATH={self.target_dir / TARGET / 'verification'}:/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         ])
         args.extend(["--user", user, IMAGE, *command])
-        self.run(step_id, args, timeout_seconds=timeout, cidfile=cidfile)
+        self.run(
+            step_id,
+            args,
+            env={"XSH_GATE_LAPUTA_CORPUS": str(self.laputa_corpus)},
+            timeout_seconds=timeout,
+            cidfile=cidfile,
+        )
 
     def native(self, step_id: str, file: str, *, forced: bool = False) -> None:
         xsht = self.target_dir / TARGET / "verification" / "xsht"
@@ -1488,6 +1576,7 @@ class Launch:
         self.run_native(step_id, "run", ["/usr/bin/env", *[f"{key}={value}" for key, value in self.container_env().items()], *map(str, args)], timeout=1800)
 
     def execute(self, plan: dict[str, Any]) -> None:
+        self.verify_laputa_corpus("before-build")
         self.require_native_lock()
         snapshot = self.verify_source("before-build")
         self.verify_tool("before-build")
@@ -1609,6 +1698,7 @@ class Launch:
 
         self.verify_source("after-all-gates")
         self.receipt["hashes"]["source_after"] = self.verify_source("final")
+        self.receipt["laputa_corpus"]["source_identity_after"] = self.verify_laputa_corpus("final")
         self.receipt["hashes"]["tool_after"] = self.verify_tool("final")
         self.receipt["status"] = "commands-passed-needs-privilege-skip-and-close-review"
         self.receipt["finished_utc"] = utc_now()
@@ -1635,6 +1725,7 @@ def print_plan(plan: dict[str, Any]) -> None:
         "source_binding": plan["source"],
         "target": plan["environment"]["target"],
         "image": plan["environment"]["image"],
+        "laputa_corpus_binding": plan["environment"]["laputa_corpus_binding"],
         "product_builds": len(plan["products"]),
         "rust_harness_builds": len(plan["rust_harness_builds"]),
         "rust_target_variants": sorted({item["target_variant"] for item in plan["rust_harness_builds"]}),
@@ -1663,6 +1754,11 @@ def main() -> int:
     parser.add_argument("--source-root", type=pathlib.Path)
     parser.add_argument("--expected-commit")
     parser.add_argument("--expected-tree")
+    parser.add_argument(
+        "--laputa-corpus",
+        type=pathlib.Path,
+        help="clean canonical Git root used for the Laputa corpus",
+    )
     parser.add_argument("--out", type=pathlib.Path)
     args = parser.parse_args()
     try:
@@ -1674,11 +1770,14 @@ def main() -> int:
         return 0
     if args.source_root is None or not args.expected_commit or not args.expected_tree or args.out is None:
         parser.error("--execute requires --source-root, --expected-commit, --expected-tree, and --out")
+    if args.laputa_corpus is None:
+        parser.error("--execute requires --laputa-corpus")
     if not re.fullmatch(r"[0-9a-f]{40}", args.expected_commit) or not re.fullmatch(r"[0-9a-f]{40}", args.expected_tree):
         parser.error("source commit and tree must be full 40-character Git IDs")
     try:
         source_root, git_common_dir = resolve_source_root(args.source_root)
         tool_root, tool_git_common_dir, tool_snapshot = resolve_tool_root()
+        laputa_corpus, laputa_identity = laputa_corpus_source(args.laputa_corpus)
     except GateFailure as error:
         parser.error(str(error))
     if git_common_dir != tool_git_common_dir:
@@ -1698,6 +1797,8 @@ def main() -> int:
         tool_snapshot,
         args.expected_commit,
         args.expected_tree,
+        laputa_corpus,
+        laputa_identity,
         out,
     )
     launch.save()

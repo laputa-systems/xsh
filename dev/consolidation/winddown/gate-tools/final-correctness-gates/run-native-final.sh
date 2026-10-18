@@ -19,6 +19,16 @@ TASK_UID=$(id -u)
 TASK_GID=$(id -g)
 TASK_CIDFILE=${XSH_GATE_CIDFILE:?one unique container-id file is required}
 TASK_TARGET_DIR=${XSH_GATE_TARGET_DIR:?one source-isolated Cargo target directory is required}
+if [ -z "${XSH_GATE_LAPUTA_CORPUS:-}" ]; then
+  echo 'an explicit clean Laputa corpus root is required' >&2
+  exit 2
+fi
+if [ -z "${XSH_GATE_DOCKER_ARGV_CAPTURE:-}" ]; then
+  echo 'an exact Docker argv capture path is required' >&2
+  exit 2
+fi
+TASK_LAPUTA_CORPUS=$XSH_GATE_LAPUTA_CORPUS
+TASK_DOCKER_ARGV_CAPTURE=$XSH_GATE_DOCKER_ARGV_CAPTURE
 TASK_DISK_TMPDIR=$TASK_TREE/.work/tmp
 TASK_CARGO_LOCK_TIMEOUT=${XSH_GATE_CARGO_LOCK_TIMEOUT:-900}
 TASK_CARGO_HOME=${XSH_GATE_CARGO_HOME:-}
@@ -59,6 +69,51 @@ if [ "$TASK_TOOL_DIR" != "$TASK_EXPECTED_TOOL_DIR" ] || [ ! -d "$TASK_TOOL_DIR" 
 fi
 if [ "$TASK_GIT_COMMON_DIR" != "$TASK_CONTROLLER_GIT_COMMON_DIR" ] || [ "$TASK_TOOL_GIT_COMMON_DIR" != "$TASK_CONTROLLER_GIT_COMMON_DIR" ]; then
   echo 'selected source and gate tools must share the controller Git directory' >&2
+  exit 2
+fi
+case "$TASK_LAPUTA_CORPUS" in
+  /*) ;;
+  *) echo 'Laputa corpus must use an absolute canonical path' >&2; exit 2 ;;
+esac
+TASK_LAPUTA_RESOLVED=$(realpath "$TASK_LAPUTA_CORPUS") || {
+  echo 'Laputa corpus path does not resolve' >&2
+  exit 2
+}
+if [ "$TASK_LAPUTA_RESOLVED" != "$TASK_LAPUTA_CORPUS" ] || [ -L "$TASK_LAPUTA_CORPUS" ] || [ ! -d "$TASK_LAPUTA_CORPUS" ]; then
+  echo 'Laputa corpus path is not canonical' >&2
+  exit 2
+fi
+TASK_LAPUTA_GIT_ROOT=$(git -C "$TASK_LAPUTA_CORPUS" rev-parse --show-toplevel 2>/dev/null) || {
+  echo 'Laputa corpus is not a Git checkout root' >&2
+  exit 2
+}
+if [ "$TASK_LAPUTA_GIT_ROOT" != "$TASK_LAPUTA_CORPUS" ]; then
+  echo 'Laputa corpus must be the exact Git checkout root' >&2
+  exit 2
+fi
+TASK_LAPUTA_STATUS=$(git -C "$TASK_LAPUTA_CORPUS" status --porcelain=v1 --untracked-files=all 2>/dev/null) || {
+  echo 'cannot inspect Laputa corpus status' >&2
+  exit 2
+}
+if [ -n "$TASK_LAPUTA_STATUS" ]; then
+  echo 'Laputa corpus must be a clean Git checkout' >&2
+  exit 2
+fi
+if [ -e "$TASK_DOCKER_ARGV_CAPTURE" ] || [ -L "$TASK_DOCKER_ARGV_CAPTURE" ] || [ ! -d "$(dirname "$TASK_DOCKER_ARGV_CAPTURE")" ]; then
+  echo 'Docker argv capture path must be new under an existing directory' >&2
+  exit 2
+fi
+case "$TASK_DOCKER_ARGV_CAPTURE" in
+  "$TASK_GATE_DIR"/*) ;;
+  *) echo 'Docker argv capture path must stay under the ignored gate output' >&2; exit 2 ;;
+esac
+TASK_DOCKER_ARGV_PARENT=$(dirname "$TASK_DOCKER_ARGV_CAPTURE")
+TASK_DOCKER_ARGV_PARENT_RESOLVED=$(realpath "$TASK_DOCKER_ARGV_PARENT") || {
+  echo 'Docker argv capture parent does not resolve' >&2
+  exit 2
+}
+if [ "$TASK_DOCKER_ARGV_PARENT_RESOLVED" != "$TASK_DOCKER_ARGV_PARENT" ]; then
+  echo 'Docker argv capture parent must be canonical' >&2
   exit 2
 fi
 case "$TASK_TARGET_DIR" in
@@ -110,7 +165,7 @@ fi
 TASK_DOCKER_BASE=(docker run --rm --init --cidfile "$TASK_CIDFILE" --platform linux/amd64 --cpus=12 --memory=24g --memory-swap=24g --network=none --tmpfs /tmp:rw,exec,nosuid,mode=1777
   -v "$TASK_TREE:$TASK_TREE:ro"
   -v "$TASK_ROOT/.git:$TASK_ROOT/.git:ro"
-  -v /home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro
+  -v "$TASK_LAPUTA_CORPUS:$TASK_LAPUTA_CORPUS:ro"
   -v /home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro
   -v /usr/local/bin/mold:/usr/local/bin/mold:ro
   -v "$TASK_INFRA/mold-linker.sh:/usr/local/bin/xsh-mold-linker:ro"
@@ -119,11 +174,12 @@ TASK_DOCKER_BASE=(docker run --rm --init --cidfile "$TASK_CIDFILE" --platform li
   -e CARGO_TARGET_DIR="$TASK_TARGET_DIR"
   -e CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker
   -e CARGO_BUILD_JOBS=12
-  -e XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa
+  -e "XSH_LAPUTA_CORPUS=$TASK_LAPUTA_CORPUS"
   -e PATH=/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin
   -e 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol')
 
 task_docker() {
+  (set -o noclobber; printf '%s\0' "$@" > "$TASK_DOCKER_ARGV_CAPTURE")
   printf 'inner Docker argv:' >&2
   printf ' %q' "$@" >&2
   printf '\n' >&2

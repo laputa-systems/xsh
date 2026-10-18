@@ -91,12 +91,17 @@ attempt.
 ## Source and tool admission
 
 Execution requires `--source-root` with an absolute canonical checkout path.
+Execution also requires `--laputa-corpus` with an absolute canonical path to a clean Laputa Git checkout.
 The accepted root is the controller checkout or a direct worktree under its
 `.work/wt` directory. The launcher confirms that the selected path is the Git
 repository root and that its common Git directory matches the controller's.
 It checks the requested commit, tree, and clean status in that selected source
 checkout before inspecting the pinned image or starting a build. The runner
 uses that same root as its working directory and read-only source mount.
+The launcher records the selected Laputa path and its clean Git identity before
+and after execution. Each supplemental Docker command records its exact argv,
+including the selected read-only Laputa mount and matching `XSH_LAPUTA_CORPUS`
+environment value.
 Supplemental contexts keep the existing `/tmp` tmpfs and set `TMPDIR` to the
 selected source checkout's ignored `.work/tmp`. The privileged cp fixture
 context mounts that same absolute path as a 1 GiB nodev tmpfs so its generated

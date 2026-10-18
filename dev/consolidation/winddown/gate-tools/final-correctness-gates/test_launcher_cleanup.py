@@ -43,6 +43,16 @@ def source_root(path):
     )
 
 
+def make_git_repository(path):
+    path.mkdir(parents=True)
+    subprocess.run(["git", "init", "--quiet", str(path)], check=True)
+    subprocess.run(["git", "-C", str(path), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(path), "config", "user.email", "test@example.invalid"], check=True)
+    (path / "tracked.txt").write_text("tracked\n")
+    subprocess.run(["git", "-C", str(path), "add", "tracked.txt"], check=True)
+    subprocess.run(["git", "-C", str(path), "commit", "--quiet", "-m", "initial"], check=True)
+
+
 SOURCE_ROOT = source_root(LAUNCHER_PATH)
 FROZEN_E048_SOURCE_ROOT = LAUNCHER.CONTROLLER_ROOT / ".work/wt/consolidation-final-e048"
 SCRATCH_ROOT = SOURCE_ROOT / ".work/tmp"
@@ -194,6 +204,7 @@ class CoverageTests(unittest.TestCase):
         gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
         gate.source_root = SOURCE_ROOT
         gate.git_common_dir = LAUNCHER.resolve_source_root(SOURCE_ROOT)[1]
+        gate.laputa_corpus = pathlib.Path("/laputa-integration")
         gate.cid_dir = SCRATCH_ROOT
         gate.step_number = 0
         gate.target_dir = SCRATCH_ROOT / "split-resource-target"
@@ -227,6 +238,7 @@ class CoverageTests(unittest.TestCase):
         gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
         gate.source_root = FROZEN_E048_SOURCE_ROOT
         gate.git_common_dir = LAUNCHER.resolve_source_root(FROZEN_E048_SOURCE_ROOT)[1]
+        gate.laputa_corpus = pathlib.Path("/laputa-integration")
         gate.cid_dir = SCRATCH_ROOT
         gate.step_number = 0
         gate.target_dir = SCRATCH_ROOT / "nodev-tempdir-target"
@@ -271,6 +283,10 @@ class CoverageTests(unittest.TestCase):
         self.assertEqual(self.plan["products"][0].count("--bins"), 1)
         self.assertNotIn("--bin", self.plan["products"][0])
         self.assertEqual(len(self.plan["products"]), 1)
+        self.assertEqual(
+            self.plan["environment"]["laputa_corpus_binding"],
+            {"form": "--laputa-corpus PATH", "required": True, "must_be_clean_git_root": True},
+        )
         self.assertEqual(
             set(self.plan["product_variants"]["verification"]["binaries"]),
             {"xsh", "xsht", "xshi", "xsh-fuzz", "xsh-test-helper"},
@@ -348,6 +364,7 @@ class SourceAdmissionTests(unittest.TestCase):
         finally:
             link.unlink()
 
+
     def test_rejects_a_subdirectory_instead_of_the_checkout_root(self):
         with self.assertRaisesRegex(LAUNCHER.GateFailure, "controller checkout"):
             LAUNCHER.resolve_source_root(SOURCE_ROOT / "dev")
@@ -419,9 +436,62 @@ class SourceAdmissionTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "--source-root"):
                         LAUNCHER.main()
 
+    def test_execute_requires_an_explicit_laputa_corpus_before_creating_output(self):
+        output = LAUNCHER.OUTPUT_ROOT / "missing-laputa-self-test"
+        arguments = [
+            str(LAUNCHER.TOOL_DIR / "launch.py"), "--execute",
+            "--source-root", str(SOURCE_ROOT), "--expected-commit", "a" * 40,
+            "--expected-tree", "b" * 40, "--out", str(output),
+        ]
+        with mock.patch.object(sys, "argv", arguments):
+            with mock.patch.object(LAUNCHER, "load_plan", return_value=plan_data()):
+                with mock.patch.object(
+                    LAUNCHER.argparse.ArgumentParser,
+                    "error",
+                    side_effect=ValueError("--laputa-corpus is required"),
+                ):
+                    with self.assertRaisesRegex(ValueError, "--laputa-corpus"):
+                        LAUNCHER.main()
+        self.assertFalse(output.exists())
+
+    def test_execute_rejects_a_dirty_laputa_before_creating_output(self):
+        with tempfile.TemporaryDirectory(dir=SCRATCH_ROOT) as temporary:
+            laputa_root = pathlib.Path(temporary) / "laputa"
+            make_git_repository(laputa_root)
+            (laputa_root / "untracked.xsh").write_text("let dirty = true\n")
+            output = LAUNCHER.OUTPUT_ROOT / "dirty-laputa-self-test"
+            arguments = [
+                str(LAUNCHER.TOOL_DIR / "launch.py"), "--execute",
+                "--source-root", str(SOURCE_ROOT), "--expected-commit", "a" * 40,
+                "--expected-tree", "b" * 40, "--laputa-corpus", str(laputa_root),
+                "--out", str(output),
+            ]
+            common_dir = (LAUNCHER.CONTROLLER_ROOT / ".git").resolve()
+            with mock.patch.object(sys, "argv", arguments):
+                with mock.patch.object(LAUNCHER, "load_plan", return_value=plan_data()):
+                    with mock.patch.object(
+                        LAUNCHER,
+                        "resolve_source_root",
+                        return_value=(SOURCE_ROOT, common_dir),
+                    ):
+                        with mock.patch.object(
+                            LAUNCHER,
+                            "resolve_tool_root",
+                            return_value=(SOURCE_ROOT, common_dir, {"head": "c" * 40, "tree": "d" * 40}),
+                        ):
+                            with mock.patch.object(
+                                LAUNCHER.argparse.ArgumentParser,
+                                "error",
+                                side_effect=ValueError("Laputa corpus checkout must be clean"),
+                            ):
+                                with self.assertRaisesRegex(ValueError, "must be clean"):
+                                    LAUNCHER.main()
+            self.assertFalse(output.exists())
+
     def test_native_build_uses_the_requested_source_worktree(self):
         gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
         gate.source_root = FROZEN_E048_SOURCE_ROOT
+        gate.laputa_corpus = pathlib.Path("/laputa-integration")
         gate.target_dir = SCRATCH_ROOT / "source-admission-target"
         gate.native_lock_file = None
         gate.cid_dir = SCRATCH_ROOT
@@ -432,12 +502,18 @@ class SourceAdmissionTests(unittest.TestCase):
 
         command = gate.run.call_args.args[1]
         self.assertEqual(command[:2], [str(LAUNCHER.RUNNER), str(FROZEN_E048_SOURCE_ROOT)])
+        self.assertEqual(gate.run.call_args.kwargs["env"]["XSH_GATE_LAPUTA_CORPUS"], "/laputa-integration")
 
     def test_supplemental_context_keeps_manifest_target_writable(self):
         _, git_common_dir = LAUNCHER.resolve_source_root(FROZEN_E048_SOURCE_ROOT)
+        laputa_temporary = tempfile.TemporaryDirectory(dir=SCRATCH_ROOT)
+        self.addCleanup(laputa_temporary.cleanup)
+        laputa_root = pathlib.Path(laputa_temporary.name) / "laputa"
+        make_git_repository(laputa_root)
         gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
         gate.source_root = FROZEN_E048_SOURCE_ROOT
         gate.git_common_dir = git_common_dir
+        gate.laputa_corpus = laputa_root
         gate.cid_dir = SCRATCH_ROOT
         gate.step_number = 0
         gate.target_dir = LAUNCHER.OUTPUT_ROOT / "source-admission-target"
@@ -458,6 +534,10 @@ class SourceAdmissionTests(unittest.TestCase):
         scratch = FROZEN_E048_SOURCE_ROOT / ".work/tmp"
         self.assertIn(f"{FROZEN_E048_SOURCE_ROOT}:{FROZEN_E048_SOURCE_ROOT}:rw", volumes)
         self.assertIn(f"{git_common_dir}:{git_common_dir}:ro", volumes)
+        self.assertIn(f"{laputa_root}:{laputa_root}:ro", volumes)
+        self.assertNotIn("/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro", volumes)
+        self.assertIn(f"XSH_LAPUTA_CORPUS={laputa_root}", environment)
+        self.assertEqual(gate.run.call_args.kwargs["env"]["XSH_GATE_LAPUTA_CORPUS"], str(laputa_root))
         self.assertIn(f"{scratch}:{scratch}:rw", volumes)
         self.assertIn(f"{gate.target_dir}:{gate.target_dir}:ro", volumes)
         self.assertIn(f"{gate.harness_target_dir}:{gate.harness_target_dir}:ro", volumes)
@@ -465,6 +545,54 @@ class SourceAdmissionTests(unittest.TestCase):
         self.assertIn("--tmpfs", command)
         self.assertEqual(command[command.index("--tmpfs") + 1], "/tmp:rw,nodev,exec,nosuid,mode=1777")
         self.assertEqual(command[command.index("-w") + 1], str(FROZEN_E048_SOURCE_ROOT))
+
+
+class LaputaAdmissionTests(unittest.TestCase):
+    def test_requires_an_absolute_clean_exact_git_root_without_symlinks(self):
+        with tempfile.TemporaryDirectory(dir=SCRATCH_ROOT) as temporary:
+            root = pathlib.Path(temporary) / "laputa"
+            make_git_repository(root)
+            selected, identity = LAUNCHER.laputa_corpus_source(root)
+            self.assertEqual(selected, root)
+            self.assertEqual(identity["status"], "clean")
+            self.assertEqual(identity["commit"], subprocess.check_output(
+                ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
+            ).strip())
+            with self.assertRaisesRegex(LAUNCHER.GateFailure, "absolute canonical path"):
+                LAUNCHER.laputa_corpus_source(pathlib.Path("relative-laputa"))
+            (root / "subdirectory").mkdir()
+            with self.assertRaisesRegex(LAUNCHER.GateFailure, "exact checkout root"):
+                LAUNCHER.laputa_corpus_source(root / "subdirectory")
+            alias = root.parent / "laputa-alias"
+            alias.symlink_to(root, target_is_directory=True)
+            with self.assertRaisesRegex(LAUNCHER.GateFailure, "without symlink paths"):
+                LAUNCHER.laputa_corpus_source(alias)
+            (root / "untracked.xsh").write_text("let dirty = true\n")
+            with self.assertRaisesRegex(LAUNCHER.GateFailure, "must be clean"):
+                LAUNCHER.laputa_corpus_source(root)
+
+    def test_receipt_records_the_selected_root_and_initial_identity(self):
+        with tempfile.TemporaryDirectory(dir=SCRATCH_ROOT) as temporary:
+            root = pathlib.Path(temporary) / "laputa"
+            make_git_repository(root)
+            selected, identity = LAUNCHER.laputa_corpus_source(root)
+            output = pathlib.Path(temporary) / "run"
+            gate = LAUNCHER.Launch(
+                SOURCE_ROOT,
+                (LAUNCHER.CONTROLLER_ROOT / ".git").resolve(),
+                SOURCE_ROOT,
+                {"head": "a" * 40, "tree": "b" * 40},
+                "a" * 40,
+                "b" * 40,
+                selected,
+                identity,
+                output,
+            )
+            self.assertEqual(gate.receipt["laputa_corpus"], {
+                "path": str(root),
+                "source_identity": identity,
+            })
+            self.assertEqual(gate.verify_laputa_corpus("test"), identity)
 
 
 class ArtifactQualificationTests(unittest.TestCase):
@@ -952,9 +1080,15 @@ class RunnerInvocationTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(dir=LAUNCHER.OUTPUT_ROOT)
         self.out = pathlib.Path(self.temporary.name)
+        self.laputa_temporary = tempfile.TemporaryDirectory(dir=SCRATCH_ROOT)
+        self.laputa_root = pathlib.Path(self.laputa_temporary.name) / "laputa"
+        make_git_repository(self.laputa_root)
         self.bin_dir = self.out / "bin"
         self.bin_dir.mkdir()
         self.argv_path = self.out / "docker-argv.json"
+        self.logs = self.out / "logs"
+        self.logs.mkdir()
+        self.docker_argv_capture = self.logs / "docker-argv.capture"
         docker = self.bin_dir / "docker"
         docker.write_text(
             "#!/usr/bin/env python3\n"
@@ -973,9 +1107,10 @@ class RunnerInvocationTests(unittest.TestCase):
         self.xdg_cache.mkdir()
 
     def tearDown(self):
+        self.laputa_temporary.cleanup()
         self.temporary.cleanup()
 
-    def invoke(self, mode, command, *, tree=None, tool_dir=None, target_dir=None, extra_path=None, extra_env=None):
+    def invoke(self, mode, command, *, tree=None, tool_dir=None, target_dir=None, laputa_corpus="default", extra_path=None, extra_env=None):
         selected_tree = LAUNCHER.CONTROLLER_ROOT if tree is None else pathlib.Path(tree)
         selected_tool_dir = (
             pathlib.Path(tool_dir)
@@ -983,6 +1118,7 @@ class RunnerInvocationTests(unittest.TestCase):
             else selected_tree / "dev/consolidation/winddown/gate-tools/final-correctness-gates"
         )
         self.argv_path.unlink(missing_ok=True)
+        self.docker_argv_capture.unlink(missing_ok=True)
         env = dict(os.environ)
         env["PATH"] = str(self.bin_dir) + os.pathsep + env["PATH"]
         if extra_path is not None:
@@ -995,6 +1131,11 @@ class RunnerInvocationTests(unittest.TestCase):
         env["XSH_GATE_TOOL_DIR"] = str(selected_tool_dir)
         env["XSH_GATE_CARGO_FORWARDER"] = str(selected_tool_dir / "cargo-forwarder.sh")
         env["XSH_GATE_RUSTC_WRAPPER"] = str(selected_tool_dir / "rustc-jemalloc.sh")
+        env["XSH_GATE_DOCKER_ARGV_CAPTURE"] = str(self.docker_argv_capture)
+        if laputa_corpus == "default":
+            env["XSH_GATE_LAPUTA_CORPUS"] = str(self.laputa_root)
+        elif laputa_corpus is not None:
+            env["XSH_GATE_LAPUTA_CORPUS"] = str(laputa_corpus)
         env.update(extra_env or {})
         result = subprocess.run(
             ["bash", str(NATIVE_RUNNER), str(selected_tree), mode, *command],
@@ -1020,7 +1161,7 @@ class RunnerInvocationTests(unittest.TestCase):
         ordinary_read_only_mounts = {
             f"{tree}:{tree}:ro",
             f"{LAUNCHER.CONTROLLER_ROOT / '.git'}:{LAUNCHER.CONTROLLER_ROOT / '.git'}:ro",
-            "/home/josh/d/laputa-systems/laputa:/home/josh/d/laputa-systems/laputa:ro",
+            f"{self.laputa_root}:{self.laputa_root}:ro",
             "/home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro",
             "/usr/local/bin/mold:/usr/local/bin/mold:ro",
             f"{LAUNCHER.INFRA / 'mold-linker.sh'}:/usr/local/bin/xsh-mold-linker:ro",
@@ -1061,13 +1202,21 @@ class RunnerInvocationTests(unittest.TestCase):
                     f"CARGO_TARGET_DIR={self.target_dir}",
                     "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker",
                     "CARGO_BUILD_JOBS=12",
-                    "XSH_LAPUTA_CORPUS=/home/josh/d/laputa-systems/laputa",
+                    f"XSH_LAPUTA_CORPUS={self.laputa_root}",
                     "PATH=/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
                     "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=-Wl,--defsym=__isoc23_sscanf=sscanf -C link-arg=-Wl,--defsym=__isoc23_strtol=strtol",
                 }.issubset(environment), environment)
+                self.assertNotIn("/home/josh/d/laputa-systems/laputa", arguments)
                 self.assertIn("-w", arguments)
                 self.assertEqual(arguments[arguments.index("-w") + 1], str(tree))
                 self.assertIn("sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c", arguments)
+                docker_argv = self.docker_argv_capture.read_bytes().split(b"\0")
+                self.assertEqual(docker_argv[-1], b"")
+                captured_argv = [os.fsdecode(value) for value in docker_argv[:-1]]
+                self.assertEqual(captured_argv, ["docker", *arguments])
+                self.assertIn(f"-v", captured_argv)
+                self.assertIn(f"{self.laputa_root}:{self.laputa_root}:ro", captured_argv)
+                self.assertIn(f"XSH_LAPUTA_CORPUS={self.laputa_root}", captured_argv)
                 if mode in {"prepare-cargo", "run-cargo"}:
                     self.assertIn(f"{self.cargo_home}:{self.cargo_home}", volumes)
                     self.assertIn(f"{self.xdg_cache}:{self.xdg_cache}", volumes)
@@ -1092,6 +1241,59 @@ class RunnerInvocationTests(unittest.TestCase):
                     }.issubset(environment), environment)
                     self.assertIn("--user", arguments)
                     self.assertEqual(arguments[arguments.index("--user") + 1], f"{os.getuid()}:{os.getgid()}")
+
+    def test_runner_requires_a_clean_exact_laputa_checkout_before_docker(self):
+        result, arguments = self.invoke("run", ["/bin/true"], laputa_corpus=None)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("explicit clean Laputa corpus root is required", result.stderr)
+        self.assertIsNone(arguments)
+
+        alias = self.laputa_root.parent / "laputa-alias"
+        alias.symlink_to(self.laputa_root, target_is_directory=True)
+        result, arguments = self.invoke("run", ["/bin/true"], laputa_corpus=alias)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Laputa corpus path is not canonical", result.stderr)
+        self.assertIsNone(arguments)
+
+        (self.laputa_root / "untracked.xsh").write_text("let dirty = true\n")
+        result, arguments = self.invoke("run", ["/bin/true"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Laputa corpus must be a clean Git checkout", result.stderr)
+        self.assertIsNone(arguments)
+
+    def test_runner_receipt_can_bind_the_actual_direct_docker_argv(self):
+        logs = self.out / "direct-logs"
+        logs.mkdir()
+        gate = LAUNCHER.Launch.__new__(LAUNCHER.Launch)
+        gate.logs = logs
+        gate.source_root = SOURCE_ROOT
+        gate.receipt = {"steps": []}
+        gate.step_number = 0
+        gate.save = mock.Mock()
+        command = ["docker", "run", "--rm", "sha256:fixture", "/bin/true"]
+        step = gate.run(
+            "direct-container",
+            command,
+            env={
+                "PATH": str(self.bin_dir) + os.pathsep + os.environ["PATH"],
+                "XSH_FAKE_DOCKER_ARGS": str(self.argv_path),
+            },
+            cidfile=self.out / "direct.cid",
+            check_source=False,
+        )
+        self.assertEqual(step["docker_argv"], command)
+        self.assertEqual(json.loads(self.argv_path.read_text()), command[1:])
+
+    def test_runner_rejects_a_capture_path_outside_its_ignored_output(self):
+        outside = self.out / "outside.docker-argv"
+        result, arguments = self.invoke(
+            "run",
+            ["/bin/true"],
+            extra_env={"XSH_GATE_DOCKER_ARGV_CAPTURE": str(SCRATCH_ROOT / "outside.docker-argv")},
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("must stay under the ignored gate output", result.stderr)
+        self.assertIsNone(arguments)
 
     def test_runner_rejects_target_symlink_and_disjoint_target_before_docker(self):
         outside_target = LAUNCHER.CONTROLLER_ROOT / ".work/tmp/final-runner-outside/target"
