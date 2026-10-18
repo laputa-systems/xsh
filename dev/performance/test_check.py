@@ -1,10 +1,12 @@
 from copy import deepcopy
 from contextlib import ExitStack, nullcontext, redirect_stderr
+from dataclasses import replace
 import importlib.util
 from io import StringIO
 import json
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -244,6 +246,46 @@ class BaselineTests(unittest.TestCase):
             path.write_text(json.dumps({'schema': 1, 'state': 'artifact-qualified', 'source': {}}))
             with self.assertRaisesRegex(check.CheckError, 'incomplete'):
                 check.completed_receipt(path, 'schema', {})
+
+    def test_laputa_owner_binding_matches_actual_clean_git_before_and_after(self):
+        with tempfile.TemporaryDirectory(dir=self.config.scratch) as directory:
+            root = Path(directory)
+            subprocess.run(['git', 'init', '--quiet', str(root)], check=True)
+            fixture = root / 'generation.xsh'
+            fixture.write_text('print "original"\n')
+            subprocess.run(['git', '-C', str(root), 'add', fixture.name], check=True)
+            commit = ['git', '-C', str(root), '-c', 'user.name=G2 fixture', '-c', 'user.email=g2-fixture@example.invalid', 'commit', '--quiet', '-m', 'test(performance): freeze Laputa binding control']
+            subprocess.run(commit, check=True)
+            config = replace(self.config, laputa_root=root)
+            identity = {'commit': check.git(root, 'rev-parse', 'HEAD'), 'git_tree': check.git(root, 'rev-parse', 'HEAD^{tree}'), 'status': 'clean'}
+            binding = {'path': str(root), 'source_identity': identity, 'source_identity_after': deepcopy(identity)}
+            self.assertEqual(check.validate_laputa_corpus(binding, config), identity)
+            for field in binding:
+                invalid = deepcopy(binding)
+                del invalid[field]
+                with self.subTest(missing=field), self.assertRaises(check.CheckError):
+                    check.validate_laputa_corpus(invalid, config)
+            for mutation in ('path', 'before_commit', 'after_tree', 'before_dirty', 'after_dirty'):
+                invalid = deepcopy(binding)
+                if mutation == 'path':
+                    invalid['path'] = str(root / 'another')
+                elif mutation == 'before_commit':
+                    invalid['source_identity']['commit'] = 'f' * 40
+                elif mutation == 'after_tree':
+                    invalid['source_identity_after']['git_tree'] = 'e' * 40
+                elif mutation == 'before_dirty':
+                    invalid['source_identity']['status'] = 'dirty'
+                else:
+                    invalid['source_identity_after']['status'] = 'dirty'
+                with self.subTest(mutation=mutation), self.assertRaises(check.CheckError):
+                    check.validate_laputa_corpus(invalid, config)
+            fixture.write_text('print "changed"\n')
+            with self.assertRaisesRegex(check.CheckError, 'must be clean'):
+                check.validate_laputa_corpus(binding, config)
+            subprocess.run(['git', '-C', str(root), 'add', fixture.name], check=True)
+            subprocess.run(commit, check=True)
+            with self.assertRaisesRegex(check.CheckError, 'identity changed'):
+                check.validate_laputa_corpus(binding, config)
 
     def test_timing_requires_both_readiness_boundaries(self):
         value = {'timing_accepted': True, 'timing_discarded': False, 'performance_gate': {'before': {'exit_code': 0}, 'after': {'exit_code': 0}}}

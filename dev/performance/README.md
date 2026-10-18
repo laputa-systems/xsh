@@ -122,6 +122,14 @@ manifest, log, build, and resource validators. Missing receipts, artifact-only
 profiles, discarded timings, changed products, and unresolved cleanup fail.
 It creates no baseline receipt and runs no replacement benchmark suite.
 
+Profile and forced-frame receipts must bind their required `--laputa-corpus`
+selection in `laputa_corpus`: the explicit absolute `path`, clean Git
+`source_identity`, and equal `source_identity_after`. Both receipts must match
+the current clean `config.laputa_root` commit and tree before and after baseline
+validation. The forced-frame executed Docker command must mount that same root
+read-only at its own path and select it through `XSH_LAPUTA_CORPUS`.
+Historical receipts missing these owner bindings cannot close baseline acceptance.
+
 Util-linux close requires its existing in-memory independent review. The standalone
 CLI fails before expensive effects when that context is absent. The parent can
 load this module, obtain `runtime = baseline_util_linux(config)`, and invoke

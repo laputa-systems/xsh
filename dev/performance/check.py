@@ -440,6 +440,17 @@ def receipt_binding(path):
     return {'path': str(path), 'sha256': owned_digest(path)}
 
 
+def validate_laputa_corpus(binding, config):
+    fields(binding, ('path', 'source_identity', 'source_identity_after'), 'Laputa corpus binding')
+    root = config.laputa_root
+    require(binding['path'] == str(root) and root == root.resolve(), 'Laputa corpus path differs from explicit configuration')
+    require(git(root, 'rev-parse', '--show-toplevel') == str(root), 'Laputa corpus must be a Git repository root')
+    require(git(root, 'status', '--porcelain=v1', '--untracked-files=all') == '', 'Laputa corpus must be clean')
+    identity = {'commit': git(root, 'rev-parse', 'HEAD'), 'git_tree': git(root, 'rev-parse', 'HEAD^{tree}'), 'status': 'clean'}
+    require(binding['source_identity'] == identity and binding['source_identity_after'] == identity, 'Laputa corpus identity changed or differs from its owner binding')
+    return identity
+
+
 def completed_receipt(path, schema_key, source):
     value = read_json(path)
     require(type(value.get(schema_key)) is int and value[schema_key] == 1 and value.get('state') == 'complete', f'incomplete baseline receipt: {path}')
@@ -544,6 +555,7 @@ def baseline_receipts(config):
     observer.load_profile_binaries(paths['profile'], config.source_root, config.commit, 3)
     bridge = baseline_owner(config, 'dev/consolidation/final_scheduler_receipt_bridge.py', 'bridge')
     profile_receipt = read_json(paths['profile'])
+    laputa = validate_laputa_corpus(profile_receipt.get('laputa_corpus'), config)
     require(type(profile_receipt.get('schema')) is int and profile_receipt['schema'] == 1 and profile_receipt.get('source_tree') == str(config.source_root), 'profile schema or explicit source root mismatch')
     require(profile_receipt.get('functional_close') == {**receipt_binding(paths['functional_close']), 'record': close}, 'profile functional close mismatch')
     for name in ('build', 'native_suite'):
@@ -575,11 +587,19 @@ def baseline_receipts(config):
         require(validation.get('source') == source and validation.get('selected_release_binaries') == profile['binaries'], f'observer source or products changed: {name}')
     require(observed.get('source_after') == source, 'observer final source mismatch')
     framed = completed_receipt(paths['forced'], 'schema', source)
+    require(validate_laputa_corpus(framed.get('laputa_corpus'), config) == laputa, 'profile and forced-frame Laputa identities differ')
     require(framed.get('environment', {}).get('XSH_LAPUTA_CORPUS') == str(config.laputa_root), 'forced-frame Laputa corpus differs from explicit configuration')
     require(framed.get('functional_close') == close_binding and framed.get('profile_cost_receipt') == profile['receipt'], 'forced-frame qualification mismatch')
     require(framed.get('binaries_before') == profile['binaries'] and framed.get('inputs_unchanged') is True and framed.get('inputs_before') == framed.get('inputs_after'), 'forced-frame inputs changed')
     require(framed.get('inputs_before') == {'source': source, 'binaries': profile['binaries']}, 'forced-frame input qualification mismatch')
     stage = framed.get('stage', {})
+    docker_command = stage.get('command')
+    require(isinstance(docker_command, list) and all(isinstance(argument, str) for argument in docker_command), 'forced-frame executed Docker command missing')
+    volumes = [docker_command[index + 1] for index, argument in enumerate(docker_command[:-1]) if argument == '-v']
+    laputa_mounts = [volume for volume in volumes if len(volume.split(':')) >= 2 and volume.split(':')[1] == str(config.laputa_root)]
+    require(laputa_mounts == [f'{config.laputa_root}:{config.laputa_root}:ro'], 'forced-frame executed Laputa mount differs from explicit configuration')
+    environment = [docker_command[index + 1] for index, argument in enumerate(docker_command[:-1]) if argument == '-e']
+    require([item for item in environment if item.startswith('XSH_LAPUTA_CORPUS=')] == [f'XSH_LAPUTA_CORPUS={config.laputa_root}'], 'forced-frame executed Laputa environment differs from explicit configuration')
     require(type(stage.get('status')) is int and stage['status'] == 0 and stage.get('cleanup_resolved') is True and stage.get('error') is None and stage.get('interrupted_signal') is None, 'forced-frame suite failed or cleanup unresolved')
     check_cleanup(stage.get('container_cleanup', {}))
     require(framed.get('command') == [str(Path(profile['directory']) / 'xsht'), 'test', '--force-frames'], 'forced-frame command mismatch')
@@ -605,6 +625,7 @@ def baseline_receipts(config):
     require(compare.validate_log(Path(stage['log']), ids).accepted, 'forced-frame outcomes rejected')
     require(compare.validate_log(paths['profile'].parent / 'opt3/native-suite.log', ids).accepted, 'profile native outcomes rejected')
     require(source_identity(config) == source, 'baseline source changed during receipt validation')
+    require(validate_laputa_corpus(profile_receipt['laputa_corpus'], config) == laputa and validate_laputa_corpus(framed['laputa_corpus'], config) == laputa, 'Laputa corpus changed during baseline receipt validation')
     return {**{name: receipt_binding(path) for name, path in paths.items()}, 'forced_stdout': receipt_binding(Path(stage['log']))}
 
 
