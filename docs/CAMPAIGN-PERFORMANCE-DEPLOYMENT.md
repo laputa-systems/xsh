@@ -688,6 +688,8 @@ duplicate per-commit copies of controllers solely to record provenance.
 
 - The r12 normal opt3 build passed, but its completed native suite failed: 13,946 passed, one failed and 211 skipped. `tests/xsh/stdlib/env.xsh::test_env_functions_and_path_list` reported `spawn: Text file busy` while executing its freshly written helper. The failed receipt remains under the freeze's `.work/consolidation/final-performance-gates/profile-cost-44de8d71c04f155034a7c1e8cb8e7edddd9da15f`; both readiness checks passed and container cleanup resolved. The 61-skip increase is accounted: the caller-UID context adds 64 namespace/capability skips, while the short scratch path and group setup allow three canonical skips to run. Both runs enumerate 14,158 tests. No failed profile acceptance or speed claim follows. `.work/wt/perf-env-exec-r12` owns bounded reproduction; preserve the qualified source, products and failed receipt unchanged.
 
+- Fixture repair `0dfebb001` creates the executable in a completed child and retains the original scoped-parent environment and PATH execution assertions. The inherited-writer control demonstrates `ETXTBSY`; it does not establish the historical fork schedule. Independent review found no P1/P2 issue. The coordinator's integrated env-file check passed all 20 tests with unchanged r12 diagnostic products and resolved cleanup, under `.work/wt/perf-validation-r2/.work/tmp/env-integration-r13`. Freeze `.work/wt/perf-baseline-r13` at this commit requires fresh qualification; r12 receipts do not qualify it. Its supplemental correctness run precedes fresh bootstrap and canonical execution. Inference remains unintegrated.
+
 ## For the owner afterwards
 
 - Read the concise accepted baseline page and deployment reproduction commands.
