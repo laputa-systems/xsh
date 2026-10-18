@@ -115,7 +115,7 @@ class InventoryCheckerTests(unittest.TestCase):
         coverage = CHECKER.load_json(ROOT / "formal/coverage.json")
         result = CHECKER.validate_coverage(ROOT, coverage)
         self.assertEqual(set(CHECKER.OWNER_SPECS), set(result["owners"]))
-        self.assertEqual(89, len(result["owners"]))
+        self.assertEqual(91, len(result["owners"]))
         self.assertEqual(
             {root["id"] for root in coverage["fragment_roots"]},
             result["fragment_roots"],
