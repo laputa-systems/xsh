@@ -179,6 +179,15 @@ def laputa_corpus_source(requested: pathlib.Path) -> tuple[pathlib.Path, dict[st
     return requested, {"commit": commit, "git_tree": tree, "status": "clean"}
 
 
+def validate_laputa_source_separation(source_root: pathlib.Path, laputa_root: pathlib.Path) -> None:
+    if (
+        source_root == laputa_root
+        or source_root in laputa_root.parents
+        or laputa_root in source_root.parents
+    ):
+        raise GateFailure("XSH source and Laputa corpus must use separate sibling checkouts")
+
+
 def resolve_tool_root() -> tuple[pathlib.Path, pathlib.Path, dict[str, str]]:
     try:
         root_path = subprocess.run(
@@ -1778,6 +1787,7 @@ def main() -> int:
         source_root, git_common_dir = resolve_source_root(args.source_root)
         tool_root, tool_git_common_dir, tool_snapshot = resolve_tool_root()
         laputa_corpus, laputa_identity = laputa_corpus_source(args.laputa_corpus)
+        validate_laputa_source_separation(source_root, laputa_corpus)
     except GateFailure as error:
         parser.error(str(error))
     if git_common_dir != tool_git_common_dir:

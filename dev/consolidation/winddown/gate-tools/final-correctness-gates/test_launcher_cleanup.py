@@ -454,6 +454,42 @@ class SourceAdmissionTests(unittest.TestCase):
                         LAUNCHER.main()
         self.assertFalse(output.exists())
 
+    def test_execute_rejects_laputa_nested_under_source_before_creating_output(self):
+        nested_laputa = SOURCE_ROOT / ".work/tmp/laputa-capture-reader-sample"
+        output = LAUNCHER.OUTPUT_ROOT / "overlapping-laputa-self-test"
+        arguments = [
+            str(LAUNCHER.TOOL_DIR / "launch.py"), "--execute",
+            "--source-root", str(SOURCE_ROOT), "--expected-commit", "a" * 40,
+            "--expected-tree", "b" * 40, "--laputa-corpus", str(nested_laputa),
+            "--out", str(output),
+        ]
+        common_dir = (LAUNCHER.CONTROLLER_ROOT / ".git").resolve()
+        with mock.patch.object(sys, "argv", arguments):
+            with mock.patch.object(LAUNCHER, "load_plan", return_value=plan_data()):
+                with mock.patch.object(
+                    LAUNCHER,
+                    "resolve_source_root",
+                    return_value=(SOURCE_ROOT, common_dir),
+                ):
+                    with mock.patch.object(
+                        LAUNCHER,
+                        "resolve_tool_root",
+                        return_value=(SOURCE_ROOT, common_dir, {"head": "c" * 40, "tree": "d" * 40}),
+                    ):
+                        with mock.patch.object(
+                            LAUNCHER,
+                            "laputa_corpus_source",
+                            return_value=(nested_laputa, {"commit": "e" * 40, "git_tree": "f" * 40, "status": "clean"}),
+                        ):
+                            with mock.patch.object(
+                                LAUNCHER.argparse.ArgumentParser,
+                                "error",
+                                side_effect=ValueError("separate sibling checkouts"),
+                            ):
+                                with self.assertRaisesRegex(ValueError, "separate sibling checkouts"):
+                                    LAUNCHER.main()
+        self.assertFalse(output.exists())
+
     def test_execute_rejects_a_dirty_laputa_before_creating_output(self):
         with tempfile.TemporaryDirectory(dir=SCRATCH_ROOT) as temporary:
             laputa_root = pathlib.Path(temporary) / "laputa"
@@ -548,6 +584,18 @@ class SourceAdmissionTests(unittest.TestCase):
 
 
 class LaputaAdmissionTests(unittest.TestCase):
+    def test_laputa_checkout_must_not_overlap_the_xsh_source(self):
+        source_root = SOURCE_ROOT
+        nested_laputa = source_root / ".work/tmp/laputa-capture-reader-sample"
+        ancestor_laputa = source_root.parent
+        sibling_laputa = source_root.parent / "laputa-integration"
+
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "separate sibling checkouts"):
+            LAUNCHER.validate_laputa_source_separation(source_root, nested_laputa)
+        with self.assertRaisesRegex(LAUNCHER.GateFailure, "separate sibling checkouts"):
+            LAUNCHER.validate_laputa_source_separation(source_root, ancestor_laputa)
+        LAUNCHER.validate_laputa_source_separation(source_root, sibling_laputa)
+
     def test_requires_an_absolute_clean_exact_git_root_without_symlinks(self):
         with tempfile.TemporaryDirectory(dir=SCRATCH_ROOT) as temporary:
             root = pathlib.Path(temporary) / "laputa"

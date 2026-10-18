@@ -92,6 +92,9 @@ attempt.
 
 Execution requires `--source-root` with an absolute canonical checkout path.
 Execution also requires `--laputa-corpus` with an absolute canonical path to a clean Laputa Git checkout.
+The selected Laputa checkout must be a separate sibling of the XSH source
+checkout; ancestor and descendant paths are rejected because supplemental
+containers mount the XSH source and its scratch directory read-write.
 The accepted root is the controller checkout or a direct worktree under its
 `.work/wt` directory. The launcher confirms that the selected path is the Git
 repository root and that its common Git directory matches the controller's.
