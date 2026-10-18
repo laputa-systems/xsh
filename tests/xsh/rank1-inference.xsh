@@ -352,17 +352,23 @@ let concrete: Int = explicit(raw)
   )?
 }
 
-test rank1_quantified_bodies_reject_prefix_returns_and_optional_fields { |ctx|
-  for source in [
-    r"""pure prefixed(value) {
+test rank1_quantified_bodies_accept_immutable_prefixes_and_explicit_returns { |ctx|
+  test.expect(ctx, r"""pure prefixed(value) {
   let copy = value
   value
 }
-""",
-    r"""pure returned(value) {
+pure returned(value) {
   return value
 }
-""",
+assert prefixed(7) == 7
+assert prefixed(false) == false
+assert returned(7) == 7
+assert returned(false) == false
+""", status: 0)?
+}
+
+test rank1_quantified_bodies_reject_optional_fields_and_collection_literals { |ctx|
+  for source in [
     r"""pure optional_name(value) {
   value?.name
 }
