@@ -775,7 +775,9 @@ impl<'a> Linter<'a> {
         if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::Callable {
             let callable = self.arena.callable_type_expr(ty);
             for param in self.arena.params(callable.params).to_vec() {
-                self.collect_type_expr_refs(param.ty);
+                if let Some(annotation) = param.annotation {
+                    self.collect_type_expr_refs(annotation);
+                }
             }
             self.collect_type_expr_refs(callable.return_ty);
             return;
@@ -824,7 +826,9 @@ impl<'a> Linter<'a> {
                         }
                         | ArenaModuleContractEntryKind::Pure { params, return_ty } => {
                             for param in self.arena.params(*params).to_vec() {
-                                self.collect_type_expr_refs(param.ty);
+                                if let Some(annotation) = param.annotation {
+                                    self.collect_type_expr_refs(annotation);
+                                }
                             }
                             self.collect_type_expr_refs(*return_ty);
                         }
@@ -1329,8 +1333,8 @@ impl<'a> Linter<'a> {
         }
         for param in self.arena.params(def.params).to_vec() {
             rules::parameter(self, &param);
-            if !param.ty_defaulted {
-                self.collect_type_expr_refs(param.ty);
+            if let Some(annotation) = param.annotation {
+                self.collect_type_expr_refs(annotation);
             }
             if let Some(default) = param.default {
                 let observing = self.stream_producers.suspend_legacy_projection();

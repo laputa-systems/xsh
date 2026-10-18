@@ -202,13 +202,10 @@ impl Checker {
                 );
                 checker.validate_deferred_effects();
                 let facts = checker.effect_graph.facts(&checker.effect_summaries);
-                Self::update_signature_effects(&mut checker.procs, &facts);
-                Self::update_signature_effects(&mut checker.pures, &facts);
-                Self::update_signature_effects(&mut checker.streams, &facts);
+                checker.finalize_function_declarations(view.program, &facts);
                 checker.publish_command_binding_sites();
                 let module_diagnostic_position = checker.module_diagnostic_position;
-                let mut output = checker.into_output();
-                Self::update_checked_function_effects(&mut output);
+                let output = checker.into_output();
                 CheckedModuleFacts {
                     signature: None,
                     output,
@@ -459,12 +456,12 @@ impl Checker {
         checker.diagnostics.extend(resource_check.diagnostics);
         checker.resource_transfers.extend(resource_check.transfers);
         let facts = checker.effect_graph.facts(&checker.effect_summaries);
+        checker.finalize_function_declarations(program, &facts);
         let mut signature = signature;
-        Self::update_module_signature_effects(&mut signature, &facts);
+        checker.finalize_user_module_functions(program, module, &mut signature);
         checker.publish_command_binding_sites();
         checker.record_constructors = record.prepared_facts().record_constructors.clone();
-        let mut output = checker.into_output();
-        Self::update_checked_function_effects(&mut output);
+        let output = checker.into_output();
         CheckedModuleFacts {
             signature: Some(signature),
             output,
@@ -577,11 +574,14 @@ impl Checker {
             source,
             view.statement_ids(),
         );
-        checker.procs.get(&super::Name::intern("main")).is_some_and(|signature| {
-            matches!(signature.params.as_slice(), [parameter]
-                if parameter.rest && !parameter.defaulted
-                    && matches!(&parameter.ty, super::Type::List(item)
-                        if item.as_ref() == &super::Type::Bytes))
+        checker.procs.get(&super::Name::intern("main")).is_some_and(|declaration| {
+            checker.local_function_signature(*declaration).is_some_and(|signature| {
+                matches!(signature.scheme().params(), [parameter]
+                    if parameter.rest && !parameter.defaulted
+                        && matches!(&parameter.ty,
+                            crate::sema::schemes::SchemeType::Ground(super::Type::List(item))
+                                if item.as_ref() == &super::Type::Bytes))
+            })
         })
     }
 
@@ -600,44 +600,6 @@ impl Checker {
         }));
     }
 
-    fn update_signature_effects(
-        signatures: &mut rustc_hash::FxHashMap<super::Name, super::FunctionSig>,
-        facts: &std::collections::BTreeMap<EffectDeclarationId, FunctionEffectFact>,
-    ) {
-        for signature in signatures.values_mut() {
-            let Some(fact) = signature.effect_declaration.and_then(|id| facts.get(&id)) else {
-                continue;
-            };
-            signature.effects = fact.effective.clone();
-            signature.inferred_effects = fact.inferred;
-        }
-    }
-
-    fn update_module_signature_effects(
-        signature: &mut UserModuleSig,
-        facts: &std::collections::BTreeMap<EffectDeclarationId, FunctionEffectFact>,
-    ) {
-        Self::update_signature_effects(&mut signature.procs, facts);
-        Self::update_signature_effects(&mut signature.pures, facts);
-        Self::update_signature_effects(&mut signature.streams, facts);
-    }
-
-    fn update_checked_function_effects(output: &mut CheckOutput) {
-        for declaration in output.checked_declarations.functions.values_mut() {
-            let Some(signature) = &mut declaration.signature else {
-                continue;
-            };
-            let id = EffectDeclarationId {
-                namespace: declaration.namespace,
-                body: declaration.body,
-            };
-            let Some(fact) = output.function_effect_facts.get(&id) else {
-                continue;
-            };
-            signature.effects = fact.effective.clone();
-            signature.inferred_effects = fact.inferred;
-        }
-    }
 }
 
 #[cfg(test)]
@@ -645,7 +607,11 @@ mod tests {
     use super::*;
     use crate::sema::check::CheckOptions;
     use crate::sema::check::decl::USER_MODULE_CHECKS;
-    use crate::syntax::arena::ArenaProgramBuilder;
+    use crate::sema::constraints::{ConstraintType, TypeConstraints};
+    use crate::sema::schemes::{SchemeRowTail, SchemeType, TypeScheme};
+    use crate::sema::types::Type;
+    use crate::source::Span;
+    use crate::syntax::arena::{ArenaProgramBuilder, ArenaRange};
     use crate::syntax::parser::Parser;
 
     fn no_interactive_commands(_: &str) -> bool {
@@ -681,6 +647,204 @@ mod tests {
             actual.checked_declarations.cli_entries.len(),
             expected.checked_declarations.cli_entries.len()
         );
+    }
+
+    struct TypingWorkspace {
+        program: Arc<ArenaProgram>,
+        sources: Arc<SourceMap>,
+        roots: Vec<(ArenaRange, SourceId)>,
+        module_source: SourceId,
+    }
+
+    fn typing_workspace(root_sources: &[&str]) -> TypingWorkspace {
+        assert!(!root_sources.is_empty());
+        let module_text = concat!(
+            "##! Shared generic functions.\n",
+            "## Returns its supplied value.\n",
+            "export pure identity(value) { value }\n",
+            "## Return the required name field.\n",
+            "export pure name_of(value) { value.name }\n",
+            "## Return a boolean literal.\n",
+            "export pure false_value() { false }\n",
+            "## Return an explicit dynamic value.\n",
+            "export pure explicit_any(value: Any) -> Any { value }\n",
+        );
+        let mut sources = SourceMap::new();
+        let mut builder = ArenaProgramBuilder::with_token_capacity(256);
+        let mut roots = Vec::with_capacity(root_sources.len());
+        for (index, text) in root_sources.iter().enumerate() {
+            let source_id = sources.add_file(format!("root-{index}.xsh"), *text);
+            let parsed =
+                Parser::parse_source_into_arena_builder(source_id, text, &mut builder);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            roots.push((parsed.statements, source_id));
+        }
+        let module_source = sources.add_file("shared.xsh", module_text);
+        let module = Parser::parse_source_into_arena_builder(
+            module_source,
+            module_text,
+            &mut builder,
+        );
+        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+        let module_name = builder.symbol_owner().intern("shared");
+        builder.push_arena_module("shared".to_string(), module_name, module.statements);
+        for &(statements, _) in &roots {
+            for statement in builder.statement_ids(statements) {
+                if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                    builder.set_use_resolved(use_id, Arc::from("shared"));
+                }
+            }
+        }
+        let program = Arc::new(builder.finish_with_statements(roots[0].0));
+        TypingWorkspace {
+            program,
+            sources: Arc::new(sources),
+            roots,
+            module_source,
+        }
+    }
+
+    fn checked_module_facts(
+        session: &CheckSession,
+        module_source: SourceId,
+    ) -> Arc<CheckedModuleFacts> {
+        let record = session
+            .records
+            .lock()
+            .expect("module record cache poisoned")
+            .values()
+            .find(|record| record.source_id() == module_source)
+            .expect("root prepared the shared module")
+            .clone();
+        record.check_once(None, || unreachable!("module check is cached"))
+    }
+
+    fn exported_scheme(facts: &CheckedModuleFacts, name: &str) -> Arc<TypeScheme> {
+        facts
+            .signature
+            .as_ref()
+            .expect("checked module signature")
+            .pures
+            .get(&crate::symbol::Name::intern(name))
+            .unwrap_or_else(|| panic!("missing exported pure function `{name}`"))
+            .scheme()
+            .clone()
+    }
+
+    fn assert_no_inference_in_scheme_type(ty: &SchemeType) {
+        match ty {
+            SchemeType::Ground(ty) => assert!(!ty.contains_inference(), "{ty:?}"),
+            SchemeType::Parameter(_) => {}
+            SchemeType::List(inner)
+            | SchemeType::Stream(inner)
+            | SchemeType::Set(inner)
+            | SchemeType::Optional(inner)
+            | SchemeType::Validated(_, inner) => assert_no_inference_in_scheme_type(inner),
+            SchemeType::Map(key, value) | SchemeType::Result(key, value) => {
+                assert_no_inference_in_scheme_type(key);
+                assert_no_inference_in_scheme_type(value);
+            }
+            SchemeType::Record { fields, .. } => {
+                for field in fields.values() {
+                    assert_no_inference_in_scheme_type(field);
+                }
+            }
+            SchemeType::Union(members) => {
+                for member in members {
+                    assert_no_inference_in_scheme_type(member);
+                }
+            }
+        }
+    }
+
+    fn assert_no_inference_in_output(output: &CheckOutput) {
+        for ty in output
+            .local_binding_types
+            .values()
+            .chain(output.function_return_types.values())
+            .chain(output.parameter_types.values())
+            .chain(output.expr_types.values())
+        {
+            assert!(!ty.contains_inference(), "{ty:?}");
+        }
+        for instantiation in output.call_instantiations.values() {
+            for ty in instantiation.type_arguments().values() {
+                assert_no_inference_in_scheme_type(ty);
+            }
+            for ty in instantiation
+                .row_arguments()
+                .values()
+                .flat_map(|row| row.fields().values())
+            {
+                assert_no_inference_in_scheme_type(ty);
+            }
+        }
+        for declaration in output.checked_declarations.functions.values() {
+            if let Some(scheme) = declaration.scheme.as_ref() {
+                for parameter in scheme.params() {
+                    assert_no_inference_in_scheme_type(&parameter.ty);
+                }
+                assert_no_inference_in_scheme_type(scheme.return_type());
+            }
+            if let Some(facts) = declaration.scheme_body_facts.as_ref() {
+                for ty in facts
+                    .expression_types()
+                    .values()
+                    .chain(facts.tail_types().values())
+                {
+                    assert_no_inference_in_scheme_type(ty);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn repeated_generic_calls_add_call_facts_without_increasing_final_checker_body_entries() {
+        let check = |call_count: usize| {
+            let calls = (0..call_count)
+                .map(|value| format!("identity({value})"))
+                .collect::<Vec<_>>()
+                .join(" + ");
+            let source = format!(
+                "pure identity(value) {{ value }}\npure exercise_calls() -> Int {{ {calls} }}\n"
+            );
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let program = &parsed.arena;
+            program.symbol_owner().with_current(|| {
+                let output = Checker::check_arena_with_options(
+                    program,
+                    &source,
+                    CheckOptions::for_execution(),
+                );
+                assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+                let body_entries = output.function_body_check_entries;
+                let call_facts = output.call_instantiations.len();
+                let declarations = Checker::compact_declarations(program, output);
+                let lowered = crate::runtime::eval::probe_compact_lower_constructed_bodies(
+                    program,
+                    &declarations,
+                    &source,
+                );
+                (
+                    body_entries,
+                    call_facts,
+                    lowered.functions,
+                    lowered.constructed_functions,
+                )
+            })
+        };
+
+        let (one_body_checks, one_call_facts, one_functions, one_constructed) = check(1);
+        let (many_body_checks, many_call_facts, many_functions, many_constructed) = check(8);
+        assert_eq!(one_call_facts, 1);
+        assert_eq!(many_call_facts, 8);
+        assert_eq!(one_body_checks, many_body_checks);
+        assert_eq!(one_body_checks, 2);
+        assert_eq!(one_functions, 2);
+        assert_eq!(many_functions, one_functions);
+        assert_eq!(one_constructed, 2);
+        assert_eq!(many_constructed, one_constructed);
     }
 
     #[test]
@@ -969,6 +1133,763 @@ mod tests {
             incoming(&second_output),
             crate::sema::check::Type::List(Box::new(crate::sema::check::Type::Str))
         );
+    }
+
+    #[test]
+    fn imported_open_row_scheme_instantiates_independently_across_roots() {
+        let first_text = "use shared\nlet package: Str = shared.name_of({name: \"package\", version: \"1.0\"})\n";
+        let second_text = "use shared\nlet count: Int = shared.name_of({name: 42, enabled: true})\n";
+        let module_text = concat!(
+            "##! Shared open record projection.\n",
+            "## Return the required name field.\n",
+            "export pure name_of(value) { value.name }\n",
+        );
+        let mut sources = SourceMap::new();
+        let first_source = sources.add_file("first.xsh", first_text);
+        let second_source = sources.add_file("second.xsh", second_text);
+        let module_source = sources.add_file("shared.xsh", module_text);
+        let mut builder = ArenaProgramBuilder::with_token_capacity(128);
+        let first = Parser::parse_source_into_arena_builder(first_source, first_text, &mut builder);
+        let second =
+            Parser::parse_source_into_arena_builder(second_source, second_text, &mut builder);
+        let shared =
+            Parser::parse_source_into_arena_builder(module_source, module_text, &mut builder);
+        assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+        assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+        assert!(shared.diagnostics.is_empty(), "{:?}", shared.diagnostics);
+        let shared_name = builder.symbol_owner().intern("shared");
+        builder.push_arena_module("shared".to_string(), shared_name, shared.statements);
+        for root in [first.statements, second.statements] {
+            for statement in builder.statement_ids(root) {
+                if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                    builder.set_use_resolved(use_id, Arc::from("shared"));
+                }
+            }
+        }
+        let program = Arc::new(builder.finish_with_statements(first.statements));
+        let _symbols = program.symbol_owner().enter();
+        let sources = Arc::new(sources);
+        USER_MODULE_CHECKS.with(|checks| checks.set(0));
+        let session = CheckSession::new(Arc::clone(&program), sources);
+        let first_output = session.check(first.statements, first_source, CheckOptions::default());
+        let first_record = session
+            .records
+            .lock()
+            .expect("module record cache poisoned")
+            .values()
+            .find(|record| record.source_id() == module_source)
+            .expect("first root prepared the shared module")
+            .clone();
+        let first_checked = first_record.check_once(None, || unreachable!("module check is cached"));
+        let second_output =
+            session.check(second.statements, second_source, CheckOptions::default());
+        let second_record = session
+            .records
+            .lock()
+            .expect("module record cache poisoned")
+            .values()
+            .find(|record| record.source_id() == module_source)
+            .expect("second root retained the shared module")
+            .clone();
+        let second_checked =
+            second_record.check_once(None, || unreachable!("module check is cached"));
+
+        assert!(first_output.diagnostics.is_empty(), "{:?}", first_output.diagnostics);
+        assert!(second_output.diagnostics.is_empty(), "{:?}", second_output.diagnostics);
+        assert_eq!(USER_MODULE_CHECKS.with(std::cell::Cell::get), 2);
+        assert!(Arc::ptr_eq(&first_record, &second_record));
+        assert!(Arc::ptr_eq(&first_checked, &second_checked));
+        let first_scheme = first_checked
+            .signature
+            .as_ref()
+            .expect("shared module signature")
+            .pures
+            .values()
+            .next()
+            .expect("exported projection scheme")
+            .scheme();
+        let second_scheme = second_checked
+            .signature
+            .as_ref()
+            .expect("shared module signature")
+            .pures
+            .values()
+            .next()
+            .expect("exported projection scheme")
+            .scheme();
+        assert!(Arc::ptr_eq(first_scheme, second_scheme));
+        assert_eq!(first_scheme.type_parameters().len(), 1);
+        assert_eq!(first_scheme.row_parameters().len(), 1);
+
+        let call_span = |source_id, source: &str, call: &str| {
+            let start = source.find(call).expect("projection call expression");
+            crate::source::Span::new(source_id, start, start + call.len())
+        };
+        let first_call = "shared.name_of({name: \"package\", version: \"1.0\"})";
+        let second_call = "shared.name_of({name: 42, enabled: true})";
+        let first_instantiation = first_output
+            .call_instantiations
+            .get(&call_span(first_source, first_text, first_call))
+            .expect("first root has a checked call instantiation");
+        let second_instantiation = second_output
+            .call_instantiations
+            .get(&call_span(second_source, second_text, second_call))
+            .expect("second root has a checked call instantiation");
+        assert_eq!(
+            first_instantiation.type_arguments().values().collect::<Vec<_>>(),
+            [&SchemeType::Ground(crate::sema::check::Type::Str)]
+        );
+        assert_eq!(
+            second_instantiation.type_arguments().values().collect::<Vec<_>>(),
+            [&SchemeType::Ground(crate::sema::check::Type::Int)]
+        );
+        let first_row = first_instantiation
+            .row_arguments()
+            .values()
+            .next()
+            .expect("first root has open-row evidence")
+            .fields();
+        let second_row = second_instantiation
+            .row_arguments()
+            .values()
+            .next()
+            .expect("second root has open-row evidence")
+            .fields();
+        assert_eq!(first_row.len(), 1);
+        assert_eq!(
+            first_row.get(&program.symbol_owner().intern("version")),
+            Some(&SchemeType::Ground(crate::sema::check::Type::Str))
+        );
+        assert_eq!(second_row.len(), 1);
+        assert_eq!(
+            second_row.get(&program.symbol_owner().intern("enabled")),
+            Some(&SchemeType::Ground(crate::sema::check::Type::Bool))
+        );
+    }
+
+    #[test]
+    fn checked_identity_scheme_is_rank1_and_reuses_one_binder() {
+        let workspace = typing_workspace(&[
+            "use shared\nlet value: Int = shared.identity(42)\n",
+        ]);
+        let _symbols = workspace.program.symbol_owner().enter();
+        let session = CheckSession::new(
+            Arc::clone(&workspace.program),
+            Arc::clone(&workspace.sources),
+        );
+        let (root, source) = workspace.roots[0];
+        let output = session.check(root, source, CheckOptions::default());
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+
+        let facts = checked_module_facts(&session, workspace.module_source);
+        let identity = exported_scheme(&facts, "identity");
+        let [binder] = identity.type_parameters() else {
+            panic!("identity has exactly one type binder: {identity:?}");
+        };
+        assert!(identity.row_parameters().is_empty());
+        assert_eq!(identity.params().len(), 1);
+        assert_eq!(
+            identity.params()[0].ty,
+            SchemeType::Parameter(*binder)
+        );
+        assert_eq!(identity.return_type(), &SchemeType::Parameter(*binder));
+
+        let checked_identity = facts
+            .output
+            .checked_declarations
+            .functions
+            .values()
+            .find(|declaration| declaration.name.as_str() == "identity")
+            .expect("checked exported identity");
+        assert!(checked_identity.exported);
+        assert!(Arc::ptr_eq(
+            checked_identity.scheme.as_ref().expect("checked identity scheme"),
+            &identity,
+        ));
+
+        let explicit_any = exported_scheme(&facts, "explicit_any");
+        assert!(explicit_any.type_parameters().is_empty());
+        assert!(explicit_any.row_parameters().is_empty());
+        assert_eq!(
+            explicit_any.params()[0].ty,
+            SchemeType::Ground(Type::Any)
+        );
+        assert_eq!(
+            explicit_any.return_type(),
+            &SchemeType::Ground(Type::Any)
+        );
+
+        let false_value = exported_scheme(&facts, "false_value");
+        assert!(false_value.type_parameters().is_empty());
+        assert!(false_value.row_parameters().is_empty());
+        assert!(false_value.params().is_empty());
+        assert_eq!(
+            false_value.return_type(),
+            &SchemeType::Ground(Type::Bool)
+        );
+        let name_of = exported_scheme(&facts, "name_of");
+        let [type_binder] = name_of.type_parameters() else {
+            panic!("name_of has exactly one type binder: {name_of:?}");
+        };
+        let [row_binder] = name_of.row_parameters() else {
+            panic!("name_of has exactly one row binder: {name_of:?}");
+        };
+        assert_eq!(name_of.params().len(), 1);
+        let SchemeType::Record { fields, tail } = &name_of.params()[0].ty else {
+            panic!("name_of accepts a record parameter: {name_of:?}");
+        };
+        let name_field = crate::symbol::Name::intern("name");
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields.get(&name_field), Some(&SchemeType::Parameter(*type_binder)));
+        assert_eq!(*tail, SchemeRowTail::Parameter(row_binder.id));
+        assert_eq!(name_of.return_type(), &SchemeType::Parameter(*type_binder));
+        assert!(row_binder.lacks.contains(&name_field));
+    }
+
+    #[test]
+    fn scheme_instantiation_is_fresh_and_does_not_escape() {
+        let workspace = typing_workspace(&[
+            "use shared\nlet number: Int = shared.identity(42)\nlet text: Str = shared.identity(\"demo\")\n",
+        ]);
+        let _symbols = workspace.program.symbol_owner().enter();
+        let session = CheckSession::new(
+            Arc::clone(&workspace.program),
+            Arc::clone(&workspace.sources),
+        );
+        let (root, source) = workspace.roots[0];
+        let output = session.check(root, source, CheckOptions::default());
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        assert_eq!(output.call_instantiations.len(), 2);
+        assert_no_inference_in_output(&output);
+
+        let facts = checked_module_facts(&session, workspace.module_source);
+        assert_no_inference_in_output(&facts.output);
+        let scheme = exported_scheme(&facts, "identity");
+        let [binder] = scheme.type_parameters() else {
+            panic!("identity has exactly one type binder: {scheme:?}");
+        };
+        let origin = Span::new(source, 0, 0);
+        let mut constraints = TypeConstraints::default();
+        let integer = constraints
+            .instantiate_scheme(&scheme, 1, origin)
+            .expect("integer identity instantiation");
+        let text = constraints
+            .instantiate_scheme(&scheme, 1, origin)
+            .expect("text identity instantiation");
+        assert_eq!(integer.params.len(), 1);
+        assert_eq!(text.params.len(), 1);
+        assert_eq!(integer.params[0], integer.return_type);
+        assert_eq!(text.params[0], text.return_type);
+        assert_eq!(integer.type_arguments.get(binder), Some(&integer.params[0]));
+        assert_eq!(text.type_arguments.get(binder), Some(&text.params[0]));
+        let Type::Inference(integer_id) = &integer.params[0] else {
+            panic!("an ununified scheme instance is an inference variable");
+        };
+        let Type::Inference(text_id) = &text.params[0] else {
+            panic!("an ununified scheme instance is an inference variable");
+        };
+        assert_ne!(integer_id, text_id, "calls get fresh type variables");
+
+        constraints
+            .constrain_types(
+                &ConstraintType::Variable(*integer_id),
+                &ConstraintType::Ground(Type::Int),
+                origin,
+            )
+            .expect("integer use specializes its own instance");
+        constraints
+            .constrain_types(
+                &ConstraintType::Variable(*text_id),
+                &ConstraintType::Ground(Type::Str),
+                origin,
+            )
+            .expect("text use specializes its own instance");
+        assert_eq!(constraints.resolve(&integer.return_type), Ok(Type::Int));
+        assert_eq!(constraints.resolve(&text.return_type), Ok(Type::Str));
+
+        let arguments = output
+            .call_instantiations
+            .values()
+            .flat_map(|instantiation| instantiation.type_arguments().values())
+            .cloned()
+            .collect::<Vec<_>>();
+        assert_eq!(arguments.len(), 2);
+        assert!(arguments.contains(&SchemeType::Ground(Type::Int)));
+        assert!(arguments.contains(&SchemeType::Ground(Type::Str)));
+    }
+
+    #[test]
+    fn imported_identity_and_projection_schemes_are_order_independent_across_roots() {
+        let workspace = typing_workspace(&[
+            "use shared\nlet identity: Str = shared.identity(\"demo\")\nlet name: Str = shared.name_of({name: \"package\", version: \"1.0\"})\n",
+            "use shared\nlet identity: Int = shared.identity(42)\nlet name: Int = shared.name_of({name: 7, enabled: true})\n",
+            "use shared\nlet integer_identity: Int = shared.identity(42)\nlet text_identity: Str = shared.identity(\"demo\")\nlet integer_name: Int = shared.name_of({name: 7, enabled: true})\nlet text_name: Str = shared.name_of({name: \"package\", version: \"1.0\"})\n",
+        ]);
+        let _symbols = workspace.program.symbol_owner().enter();
+
+        let check_root = |root_index: usize| {
+            let session = CheckSession::new(
+                Arc::clone(&workspace.program),
+                Arc::clone(&workspace.sources),
+            );
+            let (root, source) = workspace.roots[root_index];
+            let output = session.check(root, source, CheckOptions::default());
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            assert_no_inference_in_output(&output);
+            let facts = checked_module_facts(&session, workspace.module_source);
+            let identity = exported_scheme(&facts, "identity");
+            let projection = exported_scheme(&facts, "name_of");
+            (session, output, identity, projection)
+        };
+
+        let (root_a_only_session, root_a_only, root_a_identity, root_a_projection) =
+            check_root(0);
+        let (root_b_only_session, root_b_only, root_b_identity, root_b_projection) =
+            check_root(1);
+        assert_eq!(root_a_identity.as_ref(), root_b_identity.as_ref());
+        assert_eq!(root_a_projection.as_ref(), root_b_projection.as_ref());
+        assert_call_type_arguments(&root_a_only, &[Type::Str, Type::Str]);
+        assert_call_type_arguments(&root_b_only, &[Type::Int, Type::Int]);
+        drop(root_a_only_session);
+        drop(root_b_only_session);
+
+        let session_ab = CheckSession::new(
+            Arc::clone(&workspace.program),
+            Arc::clone(&workspace.sources),
+        );
+        let (root_a, source_a) = workspace.roots[0];
+        let output_a = session_ab.check(root_a, source_a, CheckOptions::default());
+        assert!(output_a.diagnostics.is_empty(), "{:?}", output_a.diagnostics);
+        let identity_after_a =
+            exported_scheme(&checked_module_facts(&session_ab, workspace.module_source), "identity");
+        let projection_after_a =
+            exported_scheme(&checked_module_facts(&session_ab, workspace.module_source), "name_of");
+        let (root_b, source_b) = workspace.roots[1];
+        let output_b = session_ab.check(root_b, source_b, CheckOptions::default());
+        assert!(output_b.diagnostics.is_empty(), "{:?}", output_b.diagnostics);
+        let facts_after_b = checked_module_facts(&session_ab, workspace.module_source);
+        let identity_after_b = exported_scheme(&facts_after_b, "identity");
+        let projection_after_b = exported_scheme(&facts_after_b, "name_of");
+        assert!(Arc::ptr_eq(&identity_after_a, &identity_after_b));
+        assert!(Arc::ptr_eq(&projection_after_a, &projection_after_b));
+        assert_call_type_arguments(&output_a, &[Type::Str, Type::Str]);
+        assert_call_type_arguments(&output_b, &[Type::Int, Type::Int]);
+
+        let session_ba = CheckSession::new(
+            Arc::clone(&workspace.program),
+            Arc::clone(&workspace.sources),
+        );
+        let output_b = session_ba.check(root_b, source_b, CheckOptions::default());
+        assert!(output_b.diagnostics.is_empty(), "{:?}", output_b.diagnostics);
+        let identity_after_b =
+            exported_scheme(&checked_module_facts(&session_ba, workspace.module_source), "identity");
+        let projection_after_b =
+            exported_scheme(&checked_module_facts(&session_ba, workspace.module_source), "name_of");
+        let output_a = session_ba.check(root_a, source_a, CheckOptions::default());
+        assert!(output_a.diagnostics.is_empty(), "{:?}", output_a.diagnostics);
+        let facts_after_a = checked_module_facts(&session_ba, workspace.module_source);
+        assert!(Arc::ptr_eq(
+            &identity_after_b,
+            &exported_scheme(&facts_after_a, "identity"),
+        ));
+        assert!(Arc::ptr_eq(
+            &projection_after_b,
+            &exported_scheme(&facts_after_a, "name_of"),
+        ));
+        assert_call_type_arguments(&output_b, &[Type::Int, Type::Int]);
+        assert_call_type_arguments(&output_a, &[Type::Str, Type::Str]);
+
+        let (joint_session, joint, joint_identity, joint_projection) = check_root(2);
+        assert_eq!(joint_identity.as_ref(), root_a_identity.as_ref());
+        assert_eq!(joint_projection.as_ref(), root_a_projection.as_ref());
+        assert_call_type_arguments(
+            &joint,
+            &[Type::Int, Type::Int, Type::Str, Type::Str],
+        );
+        drop(joint_session);
+    }
+
+    fn assert_call_type_arguments(output: &CheckOutput, expected: &[Type]) {
+        let mut actual = output
+            .call_instantiations
+            .values()
+            .flat_map(|instantiation| instantiation.type_arguments().values())
+            .cloned()
+            .collect::<Vec<_>>();
+        for expected in expected {
+            let expected = SchemeType::Ground(expected.clone());
+            let Some(position) = actual.iter().position(|actual| actual == &expected) else {
+                panic!("missing call argument type {expected:?} in {actual:?}");
+            };
+            actual.remove(position);
+        }
+        assert!(actual.is_empty(), "unexpected call argument types: {actual:?}");
+    }
+
+    #[test]
+    fn module_index_distinguishes_concrete_generic_and_dynamic_keys() {
+        let texts = [
+            "use shared\nlet concrete = shared[\"false_value\"]\n",
+            "use shared\nlet generic = shared[\"identity\"]\n",
+            "use shared\npure lookup(key: Str) -> Any { shared[key] }\n",
+            "use shared\nlet concrete = shared.get(\"false_value\")?\n",
+        ];
+        let workspace = typing_workspace(&texts);
+        let _symbols = workspace.program.symbol_owner().enter();
+        let session = CheckSession::new(workspace.program.clone(), workspace.sources.clone());
+        for (index, &(statements, source)) in workspace.roots.iter().enumerate() {
+            let checked = session.check(statements, source, CheckOptions::default());
+            if index == 1 || index == 2 {
+                assert!(checked.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckModuleMember)
+                }), "root {index}: {:?}", checked.diagnostics);
+            } else {
+                assert!(checked.diagnostics.is_empty(), "root {index}: {:?}", checked.diagnostics);
+            }
+        }
+    }
+
+    #[test]
+    fn recursive_inferred_parameters_share_provisional_types_in_both_orders() {
+        for reverse in [false, true] {
+            for argument in ["\"wrong\"", "value"] {
+                let first = format!("pure first(value) -> Int {{ second({argument}) + value }}\n");
+                let second = "pure second(value) -> Int { first(value) }\n";
+                let source = if reverse {
+                    format!("{second}{first}let answer: Int = first(1)\n")
+                } else {
+                    format!("{first}{second}let answer: Int = first(1)\n")
+                };
+                let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let checked = Checker::check_arena_with_options(
+                    &parsed.arena,
+                    &source,
+                    CheckOptions::default(),
+                );
+                if argument == "value" {
+                    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+                    for declaration in checked.checked_declarations.functions.values() {
+                        let scheme = declaration.scheme.as_ref().expect("checked recursive scheme");
+                        assert!(scheme.type_parameters().is_empty());
+                        assert!(scheme.row_parameters().is_empty());
+                        assert_eq!(scheme.params()[0].ty, SchemeType::Ground(Type::Int));
+                    }
+                } else {
+                    assert!(checked.diagnostics.iter().any(|diagnostic| {
+                        diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)
+                    }), "reverse {reverse}: {:?}", checked.diagnostics);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn recursive_parameters_are_solved_without_caller_evidence() {
+        for reverse in [false, true] {
+            for caller_first in [false, true] {
+                let first = "pure first(value) -> Int { second(value) }\n";
+                let second = "pure second(value) -> Int { first(value) }\n";
+                let definitions = if reverse {
+                    format!("{second}{first}")
+                } else {
+                    format!("{first}{second}")
+                };
+                let call = "let answer: Int = first(1)\n";
+                let source = if caller_first {
+                    format!("{call}{definitions}")
+                } else {
+                    format!("{definitions}{call}")
+                };
+                let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+                assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                let checked = Checker::check_arena_with_options(
+                    &parsed.arena,
+                    &source,
+                    CheckOptions::default(),
+                );
+                assert!(checked.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)
+                }), "reverse {reverse}, caller_first {caller_first}: {:?}", checked.diagnostics);
+            }
+        }
+    }
+
+    #[test]
+    fn captured_mutable_bindings_are_not_generalized() {
+        let source = "var captured = [1]\npure read_captured() { captured }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = parsed.arena.symbol_owner().with_current(|| {
+            Checker::check_arena_with_options(
+                &parsed.arena,
+                source,
+                CheckOptions::default(),
+            )
+        });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let reader = checked
+            .checked_declarations
+            .functions
+            .values()
+            .find(|declaration| declaration.name.as_str() == "read_captured")
+            .expect("reader of the mutable binding");
+        let scheme = reader.scheme.as_ref().expect("checked reader scheme");
+        assert!(scheme.type_parameters().is_empty());
+        assert!(scheme.row_parameters().is_empty());
+        assert_eq!(
+            scheme.return_type(),
+            &SchemeType::List(Box::new(SchemeType::Ground(Type::Int)))
+        );
+        assert_no_inference_in_output(&checked);
+
+        let conflicting_source = concat!(
+            "var captured = [1]\n",
+            "pure read_captured() { captured }\n",
+            "captured = [\"wrong\"]\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), conflicting_source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = parsed.arena.symbol_owner().with_current(|| {
+            Checker::check_arena_with_options(
+                &parsed.arena,
+                conflicting_source,
+                CheckOptions::default(),
+            )
+        });
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckTypeMismatch)
+        }), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn recursive_component_remains_monomorphic() {
+        let source = concat!(
+            "pure first(value: Int) -> Int { second(value) }\n",
+            "pure second(value: Int) -> Int { first(value) }\n",
+        );
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(
+            &parsed.arena,
+            source,
+            CheckOptions::default(),
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_no_inference_in_output(&checked);
+        assert_eq!(checked.checked_declarations.functions.len(), 2);
+        assert_eq!(checked.selected_function_calls.len(), 2);
+        assert!(checked.call_instantiations.is_empty());
+        for declaration in checked.checked_declarations.functions.values() {
+            let scheme = declaration.scheme.as_ref().expect("recursive function scheme");
+            assert!(scheme.type_parameters().is_empty());
+            assert!(scheme.row_parameters().is_empty());
+            assert_eq!(scheme.params().len(), 1);
+            assert!(matches!(
+                &scheme.params()[0].ty,
+                crate::sema::schemes::SchemeType::Ground(crate::sema::check::Type::Int)
+            ));
+            assert_eq!(
+                scheme.return_type(),
+                &crate::sema::schemes::SchemeType::Ground(crate::sema::check::Type::Int)
+            );
+        }
+        let first_call_start = source.find("second(value)").expect("first recursive call");
+        let first_call = crate::source::Span::new(
+            SourceId::new(0),
+            first_call_start,
+            first_call_start + "second(value)".len(),
+        );
+        let second_call_start = source.find("first(value)").expect("second recursive call");
+        let second_call = crate::source::Span::new(
+            SourceId::new(0),
+            second_call_start,
+            second_call_start + "first(value)".len(),
+        );
+        assert_eq!(checked.expr_types.get(&first_call), Some(&crate::sema::check::Type::Int));
+        assert_eq!(checked.expr_types.get(&second_call), Some(&crate::sema::check::Type::Int));
+    }
+
+    #[test]
+    fn exported_generic_scheme_is_published_from_module_declaration_identity() {
+        let mut sources = SourceMap::new();
+        let entry_text = "use shared\nlet number: Int = shared.identity(1)\n";
+        let module_text = concat!(
+            "##! Shared identity module.\n",
+            "## Returns the supplied value.\n",
+            "export pure identity(value) { value }\n",
+            "pure private_identity(value) { value }\n",
+            "pure name_of(value) { value.name }\n",
+            "pure helper(value: Int) -> Int { value }\n",
+            "pure explicit_any(value: Any) -> Any { value }\n",
+        );
+        let entry_source = sources.add_file("entry.xsh", entry_text);
+        let module_source = sources.add_file("shared.xsh", module_text);
+        let mut builder = ArenaProgramBuilder::with_token_capacity(128);
+        let entry = Parser::parse_source_into_arena_builder(entry_source, entry_text, &mut builder);
+        let module = Parser::parse_source_into_arena_builder(
+            module_source,
+            module_text,
+            &mut builder,
+        );
+        assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
+        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+        let module_name = builder.symbol_owner().intern("shared");
+        builder.push_arena_module("shared".to_string(), module_name, module.statements);
+        for statement in builder.statement_ids(entry.statements) {
+            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                builder.set_use_resolved(use_id, Arc::from("shared"));
+            }
+        }
+        let program = Arc::new(builder.finish_with_statements(entry.statements));
+        let session = CheckSession::new(Arc::clone(&program), Arc::new(sources));
+        let output = session.check(entry.statements, entry_source, CheckOptions::default());
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+
+        let record = session
+            .records
+            .lock()
+            .expect("module record cache poisoned")
+            .values()
+            .find(|record| record.source_id() == module_source)
+            .expect("shared module record")
+            .clone();
+        let checked = record.check_once(None, || unreachable!("module check is cached"));
+        let functions = &checked.output.checked_declarations.functions;
+        let exported = functions
+            .values()
+            .find(|declaration| declaration.name.as_str() == "identity")
+            .expect("checked exported identity");
+        let private = functions
+            .values()
+            .find(|declaration| declaration.name.as_str() == "helper")
+            .expect("checked private helper");
+        let private_identity = functions
+            .values()
+            .find(|declaration| declaration.name.as_str() == "private_identity")
+            .expect("checked private identity");
+        let name_of = functions
+            .values()
+            .find(|declaration| declaration.name.as_str() == "name_of")
+            .expect("checked private name projection");
+        let explicit_any = functions
+            .values()
+            .find(|declaration| declaration.name.as_str() == "explicit_any")
+            .expect("checked explicit Any function");
+        assert!(exported.exported);
+        assert!(!private.exported);
+        assert!(!private_identity.exported);
+        assert!(!name_of.exported);
+
+        let source_span = |definition: &str, expression: &str| {
+            let definition_start = module_text.find(definition).expect("function source");
+            let expression_start = definition.rfind(expression).expect("body expression");
+            crate::source::Span::new(
+                module_source,
+                definition_start + expression_start,
+                definition_start + expression_start + expression.len(),
+            )
+        };
+        let exported_identity_body =
+            source_span("export pure identity(value) { value }", "value");
+        let identity_body = source_span("pure private_identity(value) { value }", "value");
+        let name_projection = source_span("pure name_of(value) { value.name }", "value.name");
+        let helper_body = source_span("pure helper(value: Int) -> Int { value }", "value");
+        let any_body = source_span("pure explicit_any(value: Any) -> Any { value }", "value");
+        let private_scheme = private_identity.scheme.as_ref().expect("private identity scheme");
+        assert_eq!(private_scheme.type_parameters().len(), 1);
+        assert!(exported
+            .scheme_body_facts
+            .as_ref()
+            .expect("exported identity body facts")
+            .tail_types()
+            .values()
+            .any(|ty| matches!(ty, crate::sema::schemes::SchemeType::Parameter(_))));
+        assert!(explicit_any.scheme_body_facts.is_none());
+        let identity_body_type = private_identity
+            .scheme_body_facts
+            .as_ref()
+            .expect("private identity body facts")
+            .tail_types()
+            .iter()
+            .find_map(|(&statement, ty)| {
+                (program.arena.stmt(statement).span == identity_body).then_some(ty)
+            });
+        assert!(matches!(
+            identity_body_type,
+            Some(crate::sema::schemes::SchemeType::Parameter(_))
+        ));
+        let name_scheme = name_of.scheme.as_ref().expect("name projection scheme");
+        assert_eq!(name_scheme.type_parameters().len(), 1);
+        assert_eq!(name_scheme.row_parameters().len(), 1);
+        let name_body_type = name_of
+            .scheme_body_facts
+            .as_ref()
+            .expect("name projection body facts")
+            .expression_types()
+            .iter()
+            .find_map(|(&expression, ty)| {
+                (program.arena.expr(expression).span == name_projection).then_some(ty)
+            });
+        assert!(matches!(
+            name_body_type,
+            Some(crate::sema::schemes::SchemeType::Parameter(_))
+        ));
+        assert!(!checked.output.expr_types.contains_key(&identity_body));
+        assert!(!checked
+            .output
+            .expr_types
+            .contains_key(&exported_identity_body));
+        assert!(!checked.output.expr_types.contains_key(&name_projection));
+        assert!(!checked
+            .output
+            .parameter_types
+            .contains_key(&private_identity.parameter_spans[0]));
+        assert!(!checked
+            .output
+            .function_return_types
+            .contains_key(&private_identity.body));
+        assert_eq!(
+            checked.output.expr_types.get(&helper_body),
+            Some(&crate::sema::check::Type::Int)
+        );
+        assert_eq!(
+            checked.output.expr_types.get(&any_body),
+            Some(&crate::sema::check::Type::Any)
+        );
+        assert_eq!(
+            checked
+                .output
+                .parameter_types
+                .get(&explicit_any.parameter_spans[0]),
+            Some(&crate::sema::check::Type::Any)
+        );
+
+        program.symbol_owner().with_current(|| {
+            let compact = checked.output.checked_declarations.clone().into_compact();
+            let key = crate::symbol::QualifiedName::new(
+                crate::symbol::Name::intern("shared"),
+                crate::symbol::Name::intern("identity"),
+            );
+            assert_eq!(compact.function_schemes.len(), 1);
+            let published = compact.function_schemes.get(&key).expect("exported scheme");
+            let checked_scheme = exported.scheme.as_ref().expect("checked scheme");
+            assert!(Arc::ptr_eq(published, checked_scheme));
+        });
+    }
+
+    #[test]
+    fn unresolved_nongeneric_material_still_requires_an_annotation() {
+        let source = "pure build() { let unresolved = []\n 1 }\n";
+        let program = Parser::parse_source_arena_only(SourceId::new(0), source).arena;
+        let checked = Checker::check_arena_with_options(
+            &program,
+            source,
+            CheckOptions::default(),
+        );
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)
+        }));
     }
 
     #[test]

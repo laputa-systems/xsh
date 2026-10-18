@@ -141,7 +141,10 @@ impl<'a> Parser<'a> {
             TokenKindMatch::LParen,
             "expected `(` after `proc` or `pure` in a callable type",
         );
-        let params = self.parse_params_arena_only(arena);
+        let params = self.parse_params_arena_only(
+            arena,
+            super::stmt::ParameterAnnotationContext::Required,
+        );
         self.expect(TokenKindMatch::RParen, "expected `)` after parameters");
         let params = arena.push_params(&params);
         let effects = if pure {

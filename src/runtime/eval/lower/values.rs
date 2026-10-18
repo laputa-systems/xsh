@@ -261,7 +261,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .checked_expr_type(iter)
             .or_else(|| self.concrete_checked_type(iter))
             .or_else(|| self.bodies.expr_types.get(&iter).cloned());
-        let lowered = self.lower_expr(iter, slots, current_function, item_slot)?;
+        let lowered = self.lower_producer_input_expr(iter, slots, current_function, item_slot)?;
         if matches!(checked, Some(Type::Set(_))) {
             let span = self.program.arena.expr(iter).span;
             return Some(self.set_as_list(lowered, span));

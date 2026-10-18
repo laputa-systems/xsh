@@ -2,7 +2,7 @@ use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
     Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
     LoweredFunctionKey, LoweredFunctionKind, LoweredMapCursor,
-    LoweredModuleExportKind, LoweredProjectedReduceState, LoweredReduceProjection,
+    LoweredProjectedReduceState, LoweredReduceProjection,
     LoweredReturnKind, LoweredScalarCursor, LoweredStrPredicate,
     LoweredTagValue, LoweredType, LoweredValue, Name, PathValue, ProcessEnd, ProcessInvocation,
     ProcessRedirection, ProcessStatus, RecordMap, RedirectionKind,
@@ -45,6 +45,7 @@ use super::{
 };
 use crate::map_key::MapKey;
 use crate::runtime::eval::BuildExprId;
+use crate::runtime::eval::BindingNamespaceLease;
 use crate::runtime::eval::route_witness::{
     RouteWitnessMode, recursive_route,
 };
@@ -312,6 +313,7 @@ fn indexed_eager_atom_value<'e>(
         ExprView::Null => LoweredValue::Null,
         ExprView::Unit => LoweredValue::Unit,
         ExprView::Int(value) => LoweredValue::Int(value),
+        ExprView::UInt(value) => LoweredValue::Int(value),
         ExprView::Float(value) => LoweredValue::Float(value),
         ExprView::Duration(value) => LoweredValue::Duration(value),
         ExprView::Bool(value) => LoweredValue::Bool(value),
@@ -1829,6 +1831,7 @@ impl Evaluator {
             ExprViewKind::Null |
             ExprViewKind::Unit |
             ExprViewKind::Int |
+            ExprViewKind::UInt |
             ExprViewKind::Float |
             ExprViewKind::Duration |
             ExprViewKind::Bool |

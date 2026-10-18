@@ -22,26 +22,115 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         let function = self.function_index().checked_target_key(target)?;
-        let params = self.compact_function_sig_for_key(function)?.params.clone();
+        let params = self
+            .compact_function_sig_for_key(function)
+            .map(|signature| signature.params.clone());
+        let span = self.program.arena.expr(id).span;
+        let scheme = self.checked_function_scheme(function).filter(|scheme| {
+            !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty()
+        });
+        if args.iter().any(|argument| argument.splice)
+            && (scheme.is_some() || self.bodies.call_instantiations.contains_key(&id))
+        {
+            let Some(rest_slot) = scheme.and_then(Self::final_rest_slot) else {
+                let splice_span = args
+                    .iter()
+                    .find(|argument| argument.splice)
+                    .map_or(span, |argument| argument.span);
+                self.last_blocker_detail = Some((
+                    splice_span,
+                    "generic positional splice must target the final rest parameter".to_string(),
+                ));
+                return None;
+            };
+            self.validate_generic_rest_splices(id, args, rest_slot)?;
+        }
         let lowered_args = self.lower_function_call_args(
             args,
-            Some(&params),
+            params.as_deref(),
             self.call_argument_slots(id),
             Some((function, 0)),
             slots,
             current_function,
             item_slot,
         )?;
-        let span = self.program.arena.expr(id).span;
-        self.lower_checked_function_call_values(
+        let lowered = self.lower_checked_function_call_values(
             function,
             lowered_args,
             span,
             current_function,
-        )
+        )?;
+        if let Some(instantiation) = self.bodies.call_instantiations.get(&id)
+            && (!instantiation.type_arguments().is_empty()
+                || !instantiation.row_arguments().is_empty())
+        {
+            let Some(ty) = self.bodies.expr_types.get(&id).cloned().filter(|ty| {
+                !ty.contains_inference() && !ty.contains_recovery() && !ty.contains_any()
+            }) else {
+                self.last_blocker_detail = Some((
+                    span,
+                    "generic call has no closed checked result type".to_string(),
+                ));
+                return None;
+            };
+            let ty = self.canonicalize_checked_type(ty);
+            let mut scratch = self.scratch.borrow_mut();
+            if !scratch.record_call_instantiation(lowered, instantiation.clone()) {
+                self.last_blocker_detail = Some((
+                    span,
+                    "checked generic call substitution conflicts with its lowered call".to_string(),
+                ));
+                return None;
+            }
+            if !scratch.record_checked_call_result_type(lowered, ty) {
+                self.last_blocker_detail = Some((
+                    span,
+                    "generic call result has conflicting checked types".to_string(),
+                ));
+                return None;
+            }
+        }
+        Some(lowered)
     }
 
-    fn lower_checked_function_call_values(
+    fn checked_function_scheme(
+        &self,
+        function: LoweredFunctionKey,
+    ) -> Option<&crate::sema::schemes::TypeScheme> {
+        match function {
+            LoweredFunctionKey::Qualified(name) => self
+                .qualified_schemes
+                .get(&name)
+                .map(|scheme| scheme.as_ref()),
+            LoweredFunctionKey::Name(_) => None,
+        }
+        .or_else(|| {
+            let definition = self.function_index().definition(function)?.id;
+            let body = self.program.arena.function_def(definition).body;
+            let body_span = self
+                .program
+                .arena
+                .span(self.program.arena.block(body).span);
+            self.declarations
+                .scheme_bodies
+                .get(&body_span)
+                .map(|facts| facts.scheme().as_ref())
+        })
+    }
+
+    fn final_rest_slot(scheme: &crate::sema::schemes::TypeScheme) -> Option<usize> {
+        let params = scheme.params();
+        let mut rest_slot = None;
+        for (slot, parameter) in params.iter().enumerate() {
+            if parameter.rest && rest_slot.replace(slot).is_some() {
+                return None;
+            }
+        }
+        let rest_slot = rest_slot?;
+        (params.len().checked_sub(1) == Some(rest_slot)).then_some(rest_slot)
+    }
+
+    pub(super) fn lower_checked_function_call_values(
         &mut self,
         function: LoweredFunctionKey,
         lowered_args: Vec<LoweredCallArg>,
@@ -1708,7 +1797,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
                 let mut bindings = Vec::new();
-                let uint_key = matches!(self.checked_expr_type(base), Some(Type::Map(key, _)) if *key == Type::UInt);
+                let uint_key = crate::sema::builtin_templates::registered_uint_map_key(self.checked_expr_type(base).as_ref());
                 let checked = method_args.iter().enumerate().any(|(position, (_, ty))| {
                     ty.has_unsigned_constraint() && !(uint_key && position == 0)
                 });
@@ -2157,7 +2246,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
                 let receiver =
                     self.lower_postfix_receiver(base, slots, current_function, item_slot)?;
-                let uint_key = matches!(self.checked_expr_type(base), Some(Type::Map(key, _)) if *key == Type::UInt);
+                let uint_key = crate::sema::builtin_templates::registered_uint_map_key(self.checked_expr_type(base).as_ref());
                 let args: Vec<_> = method_args
                     .iter()
                     .enumerate()

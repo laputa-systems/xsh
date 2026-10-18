@@ -1,5 +1,6 @@
 use super::{BTreeMap, BTreeSet, CheckBundleView, Checker, Diagnostic, Label, Span, Type};
 use crate::diagnostic::DiagnosticCode;
+use crate::sema::constraints::TypeVariableId;
 use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef, ArenaProgram,
     ArenaStmtKind, BindingTargetId,
@@ -9,8 +10,10 @@ use std::sync::Arc;
 #[derive(Clone, Default)]
 pub(super) struct LocalInference {
     collecting: bool,
+    pub(super) host_obligations: super::method::HostObligations,
     seeds: BTreeSet<Span>,
     bindings: BTreeMap<Span, Type>,
+    nullable_seed_cells: BTreeSet<TypeVariableId>,
     solved_functions: BTreeSet<Span>,
     nonmaterial_expressions: BTreeSet<Span>,
     pub(super) checked_bindings: BTreeMap<Span, Type>,
@@ -24,6 +27,7 @@ impl LocalInference {
         assert!(
             !other.collecting
                 && other.bindings.is_empty()
+                && other.nullable_seed_cells.is_empty()
                 && other.solved_functions.is_empty()
                 && other.nonmaterial_expressions.is_empty()
                 && other.checked_bindings.is_empty()
@@ -157,31 +161,25 @@ impl Checker {
             );
         }
         let fallback = Span::at(crate::source::SourceId::new(0), 0);
-        for signature in self
-            .procs
-            .values_mut()
-            .chain(self.pures.values_mut())
-            .chain(self.streams.values_mut())
-            .chain(Arc::make_mut(&mut self.qualified_procs).values_mut())
-            .chain(Arc::make_mut(&mut self.qualified_pures).values_mut())
-            .chain(Arc::make_mut(&mut self.qualified_streams).values_mut())
-        {
-            for parameter in &mut signature.params {
+        for signature in self.declaration_inference.pending_iter_mut() {
+            if let Some(shape) = signature.provisional_mut() {
+                for parameter in &mut shape.params {
+                    finalize_type(
+                        constraints,
+                        &mut parameter.signature.ty,
+                        fallback,
+                        &mut reported,
+                        diagnostics,
+                    );
+                }
                 finalize_type(
                     constraints,
-                    &mut parameter.ty,
+                    &mut shape.return_ty,
                     fallback,
                     &mut reported,
                     diagnostics,
                 );
             }
-            finalize_type(
-                constraints,
-                &mut signature.return_ty,
-                fallback,
-                &mut reported,
-                diagnostics,
-            );
         }
         for module in Arc::make_mut(&mut self.user_modules).values_mut() {
             for ty in module
@@ -190,29 +188,6 @@ impl Checker {
                 .chain(module.resolved_types.values_mut())
             {
                 finalize_type(constraints, ty, fallback, &mut reported, diagnostics);
-            }
-            for signature in module
-                .procs
-                .values_mut()
-                .chain(module.pures.values_mut())
-                .chain(module.streams.values_mut())
-            {
-                for parameter in &mut signature.params {
-                    finalize_type(
-                        constraints,
-                        &mut parameter.ty,
-                        fallback,
-                        &mut reported,
-                        diagnostics,
-                    );
-                }
-                finalize_type(
-                    constraints,
-                    &mut signature.return_ty,
-                    fallback,
-                    &mut reported,
-                    diagnostics,
-                );
             }
         }
         for scope in &mut self.scopes {
@@ -229,6 +204,7 @@ impl Checker {
                 }
             }
         }
+        self.resolve_pending_call_instantiations();
     }
 
     pub(super) fn record_inert_local_discard(
@@ -264,9 +240,6 @@ impl Checker {
         self.local_inference.nonmaterial_expressions.contains(&span)
     }
 
-    /// Gather constraints before checking concrete operations. The cloned
-    /// checker owns speculative diagnostics and facts; only its substitutions
-    /// and seed identities are retained for ordinary checking.
     pub(super) fn collect_function_local_constraints(
         &mut self,
         program: &ArenaProgram,
@@ -305,13 +278,22 @@ impl Checker {
         }
         let start = Span::new(body.source_id, body.start(), body.start());
         let end = Span::new(body.source_id, body.end(), body.end());
-        if self
+        let has_local_seeds = self
             .local_inference
             .seeds
             .range(start..end)
             .next()
-            .is_none()
-        {
+            .is_some();
+        let has_unresolved_parameters = pure
+            && program.arena.params(definition.params).iter().any(|parameter| {
+                parameter.annotation.is_none()
+                    && parameter.default.is_none()
+                    && self.checked_parameter_type(program, parameter).is_some_and(|ty| {
+                        self.type_constraints.resolve(&ty)
+                            .is_ok_and(|resolved| resolved.contains_inference())
+                    })
+            });
+        if !has_local_seeds && !has_unresolved_parameters {
             return;
         }
         let mut probe = self.constraint_probe();
@@ -321,9 +303,29 @@ impl Checker {
         } else {
             probe.check_function_arena(program, source, definition, pure);
         }
+        if let Err(error) = probe.solve_host_obligations() {
+            self.reject_host_inference_resolution(error, body);
+        }
         self.type_constraints = probe.type_constraints;
         self.local_inference.bindings = probe.local_inference.bindings;
         self.local_inference.solved_functions.insert(body);
+    }
+
+    pub(super) fn collecting_local_constraints(&self) -> bool {
+        self.local_inference.collecting
+    }
+
+    pub(super) fn prepared_nullable_seed(&self, ty: &Type) -> Option<TypeVariableId> {
+        let Type::Optional(inner) = ty else {
+            return None;
+        };
+        let Type::Inference(id) = inner.as_ref() else {
+            return None;
+        };
+        self.local_inference
+            .nullable_seed_cells
+            .contains(id)
+            .then_some(*id)
     }
 
     /// Speculative checks retain declaration and lexical contracts but rebuild
@@ -345,6 +347,10 @@ impl Checker {
         let static_callable_aliases = std::mem::take(&mut self.static_callable_aliases);
         let typed_callable_calls = std::mem::take(&mut self.typed_callable_calls);
         let selected_function_calls = std::mem::take(&mut self.selected_function_calls);
+        let pending_call_instantiations = std::mem::take(&mut self.pending_call_instantiations);
+        let call_instantiations = std::mem::take(&mut self.call_instantiations);
+        let prepared_function_call_contracts =
+            std::mem::take(&mut self.prepared_function_call_contracts);
         let diagnostics = std::mem::take(&mut self.diagnostics);
         let annotation_facts = std::mem::take(&mut self.annotation_facts);
         let reveal_types = std::mem::take(&mut self.reveal_types);
@@ -377,6 +383,9 @@ impl Checker {
         self.static_callable_aliases = static_callable_aliases;
         self.typed_callable_calls = typed_callable_calls;
         self.selected_function_calls = selected_function_calls;
+        self.pending_call_instantiations = pending_call_instantiations;
+        self.call_instantiations = call_instantiations;
+        self.prepared_function_call_contracts = prepared_function_call_contracts;
         self.diagnostics = diagnostics;
         self.annotation_facts = annotation_facts;
         self.reveal_types = reveal_types;
@@ -396,22 +405,63 @@ impl Checker {
         probe
     }
 
-    pub(super) fn local_binding_expectation(&self, span: Span) -> Option<Type> {
-        self.local_inference
-            .bindings
-            .get(&span)
-            .and_then(|ty| self.type_constraints.resolve(ty).ok())
+    pub(super) fn local_binding_expectation(
+        &mut self,
+        program: &ArenaProgram,
+        target: BindingTargetId,
+        initializer: ArenaExprOrRun,
+        mutable: bool,
+        span: Span,
+    ) -> Option<Type> {
+        if let Some(ty) = self.local_inference.bindings.get(&span) {
+            return self.type_constraints.resolve(ty).ok();
+        }
+        if self.boundary.current_return.is_none()
+            || !self.local_inference.seeds.contains(&span)
+            || !matches!(local_seed_kind(program, target, initializer, mutable), Some(LocalSeed::Set))
+            || !self.has_unshadowed_empty_set(program, initializer)
+        {
+            return None;
+        }
+        let origin = super::expr::expr_or_run_span_arena(program, initializer);
+        let ty = Type::Set(Box::new(self.type_constraints.fresh(origin)));
+        self.local_inference.bindings.insert(span, ty.clone());
+        self.type_constraints.resolve(&ty).ok()
     }
 
-    /// Returned local values retain the binding's monomorphic identities. Resolve
-    /// earlier contributions before comparison, and let a declared return
-    /// anchor remaining holes through the same implicit Ok boundary as expressions.
+    fn has_unshadowed_empty_set(
+        &self,
+        program: &ArenaProgram,
+        initializer: ArenaExprOrRun,
+    ) -> bool {
+        empty_set_call_receiver(program, initializer).is_some_and(|base| {
+            matches!(
+                self.lookup_value_binding_for_expr(program, base),
+                super::ValueBindingLookup::NoSite
+            )
+        })
+    }
+
     pub(super) fn resolve_local_tail_type(
         &mut self,
         ty: Type,
         expected: Option<&Type>,
         span: Span,
     ) -> Type {
+        self.resolve_local_tail_type_with_expectation(
+            ty,
+            expected.map(super::types::TypeExpectation::Required),
+            span,
+        )
+    }
+
+    pub(super) fn resolve_local_tail_type_with_expectation(
+        &mut self,
+        ty: Type,
+        expectation: Option<super::types::TypeExpectation<'_>>,
+        span: Span,
+    ) -> Type {
+        let expected = expectation.map(super::types::TypeExpectation::context);
         let resolved = self.type_constraints.resolve(&ty).unwrap_or(Type::Invalid);
         if resolved.contains_inference()
             && let Some(expected) = expected
@@ -421,7 +471,11 @@ impl Checker {
             } else {
                 expected.result_ok().unwrap_or(expected)
             };
-            self.expect_type(context, &resolved, span);
+            if !expectation
+                .is_some_and(|expectation| expectation.accepts_optional_branch(&resolved))
+            {
+                self.expect_type(context, &resolved, span);
+            }
         }
         self.type_constraints
             .resolve(&resolved)
@@ -473,6 +527,13 @@ impl Checker {
                 return ordinary;
             }
         }
+        if matches!(seed, LocalSeed::Set) {
+            if !self.has_unshadowed_empty_set(program, initializer)
+                || !matches!(ordinary, Type::Set(_))
+            {
+                return ordinary;
+            }
+        }
         let raw = if let Some(ty) = self.local_inference.bindings.get(&span) {
             ty.clone()
         } else {
@@ -485,10 +546,18 @@ impl Checker {
                     Box::new(variable),
                     Box::new(self.type_constraints.fresh(origin)),
                 ),
+                LocalSeed::Set => Type::Set(Box::new(variable)),
             };
             self.local_inference.bindings.insert(span, ty.clone());
             ty
         };
+        if matches!(&seed, LocalSeed::Nullable)
+            && self.local_inference.seeds.contains(&span)
+            && let Type::Optional(inner) = &raw
+            && let Type::Inference(id) = inner.as_ref()
+        {
+            self.local_inference.nullable_seed_cells.insert(*id);
+        }
         if !self.local_inference.collecting {
             let resolved = self.type_constraints.resolve(&raw).unwrap_or(Type::Invalid);
             if resolved.contains_inference() {
@@ -511,6 +580,18 @@ impl Checker {
                     resolved.clone(),
                 );
             }
+            if matches!(seed, LocalSeed::Set)
+                && let Type::Set(element) = &resolved
+            {
+                self.require_set_element_type(
+                    element,
+                    super::expr::expr_or_run_span_arena(program, initializer),
+                );
+                self.record_expr_type(
+                    super::expr::expr_or_run_span_arena(program, initializer),
+                    resolved.clone(),
+                );
+            }
             self.local_inference.checked_bindings.insert(span, resolved);
         }
         raw
@@ -521,6 +602,7 @@ enum LocalSeed {
     List,
     Nullable,
     Map,
+    Set,
 }
 
 pub(super) fn finalize_type(
@@ -588,6 +670,9 @@ fn local_seed_kind(
         ArenaExprKind::List(elements) if elements.is_empty() => Some(LocalSeed::List),
         ArenaExprKind::Null if mutable => Some(LocalSeed::Nullable),
         _ if empty_map_call(program, initializer) => Some(LocalSeed::Map),
+        _ if mutable && empty_set_call_receiver(program, initializer).is_some() => {
+            Some(LocalSeed::Set)
+        }
         _ => None,
     }
 }
@@ -599,6 +684,21 @@ pub(super) fn empty_map_call(program: &ArenaProgram, initializer: ArenaExprOrRun
 fn empty_map_call_receiver(
     program: &ArenaProgram,
     initializer: ArenaExprOrRun,
+) -> Option<crate::syntax::arena::ExprId> {
+    empty_module_empty_call_receiver(program, initializer, "map")
+}
+
+fn empty_set_call_receiver(
+    program: &ArenaProgram,
+    initializer: ArenaExprOrRun,
+) -> Option<crate::syntax::arena::ExprId> {
+    empty_module_empty_call_receiver(program, initializer, "set")
+}
+
+fn empty_module_empty_call_receiver(
+    program: &ArenaProgram,
+    initializer: ArenaExprOrRun,
+    module: &str,
 ) -> Option<crate::syntax::arena::ExprId> {
     let ArenaExprOrRun::Expr(expression) = initializer else {
         return None;
@@ -613,7 +713,7 @@ fn empty_map_call_receiver(
         return None;
     };
     (name == "empty"
-        && matches!(program.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "map"))
+        && matches!(program.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == module))
         .then_some(base)
 }
 
@@ -658,6 +758,7 @@ pub(super) fn finalize_projection(
             crate::sema::types::ModuleExportType::Proc { sig, .. }
             | crate::sema::types::ModuleExportType::Pure { sig, .. },
         ) => finalize_callable(constraints, sig, span, reported, diagnostics),
+        Some(crate::sema::types::ModuleExportType::GenericPure { .. }) => {}
         None => {}
     }
 }
@@ -712,8 +813,11 @@ mod tests {
                     name,
                     namespace: None,
                     internal: false,
+                    exported: false,
                     kind: super::super::CheckedFunctionKind::Proc,
                     signature: None,
+                    scheme: None,
+                    scheme_body_facts: None,
                     body: contract,
                     parameter_spans: Vec::new(),
                 },

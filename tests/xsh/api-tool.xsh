@@ -765,6 +765,11 @@ test test_api_context_scopes_describes_restoration_and_demonstrates_value_forms 
 test test_api_local_inference_describes_one_fixed_type_and_static_contributions {
   api(["language:core.local-inference"])? |> assert_contains(
     _,
-    ["status: exact", "Aliases share the same type identity", "var selected = null"],
+    [
+      "status: exact",
+      "Aliases share one type identity",
+      "var selected = null",
+      "mutable local `set.empty()`",
+    ],
   )
 }

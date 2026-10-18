@@ -535,8 +535,8 @@ impl CanonicalWriter<'_> {
 
     fn params(&mut self, range: ArenaRange) {
         for param in self.arena.params(range) {
-            self.debug(&(param.name, param.ty_defaulted, param.rest));
-            self.ty(param.ty);
+            self.debug(&(param.name, param.annotation.is_none(), param.rest));
+            self.opt_type(param.annotation);
             self.opt_expr(param.default);
         }
         self.put("|");

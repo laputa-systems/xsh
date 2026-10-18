@@ -12,7 +12,7 @@ use crate::syntax::arena::{
 use crate::syntax::node::UnaryOp;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// A bounded literal value, independent of runtime bindings or evaluation.
 /// Float bits preserve signed zero when deciding whether an explicit default
@@ -36,10 +36,53 @@ pub enum LiteralConstant {
     EmptyMap,
     Map(Arc<BTreeMap<MapKey, LiteralConstant>>),
     List(Arc<Vec<LiteralConstant>>),
-    Record(Arc<BTreeMap<Name, LiteralConstant>>),
+    Record(Arc<ConstantRecord>),
     /// The distinct elements, in the order a set visits them.
     Set(Arc<BTreeSet<MapKey>>),
 }
+
+#[derive(Clone, Debug)]
+pub struct ConstantRecord {
+    fields: BTreeMap<Name, LiteralConstant>,
+    constructor: Option<Arc<ConstantRecordConstructor>>,
+}
+
+#[derive(Debug)]
+struct ConstantRecordConstructor {
+    nominal: Option<Name>,
+    checked: OnceLock<CheckedRecordConstructor>,
+}
+
+pub(crate) enum ConstantRecordOrigin<'a> {
+    Structural,
+    Pending { nominal: Option<Name> },
+    Checked(&'a CheckedRecordConstructor),
+}
+
+impl ConstantRecord {
+    fn structural(fields: BTreeMap<Name, LiteralConstant>) -> Self { Self { fields, constructor: None } }
+
+    pub(crate) fn constructor_origin(&self) -> ConstantRecordOrigin<'_> {
+        match &self.constructor {
+            None => ConstantRecordOrigin::Structural,
+            Some(constructor) => match constructor.checked.get() {
+                None => ConstantRecordOrigin::Pending { nominal: constructor.nominal },
+                Some(constructor) => ConstantRecordOrigin::Checked(constructor),
+            },
+        }
+    }
+}
+
+impl std::ops::Deref for ConstantRecord {
+    type Target = BTreeMap<Name, LiteralConstant>;
+    fn deref(&self) -> &Self::Target { &self.fields }
+}
+
+impl PartialEq for ConstantRecord {
+    fn eq(&self, other: &Self) -> bool { self.fields == other.fields }
+}
+
+impl Eq for ConstantRecord {}
 
 fn map_key_retained_bytes(key: &MapKey) -> usize {
     match key {
@@ -50,6 +93,44 @@ fn map_key_retained_bytes(key: &MapKey) -> usize {
 }
 
 impl LiteralConstant {
+    fn same_prepared_source(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (Self::Record(left), Self::Record(right)) => {
+                    let same_constructor = match (left.constructor_origin(), right.constructor_origin()) {
+                        (ConstantRecordOrigin::Structural, ConstantRecordOrigin::Structural) => true,
+                        (ConstantRecordOrigin::Checked(left), ConstantRecordOrigin::Checked(right)) => left == right,
+                        _ => false,
+                    };
+                    if !same_constructor || left.len() != right.len() { return false; }
+                    for ((left_name, left), (right_name, right)) in left.iter().zip(right.iter()) {
+                        if left_name != right_name { return false; }
+                        pending.push((left, right));
+                    }
+                }
+                (Self::List(left), Self::List(right)) => {
+                    if left.len() != right.len() { return false; }
+                    pending.extend(left.iter().zip(right.iter()));
+                }
+                (Self::Map(left), Self::Map(right)) => {
+                    if left.len() != right.len() { return false; }
+                    for ((left_key, left), (right_key, right)) in left.iter().zip(right.iter()) {
+                        if left_key != right_key { return false; }
+                        pending.push((left, right));
+                    }
+                }
+                (Self::Tag { family: left_family, variant: left_variant, fields: left }, Self::Tag { family: right_family, variant: right_variant, fields: right }) => {
+                    if left_family != right_family || left_variant != right_variant || left.len() != right.len() { return false; }
+                    pending.extend(left.iter().zip(right.iter()));
+                }
+                _ if left != right => return false,
+                _ => {}
+            }
+        }
+        true
+    }
+
     fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
 
@@ -76,7 +157,8 @@ impl LiteralConstant {
                         .sum::<usize>();
             }
             Self::Record(values) => {
-                bytes += size_of::<BTreeMap<Name, Self>>()
+                bytes += size_of::<ConstantRecord>()
+                    + values.constructor.as_ref().map_or(0, |constructor| size_of::<ConstantRecordConstructor>() + constructor.checked.get().map_or(0, |fact| fact.ty.retained_bytes() + fact.instance.arguments.capacity() * size_of::<Type>() + fact.instance.arguments.iter().map(Type::retained_bytes).sum::<usize>()))
                     + values.len() * size_of::<(Name, Self)>()
                     + values
                         .values()
@@ -138,19 +220,12 @@ impl LiteralConstant {
                     .map(|value| value.in_type(item))
                     .collect(),
             )),
-            (Self::Record(values), Type::Record(fields)) => Self::Record(Arc::new(
-                values
-                    .iter()
-                    .map(|(name, value)| {
-                        (
-                            *name,
-                            fields
-                                .get(name)
-                                .map_or_else(|| value.clone(), |ty| value.clone().in_type(ty)),
-                        )
-                    })
-                    .collect(),
-            )),
+            (Self::Record(values), Type::Record(fields)) => Self::Record(Arc::new(ConstantRecord {
+                fields: values.iter().map(|(name, value)| {
+                    (*name, fields.get(name).map_or_else(|| value.clone(), |ty| value.clone().in_type(ty)))
+                }).collect(),
+                constructor: values.constructor.clone(),
+            })),
             (Self::Str(text), Type::Path) => Self::Path(text),
             (value, Type::Optional(inner)) => value.in_type(inner),
             (value, Type::Validated(validated)) => value.in_type(validated.base()),
@@ -315,7 +390,7 @@ impl LiteralConstant {
                         return None;
                     }
                 }
-                Self::Record(Arc::new(values))
+                Self::Record(Arc::new(ConstantRecord::structural(values)))
             }
             ArenaExprKind::GlobStr(_)
             | ArenaExprKind::FmtString(_)
@@ -1512,6 +1587,7 @@ impl RecordConstructors {
                             .iter()
                             .any(|param| Self::contains_template_parameter(&param.ty))
                 }
+                ModuleExportType::GenericPure { .. } => false,
             }),
             _ => false,
         }
@@ -1922,9 +1998,13 @@ impl RecordConstructors {
                 .map(|param| {
                     Ok(CallableParamType {
                         name: param.name,
-                        ty: self.resolve_instance_annotation(
-                            arena, param.ty, namespace, bindings, active,
-                        )?,
+                        ty: if let Some(annotation) = param.annotation {
+                            self.resolve_instance_annotation(
+                                arena, annotation, namespace, bindings, active,
+                            )?
+                        } else {
+                            Type::Unknown
+                        },
                         defaulted: param.default.is_some(),
                         rest: param.rest,
                     })
@@ -2078,6 +2158,10 @@ impl LiteralConstant {
             ),
             Self::List(values) => Type::List(Box::new(constant_item_type(values.iter()))),
             Self::Set(values) => Type::Set(Box::new(constant_map_key_type(values.iter()))),
+            Self::Record(values) if matches!(values.constructor_origin(), ConstantRecordOrigin::Checked(_)) => {
+                let ConstantRecordOrigin::Checked(constructor) = values.constructor_origin() else { unreachable!() };
+                constructor.ty.clone()
+            }
             Self::Record(values) => Type::Record(
                 values
                     .iter()
@@ -2170,6 +2254,27 @@ mod prepared_constant_tests {
             .expect("descriptor cache lock")
             .insert(((ExprId::from_index(0), None), true), Ok(plan));
         constants
+    }
+
+    #[test]
+    fn prepared_constant_merge_rejects_equal_data_with_distinct_constructor_origins() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _symbols = symbols.enter();
+        let name = Name::intern("Package");
+        let fields = BTreeMap::from([(Name::intern("name"), LiteralConstant::Str(Arc::from("core")))]);
+        let plain = LiteralConstant::Record(Arc::new(ConstantRecord::structural(fields.clone())));
+        let constructor = ConstantRecordConstructor { nominal: Some(name), checked: OnceLock::new() };
+        constructor.checked.set(CheckedRecordConstructor {
+            instance: SchemaInstance { definition: TypeDefId::from_index(0), arguments: Vec::new() },
+            ty: Type::nominal(name, Type::Record(BTreeMap::from([(Name::intern("name"), Type::Str)]).into())).unwrap(),
+        }).unwrap();
+        let branded = LiteralConstant::Record(Arc::new(ConstantRecord { fields, constructor: Some(Arc::new(constructor)) }));
+        assert_eq!(plain, branded);
+        let mut existing = PreparedConstants::default();
+        existing.values.insert(ExprId::from_index(0), plain);
+        let mut other = PreparedConstants::default();
+        other.values.insert(ExprId::from_index(0), branded);
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| existing.merge_visible(&other))).is_err());
     }
 
     #[test]
@@ -2373,7 +2478,7 @@ impl PreparedConstants {
     }
 
     pub(super) fn merge_visible(&mut self, other: &Self) {
-        merge_owned_map(&mut self.values, &other.values);
+        merge_owned_map_by(&mut self.values, &other.values, LiteralConstant::same_prepared_source);
         merge_owned_map(&mut self.types, &other.types);
         merge_owned_map(&mut self.record_constructor_instances, &other.record_constructor_instances);
         merge_owned_map(&mut self.origins, &other.origins);
@@ -2778,12 +2883,17 @@ where
     K: Copy + Eq + std::hash::Hash + std::fmt::Debug,
     V: Clone + Eq + std::fmt::Debug,
 {
+    merge_owned_map_by(target, source, PartialEq::eq);
+}
+
+fn merge_owned_map_by<K, V>(target: &mut FxHashMap<K, V>, source: &FxHashMap<K, V>, same: impl Fn(&V, &V) -> bool)
+where
+    K: Copy + Eq + std::hash::Hash + std::fmt::Debug,
+    V: Clone + std::fmt::Debug,
+{
     for (&key, value) in source {
         if let Some(existing) = target.get(&key) {
-            assert_eq!(
-                existing, value,
-                "prepared fact {key:?} has conflicting owner records"
-            );
+            assert!(same(existing, value), "prepared fact {key:?} has conflicting owner records: {existing:?} vs {value:?}");
         } else {
             target.insert(key, value.clone());
         }
@@ -3455,7 +3565,7 @@ impl ConstantPreparation<'_> {
                     }
                     LiteralConstant::Map(Arc::new(map_values))
                 } else {
-                    let value = LiteralConstant::Record(Arc::new(values));
+                    let value = LiteralConstant::Record(Arc::new(ConstantRecord::structural(values)));
                     let declared: Vec<(Name, Type)> = field_values
                         .into_iter()
                         .filter_map(|(name, field)| {
@@ -3518,6 +3628,7 @@ impl ConstantPreparation<'_> {
                         &mut self.type_constraints,
                     )
                     .map_err(|error| (expr.span, error.message))?;
+                let constructor_nominal = inference.ty.nominal_name();
                 let Type::Record(field_types) = inference.ty.into_unvalidated() else {
                     return Err(failure());
                 };
@@ -3641,7 +3752,10 @@ impl ConstantPreparation<'_> {
                         return Err(failure());
                     }
                 }
-                let value = LiteralConstant::Record(Arc::new(values));
+                let value = LiteralConstant::Record(Arc::new(ConstantRecord {
+                    fields: values,
+                    constructor: Some(Arc::new(ConstantRecordConstructor { nominal: constructor_nominal, checked: OnceLock::new() })),
+                }));
                 self.prepared.types.insert(id, Type::Record(field_types));
                 self.pending_constructors
                     .push((id, inference.instance, value.clone()));
@@ -3654,6 +3768,10 @@ impl ConstantPreparation<'_> {
                             .constructors
                             .finish_constructor_inference(arena, &instance, &self.type_constraints)
                             .map_err(|error| (arena.expr(expression).span, error.message))?;
+                        let LiteralConstant::Record(record) = &value else { unreachable!() };
+                        let constructor = record.constructor.as_ref().expect("constructor record retains its source proof");
+                        if constructor.nominal != fact.ty.nominal_name() { return Err((arena.expr(expression).span, "constant constructor nominal identity changed during inference".into())); }
+                        constructor.checked.set(fact.clone()).map_err(|_| (arena.expr(expression).span, "constant constructor proof was finalized twice".into()))?;
                         let value = value.in_type(&fact.ty);
                         if !constant_matches_type(&value, &fact.ty) {
                             return Err((
@@ -4033,10 +4151,14 @@ fn constant_passes_validation(
         crate::sema::validated::Validation::RelPath => {
             matches!(value, LiteralConstant::Path(text) if crate::sema::validated::is_rel_path(text.as_bytes()))
         }
-        // A constant carries no record of how it was built, so whether a
-        // constant record came from the constructor is the statement
-        // check's to decide from the initializer's checked type.
-        crate::sema::validated::Validation::Nominal(_) => true,
+        crate::sema::validated::Validation::Nominal(name) => {
+            let LiteralConstant::Record(record) = value else { return false };
+            match record.constructor_origin() {
+                ConstantRecordOrigin::Structural => false,
+                ConstantRecordOrigin::Pending { nominal } => nominal == Some(name),
+                ConstantRecordOrigin::Checked(constructor) => constructor.ty.nominal_name() == Some(name),
+            }
+        }
         crate::sema::validated::Validation::Range(range) => {
             matches!(value, LiteralConstant::Int(value) if range.contains(*value))
         }

@@ -1055,7 +1055,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         stmt,
                         BuildStmtRow::Let {
                             slot: path_slot,
-                            value
+                            value,
+                            annotation: None,
                         }
                     ));
                     self.lower_tempdir_body(block, body, span, slots, current_function, item_slot)
@@ -1107,7 +1108,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     stmt,
                     BuildStmtRow::Let {
                         slot: at_slot,
-                        value: path
+                        value: path,
+                        annotation: None,
                     }
                 ),
                 push_build_row!(self, stmt, BuildStmtRow::Value { value: outcome }),
@@ -1198,7 +1200,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 stmt,
                 BuildStmtRow::Let {
                     slot: closing_slot,
-                    value: open
+                    value: open,
+                    annotation: None,
                 }
             ));
             let mut held = Vec::with_capacity(bindings.len());
@@ -1214,7 +1217,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 body.push(push_build_row!(
                     self,
                     stmt,
-                    BuildStmtRow::Let { slot, value }
+                    BuildStmtRow::Let {
+                        slot,
+                        value,
+                        annotation: None,
+                    }
                 ));
                 body.push(release(self, slot, kind, true));
                 held.push((slot, kind));
@@ -1235,7 +1242,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 stmt,
                 BuildStmtRow::Let {
                     slot: finished_slot,
-                    value: finished
+                    value: finished,
+                    annotation: None,
                 }
             ));
             let mut closing = Vec::with_capacity(held.len() + 2);
@@ -1400,7 +1408,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 stmt,
                 BuildStmtRow::Let {
                     slot: path_slot,
-                    value: path
+                    value: path,
+                    annotation: None,
                 }
             ));
             let scope =

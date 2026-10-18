@@ -19,7 +19,9 @@ impl CompactLowerConstructProbe<'_, '_> {
             scratch.expressions[expr.index()].clone()
         };
         match &row {
-            BuildExprRow::Int(value) => Some(push_build_row!(self, int, BuildIntRow::Int(*value))),
+            BuildExprRow::Int(value) | BuildExprRow::UInt(value) => {
+                Some(push_build_row!(self, int, BuildIntRow::Int(*value)))
+            }
             BuildExprRow::Param(slot) => Some(push_build_row!(self, int, BuildIntRow::Slot(*slot))),
             BuildExprRow::Binary {
                 op, left, right, ..
@@ -344,7 +346,7 @@ impl CompactLowerConstructProbe<'_, '_> {
 
     fn lowered_inert_int_literal(&self, expr: BuildExprId) -> Option<i64> {
         match self.scratch.borrow().expressions[expr.index()].clone() {
-            BuildExprRow::Int(value) => Some(value),
+            BuildExprRow::Int(value) | BuildExprRow::UInt(value) => Some(value),
             BuildExprRow::Binary {
                 op: BinaryOp::Sub,
                 left,
@@ -356,7 +358,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                     &scratch.expressions[left.index()],
                     &scratch.expressions[right.index()],
                 ) {
-                    (BuildExprRow::Int(0), BuildExprRow::Int(value)) => value.checked_neg(),
+                    (
+                        BuildExprRow::Int(0) | BuildExprRow::UInt(0),
+                        BuildExprRow::Int(value) | BuildExprRow::UInt(value),
+                    ) => value.checked_neg(),
                     _ => None,
                 }
             }
@@ -369,7 +374,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         match &row {
             BuildExprRow::Null => Some(LoweredValue::Null),
             BuildExprRow::Unit => Some(LoweredValue::Unit),
-            BuildExprRow::Int(value) => Some(LoweredValue::Int(*value)),
+            BuildExprRow::Int(value) | BuildExprRow::UInt(value) => {
+                Some(LoweredValue::Int(*value))
+            }
             BuildExprRow::Float(value) => Some(LoweredValue::Float(*value)),
             BuildExprRow::Duration(value) => Some(LoweredValue::Duration(value.clone())),
             BuildExprRow::Bool(value) => Some(LoweredValue::Bool(*value)),
@@ -473,7 +480,12 @@ impl CompactLowerConstructProbe<'_, '_> {
             [if_stmt] => (*if_stmt, None),
             [trim_stmt, if_stmt] => {
                 let trimmed = self.scratch.borrow().statements[trim_stmt.index()].clone();
-                let BuildStmtRow::Let { slot, value } = trimmed else {
+                let BuildStmtRow::Let {
+                    slot,
+                    value,
+                    annotation: None,
+                } = trimmed
+                else {
                     return None;
                 };
                 let expression = self.scratch.borrow().expressions[value.index()].clone();
@@ -682,10 +694,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                 BuildStmtRow::Let {
                     slot: ch_slot,
                     value: byte_value,
+                    annotation: None,
                 },
                 BuildStmtRow::Let {
                     slot: next_slot,
                     value: next_value,
+                    annotation: None,
                 },
             ) if self.scan_bytes_byte_at_expr(byte_value, line_slot, index_slot, 0)
                 && self.scan_bytes_byte_at_expr(next_value, line_slot, index_slot, 1) =>
@@ -866,7 +880,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 self.scan_bytes_expr_slot(left) == Some(index_slot)
                     && matches!(
                         self.scratch.borrow().expressions[right.index()],
-                        BuildExprRow::Int(1)
+                        BuildExprRow::Int(1) | BuildExprRow::UInt(1)
                     )
             }
             _ => false,
@@ -890,7 +904,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             return None;
         }
         if let Some(expected_right) = expected_right
-            && !matches!(self.scratch.borrow().expressions[right.index()], BuildExprRow::Int(value) if value == expected_right)
+            && !matches!(self.scratch.borrow().expressions[right.index()], BuildExprRow::Int(value) | BuildExprRow::UInt(value) if value == expected_right)
         {
             return None;
         }
@@ -959,7 +973,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 right,
                 ..
             } if self.scan_bytes_expr_slot(left) == Some(ch_slot) => {
-                if let BuildExprRow::Int(value) = self.scratch.borrow().expressions[right.index()] {
+                if let BuildExprRow::Int(value) | BuildExprRow::UInt(value) = self.scratch.borrow().expressions[right.index()] {
                     values.push(value);
                 }
             }
@@ -1192,7 +1206,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ..
                 } if matches!(
                     self.scratch.borrow().expressions[value.index()],
-                    BuildExprRow::Int(1)
+                    BuildExprRow::Int(1) | BuildExprRow::UInt(1)
                 ) =>
                 {
                     slot

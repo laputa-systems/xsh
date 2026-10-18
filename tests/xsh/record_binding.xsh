@@ -8,6 +8,24 @@ type NestedBindingItem = {id: Int, info: NestedBindingItemInfo}
 
 type NestedBindingGroup = {name: Str, items: List[NestedBindingItem]}
 
+type DriverOptionalRecord = {maybe: Int?}
+
+let {driver_value_block} = {
+  let local = 7
+  {driver_value_block: local}
+}
+
+test test_driver_record_binding_keeps_initializer_local_values {
+  assert driver_value_block == 7
+}
+
+test test_record_binding_keeps_optional_ascription_and_branch_types {
+  let {maybe}: DriverOptionalRecord = {maybe: 12}
+  let {branch_value} = if true { {branch_value: 14} } else { {branch_value: 15} }
+  assert maybe == 12
+  assert branch_value == 14
+}
+
 test test_nested_renamed_record_binding_preserves_field_types {
   let config = RecordConfig("src", {jobs: 3, target: "native"})
   let {root, build: {jobs, target: target_name, ..}, ..} = config
@@ -186,6 +204,28 @@ closed
 """
 }
 
+test test_top_level_record_destructuring_publishes_fresh_and_shadowed_slots { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""var {value} = {value: 7}
+value += 1
+var {outer: {value: nested}} = {outer: {value: 10}}
+nested += 2
+if true {
+  var {value} = {value: value + 92}
+  value += 1
+  print $value
+}
+print $value $nested
+""",
+  )?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  assert output.stdout == """101
+8 12
+"""
+}
+
 test test_nested_record_dynamic_stream_target_requires_validation { |ctx|
   let output = test.run_script(
     ctx,
@@ -282,4 +322,25 @@ test test_nested_record_binding_keeps_selected_field_types { |ctx|
   )?
   let discards = test.expect(ctx, "let {a: _, b: {c: _, ..}, ..} = {a: 1, b: {c: 2}}\n", status: 0)?
   assert discards.stderr == "", discards.stderr
+}
+
+const constant_manifest = {name: "core", build: {jobs: 3}}
+let {name: constant_name, build: {jobs: constant_jobs}} = constant_manifest
+const constant_entries = [{name: "first"}, {name: "second"}]
+
+test test_driver_record_binding_uses_checked_constant_types {
+  assert constant_name == "core"
+  assert constant_jobs == 3
+  let names = [name for {name} in constant_entries]
+  assert names == ["first", "second"]
+}
+
+test test_constant_nominal_ascription_requires_constructor { |ctx|
+  let result = test.run_script(
+    ctx,
+    """nominal type Package = {name: Str}
+const value: Package = {name: "core"}
+""",
+  )?
+  assert ! result.success
 }

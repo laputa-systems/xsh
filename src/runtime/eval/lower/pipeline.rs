@@ -823,6 +823,7 @@ mod tests {
                 &parsed.arena,
             )),
             declarations: &declarations,
+            qualified_schemes: &declarations.function_schemes,
             bodies: &declarations.bodies,
             source,
             sources: Some(&sources),

@@ -32,6 +32,36 @@ fn checked_outputs_accept_default_control_flow_facts() {
     let _: CompactBodyFacts = compact;
 }
 
+#[test]
+fn pure_declarations_alone_accept_unannotated_required_parameters() {
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), "pure identity(value) { value }\n");
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let parameter = parsed.arena.arena.params[0].clone();
+    assert!(parameter.annotation.is_none());
+    assert!(parameter.default.is_none());
+
+    for source in [
+        "proc add(value) [] {}\n",
+        "stream values(value) [] -> Stream[Int] { yield 1 }\n",
+        "type Plugin = module { export pure call(value) -> Int }\n",
+        "type Callback = pure(value) -> Int\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(
+            parsed
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::ParseExpectedParamType)),
+            "missing required annotation diagnostic for {source:?}: {:?}",
+            parsed.diagnostics
+        );
+        assert!(
+            parsed.arena.arena.params[0].annotation.is_none(),
+            "parser recovery must preserve annotation omission for {source:?}"
+        );
+    }
+}
+
 fn repository_xsh_sources() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut sources = WalkDir::new(root)
@@ -1220,7 +1250,8 @@ fn signature_cli_inferred_defaults_reuse_checked_parameter_facts() {
     );
     for parameter in &parsed.arena.arena.params {
         let span = parsed.arena.arena.span(parameter.span);
-        assert!(parameter.ty_defaulted);
+        assert!(parameter.annotation.is_none());
+        assert!(parameter.default.is_some());
         assert_eq!(
             checked.parameter_types.get(&span),
             declarations.parameter_types.get(&span)

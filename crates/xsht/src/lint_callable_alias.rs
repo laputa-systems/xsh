@@ -208,7 +208,7 @@ fn same_signature(
         && left.iter().zip(right).all(|(left, right)| {
             left.name == right.name
                 && left.rest == right.rest
-                && annotation(left.ty) == annotation(right.ty)
+                && left.annotation.map(annotation) == right.annotation.map(annotation)
                 && match (left.default, right.default) {
                     (None, None) => true,
                     (Some(left), Some(right)) => constants

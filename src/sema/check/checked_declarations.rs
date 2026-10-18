@@ -1,6 +1,7 @@
 use super::{BTreeMap, Checker, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
     ErrorFamilyInfo, FxHashMap, Name, QualifiedName, Span, TagVariantInfo, Type};
 use crate::sema::constants::{CheckedRecordConstructor, RecordConstructors, SchemaInstance};
+use crate::sema::schemes::{SchemeBodyFacts, TypeScheme};
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType};
 use crate::syntax::arena::{ArenaModuleContractEntryKind, ArenaProgram, ArenaTypeDefBody,
     ErrorDefId, FunctionDefId, TypeDefId, TypeExprId};
@@ -32,7 +33,7 @@ pub enum CheckedFunctionKind { Proc, Pure, Stream, CliMain }
 /// Identity of a user function selected while checking one call. The arena
 /// ID identifies its declaration within its source arena; namespace and name
 /// distinguish arena-local IDs when module arenas are combined.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct CheckedFunctionTarget {
     pub(crate) definition: FunctionDefId,
     pub(crate) namespace: Option<Name>,
@@ -68,8 +69,11 @@ pub struct CheckedFunctionDeclaration {
     pub name: Name,
     pub namespace: Option<Name>,
     pub internal: bool,
+    pub(crate) exported: bool,
     pub kind: CheckedFunctionKind,
     pub signature: Option<CompactFunctionSig>,
+    pub(crate) scheme: Option<std::sync::Arc<TypeScheme>>,
+    pub(crate) scheme_body_facts: Option<SchemeBodyFacts>,
     pub body: Span,
     pub parameter_spans: Vec<Span>,
 }
@@ -124,10 +128,38 @@ impl CheckedDeclarations {
             output.error_families_by_name.insert(declaration.name, declaration.family);
         }
         for (_, declaration) in self.functions {
+            let CheckedFunctionDeclaration {
+                name,
+                namespace,
+                internal,
+                exported,
+                kind,
+                signature,
+                scheme,
+                scheme_body_facts,
+                body,
+                parameter_spans,
+            } = declaration;
             output.function_defs += 1;
-            output.params += declaration.parameter_spans.len();
-            let Some(signature) = declaration.signature else { continue; };
-            match output.function_signatures.entry(declaration.body) {
+            output.params += parameter_spans.len();
+            if let Some(scheme_body_facts) = scheme_body_facts {
+                assert!(
+                    scheme.as_ref().is_some_and(|scheme| {
+                        std::sync::Arc::ptr_eq(scheme, scheme_body_facts.scheme())
+                    }),
+                    "generic body facts retain their published scheme"
+                );
+                assert!(output.scheme_bodies.insert(body, scheme_body_facts).is_none());
+            }
+            if exported
+                && let (Some(namespace), Some(scheme)) = (namespace, scheme.as_ref())
+            {
+                let _ = output
+                    .function_schemes
+                    .insert(QualifiedName::new(namespace, name), std::sync::Arc::clone(scheme));
+            }
+            let Some(signature) = signature else { continue; };
+            match output.function_signatures.entry(body) {
                 std::collections::btree_map::Entry::Vacant(entry) => {
                     entry.insert(signature.clone());
                 }
@@ -135,20 +167,20 @@ impl CheckedDeclarations {
                     assert_eq!(entry.get(), &signature, "one function body has one checked signature");
                 }
             }
-            if let Some(namespace) = declaration.namespace {
-                let name = QualifiedName::new(namespace, declaration.name);
-                match declaration.kind {
+            if let Some(namespace) = namespace {
+                let name = QualifiedName::new(namespace, name);
+                match kind {
                     CheckedFunctionKind::Proc => { output.qualified_procs.insert(name, signature.clone()); }
                     CheckedFunctionKind::Pure => { output.qualified_pures.insert(name, signature.clone()); }
                     CheckedFunctionKind::Stream => { output.qualified_streams.insert(name, signature.clone()); }
                     CheckedFunctionKind::CliMain => unreachable!("CLI entries do not publish ordinary signatures"),
                 }
             }
-            if declaration.internal { continue; }
-            match declaration.kind {
-                CheckedFunctionKind::Proc => { output.procs.insert(declaration.name, signature); }
-                CheckedFunctionKind::Pure => { output.pures.insert(declaration.name, signature); }
-                CheckedFunctionKind::Stream => { output.streams.insert(declaration.name, signature); }
+            if internal { continue; }
+            match kind {
+                CheckedFunctionKind::Proc => { output.procs.insert(name, signature); }
+                CheckedFunctionKind::Pure => { output.pures.insert(name, signature); }
+                CheckedFunctionKind::Stream => { output.streams.insert(name, signature); }
                 CheckedFunctionKind::CliMain => unreachable!("CLI entries do not publish ordinary signatures"),
             }
         }
@@ -255,38 +287,42 @@ impl Checker {
     }
 
     pub(super) fn publish_function_declaration(&mut self, program: &ArenaProgram, id: FunctionDefId,
-        kind: CheckedFunctionKind, signature: Option<&super::FunctionSig>) {
+        kind: CheckedFunctionKind, exported: bool, signature: Option<&super::FunctionSig>,
+        scheme_body_facts: Option<SchemeBodyFacts>) {
         if self.collecting_effects { return; }
         let def = program.arena.function_def(id);
-        let signature = signature.map(|sig| CompactFunctionSig {
-            params: sig.params.iter().map(|param| CallableParamType { name: param.name, ty: param.ty.clone(),
-                defaulted: param.defaulted, rest: param.rest }).collect(),
-            parameter_schemas: sig.params.iter().map(|param| param.schema_expectation.clone()).collect(),
-            return_ty: sig.return_ty.clone(), return_type_expr: def.return_ty,
-            inferred_effects: sig.inferred_effects, effects: sig.effects.clone(),
+        let scheme = signature.map(|sig| std::sync::Arc::clone(sig.scheme()));
+        let signature = signature.and_then(|sig| {
+            let params = sig.scheme().params().iter().map(|param| {
+                Some(CallableParamType {
+                    name: param.name,
+                    ty: param.ty.closed_ground_type()?,
+                    defaulted: param.defaulted,
+                    rest: param.rest,
+                })
+            }).collect::<Option<Vec<_>>>()?;
+            Some(CompactFunctionSig {
+                parameter_schemas: sig.scheme().params().iter()
+                    .map(|param| param.schema_expectation.clone()).collect(),
+                params,
+                return_ty: sig.scheme().return_type().closed_ground_type()?,
+                return_type_expr: def.return_ty,
+                inferred_effects: sig.scheme().inferred_effects(),
+                effects: sig.scheme().effects().map(<[_]>::to_vec),
+            })
         });
         self.checked_declarations.functions.insert(id, CheckedFunctionDeclaration {
             name: def.name, namespace: self.current_namespace,
             internal: self.current_namespace.is_some_and(|owner| program.is_internal_namespace(owner)),
-            kind, signature, body: program.arena.span(program.arena.block(def.body).span),
+            exported,
+            kind, signature, scheme, scheme_body_facts,
+            body: program.arena.span(program.arena.block(def.body).span),
             parameter_spans: program.arena.params(def.params).iter().map(|param| program.arena.span(param.span)).collect(),
         });
     }
 
     pub(super) fn take_checked_declarations(&mut self) -> CheckedDeclarations {
         let mut declarations = std::mem::take(&mut self.checked_declarations);
-        for declaration in declarations.functions.values_mut() {
-            if let Some(signature) = &mut declaration.signature {
-                for (param, span) in signature.params.iter_mut().zip(&declaration.parameter_spans) {
-                    if let Some(ty) = self.parameter_types.get(span) { param.ty = ty.clone(); }
-                }
-                if declaration.kind != CheckedFunctionKind::Stream
-                    && let Some(ty) = self.function_return_types.get(&declaration.body)
-                {
-                    signature.return_ty = ty.clone();
-                }
-            }
-        }
         declarations.record_constructors = std::mem::take(&mut self.record_constructors);
         declarations.wire_enums = std::mem::take(&mut self.wire_enums);
         declarations
@@ -316,9 +352,18 @@ impl Checker {
 #[cfg(test)]
 mod tests {
     use super::super::{CheckOptions, Checker, CompactTypeDefInfo, Type};
+    use super::{CheckedDeclarations, CheckedFunctionDeclaration, CheckedFunctionKind};
     use crate::diagnostic::DiagnosticCode;
-    use crate::source::SourceId;
+    use crate::sema::schemes::{
+        SchemeBodyFacts, SchemeCallableKind, SchemeParameter, SchemeType,
+        SchemeTypeParameterId, TypeScheme,
+    };
+    use crate::source::{SourceId, Span};
+    use crate::symbol::{Name, QualifiedName, SymbolOwner};
+    use crate::syntax::arena::{ExprId, FunctionDefId};
     use crate::syntax::parser::Parser;
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
 
     // Native commands stop after a check error; this boundary exercises the
     // compact API with that same checked output, before any lowering runs.
@@ -410,5 +455,225 @@ mod tests {
         assert_eq!(checked.checked_declarations.cli_entries.len(), 1);
         let compact = Checker::compact_declarations(&parsed.arena, checked);
         assert_eq!(compact.cli_entries.len(), 1);
+    }
+
+    #[test]
+    fn inferred_ground_return_matches_published_signature() {
+        use crate::syntax::arena::ArenaStmtKind;
+        let source = include_str!("../../../tests/fixtures/frontend-indexed/local-inference.xsh");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(
+            &parsed.arena,
+            source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() },
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let function = parsed.arena.statement_ids().find_map(|statement| {
+                match parsed.arena.arena.stmt(statement).kind {
+                    ArenaStmtKind::PureDef(function)
+                        if parsed.arena.arena.function_def(function).name.as_str() == "gather" =>
+                    {
+                        Some(function)
+                    }
+                    _ => None,
+                }
+            }).expect("the inference fixture declares `gather`");
+            let body_span = parsed.arena.arena.span(
+                parsed.arena.arena.block(parsed.arena.arena.function_def(function).body).span,
+            );
+            let compact = Checker::compact_declarations(&parsed.arena, checked);
+            let inferred_return = &compact.function_return_types[&body_span];
+            assert_eq!(*inferred_return, Type::List(Box::new(Type::Path)));
+            assert_eq!(compact.function_signatures[&body_span].return_ty, *inferred_return);
+        });
+    }
+
+    #[test]
+    fn annotated_stream_return_matches_published_signature() {
+        use crate::syntax::arena::ArenaStmtKind;
+        let source = "stream failing_rows() [error] -> Stream[Int] { yield 1; let ignored = \"late\".parse_int()? }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(
+            &parsed.arena,
+            source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() },
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let function = parsed.arena.statement_ids().find_map(|statement| {
+                match parsed.arena.arena.stmt(statement).kind {
+                    ArenaStmtKind::StreamDef(function)
+                        if parsed.arena.arena.function_def(function).name.as_str() == "failing_rows" =>
+                    {
+                        Some(function)
+                    }
+                    _ => None,
+                }
+            }).expect("the stream fixture declares `failing_rows`");
+            let definition = parsed.arena.arena.function_def(function);
+            let body_span = parsed.arena.arena.span(parsed.arena.arena.block(definition.body).span);
+            let compact = Checker::compact_declarations(&parsed.arena, checked);
+            let annotated_return = &compact.bodies.resolved_type_expressions.annotations[
+                &(None, definition.return_ty)
+            ];
+            assert_eq!(*annotated_return, Type::Stream(Box::new(Type::Int)));
+            assert_eq!(compact.function_signatures[&body_span].return_ty, *annotated_return);
+        });
+    }
+
+    #[test]
+    fn compound_alias_parameters_and_returns_publish_a_ground_signature() {
+        use crate::syntax::arena::ArenaStmtKind;
+        let source = "type PathInfo = {path: Path}\npure preserve(value: PathInfo) -> PathInfo { value }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(
+            &parsed.arena,
+            source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() },
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let function = parsed.arena.statement_ids().find_map(|statement| {
+                match parsed.arena.arena.stmt(statement).kind {
+                    ArenaStmtKind::PureDef(function)
+                        if parsed.arena.arena.function_def(function).name.as_str() == "preserve" =>
+                    {
+                        Some(function)
+                    }
+                    _ => None,
+                }
+            }).expect("the alias fixture declares `preserve`");
+            let body_span = parsed.arena.arena.span(
+                parsed.arena.arena.block(parsed.arena.arena.function_def(function).body).span,
+            );
+            let compact = Checker::compact_declarations(&parsed.arena, checked);
+            let expected = Type::Record(Arc::new(BTreeMap::from([
+                (crate::symbol::Name::intern("path"), Type::Path),
+            ])));
+            let signature = &compact.function_signatures[&body_span];
+            assert_eq!(signature.params[0].ty, expected);
+            assert_eq!(signature.return_ty, expected);
+        });
+    }
+
+    #[test]
+    fn exported_identity_publishes_one_shared_type_binder() {
+        use crate::syntax::arena::ArenaStmtKind;
+        let source = "export pure identity(value) { value }\npure helper(value: Int) -> Int { value }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(
+            &parsed.arena,
+            source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() },
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let mut statements = parsed.arena.statement_ids();
+        let ArenaStmtKind::Export(inner) = parsed.arena.arena.stmt(
+            statements.next().unwrap(),
+        ).kind else { panic!("export declaration"); };
+        let ArenaStmtKind::PureDef(function) = parsed.arena.arena.stmt(inner).kind else {
+            panic!("pure function declaration");
+        };
+        let declaration = &checked.checked_declarations.functions[&function];
+        assert!(declaration.exported);
+        let scheme = declaration.scheme.as_ref().expect("checked function scheme");
+        assert_eq!(scheme.type_parameters().len(), 1);
+        assert!(scheme.row_parameters().is_empty());
+        let parameter = scheme.type_parameters()[0];
+        assert!(matches!(scheme.params()[0].ty, SchemeType::Parameter(id) if id == parameter));
+        assert!(matches!(scheme.return_type(), SchemeType::Parameter(id) if *id == parameter));
+        let body_facts = declaration
+            .scheme_body_facts
+            .as_ref()
+            .expect("generic body facts");
+        assert!(std::sync::Arc::ptr_eq(scheme, body_facts.scheme()));
+
+        let ArenaStmtKind::PureDef(private_function) = parsed
+            .arena
+            .arena
+            .stmt(statements.next().unwrap())
+            .kind
+        else {
+            panic!("private pure function declaration");
+        };
+        let private_declaration = &checked.checked_declarations.functions[&private_function];
+        assert!(!private_declaration.exported);
+    }
+
+    #[test]
+    fn qualified_scheme_index_copies_only_module_exports() {
+        SymbolOwner::new().with_current(|| {
+            let namespace = Name::intern("sample");
+            let exported_name = Name::intern("identity");
+            let private_name = Name::intern("helper");
+            let type_parameter = SchemeTypeParameterId(0);
+            let scheme = std::sync::Arc::new(
+                TypeScheme::new(
+                    SchemeCallableKind::Pure,
+                    vec![type_parameter],
+                    Vec::new(),
+                    vec![SchemeParameter {
+                        name: Name::intern("value"),
+                        ty: SchemeType::Parameter(type_parameter),
+                        schema_expectation: None,
+                        defaulted: false,
+                        rest: false,
+                    }],
+                    SchemeType::Parameter(type_parameter),
+                    None,
+                    true,
+                    None,
+                    false,
+                )
+                .unwrap(),
+            );
+            let declaration = |name, exported, index, scheme_body_facts| CheckedFunctionDeclaration {
+                name,
+                namespace: Some(namespace),
+                internal: false,
+                exported,
+                kind: CheckedFunctionKind::Pure,
+                signature: None,
+                scheme: Some(std::sync::Arc::clone(&scheme)),
+                scheme_body_facts,
+                body: Span::at(SourceId::new(0), index),
+                parameter_spans: Vec::new(),
+            };
+            let mut declarations = CheckedDeclarations::default();
+            declarations.functions.insert(
+                FunctionDefId::from_index(0),
+                declaration(exported_name, true, 0, None),
+            );
+            let body_facts = SchemeBodyFacts::new(
+                std::sync::Arc::clone(&scheme),
+                std::collections::BTreeMap::from([(
+                    ExprId::from_index(0),
+                    SchemeType::Parameter(type_parameter),
+                )]),
+                std::collections::BTreeMap::new(),
+            )
+            .unwrap();
+            declarations.functions.insert(
+                FunctionDefId::from_index(1),
+                declaration(private_name, false, 1, Some(body_facts)),
+            );
+
+            let compact = declarations.into_compact();
+            let exported = QualifiedName::new(namespace, exported_name);
+            let private = QualifiedName::new(namespace, private_name);
+            assert_eq!(compact.function_schemes.len(), 1);
+            assert!(std::sync::Arc::ptr_eq(&compact.function_schemes[&exported], &scheme));
+            assert!(!compact.function_schemes.contains_key(&private));
+            assert_eq!(compact.scheme_bodies.len(), 1);
+            assert!(std::sync::Arc::ptr_eq(
+                compact.scheme_bodies[&Span::at(SourceId::new(0), 1)].scheme(),
+                &scheme,
+            ));
+        });
     }
 }

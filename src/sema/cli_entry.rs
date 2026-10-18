@@ -159,12 +159,13 @@ pub(crate) fn validate_cli_entry(
                 );
             }
             default_seen |= parameter.default.is_some();
-            let parser_type = if parameter.ty_defaulted {
-                inferred_parser_type(&ty)
-            } else {
-                parser_type(parameter.ty)
-            }
-            .unwrap_or_default();
+            let parser_type = match parameter.annotation {
+                Some(annotation) => parser_type(annotation).unwrap_or_default(),
+                None => parameter
+                    .default
+                    .and_then(|_| inferred_parser_type(&ty))
+                    .unwrap_or_default(),
+            };
             let scalar = |ty: &Type| {
                 matches!(
                     ty,

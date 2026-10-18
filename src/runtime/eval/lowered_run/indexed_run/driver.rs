@@ -1,10 +1,10 @@
 use super::{
-    Arc, AssignOp, Binding, ControlFlow, Evaluator, Flow, FullDriverTag, LoweredModuleExportKind,
+    Arc, AssignOp, Binding, ControlFlow, Evaluator, Flow, FullDriverTag,
     LoweredTopLevelSlot, LoweredType, LoweredTypeCheck, LoweredValue, RecordMap,
     RuntimeError, Span, StmtFlow, Type, Value,
     bind_lowered_comp_target, compound_assignment_value, indexed_error,
     lowered_stmt_flow_to_flow, lowered_type_name,
-    lowered_value_from_runtime, lowered_value_from_runtime_any, runtime_error_from_value,
+    lowered_value_from_runtime, runtime_error_from_value,
     ValueView, value_matches_static_type,
 };
 use crate::symbol::QualifiedName;
@@ -71,14 +71,35 @@ impl Evaluator {
             .map_err(|error| indexed_error(error, call_span))?;
         let mut slots = vec![LoweredValue::Unit; view.slot_count()];
         for slot in &top_level_slots {
-            let Some(binding) = self.lookup(slot.name) else {
-                return Ok(None);
-            };
-            let Some(value) = lowered_value_from_runtime(&binding.value, slot.kind)
-                .or_else(|| lowered_value_from_runtime_any(&binding.value))
-            else {
-                return Ok(None);
-            };
+            let identity = slot.runtime_identity.as_ref().ok_or_else(|| {
+                RuntimeError::new("indexed-ir", "driver slot has no lexical binding identity")
+                    .with_span(call_span)
+            })?;
+            let binding = self.binding_by_identity(identity).ok_or_else(|| {
+                RuntimeError::new(
+                    "unknown-name",
+                    format!("unknown captured binding `{}`", slot.name),
+                )
+                .with_span(call_span)
+            })?;
+            let value = lowered_value_from_runtime(&binding.value, slot.kind).ok_or_else(|| {
+                RuntimeError::new(
+                    "type-error",
+                    format!("driver binding `{}` no longer matches its checked type", slot.name),
+                )
+                .with_span(call_span)
+            })?;
+            if identity.is_script_args()
+                && slot.checked_type.as_ref().is_some_and(|ty| {
+                    !value_matches_static_type(ValueView::Runtime(&binding.value), ty)
+                })
+            {
+                return Err(RuntimeError::new(
+                    "type-error",
+                    "script arguments do not match their checked type",
+                )
+                .with_span(call_span));
+            }
             slots[slot.slot] = Self::share_indexed_root_value(value);
         }
         let previous_root_slots = self
@@ -125,7 +146,7 @@ impl Evaluator {
                         if let Some(scope) = self.scopes.last() {
                             for (&name, binding) in scope {
                                 if let Value::Module(record) = &binding.value {
-                                    modules_before.push((name, record.clone()));
+                                modules_before.push((name, record.clone(), binding.identity.clone()));
                                 }
                             }
                         }
@@ -145,7 +166,7 @@ impl Evaluator {
                                 .with_span(child_span));
                             }
                         }
-                        for (name, record) in &modules_before {
+                        for (name, record, identity) in &modules_before {
                             if let Some(binding) = self.lookup(*name)
                                 && !matches!(&binding.value, Value::Module(_))
                             {
@@ -154,6 +175,7 @@ impl Evaluator {
                                     Binding {
                                         value: Value::Module(record.clone()),
                                         mutable: false,
+                                        identity: identity.clone(),
                                     },
                                 );
                             }
@@ -163,7 +185,7 @@ impl Evaluator {
                     if let Some(scope) = self.scopes.last() {
                         for (&name, binding) in scope {
                             if let Value::Module(record) = &binding.value {
-                                modules_protected.push((name, record.clone()));
+                                modules_protected.push((name, record.clone(), binding.identity.clone()));
                             }
                         }
                     }
@@ -171,32 +193,55 @@ impl Evaluator {
                     for export in exports {
                         let export = export
                             .map_err(|error| indexed_error(error, call_span))?;
-                        let value = match export.kind {
-                            LoweredModuleExportKind::Value => self
-                                .lookup(export.name)
-                                .map(|binding| binding.value.clone())
-                                .ok_or_else(|| {
-                                    RuntimeError::new(
-                                        "missing-field",
-                                        format!(
-                                            "module export `{}` was not materialized",
-                                            export.name
-                                        ),
-                                    )
-                                    .with_span(span)
-                                })?,
-                            LoweredModuleExportKind::Pure => {
-                                let owner = export.function_namespace.unwrap_or(namespace);
-                                Value::Pure(QualifiedName::new(owner, export.name).into())
+                        let (name, value) = match export {
+                            crate::runtime::eval::LoweredModuleExport::Value {
+                                name,
+                                binding: crate::runtime::eval::LoweredModuleExportBinding::Encoded(raw),
+                            } => {
+                                let identity = program.runtime_binding_identity(raw)
+                                    .map_err(|error| indexed_error(error, span))?;
+                                let value = self.binding_by_identity(&identity)
+                                    .map(|binding| binding.value.clone())
+                                    .ok_or_else(|| {
+                                        RuntimeError::new(
+                                            "missing-field",
+                                            format!("module export `{name}` was not materialized"),
+                                        )
+                                        .with_span(span)
+                                    })?;
+                                (name, value)
                             }
-                            LoweredModuleExportKind::Proc => {
-                                let owner = export.function_namespace.unwrap_or(namespace);
-                                Value::Proc(QualifiedName::new(owner, export.name).into())
+                            crate::runtime::eval::LoweredModuleExport::Value {
+                                binding: crate::runtime::eval::LoweredModuleExportBinding::Semantic(_),
+                                ..
+                            } => {
+                                return Err(RuntimeError::new(
+                                    "indexed-ir",
+                                    "module export binding was not encoded",
+                                ).with_span(span));
                             }
+                            crate::runtime::eval::LoweredModuleExport::Pure {
+                                name,
+                                function_namespace,
+                            }
+                            | crate::runtime::eval::LoweredModuleExport::GenericPure {
+                                name,
+                                function_namespace,
+                            } => (
+                                name,
+                                Value::Pure(QualifiedName::new(function_namespace, name).into()),
+                            ),
+                            crate::runtime::eval::LoweredModuleExport::Proc {
+                                name,
+                                function_namespace,
+                            } => (
+                                name,
+                                Value::Proc(QualifiedName::new(function_namespace, name).into()),
+                            ),
                         };
-                        record_fields.push((export.name, value));
+                        record_fields.push((name, value));
                     }
-                    for (name, module_record) in modules_protected {
+                    for (name, module_record, identity) in modules_protected {
                         if let Some(binding) = self.lookup(name)
                             && !matches!(&binding.value, Value::Module(_))
                         {
@@ -205,6 +250,7 @@ impl Evaluator {
                                 Binding {
                                     value: Value::Module(module_record),
                                     mutable: false,
+                                    identity,
                                 },
                             );
                         }
@@ -214,12 +260,15 @@ impl Evaluator {
                         Binding {
                             value: Value::Module(RecordMap::from_name_values(record_fields)),
                             mutable: false,
+                            identity: Some(view
+                                .writer_identity(import_name, None)
+                                .map_err(|error| indexed_error(error, span))?),
                         },
                     );
                     Flow::Continue(Value::Unit)
                 }
                 DriverPayloadView::Let {
-                    target, ty, validation, mutable, value, value_span,
+                    target, ty, validation, annotation: _, mutable, value, value_span,
                 } => {
                     let ty = ty
                         .map(|ty| ty.materialize_lowered())
@@ -274,10 +323,28 @@ impl Evaluator {
                     {
                         value = Value::Map(Default::default());
                     }
-                    self.define(target, Binding { value, mutable });
+                    self.define(
+                        target,
+                        Binding {
+                            value,
+                            mutable,
+                            identity: Some(view
+                                .writer_identity(target, None)
+                                .map_err(|error| indexed_error(error, call_span))?),
+                        },
+                    );
                     Flow::Continue(Value::Unit)
                 }
-                DriverPayloadView::Assign { target, op, value, span } => {
+                DriverPayloadView::Assign {
+                    target,
+                    binding_identity,
+                    op,
+                    value,
+                    span,
+                } => {
+                    let identity = view
+                        .assignment_identity(target, binding_identity)
+                        .map_err(|error| indexed_error(error, call_span))?;
                     let value =
                         match self.eval_indexed_expr(&execution, value.raw(), &mut slots, call_span)? {
                             ControlFlow::Continue(value) => value.into_value(),
@@ -291,14 +358,14 @@ impl Evaluator {
                         value
                     } else {
                         let current = self
-                            .lookup(target)
+                            .binding_by_identity(&identity)
                             .map(|binding| binding.value.clone())
                             .ok_or_else(|| {
                                 RuntimeError::new("unresolved-name", target).with_span(span)
                             })?;
                         compound_assignment_value(op, current, value, span)?
                     };
-                    self.assign(&target.as_str(), value, span)?;
+                    self.assign_binding_identity(&identity, value, span)?;
                     Flow::Continue(Value::Unit)
                 }
                 DriverPayloadView::LetRecord {
@@ -324,6 +391,9 @@ impl Evaluator {
                             Binding {
                                 value: slots[slot].clone().into_value(),
                                 mutable,
+                                identity: Some(view
+                                    .writer_identity(name, Some(slot))
+                                    .map_err(|error| indexed_error(error, call_span))?),
                             },
                         );
                     }
@@ -375,12 +445,39 @@ impl Evaluator {
                 } => {
                     let mut materialized_slots: Vec<LoweredTopLevelSlot> =
                         Vec::with_capacity(hook_slots.len());
+                    let driver_slots = view
+                        .slots()
+                        .map_err(|error| indexed_error(error, call_span))?;
                     for slot in hook_slots.by_ref() {
-                        materialized_slots.push(
-                            slot.map_err(|error| indexed_error(error, call_span))?
-                                .materialize()
-                                .map_err(|error| indexed_error(error, call_span))?,
-                        );
+                        let slot = slot
+                            .map_err(|error| indexed_error(error, call_span))?
+                            .materialize()
+                            .map_err(|error| indexed_error(error, call_span))?;
+                        let driver_slot = driver_slots
+                            .iter()
+                            .find(|driver_slot| {
+                                driver_slot.slot == slot.slot && driver_slot.name == slot.name
+                            })
+                            .ok_or_else(|| {
+                                RuntimeError::new(
+                                    "indexed-ir",
+                                    "signal hook slot has no driver slot authority",
+                                )
+                                .with_span(call_span)
+                            })?;
+                        let identity = driver_slot.runtime_identity.clone()
+                            .ok_or_else(|| {
+                                RuntimeError::new(
+                                    "indexed-ir",
+                                    "signal hook slot has no lexical binding identity",
+                                )
+                                .with_span(call_span)
+                            })?;
+                        materialized_slots.push(LoweredTopLevelSlot {
+                            runtime_identity: Some(identity),
+                            checked_type: driver_slot.checked_type.clone(),
+                            ..slot
+                        });
                     }
                     let program = Arc::clone(
                         self.indexed_program
@@ -464,12 +561,37 @@ impl Evaluator {
                 if !Self::indexed_root_value_unchanged(slot, previous) {
                     *slot =
                         Self::share_indexed_root_value(std::mem::replace(slot, LoweredValue::Unit));
-                    self.assign(&binding.name.as_str(), slot.clone().into_value(), span)?;
-                } else if scope_changed
-                    && let Some(value) = self
-                        .lookup(binding.name)
-                        .and_then(|binding| lowered_value_from_runtime_any(&binding.value))
-                {
+                    let value = slot.clone().into_value();
+                    let identity = binding.runtime_identity.as_ref().ok_or_else(|| {
+                        RuntimeError::new(
+                            "indexed-ir",
+                            "driver slot has no lexical binding identity",
+                        )
+                        .with_span(span)
+                    })?;
+                    self.assign_binding_identity(identity, value, span)?;
+                } else if scope_changed {
+                    let identity = binding.runtime_identity.as_ref().ok_or_else(|| {
+                        RuntimeError::new(
+                            "indexed-ir",
+                            "driver slot has no lexical binding identity",
+                        )
+                        .with_span(span)
+                    })?;
+                    let stored = self.binding_by_identity(identity).ok_or_else(|| {
+                        RuntimeError::new(
+                            "unknown-name",
+                            format!("unknown captured binding `{}`", binding.name),
+                        )
+                        .with_span(span)
+                    })?;
+                    let value = lowered_value_from_runtime(&stored.value, binding.kind).ok_or_else(|| {
+                        RuntimeError::new(
+                            "type-error",
+                            format!("driver binding `{}` no longer matches its checked type", binding.name),
+                        )
+                        .with_span(span)
+                    })?;
                     *slot = Self::share_indexed_root_value(value);
                 }
                 *previous = slot.clone();

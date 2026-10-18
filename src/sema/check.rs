@@ -363,6 +363,8 @@ mod command;
 mod compact;
 #[path = "check/decl.rs"]
 mod decl;
+#[path = "check/scheme_body.rs"]
+mod scheme_body;
 #[path = "check/expected.rs"]
 mod expected;
 #[path = "check/expr.rs"]
@@ -443,7 +445,8 @@ pub use self::compact::{
     CompactBodyFacts, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
 };
 use self::expr::expr_ty_auto_propagates;
-use self::types::{collection_item_ty, result_types, tail_type_matches_expected};
+use self::types::{collection_item_ty, result_types};
+use super::types::tail_type_matches_expected;
 
 /// The checked purpose of a statement remains fixed when its value is unused.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -539,6 +542,7 @@ pub struct CheckOutput {
     pub resolved_type_expressions: ResolvedTypeExpressions,
     pub resolved_bindings: Arc<ResolvedBindings>,
     assignment_facts: assignment_facts::AssignmentFacts,
+    pub(crate) function_body_check_entries: usize,
     pub static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     pub local_binding_types: BTreeMap<Span, Type>,
     pub prepared_constants: super::constants::PreparedConstants,
@@ -633,6 +637,7 @@ pub struct CheckOutput {
     /// Checker-selected declarations for static calls and function values,
     /// keyed by expression or statement span.
     pub(crate) selected_function_calls: BTreeMap<Span, CheckedFunctionTarget>,
+    pub(crate) call_instantiations: BTreeMap<Span, super::schemes::CallInstantiation>,
     /// List index expressions whose index is a negative integer literal,
     /// with the distance from the end it names: `items[-2]` is 2. Only these
     /// count from the end; lowering reads this instead of looking at the
@@ -706,6 +711,8 @@ impl CheckOutput {
             .append(&mut module.static_callable_aliases);
         self.selected_function_calls
             .append(&mut module.selected_function_calls);
+        self.call_instantiations
+            .append(&mut module.call_instantiations);
         self.local_binding_types
             .append(&mut module.local_binding_types);
         self.proven_nonnull_fallback_receivers
@@ -1000,15 +1007,196 @@ impl<'a> ValueBindingLookup<'a> {
 #[derive(Clone, Debug)]
 pub(super) struct FunctionSig {
     effect_declaration: Option<EffectDeclarationId>,
-    inferred_effects: bool,
-    explicit_return: bool,
     is_alias: bool,
     definition: Option<Span>,
     definition_target: Option<CheckedFunctionTarget>,
-    params: Vec<FunctionParamSig>,
+    scheme: Arc<super::schemes::TypeScheme>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub(super) struct FunctionDeclarationId(EffectDeclarationId);
+
+impl FunctionDeclarationId {
+    pub(super) fn new(effect_declaration: EffectDeclarationId) -> Self {
+        Self(effect_declaration)
+    }
+
+    pub(super) fn effect_declaration(self) -> EffectDeclarationId {
+        self.0
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct PendingFunctionSig {
+    kind: super::schemes::SchemeCallableKind,
+    exported: bool,
+    effect_declaration: Option<EffectDeclarationId>,
+    is_alias: bool,
+    definition: Option<Span>,
+    definition_target: Option<CheckedFunctionTarget>,
+    solver_level: u32,
+    return_authority: TypeAuthority,
+    body_checked: bool,
+    generalizable: bool,
+    callable: PendingCallable,
+}
+
+impl PendingFunctionSig {
+    pub(super) fn kind(&self) -> super::schemes::SchemeCallableKind {
+        self.kind
+    }
+
+    pub(super) fn effect_declaration(&self) -> Option<EffectDeclarationId> {
+        self.effect_declaration
+    }
+
+    pub(super) fn definition(&self) -> Option<Span> {
+        self.definition
+    }
+
+    pub(super) fn definition_target(&self) -> Option<CheckedFunctionTarget> {
+        self.definition_target
+    }
+
+    pub(super) fn solver_level(&self) -> u32 {
+        self.solver_level
+    }
+
+    pub(super) fn body_checked(&self) -> bool {
+        self.body_checked
+    }
+
+    pub(super) fn mark_body_checked(&mut self) {
+        self.body_checked = true;
+    }
+
+    pub(super) fn generalizable(&self) -> bool {
+        self.generalizable
+    }
+
+    pub(super) fn make_monomorphic(&mut self) {
+        self.generalizable = false;
+    }
+
+    pub(super) fn provisional(&self) -> Option<&PendingCallableShape> {
+        match &self.callable {
+            PendingCallable::Provisional(shape) => Some(shape),
+            PendingCallable::Generalized(_) => None,
+        }
+    }
+
+    pub(super) fn provisional_mut(&mut self) -> Option<&mut PendingCallableShape> {
+        match &mut self.callable {
+            PendingCallable::Provisional(shape) => Some(shape),
+            PendingCallable::Generalized(_) => None,
+        }
+    }
+
+    pub(super) fn generalized(&self) -> Option<&Arc<super::schemes::CallableScheme>> {
+        match &self.callable {
+            PendingCallable::Provisional(_) => None,
+            PendingCallable::Generalized(callable) => Some(&callable.callable),
+        }
+    }
+
+    pub(super) fn generalized_body_types(
+        &self,
+    ) -> Option<&BTreeMap<ExprId, super::schemes::SchemeType>> {
+        match &self.callable {
+            PendingCallable::Provisional(_) => None,
+            PendingCallable::Generalized(callable) => Some(&callable.body_types),
+        }
+    }
+
+    pub(super) fn generalized_tail_types(
+        &self,
+    ) -> Option<&BTreeMap<StmtId, super::schemes::SchemeType>> {
+        match &self.callable {
+            PendingCallable::Provisional(_) => None,
+            PendingCallable::Generalized(callable) => Some(&callable.tail_types),
+        }
+    }
+
+    pub(super) fn generalized_registered_calls(&self) -> Option<&BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>> {
+        match &self.callable {
+            PendingCallable::Provisional(_) => None,
+            PendingCallable::Generalized(callable) => Some(&callable.registered_calls),
+        }
+    }
+
+    pub(super) fn generalized_read_bindings(&self) -> Option<&std::collections::BTreeSet<BindingId>> {
+        match &self.callable {
+            PendingCallable::Provisional(_) => None,
+            PendingCallable::Generalized(callable) => Some(&callable.read_bindings),
+        }
+    }
+
+    pub(super) fn generalize(
+        &mut self,
+        callable: Arc<super::schemes::CallableScheme>,
+        body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
+        tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
+        registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
+        read_bindings: std::collections::BTreeSet<BindingId>,
+    ) {
+        assert!(
+            matches!(self.callable, PendingCallable::Provisional(_)),
+            "a provisional callable shape generalizes once"
+        );
+        self.callable = PendingCallable::Generalized(GeneralizedCallable {
+            callable,
+            body_types,
+            tail_types,
+            registered_calls,
+            read_bindings,
+        });
+    }
+}
+
+#[derive(Clone, Debug)]
+struct GeneralizedCallable {
+    callable: Arc<super::schemes::CallableScheme>,
+    body_types: BTreeMap<ExprId, super::schemes::SchemeType>,
+    tail_types: BTreeMap<StmtId, super::schemes::SchemeType>,
+    registered_calls: BTreeMap<ExprId, Arc<super::schemes::RegisteredCallPlan>>,
+    read_bindings: std::collections::BTreeSet<BindingId>,
+}
+
+#[derive(Clone, Debug)]
+enum PendingCallable {
+    Provisional(PendingCallableShape),
+    Generalized(GeneralizedCallable),
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct PendingCallableShape {
+    params: Vec<PendingFunctionParamSig>,
     return_ty: Type,
     return_schema: Option<super::constants::SchemaExpectation>,
-    effects: Option<Vec<Effect>>,
+    explicit_return: bool,
+}
+
+impl PendingCallableShape {
+    fn params(&self) -> &[PendingFunctionParamSig] {
+        &self.params
+    }
+
+    pub(super) fn return_ty(&self) -> &Type {
+        &self.return_ty
+    }
+}
+
+#[derive(Clone, Debug)]
+struct PendingFunctionParamSig {
+    signature: FunctionParamSig,
+    authority: TypeAuthority,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum TypeAuthority {
+    Explicit,
+    Default,
+    Inferred,
 }
 
 #[derive(Clone, Debug)]
@@ -1018,6 +1206,169 @@ pub(super) struct FunctionParamSig {
     schema_expectation: Option<super::constants::SchemaExpectation>,
     defaulted: bool,
     rest: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct FunctionCallContract {
+    pub(super) params: Vec<FunctionParamSig>,
+    pub(super) return_ty: Type,
+    pub(super) effects: Option<Vec<Effect>>,
+    pub(super) effect_declaration: Option<EffectDeclarationId>,
+    pub(super) definition_target: Option<CheckedFunctionTarget>,
+    instantiation: Option<PendingCallInstantiation>,
+}
+
+type PendingCallInstantiation = (
+    Arc<super::schemes::CallableScheme>,
+    super::constraints::InstantiatedScheme,
+);
+
+impl FunctionSig {
+    pub(super) fn ground(
+        kind: super::schemes::SchemeCallableKind,
+        effect_declaration: Option<EffectDeclarationId>,
+        is_alias: bool,
+        definition: Option<Span>,
+        definition_target: Option<CheckedFunctionTarget>,
+        params: Vec<FunctionParamSig>,
+        return_ty: Type,
+        return_schema: Option<super::constants::SchemaExpectation>,
+        effects: Option<Vec<Effect>>,
+        inferred_effects: bool,
+        explicit_return: bool,
+    ) -> Option<Self> {
+        let params = params
+            .into_iter()
+            .map(|parameter| super::schemes::SchemeParameter {
+                name: parameter.name,
+                ty: super::schemes::SchemeType::Ground(parameter.ty),
+                schema_expectation: parameter.schema_expectation,
+                defaulted: parameter.defaulted,
+                rest: parameter.rest,
+            })
+            .collect();
+        let callable = super::schemes::CallableScheme::new(
+            Vec::new(),
+            Vec::new(),
+            params,
+            super::schemes::SchemeType::Ground(return_ty),
+            return_schema,
+            explicit_return,
+        )
+        .ok()?;
+        let scheme = super::schemes::TypeScheme::with_callable(
+            kind,
+            Arc::new(callable),
+            effects,
+            inferred_effects,
+        )
+        .ok()?;
+        Some(Self {
+            effect_declaration,
+            is_alias,
+            definition,
+            definition_target,
+            scheme: Arc::new(scheme),
+        })
+    }
+
+    pub(super) fn effect_declaration(&self) -> Option<EffectDeclarationId> {
+        self.effect_declaration
+    }
+
+    pub(super) fn definition(&self) -> Option<Span> {
+        self.definition
+    }
+
+    pub(super) fn definition_target(&self) -> Option<CheckedFunctionTarget> {
+        self.definition_target
+    }
+
+    pub(super) fn scheme(&self) -> &Arc<super::schemes::TypeScheme> {
+        &self.scheme
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum DeclarationInferenceState {
+    Pending(PendingFunctionSig),
+    Checked(FunctionSig),
+}
+
+#[derive(Clone, Debug, Default)]
+pub(super) struct DeclarationInference {
+    states: BTreeMap<FunctionDeclarationId, DeclarationInferenceState>,
+}
+
+impl DeclarationInference {
+    pub(super) fn insert_pending(
+        &mut self,
+        id: FunctionDeclarationId,
+        signature: PendingFunctionSig,
+    ) {
+        assert!(
+            self.states
+                .insert(id, DeclarationInferenceState::Pending(signature))
+                .is_none(),
+            "a function declaration enters inference once"
+        );
+    }
+
+    pub(super) fn pending(&self, id: FunctionDeclarationId) -> Option<&PendingFunctionSig> {
+        match self.states.get(&id)? {
+            DeclarationInferenceState::Pending(signature) => Some(signature),
+            DeclarationInferenceState::Checked(_) => None,
+        }
+    }
+
+    pub(super) fn pending_mut(
+        &mut self,
+        id: FunctionDeclarationId,
+    ) -> Option<&mut PendingFunctionSig> {
+        match self.states.get_mut(&id)? {
+            DeclarationInferenceState::Pending(signature) => Some(signature),
+            DeclarationInferenceState::Checked(_) => None,
+        }
+    }
+
+    pub(super) fn checked(&self, id: FunctionDeclarationId) -> Option<&FunctionSig> {
+        match self.states.get(&id)? {
+            DeclarationInferenceState::Pending(_) => None,
+            DeclarationInferenceState::Checked(signature) => Some(signature),
+        }
+    }
+
+    pub(super) fn mark_checked(
+        &mut self,
+        id: FunctionDeclarationId,
+        signature: FunctionSig,
+    ) -> Result<(), FunctionSig> {
+        match self.states.get_mut(&id) {
+            Some(state @ DeclarationInferenceState::Pending(_)) => {
+                *state = DeclarationInferenceState::Checked(signature);
+                Ok(())
+            }
+            Some(DeclarationInferenceState::Checked(_)) | None => Err(signature),
+        }
+    }
+
+    pub(super) fn pending_iter_mut(
+        &mut self,
+    ) -> impl Iterator<Item = &mut PendingFunctionSig> {
+        self.states.values_mut().filter_map(|state| match state {
+            DeclarationInferenceState::Pending(signature) => Some(signature),
+            DeclarationInferenceState::Checked(_) => None,
+        })
+    }
+
+    pub(super) fn pending_entries(
+        &self,
+    ) -> impl Iterator<Item = (FunctionDeclarationId, &PendingFunctionSig)> {
+        self.states.iter().filter_map(|(id, state)| match state {
+            DeclarationInferenceState::Pending(signature) => Some((*id, signature)),
+            DeclarationInferenceState::Checked(_) => None,
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1094,7 +1445,8 @@ pub(super) enum ModuleContractEntryKind {
 pub(super) struct ContractParam {
     source: crate::syntax::arena::ArenaParam,
     name: Name,
-    ty: TypeAnnRef,
+    program: Arc<ArenaProgram>,
+    ty: Option<TypeAnnRef>,
     defaulted: bool,
     rest: bool,
 }
@@ -1339,6 +1691,9 @@ pub struct Checker {
     static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     typed_callable_calls: BTreeMap<Span, Arc<crate::sema::types::TypedCallable>>,
     selected_function_calls: BTreeMap<Span, CheckedFunctionTarget>,
+    pending_call_instantiations: BTreeMap<Span, PendingCallInstantiation>,
+    call_instantiations: BTreeMap<Span, super::schemes::CallInstantiation>,
+    prepared_function_call_contracts: BTreeMap<Span, FunctionCallContract>,
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
     argument_projection_sources:
         FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
@@ -1362,10 +1717,11 @@ pub struct Checker {
     bundle_root_statements: Option<ArenaRange>,
     bundle_module_keys: Option<Arc<[String]>>,
     scopes: Vec<FxHashMap<Name, Binding>>,
-    procs: FxHashMap<Name, FunctionSig>,
+    declaration_inference: DeclarationInference,
+    procs: FxHashMap<Name, FunctionDeclarationId>,
     byte_script_arguments: bool,
-    pures: FxHashMap<Name, FunctionSig>,
-    streams: FxHashMap<Name, FunctionSig>,
+    pures: FxHashMap<Name, FunctionDeclarationId>,
+    streams: FxHashMap<Name, FunctionDeclarationId>,
     // Imported signatures and module contracts change only while
     // declarations are collected. Sharing them lets the speculative copy made
     // for each inferred body skip every signature in the program.
@@ -1445,6 +1801,7 @@ pub struct Checker {
     deferred_effect_checks: Vec<DeferredEffectCheck>,
     authoritative_effect_graph: bool,
     module_diagnostic_position: usize,
+    function_body_check_entries: usize,
     effect_graph: EffectGraph,
     effect_summaries: BTreeMap<EffectDeclarationId, EffectSummary>,
     /// Set by a probe that read a callee's effects from a module-value type
@@ -1627,6 +1984,8 @@ impl Checker {
     }
 
     fn into_output(mut self) -> CheckOutput {
+        assert!(self.pending_call_instantiations.is_empty());
+        assert!(self.prepared_function_call_contracts.is_empty());
         let callable_effects = self.callable_effects();
         let checked_declarations = self.take_checked_declarations();
         CheckOutput {
@@ -1635,9 +1994,11 @@ impl Checker {
             static_callable_aliases: self.static_callable_aliases,
             typed_callable_calls: self.typed_callable_calls,
             selected_function_calls: self.selected_function_calls,
+            call_instantiations: self.call_instantiations,
             local_binding_types: self.local_inference.checked_bindings,
             resolved_bindings: self.resolved_bindings,
             assignment_facts: self.assignment_facts,
+            function_body_check_entries: self.function_body_check_entries,
             prepared_constants: self.prepared_constants,
             proven_nonnull_fallback_receivers: self.proven_nonnull_fallback_receivers,
             diagnostics: self.diagnostics,
@@ -1725,7 +2086,11 @@ impl Checker {
             static_callable_aliases: BTreeMap::new(),
             typed_callable_calls: BTreeMap::new(),
             selected_function_calls: BTreeMap::new(),
+            pending_call_instantiations: BTreeMap::new(),
+            call_instantiations: BTreeMap::new(),
+            prepared_function_call_contracts: BTreeMap::new(),
             scopes: vec![FxHashMap::default()],
+            declaration_inference: DeclarationInference::default(),
             procs: FxHashMap::default(),
             byte_script_arguments: false,
             pures: FxHashMap::default(),
@@ -1824,6 +2189,7 @@ impl Checker {
             deferred_effect_checks: Vec::new(),
             authoritative_effect_graph: false,
             module_diagnostic_position: 0,
+            function_body_check_entries: 0,
             effect_graph: EffectGraph::default(),
             effect_summaries: BTreeMap::new(),
             provisional_effects_read: std::cell::Cell::new(false),
@@ -1977,14 +2343,19 @@ impl Checker {
                 || calls_main_with_implicit_spread_args(program, statements, &self.resolved_bindings));
         if self.options.interactive_commands.is_none() && proc_main_auto_dispatch {
             let (span, has_unbindable_required_param) = {
-                let signature = self
+                let declaration = *self
                     .procs
                     .get(&Name::intern("main"))
                     .expect("root proc main signature is collected before entry checking");
+                let signature = self
+                    .local_function_signature(declaration)
+                    .expect("the entry proc main has a ground signature");
                 let span = signature
-                    .definition
+                    .definition()
                     .expect("root proc main signature has a source definition");
-                let has_unbindable_required_param = signature.params.iter().any(|parameter| {
+                let callable = decl::callable_type_from_function_signature(&signature)
+                    .expect("the entry proc main has a ground signature");
+                let has_unbindable_required_param = callable.params.iter().any(|parameter| {
                     !parameter.rest
                         && !parameter.defaulted
                         && !matches!(&parameter.ty, Type::Str | Type::Path)
@@ -2001,17 +2372,22 @@ impl Checker {
         }
         if self.options.interactive_commands.is_none()
             && main_runs_after
-            && let Some(signature) = self.procs.get(&Name::intern("main"))
+            && let Some(declaration) = self.procs.get(&Name::intern("main")).copied()
         {
-            let has_bytes = signature.params.iter().any(|parameter| {
+            let signature = self
+                .local_function_signature(declaration)
+                .expect("the entry proc main has a ground signature");
+            let callable = decl::callable_type_from_function_signature(&signature)
+                .expect("the entry proc main has a ground signature");
+            let has_bytes = callable.params.iter().any(|parameter| {
                 parameter.ty == Type::Bytes || matches!(&parameter.ty,
                     Type::List(item) if item.as_ref() == &Type::Bytes)
             });
-            let single_byte_rest = matches!(signature.params.as_slice(), [parameter]
+            let single_byte_rest = matches!(callable.params.as_slice(), [parameter]
                 if parameter.rest && !parameter.defaulted
                 && matches!(&parameter.ty, Type::List(item) if item.as_ref() == &Type::Bytes));
             if has_bytes && !single_byte_rest
-                && let Some(span) = signature.definition
+                && let Some(span) = signature.definition()
             {
                 self.error(span,
                     "byte script arguments require a single spread parameter `(...argv: List[Bytes])`",
@@ -2035,8 +2411,10 @@ impl Checker {
             |parameter| {
                 self.checked_parameter_type(program, parameter)
                     .unwrap_or_else(|| {
-                        self.record_constructors
-                            .resolve_type(&program.arena, parameter.ty, None)
+                            parameter.annotation.map_or(Type::Unknown, |annotation| {
+                                self.record_constructors
+                                    .resolve_type(&program.arena, annotation, None)
+                            })
                     })
             },
             |ty| self.record_constructors.cli_parser_type(&program.arena, ty),
@@ -2136,17 +2514,23 @@ impl Checker {
 
     fn callable_effects(&self) -> FxHashMap<String, Option<Vec<Effect>>> {
         let mut effects = FxHashMap::default();
-        for (name, sig) in &self.procs {
-            effects.insert(name.to_string(), sig.effects.clone());
+        for (name, declaration) in &self.procs {
+            effects.insert(
+                name.to_string(),
+                self.declaration_effects(Some(declaration.effect_declaration())),
+            );
         }
-        for (name, sig) in &self.streams {
-            effects.insert(name.to_string(), sig.effects.clone());
+        for (name, declaration) in &self.streams {
+            effects.insert(
+                name.to_string(),
+                self.declaration_effects(Some(declaration.effect_declaration())),
+            );
         }
         for (name, sig) in self.qualified_procs.iter() {
-            effects.insert(name.to_string(), sig.effects.clone());
+            effects.insert(name.to_string(), sig.scheme().effects().map(<[_]>::to_vec));
         }
         for (name, sig) in self.qualified_streams.iter() {
-            effects.insert(name.to_string(), sig.effects.clone());
+            effects.insert(name.to_string(), sig.scheme().effects().map(<[_]>::to_vec));
         }
         effects
     }

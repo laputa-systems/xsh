@@ -264,30 +264,66 @@ impl Checker {
         }
     }
 
-    pub(super) fn expect_type(&mut self, expected: &Type, actual: &Type, span: Span) {
-        if expected.contains_inference() || actual.contains_inference() {
-            let constrained = if expected.contains_inference() {
-                self.type_constraints.constrain(expected, actual, span)
+    fn constrain_inferred_expectation(
+        &mut self,
+        expected: &Type,
+        actual: &Type,
+        span: Span,
+    ) -> Result<(), crate::sema::constraints::ConstraintConflict> {
+        if let Some(seed) = self.prepared_nullable_seed(expected) {
+            if self.collecting_local_constraints() {
+                self.type_constraints
+                    .constrain_nullable_seed(seed, actual, span)
             } else {
                 self.type_constraints
-                    .constrain_context(expected, actual, span)
-            };
-            if let Err(conflict) = constrained {
-                let mut diagnostic = Diagnostic::error("inferred types disagree")
-                    .with_code(DiagnosticCode::CheckTypeMismatch)
-                    .with_label(Label::primary(
-                        conflict.contribution,
-                        format!("expected {}, found {}", conflict.expected, conflict.actual),
-                    ));
-                if let Some(origin) = conflict.initializer {
-                    diagnostic = diagnostic
-                        .with_label(Label::secondary(origin, "type inference started here"));
+                    .check_nullable_seed(seed, actual, span)
+            }
+        } else if expected.contains_inference() {
+            self.type_constraints.constrain(expected, actual, span)
+        } else {
+            self.type_constraints
+                .constrain_context(expected, actual, span)
+        }
+    }
+
+    fn report_inferred_type_conflict(
+        &mut self,
+        conflict: crate::sema::constraints::ConstraintConflict,
+    ) {
+        let mut diagnostic = Diagnostic::error("inferred types disagree")
+            .with_code(DiagnosticCode::CheckTypeMismatch)
+            .with_label(Label::primary(
+                conflict.contribution,
+                format!("expected {}, found {}", conflict.expected, conflict.actual),
+            ));
+        if let Some(origin) = conflict.initializer {
+            diagnostic =
+                diagnostic.with_label(Label::secondary(origin, "type inference started here"));
+        }
+        if let Some(established) = conflict.established {
+            diagnostic =
+                diagnostic.with_label(Label::secondary(established, "type established here"));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    pub(super) fn expect_type(&mut self, expected: &Type, actual: &Type, span: Span) {
+        if expected.contains_inference() || actual.contains_inference() {
+            match self.constrain_inferred_expectation(expected, actual, span) {
+                Ok(()) => return,
+                Err(conflict) => match self
+                    .type_constraints
+                    .missing_required_open_record_field(expected, actual)
+                {
+                    Ok(Some(missing)) => {
+                        self.report_unknown_field(span, missing, std::iter::empty());
+                    }
+                    Ok(None)
+                    | Err(
+                        crate::sema::constraints::ConstraintResolutionError::ForeignVariable
+                        | crate::sema::constraints::ConstraintResolutionError::TypeDepth,
+                    ) => self.report_inferred_type_conflict(conflict),
                 }
-                if let Some(established) = conflict.established {
-                    diagnostic = diagnostic
-                        .with_label(Label::secondary(established, "type established here"));
-                }
-                self.diagnostics.push(diagnostic);
             }
             return;
         }
@@ -815,10 +851,10 @@ impl Checker {
                 .into_iter()
                 .map(|param| CallableParamType {
                     name: param.name,
-                    ty: if param.source.ty_defaulted {
-                        self.infer_checked_parameter(&param.ty.program, "", &param.source)
+                    ty: if let Some(annotation) = &param.ty {
+                        self.type_from_ann(annotation)
                     } else {
-                        self.type_from_ann(&param.ty)
+                        self.infer_checked_parameter(&param.program, "", &param.source)
                     },
                     defaulted: param.defaulted,
                     rest: param.rest,
@@ -830,10 +866,72 @@ impl Checker {
     }
 }
 
-pub(super) fn tail_type_matches_expected(expected: &Type, actual: &Type) -> bool {
-    actual.matches_expected(expected)
-        || (!actual.is_result()
-            && matches!(expected, Type::Result(ok, _) if actual.matches_expected(ok)))
+#[derive(Clone, Copy)]
+pub(super) enum TypeExpectation<'a> {
+    Required(&'a Type),
+    BranchCandidate(&'a Type),
+}
+
+impl<'a> TypeExpectation<'a> {
+    pub(super) fn context(self) -> &'a Type {
+        match self {
+            Self::Required(ty) | Self::BranchCandidate(ty) => ty,
+        }
+    }
+
+    pub(super) fn with_context<'b>(self, context: &'b Type) -> TypeExpectation<'b> {
+        match self {
+            Self::Required(_) => TypeExpectation::Required(context),
+            Self::BranchCandidate(_) => TypeExpectation::BranchCandidate(context),
+        }
+    }
+
+    pub(super) fn accepts_optional_branch(self, actual: &Type) -> bool {
+        matches!(self, Self::BranchCandidate(previous)
+            if matches!(actual, Type::Optional(_)) && previous.matches_expected(actual))
+    }
+}
+
+pub(super) fn next_branch_expectation<'a>(
+    inherited: Option<TypeExpectation<'a>>,
+    previous: Option<&'a Type>,
+) -> Option<TypeExpectation<'a>> {
+    match (inherited, previous) {
+        (Some(TypeExpectation::Required(expected)), _) => {
+            Some(TypeExpectation::Required(expected))
+        }
+        (
+            Some(TypeExpectation::BranchCandidate(candidate)),
+            Some(previous),
+        ) if matches!(previous, Type::Optional(_)) && candidate.matches_expected(previous) => {
+            Some(TypeExpectation::BranchCandidate(previous))
+        }
+        (Some(expectation @ TypeExpectation::BranchCandidate(_)), _) => Some(expectation),
+        (None, Some(previous)) => Some(TypeExpectation::BranchCandidate(previous)),
+        (None, None) => None,
+    }
+}
+
+pub(super) fn merge_branch_candidate(
+    expectation: Option<TypeExpectation<'_>>,
+    previous: &Type,
+    actual: &Type,
+) -> Option<Type> {
+    let TypeExpectation::BranchCandidate(candidate) = expectation? else {
+        return None;
+    };
+    if actual.matches_expected(previous) {
+        Some(previous.clone())
+    } else if matches!(actual, Type::Optional(_)) && previous.matches_expected(actual) {
+        Some(actual.clone())
+    } else if matches!(candidate, Type::Optional(_))
+        && previous.matches_expected(candidate)
+        && actual.matches_expected(candidate)
+    {
+        Some(candidate.clone())
+    } else {
+        None
+    }
 }
 
 pub(super) fn result_types(ty: &Type) -> Option<(Type, Type)> {

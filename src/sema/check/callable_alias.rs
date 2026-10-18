@@ -23,14 +23,14 @@ pub(super) struct CallableAlias {
 }
 
 impl CallableAlias {
-    fn checked(&self) -> StaticCallableAlias {
-        StaticCallableAlias {
+    fn checked(&self) -> Option<StaticCallableAlias> {
+        Some(StaticCallableAlias {
             name: self.name,
             method_call: false,
-            signature: super::decl::callable_type_from_function_signature(&self.signature),
+            signature: super::decl::callable_type_from_function_signature(&self.signature)?,
             pure: self.pure,
             definition: self.signature.definition,
-        }
+        })
     }
 }
 
@@ -76,9 +76,10 @@ impl Checker {
                     super::ValueBindingLookup::NoSite => {}
                 }
                 if let Some(signature) = self.pures.get(&name) {
-                    (name, signature, true)
+                    (name, self.local_function_signature(*signature)?, true)
                 } else {
-                    (name, self.procs.get(&name)?, false)
+                    let signature = self.local_function_signature(*self.procs.get(&name)?)?;
+                    (name, signature, false)
                 }
             }
             ArenaExprKind::Field { base, name } => {
@@ -93,17 +94,17 @@ impl Checker {
                     }
                 }
                 let qualified = QualifiedName::new(namespace, name);
-                if let Some(signature) = self.qualified_pures.get(&qualified) {
+                if let Some(signature) = self.qualified_pures.get(&qualified).cloned() {
                     (name, signature, true)
                 } else {
-                    (name, self.qualified_procs.get(&qualified)?, false)
+                    (name, self.qualified_procs.get(&qualified)?.clone(), false)
                 }
             }
             _ => return None,
         };
         Some(CallableAlias {
             name,
-            signature: signature.clone(),
+            signature,
             pure,
         })
     }
@@ -159,15 +160,17 @@ impl Checker {
         Some(CallableAlias {
             name,
             pure,
-            signature: FunctionSig {
-                return_schema: None,
-                effect_declaration: None,
-                inferred_effects: false,
-                explicit_return: true,
-                is_alias: false,
-                definition: None,
-                definition_target: None,
-                params: sig
+            signature: FunctionSig::ground(
+                if pure {
+                    super::super::schemes::SchemeCallableKind::Pure
+                } else {
+                    super::super::schemes::SchemeCallableKind::Proc
+                },
+                None,
+                false,
+                None,
+                None,
+                sig
                     .params
                     .iter()
                     .map(|param| FunctionParamSig {
@@ -178,9 +181,12 @@ impl Checker {
                         rest: param.rest,
                     })
                     .collect(),
-                return_ty: (*sig.return_ty).clone(),
-                effects: sig.effects.clone(),
-            },
+                (*sig.return_ty).clone(),
+                None,
+                sig.effects.clone(),
+                false,
+                true,
+            )?,
         })
     }
 
@@ -200,7 +206,9 @@ impl Checker {
     }
 
     pub(super) fn record_callable_alias(&mut self, span: Span, alias: &CallableAlias) {
-        self.static_callable_aliases.insert(span, alias.checked());
+        if let Some(alias) = alias.checked() {
+            self.static_callable_aliases.insert(span, alias);
+        }
     }
 
     pub(super) fn attach_callable_alias(

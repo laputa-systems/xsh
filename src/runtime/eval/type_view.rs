@@ -375,7 +375,9 @@ pub(super) fn value_matches_static_type(value: ValueView<'_>, ty: &Type) -> bool
                     match export {
                         ModuleExportType::Value { ty, .. } => value_matches_static_type(field, ty),
                         ModuleExportType::Proc { .. } => field.scalar_type() == Some(Type::Proc),
-                        ModuleExportType::Pure { .. } => field.scalar_type() == Some(Type::Pure),
+                        ModuleExportType::Pure { .. } | ModuleExportType::GenericPure { .. } => {
+                            field.scalar_type() == Some(Type::Pure)
+                        }
                     }
                 }
                 None => export.optional(),

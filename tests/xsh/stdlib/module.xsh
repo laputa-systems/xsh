@@ -484,6 +484,122 @@ export let version = """
   assert module.load(versioned)?.require(VersionedModule)?.version == 2
 }
 
+test test_module_reload_keeps_inflight_old_capture_values { |ctx|
+  let root = test.temp_dir(ctx, name: "inflight-module-reload")?
+  let plugin_path = fp"{root}/plugin.xsh"
+  plugin_path.write(r"""##! Plugin that reloads itself while a call is active.
+let count = 1
+
+## Reloads the module and then reads its captured value.
+export proc reload_then_increment(plugin_path: Path, replacement: Str) [fs, error] -> Result[Int, Error] {
+  plugin_path.write(replacement)?
+  let _ = module.load(plugin_path)?
+  Ok(count + 1)
+}
+""")
+  let replacement = r"""##! Updated plugin that replaces its prepared code.
+let count = 99
+
+## Reloads the module and then reads its captured value.
+export proc reload_then_increment(plugin_path: Path, replacement: Str) [fs, error] -> Result[Int, Error] {
+  plugin_path.write(replacement)?
+  let _ = module.load(plugin_path)?
+  Ok(count + 1)
+}
+"""
+  let output = test.run_script(
+    ctx,
+    r"""type ReloadingModule = module {
+  export proc reload_then_increment(plugin_path: Path, replacement: Str) [fs, error] -> Result[Int, Error]
+}
+
+let plugin_path = Path(args[0])
+let loaded = module.load(plugin_path)?.require(ReloadingModule)?
+print ${loaded.reload_then_increment(plugin_path, args[1])?}
+""",
+    [plugin_path.display(), replacement],
+    {XSH_MODULE_PATH: root},
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "2\n", output.stdout
+}
+
+test test_module_load_preserves_shadowed_import_capture_identities { |ctx|
+  let root = test.temp_dir(ctx, name: "module-import-captures")?
+  for {name, value} in [{name: "first", value: 11}, {name: "second", value: 22}, {name: "caller", value: 99}] {
+    fp"{root}/{name}.xsh".write(f"""##! Data captured by an import.
+## Exposes the module value.
+export const value = {value}
+""")
+  }
+  fp"{root}/inner.xsh".write(r"""##! Nested import with the same alias.
+use second as report
+## Reads the nested lexical import.
+export pure value() -> Int { report.value }
+""")
+  let plugin = fp"{root}/plugin.xsh"
+  plugin.write(r"""##! Outer import with distinct lexical captures.
+use first as report
+use inner
+## Reads the outer lexical import.
+export pure outer() -> Int { report.value }
+## Reads the nested lexical import.
+export pure nested() -> Int { inner.value() }
+""")
+  let output = test.run_script(
+    ctx,
+    r"""use caller as report
+
+type Captures = module {
+  export pure outer() -> Int
+  export pure nested() -> Int
+}
+
+let plugin_path = Path(args[0])
+let loaded = module.load(plugin_path)?.require(Captures)?
+print ${loaded.outer()}
+print ${loaded.nested()}
+print ${module.load(plugin_path)?.require(Captures)?.outer()}
+print ${report.value}
+""",
+    [plugin.display()],
+    {XSH_MODULE_PATH: root},
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "11\n22\n11\n99\n", output.stdout
+}
+
+test test_module_load_initializers_retain_nested_exports { |ctx|
+  let root = test.temp_dir(ctx, name: "nested-module-initializer")?
+  let leaf_path = fp"{root}/leaf.xsh"
+  leaf_path.write(r"""##! Module loaded by another module initializer.
+## Exposes a captured value.
+export let number = 40
+## Reads its exported lexical binding.
+export pure value() -> Int { number + 2 }
+""")
+  let outer_path = fp"{root}/outer.xsh"
+  outer_path.write(f"""##! Module with a nested runtime module initializer.
+type Reader = module {{ export pure value() -> Int }}
+let nested = module.load(p"{leaf_path}")?.require(Reader)?
+## Calls the module retained by the initializer.
+export pure value() -> Int {{ nested.value() }}
+""")
+  let output = test.run_script(
+    ctx,
+    r"""type Reader = module { export pure value() -> Int }
+let outer_path = Path(args[0])
+let loaded = module.load(outer_path)?.require(Reader)?
+print ${loaded.value()}
+print ${module.load(outer_path)?.require(Reader)?.value()}
+""",
+    [outer_path.display()],
+    {XSH_MODULE_PATH: root},
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "42\n42\n", output.stdout
+}
+
 test test_module_load_exports_private_fields_and_contract_errors { |ctx|
   let root = test.temp_dir(ctx, name: "dynamic-module-contract")?
   fp"{root}/helper.xsh".write(r"""

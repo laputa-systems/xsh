@@ -622,7 +622,7 @@ mod child_tests {
         let return_ty = TypeExprId::from_index(1);
         let default = ExprId::from_index(0);
         let body = BlockId::from_index(0);
-        lowerer.arena.params.push(ArenaParam { name, ty: parameter_ty, ty_defaulted: false, default: Some(default), rest: false, span: SpanId::from_index(0) });
+        lowerer.arena.params.push(ArenaParam { name, annotation: Some(parameter_ty), default: Some(default), rest: false, span: SpanId::from_index(0) });
         lowerer.arena.function_defs.push(ArenaFunctionDef {
             test_declaration: false, name, params: ArenaRange::new(0, 1), effects: None, return_ty, return_ty_defaulted: false, body,
         });
@@ -663,16 +663,14 @@ mod child_tests {
         lowerer.arena.params.extend([
             ArenaParam {
                 name: owner.intern("first_arg"),
-                ty: first_param_ty,
-                ty_defaulted: false,
+                annotation: Some(first_param_ty),
                 default: Some(first_default),
                 rest: false,
                 span: span_id,
             },
             ArenaParam {
                 name: owner.intern("second_arg"),
-                ty: second_param_ty,
-                ty_defaulted: false,
+                annotation: Some(second_param_ty),
                 default: Some(second_default),
                 rest: false,
                 span: span_id,
@@ -739,7 +737,7 @@ mod child_tests {
         let map = builder.push_typed_map_type_expr(Some(first), second, span());
         let result = builder.push_result_type_expr(first, Some(second), span());
         builder.lowerer.arena.params.push(ArenaParam {
-            name, ty: first, ty_defaulted: false, default: None, rest: false, span: SpanId::from_index(0),
+            name, annotation: Some(first), default: None, rest: false, span: SpanId::from_index(0),
         });
         let callable = builder.push_callable_type_expr(ArenaCallableTypeExpr {
             pure: true, params: ArenaRange::new(0, 1), effects: None, return_ty: second,
@@ -3281,18 +3279,17 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     /// Write a parameter list directly into the arena (children already built).
-    /// Each tuple is (name, type, ty_defaulted, default, rest, span).
+    /// Each tuple is (name, annotation, default, rest, span).
     pub fn push_params(
         &mut self,
-        params: &[(Name, TypeExprId, bool, Option<ExprId>, bool, Span)],
+        params: &[(Name, Option<TypeExprId>, Option<ExprId>, bool, Span)],
     ) -> ArenaRange {
         let start = self.lowerer.arena.params.len();
-        for (name, ty, ty_defaulted, default, rest, span) in params {
+        for (name, annotation, default, rest, span) in params {
             let span = self.lowerer.span(*span);
             self.lowerer.arena.params.push(ArenaParam {
                 name: *name,
-                ty: *ty,
-                ty_defaulted: *ty_defaulted,
+                annotation: *annotation,
                 default: *default,
                 rest: *rest,
                 span,
@@ -3394,8 +3391,7 @@ impl<'a> ArenaProgramBuilder<'a> {
         for param in header {
             self.lowerer.arena.params.push(ArenaParam {
                 name: param.name,
-                ty: context_ty,
-                ty_defaulted: false,
+                annotation: Some(context_ty),
                 default: None,
                 rest: false,
                 span: param.span,
@@ -5225,7 +5221,9 @@ impl AstArena {
 
     fn for_each_param_child(&self, params: ArenaRange, visit: &mut impl FnMut(ArenaChild)) {
         for param in self.params(params) {
-            visit(ArenaChild::TypeExpr(param.ty));
+            if let Some(annotation) = param.annotation {
+                visit(ArenaChild::TypeExpr(annotation));
+            }
             if let Some(default) = param.default { visit(ArenaChild::Expr(default)); }
         }
     }
@@ -7626,8 +7624,7 @@ pub struct ArenaSignalHook {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaParam {
     pub name: Name,
-    pub ty: TypeExprId,
-    pub ty_defaulted: bool,
+    pub annotation: Option<TypeExprId>,
     pub default: Option<ExprId>,
     pub rest: bool,
     pub span: SpanId,

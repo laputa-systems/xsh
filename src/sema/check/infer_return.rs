@@ -324,7 +324,13 @@ impl Checker {
         if !declarations.iter().any(|decl| {
             decl.function.is_some_and(|id| {
                 let def = program.arena.function_def(id);
-                def.return_ty_defaulted && (!decl.proc_def || proc_may_return_value(program, def))
+                let has_inferred_parameter = !decl.proc_def
+                    && program.arena.params(def.params).iter().any(|parameter| {
+                        parameter.annotation.is_none() && parameter.default.is_none()
+                    });
+                def.return_ty_defaulted
+                    && (!decl.proc_def || proc_may_return_value(program, def))
+                    || has_inferred_parameter
             })
         }) {
             return;
@@ -400,6 +406,18 @@ impl Checker {
             edges[index].dedup();
         }
         let (order, cyclic) = declaration_dependency_order(&edges);
+        for &index in &cyclic {
+            let decl = &declarations[index];
+            if !decl.proc_def && let Some(id) = decl.function {
+                let def = program.arena.function_def(id);
+                let declaration = super::FunctionDeclarationId::new(
+                    self.effect_declaration_id(program, def.body),
+                );
+                if let Some(signature) = self.declaration_inference.pending_mut(declaration) {
+                    signature.make_monomorphic();
+                }
+            }
+        }
         let saved_scopes = self.scopes.clone();
         // Imports provide checked signatures and immutable module values to
         // inferred bodies even when their use statement follows a definition.
@@ -416,163 +434,193 @@ impl Checker {
                 );
             }
         }
-        for index in order {
-            let decl = &declarations[index];
-            let Some(id) = decl.function else {
-                if !cyclic.contains(&index) {
-                    let kind = program.arena.stmt(decl.statement).kind;
-                    if let ArenaStmtKind::Let {
-                        target,
-                        ty,
-                        initializer,
-                    }
-                    | ArenaStmtKind::Const {
-                        target,
-                        ty,
-                        initializer,
-                    }
-                    | ArenaStmtKind::Var {
-                        target,
-                        ty,
-                        initializer,
-                    } = kind
-                    {
-                        let before = self.annotation_facts.len();
-                        // This pass only needs the binding's type. The
-                        // statement check reports everything about the
-                        // initializer, with its schema context, so nothing
-                        // reported here is kept: it would be said twice, or
-                        // said only because that context is missing.
-                        let reported = self.diagnostics.len();
-                        // The annotation is the initializer's expected type
-                        // here as it is there: a target-typed initializer has
-                        // no type without it.
-                        let annotated = ty.map(|id| self.type_from_arena(program, id));
-                        let actual = self.check_expr_or_run_arena(
-                            program,
-                            source,
-                            initializer,
-                            annotated.as_ref(),
-                        );
-                        self.diagnostics.truncate(reported);
-                        let ty = annotated.unwrap_or(actual);
-                        self.define_binding_target_arena(
-                            program,
+        for component in order {
+            for &index in &component {
+                let decl = &declarations[index];
+                let Some(id) = decl.function else {
+                    if !cyclic.contains(&index) {
+                        let kind = program.arena.stmt(decl.statement).kind;
+                        if let ArenaStmtKind::Let {
                             target,
-                            &ty,
-                            matches!(kind, ArenaStmtKind::Var { .. }),
-                            decl.span,
-                        );
-                        self.annotation_facts.truncate(before);
+                            ty,
+                            initializer,
+                        }
+                        | ArenaStmtKind::Const {
+                            target,
+                            ty,
+                            initializer,
+                        }
+                        | ArenaStmtKind::Var {
+                            target,
+                            ty,
+                            initializer,
+                        } = kind
+                        {
+                            let before = self.annotation_facts.len();
+                            let reported = self.diagnostics.len();
+                            let annotated = ty.map(|id| self.type_from_arena(program, id));
+                            let actual = self.without_pending_call_instantiations(|checker| {
+                                checker.check_expr_or_run_arena(
+                                    program,
+                                    source,
+                                    initializer,
+                                    annotated.as_ref(),
+                                )
+                            });
+                            self.diagnostics.truncate(reported);
+                            let ty = annotated.unwrap_or(actual);
+                            self.define_binding_target_arena(
+                                program,
+                                target,
+                                &ty,
+                                matches!(kind, ArenaStmtKind::Var { .. }),
+                                decl.span,
+                            );
+                            self.annotation_facts.truncate(before);
+                        }
                     }
+                    continue;
+                };
+                let def = program.arena.function_def(id);
+                if !decl.proc_def && !def.return_ty_defaulted {
+                    self.check_pure_body_before_callers(program, source, decl, &declarations, def);
+                    if !cyclic.contains(&index) {
+                        self.generalize_pending_function(program, id);
+                    }
+                    continue;
                 }
-                continue;
-            };
-            let def = program.arena.function_def(id);
-            if !def.return_ty_defaulted {
-                continue;
-            }
-            if decl.proc_def {
-                if proc_may_return_value(program, def) {
-                    let boundary = if decl.exported {
-                        Some("exported")
-                    } else if decl.name == "main" || decl.name.as_str().starts_with("main ") {
-                        Some("entry")
-                    } else if cyclic.contains(&index) {
-                        Some("recursive")
-                    } else {
-                        None
-                    };
-                    self.infer_proc_return(program, source, decl, &declarations, def, boundary);
+                if !def.return_ty_defaulted {
+                    continue;
                 }
-                continue;
-            }
-            let body_span = program.arena.span(program.arena.block(def.body).span);
-            if decl.exported || cyclic.contains(&index) {
-                let message = if decl.exported {
-                    format!(
-                        "exported pure `{}` requires an explicit return annotation",
-                        decl.name
-                    )
-                } else {
-                    format!(
+                if decl.proc_def {
+                    if proc_may_return_value(program, def) {
+                        let boundary = if decl.exported {
+                            Some("exported")
+                        } else if decl.name == "main" || decl.name.as_str().starts_with("main ") {
+                            Some("entry")
+                        } else if cyclic.contains(&index) {
+                            Some("recursive")
+                        } else {
+                            None
+                        };
+                        self.infer_proc_return(program, source, decl, &declarations, def, boundary);
+                    }
+                    continue;
+                }
+                let body_span = program.arena.span(program.arena.block(def.body).span);
+                if cyclic.contains(&index) {
+                    let message = format!(
                         "recursive pure `{}` requires an explicit return annotation",
                         decl.name
-                    )
+                    );
+                    self.error(decl.span, &message, DiagnosticCode::CheckRequiredReturn);
+                    self.function_return_types.insert(body_span, Type::Invalid);
+                    self.update_pending_return_type(program, def, Type::Invalid);
+                    continue;
+                }
+                self.inferred_returns = Some(Vec::new());
+                self.inferred_propagations.clear();
+                self.inference_reachable = true;
+                self.check_pure_body_before_callers(program, source, decl, &declarations, def);
+                let candidates = self.inferred_returns.take().unwrap();
+                let mut inferred = None;
+                for (candidate, span) in candidates {
+                    inferred = Some(match inferred {
+                        None => candidate,
+                        Some(previous) => self.unify_inferred_returns(previous, candidate, span),
+                    });
+                }
+                let ty = inferred.unwrap_or(Type::Unknown);
+                let ty = if return_type_is_concrete(&ty) {
+                    ty
+                } else {
+                    self.error(
+                        decl.span,
+                        &format!(
+                            "pure `{}` needs a return annotation: its return shape is underdetermined",
+                            decl.name
+                        ),
+                        DiagnosticCode::CheckInferReturn,
+                    );
+                    Type::Invalid
                 };
-                self.error(decl.span, &message, DiagnosticCode::CheckRequiredReturn);
-                self.function_return_types.insert(body_span, Type::Invalid);
-                if let Some(sig) = self.pures.get_mut(&decl.name) {
-                    sig.return_ty = Type::Invalid;
+                let mut ty = ty;
+                for (error, span) in std::mem::take(&mut self.inferred_propagations) {
+                    match &ty {
+                        Type::Result(_, expected) if error.matches_expected(expected) => {}
+                        Type::Result(_, _) => {
+                            self.error(span, "propagated error does not match the inferred Result; declare its return type", DiagnosticCode::CheckTryError);
+                            ty = Type::Invalid;
+                        }
+                        _ => {
+                            self.error(span, "propagation requires a Result return determined by the body; declare a return annotation", DiagnosticCode::CheckTryContext);
+                            ty = Type::Invalid;
+                        }
+                    }
                 }
-                continue;
-            }
-            self.inferred_returns = Some(Vec::new());
-            self.inferred_propagations.clear();
-            self.inference_reachable = true;
-            // Callable signatures are available independently of declaration
-            // order. Captured values retain their lexical prefix visibility.
-            let visible_scopes = self.scopes.clone();
-            for binding in &declarations {
-                if binding.function.is_none()
-                    && binding.span.source_id == decl.span.source_id
-                    && binding.span.start() >= decl.span.start()
-                {
-                    for name in &binding.names {
-                        self.current_scope_mut().remove(name);
+                self.function_return_types.insert(body_span, ty.clone());
+                self.update_pending_return_type(program, def, ty.clone());
+                if ty != Type::Invalid {
+                    self.annotation_facts.push(AnnotationFact {
+                        kind: AnnotationFactKind::InferredPureReturn { body: body_span },
+                        ty,
+                    });
+                    if !decl.proc_def {
+                        self.generalize_pending_function(program, id);
                     }
                 }
             }
-            self.check_function_arena(program, source, def, true);
-            self.scopes = visible_scopes;
-            let candidates = self.inferred_returns.take().unwrap();
-            let mut inferred = None;
-            for (candidate, span) in candidates {
-                inferred = Some(match inferred {
-                    None => candidate,
-                    Some(previous) => self.unify_inferred_returns(previous, candidate, span),
-                });
-            }
-            let ty = inferred.unwrap_or(Type::Unknown);
-            let ty = if return_type_is_concrete(&ty) {
-                ty
-            } else {
-                self.error(
-                    decl.span,
-                    &format!(
-                        "pure `{}` needs a return annotation: its return shape is underdetermined",
-                        decl.name
-                    ),
-                    DiagnosticCode::CheckInferReturn,
-                );
-                Type::Invalid
-            };
-            let mut ty = ty;
-            for (error, span) in std::mem::take(&mut self.inferred_propagations) {
-                match &ty {
-                    Type::Result(_, expected) if error.matches_expected(expected) => {}
-                    Type::Result(_, _) => {
-                        self.error(span, "propagated error does not match the inferred Result; declare its return type", DiagnosticCode::CheckTryError);
-                        ty = Type::Invalid;
-                    }
-                    _ => {
-                        self.error(span, "propagation requires a Result return determined by the body; declare a return annotation", DiagnosticCode::CheckTryContext);
-                        ty = Type::Invalid;
+            for index in component {
+                let decl = &declarations[index];
+                if decl.proc_def || !cyclic.contains(&index) {
+                    continue;
+                }
+                let Some(id) = decl.function else { continue; };
+                let def = program.arena.function_def(id);
+                if def.return_ty_defaulted {
+                    continue;
+                }
+                let mut reported = std::collections::BTreeSet::new();
+                for parameter in program.arena.params(def.params) {
+                    let span = program.arena.span(parameter.span);
+                    if let Some(ty) = self.parameter_types.get_mut(&span) {
+                        super::local_inference::finalize_type(
+                            &self.type_constraints,
+                            ty,
+                            span,
+                            &mut reported,
+                            &mut self.diagnostics,
+                        );
                     }
                 }
-            }
-            self.function_return_types.insert(body_span, ty.clone());
-            if let Some(sig) = self.pures.get_mut(&decl.name) {
-                sig.return_ty = ty.clone();
-            }
-            if ty != Type::Invalid {
-                self.annotation_facts.push(AnnotationFact {
-                    kind: AnnotationFactKind::InferredPureReturn { body: body_span },
-                    ty,
-                });
+                self.publish_parameter_types(program, def);
+                self.generalize_pending_function(program, id);
             }
         }
         self.scopes = saved_scopes;
+    }
+
+    fn check_pure_body_before_callers(
+        &mut self,
+        program: &ArenaProgram,
+        source: &str,
+        decl: &ReturnDeclaration,
+        declarations: &[ReturnDeclaration],
+        def: &crate::syntax::arena::ArenaFunctionDef,
+    ) {
+        let visible_scopes = self.scopes.clone();
+        for binding in declarations {
+            if binding.function.is_none()
+                && binding.span.source_id == decl.span.source_id
+                && binding.span.start() >= decl.span.start()
+            {
+                for name in &binding.names {
+                    self.current_scope_mut().remove(name);
+                }
+            }
+        }
+        self.check_function_arena(program, source, def, true);
+        self.scopes = visible_scopes;
     }
 
     /// A speculative value-body check decides the success type; the checker
@@ -606,11 +654,8 @@ impl Checker {
         probe.return_conflicts = Some(Vec::new());
         probe.inference_reachable = true;
         probe.boundary.current_return = None;
-        // Recursive calls contribute no completion, as for inferred pures.
-        if boundary == Some("recursive")
-            && let Some(sig) = probe.procs.get_mut(&decl.name)
-        {
-            sig.return_ty = Type::Unknown;
+        if boundary == Some("recursive") {
+            probe.update_pending_return_type(program, def, Type::Unknown);
         }
         probe.check_function_arena(program, source, def, false);
         let clean = !probe
@@ -654,9 +699,7 @@ impl Checker {
                 .with_label(crate::diagnostic::Label::primary(span, &message))
                 .with_note(format!("make every completion produce one type, or declare the return explicitly, for example `-> Result[{left}]`")));
             self.function_return_types.insert(body_span, Type::Invalid);
-            if let Some(sig) = self.procs.get_mut(&decl.name) {
-                sig.return_ty = Type::Invalid;
-            }
+            self.update_pending_return_type(program, def, Type::Invalid);
             return;
         }
         if !clean {
@@ -686,9 +729,7 @@ impl Checker {
             }
         };
         self.function_return_types.insert(body_span, ty.clone());
-        if let Some(sig) = self.procs.get_mut(&decl.name) {
-            sig.return_ty = ty;
-        }
+        self.update_pending_return_type(program, def, ty);
     }
 
     pub(super) fn unify_inferred_returns(&mut self, left: Type, right: Type, span: Span) -> Type {
@@ -831,9 +872,7 @@ fn join_error_types(left: &Type, right: &Type) -> Type {
     }
 }
 
-// Iterative depth-first traversals bound host stack use independently of the
-// number of declarations. Reverse edges identify complete recursive groups.
-fn declaration_dependency_order(edges: &[Vec<usize>]) -> (Vec<usize>, FxHashSet<usize>) {
+fn declaration_dependency_order(edges: &[Vec<usize>]) -> (Vec<Vec<usize>>, FxHashSet<usize>) {
     let mut visited = vec![false; edges.len()];
     let mut order = Vec::new();
     for start in 0..edges.len() {
@@ -863,6 +902,7 @@ fn declaration_dependency_order(edges: &[Vec<usize>]) -> (Vec<usize>, FxHashSet<
     }
     visited.fill(false);
     let mut cyclic = FxHashSet::default();
+    let mut components = Vec::new();
     for &start in order.iter().rev() {
         if visited[start] {
             continue;
@@ -880,10 +920,12 @@ fn declaration_dependency_order(edges: &[Vec<usize>]) -> (Vec<usize>, FxHashSet<
             }
         }
         if members.len() > 1 || edges[start].contains(&start) {
-            cyclic.extend(members);
+            cyclic.extend(members.iter().copied());
         }
+        components.push(members);
     }
-    (order, cyclic)
+    components.reverse();
+    (components, cyclic)
 }
 
 fn binding_names(program: &ArenaProgram, target: BindingTargetId) -> Vec<Name> {

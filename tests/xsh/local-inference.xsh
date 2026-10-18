@@ -74,6 +74,276 @@ test nullable_local_rejects_incompatible_branch_contributions { |ctx|
   assert "type established here" in output.stderr, output.stderr
 }
 
+test nullable_local_uses_existing_path_base_for_relpath_contributions { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure path_first(flag: Bool, plain: Path, relative: RelPath) {
+  var selected = null
+  if flag {
+    selected = plain
+  } else {
+    selected = relative
+  }
+  selected
+}
+pure relpath_first(flag: Bool, plain: Path, relative: RelPath) {
+  var selected = null
+  if flag {
+    selected = relative
+  } else {
+    selected = plain
+  }
+  selected
+}
+pure only_relative(relative: RelPath) {
+  var selected = null
+  selected = relative
+  selected
+}
+print ${path_first(true, p"plain", "relative")?.display() ?? ""}
+print ${path_first(false, p"plain", "relative")?.display() ?? ""}
+print ${relpath_first(true, p"plain", "relative")?.display() ?? ""}
+print ${relpath_first(false, p"plain", "relative")?.display() ?? ""}
+print ${only_relative("relative")?.display() ?? ""}
+""",
+    status: 0,
+  )?
+  assert output.stdout == """plain
+relative
+relative
+plain
+relative
+"""
+
+  for body in [
+    "selected = plain\n  selected = text",
+    "selected = text\n  selected = plain",
+  ] {
+    let rejected = test.run_script(
+      ctx,
+      """pure incompatible(plain: Path, text: Str) {
+  var selected = null
+  """ + body + """
+  selected
+}
+""",
+    )?
+    assert ! rejected.success
+    assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+  }
+
+  for source in [
+    r"""pure incompatible(first: List[Str], second: List[Path]) {
+  var selected = null
+  selected = first
+  selected = second
+  selected
+}
+""",
+    r"""pure incompatible(first: Map[Str, Str], second: Map[Str, Path]) {
+  var selected = null
+  selected = first
+  selected = second
+  selected
+}
+""",
+  ] {
+    let rejected = test.run_script(ctx, source)?
+    assert ! rejected.success
+    assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+  }
+}
+
+test if_expression_uses_existing_optional_branch_in_either_order { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure narrowed_first(value: Str?, fallback: Str?) -> Str? {
+  let selected = if value != null { value } else { fallback }
+  selected
+}
+pure optional_first(value: Str?, fallback: Str?) -> Str? {
+  let selected = if value == null { fallback } else { value }
+  selected
+}
+pure narrowed_first_else_if(flag: Bool, value: Str?, fallback: Str?) -> Str? {
+  let selected = if value != null { value } else if flag { fallback } else { fallback }
+  selected
+}
+print ${narrowed_first("present", "fallback") ?? ""}
+print ${narrowed_first(null, "fallback") ?? ""}
+print ${optional_first(null, "fallback") ?? ""}
+print ${optional_first("present", "fallback") ?? ""}
+print ${narrowed_first_else_if(true, "present", "fallback") ?? ""}
+print ${narrowed_first_else_if(true, null, "fallback") ?? ""}
+print ${narrowed_first_else_if(false, null, "fallback") ?? ""}
+""",
+    status: 0,
+  )?
+  assert output.stdout == """present
+fallback
+fallback
+present
+present
+fallback
+fallback
+"""
+
+  for body in [
+    "if flag { null } else { 1 }",
+    "if flag { 1 } else { null }",
+  ] {
+    let rejected = test.run_script(
+      ctx,
+      """pure incompatible(flag: Bool) -> Int? {
+  let selected = """ + body + """
+  selected
+}
+""",
+    )?
+    assert ! rejected.success
+    assert "check.type-mismatch" in rejected.stderr, rejected.stderr
+  }
+
+  let strict = test.run_script(
+    ctx,
+    r"""pure strict(value: Str?, fallback: Str?) -> Str {
+  let selected: Str = if value != null { value } else { fallback }
+  selected
+}
+""",
+  )?
+  assert ! strict.success
+  assert "check.type-mismatch" in strict.stderr, strict.stderr
+}
+
+test if_expression_forwards_optional_candidates_through_value_tails { |ctx|
+  let root = test.temp_dir(ctx, name: "optional-branch-context")?
+  fp"{root}/choices.xsh".write_atomic("##! Choices.\n## Enum of choices.\nexport enum Choice { Ready, Stopped }\n")
+  let output = test.expect(
+    ctx,
+    r"""use choices as c
+
+pure value_block(outer: Bool, fallback: Str?, inner: Bool) -> Str? {
+  let selected = if outer { fallback } else {
+    { if inner { null } else { fallback } }
+  }
+  selected
+}
+pure nested_if(value: Str?, fallback: Str?, inner: Bool) -> Str? {
+  let selected = if value != null { value } else {
+    if inner { fallback } else { fallback }
+  }
+  selected
+}
+pure nested_statement_if(outer: Bool, fallback: Str?, inner: Bool) -> Str? {
+  let selected = if outer { fallback } else {
+    { if inner { null } else { "fallback" } }
+  }
+  selected
+}
+pure enum_candidate(flag: Bool) -> c.Choice {
+  let selected = if flag { c.Ready } else { .Stopped }
+  selected
+}
+pure nested_enum_candidate(outer: Bool, inner: Bool, fallback: c.Choice?) -> c.Choice? {
+  let selected = if outer { fallback } else {
+    if inner { null } else { .Stopped }
+  }
+  selected
+}
+pure empty_list_context(outer: Bool, inner: Bool, fallback: List[Int]?) -> List[Int]? {
+  let selected = if outer { fallback } else {
+    if inner { [] } else { fallback }
+  }
+  selected
+}
+print ${value_block(true, "present", false) ?? ""}
+print (value_block(false, null, true) == null)
+print (value_block(false, "fallback", false) == "fallback")
+print ${nested_if("present", "fallback", true) ?? ""}
+print ${nested_if(null, "fallback", false) ?? ""}
+print ${nested_statement_if(true, "present", false) ?? ""}
+print (nested_statement_if(false, null, true) == null)
+print (nested_statement_if(false, null, false) == "fallback")
+print (enum_candidate(true) == c.Ready)
+print (enum_candidate(false) == c.Stopped)
+print (nested_enum_candidate(true, false, c.Ready) == c.Ready)
+print (nested_enum_candidate(false, true, null) == null)
+print (nested_enum_candidate(false, false, null) == c.Stopped)
+print ${empty_list_context(false, true, null)?.len() ?? -1}
+print ${empty_list_context(true, false, null)?.len() ?? -1}
+""",
+    status: 0,
+    env: {XSH_MODULE_PATH: root},
+  )?
+  assert output.stdout == """present
+true
+true
+present
+fallback
+present
+true
+true
+true
+true
+true
+true
+true
+0
+-1
+"""
+
+  for body in [
+    "if flag { \"text\" } else { 1 }",
+    "if flag { 1 } else { \"text\" }",
+  ] {
+    let rejected = test.run_script(
+      ctx,
+      """pure incompatible(flag: Bool) {
+  let selected = """ + body + """
+  selected
+}
+""",
+    )?
+    assert ! rejected.success
+    assert "check.infer-return" in rejected.stderr, rejected.stderr
+  }
+
+  for source in [
+    r"""use choices as c
+enum LocalChoice { Ready, Stopped }
+pure malformed_variant(flag: Bool) -> LocalChoice {
+  let selected = if flag { LocalChoice.Ready } else { .Missing }
+  selected
+}
+""",
+    r"""use choices as c
+pure strict_return(value: Str?, fallback: Str?) -> Str {
+  if value != null { value } else { fallback }
+}
+""",
+    r"""pure strict_non_tail(value: Str?, fallback: Str?) -> Str? {
+  let selected = if value != null {
+    let required: Str = fallback
+    value
+  } else {
+    fallback
+  }
+  selected
+}
+""",
+  ] {
+    let rejected = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root})?
+    assert ! rejected.success
+    let expected_code = if "malformed_variant" in source {
+      "check.inferred-variant"
+    } else {
+      "check.type-mismatch"
+    }
+    assert expected_code in rejected.stderr, rejected.stderr
+  }
+}
+
 test unconstrained_material_local_requires_annotation { |ctx|
   let output = test.run_script(
     ctx,
@@ -120,6 +390,96 @@ print ${entries.get(p"first")?}
   )?
   assert output.stdout == """12
 """
+}
+
+test mutable_empty_set_infers_one_element_type_from_branches_and_loops { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure gather(words: List[Str], include_branch: Bool) -> Set[Str] {
+  var seen = set.empty()
+  let alias = seen
+  if include_branch and alias.is_empty() { seen = seen.add("branch") }
+  for word in words { seen = seen.add(word) }
+  seen
+}
+let empty = gather([], false)
+let populated = gather(["one", "two", "one"], true)
+assert empty.is_empty()
+print ${empty.len()} ${populated.to_list().join(",")}
+
+pure gather_count(words: List[Str], include_branch: Bool) -> Int {
+  var seen = set.empty()
+  let alias = seen
+  let before = alias.len()
+  if include_branch and alias.is_empty() { seen = seen.add("branch") }
+  for word in words { seen = seen.add(word) }
+  before + seen.len()
+}
+let empty_count = gather_count([], false)
+let populated_count = gather_count(["one", "two", "one"], true)
+print ${empty_count} ${populated_count}
+""",
+    status: 0,
+  )?
+  assert output.stdout == """0 branch,one,two
+0 3
+"""
+}
+
+test mutable_empty_set_rejects_incompatible_and_unsupported_elements { |ctx|
+  let incompatible = test.run_script(
+    ctx,
+    r"""proc inspect(flag: Bool) -> Unit {
+  var seen = set.empty()
+  if flag { seen = seen.add("text") } else { seen = seen.add(1) }
+}
+""",
+  )?
+  assert ! incompatible.success
+  assert "check.type-mismatch" in incompatible.stderr, incompatible.stderr
+
+  let incompatible_alias = test.run_script(
+    ctx,
+    r"""proc inspect() -> Unit {
+  var seen = set.empty()
+  let alias = seen
+  seen = seen.add("text")
+  let integers: Set[Int] = alias
+}
+""",
+  )?
+  assert ! incompatible_alias.success
+  assert "check.type-mismatch" in incompatible_alias.stderr, incompatible_alias.stderr
+
+  let unsupported = test.run_script(
+    ctx,
+    r"""proc inspect() -> Unit {
+  var seen = set.empty()
+  seen = seen.add(1.5)
+}
+""",
+  )?
+  assert ! unsupported.success
+  assert "check.set-element-type" in unsupported.stderr, unsupported.stderr
+}
+
+test empty_set_without_mutable_local_seed_still_needs_context { |ctx|
+  for source in [
+    "proc immutable() -> Unit { let seen = set.empty() }\n",
+    "var seen = set.empty()\n",
+    "proc unresolved() -> Unit { var seen = set.empty(); let copy = seen }\n",
+  ] {
+    let output = test.run_script(ctx, source)?
+    assert ! output.success
+    assert "check.local-inference" in output.stderr, output.stderr
+  }
+
+  let shadowed = test.run_script(
+    ctx,
+    "proc shadowed() -> Unit { let set = 1; var seen = set.empty() }\n",
+  )?
+  assert ! shadowed.success
+  assert "check.standard-module-shadow" in shadowed.stderr, shadowed.stderr
 }
 
 test authored_immutable_collection_contract_is_shared_by_aliases { |ctx|

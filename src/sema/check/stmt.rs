@@ -3195,7 +3195,14 @@ impl Checker {
             }
             ArenaStmtKind::ProcDef(def_id) | ArenaStmtKind::CliMain(def_id) => {
                 if matches!(stmt.kind, ArenaStmtKind::CliMain(_)) {
-                    self.publish_function_declaration(arena, def_id, super::CheckedFunctionKind::CliMain, None);
+                    self.publish_function_declaration(
+                        arena,
+                        def_id,
+                        super::CheckedFunctionKind::CliMain,
+                        self.current_exported,
+                        None,
+                        None,
+                    );
                 }
                 let def = arena.arena.function_def(def_id).clone();
                 self.check_function_arena(arena, source, &def, false);
@@ -4476,6 +4483,17 @@ impl Checker {
         pure: bool,
     ) {
         let body_span = arena.arena.span(arena.arena.block(def.body).span);
+        let declaration = super::FunctionDeclarationId::new(
+            self.effect_declaration_id(arena, def.body),
+        );
+        if pure
+            && self
+                .declaration_inference
+                .pending(declaration)
+                .is_some_and(super::PendingFunctionSig::body_checked)
+        {
+            return;
+        }
         if def.test_declaration {
             if self.current_exported {
                 self.error(
@@ -4499,6 +4517,10 @@ impl Checker {
         {
             return;
         }
+        self.function_body_check_entries = self
+            .function_body_check_entries
+            .checked_add(1)
+            .expect("function body check entry count overflowed");
         let saved_capture_scopes = self.scopes.clone();
         self.collect_function_local_constraints(arena, source, def, pure);
         let enclosing_boundary = self.enter_callable_boundary();
@@ -4565,7 +4587,9 @@ impl Checker {
             let param_ty = self.infer_checked_parameter(arena, source, param);
             if param.rest && !matches!(param_ty, Type::List(_)) {
                 self.error(
-                    arena.arena.type_expr_span(param.ty),
+                    param
+                        .annotation
+                        .map_or(param_span, |annotation| arena.arena.type_expr_span(annotation)),
                     "rest parameters require a List type",
                     DiagnosticCode::CheckRestType,
                 );
@@ -4583,7 +4607,7 @@ impl Checker {
                 let actual = self.check_expr_arena(arena, source, default, Some(&param_ty));
                 let default_span = arena.arena.expr(default).span;
                 self.expect_type(&param_ty, &actual, default_span);
-                if param.ty_defaulted && param_ty.annotation_source().is_some() {
+                if param.annotation.is_none() && param_ty.annotation_source().is_some() {
                     self.annotation_facts.push(AnnotationFact {
                         kind: AnnotationFactKind::DefaultedParam {
                             span: param_span,
@@ -4593,13 +4617,11 @@ impl Checker {
                     });
                 }
             }
-            let schema = (!param.ty_defaulted)
-                .then(|| {
-                    self.record_constructors
-                        .annotation_expectation(&arena.arena, param.ty, self.current_namespace)
-                        .ok()
-                })
-                .flatten();
+            let schema = param.annotation.and_then(|annotation| {
+                self.record_constructors
+                    .annotation_expectation(&arena.arena, annotation, self.current_namespace)
+                    .ok()
+            });
             param_types.push((param.name, param_span, param_ty, schema));
         }
         self.publish_parameter_types(arena, def);
@@ -4660,6 +4682,11 @@ impl Checker {
         if !inferring {
             self.inferred_returns = outer_inference;
         }
+        if pure
+            && let Some(signature) = self.declaration_inference.pending_mut(declaration)
+        {
+            signature.mark_body_checked();
+        }
         self.scopes = saved_capture_scopes;
         self.boundary = enclosing_boundary;
     }
@@ -4717,7 +4744,9 @@ impl Checker {
             let param_ty = self.infer_checked_parameter(arena, source, param);
             if param.rest && !matches!(param_ty, Type::List(_)) {
                 self.error(
-                    arena.arena.type_expr_span(param.ty),
+                    param
+                        .annotation
+                        .map_or(param_span, |annotation| arena.arena.type_expr_span(annotation)),
                     "rest parameters require a List type",
                     DiagnosticCode::CheckRestType,
                 );
@@ -4736,13 +4765,11 @@ impl Checker {
                 let default_span = arena.arena.expr(default).span;
                 self.expect_type(&param_ty, &actual, default_span);
             }
-            let schema = (!param.ty_defaulted)
-                .then(|| {
-                    self.record_constructors
-                        .annotation_expectation(&arena.arena, param.ty, self.current_namespace)
-                        .ok()
-                })
-                .flatten();
+            let schema = param.annotation.and_then(|annotation| {
+                self.record_constructors
+                    .annotation_expectation(&arena.arena, annotation, self.current_namespace)
+                    .ok()
+            });
             param_types.push((param.name, param_span, param_ty, schema));
         }
         self.publish_parameter_types(arena, def);
@@ -4884,7 +4911,7 @@ impl Checker {
                 .ok()
         });
         let local_expected = if ty.is_none() {
-            self.local_binding_expectation(span)
+            self.local_binding_expectation(arena, target, initializer, mutable, span)
         } else {
             None
         };
@@ -4981,10 +5008,11 @@ impl Checker {
             && let ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind
         {
             if self.current_exported
-                && (alias.signature.definition.is_none()
-                    || !alias.signature.explicit_return
+                && (alias.signature.definition().is_none()
+                    || !alias.signature.scheme().explicit_return()
                     || (!alias.pure
-                        && (alias.signature.inferred_effects || alias.signature.effects.is_none())))
+                        && (alias.signature.scheme().inferred_effects()
+                            || alias.signature.scheme().effects().is_none())))
             {
                 self.error(span, "an exported callable alias requires an explicit return and effect contract on its target", DiagnosticCode::CheckCallableAliasExport);
             }
@@ -5988,6 +6016,21 @@ impl Checker {
         block_id: BlockId,
         expected: Option<&Type>,
     ) -> Type {
+        self.check_tail_block_with_expectation_arena(
+            arena,
+            source,
+            block_id,
+            expected.map(super::types::TypeExpectation::Required),
+        )
+    }
+
+    pub(super) fn check_tail_block_with_expectation_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        block_id: BlockId,
+        expectation: Option<super::types::TypeExpectation<'_>>,
+    ) -> Type {
         let block = arena.arena.block(block_id);
         if let Some(param) = arena.arena.block_params(block.params).first() {
             let param_span = arena.arena.span(param.span);
@@ -5997,7 +6040,7 @@ impl Checker {
                 DiagnosticCode::CheckBlockParams,
             );
         }
-        self.check_tail_block_contents_arena(arena, source, block_id, expected)
+        self.check_tail_block_contents_with_expectation_arena(arena, source, block_id, expectation)
     }
 
     pub(super) fn check_tail_block_contents_arena(
@@ -6007,8 +6050,23 @@ impl Checker {
         block_id: BlockId,
         expected: Option<&Type>,
     ) -> Type {
+        self.check_tail_block_contents_with_expectation_arena(
+            arena,
+            source,
+            block_id,
+            expected.map(super::types::TypeExpectation::Required),
+        )
+    }
+
+    fn check_tail_block_contents_with_expectation_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        block_id: BlockId,
+        expectation: Option<super::types::TypeExpectation<'_>>,
+    ) -> Type {
         let enclosing_bound = self.enter_block_effect_bound(arena, block_id);
-        let ty = self.check_tail_block_statements_arena(arena, source, block_id, expected);
+        let ty = self.check_tail_block_statements_arena(arena, source, block_id, expectation);
         self.leave_block_effect_bound(enclosing_bound);
         ty
     }
@@ -6018,8 +6076,9 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         block_id: BlockId,
-        expected: Option<&Type>,
+        expectation: Option<super::types::TypeExpectation<'_>>,
     ) -> Type {
+        let expected = expectation.map(super::types::TypeExpectation::context);
         let block = arena.arena.block(block_id);
         self.boundary.block_depth += 1;
         let stmt_ids: Vec<StmtId> = arena
@@ -6055,10 +6114,19 @@ impl Checker {
                 }
             }
             if tail_producing {
-                let ty = self.check_tail_stmt_arena(arena, source, tail, expected);
+                let diagnostics_before = self.diagnostics.len();
+                let ty = self.check_tail_stmt_with_expectation_arena(
+                    arena,
+                    source,
+                    tail,
+                    expectation,
+                );
+                let candidate_accepts = self.diagnostics.len() == diagnostics_before
+                    && expectation
+                        .is_some_and(|expectation| expectation.accepts_optional_branch(&ty));
                 if let Some(expected) = expected {
                     let tail_span = arena.arena.stmt(tail).span;
-                    if !tail_type_matches_expected(expected, &ty) {
+                    if !tail_type_matches_expected(expected, &ty) && !candidate_accepts {
                         self.expect_type(expected, &ty, tail_span);
                     }
                 }
@@ -6300,6 +6368,22 @@ impl Checker {
         id: StmtId,
         expected: Option<&Type>,
     ) -> Type {
+        self.check_tail_stmt_with_expectation_arena(
+            arena,
+            source,
+            id,
+            expected.map(super::types::TypeExpectation::Required),
+        )
+    }
+
+    fn check_tail_stmt_with_expectation_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        id: StmtId,
+        expectation: Option<super::types::TypeExpectation<'_>>,
+    ) -> Type {
+        let expected = expectation.map(super::types::TypeExpectation::context);
         let id = arena.arena.core_stmt_id(id);
         let stmt = arena.arena.stmt(id);
         self.statement_positions
@@ -6420,6 +6504,21 @@ impl Checker {
                     ArenaExprKind::ValueBlock(_) => expected.cloned(),
                     _ => tail_expr_context_arena(arena, expr_id, expected),
                 };
+                let expr_expectation = expectation.and_then(|expectation| {
+                    ctx.as_ref().map(|context| match expectation {
+                        super::types::TypeExpectation::Required(_) => {
+                            super::types::TypeExpectation::Required(context)
+                        }
+                        super::types::TypeExpectation::BranchCandidate(candidate)
+                            if candidate == context =>
+                        {
+                            super::types::TypeExpectation::BranchCandidate(context)
+                        }
+                        super::types::TypeExpectation::BranchCandidate(_) => {
+                            super::types::TypeExpectation::Required(context)
+                        }
+                    })
+                });
                 let previous = std::mem::replace(&mut self.boundary.context_scope_tail_value, true);
                 let schema = self.boundary.expected_schema.as_ref().map(|schema| {
                     if matches!(expected, Some(Type::Result(_, _)))
@@ -6434,15 +6533,19 @@ impl Checker {
                         schema.clone()
                     }
                 });
-                let ty = self.check_expr_with_schema_arena(
+                let ty = self.check_expr_with_expectation_and_schema_arena(
                     arena,
                     source,
                     ArenaExprOrRun::Expr(expr_id),
-                    ctx.as_ref(),
+                    expr_expectation,
                     schema,
                 );
                 self.boundary.context_scope_tail_value = previous;
-                let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
+                let ty = self.resolve_local_tail_type_with_expectation(
+                    ty,
+                    expectation,
+                    stmt.span,
+                );
                 // An inferred return takes this tail's `Result[Unit]` as the
                 // function's result, which makes it the propagating tail of a
                 // `Result[Unit]` body. A constructed `Ok()` or `Err(..)` is
@@ -6463,7 +6566,11 @@ impl Checker {
                     Some(ty) => ty,
                     None => self.check_tail_bare_ident_arena(arena, source, name, id, stmt.span),
                 };
-                let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
+                let ty = self.resolve_local_tail_type_with_expectation(
+                    ty,
+                    expectation,
+                    stmt.span,
+                );
                 let ty = if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit())
                     && self.reject_bool_statement(source, &ty, stmt.span)
                 {
@@ -6519,10 +6626,8 @@ impl Checker {
                 if !if_stmt_may_produce_value(arena, id) {
                     return self.check_valueless_tail_if_arena(arena, source, id);
                 }
-                let infer_branches = self.inferred_returns.is_some() && expected.is_none();
+                let infer_branches = self.inferred_returns.is_some() && expectation.is_none();
                 let mut inferred = None;
-                // What every earlier condition proved by failing holds in
-                // each later condition and branch, and in the final `else`.
                 let mut previous_failure = Vec::new();
                 for branch in arena.arena.if_branches(branches) {
                     self.push_scope();
@@ -6536,30 +6641,49 @@ impl Checker {
                     self.push_scope();
                     self.apply_narrowings(&narrowings.when_true);
                     self.bind_pattern_condition_arena(arena, source, branch.condition);
-                    let actual = self.check_tail_block_arena(
+                    let branch_expectation = if infer_branches {
+                        None
+                    } else {
+                        super::types::next_branch_expectation(expectation, inferred.as_ref())
+                    };
+                    let diagnostics_before = self.diagnostics.len();
+                    let actual = self.check_tail_block_with_expectation_arena(
                         arena,
                         source,
                         branch.block,
-                        if infer_branches {
-                            None
-                        } else {
-                            expected.or(inferred.as_ref())
-                        },
+                        branch_expectation,
                     );
                     self.pop_scope();
                     if !infer_branches {
                         self.check_unit_branch_completion(
                             arena,
                             branch.block,
-                            expected.or(inferred.as_ref()).cloned(),
+                            branch_expectation
+                                .map(super::types::TypeExpectation::context)
+                                .cloned(),
                             &actual,
                         );
                     }
                     if actual != Type::Unknown {
+                        let merged = if self.diagnostics.len() == diagnostics_before
+                            && !infer_branches
+                        {
+                            inferred.as_ref().and_then(|previous| {
+                                super::types::merge_branch_candidate(
+                                    branch_expectation,
+                                    previous,
+                                    &actual,
+                                )
+                            })
+                        } else {
+                            None
+                        };
                         inferred = Some(if infer_branches {
                             inferred.map_or(actual.clone(), |previous| {
                                 self.unify_inferred_returns(previous, actual, stmt.span)
                             })
+                        } else if let Some(merged) = merged {
+                            merged
                         } else {
                             inferred.unwrap_or(actual)
                         });
@@ -6570,15 +6694,17 @@ impl Checker {
                 if let Some(block) = else_block {
                     self.push_scope();
                     self.apply_narrowings(&previous_failure);
-                    let actual = self.check_tail_block_arena(
+                    let else_expectation = if infer_branches {
+                        None
+                    } else {
+                        super::types::next_branch_expectation(expectation, inferred.as_ref())
+                    };
+                    let diagnostics_before = self.diagnostics.len();
+                    let actual = self.check_tail_block_with_expectation_arena(
                         arena,
                         source,
                         block,
-                        if infer_branches {
-                            None
-                        } else {
-                            expected.or(inferred.as_ref())
-                        },
+                        else_expectation,
                     );
                     self.check_required_block_exit(arena, block);
                     self.pop_scope();
@@ -6586,15 +6712,32 @@ impl Checker {
                         self.check_unit_branch_completion(
                             arena,
                             block,
-                            expected.or(inferred.as_ref()).cloned(),
+                            else_expectation
+                                .map(super::types::TypeExpectation::context)
+                                .cloned(),
                             &actual,
                         );
                     }
                     if actual != Type::Unknown {
+                        let merged = if self.diagnostics.len() == diagnostics_before
+                            && !infer_branches
+                        {
+                            inferred.as_ref().and_then(|previous| {
+                                super::types::merge_branch_candidate(
+                                    else_expectation,
+                                    previous,
+                                    &actual,
+                                )
+                            })
+                        } else {
+                            None
+                        };
                         inferred = Some(if infer_branches {
                             inferred.map_or(actual.clone(), |previous| {
                                 self.unify_inferred_returns(previous, actual, stmt.span)
                             })
+                        } else if let Some(merged) = merged {
+                            merged
                         } else {
                             inferred.unwrap_or(actual)
                         });
@@ -7409,6 +7552,13 @@ mod reader_binding_identity_tests {
         checker
     }
 
+    fn function_declaration_id() -> super::super::FunctionDeclarationId {
+        super::super::FunctionDeclarationId::new(super::super::EffectDeclarationId {
+            namespace: None,
+            body: crate::source::Span::new(SourceId::new(0), 0, 0),
+        })
+    }
+
     fn initializer_expr(
         program: &crate::syntax::arena::ArenaProgram,
         statement: crate::syntax::arena::StmtId,
@@ -7504,21 +7654,7 @@ mod reader_binding_identity_tests {
             checker.current_scope_mut().remove(&target_name);
             checker.push_scope();
             checker.current_scope_mut().insert(target_name, decoy);
-            checker.procs.insert(
-                target_name,
-                super::super::FunctionSig {
-                    effect_declaration: None,
-                    inferred_effects: false,
-                    explicit_return: true,
-                    is_alias: false,
-                    definition: None,
-                    definition_target: None,
-                    params: Vec::new(),
-                    return_ty: Type::Int,
-                    return_schema: None,
-                    effects: Some(Vec::new()),
-                },
-            );
+            checker.procs.insert(target_name, function_declaration_id());
 
             let expression = initializer_expr(program, statements[2]);
             assert!(matches!(
@@ -7551,21 +7687,7 @@ mod reader_binding_identity_tests {
             checker.check_stmt_arena(program, source, statements[1]);
             let target_name = Name::intern("target");
             checker.current_scope_mut().remove(&target_name);
-            checker.procs.insert(
-                target_name,
-                super::super::FunctionSig {
-                    effect_declaration: None,
-                    inferred_effects: false,
-                    explicit_return: true,
-                    is_alias: false,
-                    definition: None,
-                    definition_target: None,
-                    params: Vec::new(),
-                    return_ty: Type::Int,
-                    return_schema: None,
-                    effects: Some(Vec::new()),
-                },
-            );
+            checker.procs.insert(target_name, function_declaration_id());
 
             let call = initializer_expr(program, statements[2]);
             let ty = checker.check_expr_arena(program, source, call, None);
@@ -7607,21 +7729,7 @@ mod reader_binding_identity_tests {
             checker.current_scope_mut().remove(&target_name);
             checker.push_scope();
             checker.current_scope_mut().insert(target_name, decoy);
-            checker.procs.insert(
-                target_name,
-                super::super::FunctionSig {
-                    effect_declaration: None,
-                    inferred_effects: false,
-                    explicit_return: true,
-                    is_alias: false,
-                    definition: None,
-                    definition_target: None,
-                    params: Vec::new(),
-                    return_ty: Type::Int,
-                    return_schema: None,
-                    effects: Some(Vec::new()),
-                },
-            );
+            checker.procs.insert(target_name, function_declaration_id());
 
             let expected = Type::Callable(Arc::new(crate::sema::types::TypedCallable {
                 pure: false,

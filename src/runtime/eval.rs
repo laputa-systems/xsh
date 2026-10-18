@@ -22,7 +22,8 @@ use crate::runtime::value::{
     FunctionName, NetJobValue, PathValue, ProcessHandleValue, RecordMap, RegexValue, ResultValue,
     RuntimeError, StreamOwner, StreamSource, StreamValue, Value,
 };
-use crate::sema::check::{CheckBundleView, Checker, CompactDeclOutput};
+use crate::sema::check::{BindingId, CheckBundleView, Checker, CompactDeclOutput};
+use crate::sema::schemes::{CallInstantiation, SchemeBodyFacts, SchemeType, TypeScheme};
 use crate::sema::types::{CallableType, Type};
 use crate::source::{SourceId, SourceMap, Span};
 use crate::symbol::{Name, QualifiedName};
@@ -44,7 +45,7 @@ use std::path::PathBuf;
 
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use xsh_root::Root;
 
@@ -561,6 +562,92 @@ pub struct Propagation {
 struct Binding {
     value: Value,
     mutable: bool,
+    identity: Option<RuntimeBindingIdentity>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(super) struct RuntimeBindingIdentity {
+    namespace: u64,
+    name: Arc<str>,
+    source: Arc<str>,
+    start: u32,
+    len: u32,
+    owner: Option<Arc<str>>,
+}
+
+impl RuntimeBindingIdentity {
+    pub(super) fn script_args() -> Self {
+        static IDENTITY: std::sync::OnceLock<RuntimeBindingIdentity> = std::sync::OnceLock::new();
+        IDENTITY
+            .get_or_init(|| Self {
+                namespace: 0,
+                name: Arc::from("args"),
+                source: Arc::from(""),
+                start: 0,
+                len: 0,
+                owner: None,
+            })
+            .clone()
+    }
+
+    pub(super) fn is_script_args(&self) -> bool {
+        self.namespace == 0
+            && self.name.as_ref() == "args"
+            && self.source.is_empty()
+            && self.start == 0
+            && self.len == 0
+            && self.owner.is_none()
+    }
+}
+
+#[derive(Clone, Default)]
+pub(super) struct BindingNamespaceLeases {
+    active: Arc<Mutex<FxHashMap<u64, usize>>>,
+}
+
+pub(super) struct BindingNamespaceLease {
+    active: Arc<Mutex<FxHashMap<u64, usize>>>,
+    namespace: u64,
+}
+
+impl BindingNamespaceLeases {
+    fn acquire(&self, namespace: u64) -> BindingNamespaceLease {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let count = active.entry(namespace).or_default();
+        *count = count.checked_add(1).expect("binding namespace lease overflow");
+        BindingNamespaceLease {
+            active: Arc::clone(&self.active),
+            namespace,
+        }
+    }
+
+    fn namespaces(&self) -> FxHashSet<u64> {
+        self.active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .keys()
+            .copied()
+            .collect()
+    }
+}
+
+impl Drop for BindingNamespaceLease {
+    fn drop(&mut self) {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let count = active
+            .get_mut(&self.namespace)
+            .expect("binding namespace lease is registered");
+        *count -= 1;
+        if *count == 0 {
+            active.remove(&self.namespace);
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -674,7 +761,7 @@ pub(super) struct TestCall {
 
 macro_rules! build_id {
     ($name:ident) => {
-        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
         #[repr(transparent)]
         struct $name(u32);
 
@@ -699,15 +786,17 @@ build_id!(BuildTopStmtId);
 
 #[derive(Clone, Debug, Default)]
 struct BuildScratch {
+    producer_demand: Option<ProducerDemand>,
     prepared_schemas: Vec<(Type, Arc<require::PreparedSchema>)>,
-    prepared_constants: FxHashMap<crate::syntax::arena::ExprId, LoweredValue>,
+    prepared_constants: FxHashMap<crate::syntax::arena::ExprId, PreparedConstantValue>,
     expressions: Vec<BuildExprRow>,
-    /// Exact checker types for callable expressions, structured error constructors,
-    /// and error sources; aligned with `expressions` until instruction encoding.
     checked_expr_types: Vec<Option<CheckedExprType>>,
     /// Lowered identities of checker-selected declarations, aligned with
     /// expressions until instruction encoding.
     checked_call_targets: Vec<Option<CheckedCallTarget>>,
+    call_instantiations: Vec<Option<CallInstantiation>>,
+    checked_call_result_types: Vec<Option<Type>>,
+    registered_calls: Vec<Option<Arc<crate::sema::schemes::RegisteredCallPlan>>>,
     /// Binary expressions with a checked operand other than Int (a Duration,
     /// even when the result is an Int interval count, or Str concatenation)
     /// prohibit integer-only specialization.
@@ -729,8 +818,33 @@ struct CheckedCallTarget {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct CheckedExprType {
     ty: Type,
-    function_ref: Option<(FunctionName, bool)>,
-    with_error_source: bool,
+    purpose: CheckedExprPurpose,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CheckedExprPurpose {
+    CheckedContract {
+        function_ref: Option<(FunctionName, bool)>,
+        with_error_source: bool,
+    },
+    ProducerContext,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum ProducerDemand {
+    #[default]
+    Absent,
+    Needed,
+}
+
+impl ProducerDemand {
+    fn for_declarations(declarations: &crate::sema::check::CompactDeclOutput) -> Self {
+        if declarations.scheme_bodies.values().any(|facts| !facts.registered_calls().is_empty()) {
+            Self::Needed
+        } else {
+            Self::Absent
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -758,6 +872,9 @@ impl BuildScratch {
         self.expressions.push(row);
         self.checked_expr_types.push(None);
         self.checked_call_targets.push(None);
+        self.call_instantiations.push(None);
+        self.checked_call_result_types.push(None);
+        self.registered_calls.push(None);
         id
     }
 
@@ -779,6 +896,36 @@ impl BuildScratch {
         }
     }
 
+    fn record_call_instantiation(
+        &mut self,
+        id: BuildExprId,
+        instantiation: CallInstantiation,
+    ) -> bool {
+        let Some(fact) = self.call_instantiations.get_mut(id.index()) else {
+            return false;
+        };
+        match fact {
+            Some(existing) => *existing == instantiation,
+            None => {
+                *fact = Some(instantiation);
+                true
+            }
+        }
+    }
+
+    fn record_checked_call_result_type(&mut self, id: BuildExprId, ty: Type) -> bool {
+        let Some(fact) = self.checked_call_result_types.get_mut(id.index()) else {
+            return false;
+        };
+        match fact {
+            Some(existing) => *existing == ty,
+            None => {
+                *fact = Some(ty);
+                true
+            }
+        }
+    }
+
     fn record_checked_expr_type(
         &mut self,
         id: BuildExprId,
@@ -794,13 +941,27 @@ impl BuildScratch {
         };
         let checked = CheckedExprType {
             ty,
-            function_ref,
-            with_error_source,
+            purpose: CheckedExprPurpose::CheckedContract { function_ref, with_error_source },
         };
         match fact {
+            Some(existing) if existing.ty == checked.ty && existing.purpose == CheckedExprPurpose::ProducerContext => {
+                *existing = checked;
+                true
+            }
             Some(existing) => *existing == checked,
             None => {
                 *fact = Some(checked);
+                true
+            }
+        }
+    }
+
+    fn record_producer_context(&mut self, id: BuildExprId, ty: Type) -> bool {
+        let Some(fact) = self.checked_expr_types.get_mut(id.index()) else { return false };
+        match fact {
+            Some(existing) => existing.ty == ty,
+            None => {
+                *fact = Some(CheckedExprType { ty, purpose: CheckedExprPurpose::ProducerContext });
                 true
             }
         }
@@ -874,6 +1035,9 @@ struct FunctionBuild {
     /// One exact checked type per local dense slot when all source bindings agree.
     slot_type_facts: Vec<Option<Type>>,
     body: Vec<BuildStmtId>,
+    scheme: Option<Arc<TypeScheme>>,
+    scheme_body_types: BTreeMap<BuildExprId, SchemeType>,
+    scheme_tail_types: BTreeMap<BuildStmtId, SchemeType>,
     scratch: Rc<RefCell<BuildScratch>>,
 }
 
@@ -981,6 +1145,7 @@ pub struct LoweredFunctionUnit {
     source_span: Span,
     definition_span: Span,
     owner: Option<Name>,
+    exported: bool,
     param_count: usize,
     capture_count: usize,
     slot_count: usize,
@@ -1011,6 +1176,10 @@ impl LoweredFunctionUnit {
 
     pub fn owner(&self) -> Option<Name> {
         self.owner
+    }
+
+    pub(in crate::runtime::eval) fn is_exported(&self) -> bool {
+        self.exported
     }
 
     pub fn param_count(&self) -> usize {
@@ -1155,6 +1324,7 @@ enum BuildTopKind {
         exports: Vec<LoweredModuleExport>,
         /// Exact checker type registered for this imported module binding.
         checked_type: Option<Type>,
+        binding_identity: Option<LoweredBindingIdentity>,
         module_statements: Vec<(Span, BuildTopStmtId)>,
         span: Span,
     },
@@ -1162,6 +1332,8 @@ enum BuildTopKind {
         target: Name,
         ty: Option<LoweredType>,
         validation: Option<LoweredTypeCheck>,
+        annotation: Option<Type>,
+        binding_identity: Option<LoweredBindingIdentity>,
         mutable: bool,
         value: BuildExprId,
         value_span: Span,
@@ -1170,12 +1342,14 @@ enum BuildTopKind {
     LetRecord {
         source: BuildExprId,
         fields: Vec<(Name, usize)>,
+        binding_identities: Vec<(LoweredBindingIdentity, usize)>,
         target: LoweredCompTarget,
         mutable: bool,
         span: Span,
     },
     Assign {
         target: Name,
+        binding_identity: LoweredBindingIdentity,
         op: AssignOp,
         value: BuildExprId,
         span: Span,
@@ -1204,17 +1378,29 @@ enum BuildTopKind {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LoweredModuleExportKind {
-    Value,
-    Pure,
-    Proc,
+enum LoweredModuleExportBinding {
+    Semantic(LoweredBindingIdentity),
+    Encoded(u32),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct LoweredModuleExport {
-    name: Name,
-    kind: LoweredModuleExportKind,
-    function_namespace: Option<Name>,
+enum LoweredModuleExport {
+    Value {
+        name: Name,
+        binding: LoweredModuleExportBinding,
+    },
+    Pure {
+        name: Name,
+        function_namespace: Name,
+    },
+    GenericPure {
+        name: Name,
+        function_namespace: Name,
+    },
+    Proc {
+        name: Name,
+        function_namespace: Name,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -1223,7 +1409,19 @@ struct LoweredTopLevelSlot {
     slot: usize,
     kind: LoweredType,
     checked_type: Option<Type>,
+    binding_identity: Option<LoweredBindingIdentity>,
+    runtime_identity: Option<RuntimeBindingIdentity>,
     mutable: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LoweredBindingIdentity {
+    id: BindingId,
+    name: Name,
+    span: Span,
+    owner: Option<Name>,
+    built_in: bool,
+    exported: bool,
 }
 
 // A driver owns slot copies of surrounding bindings. Script calls use scopes,
@@ -1238,6 +1436,7 @@ struct IndexedRootSlots {
 struct LoweredTopLevelBinding {
     kind: LoweredType,
     checked: Option<Type>,
+    binding_identity: Option<LoweredBindingIdentity>,
     mutable: bool,
     slot: bool,
 }
@@ -1249,7 +1448,7 @@ struct LoweredTypeCheck {
     name: Arc<str>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LoweredReturnKind {
     Plain(LoweredType),
     Result(LoweredType),
@@ -1257,6 +1456,13 @@ enum LoweredReturnKind {
     /// an `Err` as the value it is. An `Err` here is data the caller asked
     /// for, not a failure of the call.
     OptionalResult,
+    Erased,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LoweredParamKind {
+    Typed(LoweredType),
+    Erased,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1291,8 +1497,28 @@ enum LoweredType {
     Set,
 }
 
+pub(in crate::runtime::eval) fn driver_annotation_requires_validation(
+    runtime_type: LoweredType,
+    annotation: &Type,
+) -> bool {
+    matches!(
+        runtime_type,
+        LoweredType::Error
+            | LoweredType::Record
+            | LoweredType::Module
+            | LoweredType::List
+            | LoweredType::Stream
+            | LoweredType::Map
+            | LoweredType::Set
+            | LoweredType::Tag
+            | LoweredType::Result
+            | LoweredType::Any
+    ) || annotation.has_unsigned_constraint()
+        || annotation.validated().is_some()
+}
+
 type LoweredParamNames = SmallVec<[Name; 4]>;
-type LoweredParamKinds = SmallVec<[LoweredType; 4]>;
+type LoweredParamKinds = SmallVec<[LoweredParamKind; 4]>;
 type LoweredParamChecks = SmallVec<[Option<LoweredTypeCheck>; 4]>;
 type LoweredParamRest = SmallVec<[bool; 4]>;
 type LoweredParamDefaults = SmallVec<[Option<LoweredValue>; 4]>;
@@ -2624,6 +2850,8 @@ pub struct Evaluator {
     command_name: String,
     exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
+    binding_values: Arc<FxHashMap<RuntimeBindingIdentity, Binding>>,
+    binding_namespace_leases: BindingNamespaceLeases,
     // Signatures of functions exported by dynamically loaded modules
     // (`module.load`), keyed by the export's `FunctionName`. Captured from the
     // compact declaration probe at load time so `module.require` can validate
@@ -2762,6 +2990,8 @@ struct LoweredSharedState {
     command_name: String,
     exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
+    binding_values: Arc<FxHashMap<RuntimeBindingIdentity, Binding>>,
+    binding_namespace_leases: BindingNamespaceLeases,
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
@@ -3009,6 +3239,8 @@ impl Evaluator {
                 .and_then(|arg| arg.into_string().ok())
                 .unwrap_or_default(),
             scopes: vec![FxHashMap::default()],
+            binding_values: Arc::new(FxHashMap::default()),
+            binding_namespace_leases: BindingNamespaceLeases::default(),
             module_export_signatures: Arc::new(FxHashMap::default()),
             indexed_program: None,
             indexed_root_slots: None,
@@ -3101,6 +3333,7 @@ impl Evaluator {
             Binding {
                 value: argv,
                 mutable: false,
+                identity: Some(RuntimeBindingIdentity::script_args()),
             },
         );
         evaluator
@@ -3206,6 +3439,7 @@ impl Evaluator {
                 ignore_pending_primary,
             },
         );
+        self.prune_binding_values();
         Ok(())
     }
 
@@ -3216,6 +3450,8 @@ impl Evaluator {
             command_name: self.command_name.clone(),
             exe_path: self.exe_path.clone(),
             scopes: self.scopes.clone(),
+            binding_values: self.binding_values.clone(),
+            binding_namespace_leases: self.binding_namespace_leases.clone(),
             module_export_signatures: self.module_export_signatures.clone(),
             indexed_program: self.indexed_program.clone(),
             indexed_dynamic_functions: self.indexed_dynamic_functions.clone(),
@@ -3246,6 +3482,8 @@ impl Evaluator {
             command_name: shared.command_name.clone(),
             exe_path: shared.exe_path.clone(),
             scopes: shared.scopes.clone(),
+            binding_values: shared.binding_values.clone(),
+            binding_namespace_leases: shared.binding_namespace_leases.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),
             indexed_program: shared.indexed_program.clone(),
             indexed_root_slots: None,
@@ -3691,11 +3929,43 @@ impl Evaluator {
         let slot_count = hook.indexed_body.slot_count;
         let mut slots = vec![LoweredValue::Unit; slot_count];
         for slot_info in &hook.lowered_slots {
-            if let Some(binding) = self.lookup(slot_info.name)
-                && let Some(value) = lowered_value_from_runtime(&binding.value, slot_info.kind)
+            let Some(identity) = slot_info.runtime_identity.as_ref() else {
+                self.scopes = saved_scopes;
+                return Err(RuntimeError::new(
+                    "indexed-ir",
+                    "signal hook slot has no lexical binding identity",
+                )
+                .with_span(call_span));
+            };
+            let Some(binding) = self.binding_by_identity(identity) else {
+                self.scopes = saved_scopes;
+                return Err(RuntimeError::new(
+                    "unknown-name",
+                    format!("unknown captured binding `{}`", slot_info.name),
+                )
+                .with_span(call_span));
+            };
+            if identity.is_script_args()
+                && slot_info.checked_type.as_ref().is_some_and(|ty| {
+                    !value_matches_static_type(ValueView::Runtime(&binding.value), ty)
+                })
             {
-                slots[slot_info.slot] = value;
+                self.scopes = saved_scopes;
+                return Err(RuntimeError::new(
+                    "type-error",
+                    "script arguments do not match their checked type",
+                )
+                .with_span(call_span));
             }
+            let Some(value) = lowered_value_from_runtime(&binding.value, slot_info.kind) else {
+                self.scopes = saved_scopes;
+                return Err(RuntimeError::new(
+                    "type-error",
+                    format!("signal hook binding `{}` no longer matches its checked type", slot_info.name),
+                )
+                .with_span(call_span));
+            };
+            slots[slot_info.slot] = value;
         }
         let indexed_body = &hook.indexed_body;
         let program = Arc::clone(&indexed_body.program);
@@ -4245,7 +4515,11 @@ impl Evaluator {
             }).collect::<Option<Vec<_>>>().ok_or_else(|| compact_lowerability_diagnostic(
                 zero_span(), "byte script arguments must be bytes or UTF-8 words",
                 DiagnosticCode::CompactMainArgs))?;
-            self.define("args", Binding { value: Value::List(words), mutable: false });
+            self.define("args", Binding {
+                value: Value::List(words),
+                mutable: false,
+                identity: Some(RuntimeBindingIdentity::script_args()),
+            });
         }
         self.install_compact_runtime_declarations(&declarations);
         let source_id = program.source_text_source_id().unwrap_or(source_id);
@@ -4451,6 +4725,7 @@ impl Evaluator {
         }
         let indexed = Arc::new(indexed);
         self.indexed_program = Some(Arc::clone(&indexed));
+        self.prune_binding_values();
         let compact_auto_main_args = if auto_main_required && signature_cli.is_none() {
             self.compact_auto_main_args().ok_or_else(|| {
                 compact_lowerability_diagnostic(
@@ -5187,7 +5462,8 @@ impl Evaluator {
         });
         if let Some(param_kinds) = indexed_param_kinds {
             for (index, arg) in args.iter_mut().enumerate() {
-                if param_kinds.get(index).copied() == Some(LoweredType::Path)
+                if param_kinds.get(index).copied()
+                    == Some(LoweredParamKind::Typed(LoweredType::Path))
                     && let Value::Str(text) = arg
                     && let Ok(path) = PathValue::from_text(&text)
                 {
@@ -5854,38 +6130,112 @@ impl Evaluator {
 
     fn lookup<N: Into<Name>>(&self, name: N) -> Option<&Binding> {
         let name = name.into();
-        self.scopes.iter().rev().find_map(|scope| scope.get(&name))
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(&name))
+            .or_else(|| {
+                (name == Name::intern("args"))
+                    .then(|| self.binding_values.get(&RuntimeBindingIdentity::script_args()))
+                    .flatten()
+            })
     }
 
     fn define<N: Into<Name>>(&mut self, name: N, binding: Binding) {
+        if let Some(identity) = binding
+            .identity
+            .as_ref()
+            .filter(|identity| identity.is_script_args())
+            .cloned()
+        {
+            let mut binding = binding;
+            binding.identity = None;
+            Arc::make_mut(&mut self.binding_values).insert(identity, binding);
+            return;
+        }
+        self.publish_binding_identity(&binding);
         self.scopes
             .last_mut()
             .expect("evaluator has a scope")
             .insert(name.into(), binding);
     }
 
-    fn assign(&mut self, name: &str, value: Value, span: Span) -> Result<(), RuntimeError> {
-        let interned = Name::intern(name);
-        for index in (0..self.scopes.len()).rev() {
-            if self.scopes[index].contains_key(&interned) {
-                let target_scope = self.scope_ids[index];
-                self.transfer_owned_host_resources_in_value(&value, target_scope);
-                let binding = self.scopes[index]
-                    .get_mut(&interned)
-                    .expect("binding existence checked");
-                if !binding.mutable {
-                    return Err(RuntimeError::new(
-                        "immutable-binding",
-                        "cannot assign to immutable binding",
-                    )
-                    .with_span(span));
+    fn publish_binding_identity(&mut self, binding: &Binding) {
+        if let Some(identity) = binding.identity.clone() {
+            Arc::make_mut(&mut self.binding_values).insert(
+                identity,
+                Binding {
+                    value: binding.value.clone(),
+                    mutable: binding.mutable,
+                    identity: None,
+                },
+            );
+        }
+    }
+
+    fn binding_by_identity(
+        &self,
+        identity: &RuntimeBindingIdentity,
+    ) -> Option<&Binding> {
+        self.binding_values.get(identity)
+    }
+
+    fn prune_binding_values(&mut self) {
+        let mut namespaces = FxHashSet::default();
+        namespaces.insert(0);
+        if let Some(program) = &self.indexed_program {
+            namespaces.insert(program.binding_namespace());
+        }
+        for hook in self.signal_hooks.values() {
+            namespaces.insert(hook.indexed_body.program.binding_namespace());
+        }
+        for function in self.indexed_dynamic_functions.values() {
+            namespaces.insert(function.program.binding_namespace());
+        }
+        namespaces.extend(self.binding_namespace_leases.namespaces());
+        Arc::make_mut(&mut self.binding_values)
+            .retain(|identity, _| namespaces.contains(&identity.namespace));
+    }
+
+    pub(super) fn retain_binding_namespace(&self, namespace: u64) -> BindingNamespaceLease {
+        self.binding_namespace_leases.acquire(namespace)
+    }
+
+    pub(super) fn assign_binding_identity(
+        &mut self,
+        identity: &RuntimeBindingIdentity,
+        value: Value,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
+        let Some(binding) = self.binding_values.get(identity) else {
+            return Err(RuntimeError::new(
+                "unknown-name",
+                format!("unknown captured binding `{}`", identity.name),
+            )
+            .with_span(span));
+        };
+        if !binding.mutable {
+            return Err(RuntimeError::new(
+                "immutable-binding",
+                "cannot assign to immutable binding",
+            )
+            .with_span(span));
+        }
+        let target_scope = self.scope_ids.first().copied().unwrap_or(0);
+        self.transfer_owned_host_resources_in_value(&value, target_scope);
+        let binding = Arc::make_mut(&mut self.binding_values)
+            .get_mut(identity)
+            .expect("binding existence checked");
+        binding.value = value.clone();
+        for scope in &mut self.scopes {
+            for scoped in scope.values_mut() {
+                if scoped.identity.as_ref() == Some(identity) {
+                    scoped.value = value.clone();
                 }
-                binding.value = value;
-                self.scope_write_revision = self.scope_write_revision.wrapping_add(1);
-                return Ok(());
             }
         }
-        Err(RuntimeError::new("unresolved-name", name).with_span(span))
+        self.scope_write_revision = self.scope_write_revision.wrapping_add(1);
+        Ok(())
     }
 
     fn current_scope_id(&self) -> u64 {
@@ -7964,7 +8314,15 @@ fn next_event_id(events: &[TraceEvent]) -> u64 {
 }
 
 #[derive(Clone, Debug)]
-struct PreparedConstantValue(LoweredValue);
+struct PreparedConstantValue<T = Arc<Type>>(LoweredValue, Option<Arc<PreparedConstantOrigin<T>>>);
+
+#[derive(Clone, Debug)]
+enum PreparedConstantOrigin<T> {
+    Record { constructor: Option<T>, fields: BTreeMap<Name, Arc<PreparedConstantOrigin<T>>> },
+    List(BTreeMap<usize, Arc<PreparedConstantOrigin<T>>>),
+    Map(BTreeMap<MapKey, Arc<PreparedConstantOrigin<T>>>),
+    Tag(BTreeMap<usize, Arc<PreparedConstantOrigin<T>>>),
+}
 
 fn map_key_matches_type(key: &MapKey, ty: &Type) -> bool {
     value_matches_static_type(ValueView::Key(key.as_ref()), ty)

@@ -18,7 +18,7 @@ use crate::source::{SourceId, Span};
 use crate::syntax::arena::ArenaTableStats;
 use crate::syntax::cst::SyntaxTree;
 use crate::syntax::lexer::Lexer;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io;
 use std::mem::size_of;
@@ -63,6 +63,7 @@ pub struct FileFrontendStats {
     pub ast_tables: Vec<ArenaTableStats>,
     pub semantic_type_count: usize,
     pub semantic_retained_bytes: usize,
+    pub function_body_check_entries: usize,
     pub source_map_retained_bytes: usize,
     pub lowered_function_count: usize,
     pub lowered_constructed_functions: usize,
@@ -114,9 +115,9 @@ fn measure_expr_types(types: &BTreeMap<Span, Type>) -> (usize, usize) {
     (types.len(), bytes)
 }
 
-fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize) {
+fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize, usize) {
     let Some(checked) = checked else {
-        return (0, 0);
+        return (0, 0, 0);
     };
     let (type_count, expr_type_bytes) = measure_expr_types(&checked.expr_types);
     let (declaration_type_count, declaration_bytes) =
@@ -142,6 +143,17 @@ fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize) {
                     })
             })
             .sum::<usize>();
+    let call_instantiation_bytes = checked.call_instantiations.len()
+        * size_of::<(Span, crate::sema::schemes::CallInstantiation)>()
+        + checked
+            .call_instantiations
+            .values()
+            .map(|instantiation| {
+                instantiation
+                    .retained_bytes()
+                    .saturating_sub(size_of::<crate::sema::schemes::CallInstantiation>())
+            })
+            .sum::<usize>();
     (
         type_count + declaration_type_count + resolved_type_count,
         size_of::<CheckOutput>()
@@ -150,9 +162,11 @@ fn measure_check_output(checked: Option<&CheckOutput>) -> (usize, usize) {
             + resolved_type_bytes.saturating_sub(size_of::<ResolvedTypeExpressions>())
             + annotation_bytes
             + callable_bytes
+            + call_instantiation_bytes
             + checked.resource_transfers.capacity()
                 * size_of::<(crate::sema::check::ResourceTransferSite, bool)>()
             + measure_effect_facts(&checked.function_effect_facts),
+        checked.function_body_check_entries,
     )
 }
 
@@ -207,6 +221,7 @@ fn measure_checked_declarations(declarations: &CheckedDeclarations) -> (usize, u
                 crate::symbol::Name,
                 std::sync::Arc<crate::sema::wire_enums::WireEnumMapping>,
             )>();
+    let mut counted_schemes = BTreeSet::new();
 
     for declaration in declarations.types.values() {
         bytes += declaration.schema_fields.len()
@@ -242,6 +257,27 @@ fn measure_checked_declarations(declarations: &CheckedDeclarations) -> (usize, u
             let (count, retained) = measure_function_sig(signature);
             type_count += count;
             bytes += retained.saturating_sub(size_of::<CompactFunctionSig>());
+        }
+        if let Some(facts) = &declaration.scheme_body_facts {
+            let scheme = facts.scheme();
+            let scheme_pointer = std::sync::Arc::as_ptr(scheme) as usize;
+            if counted_schemes.insert(scheme_pointer) {
+                type_count += scheme.params().len() + 1;
+                bytes += facts
+                    .retained_bytes()
+                    .saturating_sub(size_of::<crate::sema::schemes::SchemeBodyFacts>());
+            } else {
+                bytes += facts
+                    .retained_bytes()
+                    .saturating_sub(size_of::<crate::sema::schemes::SchemeBodyFacts>())
+                    .saturating_sub(scheme.retained_bytes());
+            }
+            type_count += facts.expression_types().len() + facts.tail_types().len();
+        } else if let Some(scheme) = &declaration.scheme {
+            if counted_schemes.insert(std::sync::Arc::as_ptr(scheme) as usize) {
+                type_count += scheme.params().len() + 1;
+                bytes += scheme.retained_bytes();
+            }
         }
     }
     for family in declarations.builtin_error_families.values() {
@@ -305,6 +341,7 @@ fn measure_compact_type_info(
                         ModuleExportType::Value { .. } => 1,
                         ModuleExportType::Proc { sig, .. }
                         | ModuleExportType::Pure { sig, .. } => sig.params.len() + 1,
+                        ModuleExportType::GenericPure { .. } => 1,
                     })
                     .sum()
             } else {
@@ -392,6 +429,7 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
             + declarations.bodies.resource_transfers.capacity()
                 * size_of::<(crate::sema::check::ResourceTransferSite, bool)>()
             + measure_effect_facts(&declarations.function_effect_facts);
+    let mut counted_schemes = BTreeSet::new();
     let (resolved_type_count, resolved_type_bytes) =
         measure_resolved_type_expressions(&declarations.bodies.resolved_type_expressions);
     type_count += resolved_type_count;
@@ -462,17 +500,73 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
     measure_function_map!(declarations.qualified_pures, crate::symbol::QualifiedName);
     measure_function_map!(declarations.qualified_streams, crate::symbol::QualifiedName);
 
+    bytes += declarations.function_schemes.len()
+        * size_of::<(
+            crate::symbol::QualifiedName,
+            std::sync::Arc<crate::sema::schemes::TypeScheme>,
+        )>();
+    for scheme in declarations.function_schemes.values() {
+        if counted_schemes.insert(std::sync::Arc::as_ptr(scheme) as usize) {
+            type_count += scheme.params().len() + 1;
+            bytes += scheme.retained_bytes();
+        }
+    }
+    bytes += declarations.scheme_bodies.len()
+        * size_of::<(Span, crate::sema::schemes::SchemeBodyFacts)>();
+    for facts in declarations.scheme_bodies.values() {
+        let scheme = facts.scheme();
+        let scheme_pointer = std::sync::Arc::as_ptr(scheme) as usize;
+        if counted_schemes.insert(scheme_pointer) {
+            type_count += scheme.params().len() + 1;
+            bytes += facts
+                .retained_bytes()
+                .saturating_sub(size_of::<crate::sema::schemes::SchemeBodyFacts>());
+        } else {
+            bytes += facts
+                .retained_bytes()
+                .saturating_sub(size_of::<crate::sema::schemes::SchemeBodyFacts>())
+                .saturating_sub(scheme.retained_bytes());
+        }
+        type_count += facts.expression_types().len() + facts.tail_types().len();
+    }
+
     (type_count, bytes)
 }
 
 fn measure_compact_body_types(
-    types: &rustc_hash::FxHashMap<crate::syntax::arena::ExprId, Type>,
+    facts: &crate::sema::check::CompactBodyFacts,
 ) -> (usize, usize) {
+    let call_evidence_type_count = facts
+        .call_instantiations
+        .values()
+        .map(|instantiation| {
+            instantiation.type_arguments().len()
+                + instantiation
+                    .row_arguments()
+                    .values()
+                    .map(|row| row.fields().len())
+                    .sum::<usize>()
+        })
+        .sum::<usize>();
+    let call_evidence_bytes = facts
+        .call_instantiations
+        .values()
+        .map(|instantiation| {
+            instantiation
+                .retained_bytes()
+                .saturating_sub(size_of::<crate::sema::schemes::CallInstantiation>())
+        })
+        .sum::<usize>();
     (
-        types.len(),
-        size_of::<rustc_hash::FxHashMap<crate::syntax::arena::ExprId, Type>>()
-            + types.capacity() * size_of::<(crate::syntax::arena::ExprId, Type)>()
-            + types.values().map(type_owned_bytes).sum::<usize>(),
+        facts.expr_types.len() + call_evidence_type_count,
+        facts.expr_types.capacity() * size_of::<(crate::syntax::arena::ExprId, Type)>()
+            + facts.expr_types.values().map(type_owned_bytes).sum::<usize>()
+            + facts.call_instantiations.capacity()
+                * size_of::<(
+                    crate::syntax::arena::ExprId,
+                    crate::sema::schemes::CallInstantiation,
+                )>()
+            + call_evidence_bytes,
     )
 }
 
@@ -524,7 +618,7 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     let ast_traffic = mem_track::end_stage();
     let ast = checked.parsed.arena.stats();
     let ast_retained_bytes = ast.retained_bytes;
-    let (checked_type_count, checked_retained_bytes) =
+    let (checked_type_count, checked_retained_bytes, function_body_check_entries) =
         measure_check_output(checked.checked.as_ref());
     let checked_diagnostics = diagnostic_count(&checked);
     // The measured pipeline is the runner's: one check feeds lowering.
@@ -539,7 +633,7 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
     let (declaration_type_count, declaration_retained_bytes) =
         measure_compact_declarations(&declarations);
     let (body_type_count, body_retained_bytes) =
-        measure_compact_body_types(&declarations.bodies.expr_types);
+        measure_compact_body_types(&declarations.bodies);
     let semantic_type_count = checked_type_count + declaration_type_count + body_type_count;
     let semantic_retained_bytes =
         checked_retained_bytes + declaration_retained_bytes + body_retained_bytes;
@@ -651,6 +745,7 @@ pub fn measure_source(path: &str, source: &str) -> FileFrontendStats {
         ast_tables,
         semantic_type_count,
         semantic_retained_bytes,
+        function_body_check_entries,
         source_map_retained_bytes,
         lowered_function_count,
         lowered_constructed_functions,
@@ -838,6 +933,7 @@ macro_rules! numeric_fields {
         $macro!(ast_retained_bytes);
         $macro!(semantic_type_count);
         $macro!(semantic_retained_bytes);
+        $macro!(function_body_check_entries);
         $macro!(source_map_retained_bytes);
         $macro!(lowered_function_count);
         $macro!(lowered_constructed_functions);
@@ -891,10 +987,10 @@ fn max_file_stats(maximum: &mut FileFrontendStats, file: &FileFrontendStats) {
 impl CorpusFrontendStats {
     pub fn to_text(&self) -> String {
         let mut output = String::new();
-        output.push_str("path\tsource\ttokens\ttoken_bytes\tcst_nodes\tcst_bytes\tast_bytes\tsemantic_bytes\tlowered_bytes\tafter_drop\tblockers\tdiagnostics\treconcile_delta\n");
+        output.push_str("path\tsource\ttokens\ttoken_bytes\tcst_nodes\tcst_bytes\tast_bytes\tsemantic_bytes\tfunction_body_check_entries\tlowered_bytes\tafter_drop\tblockers\tdiagnostics\treconcile_delta\n");
         for file in &self.files {
             output.push_str(&format!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                 file.path,
                 file.source_bytes,
                 file.token_count,
@@ -903,6 +999,7 @@ impl CorpusFrontendStats {
                 file.cst_retained_bytes,
                 file.ast_retained_bytes,
                 file.semantic_retained_bytes,
+                file.function_body_check_entries,
                 file.lowered_retained_bytes,
                 file.retained_after_drop_bytes,
                 file.lowered_blocker_events,
@@ -995,7 +1092,7 @@ fn file_json(file: &FileFrontendStats) -> String {
             "\"cst_node_count\":{},\"cst_retained_bytes\":{},",
             "\"ast_stmt_count\":{},\"ast_expr_count\":{},\"ast_pattern_count\":{},",
             "\"ast_type_count\":{},\"ast_extra_items\":{},\"ast_retained_bytes\":{},\"ast_tables\":[{}],",
-            "\"semantic_type_count\":{},\"semantic_retained_bytes\":{},",
+            "\"semantic_type_count\":{},\"semantic_retained_bytes\":{},\"function_body_check_entries\":{},",
             "\"source_map_retained_bytes\":{},\"lowered_function_count\":{},",
             "\"lowered_constructed_functions\":{},\"lowered_statement_count\":{},",
             "\"lowered_expression_count\":{},\"lowered_pattern_count\":{},",
@@ -1021,6 +1118,7 @@ fn file_json(file: &FileFrontendStats) -> String {
         ast_tables,
         file.semantic_type_count,
         file.semantic_retained_bytes,
+        file.function_body_check_entries,
         file.source_map_retained_bytes,
         file.lowered_function_count,
         file.lowered_constructed_functions,
@@ -1063,7 +1161,7 @@ fn json_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        CorpusFrontendStats, FileFrontendStats, measure_check_output,
+        CorpusFrontendStats, FileFrontendStats, file_json, measure_check_output,
         measure_compact_declarations, measure_source,
     };
     use crate::sema::check::{CheckOutput, CompactDeclOutput, ResourceTransferSite};
@@ -1101,6 +1199,19 @@ mod tests {
     fn default_file_stats_reconcile() {
         let stats = FileFrontendStats::default();
         assert_eq!(stats.reconcile_delta, 0);
+    }
+
+    #[test]
+    fn frontend_stats_reports_final_checker_body_entries() {
+        let file = measure_source("body-check.xsh", "pure identity(value) { value }\n");
+        assert_eq!(file.function_body_check_entries, 1);
+        assert!(file_json(&file).contains("\"function_body_check_entries\":1"));
+        let corpus = CorpusFrontendStats {
+            files: vec![file],
+            ..CorpusFrontendStats::default()
+        };
+        assert!(corpus.to_text().contains("function_body_check_entries"));
+        assert!(corpus.to_text().contains("body-check.xsh"));
     }
 
     #[test]
@@ -1144,16 +1255,20 @@ mod tests {
     #[test]
     fn check_output_measurement_includes_resource_transfer_capacity() {
         let empty = CheckOutput::default();
-        let (empty_types, empty_bytes) = measure_check_output(Some(&empty));
+        let (empty_types, empty_bytes, empty_body_entries) = measure_check_output(Some(&empty));
 
         let mut populated = CheckOutput::default();
         populated.resource_transfers.insert(
             ResourceTransferSite::Return(StmtId::from_index(0)),
             false,
         );
-        let (populated_types, populated_bytes) = measure_check_output(Some(&populated));
+        populated.function_body_check_entries = 3;
+        let (populated_types, populated_bytes, populated_body_entries) =
+            measure_check_output(Some(&populated));
 
         assert_eq!(populated_types, empty_types);
+        assert_eq!(empty_body_entries, 0);
+        assert_eq!(populated_body_entries, 3);
         assert_eq!(
             populated_bytes,
             empty_bytes

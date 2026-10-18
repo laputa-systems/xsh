@@ -86,6 +86,22 @@ pub enum Type {
     Validated(Box<super::validated::ValidatedType>),
 }
 
+pub(crate) fn merge_list_literal_item_ty(current: &Type, next: &Type) -> Option<Type> {
+    if next.matches_expected(current) {
+        return Some(current.clone());
+    }
+    if current.matches_expected(next) {
+        return Some(next.clone());
+    }
+    if matches!(
+        (current, next),
+        (Type::Str, Type::Path) | (Type::Path, Type::Str)
+    ) {
+        return Some(Type::Any);
+    }
+    None
+}
+
 /// The contract of a typed callable. `sig.effects` is the upper bound a call
 /// charges to its caller; `None` is the unrestricted bound of a `proc(...)`
 /// type written without a clause. Parameters carry no defaults and no rest
@@ -115,7 +131,11 @@ impl TypedCallable {
                     .map(|param| {
                         Ok(CallableParamType {
                             name: param.name,
-                            ty: resolve(param.ty)?,
+                            ty: if let Some(annotation) = param.annotation {
+                                resolve(annotation)?
+                            } else {
+                                Type::Unknown
+                            },
                             defaulted: false,
                             rest: false,
                         })
@@ -147,7 +167,7 @@ impl TypedCallable {
                     "a callable type cannot have a rest parameter (`...{name}`)"
                 ));
             }
-            if param.ty_defaulted {
+            if param.annotation.is_none() {
                 return Some(format!(
                     "parameter `{name}` of a callable type needs a type"
                 ));
@@ -262,6 +282,12 @@ impl TypedCallable {
                 )
             })
     }
+}
+
+pub(crate) fn tail_type_matches_expected(expected: &Type, actual: &Type) -> bool {
+    actual.matches_expected(expected)
+        || (!actual.is_result()
+            && matches!(expected, Type::Result(ok, _) if actual.matches_expected(ok)))
 }
 
 /// Whether a callable returning `actual` may stand where one returning
@@ -449,6 +475,8 @@ pub enum ModuleExportType {
     Value { ty: Type, optional: bool },
     Proc { sig: CallableType, optional: bool },
     Pure { sig: CallableType, optional: bool },
+    /// A quantified pure export whose scheme is verified from the child module.
+    GenericPure { optional: bool },
 }
 
 impl ModuleExportType {
@@ -458,6 +486,7 @@ impl ModuleExportType {
             + match self {
                 Self::Value { ty, .. } => ty.retained_bytes(),
                 Self::Proc { sig, .. } | Self::Pure { sig, .. } => sig.retained_bytes(),
+                Self::GenericPure { .. } => 0,
             }
     }
 
@@ -465,7 +494,8 @@ impl ModuleExportType {
         match self {
             Self::Value { optional, .. }
             | Self::Proc { optional, .. }
-            | Self::Pure { optional, .. } => *optional,
+            | Self::Pure { optional, .. }
+            | Self::GenericPure { optional } => *optional,
         }
     }
 
@@ -473,7 +503,14 @@ impl ModuleExportType {
         match self {
             Self::Value { ty, .. } => ty.clone(),
             Self::Proc { .. } => Type::Proc,
-            Self::Pure { .. } => Type::Pure,
+            Self::Pure { .. } | Self::GenericPure { .. } => Type::Pure,
+        }
+    }
+
+    pub(crate) fn field_value_type(&self) -> Option<Type> {
+        match self {
+            Self::GenericPure { .. } => None,
+            _ => Some(self.field_type()),
         }
     }
 }
@@ -814,12 +851,22 @@ impl Type {
     pub fn contains_recovery(&self) -> bool {
         match self {
             Self::Unknown | Self::Invalid => true,
-            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+            Self::List(inner) | Self::Stream(inner) | Self::Set(inner) | Self::Optional(inner) => {
                 inner.contains_recovery()
             }
             Self::Map(key, value) | Self::Result(key, value) => {
                 key.contains_recovery() || value.contains_recovery()
             }
+            Self::Module(exports) => exports.values().any(|export| match export {
+                ModuleExportType::Value { ty, .. } => ty.contains_recovery(),
+                ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
+                    sig.params
+                        .iter()
+                        .any(|param| param.ty.contains_recovery())
+                        || sig.return_ty.contains_recovery()
+                }
+                ModuleExportType::GenericPure { .. } => false,
+            }),
             Self::Record(fields) => fields.values().any(Self::contains_recovery),
             Self::Union(members) => members.iter().any(Self::contains_recovery),
             Self::Validated(validated) => validated.base().contains_recovery(),
@@ -874,6 +921,7 @@ impl Type {
                                 pending.push(&sig.return_ty);
                                 pending.extend(sig.params.iter().map(|param| &param.ty));
                             }
+                            ModuleExportType::GenericPure { .. } => {}
                         }
                     }
                 }
@@ -925,6 +973,7 @@ impl Type {
                     sig.params.iter().any(|param| param.ty.contains_any())
                         || sig.return_ty.contains_any()
                 }
+                ModuleExportType::GenericPure { .. } => false,
             }),
             _ => false,
         }
@@ -1481,6 +1530,7 @@ fn module_export_any_flows_to_concrete(
             ModuleExportType::Pure { sig: actual, .. },
             ModuleExportType::Pure { sig: expected, .. },
         ) => callable_any_flows_to_concrete(actual, expected),
+        (ModuleExportType::GenericPure { .. }, ModuleExportType::GenericPure { .. }) => false,
         _ => false,
     }
 }
@@ -1499,6 +1549,7 @@ fn module_export_matches_expected(actual: &ModuleExportType, expected: &ModuleEx
             ModuleExportType::Pure { sig: actual, .. },
             ModuleExportType::Pure { sig: expected, .. },
         ) => callable_matches_expected(actual, expected),
+        (ModuleExportType::GenericPure { .. }, ModuleExportType::GenericPure { .. }) => true,
         _ => false,
     }
 }
@@ -1561,6 +1612,56 @@ mod tests {
             ] {
                 assert_eq!(Type::Tag(Name::intern(identity)).to_string(), display);
             }
+        });
+    }
+
+    #[test]
+    fn set_types_retain_recovery_status_from_their_element() {
+        assert!(Type::Set(Box::new(Type::Unknown)).contains_recovery());
+        assert!(Type::Set(Box::new(Type::Invalid)).contains_recovery());
+    }
+
+    #[test]
+    fn module_exports_retain_recovery_status_from_values_and_signatures() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let value = Type::Module(module_type(BTreeMap::from([(
+                Name::intern("value"),
+                ModuleExportType::Value {
+                    ty: Type::Unknown,
+                    optional: false,
+                },
+            )])));
+            let proc = Type::Module(module_type(BTreeMap::from([(
+                Name::intern("proc"),
+                ModuleExportType::Proc {
+                    sig: CallableType {
+                        params: vec![CallableParamType {
+                            name: Name::intern("argument"),
+                            ty: Type::Invalid,
+                            defaulted: false,
+                            rest: false,
+                        }],
+                        return_ty: Box::new(Type::Int),
+                        effects: None,
+                    },
+                    optional: false,
+                },
+            )])));
+            let pure = Type::Module(module_type(BTreeMap::from([(
+                Name::intern("pure"),
+                ModuleExportType::Pure {
+                    sig: CallableType {
+                        params: Vec::new(),
+                        return_ty: Box::new(Type::Unknown),
+                        effects: Some(Vec::new()),
+                    },
+                    optional: false,
+                },
+            )])));
+
+            assert!(value.contains_recovery());
+            assert!(proc.contains_recovery());
+            assert!(pure.contains_recovery());
         });
     }
 

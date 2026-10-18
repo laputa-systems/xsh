@@ -7,13 +7,18 @@ use super::{
 };
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Label};
 use crate::sema::check::{
-    Binding, ContractParam, FunctionParamSig, FunctionSig, ModuleContractEntry,
-    ModuleContractEntryKind, SchemaField, TagVariant, standard_record_type,
+    Binding, ContractParam, FunctionDeclarationId, FunctionParamSig, ModuleContractEntry,
+    ModuleContractEntryKind, PendingCallable, PendingCallableShape, PendingFunctionParamSig,
+    PendingFunctionSig, SchemaField, TagVariant, TypeAuthority, FunctionSig,
+    standard_record_type,
+};
+use crate::sema::schemes::{
+    CallableScheme, SchemeCallableKind, SchemeParameter, TypeScheme,
 };
 use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaChild, ArenaModuleContractEntryKind, ArenaProgram, ArenaRange,
-    ArenaStmtKind, ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, ErrorDefId, FunctionDefId,
-    StmtId, TypeDefId, TypeExprId,
+    ArenaStmtKind, ArenaTypeDef, ArenaTypeDefBody, ArenaUserModule, BlockId, ErrorDefId, ExprId,
+    FunctionDefId, StmtId, SugarView, TypeDefId, TypeExprId,
 };
 use std::sync::Arc;
 
@@ -22,7 +27,552 @@ thread_local! {
     pub(super) static USER_MODULE_CHECKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+fn collect_body_type_facts(
+    program: &ArenaProgram,
+    body: BlockId,
+    checked: &BTreeMap<Span, Type>,
+    bindings: &super::ResolvedBindings,
+    selected_calls: &BTreeMap<Span, super::CheckedFunctionTarget>,
+) -> (
+    BTreeMap<ExprId, Type>,
+    BTreeMap<StmtId, Type>,
+    std::collections::BTreeSet<Span>,
+    std::collections::BTreeSet<super::BindingId>,
+) {
+    #[derive(Clone, Copy, Eq, Hash, PartialEq)]
+    enum BodyFactUse { Executable, SelectedCallee }
+
+    let arena = &program.arena;
+    let mut pending = vec![(ArenaChild::Block(body), BodyFactUse::Executable)];
+    let mut expressions = FxHashSet::default();
+    let mut statements = FxHashSet::default();
+    let mut blocks = FxHashSet::default();
+    let mut patterns = FxHashSet::default();
+    let mut binding_targets = FxHashSet::default();
+    let mut assign_targets = FxHashSet::default();
+    let mut builder_blocks = FxHashSet::default();
+    let mut expression_spans = std::collections::BTreeSet::new();
+    let mut types = BTreeMap::new();
+    let mut tail_types = BTreeMap::new();
+    while let Some((child, usage)) = pending.pop() {
+        match child {
+            ArenaChild::Expr(id) if expressions.insert((id, usage)) => {
+                expression_spans.insert(arena.expr(id).span);
+                if let Some(ty) = checked.get(&arena.expr(id).span) {
+                    types.insert(id, ty.clone());
+                }
+                if let crate::syntax::arena::ArenaExprKind::Call { callee, args } = arena.expr(id).kind
+                    && selected_calls.contains_key(&arena.expr(id).span)
+                {
+                    pending.push((ArenaChild::Expr(callee), BodyFactUse::SelectedCallee));
+                    for argument in arena.call_args(args) {
+                        pending.push((ArenaChild::Expr(super::call_arg_expr_id_arena(&argument.kind)), usage));
+                    }
+                } else {
+                    arena.for_each_expr_child(id, |child| pending.push((child, usage)));
+                }
+            }
+            ArenaChild::Stmt(id) if statements.insert((id, usage)) => {
+                let statement = arena.stmt(id);
+                if matches!(statement.kind, ArenaStmtKind::TailBareIdent(_))
+                    && let Some(ty) = checked.get(&statement.span)
+                {
+                    tail_types.insert(id, ty.clone());
+                }
+                if !matches!(
+                    statement.kind,
+                    ArenaStmtKind::ProcDef(_)
+                        | ArenaStmtKind::PureDef(_)
+                        | ArenaStmtKind::StreamDef(_)
+                        | ArenaStmtKind::CliMain(_)
+                        | ArenaStmtKind::SignalHook(_)
+                ) {
+                    arena.for_each_stmt_child(id, SugarView::Core, |child| pending.push((child, usage)));
+                }
+            }
+            ArenaChild::Block(id) if blocks.insert((id, usage)) => {
+                arena.for_each_block_child(id, |child| pending.push((child, usage)));
+            }
+            ArenaChild::Pattern(id) if patterns.insert((id, usage)) => {
+                arena.for_each_pattern_child(id, |child| pending.push((child, usage)));
+            }
+            ArenaChild::BindingTarget(id) if binding_targets.insert((id, usage)) => {
+                arena.for_each_binding_target_child(id, |child| pending.push((child, usage)));
+            }
+            ArenaChild::AssignTarget(id) if assign_targets.insert((id, usage)) => {
+                arena.for_each_assign_target_child(id, |child| pending.push((child, usage)));
+            }
+            ArenaChild::BuilderBlock(id) if builder_blocks.insert((id, usage)) => {
+                arena.for_each_builder_child(id, |child| pending.push((child, usage)));
+            }
+            ArenaChild::Expr(_)
+            | ArenaChild::Stmt(_)
+            | ArenaChild::Block(_)
+            | ArenaChild::Pattern(_)
+            | ArenaChild::BindingTarget(_)
+            | ArenaChild::AssignTarget(_)
+            | ArenaChild::TypeExpr(_)
+            | ArenaChild::BuilderBlock(_) => {}
+        }
+    }
+    let reads = expressions.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(expression, _)| bindings.expressions.get(expression)).chain(statements.iter().filter(|(_, usage)| *usage == BodyFactUse::Executable).filter_map(|(statement, _)| bindings.tails.get(statement))).copied().collect();
+    (types, tail_types, expression_spans, reads)
+}
+
 impl Checker {
+    pub(super) fn generalize_pending_function(
+        &mut self,
+        program: &ArenaProgram,
+        def_id: FunctionDefId,
+    ) -> Option<()> {
+        let def = program.arena.function_def(def_id);
+        let declaration = FunctionDeclarationId::new(
+            self.effect_declaration_id(program, def.body),
+        );
+        let pending = self.declaration_inference.pending(declaration)?.clone();
+        if pending.generalized().is_some() {
+            return Some(());
+        }
+        let shape = pending.provisional()?;
+        let params = program.arena.params(def.params);
+        let mut types = Vec::with_capacity(shape.params().len() + 1);
+        for (param, pending_param) in params.iter().zip(shape.params()) {
+            let span = program.arena.span(param.span);
+            types.push(
+                self.parameter_types
+                    .get(&span)
+                    .cloned()
+                    .unwrap_or_else(|| pending_param.signature.ty.clone()),
+            );
+        }
+        let body_span = program.arena.span(program.arena.block(def.body).span);
+        types.push(
+            self.function_return_types
+                .get(&body_span)
+                .cloned()
+                .unwrap_or_else(|| shape.return_ty().clone()),
+        );
+        let (body_types, tail_types, expression_spans, read_bindings) =
+            collect_body_type_facts(program, def.body, &self.expr_types, &self.resolved_bindings, &self.selected_function_calls);
+        let calls = expression_spans.iter().filter_map(|&span| {
+            self.pending_call_instantiations.get(&span).map(|(callable, instantiated)| {
+                (span, (Arc::clone(callable), instantiated.clone()))
+            })
+        }).collect::<BTreeMap<_, _>>();
+        let (generalized, generalized_body_types, generalized_tail_types, generalized_calls) =
+            match self.type_constraints.generalize_callable_body_with_calls(
+                &types,
+                &body_types,
+                &tail_types,
+                &calls,
+                0,
+            )
+        {
+            Ok(generalized) => generalized,
+            Err(crate::sema::constraints::SchemeOperationError::Build(
+                crate::sema::schemes::SchemeBuildError::BodyTypeNotBound,
+            )) => {
+                self.error(
+                    body_span,
+                    "function body retains a type variable outside its callable signature",
+                    DiagnosticCode::CheckLocalInference,
+                );
+                return None;
+            }
+            Err(_) => return None,
+        };
+        if !pending.generalizable()
+            && (!generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty())
+        {
+            return None;
+        }
+        let quantified = !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty();
+        let registered_calls = body_types.keys().filter(|_| quantified).filter_map(|&expression| {
+            let span = program.arena.expr(expression).span;
+            let call = self.api_calls.get(&span)?;
+            let crate::syntax::arena::ArenaExprKind::Call { callee, .. } = program.arena.expr(expression).kind else { return None };
+            let name = match program.arena.expr(callee).kind {
+                crate::syntax::arena::ArenaExprKind::Field { name, .. }
+                | crate::syntax::arena::ArenaExprKind::Ident(name) => Arc::from(name.as_str().as_ref()),
+                _ => return None,
+            };
+            let receiver = if call.receiver.is_some() {
+                let crate::syntax::arena::ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { return None };
+                generalized_body_types.get(&base).and_then(crate::sema::schemes::SchemeType::closed_ground_type)
+            } else { None };
+            let argument_checks = call.params.iter().enumerate().map(|(slot, parameter)| crate::sema::builtin_templates::registered_argument_check(receiver.as_ref(), slot, parameter)).collect::<Vec<_>>();
+            let plan = crate::sema::schemes::RegisteredCallPlan {
+                receiver: call.receiver,
+                name,
+                signature: call.sig,
+                argument_slots: call.argument_slots.clone().into(),
+                argument_checks: argument_checks.into(),
+            };
+            crate::sema::builtin_templates::registered_call_is_executable(&plan).then(|| (expression, Arc::new(plan)))
+        }).collect::<BTreeMap<_, _>>();
+        if !generalized.type_parameters.is_empty() || !generalized.row_parameters.is_empty() {
+            let parameter_bindings = params
+                .iter()
+                .filter_map(|parameter| {
+                    self.resolved_bindings
+                        .declaration_sites
+                        .get(&(program.arena.span(parameter.span), parameter.name))
+                        .copied()
+                })
+                .collect::<super::FxHashSet<_>>();
+            let pure_calls = generalized_body_types.keys().filter_map(|&expression| {
+                let span = program.arena.expr(expression).span;
+                let target = self.selected_function_calls.get(&span)?;
+                let definition = program.arena.function_def(target.definition);
+                if program.arena.params(definition.params).iter().any(|parameter| parameter.rest || parameter.default.is_some()) { return None; }
+                let id = FunctionDeclarationId::new(super::EffectDeclarationId {
+                    namespace: target.namespace,
+                    body: program.arena.span(program.arena.block(definition.body).span),
+                });
+                let pure = self.checked_declarations.functions.get(&target.definition)
+                    .is_some_and(|declaration| declaration.kind == CheckedFunctionKind::Pure)
+                    || self.declaration_inference.pending(id).is_some_and(|signature| signature.kind() == SchemeCallableKind::Pure)
+                    || self.declaration_inference.checked(id).is_some_and(|signature| signature.scheme.kind() == SchemeCallableKind::Pure)
+                    || self.qualified_pures.values()
+                        .any(|signature| signature.definition_target() == Some(*target)
+                            && signature.scheme().kind() == SchemeCallableKind::Pure);
+                pure.then_some(span)
+            }).collect::<super::FxHashSet<_>>();
+            let captures = generalized_body_types.keys()
+                .filter_map(|expression| self.resolved_bindings.expressions.get(expression))
+                .chain(generalized_tail_types.keys().filter_map(|statement| self.resolved_bindings.tails.get(statement)))
+                .filter_map(|&id| {
+                    let declaration = self.resolved_bindings.declarations.get(&id)?;
+                    if declaration.kind != super::BindingKind::Runtime { return None; }
+                    self.scopes.iter().rev().find_map(|scope| scope.get(&declaration.name).filter(|binding| binding.id == Some(id)))
+                        .filter(|binding| !binding.mutable && !binding.ty.contains_inference() && !binding.ty.may_hold_resource())
+                        .map(|_| id)
+                }).collect::<super::FxHashSet<_>>();
+            if !super::scheme_body::supports_generalized_body(
+                program,
+                def.body,
+                &self.resolved_bindings,
+                &parameter_bindings,
+                &captures,
+                &generalized_tail_types,
+                &self.statement_positions,
+                &pure_calls,
+                &registered_calls,
+                &generalized_body_types,
+            ) {
+                let message = "generic pure body requires immutable bindings and a terminal value composed from checked reads, required fields, and selected pure calls";
+                let reported = self.diagnostics.iter().any(|diagnostic| {
+                    diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
+                        && diagnostic.message == message
+                        && diagnostic
+                            .labels
+                            .iter()
+                            .any(|label| label.span == body_span)
+                });
+                if !reported {
+                    self.error(body_span, message, DiagnosticCode::CheckLocalInference);
+                }
+                return None;
+            }
+        }
+        let mut generalized_types = generalized.types;
+        let return_type = generalized_types.pop()?;
+        if pending.return_authority != TypeAuthority::Inferred
+            && return_type.contains_parameter()
+        {
+            return None;
+        }
+        let params = shape
+            .params()
+            .iter()
+            .zip(generalized_types)
+            .map(|(parameter, ty)| {
+                (parameter.authority == TypeAuthority::Inferred || !ty.contains_parameter())
+                    .then(|| SchemeParameter {
+                        name: parameter.signature.name,
+                        ty,
+                        schema_expectation: parameter.signature.schema_expectation.clone(),
+                        defaulted: parameter.signature.defaulted,
+                        rest: parameter.signature.rest,
+                    })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let callable = Arc::new(
+            CallableScheme::new(
+                generalized.type_parameters,
+                generalized.row_parameters,
+                params,
+                return_type,
+                shape.return_schema.clone(),
+                shape.explicit_return,
+            )
+            .ok()?,
+        );
+        for (parameter, scheme_parameter) in
+            program.arena.params(def.params).iter().zip(callable.params())
+        {
+            if scheme_parameter.ty.contains_parameter() {
+                self.parameter_types
+                    .remove(&program.arena.span(parameter.span));
+            }
+        }
+        if callable.return_type().contains_parameter() {
+            self.function_return_types.remove(&body_span);
+            self.annotation_facts.retain(|fact| {
+                !matches!(
+                    &fact.kind,
+                    super::AnnotationFactKind::InferredPureReturn { body }
+                        if *body == body_span
+                )
+            });
+        }
+        let generalized_body_spans = generalized_body_types
+            .iter()
+            .filter_map(|(&expression, ty)| {
+                ty.contains_parameter()
+                    .then_some(program.arena.expr(expression).span)
+            })
+            .chain(generalized_tail_types.iter().filter_map(|(&statement, ty)| {
+                ty.contains_parameter()
+                    .then_some(program.arena.stmt(statement).span)
+            }))
+            .collect::<std::collections::BTreeSet<_>>();
+        let generalized_bindings = program.arena.stmt_ids(program.arena.block(def.body).statements)
+            .filter_map(|statement| match program.arena.stmt(statement).kind {
+                ArenaStmtKind::Let { initializer: crate::syntax::arena::ArenaExprOrRun::Expr(value), .. }
+                    if generalized_body_types.get(&value).is_some_and(|ty| ty.contains_parameter())
+                        && self.local_inference.checked_bindings.get(&program.arena.stmt(statement).span).is_some_and(Type::contains_inference) => Some(program.arena.stmt(statement).span),
+                _ => None,
+            }).collect::<std::collections::BTreeSet<_>>();
+        self.local_inference.checked_bindings.retain(|span, _| !generalized_bindings.contains(span));
+        self.annotation_facts.retain(|fact| !matches!(fact.kind, super::AnnotationFactKind::Binding { span, .. } if generalized_bindings.contains(&span)));
+        for &expression in registered_calls.keys() { self.api_calls.remove(&program.arena.expr(expression).span); }
+        self.declaration_inference
+            .pending_mut(declaration)?
+            .generalize(callable, generalized_body_types, generalized_tail_types, registered_calls, read_bindings);
+        for (span, instantiation) in generalized_calls {
+            let previous = self.call_instantiations.insert(span, instantiation);
+            assert!(previous.is_none(), "a call instantiation is published once");
+        }
+        for span in generalized_body_spans {
+            self.expr_types.remove(&span);
+        }
+        Some(())
+    }
+
+    pub(super) fn local_function_target(
+        &self,
+        declaration: FunctionDeclarationId,
+    ) -> Option<super::CheckedFunctionTarget> {
+        self.declaration_inference
+            .checked(declaration)
+            .and_then(super::FunctionSig::definition_target)
+            .or_else(|| {
+                self.declaration_inference
+                    .pending(declaration)
+                    .and_then(PendingFunctionSig::definition_target)
+            })
+    }
+
+    pub(super) fn local_function_return_schema(
+        &self,
+        declaration: FunctionDeclarationId,
+    ) -> Option<super::super::constants::SchemaExpectation> {
+        if let Some(signature) = self.declaration_inference.checked(declaration) {
+            return signature.scheme().return_schema().cloned();
+        }
+        let pending = self.declaration_inference.pending(declaration)?;
+        if let Some(shape) = pending.provisional() {
+            return shape.return_schema.clone();
+        }
+        pending.generalized()?.return_schema().cloned()
+    }
+
+    pub(super) fn local_function_signature(
+        &self,
+        declaration: FunctionDeclarationId,
+    ) -> Option<super::FunctionSig> {
+        if let Some(signature) = self.declaration_inference.checked(declaration) {
+            return Some(signature.clone());
+        }
+        let pending = self.declaration_inference.pending(declaration)?;
+        let effects = self.declaration_effects(pending.effect_declaration());
+        let inferred_effects = pending
+            .effect_declaration()
+            .is_some_and(|id| self.effect_graph.is_inferred(id));
+        if let Some(callable) = pending.generalized() {
+            let scheme = TypeScheme::with_callable(
+                pending.kind(),
+                Arc::clone(callable),
+                effects,
+                inferred_effects,
+            )
+            .ok()?;
+            return Some(super::FunctionSig {
+                effect_declaration: pending.effect_declaration(),
+                is_alias: pending.is_alias,
+                definition: pending.definition(),
+                definition_target: pending.definition_target(),
+                scheme: Arc::new(scheme),
+            });
+        }
+        let shape = pending.provisional()?;
+        let params = shape
+            .params()
+            .iter()
+            .map(|param| {
+                Some(FunctionParamSig {
+                    ty: self.type_constraints.resolve(&param.signature.ty).ok()?,
+                    ..param.signature.clone()
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let return_ty = self.type_constraints.resolve(shape.return_ty()).ok()?;
+        let return_schema = shape.return_schema.clone();
+        let explicit_return = shape.explicit_return;
+        super::FunctionSig::ground(
+            pending.kind(),
+            pending.effect_declaration(),
+            pending.is_alias,
+            pending.definition(),
+            pending.definition_target(),
+            params,
+            return_ty,
+            return_schema,
+            effects,
+            inferred_effects,
+            explicit_return,
+        )
+    }
+
+    pub(super) fn update_pending_return_type(
+        &mut self,
+        program: &ArenaProgram,
+        def: &crate::syntax::arena::ArenaFunctionDef,
+        ty: Type,
+    ) {
+        let declaration = FunctionDeclarationId::new(
+            self.effect_declaration_id(program, def.body),
+        );
+        if let Some(signature) = self.declaration_inference.pending_mut(declaration)
+            && let Some(shape) = signature.provisional_mut()
+        {
+            shape.return_ty = ty;
+        }
+    }
+
+    pub(super) fn checked_function_sig_arena(
+        &mut self,
+        program: &ArenaProgram,
+        def_id: FunctionDefId,
+        effect_fact: Option<&super::FunctionEffectFact>,
+    ) -> Option<super::FunctionSig> {
+        let def = program.arena.function_def(def_id);
+        let effect_declaration = self.effect_declaration_id(program, def.body);
+        let declaration = FunctionDeclarationId::new(effect_declaration);
+        self.generalize_pending_function(program, def_id)?;
+        let pending = self.declaration_inference.pending(declaration)?.clone();
+        let callable = Arc::clone(pending.generalized()?);
+        let effects = effect_fact.and_then(|fact| fact.effective.clone());
+        let inferred_effects = effect_fact.is_some_and(|fact| fact.inferred);
+        let scheme = Arc::new(
+            TypeScheme::with_callable(
+                pending.kind,
+                Arc::clone(&callable),
+                effects,
+                inferred_effects,
+            )
+            .ok()?,
+        );
+        let scheme_body_facts = if callable.type_parameters().is_empty()
+            && callable.row_parameters().is_empty()
+        {
+            None
+        } else {
+            match super::super::schemes::SchemeBodyFacts::new(
+                Arc::clone(&scheme),
+                pending.generalized_body_types()?.clone(),
+                pending.generalized_tail_types()?.clone(),
+            ) {
+                Ok(facts) => Some(facts.with_registered_calls(pending.generalized_registered_calls()?.clone()).with_read_bindings(pending.generalized_read_bindings()?.clone())),
+                Err(_) => {
+                    let message = "generic function body has a type outside its checked scheme";
+                    self.error(
+                        program.arena.span(program.arena.block(def.body).span),
+                        message,
+                        DiagnosticCode::CheckLocalInference,
+                    );
+                    return None;
+                }
+            }
+        };
+        let signature = super::FunctionSig {
+            effect_declaration: pending.effect_declaration,
+            is_alias: pending.is_alias,
+            definition: pending.definition,
+            definition_target: pending.definition_target,
+            scheme,
+        };
+        self.declaration_inference
+            .mark_checked(declaration, signature.clone())
+            .ok()?;
+        self.publish_function_declaration(program, def_id, match pending.kind {
+            SchemeCallableKind::Pure => CheckedFunctionKind::Pure,
+            SchemeCallableKind::Proc => CheckedFunctionKind::Proc,
+            SchemeCallableKind::Stream => CheckedFunctionKind::Stream,
+        }, pending.exported, Some(&signature), scheme_body_facts);
+        Some(signature)
+    }
+
+    pub(super) fn finalize_function_declarations(
+        &mut self,
+        program: &ArenaProgram,
+        facts: &std::collections::BTreeMap<super::EffectDeclarationId, super::FunctionEffectFact>,
+    ) {
+        let declarations = self
+            .declaration_inference
+            .pending_entries()
+            .filter_map(|(_, pending)| {
+                let target = pending.definition_target()?;
+                Some((target.definition, pending.effect_declaration()))
+            })
+            .collect::<Vec<_>>();
+        for (def_id, effect_declaration) in declarations {
+            let effect_fact = effect_declaration.and_then(|id| facts.get(&id));
+            self.checked_function_sig_arena(program, def_id, effect_fact);
+        }
+    }
+
+    pub(super) fn finalize_user_module_functions(
+        &self,
+        program: &ArenaProgram,
+        module: &ArenaUserModule,
+        signature: &mut UserModuleSig,
+    ) {
+        for statement in program.arena.stmt_ids(module.statements) {
+            let ArenaStmtKind::Export(inner) = program.arena.stmt(statement).kind else {
+                continue;
+            };
+            let (def_id, kind) = match program.arena.stmt(inner).kind {
+                ArenaStmtKind::ProcDef(def_id) => (def_id, CheckedFunctionKind::Proc),
+                ArenaStmtKind::PureDef(def_id) => (def_id, CheckedFunctionKind::Pure),
+                ArenaStmtKind::StreamDef(def_id) => (def_id, CheckedFunctionKind::Stream),
+                _ => continue,
+            };
+            let def = program.arena.function_def(def_id);
+            let declaration = FunctionDeclarationId::new(self.effect_declaration_id(program, def.body));
+            let Some(function) = self.declaration_inference.checked(declaration).cloned() else {
+                continue;
+            };
+            match kind {
+                CheckedFunctionKind::Proc => { signature.procs.insert(def.name, function); }
+                CheckedFunctionKind::Pure => { signature.pures.insert(def.name, function); }
+                CheckedFunctionKind::Stream => { signature.streams.insert(def.name, function); }
+                CheckedFunctionKind::CliMain => unreachable!(),
+            }
+        }
+    }
+
     /// Resolve exported type headers before the entry selects its argument domain.
     pub(super) fn module_type_headers(
         view: &CheckBundleView<'_>,
@@ -313,22 +863,37 @@ impl Checker {
             match kind {
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Proc);
+                    let sig = self.function_sig_arena(
+                        program,
+                        source,
+                        def_id,
+                        CheckedFunctionKind::Proc,
+                        statement_is_exported_arena(program, stmt_id),
+                    );
                     if !def.test_declaration {
                         self.procs.insert(def.name, sig);
                     }
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let mut sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Pure);
-                    if def.return_ty_defaulted {
-                        sig.return_ty = Type::Unknown;
-                    }
+                    let sig = self.function_sig_arena(
+                        program,
+                        source,
+                        def_id,
+                        CheckedFunctionKind::Pure,
+                        statement_is_exported_arena(program, stmt_id),
+                    );
                     self.pures.insert(def.name, sig);
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Stream);
+                    let sig = self.function_sig_arena(
+                        program,
+                        source,
+                        def_id,
+                        CheckedFunctionKind::Stream,
+                        statement_is_exported_arena(program, stmt_id),
+                    );
                     self.streams.insert(def.name, sig);
                 }
                 ArenaStmtKind::ErrorDef(_) => {}
@@ -451,7 +1016,13 @@ impl Checker {
                             DiagnosticCode::CheckDuplicateName,
                         );
                     }
-                    let sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Proc);
+                    let sig = self.function_sig_arena(
+                        program,
+                        source,
+                        def_id,
+                        CheckedFunctionKind::Proc,
+                        statement_is_exported_arena(program, stmt_id),
+                    );
                     if !def.test_declaration {
                         self.procs.insert(def.name, sig);
                     }
@@ -466,10 +1037,13 @@ impl Checker {
                             DiagnosticCode::CheckDuplicateName,
                         );
                     }
-                    let mut sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Pure);
-                    if def.return_ty_defaulted {
-                        sig.return_ty = Type::Unknown;
-                    }
+                    let sig = self.function_sig_arena(
+                        program,
+                        source,
+                        def_id,
+                        CheckedFunctionKind::Pure,
+                        statement_is_exported_arena(program, stmt_id),
+                    );
                     self.pures.insert(def.name, sig);
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
@@ -482,7 +1056,13 @@ impl Checker {
                             DiagnosticCode::CheckDuplicateName,
                         );
                     }
-                    let sig = self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Stream);
+                    let sig = self.function_sig_arena(
+                        program,
+                        source,
+                        def_id,
+                        CheckedFunctionKind::Stream,
+                        statement_is_exported_arena(program, stmt_id),
+                    );
                     self.streams.insert(def.name, sig);
                 }
                 _ => {}
@@ -567,23 +1147,14 @@ impl Checker {
                         ArenaStmtKind::ProcDef(def_id) => {
                             let def = program.arena.function_def(def_id).clone();
                             self.check_function_arena(program, source, &def, false);
-                            exports
-                                .procs
-                                .insert(def.name, self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Proc));
                         }
                         ArenaStmtKind::PureDef(def_id) => {
                             let def = program.arena.function_def(def_id).clone();
                             self.check_function_arena(program, source, &def, true);
-                            exports
-                                .pures
-                                .insert(def.name, self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Pure));
                         }
                         ArenaStmtKind::StreamDef(def_id) => {
                             let def = program.arena.function_def(def_id).clone();
                             self.check_stream_function_arena(program, source, &def);
-                            exports
-                                .streams
-                                .insert(def.name, self.function_sig_arena(program, source, def_id, CheckedFunctionKind::Stream));
                         }
                         ArenaStmtKind::TypeDef(def_id) => {
                             let def = program.arena.type_def(def_id);
@@ -737,13 +1308,32 @@ impl Checker {
         _source: &str,
         def_id: FunctionDefId,
         kind: CheckedFunctionKind,
-    ) -> FunctionSig {
+        exported: bool,
+    ) -> FunctionDeclarationId {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
-        let signature = FunctionSig {
+        let declaration = FunctionDeclarationId::new(effect_declaration);
+        if kind == CheckedFunctionKind::Pure {
+            for parameter in program.arena.params(def.params) {
+                let span = program.arena.span(parameter.span);
+                if parameter.annotation.is_none()
+                    && parameter.default.is_none()
+                    && !self.parameter_types.contains_key(&span)
+                {
+                    let ty = self.type_constraints.fresh_at_level(span, 1);
+                    self.parameter_types.insert(span, ty);
+                }
+            }
+        }
+        let signature = PendingFunctionSig {
+            kind: match kind {
+                CheckedFunctionKind::Pure => SchemeCallableKind::Pure,
+                CheckedFunctionKind::Proc => SchemeCallableKind::Proc,
+                CheckedFunctionKind::Stream => SchemeCallableKind::Stream,
+                CheckedFunctionKind::CliMain => unreachable!(),
+            },
+            exported,
             effect_declaration: Some(effect_declaration),
-            inferred_effects: self.effect_graph.is_inferred(effect_declaration),
-            explicit_return: !def.return_ty_defaulted,
             is_alias: false,
             definition: Some(program.arena.span(program.arena.block(def.body).span)),
             definition_target: Some(super::CheckedFunctionTarget {
@@ -751,65 +1341,100 @@ impl Checker {
                 namespace: self.current_namespace,
                 name: def.name,
             }),
-            params: program
-                .arena
-                .params(def.params)
-                .iter()
-                .map(|param| FunctionParamSig {
-                    name: param.name,
-                    ty: self
-                        .checked_parameter_type(program, param)
-                        .unwrap_or_else(|| {
-                            if param.ty_defaulted {
-                                Type::Unknown
-                            } else {
-                                self.type_from_arena(program, param.ty)
-                            }
-                        }),
-                    schema_expectation: self
-                        .record_constructors
-                        .annotation_expectation(&program.arena, param.ty, self.current_namespace)
-                        .ok(),
-                    defaulted: param.default.is_some(),
-                    rest: param.rest,
-                })
-                .collect(),
-            return_ty: self.type_from_arena(program, def.return_ty),
-            return_schema: (!def.return_ty_defaulted)
-                .then(|| {
-                    self.record_constructors
-                        .annotation_expectation(
-                            &program.arena,
-                            def.return_ty,
-                            self.current_namespace,
-                        )
-                        .ok()
-                })
-                .flatten(),
-            effects: self.effective_function_effects(program, def),
+            solver_level: 1,
+            return_authority: if def.return_ty_defaulted {
+                TypeAuthority::Inferred
+            } else {
+                TypeAuthority::Explicit
+            },
+            body_checked: false,
+            generalizable: true,
+            callable: PendingCallable::Provisional(PendingCallableShape {
+                params: program
+                    .arena
+                    .params(def.params)
+                    .iter()
+                    .map(|param| PendingFunctionParamSig {
+                        signature: FunctionParamSig {
+                            name: param.name,
+                            ty: self
+                                .checked_parameter_type(program, param)
+                                .unwrap_or_else(|| {
+                                    param.annotation.map_or(Type::Unknown, |annotation| {
+                                        self.type_from_arena(program, annotation)
+                                    })
+                                }),
+                            schema_expectation: param.annotation.and_then(|annotation| {
+                                self.record_constructors
+                                    .annotation_expectation(
+                                        &program.arena,
+                                        annotation,
+                                        self.current_namespace,
+                                    )
+                                    .ok()
+                            }),
+                            defaulted: param.default.is_some(),
+                            rest: param.rest,
+                        },
+                        authority: if param.annotation.is_some() {
+                            TypeAuthority::Explicit
+                        } else if param.default.is_some()
+                            && self.checked_parameter_type(program, param).is_some()
+                        {
+                            TypeAuthority::Default
+                        } else {
+                            TypeAuthority::Inferred
+                        },
+                    })
+                    .collect(),
+                return_ty: self.type_from_arena(program, def.return_ty),
+                return_schema: (!def.return_ty_defaulted)
+                    .then(|| {
+                        self.record_constructors
+                            .annotation_expectation(
+                                &program.arena,
+                                def.return_ty,
+                                self.current_namespace,
+                            )
+                            .ok()
+                    })
+                    .flatten(),
+                explicit_return: !def.return_ty_defaulted,
+            }),
         };
-        self.publish_function_declaration(program, def_id, kind, Some(&signature));
-        signature
+        self.declaration_inference
+            .insert_pending(declaration, signature);
+        self.publish_function_declaration(program, def_id, kind, exported, None, None);
+        declaration
     }
 
 }
 
 
-pub(super) fn callable_type_from_function_signature(sig: &FunctionSig) -> super::CallableType {
-    super::CallableType {
-        params: sig
-            .params
-            .iter()
-            .map(|param| super::CallableParamType {
-                name: param.name,
-                ty: param.ty.clone(),
-                defaulted: param.defaulted,
-                rest: param.rest,
-            })
-            .collect(),
-        return_ty: Box::new(sig.return_ty.clone()),
-        effects: sig.effects.clone(),
+pub(super) fn callable_type_from_function_signature(
+    sig: &FunctionSig,
+) -> Option<super::CallableType> {
+    let scheme = sig.scheme();
+    if !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty() {
+        return None;
     }
+    let params = scheme
+        .params()
+        .iter()
+        .map(|parameter| {
+            Some(super::CallableParamType {
+                name: parameter.name,
+                ty: parameter.ty.closed_ground_type()?,
+                defaulted: parameter.defaulted,
+                rest: parameter.rest,
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(super::CallableType {
+        params,
+        return_ty: Box::new(scheme.return_type().closed_ground_type()?),
+        effects: scheme.effects().map(<[_]>::to_vec),
+    })
 }
 
 /// A module names its own error families bare, while its importer spells
@@ -832,10 +1457,9 @@ fn qualify_imported_error_types(mut module: UserModuleSig, namespace: Name) -> U
         .chain(module.pures.values_mut())
         .chain(module.streams.values_mut())
     {
-        for param in &mut sig.params {
-            qualify_error_type(&mut param.ty, namespace, &families);
-        }
-        qualify_error_type(&mut sig.return_ty, namespace, &families);
+        sig.scheme = Arc::new(sig.scheme.map_ground_types(|ty| {
+            qualify_error_type(ty, namespace, &families);
+        }));
     }
     module
 }
@@ -878,22 +1502,27 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
         );
     }
     for (name, sig) in &module.procs {
-        exports.insert(
-            *name,
-            super::ModuleExportType::Proc {
-                sig: callable_type_from_function_signature(sig),
-                optional: false,
-            },
-        );
+        if let Some(sig) = callable_type_from_function_signature(sig) {
+            exports.insert(
+                *name,
+                super::ModuleExportType::Proc { sig, optional: false },
+            );
+        }
     }
     for (name, sig) in &module.pures {
-        exports.insert(
-            *name,
-            super::ModuleExportType::Pure {
-                sig: callable_type_from_function_signature(sig),
-                optional: false,
-            },
-        );
+        if let Some(sig) = callable_type_from_function_signature(sig) {
+            exports.insert(
+                *name,
+                super::ModuleExportType::Pure { sig, optional: false },
+            );
+        } else if !sig.scheme().type_parameters().is_empty()
+            || !sig.scheme().row_parameters().is_empty()
+        {
+            exports.insert(
+                *name,
+                super::ModuleExportType::GenericPure { optional: false },
+            );
+        }
     }
     // The checker has every export of a statically imported module, so its
     // type is the module's whole surface.
@@ -1100,6 +1729,10 @@ fn append_binding_target_names_arena(
     }
 }
 
+fn statement_is_exported_arena(program: &ArenaProgram, stmt_id: StmtId) -> bool {
+    matches!(program.arena.stmt(stmt_id).kind, ArenaStmtKind::Export(_))
+}
+
 fn exported_stmt_kind_arena(program: &ArenaProgram, stmt_id: StmtId) -> (ArenaStmtKind, Span) {
     let stmt = program.arena.stmt(stmt_id);
     match stmt.kind {
@@ -1215,8 +1848,9 @@ fn params_arena(program: Arc<ArenaProgram>, range: ArenaRange) -> Vec<ContractPa
         .map(|param| ContractParam {
             source: param.clone(),
             name: param.name,
-            ty: TypeAnnRef::new(program.clone(), param.ty),
-            defaulted: param.default.is_some() || param.ty_defaulted,
+            program: program.clone(),
+            ty: param.annotation.map(|ty| TypeAnnRef::new(program.clone(), ty)),
+            defaulted: param.default.is_some(),
             rest: param.rest,
         })
         .collect()
@@ -1587,4 +2221,85 @@ impl Checker {
 pub(super) fn is_builtin_or_standard_record_type_name(name: impl AsRef<str>) -> bool {
     let name = name.as_ref();
     Type::from_name(name) != Type::Unknown || standard_record_type(name).is_some()
+}
+
+#[cfg(test)]
+mod imported_pure_tests {
+    use super::*;
+    use crate::sema::check::module_driver::CheckSession;
+    use crate::source::SourceMap;
+    use crate::syntax::arena::ArenaProgramBuilder;
+    use crate::syntax::parser::Parser;
+
+    fn checked_imported_call(globals: &str, prefix: &str, argument: &str) -> (Arc<ArenaProgram>, super::super::CheckOutput, BlockId, super::super::BindingId) {
+        let entry_text = format!("use api\n{globals}\npure invoke(row) {{ {prefix}api.required({argument}) }}\n");
+        let module_text = "##! Required operation.\n## Returns the supplied integer.\nexport pure required(value: Int) -> Int { value }\n## An ordinary module value.\nexport let marker = 7\n";
+        let mut sources = SourceMap::new();
+        let entry_source = sources.add_file("entry.xsh", &entry_text);
+        let module_source = sources.add_file("api.xsh", module_text);
+        let mut builder = ArenaProgramBuilder::with_token_capacity(128);
+        let entry = Parser::parse_source_into_arena_builder(entry_source, &entry_text, &mut builder);
+        let module = Parser::parse_source_into_arena_builder(module_source, module_text, &mut builder);
+        assert!(entry.diagnostics.is_empty(), "{:?}", entry.diagnostics);
+        assert!(module.diagnostics.is_empty(), "{:?}", module.diagnostics);
+        let namespace = builder.symbol_owner().intern("api");
+        builder.push_arena_module("api".to_string(), namespace, module.statements);
+        for statement in builder.statement_ids(entry.statements) {
+            if let Some((use_id, _, _)) = builder.use_stmt_for_statement(statement) {
+                builder.set_use_resolved(use_id, Arc::from("api"));
+            }
+        }
+        let program = Arc::new(builder.finish_with_statements(entry.statements));
+        let _symbols = program.symbol_owner().enter();
+        let session = CheckSession::new(Arc::clone(&program), Arc::new(sources));
+        let output = session.check(entry.statements, entry_source, super::super::CheckOptions::default());
+        let body = program.arena.stmt_ids(entry.statements).find_map(|statement| match program.arena.stmt(statement).kind {
+            ArenaStmtKind::PureDef(definition) => Some(program.arena.function_def(definition).body),
+            _ => None,
+        }).unwrap();
+        let bindings = super::super::ResolvedBindings::collect(&program);
+        let binding = *bindings.declarations.iter().find(|(_, declaration)| declaration.name == namespace && declaration.namespace.is_none()).unwrap().0;
+        (program, output, body, binding)
+    }
+
+    #[test]
+    fn selected_imported_callee_facts_keep_types_without_a_runtime_namespace_read() {
+        let (program, output, body, namespace) = checked_imported_call("", "", "row.value");
+        let _symbols = program.symbol_owner().enter();
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let facts = output.checked_declarations.functions.values().find(|declaration| declaration.name == "invoke").unwrap().scheme_body_facts.as_ref().unwrap();
+        assert!(!facts.read_bindings().contains(&namespace));
+        let bindings = super::super::ResolvedBindings::collect(&program);
+        let (types, _, spans, _) = collect_body_type_facts(&program, body, &output.expr_types, &bindings, &output.selected_function_calls);
+        let callee = *bindings.expressions.iter().find(|(_, binding)| **binding == namespace).unwrap().0;
+        assert!(spans.contains(&program.arena.expr(callee).span));
+        assert!(types.keys().any(|expression| output.selected_function_calls.contains_key(&program.arena.expr(*expression).span)));
+        let (unselected_types, _, _, unselected_reads) = collect_body_type_facts(&program, body, &output.expr_types, &bindings, &BTreeMap::new());
+        assert_eq!(types, unselected_types);
+        assert!(unselected_reads.contains(&namespace));
+        let parameter = *bindings.declarations.iter().find(|(_, declaration)| declaration.name == "row").unwrap().0;
+        assert!(facts.read_bindings().contains(&parameter));
+    }
+
+    #[test]
+    fn selected_imported_calls_retain_real_namespace_mutable_and_resource_reads() {
+        for (globals, prefix, argument) in [
+            ("", "let saved = api; ", "row.value"),
+            ("", "", "api.marker"),
+            ("var captured = 1", "let saved = captured; ", "row.value"),
+            ("let captured = fs.root(/)?", "let saved = captured; ", "row.value"),
+        ] {
+            let (program, output, body, namespace) = checked_imported_call(globals, prefix, argument);
+            let _symbols = program.symbol_owner().enter();
+            assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckLocalInference)), "{globals} {prefix} {argument}: {:?}", output.diagnostics);
+            let bindings = super::super::ResolvedBindings::collect(&program);
+            let (_, _, _, reads) = collect_body_type_facts(&program, body, &output.expr_types, &bindings, &output.selected_function_calls);
+            if globals.is_empty() {
+                assert!(reads.contains(&namespace));
+            } else {
+                let captured = *bindings.declarations.iter().find(|(_, declaration)| declaration.name == "captured").unwrap().0;
+                assert!(reads.contains(&captured));
+            }
+        }
+    }
 }

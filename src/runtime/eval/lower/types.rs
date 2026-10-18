@@ -33,30 +33,11 @@ pub(super) fn compact_type_check(
     // A validated type stored as a scalar has a storage kind that says
     // nothing of the validation, so the type itself is tested where an
     // unchecked value arrives.
-    (lowered_type_needs_static_check(kind)
-        || checked.has_unsigned_constraint()
-        || checked.validated().is_some())
-    .then(|| LoweredTypeCheck {
+    super::super::driver_annotation_requires_validation(kind, checked).then(|| LoweredTypeCheck {
         schema: None,
         ty: checked.clone(),
         name,
     })
-}
-
-pub(super) fn lowered_type_needs_static_check(kind: LoweredType) -> bool {
-    matches!(
-        kind,
-        LoweredType::Error
-            | LoweredType::Record
-            | LoweredType::Module
-            | LoweredType::List
-            | LoweredType::Stream
-            | LoweredType::Map
-            | LoweredType::Set
-            | LoweredType::Tag
-            | LoweredType::Result
-            | LoweredType::Any
-    )
 }
 
 pub(super) fn compact_type_expr_name(arena: &AstArena, ty: TypeExprId) -> Arc<str> {
@@ -143,12 +124,13 @@ fn compact_type_expr_name_string(arena: &AstArena, ty: TypeExprId) -> String {
             let params = arena
                 .params(callable.params)
                 .iter()
-                .map(|param| {
-                    format!(
+                .map(|param| match param.annotation {
+                    Some(annotation) => format!(
                         "{}: {}",
                         param.name,
-                        compact_type_expr_name_string(arena, param.ty)
-                    )
+                        compact_type_expr_name_string(arena, annotation)
+                    ),
+                    None => param.name.to_string(),
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -476,12 +458,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         let lowered = self.lower_expr(value, slots, current_function, item_slot)?;
-        let Some(ty) = ty else {
-            return Some(match checked_ty {
-                Some(ty) => self.checked_unsigned_value(lowered, ty, span),
-                None => lowered,
-            });
-        };
         let kind = self
             .bodies
             .expr_types
@@ -489,18 +465,36 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .map(|ty| ty.optional_inner().unwrap_or(ty))
             .and_then(lowered_checked_type)
             .unwrap_or(LoweredType::Any);
-        if lowered_type_needs_static_check(kind) || matches!(checked_ty, Some(Type::UInt)) {
+        self.lower_binding_storage_value(ty, checked_ty, Some(kind), lowered, span)
+    }
+
+    pub(super) fn lower_binding_storage_value(
+        &mut self,
+        ty: Option<TypeExprId>,
+        checked_ty: Option<&Type>,
+        kind: Option<LoweredType>,
+        lowered: BuildExprId,
+        span: Span,
+    ) -> Option<BuildExprId> {
+        let Some(ty) = ty else {
+            return Some(match checked_ty {
+                Some(ty) => self.checked_unsigned_value(lowered, ty, span),
+                None => lowered,
+            });
+        };
+        let kind = kind?;
+        let annotation = match checked_ty {
+            Some(annotation) => annotation,
+            None => checked_type_annotation(
+                self.declarations,
+                self.current_namespace,
+                ty,
+            )?,
+        };
+        if super::super::driver_annotation_requires_validation(kind, annotation) {
             let check = LoweredTypeCheck {
                 schema: None,
-                ty: self.canonicalize_checked_type(match checked_ty {
-                    Some(ty) => ty.clone(),
-                    None => checked_type_annotation(
-                        self.declarations,
-                        self.current_namespace,
-                        ty,
-                    )?
-                    .clone(),
-                }),
+                ty: self.canonicalize_checked_type(annotation.clone()),
                 name: compact_type_expr_name(&self.program.arena, ty),
             };
             Some(push_build_row!(

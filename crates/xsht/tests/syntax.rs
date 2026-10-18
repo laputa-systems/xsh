@@ -1489,13 +1489,7 @@ run.text printf "%s" ${label} ?
         panic!("expected proc definition");
     };
     let params = arena.params(arena.function_def(p1).params);
-    assert!(params.iter().all(|param| param.ty_defaulted));
-    assert!(
-        params
-            .iter()
-            .all(|param| arena.type_expr_data[param.ty.index()].lhs
-                == xsh::frontend::symbols::Name::UNKNOWN.symbol().raw())
-    );
+    assert!(params.iter().all(|param| param.annotation.is_none()));
     let checked = Checker::check_arena(&output.arena, "");
     let types = params
         .iter()

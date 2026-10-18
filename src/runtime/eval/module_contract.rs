@@ -149,6 +149,10 @@ fn export_mismatch(
         (ModuleExportType::Proc { .. } | ModuleExportType::Pure { .. }, _) => {
             Some("the contract declares a callable, the module exports a value".to_string())
         }
+        (ModuleExportType::GenericPure { .. }, LoweredValue::Pure(_)) => None,
+        (ModuleExportType::GenericPure { .. }, _) => {
+            Some("the contract declares a generic pure function, the module exports a value".to_string())
+        }
     }
 }
 
@@ -240,6 +244,7 @@ fn render_contract_entry(name: Name, entry: &ModuleExportType) -> String {
         ModuleExportType::Value { ty, .. } => format!("export let {name}: {ty}"),
         ModuleExportType::Proc { sig, .. } => render_callable("proc", name, sig),
         ModuleExportType::Pure { sig, .. } => render_callable("pure", name, sig),
+        ModuleExportType::GenericPure { .. } => format!("export pure {name}(...)") ,
     }
 }
 
