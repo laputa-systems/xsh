@@ -5,6 +5,7 @@ from dataclasses import replace
 import importlib.util
 from io import StringIO
 import json
+import os
 from pathlib import Path
 import sys
 import subprocess
@@ -725,6 +726,37 @@ class PolicyTests(unittest.TestCase):
             with self.assertRaises(check.CheckError):
                 validate(unresolved)
 
+
+
+class FunctionalTests(unittest.TestCase):
+    def test_structural_scan_runs_as_the_caller_uid_and_gid(self):
+        root = Path(__file__).resolve().parents[2]
+        (root / '.work/tmp').mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=root / '.work/tmp') as directory:
+            paths = {name: Path(directory) / f'{name}.json' for name in ('canonical', 'supplemental', 'skip_review', 'structural', 'review_evidence', 'output')}
+            value = PolicyTests().config()
+            value['product_receipt'] = str(paths['canonical'])
+            value['scratch'] = directory
+            value['functional'] = {name: str(path) for name, path in paths.items()}
+            config = check.parse_config(value)
+
+            def docker(command, scratch, *, timeout_seconds):
+                user_index = command.index('--user')
+                self.assertEqual(command[user_index + 1], f'{os.getuid()}:{os.getgid()}')
+                self.assertLess(user_index, command.index('pinned-image'))
+                self.assertEqual(scratch, config.scratch)
+                self.assertEqual(timeout_seconds, 900)
+                return 1, b'', b'dubious ownership'
+
+            with (
+                patch.object(check, 'functional_inputs', return_value=({}, {'reviewer': 'fixture'})),
+                patch.object(check, 'load_canonical', return_value=SimpleNamespace(IMAGE='pinned-image')),
+                patch.object(check, 'git', return_value=str(root / '.git')),
+                patch.object(check, 'checked_docker', side_effect=docker),
+                self.assertRaisesRegex(check.CheckError, 'metrics owner rejected current source'),
+            ):
+                check.functional(config)
+            self.assertFalse(paths['output'].exists())
 
 
 class AdapterDeadlineTests(unittest.TestCase):

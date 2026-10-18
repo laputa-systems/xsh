@@ -627,7 +627,7 @@ def functional(config):
     canonical = load_canonical(config)
     with tempfile.TemporaryDirectory(prefix='functional-', dir=config.scratch) as directory:
         command = [str(config.xsh), str(config.source_root / 'dev/consolidation/metrics.xsh'), 'check-current', '--root', str(config.source_root), '--source-root', 'src', '--xsht-source-root', 'crates/xsht/src', '--baseline', str(paths['structural']), '--review-evidence', str(paths['review_evidence']), '--output', str(Path(directory) / 'current.json'), '--audit', str(Path(directory) / 'audit.json')]
-        docker = ['docker', 'run', '--rm', '--init', '--platform', 'linux/amd64', '--network', 'none', '--cpus=2', '--memory=4g', '--memory-swap=4g', '-v', f'{config.source_root}:{config.source_root}:ro', '-v', f'{config.scratch}:{config.scratch}:rw', '-v', f'{config.xsh}:{config.xsh}:ro', '-w', str(config.source_root)]
+        docker = ['docker', 'run', '--rm', '--init', '--platform', 'linux/amd64', '--network', 'none', '--cpus=2', '--memory=4g', '--memory-swap=4g', '--user', f'{os.getuid()}:{os.getgid()}', '-v', f'{config.source_root}:{config.source_root}:ro', '-v', f'{config.scratch}:{config.scratch}:rw', '-v', f'{config.xsh}:{config.xsh}:ro', '-w', str(config.source_root)]
         for path in (paths['structural'], paths['review_evidence']):
             docker += ['-v', f'{path}:{path}:ro']
         common = git(config.source_root, 'rev-parse', '--path-format=absolute', '--git-common-dir')
