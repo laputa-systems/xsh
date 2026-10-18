@@ -156,11 +156,22 @@ export proc candidate_as_user(s: uu.Scene, command: Str, args: List[Str], uid: I
   exited(observe(s, command, paths, under_uid(uu.argv(s, command, paths, vars)?, uid), vars, timeout)?)
 }
 
-## Requires the coordinator's private IPC, mount and PID namespaces before privileged fixtures.
+## Skips unconfigured native contexts and rejects invalid advertised private namespaces before fixture effects.
 export proc require_private_namespace() [fs, env, error] {
+  let names = [entry.name for entry in env.entries()?]
+  if ! (b"XSH_UTIL_LINUX_PRIVATE" in names) {
+    for name in ["ipc", "mnt", "pid"] {
+      assert ! (bytes.from_text(f"XSH_UTIL_LINUX_PARENT_{name}") in names), "private util-linux parent namespace requires an explicit private marker"
+    }
+    test.skip("requires private util-linux IPC, mount and PID namespaces")
+  }
   assert e"XSH_UTIL_LINUX_PRIVATE"? == "1"
   for name in ["ipc", "mnt", "pid"] {
     let outer = env.get(f"XSH_UTIL_LINUX_PARENT_{name}")?
+    let prefix = name + ":["
+    assert outer.starts_with(prefix) and outer.ends_with("]"), "invalid parent namespace identity"
+    let identity = outer.replace(prefix, with: "").replace("]", with: "").parse_int()?
+    assert identity > 0 and outer == f"{name}:[{identity}]", "invalid parent namespace identity"
     assert fp"/proc/self/ns/{name}".readlink()?.display() != outer
   }
   assert p"/proc/1/ns/pid".readlink()? == p"/proc/self/ns/pid".readlink()?

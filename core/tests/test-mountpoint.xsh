@@ -83,6 +83,7 @@ test test_mountpoint_device_number_requires_a_block_device { |ctx|
 
 test test_mountpoint_devno_reports_owned_block_device { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let device = uu.at(s, "block-device")
   fs.mknod(device, "block", 0o600, major: 8, minor: 0)?

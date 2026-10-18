@@ -31,7 +31,7 @@ type KernelProbe = {exists: Bool, errno: Int?, value: Int?}
 proc observe_element(s: uu.Scene, identity: Int, index: Int) [fs, process, env, error] -> Result[ApiReport, Error] {
   let output = uu.at(s, f"waiter-api-{index}.out")
   let errors = uu.at(s, f"waiter-api-{index}.err")
-  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/ipc/observe.xsh"
+  let script = fp"{s.ctx.core_dir}/tests/data/util-linux/ipc/observe.xsh"
   let words = [
     p"/bin/setpriv",
     p"--reuid=10001",

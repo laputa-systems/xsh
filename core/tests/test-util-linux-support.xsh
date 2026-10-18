@@ -4,6 +4,24 @@ use support.util_linux as ul
 type LockReady = {method: Str, pid: Int, fd: Int, duplicate_fds: List[Int], device: Str, inode: Int, path: Str, lock_id: Int}
 type WaiterReady = {method: Str, pid: Int, fd: Int, duplicate_fds: List[Int], device: Str, inode: Int, path: Str, lock_id: Int, owner_pid: Int}
 
+test test_util_linux_private_context_rejects_advertised_misconfiguration {
+  if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  for marker in ["", "0", "true"] {
+    env ({XSH_UTIL_LINUX_PRIVATE: marker}) {
+      test.error_kind(try { ul.require_private_namespace() }, "AssertionError.Failed")
+    }
+  }
+  for identity in ["", "forged", "ipc:[0]", "ipc:[+1]", "ipc:[01]"] {
+    env XSH_UTIL_LINUX_PRIVATE=1 XSH_UTIL_LINUX_PARENT_ipc=$identity {
+      test.error_kind(try { ul.require_private_namespace() }, "AssertionError.Failed")
+    }
+  }
+  let current = p"/proc/self/ns/ipc".readlink()?.display()
+  env XSH_UTIL_LINUX_PRIVATE=1 XSH_UTIL_LINUX_PARENT_ipc=$current {
+    test.error_kind(try { ul.require_private_namespace() }, "AssertionError.Failed")
+  }
+}
+
 test test_util_linux_comparison_rejects_observable_mutants { |_ctx|
   let reference: uu.Ran = {util: "lslocks", args: ["--raw"], status: 0,
     stdout: b"holder=21 blocker=22 inode=101\n", stderr: b""}

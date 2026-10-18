@@ -86,6 +86,7 @@ test test_namei_component_walk_follows_relative_and_absolute_symlinks { |ctx|
 
 test test_namei_component_walk_reports_socket_and_block_device { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let socket = uu.at(s, "socket")
   let block = uu.at(s, "block")
@@ -99,6 +100,7 @@ test test_namei_component_walk_reports_socket_and_block_device { |ctx|
 
 test test_namei_modes_and_owner_columns_cover_special_bits { |ctx|
   if system.uname()?.sysname != "Linux" { test.skip("requires Linux"); return }
+  ul.require_private_namespace()
   let s = uu.scene(ctx)?
   let setuid = uu.at(s, "setuid-file")
   let sticky = uu.at(s, "sticky-directory")

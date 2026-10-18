@@ -65,13 +65,22 @@ restores effective root IDs, then restores the prior signal mask.
 
 For System V semaphore snapshots, `keeper.py` also records each registered
 element's value, waiter counts, and last-operation PID. It leaves the two
-elements at values 2 and 3 after real `semop` activity. `observe.xsh` calls the
+elements at values 2 and 3 after real `semop` activity.
+[`observe.xsh`](../../../data/util-linux/ipc/observe.xsh) calls the
 three read-only Linux IPC APIs eight times against the private POSIX semaphore,
 POSIX message queue, and both System V semaphore elements. It reports values
 or errno plus its descriptor counts before and after the calls. Native tests
 run it as the owner and as the second UID with all capabilities dropped,
 compare successful values with the keeper snapshot, and verify
 missing-resource errors after release.
+
+Ordinary native runs report tests requiring private util-linux namespaces as
+unsupported skips before starting a fixture. The private wrapper exports
+`XSH_UTIL_LINUX_PRIVATE=1` and the parent IPC, mount and PID namespace identities;
+partial configuration, malformed identities and identities matching the current
+namespace fail. The wrapper establishes those identities, and private acceptance
+requires every selected behavior to pass with zero skips. Ordinary skips provide
+no private behavior or reference parity evidence.
 
 The pinned Alpine musl `sem_open` stores a named semaphore at
 `/dev/shm/<name>`, while util-linux discovers named semaphores by scanning for

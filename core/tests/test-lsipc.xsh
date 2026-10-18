@@ -131,7 +131,7 @@ proc observe_ipc_api(s: uu.Scene, uid: Int, operation: Str, identity: Str, index
   assert uid in [10001, 10002]
   let output = fp"{s.root}/api-{uid}-{operation}.out"
   let errors = fp"{s.root}/api-{uid}-{operation}.err"
-  let script = fp"{s.ctx.core_dir}/tests/fixtures/util-linux/ipc/observe.xsh"
+  let script = fp"{s.ctx.core_dir}/tests/data/util-linux/ipc/observe.xsh"
   let words = [
     p"/bin/setpriv",
     fp"--reuid={uid}",
