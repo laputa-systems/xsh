@@ -218,7 +218,7 @@ assert unix.poll_fd(fd, [])? == ["invalid"]
 }
 
 test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
-  let root = test.temp_dir(ctx)?
+  let result = test.expect(ctx, r"""tempdir root {
   let fifo = fp"{root}/pipe"
   fs.mkfifo(fifo, mode: 384)
   let reader = unix.open_fd(fifo, nonblock: true)?
@@ -236,19 +236,52 @@ test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
   assert "readable" in ready and "hangup" in ready
   unix.close_fd(reader)
   reader_open = false
-  test.expect(
-    ctx,
-    r"""
-let fifo = Path(args[0])
-let reader = unix.open_fd(fifo, nonblock: true)?
-unix.redirect_fd(100, fifo, write: true)?
-unix.close_fd(reader)?
-assert "error" in unix.poll_fd(100, ["writable"])?
-unix.close_fd(100)?
-""",
-    status: 0,
-    args: [fifo],
-  )?
+  let error_reader = unix.open_fd(fifo, nonblock: true)?
+  var error_reader_open = true
+  defer { if error_reader_open { unix.close_fd(error_reader) } }
+  unix.redirect_fd(100, fifo, write: true)?
+  var writer_open = true
+  defer { if writer_open { unix.close_fd(100) } }
+  unix.close_fd(error_reader)
+  error_reader_open = false
+  assert "error" in unix.poll_fd(100, ["writable"])?
+  unix.close_fd(100)
+  writer_open = false
+}
+""", status: 0)?
+  assert result.stdout == "" and result.stderr == ""
+}
+
+test test_unix_poll_fd_hangs_up_after_inherited_writer_closes { |ctx|
+  let result = test.expect(ctx, r"""tempdir dir {
+  let fifo = fp"{dir}/pipe"
+  let ready = fp"{dir}/ready"
+  let gate = fp"{dir}/gate"
+  fs.mkfifo(fifo, mode: 384)
+  fs.mkfifo(ready, mode: 384)
+  fs.mkfifo(gate, mode: 384)
+  let reader = unix.open_fd(fifo, nonblock: true)?
+  defer unix.close_fd(reader)
+  let writer = unix.open_fd(fifo, write: true, nonblock: true)?
+  unix.dup_fd(writer, 100)?
+  let ready_reader = unix.open_fd(ready, nonblock: true)?
+  defer unix.close_fd(ready_reader)
+  let child = spawn run sh -c "printf R > \"$1\"; read token < \"$2\"" sh $ready $gate ?
+  defer child.cancel()
+  unix.close_fd(writer)?
+  unix.close_fd(100)?
+  let ready_events = unix.poll_fd(ready_reader, ["readable"], timeout_ms: 1000)?
+  assert "readable" in ready_events
+  assert unix.read_fd(ready_reader, 1)? == b"R"
+  assert unix.poll_fd(reader, ["readable"])? == []
+  let gate_writer = unix.open_fd(gate, write: true, nonblock: false)?
+  defer unix.close_fd(gate_writer)
+  let _ = unix.write_fd(gate_writer, b"release\n")?
+  assert (wait child?).exited_with(0)
+  assert "hangup" in unix.poll_fd(reader, ["readable"])?
+}
+""", status: 0)?
+  assert result.stdout == "" and result.stderr == ""
 }
 
 test test_unix_read_fd_validates_fd_and_count { |ctx|
