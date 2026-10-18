@@ -930,8 +930,7 @@ test test_uu_ls_ls_indicator_style { |ctx|
   }
   let repo = ctx.core_dir.parent()
   assert fs.cwd()? == repo
-  let scratch = fp"{repo}/.work/tmp"
-  let root = fs.tempdir_in(scratch)?
+  let root = fs.tempdir()?
   let sockets = root.host_path()?
   let socket_path = fp"{sockets}/sock"
   let constants = linux.net_constants()
