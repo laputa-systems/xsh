@@ -1098,6 +1098,8 @@ class BaselineTests(unittest.TestCase):
         record = {'schema_version': 1, 'state': 'complete', 'complete': True, 'source_root': str(self.config.source_root), 'source_commit_expected': self.config.commit, 'suite_round_count': 3, 'source_manifest': str(source_path), 'source_manifest_sha256': check.owned_digest(source_path), 'reference_source_manifest': str(source_path), 'reference_source_manifest_sha256': check.owned_digest(source_path), 'reference_source_root': str(self.config.source_root), 'binary_manifest': str(binary_path), 'binary_manifest_sha256': check.owned_digest(binary_path), 'manifest_path': str(manifest), 'manifest': {'ids_sha256': compare.manifest_sha256(compare.read_manifest(manifest)), 'file_sha256': check.owned_digest(manifest)}, 'stages': []}
         for arm in ('reference', 'candidate'):
             build = {'schema_version': 1, 'source_root': str(self.config.source_root), 'base_head': self.config.commit, 'source_diff_sha256': source['source_diff_sha256'], 'working_directory': str(self.config.source_root), 'target': compare.TARGET, 'profile': 'release', 'build_image': compare.PINNED_IMAGE, 'binaries': {name: {key: row[key] for key in ('path', 'sha256')} for name, row in binaries[arm].items()}, 'build_command': ['cargo', 'build', '--release']}
+            if arm == 'reference':
+                build['binaries'] = {'xsht': build['binaries']['xsht']}
             build_path = write(f'{arm}-build.json', build)
             record[f'{arm}_build_receipt'] = check.receipt_binding(build_path)
             record[f'{arm}_build_receipt_content'] = build
@@ -1146,8 +1148,9 @@ class BaselineTests(unittest.TestCase):
                 path.write_text(json.dumps(value))
                 return check.validate_scheduler(self.config, path, profile, compare)
             self.assertEqual(validate(record), record)
-            for mutation in ('missing_round', 'duplicate_round', 'dirty_source', 'product', 'cleanup', 'readiness', 'failed', 'wrong_output'):
+            for mutation in ('missing_round', 'duplicate_round', 'dirty_source', 'product', 'reference_build', 'candidate_build', 'reference_xsh', 'reference_xsh-test-helper', 'candidate_xsh', 'candidate_xsh-test-helper', 'cleanup', 'readiness', 'failed', 'wrong_output'):
                 invalid = deepcopy(record)
+                changed_file = None
                 if mutation == 'missing_round':
                     invalid['stages'].pop()
                 elif mutation == 'duplicate_round':
@@ -1156,6 +1159,20 @@ class BaselineTests(unittest.TestCase):
                     invalid['source_commit_expected'] = 'f' * 40
                 elif mutation == 'product':
                     invalid['candidate_build_receipt_content']['binaries']['xsh']['sha256'] = 'f' * 64
+                elif mutation.endswith('_build'):
+                    arm = mutation.removesuffix('_build')
+                    name = 'xsht' if arm == 'reference' else 'xsh'
+                    changed_file = Path(invalid[f'{arm}_build_receipt']['path'])
+                    original = changed_file.read_bytes()
+                    build = invalid[f'{arm}_build_receipt_content']
+                    build['binaries'][name]['sha256'] = 'f' * 64
+                    changed_file.write_text(json.dumps(build))
+                    invalid[f'{arm}_build_receipt'] = check.receipt_binding(changed_file)
+                elif mutation.startswith(('reference_', 'candidate_')):
+                    arm, name = mutation.split('_', 1)
+                    changed_file = Path(binaries[arm][name]['path'])
+                    original = changed_file.read_bytes()
+                    changed_file.write_text('tampered child')
                 elif mutation == 'cleanup':
                     invalid['stages'][0]['container_cleanup']['resolved'] = False
                 elif mutation == 'readiness':
@@ -1166,8 +1183,12 @@ class BaselineTests(unittest.TestCase):
                     log = root / 'wrong.log'
                     log.write_text('running 1 tests\ntests/example.xsh::test_other ... ok 1ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n')
                     invalid['stages'][0].update(result_log=str(log), result_log_sha256=check.owned_digest(log))
-                with self.subTest(mutation=mutation), self.assertRaises((check.CheckError, ValueError)):
-                    validate(invalid)
+                try:
+                    with self.subTest(mutation=mutation), self.assertRaises((check.CheckError, ValueError)):
+                        validate(invalid)
+                finally:
+                    if changed_file is not None:
+                        changed_file.write_bytes(original)
 
 
 if __name__ == '__main__':

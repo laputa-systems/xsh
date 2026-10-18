@@ -730,7 +730,8 @@ def validate_scheduler(config, path, profile, compare):
         manifest_path = source_path if arm == 'candidate' else reference_path
         manifest_source = read_json(manifest_path)
         root = config.source_root if arm == 'candidate' else Path(value['reference_source_root'])
-        compare.validate_build_receipt(build_path, label=arm, source_root=root, source_commit=config.commit, source_manifest=manifest_source, binaries=binaries[arm])
+        built_binaries = binaries[arm] if arm == 'candidate' else {'xsht': binaries[arm]['xsht']}
+        compare.validate_build_receipt(build_path, label=arm, source_root=root, source_commit=config.commit, source_manifest=manifest_source, binaries=built_binaries)
         require(read_json(build_path) == value[f'{arm}_build_receipt_content'], f'scheduler {arm} build binding changed')
     candidate = value['candidate_build_receipt_content']
     for name, record in profile['binaries'].items():
