@@ -237,6 +237,42 @@ impl LexedFile {
     }
 }
 
+fn redundant_parens_are_the_only_check_errors(diagnostics: &DiagnosticSet) -> bool {
+    let has_redundant_parens = diagnostics
+        .keys()
+        .any(|(_, code)| code.ends_with(REDUNDANT_PARENS));
+    let only_lint_and_redundant_parens_errors = diagnostics.keys().all(|(_, code)| {
+        !code.starts_with("err[")
+            || code.starts_with("err[lint.")
+            || code.ends_with(REDUNDANT_PARENS)
+    });
+    has_redundant_parens && only_lint_and_redundant_parens_errors
+}
+
+fn lint_status_is_acceptable(
+    status: Option<i32>,
+    historical: bool,
+    diagnostics: &DiagnosticSet,
+) -> bool {
+    status.is_some_and(|code| {
+        code <= 1
+            || (code == 2
+                && (historical || redundant_parens_are_the_only_check_errors(diagnostics)))
+    })
+}
+
+fn diagnostics_for(codes: &[&str]) -> DiagnosticSet {
+    codes
+        .iter()
+        .map(|code| {
+            (
+                (String::from("main.xsh"), String::from(*code)),
+                Vec::new(),
+            )
+        })
+        .collect()
+}
+
 fn lint_tree(root: &Path, historical: bool) -> DiagnosticSet {
     let output = xsht(root, &["lint"]);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -290,17 +326,9 @@ fn lint_tree(root: &Path, historical: bool) -> DiagnosticSet {
     for anchors in diagnostics.values_mut() {
         anchors.sort_by_key(|anchor| anchor.offset);
     }
-    // Redundant parentheses are the only errors that leave a file linted.
-    let only_redundant_errors = diagnostics
-        .keys()
-        .any(|(_, code)| code.ends_with(REDUNDANT_PARENS))
-        && diagnostics
-            .keys()
-            .all(|(_, code)| !code.starts_with("err") || code.ends_with(REDUNDANT_PARENS));
     let status = output.status.code();
     assert!(
-        status
-            .is_some_and(|code| code <= 1 || (code == 2 && (historical || only_redundant_errors))),
+        lint_status_is_acceptable(status, historical, &diagnostics),
         "xsht lint failed in {}:\n{stderr}",
         root.display()
     );
@@ -593,6 +621,59 @@ fn layout_perturbation_handles_blank_lines_inside_brackets() {
     let reformatted = Formatter::new().format_source(SourceId::new(0), &perturbed);
     assert!(reformatted.diagnostics.is_empty(), "{:?}", reformatted.diagnostics);
     assert_eq!(reformatted.formatted, canonical.formatted);
+}
+
+#[test]
+fn layout_perturbation_keeps_existing_lint_errors() {
+    const SOURCE: &str = r#"pure text() -> Str { "" }
+pure parse(text: Str) -> Str {
+  if text == "" { return "" }
+  text
+}
+print ${parse("0")}
+"#;
+    let scratch = TempDir::new().expect("scratch directory");
+    let baseline = scratch.path().join("baseline");
+    let perturbed = scratch.path().join("perturbed");
+    fs::create_dir_all(&baseline).expect("create baseline directory");
+    fs::create_dir_all(&perturbed).expect("create perturbed directory");
+    fs::write(baseline.join("main.xsh"), SOURCE).expect("write baseline source");
+    let source = perturb_layout(SOURCE).expect("fixture accepts layout perturbations");
+    assert_ne!(source, SOURCE);
+    fs::write(perturbed.join("main.xsh"), source).expect("write perturbed source");
+
+    let before = lint_tree(&baseline, false);
+    let shadowing = (String::from("main.xsh"), String::from("err[lint.shadowing]"));
+    assert!(before.contains_key(&shadowing));
+    let mut after = lint_tree(&perturbed, false);
+    without_redundant_parens(&mut after);
+    assert_same_diagnostics("shadowing fixture", &before, &after);
+}
+
+#[test]
+fn layout_perturbation_rejects_other_check_errors() {
+    let diagnostics = diagnostics_for(&[
+        "err[lint.shadowing]",
+        "err[check.redundant-parens]",
+        "err[check.type-mismatch]",
+    ]);
+    assert!(!lint_status_is_acceptable(Some(2), false, &diagnostics));
+}
+
+#[test]
+fn layout_perturbation_rejects_parse_errors() {
+    let diagnostics = diagnostics_for(&[
+        "err[lint.shadowing]",
+        "err[check.redundant-parens]",
+        "err[parse.enum-migration]",
+    ]);
+    assert!(!lint_status_is_acceptable(Some(2), false, &diagnostics));
+}
+
+#[test]
+fn layout_perturbation_requires_redundant_parens() {
+    let diagnostics = diagnostics_for(&["err[lint.shadowing]"]);
+    assert!(!lint_status_is_acceptable(Some(2), false, &diagnostics));
 }
 
 /// Keeps the edit groups whose application still formats to `canonical`,
