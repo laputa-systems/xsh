@@ -143,6 +143,46 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(base64.b64decode(observation["stdout_base64"]), b"ready\n")
         self.assertFalse(equivalent(observation, b"ready\n"))
 
+    def test_termination_signal_cleans_and_reaps_the_owned_child(self):
+        work = self.root / "work"
+        work.mkdir()
+        ready = self.root / "ready"
+        os.mkfifo(ready)
+        pid_path = self.root / "child.pid"
+        child = "import os,pathlib,signal,sys; pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); print('ready',flush=True); signal.pause()"
+        wrapper = (
+            "import pathlib,sys\n"
+            "sys.path.insert(0,sys.argv[1])\n"
+            "from run import invoke\n"
+            "readings=iter((100,200))\n"
+            "def clock():\n"
+            "    value=next(readings)\n"
+            "    if value==200: pathlib.Path(sys.argv[3]).write_bytes(b'ready')\n"
+            "    return value\n"
+            "invoke([sys.executable,'-c',sys.argv[4],sys.argv[5]],pathlib.Path(sys.argv[2]),{},30,measured=True,useful_prefix=b'ready\\n',clock_ns=clock)"
+        )
+        process = subprocess.Popen([sys.executable, "-c", wrapper, str(HERE), str(work), str(ready), child, str(pid_path)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            self.assertEqual(ready.read_bytes(), b"ready")
+            process.send_signal(signal.SIGTERM)
+            stdout, stderr = process.communicate(timeout=5)
+            self.assertEqual(process.returncode, 143)
+            self.assertEqual(stdout, b"")
+            self.assertEqual(stderr, b"")
+            with self.assertRaises(ProcessLookupError):
+                os.kill(int(pid_path.read_text()), 0)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
+            process.stdout.close()
+            process.stderr.close()
+            if pid_path.exists():
+                try:
+                    os.kill(int(pid_path.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
     def test_escaped_descendant_holding_pipe_rejects_unresolved_cleanup(self):
         work = self.root / "work"
         work.mkdir()

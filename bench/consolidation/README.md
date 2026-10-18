@@ -115,7 +115,8 @@ Process-group cleanup and scratch comparison follow that interval.
 The sampler drains both output pipes concurrently. Its deadline includes pipe
 holders that outlive the initial child. Timeout kills the owned process group
 and reaps the initial child. A pipe holder that escapes the group makes cleanup
-fail loudly. Failed output comparison, status, stderr, timeout, effects, or
+fail loudly. SIGINT and SIGTERM clean up the owned group before cancellation
+propagates. Failed output comparison, status, stderr, timeout, effects, or
 cleanup receives no timing credit. Non-measured parity runs emit null timing
 fields.
 

@@ -105,7 +105,17 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
         raise ValueError("useful output prefix must be nonempty bytes")
     before = snapshot(cwd)
     started = clock_ns() if measured else None
-    process = subprocess.Popen(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    def cancel(signum, _frame):
+        if signum == signal.SIGINT:
+            raise KeyboardInterrupt
+        raise SystemExit(128 + signum)
+    previous_signals = {signum: signal.signal(signum, cancel) for signum in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        process = subprocess.Popen(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    except BaseException:
+        for signum, handler in previous_signals.items():
+            signal.signal(signum, handler)
+        raise
     deadline = time.monotonic() + timeout
     timed_out = False
     stdout, stderr = bytearray(), bytearray()
@@ -137,6 +147,8 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
         finished = clock_ns() if measured else None
     except BaseException as error:
         primary = error
+    for signum in previous_signals:
+        signal.signal(signum, signal.SIG_IGN)
     try:
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -154,6 +166,8 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
     finally:
         process.stdout.close()
         process.stderr.close()
+        for signum, handler in previous_signals.items():
+            signal.signal(signum, handler)
     if primary is not None:
         raise primary
     elapsed = finished - started if measured else None
