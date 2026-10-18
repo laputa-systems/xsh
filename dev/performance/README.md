@@ -88,17 +88,19 @@ been established by the adapter foundation tests.
 
 `final_canonical_replay.py::validate_bootstrap_receipt` owns the bootstrap schema.
 Its `BOOTSTRAP_CARGO_ARGV` requires a verification `xsh` build with
-`--message-format=json-render-diagnostics`. Its Cargo artifact record must name
-`/work/target/x86_64-unknown-linux-musl/verification/xsh`. The receipt binds the
-clean source, pinned image, exact Rust flags, Cargo command, successful Cargo JSON
-stream, and executable bytes. The JSON stream and receipt live under the selected
-source checkout's `.work/tmp/`.
+`--message-format=json-render-diagnostics`. The host target directory
+`.work/target-final-canonical` mounts at
+`/work/.work/target-final-canonical`, so the target mount point already exists in
+the read-only source mount. Its Cargo artifact record must name
+`/work/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh`.
+The receipt binds the clean source, pinned image, exact Rust flags, Cargo command,
+successful Cargo JSON stream, and executable bytes. The JSON stream and receipt
+live under the selected source checkout's `.work/tmp/`.
 
-The supplemental launcher's Cargo JSON product build and `parse_binary_artifacts`
-are the existing producer boundary. Its broader product command and target mount
-do not satisfy the canonical bootstrap contract. The acceptance owner must adapt
-that producer to the canonical contract before supplying a fresh canonical run.
-This adapter neither builds a second product schema nor invents bootstrap credit.
+`final_canonical_replay.py bootstrap` is the producer for this exact command and
+receipt. The supplemental launcher's broader product command and target mount do
+not satisfy the canonical bootstrap contract, and its product receipt does not
+substitute for the canonical bootstrap receipt.
 
 ## Limits
 

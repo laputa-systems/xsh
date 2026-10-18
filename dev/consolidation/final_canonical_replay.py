@@ -41,7 +41,7 @@ BOOTSTRAP_CARGO_ARGV = [
     "xsh",
     "--message-format=json-render-diagnostics",
 ]
-BOOTSTRAP_CONTAINER_TARGET_DIR = "/work/target"
+BOOTSTRAP_CONTAINER_TARGET_DIR = "/work/.work/target-final-canonical"
 CPU_LIMIT = 12
 MEMORY_LIMIT_BYTES = 24 * 1024 * 1024 * 1024
 SWAP_LIMIT_BYTES = 0
@@ -459,9 +459,6 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
     target_dir = root / ".work/target-final-canonical"
     if target_dir.is_symlink() or not target_dir.is_dir() or not os.access(target_dir, os.W_OK):
         raise ReplayError(f"root target directory must exist as a writable real directory: {target_dir}")
-    target_mount = root / "target"
-    if target_mount.is_symlink() or (target_mount.exists() and not target_mount.is_dir()):
-        raise ReplayError(f"container target mountpoint must be a real directory: {target_mount}")
     bootstrap_xsh = target_dir / TARGET / PROFILE / "xsh"
     if any(path.is_symlink() for path in (target_dir / TARGET, target_dir / TARGET / PROFILE, bootstrap_xsh)):
         raise ReplayError(f"bootstrap product path must not contain symlinks: {bootstrap_xsh}")
@@ -503,7 +500,6 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
         "scratch_dir": scratch_dir,
         "metrics_dir": metrics_dir,
         "target_dir": target_dir,
-        "target_mount": target_mount,
         "bootstrap": bootstrap,
         "bootstrap_receipt": bootstrap_receipt,
         "common_git": common_git.resolve(strict=True),
@@ -523,7 +519,7 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
 
 def batch_command() -> list[str]:
     return [
-        f"/work/target/{TARGET}/{PROFILE}/xsh",
+        f"{BOOTSTRAP_CONTAINER_TARGET_DIR}/{TARGET}/{PROFILE}/xsh",
         "dev/main.xsh",
         "--",
         "internal",
@@ -568,7 +564,7 @@ def docker_command(validated: dict[str, Any], container_name: str, cid_file: pat
         "--volume",
         f"{root}:/work:ro",
         "--volume",
-        f"{target_dir}:/work/target:rw",
+        f"{target_dir}:{BOOTSTRAP_CONTAINER_TARGET_DIR}:rw",
         "--volume",
         f"{validated['scratch_dir']}:/scratch:rw",
         "--volume",
@@ -597,7 +593,7 @@ def docker_command(validated: dict[str, Any], container_name: str, cid_file: pat
     environment = {
         "TARGET": TARGET,
         "DIST_PROFILE": PROFILE,
-        "CARGO_TARGET_DIR": "/work/target",
+        "CARGO_TARGET_DIR": BOOTSTRAP_CONTAINER_TARGET_DIR,
         "CARGO_BUILD_WARNINGS": "deny",
         "CARGO_BUILD_JOBS": "12",
         "CARGO_NET_OFFLINE": "true",
@@ -1214,7 +1210,6 @@ def run_batch(validated: dict[str, Any]) -> int:
     output_root = validated["output_root"]
     args = validated["args"]
     lock_path = validated["lock_path"]
-    target_mount = validated["target_mount"]
     lock = lock_path.open("r+")
     try:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
@@ -1232,7 +1227,6 @@ def run_batch(validated: dict[str, Any]) -> int:
         cid_file = output_root / "container.cid"
         for path in (stdout_path, stderr_path):
             path.touch()
-        target_mount.mkdir(exist_ok=True)
         container_name = f"xsh-canonical-{args.run_name}"
         command = docker_command(validated, container_name, cid_file)
         receipt = {

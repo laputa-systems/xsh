@@ -76,7 +76,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
                 "package_id": "path+file:///work#xsh@0.1.0",
                 "target": {"name": "xsh", "kind": ["bin"], "crate_types": ["bin"]},
                 "profile": {"test": False},
-                "executable": f"/work/target/{runner.TARGET}/verification/xsh",
+                "executable": f"{runner.BOOTSTRAP_CONTAINER_TARGET_DIR}/{runner.TARGET}/verification/xsh",
             },
             {"reason": "build-finished", "success": True},
         ]
@@ -216,7 +216,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
 
     def test_rejects_cargo_json_for_a_different_executable(self):
         records = self.build_records()
-        records[0]["executable"] = "/work/target/wrong/xsh"
+        records[0]["executable"] = f"{runner.BOOTSTRAP_CONTAINER_TARGET_DIR}/wrong/xsh"
         self.build_json_path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
         receipt = json.loads(self.receipt_path.read_text(encoding="utf-8"))
         receipt["build_json"]["sha256"] = runner.sha256_file(self.build_json_path)
@@ -239,10 +239,10 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.ReplayError, "writable consolidation metrics mount is missing"):
             self.validate()
 
-    def test_rejects_symlinked_target_mount(self):
-        target_mount = self.repo / "target"
-        target_mount.symlink_to(self.target_dir)
-        with self.assertRaisesRegex(runner.ReplayError, "container target mountpoint must be a real directory"):
+    def test_rejects_symlinked_canonical_target_directory(self):
+        shutil.rmtree(self.target_dir)
+        self.target_dir.symlink_to(self.scratch_dir, target_is_directory=True)
+        with self.assertRaisesRegex(runner.ReplayError, "root target directory must exist as a writable real directory"):
             self.validate()
 
     def test_mounts_source_read_only_and_writable_paths_explicitly(self):
@@ -250,7 +250,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         command = runner.docker_command(validated, "canonical-run", self.output / "container.cid")
         volumes = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "--volume"]
         self.assertIn(f"{self.repo}:/work:ro", volumes)
-        self.assertIn(f"{self.target_dir}:/work/target:rw", volumes)
+        self.assertIn(f"{self.target_dir}:{runner.BOOTSTRAP_CONTAINER_TARGET_DIR}:rw", volumes)
         self.assertIn(f"{self.cargo_lock}:{runner.CARGO_LOCK_CONTAINER_PATH}:rw", volumes)
         self.assertIn(f"{self.scratch_dir}:/scratch:rw", volumes)
         self.assertIn(f"{self.scratch_dir}:{runner.SCRATCH_CONTAINER_PATH}:rw", volumes)
@@ -271,7 +271,10 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
             command,
         )
         self.assertEqual(command[-len(runner.batch_command()):], runner.batch_command())
-        self.assertEqual(runner.batch_command()[0], f"/work/target/{runner.TARGET}/verification/xsh")
+        self.assertEqual(
+            runner.batch_command()[0],
+            f"{runner.BOOTSTRAP_CONTAINER_TARGET_DIR}/{runner.TARGET}/verification/xsh",
+        )
         self.assertNotIn("cargo", runner.batch_command())
         self.assertIn("/work/dev/consolidation/final_canonical_replay.py", command)
 
@@ -285,7 +288,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         )
         volumes = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "--volume"]
         self.assertEqual(command[-len(runner.BOOTSTRAP_CARGO_ARGV):], runner.BOOTSTRAP_CARGO_ARGV)
-        self.assertIn(f"{self.target_dir}:/work/target:rw", volumes)
+        self.assertIn(f"{self.target_dir}:{runner.BOOTSTRAP_CONTAINER_TARGET_DIR}:rw", volumes)
         self.assertIn(f"{self.repo}:/work:ro", volumes)
         self.assertIn(f"{self.scratch_dir}:/scratch:rw", volumes)
         environment = {
@@ -328,7 +331,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
             )
 
         self.assertEqual(receipt["cargo_argv"], runner.BOOTSTRAP_CARGO_ARGV)
-        self.assertEqual(receipt["cargo_target_dir"], "/work/target")
+        self.assertEqual(receipt["cargo_target_dir"], runner.BOOTSTRAP_CONTAINER_TARGET_DIR)
         self.assertEqual(receipt["rustflags"], runner.RUSTFLAGS)
         self.assertEqual(receipt["build_json"]["sha256"], runner.sha256_file(self.build_json_path))
         self.assertEqual(validated["record"], receipt)
@@ -509,18 +512,35 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
                     pass
                 child.wait()
 
-    def test_run_batch_creates_validated_target_mount_before_docker_launch(self):
+    def test_canonical_target_mount_uses_existing_worktree_path(self):
+        self.assertEqual(runner.BOOTSTRAP_CONTAINER_TARGET_DIR, "/work/.work/target-final-canonical")
+        validated = self.validate()
+        with self.with_mocked_tools():
+            bootstrap_validated = runner.validate_bootstrap_inputs(self.bootstrap_arguments())
+        commands = (
+            runner.docker_command(validated, "canonical-run", self.output / "container.cid"),
+            runner.bootstrap_docker_command(
+                bootstrap_validated,
+                "xsh-canonical-bootstrap-canonical-run",
+                self.output / "bootstrap.cid",
+            ),
+        )
+        for command in commands:
+            volumes = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "--volume"]
+            self.assertIn(f"{self.target_dir}:{runner.BOOTSTRAP_CONTAINER_TARGET_DIR}:rw", volumes)
+            self.assertNotIn(f"{self.target_dir}:/work/target:rw", volumes)
+
+    def test_run_batch_does_not_create_a_root_target_side_path(self):
         target_mount = self.repo / "target"
         self.assertFalse(target_mount.exists())
         validated = self.validate()
-        self.assertEqual(validated["target_mount"], target_mount)
         process = mock.MagicMock()
         process.poll.return_value = 0
         process.returncode = 0
 
         def start_process(command, **kwargs):
-            self.assertTrue(target_mount.is_dir())
-            self.assertIn(f"{self.target_dir}:/work/target:rw", command)
+            self.assertFalse(target_mount.exists())
+            self.assertIn(f"{self.target_dir}:{runner.BOOTSTRAP_CONTAINER_TARGET_DIR}:rw", command)
             self.assertEqual(kwargs["cwd"], self.repo)
             return process
 
