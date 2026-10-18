@@ -2,6 +2,7 @@
 use lib.gnu
 use lib.util_linux_io as ul_io
 use core.lib.ipc_report as report
+use core.lib.sys_ipc as ipc
 
 type IpcEntry = {values: Map[Str, Str], elements: List[report.Element]}
 type DecimalDivision = {quotient: Str, remainder: Int}
@@ -75,16 +76,6 @@ proc help_text() -> Str {
   out += help_column("LIMIT", "System-wide limit") + help_column("USED", "Currently used")
   out += help_column("USE%", "Currently use percentage")
   out + "\nFor more details see lsipc(1).\n"
-}
-
-pure parse_octal(value: Str) -> Int? {
-  return null when value.is_empty()
-  var number = 0
-  for digit in value {
-    if digit < "0" or digit > "7" { return null }
-    number = number * 8 + (digit.byte_at(0) ?? 48) - 48
-  }
-  number
 }
 
 pure permission_text(mode: Int) -> Str {
@@ -189,27 +180,12 @@ proc add_user_fields(values0: Map[Str, Str], owner_uid: Int, owner_gid: Int, cre
   values
 }
 
-pure proc_words(text: Str) -> List[Str] {
-  text.replace("\t", with: " ").split(" ") |> where . != ""
+pure system_v_kind(kind: Str) -> ipc.SystemVKind {
+  if kind == "queues" { ipc.MessageQueues } else if kind == "shmems" { ipc.MemorySegments } else { ipc.SemaphoreSets }
 }
 
-proc sysv_records(kind: Str) [fs, error] -> List[Map[Str, Str]] {
-  let source = if kind == "queues" { p"/proc/sysvipc/msg" } else if kind == "shmems" { p"/proc/sysvipc/shm" } else { p"/proc/sysvipc/sem" }
-  let text = source.read_text()?
-  let lines = text.split("\n")
-  return [] when lines.is_empty()
-  let header = proc_words(lines[0])
-  var records: List[Map[Str, Str]] = []
-  for line in lines[1..] {
-    let fields = proc_words(line)
-    continue when fields.len() < header.len()
-    var record: Map[Str, Str] = {}
-    for index in range(header.len()) {
-      record = record.set(header[index], fields[index])
-    }
-    records += [record]
-  }
-  records
+pure posix_kind(kind: Str) -> ipc.PosixKind {
+  if kind == "posix_mqueues" { ipc.PosixQueues } else if kind == "posix_shmems" { ipc.PosixMemory } else { ipc.PosixSemaphores }
 }
 
 pure number(record: Map[Str, Str], key: Str) -> Int? {
@@ -220,7 +196,7 @@ pure number(record: Map[Str, Str], key: Str) -> Int? {
 
 proc command_line(pid: Int) [fs] -> Str {
   return "" when pid <= 0
-  let raw = if let Ok(content) = fp"/proc/{pid}/cmdline".read_bytes() { content } else { b"" }
+  let raw = if let Ok(content) = try { ipc.read_process_arguments(pid) } { content } else { b"" }
   var at = 0
   var words: List[Str] = []
   for index in range(raw.len()) {
@@ -239,39 +215,42 @@ proc command_line(pid: Int) [fs] -> Str {
   words.join(" ")
 }
 
-proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selection) [fs, process, time, env, error] -> IpcEntry? {
-  let id = number(record, if kind == "queues" { "msqid" } else if kind == "shmems" { "shmid" } else { "semid" })
-  let key = number(record, "key")
-  let mode = parse_octal(record.get("perms") ?? "")
-  let uid = number(record, "uid")
-  let gid = number(record, "gid")
-  let cuid = number(record, "cuid")
-  let cgid = number(record, "cgid")
-  if id == null or key == null or mode == null or uid == null or gid == null or cuid == null or cgid == null { return null }
+proc make_sysv_entry(kind: Str, record: ipc.SystemVRecord, selection: report.Selection) [fs, process, time, env, error] -> IpcEntry? {
+  let id = record.id
+  let identity = record.identity
+  if id == null or identity == null { return null }
+  let key = identity.key
+  let mode = identity.mode
+  let uid = identity.uid
+  let gid = identity.gid
+  let cuid = identity.creator_uid
+  let cgid = identity.creator_gid
   var values: Map[Str, Str] = {}
   values = values.set("KEY", hex_key(key))
   values = values.set("ID", f"{id}")
   values = add_user_fields(values, uid, gid, cuid, cgid, mode, selection.numeric_perms, true)
   if kind == "shmems" { values = values.set("CGID", f"{cuid}") }
   var elements: List[report.Element] = []
-  if kind == "queues" {
+  match record.details {
+    ipc.Queue(queue) => {
     if selection.numeric_perms { values = values.remove("PERMS") }
-    if let byte_count = number(record, "cbytes") { values = values.set("USEDBYTES", if selection.bytes { f"{byte_count}" } else { human_size(byte_count) }) }
-    if let messages = number(record, "qnum") { values = values.set("MSGS", f"{messages}") }
-    if let pid = number(record, "lspid") { values = values.set("LSPID", f"{pid}") }
-    if let pid = number(record, "lrpid") { values = values.set("LRPID", f"{pid}") }
-    if let seconds = number(record, "stime") {
+    if let byte_count = queue.used_bytes { values = values.set("USEDBYTES", if selection.bytes { f"{byte_count}" } else { human_size(byte_count) }) }
+    if let messages = queue.messages { values = values.set("MSGS", f"{messages}") }
+    if let pid = queue.sender_pid { values = values.set("LSPID", f"{pid}") }
+    if let pid = queue.receiver_pid { values = values.set("LRPID", f"{pid}") }
+    if let seconds = queue.send_seconds {
       if let text = display_time(seconds, selection.time_format) { values = values.set("SEND", text) }
     }
-    if let seconds = number(record, "rtime") {
+    if let seconds = queue.receive_seconds {
       if let text = display_time(seconds, selection.time_format) { values = values.set("RECV", text) }
     }
-    if let seconds = number(record, "ctime") {
+    if let seconds = queue.change_seconds {
       if let text = display_time(seconds, selection.time_format) { values = values.set("CTIME", text) }
     }
-  } else if kind == "shmems" {
-    if let byte_count = number(record, "size") { values = values.set("SIZE", if selection.bytes { f"{byte_count}" } else { human_size(byte_count) }) }
-    if let count = number(record, "nattch") { values = values.set("NATTCH", f"{count}") }
+    }
+    ipc.SharedMemory(segment) => {
+    if let byte_count = segment.size_bytes { values = values.set("SIZE", if selection.bytes { f"{byte_count}" } else { human_size(byte_count) }) }
+    if let count = segment.attachments { values = values.set("NATTCH", f"{count}") }
     var status: List[Str] = []
     if mode.bit_and(0o1000) != 0 { status += ["dest"] }
     if mode.bit_and(0o2000) != 0 { status += ["locked"] }
@@ -280,31 +259,32 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
     if !status.is_empty() or selection.output_mode == "pretty" {
       values = values.set("STATUS", status.join(","))
     }
-    if let seconds = number(record, "atime") {
+    if let seconds = segment.attach_seconds {
       if let text = display_time(seconds, selection.time_format) { values = values.set("ATTACH", text) }
     }
-    if let seconds = number(record, "dtime") {
+    if let seconds = segment.detach_seconds {
       if let text = display_time(seconds, selection.time_format) { values = values.set("DETACH", text) }
     }
-    if let seconds = number(record, "ctime") {
+    if let seconds = segment.change_seconds {
       if let text = display_time(seconds, selection.time_format) { values = values.set("CTIME", text) }
     }
-    if let pid = number(record, "cpid") {
+    if let pid = segment.creator_pid {
       values = values.set("CPID", f"{pid}")
       if "COMMAND" in selection.columns { values = values.set("COMMAND", command_line(pid)) }
     }
-    if let pid = number(record, "lpid") { values = values.set("LPID", f"{pid}") }
-  } else {
-    if let count = number(record, "nsems") { values = values.set("NSEMS", f"{count}") }
-    if let seconds = number(record, "otime") {
+    if let pid = segment.last_pid { values = values.set("LPID", f"{pid}") }
+    }
+    ipc.SemaphoreSet(semaphores) => {
+    if let count = semaphores.elements { values = values.set("NSEMS", f"{count}") }
+    if let seconds = semaphores.operation_seconds {
       if let text = display_time(seconds, selection.time_format) { values = values.set("OTIME", text) }
     }
-    if let seconds = number(record, "ctime") {
+    if let seconds = semaphores.change_seconds {
       if let text = display_time(seconds, selection.time_format) { values = values.set("CTIME", text) }
     }
     if let selected_id = selection.id {
       if selected_id >= 0 {
-        if let count = number(record, "nsems") {
+        if let count = semaphores.elements {
           for index in range(count) {
             let observation = linux.system_v_semaphore_element(id, index)?
             elements += [{number: index, value: observation.value, waiting_for_increase: observation.waiting_for_increase, waiting_for_zero: observation.waiting_for_zero, pid: observation.pid, command: command_line(observation.pid)}]
@@ -313,46 +293,32 @@ proc make_sysv_entry(kind: Str, record: Map[Str, Str], selection: report.Selecti
       }
     }
   }
+  }
   {values: values, elements: elements}
 }
 
-proc posix_metadata(entry_path: Path, display_name: Str, native_name: Bytes, selection: report.Selection, posix_kind: Str) [fs, process, time, env, error] -> IpcEntry? {
-  let metadata = fs.stat(entry_path)
-  if let Err(_) = metadata { return null }
-  let info = metadata?
-  var values: Map[Str, Str] = {}
-  values = values.set("NAME", display_name)
-  values = add_user_fields(values, info.uid, info.gid, info.uid, info.gid, info.mode, selection.numeric_perms, false)
-  if posix_kind == "posix_mqueues" {
-    if selection.numeric_perms { values = values.remove("PERMS") }
-    let content = entry_path.read_text()
-    if let Err(_) = content { return null }
-    let status = proc_words(content?)
-    if status.is_empty() or !status[0].starts_with("QSIZE:") { return null }
-    let inline_queue_bytes = status[0].byte_slice("QSIZE:".byte_len())
-    let queue_bytes_text = if inline_queue_bytes.is_empty() and status.len() > 1 { status[1] } else { inline_queue_bytes }
-    let queue_bytes = queue_bytes_text.parse_int()
-    if let Err(_) = queue_bytes { return null }
-    let messages = linux.posix_message_queue_messages(native_name)
-    if let Err(_) = messages { return null }
-    values = values.set("USEDBYTES", if selection.bytes { f"{queue_bytes?}" } else { human_size(queue_bytes?) })
-    values = values.set("MSGS", f"{messages?}")
-  } else if posix_kind == "posix_shmems" {
-    values = values.set("SIZE", if selection.bytes { f"{info.size}" } else { human_size(info.size) })
-  } else {
-    let value = linux.posix_semaphore_value(native_name)
-    if let Err(_) = value { return null }
-    values = values.set("SVAL", f"{value?}")
+proc posix_entry(observation: ipc.PosixObject, selection: report.Selection) [fs, time, env, error] -> IpcEntry {
+  var values: Map[Str, Str] = {"NAME": observation.name}
+  values = add_user_fields(values, observation.uid, observation.gid, observation.uid, observation.gid, observation.mode, selection.numeric_perms, false)
+  match observation.details {
+    ipc.PosixQueue(queue) => {
+      if selection.numeric_perms { values = values.remove("PERMS") }
+      values = values.set("USEDBYTES", if selection.bytes { f"{queue.used_bytes}" } else { human_size(queue.used_bytes) })
+      values = values.set("MSGS", f"{queue.messages}")
+    }
+    ipc.PosixSharedMemory(size_bytes) => {
+      values = values.set("SIZE", if selection.bytes { f"{size_bytes}" } else { human_size(size_bytes) })
+    }
+    ipc.PosixSemaphore(value) => { values = values.set("SVAL", f"{value}") }
   }
-  if let text = display_time(info.mtime_ns / 1000000000, selection.time_format) { values = values.set("MTIME", text) }
+  if let text = display_time(observation.modified_ns / 1000000000, selection.time_format) { values = values.set("MTIME", text) }
   {values: values, elements: []}
 }
 
 proc posix_entries(kind: Str, selection: report.Selection) [fs, process, time, env, error] -> List[IpcEntry] {
-  let directory = if kind == "posix_mqueues" { p"/dev/mqueue" } else { p"/dev/shm" }
+  let family = posix_kind(kind)
   if kind == "posix_mqueues" {
-    let available = fs.stat(directory)
-    if let Err(_) = available {
+    if !ipc.posix_directory_available(family) {
       gnu.error("/dev/mqueue does not seem to be mounted. Use 'mount -t mqueue none /dev/mqueue' to mount it.")
       return []
     }
@@ -363,27 +329,14 @@ proc posix_entries(kind: Str, selection: report.Selection) [fs, process, time, e
       }
     }
   }
-  let found = fs.children(directory, ordered: false)
+  let found = try { ipc.collect_posix(family) }
   if let Err(_) = found {
     if kind == "posix_mqueues" { gnu.error("cannot open /dev/mqueue") } else { gnu.error("cannot open /dev/shm") }
     return []
   }
   var entries: List[IpcEntry] = []
-  for child in found? {
-    let raw_name = child.path.components()[-1].bytes()
-    if kind == "posix_mqueues" {
-      let display_name = f"/{child.name}"
-      let native_name = bytes.concat([b"/", raw_name])
-      if let entry = posix_metadata(child.path, display_name, native_name, selection, kind) { entries += [entry] }
-    } else if kind == "posix_shmems" {
-      continue when raw_name.starts_with(b"sem.")
-      if let entry = posix_metadata(child.path, child.name, raw_name, selection, kind) { entries += [entry] }
-    } else {
-      continue when ! raw_name.starts_with(b"sem.")
-      let display_name = child.name.byte_slice(4)
-      let native_name = raw_name[4..]
-      if let entry = posix_metadata(child.path, display_name, native_name, selection, kind) { entries += [entry] }
-    }
+  for observation in found? {
+    if let Ok(object) = observation { entries += [posix_entry(object, selection)] }
   }
   if let wanted = selection.name {
     var found_name = false
@@ -417,10 +370,10 @@ proc selected_rows(selection: report.Selection) [fs, process, time, env, error] 
     continue when selection.global
     var entries: List[IpcEntry] = []
     if kind in ["queues", "shmems", "semaphores"] {
-      for record in sysv_records(kind) {
+      for record in ipc.collect_system_v(system_v_kind(kind)) {
         if let wanted_id = selection.id {
           if wanted_id >= 0 {
-            let record_id = number(record, if kind == "queues" { "msqid" } else if kind == "shmems" { "shmid" } else { "semid" })
+            let record_id = record.id
             continue when record_id != wanted_id
           }
         }
@@ -449,10 +402,6 @@ proc selected_rows(selection: report.Selection) [fs, process, time, env, error] 
   rows
 }
 
-proc read_limit(file_path: Path) [fs, error] -> Str {
-  file_path.read_text()?.trim()
-}
-
 proc global_row(selection: report.Selection, resource: Str, description: Str, used: Int, limit: Str, usage: Bool, byte_unit: Bool) [error] -> report.Row {
   var values: Map[Str, Str] = {"RESOURCE": resource, "DESCRIPTION": description}
   values = values.set("LIMIT", if byte_unit and !selection.bytes { human_limit(limit) } else { limit })
@@ -470,36 +419,40 @@ proc global_row(selection: report.Selection, resource: Str, description: Str, us
 proc global_rows(selection: report.Selection) [fs, process, time, env, error] -> List[report.Row] {
   var rows: List[report.Row] = []
   if "queues" in selection.resources {
-    let records = sysv_records("queues")
-    rows += [global_row(selection, "MSGMNI", "Number of System V message queues", records.len(), read_limit(p"/proc/sys/kernel/msgmni"), true, false)]
-    rows += [global_row(selection, "MSGMAX", "Max size of System V message (bytes)", 0, read_limit(p"/proc/sys/kernel/msgmax"), false, true)]
-    rows += [global_row(selection, "MSGMNB", "Default max size of System V queue (bytes)", 0, read_limit(p"/proc/sys/kernel/msgmnb"), false, true)]
+    let records = ipc.collect_system_v(ipc.MessageQueues)
+    rows += [global_row(selection, "MSGMNI", "Number of System V message queues", records.len(), ipc.read_limit_text(ipc.MessageQueueCount), true, false)]
+    rows += [global_row(selection, "MSGMAX", "Max size of System V message (bytes)", 0, ipc.read_limit_text(ipc.MessageBytes), false, true)]
+    rows += [global_row(selection, "MSGMNB", "Default max size of System V queue (bytes)", 0, ipc.read_limit_text(ipc.QueueBytes), false, true)]
   }
   if "posix_mqueues" in selection.resources {
     let posix = posix_entries("posix_mqueues", selection)
-    rows += [global_row(selection, "MQUMNI", "Number of POSIX message queues", posix.len(), read_limit(p"/proc/sys/fs/mqueue/queues_max"), true, false)]
-    rows += [global_row(selection, "MQUMAX", "Max size of POSIX message (bytes)", 0, read_limit(p"/proc/sys/fs/mqueue/msgsize_max"), false, true)]
-    rows += [global_row(selection, "MQUMNB", "Number of messages in POSIX message queue", 0, read_limit(p"/proc/sys/fs/mqueue/msg_max"), false, false)]
+    rows += [global_row(selection, "MQUMNI", "Number of POSIX message queues", posix.len(), ipc.read_limit_text(ipc.PosixQueueCount), true, false)]
+    rows += [global_row(selection, "MQUMAX", "Max size of POSIX message (bytes)", 0, ipc.read_limit_text(ipc.PosixMessageBytes), false, true)]
+    rows += [global_row(selection, "MQUMNB", "Number of messages in POSIX message queue", 0, ipc.read_limit_text(ipc.PosixQueueMessages), false, false)]
   }
   if "shmems" in selection.resources {
-    let records = sysv_records("shmems")
+    let records = ipc.collect_system_v(ipc.MemorySegments)
     var bytes_used = 0
-    for record in records { bytes_used += number(record, "size") ?? 0 }
+    for record in records {
+      match record.details { ipc.SharedMemory(segment) => { bytes_used += segment.size_bytes ?? 0 }, else => {} }
+    }
     let page_size = system.execution_units()?.page_size_bytes
-    rows += [global_row(selection, "SHMMNI", "Shared memory segments", records.len(), read_limit(p"/proc/sys/kernel/shmmni"), true, false)]
-    rows += [global_row(selection, "SHMALL", "Shared memory pages", bytes_used / page_size, read_limit(p"/proc/sys/kernel/shmall"), true, false)]
-    rows += [global_row(selection, "SHMMAX", "Max size of shared memory segment (bytes)", 0, read_limit(p"/proc/sys/kernel/shmmax"), false, true)]
+    rows += [global_row(selection, "SHMMNI", "Shared memory segments", records.len(), ipc.read_limit_text(ipc.SharedMemoryCount), true, false)]
+    rows += [global_row(selection, "SHMALL", "Shared memory pages", bytes_used / page_size, ipc.read_limit_text(ipc.SharedMemoryPages), true, false)]
+    rows += [global_row(selection, "SHMMAX", "Max size of shared memory segment (bytes)", 0, ipc.read_limit_text(ipc.SharedMemoryBytes), false, true)]
     rows += [global_row(selection, "SHMMIN", "Min size of shared memory segment (bytes)", 0, "1", false, true)]
   }
   if "semaphores" in selection.resources {
-    let records = sysv_records("semaphores")
+    let records = ipc.collect_system_v(ipc.SemaphoreSets)
     var elements_used = 0
-    for record in records { elements_used += number(record, "nsems") ?? 0 }
-    let limits = proc_words(fp"/proc/sys/kernel/sem".read_text()?)
-    let semmsl = limits[0].parse_int()?
-    let semmns = limits[1].parse_int()?
-    let semopm = limits[2].parse_int()?
-    let semmni = limits[3].parse_int()?
+    for record in records {
+      match record.details { ipc.SemaphoreSet(semaphores) => { elements_used += semaphores.elements ?? 0 }, else => {} }
+    }
+    let limits = ipc.read_semaphore_limits()
+    let semmsl = limits.elements_per_set
+    let semmns = limits.total_elements
+    let semopm = limits.operations_per_call
+    let semmni = limits.sets
     rows += [global_row(selection, "SEMMNI", "Number of semaphore identifiers", records.len(), f"{semmni}", true, false)]
     rows += [global_row(selection, "SEMMNS", "Total number of semaphores", elements_used, f"{semmns}", true, false)]
     rows += [global_row(selection, "SEMMSL", "Max semaphores per semaphore set.", 0, f"{semmsl}", false, false)]
