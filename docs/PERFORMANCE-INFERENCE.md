@@ -211,33 +211,176 @@ preserve its dependencies; do not merge the divergent branch wholesale.
    in the same ancestry.
 4. Compositional calls and this cohort: compose the selected direct pure-call
    shape (`18df5d9b3`) and admit imported direct pure calls (`0fe1469d1`). This
-   supports the bounded sites in the accepted corpus; host receiver
-   obligations are a later, separate capability and are not required to claim
-   the 1,040 checkpoint.
+   supports the bounded sites in the accepted corpus. The accepted compiler also
+   contains the host receiver obligations, generic body sequences, mutable Set
+   inference, Optional joins, unsigned evidence, and constant-origin repairs
+   listed below. Those changes precede `0fe1469d1` in its ancestry.
 
 This is an ordering guide, not a cherry-pick list. Supporting solver,
 publication, verifier, and regression fixes within those commits are required.
-Existing production APIs remain unchanged; the schemes and verifier metadata
-are private indexed representation.
+The scheme encoding and verifier metadata are private indexed representation.
+The port also changes first-party frontend types and registry receiver metadata.
+Those contract changes need the checks listed below.
 
 ## Integration conflicts and limits
 
-At the accepted checkpoint, compiler source diverged from current master at
-the common base `b235a1a43`; the histories are 485 and 281 commits apart. The
-checkpoint source diff spans 72 files under `src/sema`, `src/runtime/eval`,
-`src/syntax`, and inference tests. The largest integration conflicts sit in
-`src/sema/constraints.rs`, checker declaration/call/module-driver and inference
-files, indexed full IR decoding and verification, lowering and indexed
-execution, and parser arena/parameter nodes. Current master has independently
-changed those same boundaries, so port in capability slices and resolve each
-against current ownership and invariants. Retain the current single indexed
-executor, semantic verifier authority, and source-facing APIs.
+The source audit below compares integration freeze `ea73ca4fb` with accepted
+compiler `0fe1469d1808b5f963bd841165af6c10f2c3e93b`. Their common base is
+`b235a1a43d06e44580fde4c1b8c58ff27a17ca78`. Commit counts measure history,
+not source conflicts. At that freeze the histories have 505 and 285 commits
+above the common base.
+
+The integration freeze has no changes from the common base in `src/sema`,
+`src/runtime/eval/indexed`, or `src/syntax`. Its entire `src` and `crates` diff
+changes 14 files. Those files contain IPC support, runner and runtime stats,
+tooling fixes, and IPC registry entries. The accepted compiler changes 77
+files under `src` and `crates`, with 33,809 insertions and 2,837 deletions.
+The only overlapping paths are `crates/xsht/src/lint.rs`,
+`crates/xsht/src/lint_callable_alias.rs`, and `crates/xsht/src/lint_probes.rs`.
+Their hunks do not overlap. The accepted changes adapt omitted annotations
+and generic module exports. The integration changes preserve lint findings
+when the checker reports redundant parentheses.
+
+Both read-only patch checks return status 0 at `ea73ca4fb`:
+
+```sh
+git diff b235a1a43 0fe1469d1 -- src crates | git apply --check
+git diff b235a1a43 0fe1469d1 -- src crates tests | git apply --check
+```
+
+These commands apply nothing. They establish textual compatibility, not
+compiler correctness. Repeat them against the accepted G1 integration source
+before applying any patch. Keep the current IPC, stats, and lint hunks.
+`Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, and `formal/` have no changes
+between the common base and the accepted compiler. The compiler's
+`formal_bridge.rs` does change to recognize `ExprUInt`. Keep that adapter
+change and recheck its finite controls without replacing the Lean source.
+
+The earlier claim that master independently changed the same compiler
+boundaries was incorrect. A whole-branch merge remains inappropriate because
+it would also import unrelated source, corpus, tooling, and campaign history.
+
+### Bounded I1 integration
+
+I1 implementation waits for G1 acceptance. This source-only audit applies no
+compiler patch and runs no build or runtime test. After G1 accepts,
+use the following order within the single compiler lane:
+
+1. Recheck the source diff against G1's exact accepted commit. Review the
+   final compiler delta by the four capability groups above. Prefer the
+   accepted final `src` and `crates` delta over replaying hundreds of repair
+   commits. The final delta already contains the supporting verifier repairs.
+2. Include all 20 changed test files from the accepted compiler. Review the
+   `docs/templates/SPEC.md` delta alongside each behavior change and update
+   its generated page through the existing documentation command. Keep
+   unrelated documentation and corpus changes out of the implementation patch.
+3. Apply the reviewed compiler, tooling adapters, tests, and SPEC changes as
+   one dependency-complete candidate. Most capability boundaries share files.
+   Splitting those files into intermediate runnable versions creates new
+   compiler combinations that the accepted checkpoint never qualified.
+4. Run the targeted checks below, then the original and reduced corpus.
+   Run the combined I1 regression boundary once after the focused checks pass.
+   Freeze a new source-qualified product pair before any artifact experiment.
+
+The final compiler delta is a practical starting point, not proof of a minimal
+semantic subset. In particular `a972c8d13` is an ancestor of `0fe1469d1`.
+`src/sema/check/host_obligations.rs` and the concrete registry receiver
+metadata already exist in the accepted source. `d30b05abb` adds generic pure
+body sequences. `7491228ab` and `020f9c0c7` add mutable empty Set inference.
+`0ee3e2090` and `0481479e7` change Optional joins. `21f55d848` adds checked
+unsigned argument evidence. `b045485b8` authenticates folded values and
+constructor origins. Removing those capabilities would create a different
+compiler and requires its own dependency review and qualification. Do not
+label them later optional additions to this source checkpoint.
+
+The source-facing contract changes include omitted pure parameter annotations,
+rank-1 pure exports, and the accepted local inference extensions. Proc
+parameters, Proc non-Unit returns, explicit effect contracts, and empty record
+interpretation retain their restrictions. First-party frontend consumers must
+adapt from `ArenaParam.ty` and `ty_defaulted` to `annotation: Option<TypeExprId>`.
+`ArenaProgramBuilder::push_params` changes its parameter tuple accordingly.
+`ModuleExportType` gains `GenericPure { optional }`. Registry `receiver_ty`
+metadata changes from `None` to a concrete type for eleven instance receiver
+domains. Int and Record remain blocking domains. Preserve the current IPC
+registry additions while changing those receiver templates.
+
+The private IR changes include callable schemes, body and call facts,
+lexical binding identities, Let annotation evidence, and `ExprUInt = 158`.
+Existing instruction tags keep their ordinals. `FullVerifier` authenticates
+scheme binders, rows, actual producer values, captures, writers, and call
+substitutions before execution. `TypeScheme` owns the finalized callable
+contract. Compact module facts retain that same immutable scheme instead of
+rebuilding it from a ground signature. The executor must not perform inference
+or consult a retained frontend.
+
+The current `FullProgram` is an in-process private representation. This port
+adds no persisted format version or cross-version loading contract. Qualify
+its scheme and schema together by the candidate source revision and matched
+products. Any later persisted artifact needs an explicit format version and
+rejection checks before decoding. Reusing a historical harness or unchecked
+scheme payload does not qualify the candidate.
+
+### Focused I1 checks
+
+Reuse G1's pinned container, kache configuration, target mount, and dependency
+artifacts after its exclusive build slot is released. Rebuild changed crates
+for the candidate. G1 products cannot qualify changed compiler source.
+For schema changes, start with the existing debug checks for `xsh --lib` and
+then `xsht --lib`, with the pinned musl target and `--all-features`.
+Do not start a workspace build or a release build during this loop.
+
+Build the debug root-lib test harness once with
+`cargo test --locked --target "$TARGET" -p xsh --lib --no-run` inside the
+pinned container. Record its newly emitted executable path as `HARNESS`.
+For each selector, run `"$HARNESS" --exact SELECTOR --nocapture` and require
+exactly one pass with zero failures or skips. Never reuse the hardcoded old
+harness path in the historical evidence scripts.
+
+The initial exact selectors are:
+
+- `sema::constraints::tests::failed_unification_rolls_back_rank_binding_and_path_compression`
+- `sema::constraints::tests::row_occurs_rejects_a_recursive_tail`
+- `sema::constraints::tests::any_bearing_row_binding_fails_and_rolls_back_prior_field_constraints`
+- `sema::constraints::tests::type_scheme_generalization_preserves_open_record_rows`
+- `sema::schemes::tests::row_evidence_rejects_any_and_call_instantiations_require_valid_evidence`
+- `sema::check::module_driver::tests::recursive_inferred_parameters_share_provisional_types_in_both_orders`
+- `sema::check::module_driver::tests::recursive_parameters_are_solved_without_caller_evidence`
+- `sema::check::module_driver::tests::captured_mutable_bindings_are_not_generalized`
+- `runtime::eval::lower::checked_constructor_fact_tests::checker_rejects_generic_list_body_before_lowering`
+- `runtime::eval::indexed::full::tests::user_schemes_execute_after_frontend_drop_on_both_routes`
+- `runtime::eval::indexed::full::tests::full_verifier_rejects_forged_generic_rows_and_body_facts`
+- `runtime::eval::indexed::full::tests::full_verifier_checks_generic_list_argument_contents`
+- `runtime::eval::indexed::full::tests::full_verifier_authenticates_capture_owner_and_defining_writer`
+- `runtime::eval::indexed::full::tests::full_verifier_authenticates_unsigned_runtime_check_evidence`
+- `runtime::eval::indexed::full::tests::generic_pure_verifier_rejects_forged_host_plans_slots_and_types`
+
+Then select every test named by
+`git show 0fe1469d1:dev/consolidation/evidence/typing-host-obligations/run-exact.sh`
+against the same new harness. Its 36 selectors include the receiver ambiguity,
+rollback-on-panic, registry parity, late anchors, and frontend-drop controls.
+Those checks are required for the accepted final compiler delta.
+
+Build the matched verification binaries once for native checks. Use exact
+selectors during iteration, including:
+
+- `tests/xsh/rank1-inference.xsh::rank1_exported_identity_instantiates_each_import_root`
+- `tests/xsh/rank1-inference.xsh::rank1_generic_function_cannot_be_stored_as_typed_callable`
+- `tests/xsh/typing-generic-body.xsh::test_typing_generic_body_keeps_host_ambiguity_and_effect_rejections`
+- `tests/xsh/typing-imported-pure.xsh::test_imported_required_pure_calls_match_local_and_module_aliases`
+- `tests/xsh/typing-imported-pure.xsh::test_imported_generic_calls_keep_kind_and_parameter_restrictions`
+- `tests/xsh/local-inference.xsh::unannotated_empty_record_does_not_become_map_from_later_use`
+
+Run the changed native files before the combined boundary. Preserve G1's
+process cleanup and IPC behavior, G2's stats contract, current lint fixes,
+and applicable finite formal controls. The source-only audit establishes no
+fresh runtime, build, performance, or corpus result.
 
 The following obligations are the minimum acceptance floor for a port:
 
 - Re-run the original and reduced eleven-root sets through ordinary checking
-  and indexed lowering, with all 48 source transformations validated. Preserve
-  all 13 paired native witnesses. The original 1,040 evidence's paired
+  and indexed lowering, with all 48 source transformations validated. Run
+  all 13 selected paired native witnesses as new integration evidence. The
+  historical 1,040 receipt contains only the targeted witnesses described above. The original 1,040 evidence's paired
   `test_system_report_memory_reports_malformed_and_oversized_meminfo_fields`
   covers the two removed `meminfo_issue` parameters in both views.
 - Keep exact scheme, row, capture, and lowering tests from the implementation
@@ -245,7 +388,7 @@ The following obligations are the minimum acceptance floor for a port:
   `user_schemes_execute_after_frontend_drop_on_both_routes`,
   `inferred_host_replace_executes_after_frontend_drop_on_both_routes`, and
   `inferred_host_nested_split_executes_after_frontend_drop_on_both_routes`.
-  The latter host cases apply only if that later capability is ported.
+  The host cases are mandatory for the accepted final compiler delta.
 - Keep negative controls for forged row/body evidence, `Any` in row evidence,
   incomplete list contents, captured mutable bindings, unsupported generic
   list bodies, unresolved numeric domains, and ambiguous receivers. Ambiguous
@@ -263,6 +406,6 @@ The following obligations are the minimum acceptance floor for a port:
 The compact Rust selector names and their raw results are in
 `dev/consolidation/evidence/typing-host-obligations/README.md` and its
 `*-final.log` files. The six native host-obligation selectors there were still
-queued behind the former consolidation closure; require them only if porting
-that later receiver-obligation slice. No fresh build, suite, or test was run
+queued behind the former consolidation closure. Run them for the accepted
+final compiler delta. No fresh build, suite, or test was run
 for this audit because G1 is not accepted at this branch point.
