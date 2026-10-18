@@ -534,10 +534,12 @@ settings, and treat single-run latency changes as inconclusive.
 ### Profile btop
 
 `dev/perf/btop-profile.xsh` measures twenty preloaded model/render/diff
-samples with 1,000 processes at 120 by 40. It reports latency without asserting
-a performance target. Run it from the repository root with the Linux test
-image. Use a release `xsh` binary built from the source revision you are
-profiling. Set `XSH_BIN` to its absolute path.
+samples with 1,000 processes at 120 by 40. It also measures process-join times
+in five alternating pairs at 1,000 and 2,000 processes. The profile fails if
+the 2,000-process median exceeds three times the 1,000-process median. Run it
+from the repository root with the Linux test image. Use a release `xsh` binary
+built from the source revision you are profiling. Set `XSH_BIN` to its absolute
+path.
 The command checks host readiness before the profile and checks again
 afterward, even if the profile times out or fails:
 

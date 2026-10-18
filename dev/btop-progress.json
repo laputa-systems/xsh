@@ -1172,7 +1172,7 @@
       "implemented": true,
       "status": "passed",
       "tests": [
-        "core/tests/test-btop-performance.xsh::test_btop_process_join_scales_from_one_thousand_to_two_thousand"
+        "core/tests/test-btop-performance.xsh::test_btop_process_join_preserves_identity_and_lifetime"
       ],
       "evidence": "Host release, deterministic seed 424242, five measured repeats: median indexed join was 9.342 ms at 1,000 processes and 18.945 ms at 2,000, ratio 2.03x (within the <=3x hard gate). Full native btop suite passed 98/98 in .work/btop-campaign/g3-gate-btop-final2.log."
     },

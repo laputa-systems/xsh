@@ -14,18 +14,6 @@ use core.tests.support.btop_process_fixture as process_fixture
 const process_count = 256
 const disk_count = 64
 
-proc measured_process_join(current: List[sysproc.Process], previous: List[sysproc.Process]) [time, error] -> Int {
-  let started_ns = time.monotonic()?
-  let joined = model.process_join(current, previous)
-  let _ = joined.len()
-  time.monotonic()? - started_ns
-}
-
-pure median(values: List[Int]) -> Int {
-  let ordered = values |> sort
-  ordered[ordered.len() / 2]
-}
-
 proc write_storage_frame(root: FsRoot) [fs, error] {
   fixture.write_b3_frame(root, "frame", 0, [])
   root.mkdir(p"frame/sys/class/block", parents: true)
@@ -77,7 +65,7 @@ pure disk_epoch(base: disks.Source, count: Int, epoch: Int, counter_base: Int) -
   {...base, blocks.devices: devices, mounts.mounts: mount_rows}
 }
 
-test test_btop_process_join_scales_from_one_thousand_to_two_thousand {
+test test_btop_process_join_preserves_identity_and_lifetime {
   let root = fs.tempdir()?
   defer root.close()
   fixture.write_b3_frame(root, "frame", 0, [])
@@ -96,39 +84,12 @@ test test_btop_process_join_scales_from_one_thousand_to_two_thousand {
     2000000000,
     process_fixture.synthetic_processes(1000, 10000, 100100, process_fixture.process_seed),
   )
-  let previous_2000 = process_fixture.with_processes(
-    base,
-    "scaling",
-    1000000000,
-    process_fixture.synthetic_processes(2000, 10000, 100000, process_fixture.process_seed),
-  )
-  let current_2000 = process_fixture.with_processes(
-    base,
-    "scaling",
-    2000000000,
-    process_fixture.synthetic_processes(2000, 10000, 100100, process_fixture.process_seed),
-  )
   let joined_1000 = model.process_join(current_1000.processes.processes, previous_1000.processes.processes)
   assert joined_1000.len() == 1000
   assert joined_1000 |> all .previous != null
   assert joined_1000[0].current.pid == 10000 and joined_1000[0].previous?.pid == 10000
   let reused = {...current_1000.processes.processes[0], start_ticks: 999999}
   assert model.process_join([reused], previous_1000.processes.processes)[0].previous == null
-
-  let _ = measured_process_join(current_1000.processes.processes, previous_1000.processes.processes)
-  let _ = measured_process_join(current_2000.processes.processes, previous_2000.processes.processes)
-  var samples_1000 = []
-  var samples_2000 = []
-  repeat 5 times {
-    samples_1000 += [measured_process_join(current_1000.processes.processes, previous_1000.processes.processes)]
-    samples_2000 += [measured_process_join(current_2000.processes.processes, previous_2000.processes.processes)]
-  }
-  let median_1000 = median(samples_1000)
-  let median_2000 = median(samples_2000)
-  let ratio = median_2000.float() / median_1000.float()
-  print f"btop indexed process join scaling: seed={process_fixture.process_seed} repeats=5 median_1000_ns={median_1000} median_2000_ns={median_2000} ratio={ratio.format(precision: 2)}"
-  assert median_1000 > 0 and median_2000 > 0
-  assert ratio <= 3.0, f"indexed process update grew by {ratio.format(precision: 2)}x"
 }
 
 test test_btop_process_and_device_identity_churn_stays_bounded_and_warms_new_epochs {

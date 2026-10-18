@@ -2,8 +2,21 @@ use core.lib.btop_model as model
 use core.lib.btop_render as renderer
 use core.lib.btop_source as source
 use core.lib.btop_surface as surface
+use core.lib.sys_proc as sysproc
 use core.tests.support.btop as fixture
 use core.tests.support.btop_process_fixture as process_fixture
+
+proc measured_process_join(current: List[sysproc.Process], previous: List[sysproc.Process]) [time, error] -> Int {
+  let started_ns = time.monotonic()?
+  let joined = model.process_join(current, previous)
+  let _ = joined.len()
+  time.monotonic()? - started_ns
+}
+
+pure median(values: List[Int]) -> Int {
+  let ordered = values |> sort
+  ordered[ordered.len() / 2]
+}
 
 proc main() [fs, time, io, error] {
   let root = fs.tempdir()?
@@ -24,6 +37,22 @@ proc main() [fs, time, io, error] {
     2000000000,
     process_fixture.synthetic_processes(1000, 10000, 100100, process_fixture.process_seed),
   )
+  let previous_2000 = process_fixture.synthetic_processes(2000, 10000, 100000, process_fixture.process_seed)
+  let current_2000 = process_fixture.synthetic_processes(2000, 10000, 100100, process_fixture.process_seed)
+  let _ = measured_process_join(current.processes.processes, previous.processes.processes)
+  let _ = measured_process_join(current_2000, previous_2000)
+  var samples_1000 = []
+  var samples_2000 = []
+  repeat 5 times {
+    samples_1000 += [measured_process_join(current.processes.processes, previous.processes.processes)]
+    samples_2000 += [measured_process_join(current_2000, previous_2000)]
+  }
+  let median_1000 = median(samples_1000)
+  let median_2000 = median(samples_2000)
+  let ratio = median_2000.float() / median_1000.float()
+  print f"btop indexed process join scaling: seed={process_fixture.process_seed} repeats=5 median_1000_ns={median_1000} median_2000_ns={median_2000} ratio={ratio.format(precision: 2)}"
+  assert median_1000 > 0 and median_2000 > 0
+  assert ratio <= 3.0, f"indexed process update grew by {ratio.format(precision: 2)}x"
   let initial_model = model.step(previous, null)
   let initial_screen = renderer.render(initial_model, 120, 40)?
   let initial_surface = surface.from_lines(120, 40, initial_screen.lines)?
