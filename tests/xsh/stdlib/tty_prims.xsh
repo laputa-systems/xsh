@@ -53,17 +53,23 @@ test test_non_terminals_fail_with_enotty {
   assert errno_of(unix.tty_session(fd)) == 25
 }
 
-test test_open_fd_names_the_path_and_close_fd_protects_the_standard_streams {
+test test_open_fd_names_the_path_and_close_fd_protects_the_standard_streams { |ctx|
   let pty = unix.open_pty()?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
 
-  let fd = unix.open_fd(fp"{pty.name}")?
-  assert fd > 2
-  assert unix.isatty(fd)
-  assert unix.ttyname(fd)? == pty.name
-  unix.close_fd(fd)
-  assert errno_of(unix.close_fd(fd)) == 9
+  let output = test.run_xsh(ctx, r"""
+let fd = unix.open_fd(Path(args[0]))?
+assert fd > 2
+assert unix.isatty(fd)
+assert unix.ttyname(fd)? == args[0]
+unix.close_fd(fd)
+let repeated = unix.close_fd(fd)
+assert repeated is Err(_)
+if let Err(failure) = repeated { assert failure.errno == 9 }
+assert ! unix.isatty(fd)
+""", script_args: [pty.name])?
+  assert output.success, output.stderr
 
   let missing = unix.open_fd(fp"/nonexistent/xsh-tty")
   assert missing is Err(is NotFound)
@@ -73,7 +79,6 @@ test test_open_fd_names_the_path_and_close_fd_protects_the_standard_streams {
   }
 
   test.error_kind(unix.close_fd(1), "invalid-argument")
-  assert ! unix.isatty(fd)
 }
 
 test test_open_fd_flags_are_a_closed_set_and_reach_open {
