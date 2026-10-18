@@ -986,31 +986,40 @@ class CleanupTests(unittest.TestCase):
             fcntl.flock(holder.fileno(), fcntl.LOCK_UN)
 
     def test_final_runner_rejects_held_lock_before_docker(self):
-        target = LAUNCHER.OUTPUT_ROOT / "lock-rejection-self-test" / "target" / "verification"
-        cidfile = SCRATCH_ROOT / "lock-rejection-self-test.cid"
-        env = dict(os.environ)
-        env.pop("XSH_GATE_NATIVE_LOCK_FD", None)
-        env["XSH_GATE_CIDFILE"] = str(cidfile)
-        env["XSH_GATE_TARGET_DIR"] = str(target)
-        env["XSH_GATE_TOOL_DIR"] = str(LAUNCHER.CONTROLLER_ROOT / "dev/consolidation/winddown/gate-tools/final-correctness-gates")
-        with CANONICAL_NATIVE_LOCK.open("a+") as holder:
-            try:
-                fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as error:
-                self.fail(f"canonical native-suite lock is already held: {error}")
-            result = subprocess.run(
-                ["bash", str(NATIVE_RUNNER), str(LAUNCHER.CONTROLLER_ROOT), "build", "cargo", "build", "--bin", "xsh"],
-                env=env,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            fcntl.flock(holder.fileno(), fcntl.LOCK_UN)
+        with tempfile.TemporaryDirectory(dir=LAUNCHER.OUTPUT_ROOT) as temporary:
+            output = pathlib.Path(temporary)
+            logs = output / "logs"
+            logs.mkdir()
+            target = output / "target" / "verification"
+            laputa_root = self.root / "laputa"
+            make_git_repository(laputa_root)
+            cidfile = self.cidfile
+            capture = logs / "001-lock-rejection.docker-argv"
+            env = dict(os.environ)
+            env.pop("XSH_GATE_NATIVE_LOCK_FD", None)
+            env["XSH_GATE_CIDFILE"] = str(cidfile)
+            env["XSH_GATE_TARGET_DIR"] = str(target)
+            env["XSH_GATE_TOOL_DIR"] = str(LAUNCHER.CONTROLLER_ROOT / "dev/consolidation/winddown/gate-tools/final-correctness-gates")
+            env["XSH_GATE_LAPUTA_CORPUS"] = str(laputa_root)
+            env["XSH_GATE_DOCKER_ARGV_CAPTURE"] = str(capture)
+            with CANONICAL_NATIVE_LOCK.open("a+") as holder:
+                try:
+                    fcntl.flock(holder.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError as error:
+                    self.fail(f"canonical native-suite lock is already held: {error}")
+                result = subprocess.run(
+                    ["bash", str(NATIVE_RUNNER), str(LAUNCHER.CONTROLLER_ROOT), "build", "cargo", "build", "--bin", "xsh"],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                fcntl.flock(holder.fileno(), fcntl.LOCK_UN)
 
-        self.assertEqual(result.returncode, 75, result.stderr)
-        self.assertIn("canonical native-suite lock is held", result.stderr)
-        self.assertFalse(target.parent.exists())
-        self.assertFalse(cidfile.exists())
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertIn("canonical native-suite lock is held", result.stderr)
+            self.assertFalse(target.parent.exists())
+            self.assertFalse(cidfile.exists())
 
 
 class CommandOutputTests(unittest.TestCase):
