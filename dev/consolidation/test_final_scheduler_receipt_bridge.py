@@ -38,7 +38,8 @@ def test_controller_comparator_with_frozen_source(args):
     assert bridge.REFERENCE_ROOT == args.reference_source_root
     assert bridge.FUNCTIONAL_CLOSE_PATH == args.functional_close
     assert bridge.BUILD_ROOT == args.source_root / f".work/consolidation/native-scheduler-builds/{args.commit}/{args.run_id}"
-    assert bridge.RUNNER == args.source_root / "dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh"
+    assert bridge.RUNNER == bridge_path.parents[2] / "dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh"
+    assert bridge.REFERENCE_RUN == bridge.CONTROLLER_ROOT / ".work/final-review-evidence/final-correctness-gates" / f"native-scheduler-reference-{args.commit}-{args.run_id}"
     assert bridge.PATCH_PATH == args.source_root / "dev/consolidation/winddown/unfinished/475-native-scheduler-reference-2083821edb768d2485479c7386289b82e43b1c7c.patch"
     compare = bridge.load_comparator()
     assert Path(compare.__file__).resolve() == expected_comparator

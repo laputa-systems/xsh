@@ -17,6 +17,7 @@ sys.dont_write_bytecode = True
 os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 ROOT: Path
+CONTROLLER_ROOT: Path
 COMMIT: str
 TREE: str
 TARGET = "x86_64-unknown-linux-musl"
@@ -62,7 +63,7 @@ def require(condition: bool, message: str) -> None:
 
 
 def configure(args) -> None:
-    global ROOT, COMMIT, TREE, FUNCTIONAL_CLOSE_PATH, PROFILE_RECEIPT_PATH
+    global ROOT, CONTROLLER_ROOT, COMMIT, TREE, FUNCTIONAL_CLOSE_PATH, PROFILE_RECEIPT_PATH
     global REFERENCE_ROOT, BUILD_ROOT, REFERENCE_RUN, RUNNER, COMPARE_PATH, PATCH_PATH
 
     require(re.fullmatch(r"[0-9a-f]{40}", args.commit) is not None,
@@ -85,13 +86,20 @@ def configure(args) -> None:
             f"source root tree differs from requested tree {TREE}")
     require(not git(ROOT, "status", "--porcelain=v1", "--untracked-files=all"),
             "candidate source root must be clean before final gate launch")
+    common_dir = canonical_input_path(Path(git(ROOT, "rev-parse", "--path-format=absolute", "--git-common-dir")), "common Git directory")
+    CONTROLLER_ROOT = common_dir.parent
+    require(common_dir.name == ".git" and git(CONTROLLER_ROOT, "rev-parse", "--show-toplevel") == str(CONTROLLER_ROOT),
+            "common Git directory must belong to the controller checkout")
+    tool_root = Path(__file__).resolve().parents[2]
+    require(Path(git(tool_root, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve(strict=True) == common_dir,
+            "scheduler bridge tools must share the controller Git directory")
 
     REFERENCE_ROOT = canonical_input_path(args.reference_source_root, "reference source root")
     profile_receipt = getattr(args, "profile_receipt", None)
     PROFILE_RECEIPT_PATH = canonical_input_path(profile_receipt, "profile-cost receipt") if profile_receipt else None
     BUILD_ROOT = ROOT / f".work/consolidation/native-scheduler-builds/{COMMIT}/{args.run_id}"
-    REFERENCE_RUN = ROOT / ".work/final-review-evidence/final-correctness-gates" / f"native-scheduler-reference-{COMMIT}-{args.run_id}"
-    RUNNER = ROOT / "dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh"
+    REFERENCE_RUN = CONTROLLER_ROOT / ".work/final-review-evidence/final-correctness-gates" / f"native-scheduler-reference-{COMMIT}-{args.run_id}"
+    RUNNER = tool_root / "dev/consolidation/winddown/gate-tools/final-correctness-gates/run-native-final.sh"
     COMPARE_PATH = Path(__file__).resolve().parent / "winddown/gate-tools/native-scheduler-comparison/compare.py"
     PATCH_PATH = ROOT / "dev/consolidation/winddown/unfinished/475-native-scheduler-reference-2083821edb768d2485479c7386289b82e43b1c7c.patch"
 
@@ -123,10 +131,11 @@ def canonical_input_path(path: Path, label: str) -> Path:
     return resolved
 
 
-def require_no_symlink(path: Path) -> None:
+def require_no_symlink(path: Path, root: Path | None = None) -> None:
     absolute = Path(os.path.abspath(path))
-    relative = absolute.relative_to(ROOT)
-    cursor = ROOT
+    root = ROOT if root is None else root
+    relative = absolute.relative_to(root)
+    cursor = root
     for part in relative.parts:
         cursor = cursor / part
         try:
@@ -341,9 +350,71 @@ def reference_build_command() -> list[str]:
     ]
 
 
+def profile_laputa_corpus() -> Path:
+    require(PROFILE_RECEIPT_PATH is not None, "reference build requires the passed profile-cost receipt")
+    receipt = json.loads(PROFILE_RECEIPT_PATH.read_text(encoding="utf-8"))
+    binding = receipt.get("laputa_corpus")
+    require(isinstance(binding, dict) and isinstance(binding.get("path"), str), "profile must bind an explicit Laputa corpus")
+    recorded_path = Path(binding["path"])
+    require(recorded_path.is_absolute(), "Laputa corpus binding must use an explicit absolute path")
+    path = canonical_input_path(recorded_path, "Laputa corpus")
+    require(path.is_absolute() and git(path, "rev-parse", "--show-toplevel") == str(path), "Laputa corpus must be its canonical Git root")
+    current = {"commit": git(path, "rev-parse", "HEAD"), "git_tree": git(path, "rev-parse", "HEAD^{tree}"), "status": "clean"}
+    require(not git(path, "status", "--porcelain=v1", "--untracked-files=all"), "Laputa corpus must be clean")
+    require(binding.get("source_identity") == current and binding.get("source_identity_after") == current,
+            "Laputa corpus differs from the unchanged passed profile binding")
+    return path
+
+
+def reference_docker_argv(path: Path, target_dir: Path, laputa: Path, command: list[str]) -> list[str]:
+    require(not path.is_symlink() and path.is_file(), "reference runner did not produce a regular Docker argv capture")
+    raw = path.read_bytes()
+    require(raw.endswith(b"\0") and raw != b"\0", "reference Docker argv capture is empty or truncated")
+    arguments = [os.fsdecode(value) for value in raw[:-1].split(b"\0")]
+    require(all(arguments) and arguments[:2] == ["docker", "run"] and arguments.count(IMAGE_ID) == 1,
+            "reference Docker argv must run the pinned image exactly once")
+    image_at = arguments.index(IMAGE_ID)
+    require(arguments[image_at + 1:] == command[3:], "reference Docker Cargo command differs from the requested build")
+    options = arguments[2:image_at]
+    for argument in options:
+        require(argument.partition("=")[0] not in ("--net", "--mount", "--volume", "--env", "--env-file", "--workdir")
+                and not argument.startswith("--platform=")
+                and not (argument.startswith("-v") and argument != "-v")
+                and not (argument.startswith("-e") and argument != "-e")
+                and not (argument.startswith("-w") and argument != "-w"),
+                "reference Docker argv contains an alternate mount, environment or network option")
+    platform = [options[index + 1] for index, argument in enumerate(options[:-1]) if argument == "--platform"]
+    require(options.count("--platform") == 1 and platform == ["linux/amd64"],
+            "reference Docker platform differs from the pinned Linux build")
+    for flag, value in (("--network", "none"), ("--cpus", "12"), ("--memory", "24g"), ("--memory-swap", "24g")):
+        require([argument for argument in options if argument.partition("=")[0] == flag] == [f"{flag}={value}"],
+                f"reference Docker build policy differs: {flag}")
+    working = [options[index + 1] for index, argument in enumerate(options[:-1]) if argument == "-w"]
+    require(options.count("-w") == 1 and working == [str(REFERENCE_ROOT)], "reference Docker working directory differs")
+    volumes = [options[index + 1] for index, argument in enumerate(options[:-1]) if argument == "-v"]
+    temporary = REFERENCE_ROOT / ".work/tmp"
+    expected_volumes = [
+        f"{REFERENCE_ROOT}:{REFERENCE_ROOT}:ro", f"{CONTROLLER_ROOT / '.git'}:{CONTROLLER_ROOT / '.git'}:ro",
+        f"{laputa}:{laputa}:ro", "/home/josh/.cargo/bin/kache:/usr/local/bin/kache:ro",
+        "/usr/local/bin/mold:/usr/local/bin/mold:ro",
+        f"{CONTROLLER_ROOT}/.work/consolidation/infra/mold-linker.sh:/usr/local/bin/xsh-mold-linker:ro",
+        f"{temporary}:{temporary}:rw", f"{target_dir}:{target_dir}:rw",
+        "xsh-consolidation-kache:/root/.cache/kache", "/usr/lib/libjemalloc.so.2:/usr/lib/libjemalloc.so.2:ro",
+        "xsh-cargo-registry:/root/.cargo/registry",
+    ]
+    require(options.count("-v") == len(volumes) and volumes == expected_volumes, "reference Docker mounts differ from the reviewed launcher")
+    environment = [options[index + 1] for index, argument in enumerate(options[:-1]) if argument == "-e"]
+    require(options.count("-e") == len(environment), "reference Docker environment option is incomplete")
+    for name, value in (("CARGO_TARGET_DIR", target_dir), ("XSH_LAPUTA_CORPUS", laputa), ("TMPDIR", temporary)):
+        require([item for item in environment if item.partition("=")[0] == name] == [f"{name}={value}"],
+                f"reference Docker environment differs: {name}")
+    return arguments
+
+
 def reference_build(compare) -> None:
     candidate_source, candidate_binaries, _ = load_candidate(compare)
     reference_source = validate_reference_inputs(compare, candidate_source)
+    laputa = profile_laputa_corpus()
 
     reference_bin_dir = BUILD_ROOT / "reference-bin"
     receipt_path = BUILD_ROOT / "reference-build-receipt.json"
@@ -352,7 +423,7 @@ def reference_build(compare) -> None:
             "reference bridge outputs already exist; inspect them before choosing a fresh run root")
     require(not REFERENCE_RUN.exists(), f"reference build run directory already exists: {REFERENCE_RUN}")
     require_no_symlink(BUILD_ROOT)
-    require_no_symlink(REFERENCE_RUN)
+    require_no_symlink(REFERENCE_RUN, CONTROLLER_ROOT)
     BUILD_ROOT.mkdir(parents=True, exist_ok=True)
     REFERENCE_RUN.mkdir(parents=True, exist_ok=False)
     target_dir = REFERENCE_RUN / "target" / "cargo"
@@ -360,7 +431,9 @@ def reference_build(compare) -> None:
     runner_environment = {
         "XSH_GATE_TARGET_DIR": str(target_dir),
         "XSH_GATE_CIDFILE": str(REFERENCE_RUN / "build.cid"),
-        "XSH_GATE_TOOL_DIR": str(ROOT / "dev/consolidation/winddown/gate-tools/final-correctness-gates"),
+        "XSH_GATE_TOOL_DIR": str(RUNNER.parent),
+        "XSH_GATE_LAPUTA_CORPUS": str(laputa),
+        "XSH_GATE_DOCKER_ARGV_CAPTURE": str(REFERENCE_RUN / "build.docker-argv"),
         "TMPDIR": str(ROOT / ".work/tmp"),
     }
     environment = dict(os.environ)
@@ -381,9 +454,7 @@ def reference_build(compare) -> None:
     })
     require(process.returncode == 0,
             f"reference Cargo build exited {process.returncode}; inspect {stdout_path} and {stderr_path}")
-    require("--platform linux/amd64" in stderr_text and "--network=none" in stderr_text
-            and IMAGE_ID in stderr_text,
-            "reference build runner did not report the pinned platform, network policy, and image")
+    docker_argv = reference_docker_argv(Path(runner_environment["XSH_GATE_DOCKER_ARGV_CAPTURE"]), target_dir, laputa, command)
 
     artifacts = []
     completed = []
@@ -408,6 +479,7 @@ def reference_build(compare) -> None:
 
     reference_after = compare.capture_reference_source(REFERENCE_ROOT, COMMIT)
     require(reference_after == reference_source, "reference source changed during the Cargo build")
+    require(profile_laputa_corpus() == laputa, "Laputa corpus changed during the reference Cargo build")
     candidate_after, candidate_binaries_after, _ = load_candidate(compare)
     require(candidate_after["tracked_tree_sha256"] == candidate_source["tracked_tree_sha256"],
             "candidate source changed during the reference Cargo build")
@@ -434,7 +506,7 @@ def reference_build(compare) -> None:
         "profile": "release",
         "build_image": IMAGE,
         "binaries": {"xsht": reference_xsht["xsht"]},
-        "build_command": command,
+        "build_command": docker_argv,
     }
     write_json_new(receipt_path, receipt)
     try:

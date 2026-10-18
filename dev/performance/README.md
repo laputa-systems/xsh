@@ -149,6 +149,13 @@ validation. The forced-frame executed Docker command must mount that same root
 read-only at its own path and select it through `XSH_LAPUTA_CORPUS`.
 Historical receipts missing these owner bindings cannot close baseline acceptance.
 
+The scheduler receipt bridge runs the unchanged reference-build launcher from
+its own reviewed tool checkout. Candidate copies remain under the frozen source.
+Reference targets and Docker argv captures use the shared controller's ignored
+gate directory. The bridge validates the passed profile's clean Laputa binding
+and the captured inner Docker build command before publishing a reference receipt.
+Use the same run ID for bridge and scheduler comparison outputs.
+
 The forced container keeps `--network none` and maps its `xsh-test` hostname to
 `127.0.0.1`. It mounts `/usr/local/bin/mold` read-only using the executable qualified
 by the passed profile's `toolchain.mold` record. The existing schema-1
