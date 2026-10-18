@@ -5,6 +5,7 @@ type Options = {
   source_commit: Str,
   source_tree: Str,
   functional_close: Path,
+  laputa_corpus: Path,
   reference_source_root: Path,
   run_id: Str,
 }
@@ -109,6 +110,16 @@ proc validate_inputs(options: Options) [fs, process, error, io] {
     fail "functional-close record does not mark this exact source commit complete"
   }
 
+  let laputa_corpus = options.laputa_corpus.resolve()?
+  if laputa_corpus != options.laputa_corpus { fail "Laputa corpus path must not contain symlinks" }
+  if !laputa_corpus.is_dir() { fail "Laputa corpus must be a checkout root" }
+  if git_output(laputa_corpus, ["rev-parse", "--show-toplevel"])? != laputa_corpus.display() {
+    fail "Laputa corpus path must be the Git checkout root"
+  }
+  if git_output(laputa_corpus, ["status", "--porcelain=v1", "--untracked-files=all"])? != "" {
+    fail "Laputa corpus must be clean before final replay"
+  }
+
   let reference_root = options.reference_source_root.resolve()?
   if reference_root != options.reference_source_root { fail "reference root must be a canonical path" }
   if !reference_root.is_dir() { fail "reference source root does not exist" }
@@ -172,7 +183,7 @@ proc validate_inputs(options: Options) [fs, process, error, io] {
 proc run_replay(options: Options) [fs, process, error, io] {
   validate_inputs(options)
 
-  let {source_root: root, source_commit: commit, source_tree: tree_id, functional_close, reference_source_root, run_id, ..} = options
+  let {source_root: root, source_commit: commit, source_tree: tree_id, functional_close, laputa_corpus, reference_source_root, run_id, ..} = options
   let close = functional_close.display()
   let reference = reference_source_root.display()
   let scratch = fp"{root}/.work/tmp"
@@ -195,6 +206,7 @@ proc run_replay(options: Options) [fs, process, error, io] {
     "--tree", root.display(),
     "--commit", commit,
     "--functional-close", close,
+    "--laputa-corpus", laputa_corpus.display(),
     "--output", profile_output.display(),
   ], root, scratch)
 
@@ -211,6 +223,7 @@ proc run_replay(options: Options) [fs, process, error, io] {
     "--tree", root.display(),
     "--commit", commit,
     "--functional-close", close,
+    "--laputa-corpus", laputa_corpus.display(),
     "--profile-receipt", profile_receipt_path.display(),
     "--output", forced_output.display(),
   ], root, scratch)
@@ -297,6 +310,7 @@ let options: Options = cli.parse(args, {
   source_commit: {form: "--source-commit SHA", required: true},
   source_tree: {form: "--source-tree SHA", required: true},
   functional_close: {form: "--functional-close PATH", kind: "Path", required: true},
+  laputa_corpus: {form: "--laputa-corpus PATH", kind: "Path", required: true},
   reference_source_root: {form: "--reference-source-root PATH", kind: "Path", required: true},
   run_id: {form: "--run-id ID", required: true},
 })?

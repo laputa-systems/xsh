@@ -73,6 +73,37 @@ def check_source(tree, commit):
     return {"commit": head, "git_tree": tree_id, "status": "clean"}
 
 
+def laputa_corpus_source(requested):
+    path = absolute_without_symlinks(requested, "Laputa corpus")
+    try:
+        resolved = path.resolve(strict=True)
+        if not resolved.is_dir():
+            raise ValueError(f"Laputa corpus is not a directory: {path}")
+        top_level = Path(subprocess.check_output(
+            ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+            text=True,
+            timeout=30,
+        ).strip()).resolve(strict=True)
+        commit = subprocess.check_output(
+            ["git", "-C", str(path), "rev-parse", "HEAD"], text=True, timeout=30
+        ).strip()
+        tree_id = subprocess.check_output(
+            ["git", "-C", str(path), "rev-parse", "HEAD^{tree}"], text=True, timeout=30
+        ).strip()
+        status = subprocess.check_output(
+            ["git", "-C", str(path), "status", "--porcelain=v1", "--untracked-files=all"],
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise ValueError(f"cannot inspect Laputa corpus checkout: {error}") from error
+    if resolved != path or top_level != path:
+        raise ValueError("Laputa corpus must be the exact checkout root without symlink paths")
+    if status:
+        raise ValueError("Laputa corpus checkout must be clean")
+    return path, {"commit": commit, "git_tree": tree_id, "status": "clean"}
+
+
 def source_tree_path(requested):
     root = ROOT.resolve(strict=True)
     tree = Path(os.path.abspath(requested))
@@ -120,10 +151,13 @@ def absolute_without_symlinks(path, label):
     return absolute
 
 
-def verify_profile_stage(tree, source_identity, binary_paths, expected_binaries=None):
+def verify_profile_stage(tree, source_identity, binary_paths, expected_binaries=None, *, laputa_corpus, laputa_identity):
     observed_source = check_source(tree, source_identity["commit"])
     if observed_source != source_identity:
         raise ValueError("source tree identity changed during the profile stage")
+    observed_laputa_path, observed_laputa_identity = laputa_corpus_source(laputa_corpus)
+    if observed_laputa_path != laputa_corpus or observed_laputa_identity != laputa_identity:
+        raise ValueError("Laputa corpus identity changed during the profile stage")
     binaries = {}
     for name, path in binary_paths.items():
         if not path.is_file() or not os.access(path, os.X_OK):
@@ -302,7 +336,7 @@ def repository_tmp_dir(run_id, root=None):
         temporary.cleanup()
 
 
-def docker_base(tree, target_dir, cpus, native_image, repository_tmp, user=False, candidate_xsh=None):
+def docker_base(tree, target_dir, cpus, native_image, repository_tmp, *, laputa_corpus, user=False, candidate_xsh=None):
     git_common = Path(subprocess.check_output(["git", "-C", str(tree), "rev-parse", "--path-format=absolute", "--git-common-dir"], text=True).strip())
     if user:
         if candidate_xsh is None:
@@ -322,7 +356,6 @@ def docker_base(tree, target_dir, cpus, native_image, repository_tmp, user=False
     elif candidate_xsh is not None:
         raise ValueError("build profile container does not accept a candidate XSH executable")
     work = tree / ".work/consolidation"
-    laputa = Path("/home/josh/d/laputa-systems/laputa")
     uid, gid = os.getuid(), os.getgid()
     path_prefix = f"{candidate_xsh.parent}:" if candidate_xsh is not None else ""
     command = [
@@ -331,13 +364,13 @@ def docker_base(tree, target_dir, cpus, native_image, repository_tmp, user=False
         "--memory-swap", MEMORY_LIMIT, "--tmpfs", "/tmp:rw,exec,nosuid,mode=1777",
         "-v", f"{tree}:{tree}", "-v", f"{work}:{work}", "-v", f"{git_common}:{git_common}:ro",
         "-v", f"{repository_tmp}:/t:rw",
-        "-v", f"{laputa}:{laputa}:ro",
+        "-v", f"{laputa_corpus}:{laputa_corpus}:ro",
         "-v", f"{KACHE}:/usr/local/bin/kache:ro", "-v", f"{MOLD}:/usr/local/bin/mold:ro",
         "-v", f"{LINKER}:/usr/local/bin/xsh-mold-linker:ro",
         "-v", "xsh-consolidation-kache:/root/.cache/kache",
         "-w", str(tree), "-e", "LC_ALL=C", "-e", "TZ=UTC", "-e", "TMPDIR=/t",
         "-e", f"CARGO_TARGET_DIR={target_dir}", "-e", f"CARGO_BUILD_JOBS={CPU_LIMIT}",
-        "-e", f"XSH_LAPUTA_CORPUS={laputa}",
+        "-e", f"XSH_LAPUTA_CORPUS={laputa_corpus}",
         "-e", f"PATH={path_prefix}/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         "-e", "CC=/usr/bin/clang-23", "-e", "RUSTC_WRAPPER=/usr/local/bin/kache",
         "-e", "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker",
@@ -483,8 +516,8 @@ def run_stage(command, log, *, run_id, stage, verify_after=None, measure_timing=
     return result
 
 
-def profile_build(tree, target_dir, level, cpus, image, repository_tmp):
-    command = docker_base(tree, target_dir, cpus, image, repository_tmp)
+def profile_build(tree, target_dir, level, cpus, image, repository_tmp, *, laputa_corpus):
+    command = docker_base(tree, target_dir, cpus, image, repository_tmp, laputa_corpus=laputa_corpus)
     profile_env = ["-e", f"CARGO_PROFILE_RELEASE_OPT_LEVEL={level}"]
     image_index = command.index(image)
     command[image_index:image_index] = profile_env
@@ -492,16 +525,22 @@ def profile_build(tree, target_dir, level, cpus, image, repository_tmp):
     return command + wrapped
 
 
-def profile_test(tree, target_dir, cpus, image, repository_tmp):
+def profile_test(tree, target_dir, cpus, image, repository_tmp, *, laputa_corpus):
     binary_dir = target_dir / TARGET / "release"
     candidate_xsh = binary_dir / "xsh"
-    command = docker_base(tree, target_dir, cpus, image, repository_tmp, user=True, candidate_xsh=candidate_xsh)
+    command = docker_base(
+        tree, target_dir, cpus, image, repository_tmp,
+        laputa_corpus=laputa_corpus, user=True, candidate_xsh=candidate_xsh,
+    )
     command += [str(binary_dir / "xsht"), "test"]
     return command
 
 
-def probe_profile_resources(tree, target_dir, cpus, image, candidate_xsh, *, run_id, output_dir, repository_tmp):
-    command = docker_base(tree, target_dir, cpus, image, repository_tmp, user=True, candidate_xsh=candidate_xsh)
+def probe_profile_resources(tree, target_dir, cpus, image, candidate_xsh, *, run_id, output_dir, repository_tmp, laputa_corpus):
+    command = docker_base(
+        tree, target_dir, cpus, image, repository_tmp,
+        laputa_corpus=laputa_corpus, user=True, candidate_xsh=candidate_xsh,
+    )
     command += ["/bin/sh", "-c", "grep '^Cpus_allowed_list:' /proc/self/status; cat /sys/fs/cgroup/memory.max; cat /sys/fs/cgroup/memory.swap.max"]
     stage = "resource-probe"
     cidfile = output_dir / "resource-probe.cid"
@@ -552,6 +591,7 @@ def run(args):
     tree = source_tree_path(args.tree)
     output = absolute_without_symlinks(args.output, "profile output")
     source_identity = check_source(tree, args.commit)
+    laputa_corpus, laputa_identity = laputa_corpus_source(args.laputa_corpus)
     close = check_close(args.functional_close, args.commit)
     image = image_identity()
     allowed_cpus = sorted(os.sched_getaffinity(0))
@@ -580,6 +620,11 @@ def run(args):
             "source_tree": str(tree),
             "source_status": "clean",
             "source_identity": source_identity,
+            "laputa_corpus": {
+                "path": str(laputa_corpus),
+                "source_identity": laputa_identity,
+                "source_identity_after": None,
+            },
             "functional_close": {"path": str(args.functional_close.resolve()), "sha256": digest(args.functional_close.resolve()), "record": close},
             "profile": {"name": "release", "lto": "thin", "codegen_units": 16, "opt_levels": [PROFILE_OPT_LEVEL]},
             "target": TARGET,
@@ -599,20 +644,35 @@ def run(args):
             receipt["qualification_tool"] = {"path": str(tool_path), "sha256": digest(tool_path)}
         write_json(receipt_path, receipt)
         try:
+            def verify_stage(binary_paths, expected_binaries=None):
+                validation = verify_profile_stage(
+                    tree,
+                    source_identity,
+                    binary_paths,
+                    expected_binaries,
+                    laputa_corpus=laputa_corpus,
+                    laputa_identity=laputa_identity,
+                )
+                receipt["laputa_corpus"]["source_identity_after"] = laputa_identity
+                return validation
+
             for level in (PROFILE_OPT_LEVEL,):
                 profile_dir = output / f"opt{level}"
                 target_dir = profile_dir / "target"
                 profile_dir.mkdir()
                 binary_dir = target_dir / TARGET / "release"
                 binaries = {name: binary_dir / name for name in ("xsh", "xsht", "xsh-test-helper")}
-                build_command = profile_build(tree, target_dir, level, cpus, image["image_id"], repository_tmp)
+                build_command = profile_build(
+                    tree, target_dir, level, cpus, image["image_id"], repository_tmp,
+                    laputa_corpus=laputa_corpus,
+                )
                 with exclusive_lock(INFRA / "cargo.lock"):
                     build = run_stage(
                         build_command,
                         profile_dir / "build.log",
                         run_id=run_id,
                         stage=f"release-opt{level}-build",
-                        verify_after=lambda: verify_profile_stage(tree, source_identity, binaries),
+                        verify_after=lambda: verify_stage(binaries),
                         measure_timing=not args.artifacts_only,
                     )
                 result = {"name": f"release-opt{level}", "profile": "release", "opt_level": level, "lto": "thin", "codegen_units": 16, "build_command": build["command"], "build": build}
@@ -632,8 +692,12 @@ def run(args):
                 if build["status"] != 0:
                     raise ValueError(f"release opt{level} build failed; inspect {profile_dir / 'build.log'}")
                 result["binaries"] = build["stage_validation"]["binary_hashes"]
-                result["container_resources"] = probe_profile_resources(tree, target_dir, cpus, image["image_id"], binaries["xsh"], run_id=run_id, output_dir=profile_dir, repository_tmp=repository_tmp)
-                verify_profile_stage(tree, source_identity, binaries, result["binaries"])
+                result["container_resources"] = probe_profile_resources(
+                    tree, target_dir, cpus, image["image_id"], binaries["xsh"],
+                    run_id=run_id, output_dir=profile_dir, repository_tmp=repository_tmp,
+                    laputa_corpus=laputa_corpus,
+                )
+                verify_stage(binaries, result["binaries"])
                 if args.artifacts_only:
                     tool = receipt["qualification_tool"]
                     if digest(Path(tool["path"])) != tool["sha256"]:
@@ -643,14 +707,17 @@ def run(args):
                     write_json(receipt_path, receipt)
                     print(json.dumps(receipt, sort_keys=True))
                     return 0
-                test_command = profile_test(tree, target_dir, cpus, image["image_id"], repository_tmp)
+                test_command = profile_test(
+                    tree, target_dir, cpus, image["image_id"], repository_tmp,
+                    laputa_corpus=laputa_corpus,
+                )
                 no_active_native_containers(image["image_id"])
                 test = run_stage(
                     test_command,
                     profile_dir / "native-suite.log",
                     run_id=run_id,
                     stage=f"release-opt{level}-native-suite",
-                    verify_after=lambda: verify_profile_stage(tree, source_identity, binaries, result["binaries"]),
+                    verify_after=lambda: verify_stage(binaries, result["binaries"]),
                 )
                 result["native_suite"] = test
                 if test.get("interrupted"):
@@ -699,14 +766,19 @@ def run(args):
             raise
 
 
-def main():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tree", type=Path, required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--functional-close", type=Path, required=True)
+    parser.add_argument("--laputa-corpus", type=Path, required=True, help="clean Laputa checkout root mounted read-only for corpus tests")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--artifacts-only", action="store_true", help="write a separate artifact-qualified opt3 receipt without timing or running the native suite")
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main():
+    args = parse_args()
     previous = install_signal_handlers()
     try:
         return run(args)

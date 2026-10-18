@@ -502,8 +502,9 @@ The inherited profile adapter invokes these existing interfaces with real values
 ```sh
 python3 -B dev/consolidation/winddown/gate-tools/final-correctness-gates/launch.py --plan
 python3 -B dev/consolidation/winddown/gate-tools/final-performance-gates/final-observers.py --plan
-python3 -B dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py --tree SOURCE --commit COMMIT --functional-close CLOSE_JSON --output OUTPUT
+python3 -B dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py --tree SOURCE --commit COMMIT --functional-close CLOSE_JSON --laputa-corpus LAPUTA --output OUTPUT
 python3 -B dev/consolidation/winddown/gate-tools/final-performance-gates/final-observers.py --execute --tree SOURCE --commit COMMIT --functional-close CLOSE_JSON --profile-receipt PROFILE_JSON --release-opt-level 3 --output OUTPUT
+python3 -B dev/consolidation/winddown/gate-tools/final-performance-gates/forced-frames.py --tree SOURCE --commit COMMIT --functional-close CLOSE_JSON --laputa-corpus LAPUTA --profile-receipt PROFILE_JSON --output OUTPUT
 python3 -B dev/util-linux/check.py resources --check
 python3 -B dev/util-linux/check.py close --check
 ```

@@ -166,6 +166,45 @@ def source_identity(tree: Path, commit: str) -> dict[str, str]:
     return {"commit": head, "git_tree": tree_id, "status": "clean"}
 
 
+def laputa_corpus_source(requested: Path) -> tuple[Path, dict[str, str]]:
+    path = Path(os.path.abspath(requested))
+    current = Path(path.anchor)
+    for component in path.parts[1:]:
+        current /= component
+        try:
+            if stat.S_ISLNK(current.lstat().st_mode):
+                raise GateFailure(f"Laputa corpus path cannot contain symlinks: {current}")
+        except FileNotFoundError as error:
+            raise GateFailure(f"Laputa corpus path does not exist: {current}") from error
+    try:
+        resolved = path.resolve(strict=True)
+        if not resolved.is_dir():
+            raise GateFailure(f"Laputa corpus is not a directory: {path}")
+        top_level = Path(subprocess.check_output(
+            ["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+            text=True,
+            timeout=30,
+        ).strip()).resolve(strict=True)
+        head = subprocess.check_output(
+            ["git", "-C", str(path), "rev-parse", "HEAD"], text=True, timeout=30
+        ).strip()
+        tree_id = subprocess.check_output(
+            ["git", "-C", str(path), "rev-parse", "HEAD^{tree}"], text=True, timeout=30
+        ).strip()
+        status = subprocess.check_output(
+            ["git", "-C", str(path), "status", "--porcelain=v1", "--untracked-files=all"],
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise GateFailure(f"cannot inspect Laputa corpus checkout: {error}") from error
+    if resolved != path or top_level != path:
+        raise GateFailure("Laputa corpus must be the exact checkout root without symlink paths")
+    if status:
+        raise GateFailure("Laputa corpus checkout must be clean")
+    return path, {"commit": head, "git_tree": tree_id, "status": "clean"}
+
+
 def source_tree_path(requested: Path) -> Path:
     root = ROOT.resolve(strict=True)
     tree = Path(os.path.abspath(requested))
@@ -230,6 +269,16 @@ def load_profile(receipt_path: Path, tree: Path, commit: str, source: dict[str, 
         raise GateFailure("profile-cost receipt names a different source tree")
     if receipt.get("source_identity") != source or receipt.get("target") != TARGET:
         raise GateFailure("profile-cost receipt does not match the frozen source and target")
+    laputa_corpus = receipt.get("laputa_corpus")
+    if (
+        not isinstance(laputa_corpus, dict)
+        or not isinstance(laputa_corpus.get("path"), str)
+        or not Path(laputa_corpus["path"]).is_absolute()
+        or not isinstance(laputa_corpus.get("source_identity"), dict)
+        or laputa_corpus["source_identity"].get("status") != "clean"
+        or laputa_corpus.get("source_identity_after") != laputa_corpus["source_identity"]
+    ):
+        raise GateFailure("profile-cost receipt must bind an unchanged clean Laputa corpus")
     profile = receipt.get("profile")
     if not isinstance(profile, dict) or any(
         profile.get(name) != expected
@@ -272,13 +321,25 @@ def load_profile(receipt_path: Path, tree: Path, commit: str, source: dict[str, 
         "opt_level": result["opt_level"],
         "directory": str(profile_dir),
         "binaries": binaries,
+        "laputa_corpus": laputa_corpus,
     }
 
 
-def verify_inputs(tree: Path, commit: str, expected_source: dict[str, str], close: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
+def verify_inputs(
+    tree: Path,
+    commit: str,
+    expected_source: dict[str, str],
+    close: dict[str, Any],
+    profile: dict[str, Any],
+    laputa_corpus: Path,
+    laputa_identity: dict[str, str],
+) -> dict[str, Any]:
     current_source = source_identity(tree, commit)
     if current_source != expected_source:
         raise GateFailure("source identity changed during the forced-frame suite")
+    current_laputa_path, current_laputa_identity = laputa_corpus_source(laputa_corpus)
+    if current_laputa_path != laputa_corpus or current_laputa_identity != laputa_identity:
+        raise GateFailure("Laputa corpus identity changed during the forced-frame suite")
     if digest(Path(close["path"])) != close["sha256"]:
         raise GateFailure("functional-close record changed during the forced-frame suite")
     if digest(Path(profile["receipt"]["path"])) != profile["receipt"]["sha256"]:
@@ -687,8 +748,16 @@ def ensure_repository_tmp(private_path: Path, root: Path | None = None):
 def run(args: argparse.Namespace) -> int:
     tree, close_path, receipt_path, output, _ = validate_static_paths(args)
     source = source_identity(tree, args.commit)
+    laputa_corpus, laputa_identity = laputa_corpus_source(args.laputa_corpus)
     close = load_functional_close(close_path, args.commit)
     profile = load_profile(receipt_path, tree, args.commit, source)
+    laputa_binding = profile["laputa_corpus"]
+    if (
+        laputa_binding["path"] != str(laputa_corpus)
+        or laputa_binding["source_identity"] != laputa_identity
+        or laputa_binding["source_identity_after"] != laputa_identity
+    ):
+        raise GateFailure("selected Laputa corpus differs from the complete profile-cost receipt")
     docker = shutil.which("docker")
     if docker is None:
         raise GateFailure("docker must be available on PATH")
@@ -702,9 +771,6 @@ def run(args: argparse.Namespace) -> int:
     git_common = Path(git_common_raw).resolve(strict=True)
     if not git_common.is_dir():
         raise GateFailure(f"Git common directory is not a directory: {git_common}")
-    laputa_corpus = Path("/home/josh/d/laputa-systems/laputa").resolve(strict=True)
-    if not laputa_corpus.is_dir():
-        raise GateFailure(f"required Laputa corpus is not a directory: {laputa_corpus}")
     run_id = secrets.token_hex(16)
     repository_tmp = repository_tmp_path(run_id, tree)
     log_path = output / "native-suite.log"
@@ -717,6 +783,11 @@ def run(args: argparse.Namespace) -> int:
         "source": source,
         "functional_close": close,
         "profile_cost_receipt": profile["receipt"],
+        "laputa_corpus": {
+            "path": str(laputa_corpus),
+            "source_identity": laputa_identity,
+            "source_identity_after": None,
+        },
         "selected_profile": {key: profile[key] for key in ("name", "profile", "opt_level", "directory")},
         "binaries_before": profile["binaries"],
         "native_image": {"image_id": IMAGE, "os": "linux", "architecture": "amd64"},
@@ -755,7 +826,7 @@ def run(args: argparse.Namespace) -> int:
                 repository_tmp,
                 cpus,
             )
-            before = verify_inputs(tree, args.commit, source, close, profile)
+            before = verify_inputs(tree, args.commit, source, close, profile, laputa_corpus, laputa_identity)
             receipt["inputs_before"] = before
             receipt["native_image"] = image
             receipt["docker_command"] = owned_docker_command(
@@ -766,8 +837,9 @@ def run(args: argparse.Namespace) -> int:
             stage = run_container(command, log_path, cidfile, run_id)
             receipt["stage"] = stage
             try:
-                after = verify_inputs(tree, args.commit, source, close, profile)
+                after = verify_inputs(tree, args.commit, source, close, profile, laputa_corpus, laputa_identity)
                 receipt["inputs_after"] = after
+                receipt["laputa_corpus"]["source_identity_after"] = laputa_identity
                 inputs_unchanged = before == after
             except Exception as error:
                 receipt["input_validation_error"] = str(error)
@@ -819,6 +891,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--tree", type=Path, required=True)
     parser.add_argument("--commit", required=True)
     parser.add_argument("--functional-close", type=Path, required=True)
+    parser.add_argument("--laputa-corpus", type=Path, required=True, help="clean Laputa checkout root mounted read-only for corpus tests")
     parser.add_argument("--profile-receipt", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args(argv)

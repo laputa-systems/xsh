@@ -1,8 +1,9 @@
-from contextlib import contextmanager, nullcontext, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from importlib.util import module_from_spec, spec_from_file_location
 from io import StringIO
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -43,9 +44,25 @@ def make_working_tree():
         yield tree, close_record, "a" * 40
 
 
-def docker_base_command(tree, *, user=False, candidate_xsh=None):
+def make_laputa_checkout(path):
+    path.mkdir(parents=True)
+    (path / "pm").mkdir()
+    (path / "pm/plan_json.xsh").write_text("let fixture = true\n", encoding="utf-8")
+    subprocess.run(["git", "init", "--quiet", str(path)], check=True)
+    subprocess.run(["git", "-C", str(path), "add", "pm/plan_json.xsh"], check=True)
+    subprocess.run(
+        ["git", "-C", str(path), "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--quiet", "-m", "fixture"],
+        check=True,
+    )
+    return path
+
+
+def docker_base_command(tree, *, laputa_corpus=None, user=False, candidate_xsh=None):
     target_dir = tree / ".work/consolidation/target"
     repository_tmp = tree / ".work/tmp/container"
+    if laputa_corpus is None:
+        laputa_corpus = tree.parent / "laputa-fixture"
+        laputa_corpus.mkdir(exist_ok=True)
     with (
         patch.object(profile, "ROOT", tree),
         patch.object(profile, "INFRA", tree / "infra"),
@@ -56,6 +73,7 @@ def docker_base_command(tree, *, user=False, candidate_xsh=None):
             "0-11",
             "sha256:test-image",
             repository_tmp,
+            laputa_corpus=laputa_corpus,
             user=user,
             candidate_xsh=candidate_xsh,
         )
@@ -82,6 +100,8 @@ def test_profile_build_mounts_selected_source_work_directory():
         with make_working_tree() as (tree, _tree_close, _tree_commit):
             target_dir = tree / ".work/consolidation/target"
             repository_tmp = tree / ".work/tmp/container"
+            laputa_corpus = tree.parent / "laputa-integration"
+            laputa_corpus.mkdir()
             with patch.object(profile, "ROOT", root):
                 command = profile.docker_base(
                     tree,
@@ -89,9 +109,91 @@ def test_profile_build_mounts_selected_source_work_directory():
                     "0-11",
                     "sha256:test-image",
                     repository_tmp,
+                    laputa_corpus=laputa_corpus,
                 )
             assert f"{tree / '.work/consolidation'}:{tree / '.work/consolidation'}" in command
             assert f"{root / '.work/consolidation'}:{root / '.work/consolidation'}" not in command
+            assert f"{laputa_corpus}:{laputa_corpus}:ro" in command
+            assert f"XSH_LAPUTA_CORPUS={laputa_corpus}" in command
+            assert "/home/josh/d/laputa-systems/laputa" not in command
+
+
+def test_laputa_corpus_selection_requires_clean_exact_git_root_and_rejects_symlinks():
+    with tempfile.TemporaryDirectory(dir=Path.cwd() / ".work/tmp") as temporary:
+        root = Path(temporary)
+        laputa = make_laputa_checkout(root / "laputa-integration")
+        expected_path = laputa.resolve()
+        expected_identity = {
+            "commit": subprocess.check_output(["git", "-C", str(laputa), "rev-parse", "HEAD"], text=True).strip(),
+            "git_tree": subprocess.check_output(["git", "-C", str(laputa), "rev-parse", "HEAD^{tree}"], text=True).strip(),
+            "status": "clean",
+        }
+        alias = root / "laputa-alias"
+        alias.symlink_to(laputa, target_is_directory=True)
+        nested = laputa / "pm"
+        empty = root / "not-a-checkout"
+        empty.mkdir()
+
+        for module in (profile, forced):
+            selected_path, identity = module.laputa_corpus_source(laputa)
+            assert selected_path == expected_path
+            assert identity == expected_identity
+            for invalid_path, expected_error in (
+                (alias, "symlink"),
+                (nested, "exact checkout root"),
+                (empty, "checkout"),
+            ):
+                with redirect_stderr(StringIO()):
+                    try:
+                        module.laputa_corpus_source(invalid_path)
+                    except (ValueError, forced.GateFailure) as error:
+                        assert expected_error in str(error)
+                    else:
+                        raise AssertionError(f"{module.__name__} accepted invalid Laputa input {invalid_path}")
+
+        (laputa / "untracked.xsh").write_text("let dirty = true\n", encoding="utf-8")
+        for module in (profile, forced):
+            try:
+                module.laputa_corpus_source(laputa)
+            except (ValueError, forced.GateFailure) as error:
+                assert "must be clean" in str(error)
+            else:
+                raise AssertionError(f"{module.__name__} accepted a dirty Laputa checkout")
+
+
+def test_profile_and_forced_commands_require_explicit_laputa_corpus():
+    profile_arguments = [
+        "--tree", "/source", "--commit", "a" * 40,
+        "--functional-close", "/close.json", "--output", "/output",
+    ]
+    forced_arguments = [
+        "--tree", "/source", "--commit", "a" * 40,
+        "--functional-close", "/close.json", "--profile-receipt", "/profile.json",
+        "--output", "/output",
+    ]
+    for parse_args, arguments in ((profile.parse_args, profile_arguments), (forced.parse_args, forced_arguments)):
+        with redirect_stderr(StringIO()):
+            try:
+                parse_args(arguments)
+            except SystemExit as error:
+                assert error.code == 2
+            else:
+                raise AssertionError("gate command accepted an implicit Laputa corpus")
+        selected = parse_args(arguments + ["--laputa-corpus", "/laputa-integration"])
+        assert selected.laputa_corpus == Path("/laputa-integration")
+
+
+def test_final_replay_requires_and_forwards_laputa_corpus_to_both_gates():
+    source = (performance_dir.parents[2] / "final-replay.xsh").read_text(encoding="utf-8")
+    assert 'laputa_corpus: {form: "--laputa-corpus PATH", kind: "Path", required: true}' in source
+    for stage in ("release opt3 normal suite", "forced-frame normal suite"):
+        command = re.search(
+            rf'execute\("{re.escape(stage)}", \[(.*?)\n  \], root, scratch\)',
+            source,
+            re.DOTALL,
+        )
+        assert command is not None, f"final replay is missing the {stage} command"
+        assert '"--laputa-corpus", laputa_corpus.display(),' in command.group(1)
 
 
 def test_profile_runtime_context_requires_explicit_candidate_xsh():
@@ -169,29 +271,12 @@ def test_profile_output_path_rejects_symlinks():
 
 
 def run_profile_cost(tree, output, close_record, commit, *, artifacts_only=False):
+    laputa_corpus = make_laputa_checkout(tree.parent / "laputa-integration")
     source_identity = {"commit": commit, "git_tree": "1" * 40, "status": "clean"}
+    laputa_identity = profile.laputa_corpus_source(laputa_corpus)[1]
     stages = []
     lock_paths = []
     close_record.write_text(json.dumps({"functional_complete": True, "commit": commit}) + "\n", encoding="utf-8")
-
-    def docker_base(_tree, target_dir, _cpus, image, repository_tmp, user=False, candidate_xsh=None):
-        path_prefix = f"{candidate_xsh.parent}:" if candidate_xsh is not None else ""
-        command = [
-            "docker",
-            "run",
-            "-v",
-            f"{repository_tmp}:/t:rw",
-            "-e",
-            "TMPDIR=/t",
-            "-e",
-            f"CARGO_TARGET_DIR={target_dir}",
-            "-e",
-            f"PATH={path_prefix}/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-            image,
-        ]
-        if candidate_xsh is not None:
-            command[-1:-1] = ["-e", f"XSH_BIN={candidate_xsh}"]
-        return command
 
     def run_stage(command, log, *, run_id, stage, verify_after, measure_timing=True):
         stages.append(stage)
@@ -225,6 +310,7 @@ def run_profile_cost(tree, output, close_record, commit, *, artifacts_only=False
         tree=tree,
         commit=commit,
         functional_close=close_record,
+        laputa_corpus=laputa_corpus,
         output=output,
         artifacts_only=artifacts_only,
     )
@@ -236,12 +322,12 @@ def run_profile_cost(tree, output, close_record, commit, *, artifacts_only=False
     with (
         patch.object(profile, "ROOT", tree),
         patch.object(profile, "check_source", return_value=source_identity),
+        patch.object(profile, "laputa_corpus_source", return_value=(laputa_corpus, laputa_identity)),
         patch.object(profile, "check_close", return_value={"functional_complete": True, "commit": commit}),
         patch.object(profile, "image_identity", return_value={"image_id": profile.NATIVE_IMAGE_ID, "clang_driver": "/clang", "tool_hashes": {}}),
         patch.object(profile, "cpu_list", return_value=",".join(str(cpu) for cpu in range(12))),
         patch.object(profile, "exclusive_lock", side_effect=exclusive_lock),
         patch.object(profile, "no_active_native_containers"),
-        patch.object(profile, "docker_base", side_effect=docker_base),
         patch.object(profile, "run_stage", side_effect=run_stage),
         patch.object(profile, "probe_profile_resources", return_value={"affinity_cpus": list(range(12)), "memory_limit_bytes": profile.MEMORY_LIMIT_BYTES, "memory_swap_max_bytes": 0}),
     ):
@@ -271,6 +357,9 @@ def test_profile_cost_emits_only_the_selected_release_profile():
         }
         assert [result["name"] for result in receipt["results"]] == ["release-opt3"]
         selected = receipt["results"][0]
+        laputa_corpus = Path(receipt["laputa_corpus"]["path"])
+        assert receipt["laputa_corpus"]["source_identity"]["status"] == "clean"
+        assert receipt["laputa_corpus"]["source_identity_after"] == receipt["laputa_corpus"]["source_identity"]
         assert selected["build"]["status"] == 0
         assert selected["native_suite"]["status"] == 0
         assert not any(argument.startswith("XSH_BIN=") for argument in selected["build_command"])
@@ -286,6 +375,10 @@ def test_profile_cost_emits_only_the_selected_release_profile():
         assert not build_tmp.exists()
         assert [argument for argument in selected["build"]["command"] if argument.startswith("TMPDIR=")] == ["TMPDIR=/t"]
         assert [argument for argument in selected["native_suite"]["command"] if argument.startswith("TMPDIR=")] == ["TMPDIR=/t"]
+        for command in (selected["build"]["command"], selected["native_suite"]["command"]):
+            assert f"{laputa_corpus}:{laputa_corpus}:ro" in command
+            assert f"XSH_LAPUTA_CORPUS={laputa_corpus}" in command
+            assert "/home/josh/d/laputa-systems/laputa" not in command
         receipt_path = output / "receipt.json"
         assert forced.load_profile(receipt_path, tree, commit, receipt["source_identity"])["name"] == "release-opt3"
         with patch.object(observer, "source_identity", return_value=receipt["source_identity"]):
@@ -478,6 +571,9 @@ if __name__ == "__main__":
     test_profile_runtime_context_requires_explicit_candidate_xsh()
     test_profile_runtime_context_uses_only_the_candidate_xsh()
     test_profile_output_path_rejects_symlinks()
+    test_laputa_corpus_selection_requires_clean_exact_git_root_and_rejects_symlinks()
+    test_profile_and_forced_commands_require_explicit_laputa_corpus()
+    test_final_replay_requires_and_forwards_laputa_corpus_to_both_gates()
     test_profile_cost_emits_only_the_selected_release_profile()
     test_artifact_qualification_is_resources_only_input()
     print("selected release opt3 and artifact-qualified profile receipts passed")

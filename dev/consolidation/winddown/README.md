@@ -111,6 +111,10 @@ Build inputs must match, apart from the equivalent XSHT `from_mode(0)` to
 `from_mode(0o0)` spelling. This separate Rust proof credits only the normal
 `ExprIf` in-place route. It neither credits nor relabels XSH artifacts.
 
+The profile-cost and forced-frame commands require `--laputa-corpus PATH` to a
+clean Laputa checkout root. Both record its Git identity, mount that exact path
+read-only, and set `XSH_LAPUTA_CORPUS` to it; pass the same path to both gates.
+
 The pinned opt3 resource flow has two modes. `profile-cost.py --artifacts-only`
 builds only the release `xsh`, `xsht`, and `xsh-test-helper` binaries, probes
 their container limits, and writes an `artifact-qualified` receipt to a fresh

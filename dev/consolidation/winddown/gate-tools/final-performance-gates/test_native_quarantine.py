@@ -65,12 +65,16 @@ class NativeQuarantineTests(unittest.TestCase):
         elif reader == "comparative":
             comparative.acquire_lock(self.native).close()
         elif reader == "profile-artifacts":
+            laputa = self.root / ".work/laputa-integration"
+            laputa.mkdir(parents=True, exist_ok=True)
             args = Namespace(tree=self.root, output=self.root / ".work/consolidation/output",
                              commit="a" * 40, functional_close=self.root / "close.json",
-                             artifacts_only=True)
+                             laputa_corpus=laputa, artifacts_only=True)
             with patch.multiple(profile, ROOT=self.root, INFRA=self.root,
                                 PROFILE_LOCK=self.performance), \
+                 patch.object(profile, "source_tree_path", return_value=self.root), \
                  patch.object(profile, "check_source", return_value={}), \
+                 patch.object(profile, "laputa_corpus_source", return_value=(laputa, {"status": "clean"})), \
                  patch.object(profile, "check_close", return_value={}), \
                  patch.object(profile, "image_identity", return_value={"image_id": "test"}), \
                  patch.object(profile, "repository_tmp_dir", return_value=nullcontext(self.root)), \

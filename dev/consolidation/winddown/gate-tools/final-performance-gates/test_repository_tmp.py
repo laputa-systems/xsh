@@ -156,6 +156,9 @@ def test_forced_frames_uses_the_selected_source_tmp_root():
                     )
                     assert f"{tree / '.work/consolidation'}:{tree / '.work/consolidation'}" in command
                     assert f"{root / '.work/consolidation'}:{root / '.work/consolidation'}" not in command
+                    assert "/laputa:/laputa:ro" in command
+                    assert "XSH_LAPUTA_CORPUS=/laputa" in command
+                    assert "/home/josh/d/laputa-systems/laputa" not in command
             assert not private_tmp.exists()
 
 
@@ -200,6 +203,9 @@ def test_forced_frames_records_the_yielded_tmp_in_receipt_and_command():
         output.parent.mkdir(parents=True)
         close_path = root / ".work/functional-close.json"
         profile_receipt_path = root / ".work/profile-receipt.json"
+        laputa_corpus = root / ".work/laputa-integration"
+        laputa_corpus.mkdir()
+        laputa_identity = {"commit": "c" * 40, "git_tree": "d" * 40, "status": "clean"}
         source = {"commit": "a" * 40, "git_tree": "b" * 40, "status": "clean"}
         close = {"functional_complete": True}
         profile = {
@@ -209,10 +215,15 @@ def test_forced_frames_records_the_yielded_tmp_in_receipt_and_command():
             "opt_level": 3,
             "directory": str(profile_dir),
             "binaries": {},
+            "laputa_corpus": {
+                "path": str(laputa_corpus),
+                "source_identity": laputa_identity,
+                "source_identity_after": laputa_identity,
+            },
         }
         stage = {"status": 0, "cleanup_resolved": True, "interrupted_signal": None, "error": None}
         git_common = root / ".git"
-        args = Namespace(tree=root, commit=source["commit"], functional_close=close_path, profile_receipt=profile_receipt_path, output=output)
+        args = Namespace(tree=root, commit=source["commit"], functional_close=close_path, laputa_corpus=laputa_corpus, profile_receipt=profile_receipt_path, output=output)
 
         def git_path(command, **_kwargs):
             if command[-1] == "--git-common-dir":
@@ -225,6 +236,7 @@ def test_forced_frames_records_the_yielded_tmp_in_receipt_and_command():
             patch.object(forced, "ROOT", root),
             patch.object(forced, "validate_static_paths", return_value=(root, close_path, profile_receipt_path, output, output.parent)),
             patch.object(forced, "source_identity", return_value=source),
+            patch.object(forced, "laputa_corpus_source", return_value=(laputa_corpus, laputa_identity)),
             patch.object(forced, "load_functional_close", return_value=close),
             patch.object(forced, "load_profile", return_value=profile),
             patch.object(forced.shutil, "which", return_value="/usr/bin/docker"),
@@ -243,6 +255,12 @@ def test_forced_frames_records_the_yielded_tmp_in_receipt_and_command():
             assert forced.run(args) == 0
         receipt = json.loads((output / "receipt.json").read_text(encoding="utf-8"))
         assert receipt["native_suite_lock"]["path"] == str(forced.NATIVE_LOCK)
+        assert receipt["laputa_corpus"] == {
+            "path": str(laputa_corpus),
+            "source_identity": laputa_identity,
+            "source_identity_after": laputa_identity,
+        }
+        assert receipt["environment"]["XSH_LAPUTA_CORPUS"] == str(laputa_corpus)
         repository_tmp_volume = next(
             receipt["docker_command"]["argv"][index + 1]
             for index, argument in enumerate(receipt["docker_command"]["argv"][:-1])
