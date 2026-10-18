@@ -309,7 +309,12 @@ def check_supplemental_laputa_command(step, config, image, *, helper):
         fields_by_name = [part.split('=', 1) for part in mount.split(',') if '=' in part]
         sources = [value for name, value in fields_by_name if name in ('source', 'src')]
         targets = [value for name, value in fields_by_name if name in ('target', 'destination', 'dst')]
-        if any(Path(source) == config.laputa_root or Path(source).is_relative_to(config.laputa_root) for source in sources) or any(Path(target) == config.laputa_root or Path(target).is_relative_to(config.laputa_root) or config.laputa_root.is_relative_to(Path(target)) for target in targets):
+        if any(
+            Path(source) == config.laputa_root
+            or Path(source).is_relative_to(config.laputa_root)
+            or config.laputa_root.is_relative_to(Path(source))
+            for source in sources
+        ) or any(Path(target) == config.laputa_root or Path(target).is_relative_to(config.laputa_root) or config.laputa_root.is_relative_to(Path(target)) for target in targets):
             selected_mounts.append(('--mount', mount))
     for _, mount in docker_option_values(docker_options, ('--tmpfs',)):
         target = Path(mount.split(':', 1)[0])

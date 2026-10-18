@@ -227,7 +227,7 @@ class PolicyTests(unittest.TestCase):
             finally:
                 capture.write_bytes(original_capture)
 
-            for mutation in ('duplicate_mount', 'duplicate_env', 'ancestor_source_alias'):
+            for mutation in ('duplicate_mount', 'duplicate_env', 'ancestor_source_alias', 'ancestor_mount_source_alias'):
                 wrong = deepcopy(receipt)
                 helper = wrong['steps'][1]
                 actual = list(helper['docker_argv'])
@@ -236,8 +236,10 @@ class PolicyTests(unittest.TestCase):
                     actual[image_index:image_index] = ['-v', f'{root}:{root}:rw']
                 elif mutation == 'duplicate_env':
                     actual[image_index:image_index] = ['-e', 'XSH_LAPUTA_CORPUS=/another/laputa']
-                else:
+                elif mutation == 'ancestor_source_alias':
                     actual[image_index:image_index] = ['-v', f'{root.parent}:/laputa-alias:rw']
+                else:
+                    actual[image_index:image_index] = ['--mount', f'type=bind,src={root.parent},dst=/laputa-alias,rw']
                 capture = Path(helper['docker_argv_capture']['path'])
                 original_capture = capture.read_bytes()
                 capture.write_bytes(b'\0'.join(item.encode() for item in actual) + b'\0')
