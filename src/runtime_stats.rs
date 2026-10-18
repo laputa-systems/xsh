@@ -78,11 +78,8 @@ pub struct RuntimeAllocationStats {
     pub workers: WorkerAllocationStats,
 }
 
-/// Diagnostic monotonic wall time in nanoseconds at existing runner boundaries.
-/// Exclusive preparation phases do not overlap and fit inside preparation.
-/// An absent phase was not reached; execution completion is not first output.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct RuntimePhaseWallTimes {
+pub(crate) struct RuntimePhaseWallTimes {
     pub preparation_inclusive: u128,
     pub project_parse_load_exclusive: Option<u128>,
     pub check_solve_fact_build_exclusive: Option<u128>,
@@ -135,18 +132,30 @@ fn optional_ns(duration: Option<u128>) -> String {
 pub struct MeasuredScriptRun {
     pub output: ScriptOutput,
     pub allocation: RuntimeAllocationStats,
-    pub wall_time_ns: RuntimePhaseWallTimes,
 }
 
-/// Run one ordinary script with allocation traffic and diagnostic wall times.
-/// Instrumented durations are not unobserved performance samples.
+/// Run one ordinary script while splitting construction, controller, and
+/// indexed-worker allocation traffic.
 pub fn run_script(options: RunOptions) -> MeasuredScriptRun {
+    measured_script(options).0
+}
+
+/// Run once and return allocation data plus the tooling phase JSON report.
+/// Instrumented durations are not unobserved performance samples.
+pub fn run_script_with_phase_report(options: RunOptions) -> (MeasuredScriptRun, String) {
+    let (measured, wall_time_ns) = measured_script(options);
+    let report = measured.json_report(Some(&wall_time_ns));
+    (measured, report)
+}
+
+fn measured_script(options: RunOptions) -> (MeasuredScriptRun, RuntimePhaseWallTimes) {
     let (output, phases) = run_script_with_allocation_stats(options);
-    MeasuredScriptRun {
+    let wall_time_ns = phases.wall_time_ns.clone();
+    let measured = MeasuredScriptRun {
         output,
-        wall_time_ns: phases.wall_time_ns.clone(),
         allocation: RuntimeAllocationStats::from_phases(phases),
-    }
+    };
+    (measured, wall_time_ns)
 }
 
 impl RuntimeAllocationStats {
@@ -164,8 +173,15 @@ impl RuntimeAllocationStats {
 impl MeasuredScriptRun {
     /// Serialize the measurement without mixing it into the script's stdout.
     pub fn to_json(&self) -> String {
+        self.json_report(None)
+    }
+
+    fn json_report(&self, wall_time_ns: Option<&RuntimePhaseWallTimes>) -> String {
+        let phases = wall_time_ns.map_or_else(String::new, |times| {
+            format!(",\"wall_time_ns\":{}", times.to_json())
+        });
         format!(
-            "{{\"tracking_active\":{},\"status\":{},\"stdout_bytes\":{},\"stderr_bytes\":{},\"construction\":{},\"controller\":{},\"execution\":{},\"workers\":{},\"wall_time_ns\":{}}}\n",
+            "{{\"tracking_active\":{},\"status\":{},\"stdout_bytes\":{},\"stderr_bytes\":{},\"construction\":{},\"controller\":{},\"execution\":{},\"workers\":{}{}}}\n",
             self.allocation.tracking_active,
             self.output.status,
             self.output.stdout.len(),
@@ -174,7 +190,7 @@ impl MeasuredScriptRun {
             traffic_json(&self.allocation.controller),
             traffic_json(&self.allocation.execution),
             worker_json(&self.allocation.workers),
-            self.wall_time_ns.to_json(),
+            phases,
         )
     }
 }
@@ -307,14 +323,48 @@ mod tests {
     }
 
     #[test]
-    fn json_keeps_script_output_separate_from_measurement() {
+    fn phase_report_runs_once_and_preserves_allocation_json_fields() {
+        use crate::modules::json::{compact_raw_json, parse_raw_json, raw_json_as_u64, raw_json_get};
+        use miniserde::json::Value as JsonValue;
+
+        let root = tempfile::tempdir().expect("create phase report fixture");
+        let script = root.path().join("once.xsh");
+        let counter = root.path().join("counter");
+        std::fs::write(&counter, "0").expect("initialize execution counter");
+        std::fs::write(&script, r#"let counter = fp"{args[0]}"
+let count = counter.read_text()?.parse_int()?
+counter.write(f"{count + 1}")?
+print "once"
+"#).expect("write phase report fixture");
+        let (measured, report) = super::run_script_with_phase_report(crate::execution::script::RunOptions {
+            script: script.display().to_string(),
+            args: vec![counter.into_os_string()],
+            coverage_trace_dir: None,
+        });
+        assert_eq!(measured.output.status, 0, "{:?}", measured.output.stderr);
+        assert_eq!(measured.output.stdout, b"once\n");
+        assert!(measured.output.stderr.is_empty());
+        assert_eq!(std::fs::read_to_string(root.path().join("counter")).expect("read execution counter"), "1");
+        let allocation = parse_raw_json(&measured.to_json()).expect("allocation JSON");
+        let JsonValue::Object(mut report) = parse_raw_json(&report).expect("phase JSON") else {
+            panic!("phase report must be an object");
+        };
+        let phases = report.remove("wall_time_ns").expect("phase report adds wall times");
+        assert_eq!(compact_raw_json(&JsonValue::Object(report)), compact_raw_json(&allocation));
+        assert!(raw_json_get(&allocation, "wall_time_ns").is_none());
+        assert!(raw_json_get(&phases, "preparation_inclusive").and_then(raw_json_as_u64).is_some());
+        assert!(raw_json_get(&phases, "execution_finish_exclusive").and_then(raw_json_as_u64).is_some());
+        assert!(matches!(raw_json_get(&phases, "diagnostic_finish_exclusive"), Some(JsonValue::Null)));
+    }
+
+    #[test]
+    fn allocation_literal_and_json_remain_compatible() {
         let measured = MeasuredScriptRun {
             output: ScriptOutput {
                 status: 0,
                 stdout: b"ok\n".to_vec(),
                 stderr: Vec::new(),
             },
-            wall_time_ns: super::RuntimePhaseWallTimes::default(),
             allocation: RuntimeAllocationStats {
                 tracking_active: true,
                 workers: WorkerAllocationStats {
@@ -327,7 +377,7 @@ mod tests {
 
         assert_eq!(
             measured.to_json(),
-            "{\"tracking_active\":true,\"status\":0,\"stdout_bytes\":3,\"stderr_bytes\":0,\"construction\":{\"live_bytes\":0,\"peak_bytes\":0,\"alloc_count\":0,\"alloc_bytes\":0},\"controller\":{\"live_bytes\":0,\"peak_bytes\":0,\"alloc_count\":0,\"alloc_bytes\":0},\"execution\":{\"live_bytes\":0,\"peak_bytes\":0,\"alloc_count\":0,\"alloc_bytes\":0},\"workers\":{\"stage_count\":2,\"alloc_count\":0,\"alloc_bytes\":0,\"peak_thread_bytes\":0,\"attributions\":[]},\"wall_time_ns\":{\"clock\":\"monotonic_wall\",\"preparation_inclusive\":0,\"project_parse_load_exclusive\":null,\"check_solve_fact_build_exclusive\":null,\"declaration_publication_exclusive\":null,\"lower_verify_install_exclusive\":null,\"preparation_other_exclusive\":0,\"execution_finish_exclusive\":null,\"diagnostic_finish_exclusive\":null}}\n"
+            "{\"tracking_active\":true,\"status\":0,\"stdout_bytes\":3,\"stderr_bytes\":0,\"construction\":{\"live_bytes\":0,\"peak_bytes\":0,\"alloc_count\":0,\"alloc_bytes\":0},\"controller\":{\"live_bytes\":0,\"peak_bytes\":0,\"alloc_count\":0,\"alloc_bytes\":0},\"execution\":{\"live_bytes\":0,\"peak_bytes\":0,\"alloc_count\":0,\"alloc_bytes\":0},\"workers\":{\"stage_count\":2,\"alloc_count\":0,\"alloc_bytes\":0,\"peak_thread_bytes\":0,\"attributions\":[]}}\n"
         );
     }
 }

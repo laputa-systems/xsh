@@ -11,7 +11,7 @@ use std::process::ExitCode;
 use xsh::execution::script::RunOptions;
 use xsh::frontend_stats::{DEFAULT_ROOTS, measure_roots};
 use xsh::mem_track;
-use xsh::runtime_stats::run_script;
+use xsh::runtime_stats::run_script_with_phase_report;
 
 const FRONTEND_STATS: &str = "frontend-stats";
 const RUNTIME_STATS: &str = "runtime-stats";
@@ -124,10 +124,10 @@ fn runtime_stats(args: Vec<String>) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let measured = run_script(run.options);
+    let (measured, report) = run_script_with_phase_report(run.options);
     let _ = std::io::stdout().lock().write_all(&measured.output.stdout);
     let _ = std::io::stderr().lock().write_all(&measured.output.stderr);
-    if let Err(error) = std::fs::write(&run.report, measured.to_json()) {
+    if let Err(error) = std::fs::write(&run.report, report) {
         eprintln!(
             "xsht {RUNTIME_STATS}: failed to write '{}': {error}",
             run.report.display()

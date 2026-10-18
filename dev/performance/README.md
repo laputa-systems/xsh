@@ -115,6 +115,12 @@ create a new container supervisor or benchmark runner.
 
 ## Runtime phase diagnostic
 
+The Rust allocation API keeps `MeasuredScriptRun { output, allocation }`,
+`run_script`, and `MeasuredScriptRun::to_json` unchanged. The additive tooling
+entrypoint `run_script_with_phase_report` runs once and returns that allocation
+result plus the phase-bearing JSON string used by `xsht`. Phase types remain
+crate-private.
+
 `xsht runtime-stats --json REPORT SCRIPT` preserves its existing allocation,
 status, and output-size fields. The additive `wall_time_ns` object uses monotonic
 wall-clock nanoseconds. Instrumented durations include observer overhead and
