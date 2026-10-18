@@ -147,13 +147,16 @@ validation. The forced-frame executed Docker command must mount that same root
 read-only at its own path and select it through `XSH_LAPUTA_CORPUS`.
 Historical receipts missing these owner bindings cannot close baseline acceptance.
 
-The supplemental receipt must carry the same `laputa_corpus` binding. Every
-container step must prove the executed Docker arguments select that path with
-one read-only bind mount and one `XSH_LAPUTA_CORPUS` value. Helper steps bind
-their NUL-terminated `docker_argv_capture` bytes by path and SHA-256 and must
-match the decoded vector to `docker_argv`; direct Docker steps must match
-`docker_argv` to the recorded step command. Missing, stale, dirty, duplicate,
-or mismatched bindings fail functional close.
+The supplemental receipt must carry the same `laputa_corpus` binding. Each
+build, warning-deny, and `linux-special-*` container step must select that path
+with one read-only bind mount and one `XSH_LAPUTA_CORPUS` value. The
+`stage-core-compat-extra-xsht` step copies the qualified `xsht` product into the
+harness target. The reader checks its source and destination hashes, target
+paths, pinned image, mount modes, and exact Docker argv. Helper steps bind their
+NUL-terminated `docker_argv_capture` bytes by path and SHA-256 and must match the
+decoded vector to `docker_argv`; direct Docker steps must match `docker_argv` to
+the recorded step command. Missing, stale, dirty, duplicate, or mismatched
+bindings fail functional close.
 
 Util-linux close requires its existing in-memory independent review. The standalone
 CLI fails before expensive effects when that context is absent. The parent can

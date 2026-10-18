@@ -309,6 +309,116 @@ class PolicyTests(unittest.TestCase):
                 step['docker_argv_capture'] = {'path': str(capture), 'sha256': check.owned_digest(capture)}
         return step
 
+    def supplemental_stage_fixture(self, directory, config, plan, logs):
+        target = plan['environment']['target']
+        products_root = Path(directory) / 'stage-products'
+        harness_root = Path(directory) / 'stage-harness'
+        source = products_root / target / 'verification' / 'xsht'
+        harness_xsh = harness_root / target / 'verification' / 'xsh'
+        destination = harness_xsh.with_name('xsht')
+        source.parent.mkdir(parents=True)
+        harness_xsh.parent.mkdir(parents=True)
+        source.write_bytes(b'qualified product xsht')
+        source.chmod(0o755)
+        harness_xsh.write_bytes(b'qualified harness xsh')
+        harness_xsh.chmod(0o755)
+        destination.write_bytes(source.read_bytes())
+        destination.chmod(0o755)
+        source_hash = check.owned_digest(source)
+        harness_xsh_hash = check.owned_digest(harness_xsh)
+        features = ['default', 'native-tests', 'net', 'tools']
+        harness = {
+            'target_variant': 'harness',
+            'target_dir': str(harness_root),
+            'xsh_variant': {
+                'path': str(harness_xsh),
+                'sha256': harness_xsh_hash,
+                'qualification': {
+                    'target_variant': 'harness',
+                    'profile_name': 'verification',
+                    'features': features,
+                    'source': {'clean': True, 'commit': config.commit, 'tree': config.tree},
+                },
+            },
+        }
+        staging = {
+            'action': 'staged',
+            'source': {
+                'path': str(source),
+                'sha256': source_hash,
+                'qualified_product_variant': {
+                    'profile': 'verification',
+                    'target_variant': 'products',
+                    'commit': config.commit,
+                    'tree': config.tree,
+                },
+            },
+            'destination': {
+                'path': str(destination),
+                'sha256': source_hash,
+                'harness': 'core-compat-extra',
+                'harness_xsh_path': str(harness_xsh),
+                'harness_xsh_sha256': harness_xsh_hash,
+                'target_variant': 'harness',
+                'profile': 'verification',
+                'features': features,
+            },
+        }
+        cidfile = Path(directory) / 'container-ids/007-stage-core-compat-extra-xsht.cid'
+        cidfile.parent.mkdir()
+        log = logs / '007-stage-core-compat-extra-xsht.log'
+        log.write_text('stage-core-compat-extra-xsht\n')
+        script = '\n'.join([
+            'set -eu',
+            'source=$1',
+            'destination=$2',
+            'expected=$3',
+            'hash_file() { result=$(sha256sum -- "$1") || return; printf \'%s\\n\' "${result%% *}"; }',
+            '[ ! -L "$source" ] && [ -f "$source" ] && [ -x "$source" ]',
+            '[ "$(hash_file "$source")" = "$expected" ]',
+            'if [ -L "$destination" ]; then exit 1; fi',
+            'if [ -e "$destination" ]; then',
+            '    [ -f "$destination" ] && [ -x "$destination" ]',
+            '    [ "$(hash_file "$destination")" = "$expected" ]',
+            '    exit 0',
+            'fi',
+            'temporary=$(mktemp "${destination}.stage.XXXXXX")',
+            "trap 'rm -f -- \"$temporary\"' EXIT HUP INT TERM",
+            'cp -p -- "$source" "$temporary"',
+            '[ -f "$temporary" ] && [ -x "$temporary" ]',
+            '[ "$(hash_file "$temporary")" = "$expected" ]',
+            'ln -- "$temporary" "$destination"',
+            'rm -- "$temporary"',
+            'trap - EXIT HUP INT TERM',
+        ])
+        scratch = config.source_root / '.work/tmp'
+        argv = [
+            'docker', 'run', '--rm', '--init', '--read-only', '--cidfile', str(cidfile),
+            '--platform', 'linux/amd64', '--cpus=2', '--memory=1g', '--memory-swap=1g',
+            '--network=none', '-v', f'{products_root}:{products_root}:ro',
+            '-v', f'{harness_root}:{harness_root}:rw', '-v', f'{scratch}:{scratch}:rw',
+            '-e', f'TMPDIR={scratch}', '--user', '0:0', plan['environment']['image'],
+            'sh', '-euc', script, 'xsh-gate-stage-xsht', str(source), str(destination), source_hash,
+        ]
+        step = {
+            'id': 'stage-core-compat-extra-xsht',
+            'argv': argv,
+            'docker_argv': argv,
+            'env': {'XSH_GATE_CIDFILE': str(cidfile)},
+            'cwd': str(config.source_root),
+            'log': str(log),
+            'exit_code': 0,
+            'timed_out': False,
+        }
+        return {
+            'step': step,
+            'staging': staging,
+            'harness': harness,
+            'products_root': str(products_root),
+            'harness_root': str(harness_root),
+            'source_hash': source_hash,
+        }
+
     def test_bare_boolean_failed_canonical_and_cleanup_are_rejected(self):
         receipt, config = self.canonical()
         check.check_canonical_policy(receipt, config)
@@ -329,21 +439,108 @@ class PolicyTests(unittest.TestCase):
             config = replace(config, laputa_root=root)
             logs = Path(directory) / 'logs'
             logs.mkdir()
+            stage = self.supplemental_stage_fixture(directory, config, plan, logs)
             helper_argv = self.supplemental_docker_argv(root, ['/bin/sh', '-lc', 'cargo build'])
             lint_argv = self.supplemental_docker_argv(root, ['/bin/sh', '-lc', 'cargo clippy'])
-            context_argv = self.supplemental_docker_argv(root, ['/products/target/verification/xsht', 'test', 'boundary.xsh'])
+            context_argv = self.supplemental_docker_argv(root, [str(Path(stage['products_root']) / 'target/verification/xsht'), 'test', 'boundary.xsh'])
             steps = [
                 {'id': 'verify-pinned-image-id', 'argv': ['docker', 'image', 'inspect', '--format', '{{.Id}}', 'pinned-image'], 'exit_code': 0, 'timed_out': False},
                 self.supplemental_step(logs, 'build-product-01-xsh', ['/tools/run-native-final.sh', str(config.source_root), 'build', 'cargo', 'build', '-p', 'xsh'], root=root, docker_argv=helper_argv),
                 self.supplemental_step(logs, 'warning-deny-01', ['/tools/run-native-final.sh', str(config.source_root), 'lint', 'cargo', 'clippy'], root=root, docker_argv=lint_argv),
+                stage['step'],
                 self.supplemental_step(logs, 'linux-special-01-boundary', context_argv, docker_argv=context_argv),
                 {'id': 'tracked-diff-check', 'argv': ['git', 'diff', '--check'], 'exit_code': 0, 'timed_out': False},
             ]
-            receipt = {'schema': 1, 'status': 'commands-passed-needs-privilege-skip-and-close-review', 'source_expected': canonical['source_expected'], 'source_checks': canonical['source_checks'], 'steps': steps, 'cargo_target_dirs': {'products': '/products'}, 'environment': plan['environment'], 'laputa_corpus': binding}
+            environment = {
+                'target': plan['environment']['target'],
+                'image': plan['environment']['image'],
+                'host_uid': 1000,
+                'host_gid': 1000,
+                'container_cpus': 12,
+                'container_memory': '24g',
+                'container_swap': 'disabled',
+                'cargo_lock_timeout_seconds': 900,
+                'native_runner_base_sha256': 'a' * 64,
+                'native_lock_path': '/work/native-suite.lock',
+                'native_cleanup_marker_path': '/work/native-suite.cleanup-unresolved',
+                'native_lock_scope': 'acquired before product, harness, Clippy and supplemental context runs',
+                'no_docker_self_test_sha256': 'b' * 64,
+                'final_runner_sha256': 'c' * 64,
+                'launch_sha256': 'd' * 64,
+                'manifest_sha256': 'e' * 64,
+                'manifest_body_sha256': 'f' * 64,
+                'build_tools': {'/usr/local/bin/mold': '1' * 64},
+                'runtime_cargo_forwarder_sha256': '2' * 64,
+                'runtime_rustc_wrapper_sha256': '3' * 64,
+            }
+            receipt = {
+                'schema': 1,
+                'status': 'commands-passed-needs-privilege-skip-and-close-review',
+                'source_expected': canonical['source_expected'],
+                'source_checks': canonical['source_checks'],
+                'steps': steps,
+                'cargo_target_dirs': {'products': stage['products_root'], 'harness': stage['harness_root']},
+                'environment': environment,
+                'laputa_corpus': binding,
+                'harnesses': {'core-compat-extra': stage['harness']},
+                'harness_artifact_staging': {'core-compat-extra-xsht': stage['staging']},
+            }
             products = {name + '-verification': 'c' * 64 for name in ('xsh', 'xsht', 'xshi', 'xsh-fuzz', 'xsh-test-helper')}
+            products['xsht-verification'] = stage['source_hash']
             receipt['hashes'] = {name: products for name in ('products_after_initial_build', 'binaries_after_build', 'binaries_before_tests', 'binaries_after_tests')}
             receipt['hashes'].update({name: {'harness': 'd' * 64} for name in ('harnesses_before_tests', 'harnesses_after_tests', 'harness_variant_binaries_before_tests', 'harness_variant_binaries_after_tests')})
             check.check_supplemental_policy(receipt, plan, config)
+            stage_index = next(index for index, step in enumerate(receipt['steps']) if step['id'] == 'stage-core-compat-extra-xsht')
+            context_index = next(index for index, step in enumerate(receipt['steps']) if step['id'] == 'linux-special-01-boundary')
+            for field, value in (('target', 'wrong-target'), ('image', 'wrong-image')):
+                wrong = deepcopy(receipt)
+                wrong['environment'][field] = value
+                with self.subTest(field=field, value=value), self.assertRaisesRegex(check.CheckError, 'supplemental target or image mismatch'):
+                    check.check_supplemental_policy(wrong, plan, config)
+            for field in ('target', 'image'):
+                wrong = deepcopy(receipt)
+                del wrong['environment'][field]
+                with self.subTest(missing=field), self.assertRaisesRegex(check.CheckError, 'supplemental target or image mismatch'):
+                    check.check_supplemental_policy(wrong, plan, config)
+            wrong = deepcopy(receipt)
+            wrong['environment'] = None
+            with self.assertRaisesRegex(check.CheckError, 'supplemental target or image mismatch'):
+                check.check_supplemental_policy(wrong, plan, config)
+            qualified_without_stage = deepcopy(receipt)
+            qualified_without_stage['steps'] = [step for step in qualified_without_stage['steps'] if step['id'] != 'stage-core-compat-extra-xsht']
+            qualified_without_stage['harness_artifact_staging']['core-compat-extra-xsht']['action'] = 'already-qualified'
+            check.check_supplemental_policy(qualified_without_stage, plan, config)
+            for mutation in ('missing_step', 'missing_staging_record', 'wrong_source', 'stale_source', 'wrong_destination', 'wrong_image', 'wrong_mount_mode', 'wrong_shell_argv', 'wrong_docker_argv', 'wrong_action'):
+                wrong = deepcopy(receipt)
+                stage_step = wrong['steps'][stage_index]
+                staging = wrong['harness_artifact_staging']['core-compat-extra-xsht']
+                if mutation == 'missing_step':
+                    wrong['steps'].pop(stage_index)
+                elif mutation == 'missing_staging_record':
+                    del wrong['harness_artifact_staging']
+                elif mutation == 'wrong_source':
+                    staging['source']['sha256'] = 'f' * 64
+                elif mutation == 'stale_source':
+                    staging['source']['qualified_product_variant']['tree'] = 'f' * 40
+                elif mutation == 'wrong_destination':
+                    staging['destination']['path'] = str(Path(staging['destination']['path']).with_name('wrong-xsht'))
+                elif mutation == 'wrong_image':
+                    image_index = stage_step['argv'].index(plan['environment']['image'])
+                    stage_step['argv'][image_index] = 'wrong-image'
+                    stage_step['docker_argv'][image_index] = 'wrong-image'
+                elif mutation == 'wrong_mount_mode':
+                    mount_index = next(index for index, value in enumerate(stage_step['argv']) if value.endswith(':ro'))
+                    stage_step['argv'][mount_index] = stage_step['argv'][mount_index].removesuffix(':ro') + ':rw'
+                    stage_step['docker_argv'][mount_index] = stage_step['argv'][mount_index]
+                elif mutation == 'wrong_shell_argv':
+                    stage_step['argv'][-1] = 'wrong-hash'
+                    stage_step['docker_argv'][-1] = 'wrong-hash'
+                elif mutation == 'wrong_docker_argv':
+                    stage_step['docker_argv'][-1] = 'wrong-hash'
+                else:
+                    staging['action'] = 'unknown'
+                with self.subTest(stage_mutation=mutation), self.assertRaises(check.CheckError):
+                    check.check_supplemental_policy(wrong, plan, config)
             for name in ('linux-special-01-boundary', 'build-product-01-xsh', 'warning-deny-01'):
                 wrong = deepcopy(receipt)
                 wrong['steps'] = [step for step in wrong['steps'] if step['id'] != name]
@@ -413,11 +610,11 @@ class PolicyTests(unittest.TestCase):
             with self.assertRaises(check.CheckError):
                 check.check_supplemental_policy(wrong, plan, config)
             wrong = deepcopy(receipt)
-            wrong['steps'][3]['docker_argv_capture'] = {'path': '/unused/capture', 'sha256': 'f' * 64}
+            wrong['steps'][context_index]['docker_argv_capture'] = {'path': '/unused/capture', 'sha256': 'f' * 64}
             with self.assertRaisesRegex(check.CheckError, 'direct Docker argv must not use a helper capture'):
                 check.check_supplemental_policy(wrong, plan, config)
             wrong = deepcopy(receipt)
-            direct = wrong['steps'][3]
+            direct = wrong['steps'][context_index]
             env_index = direct['argv'].index('-e')
             del direct['argv'][env_index:env_index + 2]
             direct['docker_argv'] = direct['argv']

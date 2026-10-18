@@ -336,18 +336,151 @@ def check_supplemental_laputa_command(step, config, image, *, helper):
     require(selected_environments == [('-e', f'XSH_LAPUTA_CORPUS={laputa}')], f"supplemental command must select only the configured Laputa corpus: {step.get('id')}")
 
 
+def check_supplemental_stage_step(step, receipt, plan, config):
+    stage_id = 'stage-core-compat-extra-xsht'
+    if step is not None:
+        require(step.get('id') == stage_id, f'invalid supplemental stage step: {step.get("id")}')
+    staging_records = receipt.get('harness_artifact_staging')
+    require(isinstance(staging_records, dict), 'supplemental harness artifact staging missing')
+    staging = staging_records.get('core-compat-extra-xsht')
+    fields(staging, ('action', 'source', 'destination'), 'supplemental harness artifact staging')
+    require(staging['action'] in ('staged', 'already-qualified'), 'supplemental harness artifact staging action mismatch')
+    source = staging['source']
+    destination = staging['destination']
+    fields(source, ('path', 'sha256', 'qualified_product_variant'), 'supplemental staged product')
+    fields(source['qualified_product_variant'], ('profile', 'target_variant', 'commit', 'tree'), 'supplemental staged product qualification')
+    fields(destination, ('path', 'sha256', 'harness', 'harness_xsh_path', 'harness_xsh_sha256', 'target_variant', 'profile', 'features'), 'supplemental staged harness product')
+
+    target = plan['environment']['target']
+    target_dirs = receipt.get('cargo_target_dirs', {})
+    require(isinstance(target_dirs, dict), 'supplemental target directories missing')
+    products_root = canonical(target_dirs.get('products'))
+    harness_root = canonical(target_dirs.get('harness'))
+    expected_source_path = products_root / target / 'verification' / 'xsht'
+    expected_destination_path = harness_root / target / 'verification' / 'xsht'
+    source_path = canonical(source['path'])
+    destination_path = canonical(destination['path'])
+    hashes = receipt.get('hashes')
+    require(isinstance(hashes, dict) and isinstance(hashes.get('binaries_after_tests'), dict), 'supplemental staged product hashes missing')
+    source_hash = hashes['binaries_after_tests'].get('xsht-verification')
+    require(source_path == expected_source_path and source['sha256'] == source_hash, 'supplemental staged product binding mismatch')
+    require(destination_path == expected_destination_path and destination['sha256'] == source_hash, 'supplemental staged harness binding mismatch')
+    require(source['qualified_product_variant'] == {
+        'profile': 'verification',
+        'target_variant': 'products',
+        'commit': config.commit,
+        'tree': config.tree,
+    }, 'supplemental staged product source mismatch')
+    source_file = bound_file(source, config.source_root)
+    destination_file = bound_file({'path': str(destination_path), 'sha256': destination['sha256']}, config.source_root)
+    require(os.access(source_file, os.X_OK) and os.access(destination_file, os.X_OK), 'supplemental staged product is not executable')
+
+    harnesses = receipt.get('harnesses')
+    require(isinstance(harnesses, dict), 'supplemental harness qualification missing')
+    harness = harnesses.get('core-compat-extra')
+    require(isinstance(harness, dict), 'supplemental core compatibility harness missing')
+    variant = harness.get('xsh_variant', {})
+    require(isinstance(variant, dict), 'supplemental harness xsh variant missing')
+    qualification = variant.get('qualification', {})
+    require(isinstance(qualification, dict), 'supplemental harness xsh qualification missing')
+    harness_xsh = canonical(variant.get('path'))
+    harness_features = qualification.get('features')
+    require(
+        harness.get('target_variant') == 'harness'
+        and canonical(harness.get('target_dir')) == harness_root
+        and harness_xsh == harness_root / target / 'verification' / 'xsh'
+        and qualification.get('target_variant') == 'harness'
+        and qualification.get('profile_name') == 'verification'
+        and isinstance(harness_features, list)
+        and all(type(feature) is str for feature in harness_features)
+        and set(harness_features) == {'default', 'native-tests', 'net', 'tools'}
+        and len(harness_features) == len(set(harness_features))
+        and qualification.get('source') == {'clean': True, 'commit': config.commit, 'tree': config.tree},
+        'supplemental harness xsh qualification mismatch',
+    )
+    harness_xsh_file = bound_file({'path': str(harness_xsh), 'sha256': variant.get('sha256')}, config.source_root)
+    require(os.access(harness_xsh_file, os.X_OK), 'supplemental harness xsh is not executable')
+    require(
+        destination['harness'] == 'core-compat-extra'
+        and canonical(destination['harness_xsh_path']) == harness_xsh
+        and destination['harness_xsh_sha256'] == variant['sha256']
+        and destination['target_variant'] == 'harness'
+        and destination['profile'] == 'verification'
+        and destination['features'] == harness_features,
+        'supplemental staged harness qualification mismatch',
+    )
+
+    if step is None:
+        require(staging['action'] == 'already-qualified', 'supplemental staged harness step is missing')
+        return
+    require(staging['action'] == 'staged', 'supplemental harness was already qualified before staging')
+    require(step.get('cwd') == str(config.source_root), 'supplemental harness stage source mismatch')
+    log_path = canonical(step.get('log'))
+    environment = step.get('env')
+    fields(environment, ('XSH_GATE_CIDFILE',), 'supplemental harness stage environment')
+    cidfile = canonical(environment['XSH_GATE_CIDFILE'])
+    require(cidfile == log_path.parent.parent / 'container-ids' / f'{log_path.stem}.cid', 'supplemental harness stage cidfile mismatch')
+    require(cidfile.parent == cidfile.parent.resolve() and cidfile.parent.is_dir(), 'supplemental harness stage cidfile directory is unavailable')
+    require('docker_argv_capture' not in step, 'supplemental direct Docker argv must not use a helper capture')
+    script = '\n'.join([
+        'set -eu',
+        'source=$1',
+        'destination=$2',
+        'expected=$3',
+        'hash_file() { result=$(sha256sum -- "$1") || return; printf \'%s\\n\' "${result%% *}"; }',
+        '[ ! -L "$source" ] && [ -f "$source" ] && [ -x "$source" ]',
+        '[ "$(hash_file "$source")" = "$expected" ]',
+        'if [ -L "$destination" ]; then exit 1; fi',
+        'if [ -e "$destination" ]; then',
+        '    [ -f "$destination" ] && [ -x "$destination" ]',
+        '    [ "$(hash_file "$destination")" = "$expected" ]',
+        '    exit 0',
+        'fi',
+        'temporary=$(mktemp "${destination}.stage.XXXXXX")',
+        "trap 'rm -f -- \"$temporary\"' EXIT HUP INT TERM",
+        'cp -p -- "$source" "$temporary"',
+        '[ -f "$temporary" ] && [ -x "$temporary" ]',
+        '[ "$(hash_file "$temporary")" = "$expected" ]',
+        'ln -- "$temporary" "$destination"',
+        'rm -- "$temporary"',
+        'trap - EXIT HUP INT TERM',
+    ])
+    scratch = canonical(str(config.source_root / '.work/tmp'))
+    require(scratch == scratch.resolve() and scratch.is_dir(), 'supplemental source scratch is unavailable or symlinked')
+    expected_argv = [
+        'docker', 'run', '--rm', '--init', '--read-only', '--cidfile', str(cidfile),
+        '--platform', 'linux/amd64', '--cpus=2', '--memory=1g', '--memory-swap=1g',
+        '--network=none', '-v', f'{products_root}:{products_root}:ro',
+        '-v', f'{harness_root}:{harness_root}:rw', '-v', f'{scratch}:{scratch}:rw',
+        '-e', f'TMPDIR={scratch}', '--user', '0:0', plan['environment']['image'],
+        'sh', '-euc', script, 'xsh-gate-stage-xsht', str(source_path), str(destination_path), source_hash,
+    ]
+    require(step.get('argv') == expected_argv and step.get('docker_argv') == expected_argv, 'supplemental harness stage command mismatch')
+
+
 def check_supplemental_policy(receipt, plan, config):
     require(receipt.get('schema') == 1 and receipt.get('status') == 'commands-passed-needs-privilege-skip-and-close-review', 'supplemental commands incomplete')
     require(receipt.get('source_expected') == {'commit': config.commit, 'tree': config.tree}, 'supplemental source mismatch')
-    require(receipt.get('environment') == {key: plan['environment'][key] for key in ('target', 'image')}, 'supplemental target or image mismatch')
+    environment = receipt.get('environment')
+    require(
+        isinstance(environment, dict)
+        and environment.get('target') == plan['environment']['target']
+        and environment.get('image') == plan['environment']['image'],
+        'supplemental target or image mismatch',
+    )
     validate_laputa_corpus(receipt.get('laputa_corpus'), config)
     check_source_records(receipt.get('source_checks'), config, 'supplemental')
     steps = receipt.get('steps')
     require(isinstance(steps, list) and steps, 'supplemental steps missing')
     ids = [step['id'] for step in steps]
     require(len(ids) == len(set(ids)), 'supplemental duplicate step')
+    stage_steps = [step for step in steps if step.get('id') == 'stage-core-compat-extra-xsht']
+    require(len(stage_steps) <= 1, 'supplemental duplicate harness stage step')
+    check_supplemental_stage_step(stage_steps[0] if stage_steps else None, receipt, plan, config)
     for step in steps:
         observed = step.get('argv', [])
+        if step.get('id') == 'stage-core-compat-extra-xsht':
+            continue
         if isinstance(observed, list) and observed and isinstance(observed[0], str) and observed[0].endswith('/run-native-final.sh'):
             check_supplemental_laputa_command(step, config, plan['environment']['image'], helper=True)
         elif isinstance(observed, list) and observed[:2] == ['docker', 'run']:
