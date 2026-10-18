@@ -555,6 +555,13 @@ skips, and unchanged source before invoking them. Do not write replacement suite
 The old ARM64-only `bench/stdlib-port/run.py --linux` route must not be used as
 the x86-64 gate. Reuse its workloads through the current pinned x86-64 runner.
 
+The scheduler comparator keeps networking disabled and supplies a local
+`xsh-test` hostname mapping. Its read-only mounts expose the source at `/work`
+and its original absolute path, the shared Git directory, and
+`/usr/local/bin/mold`. The existing `runner_artifacts` map binds mold's bytes;
+each stage checks that executable before and after execution. The launch owner
+must match it to the passed profile's mold binding before starting comparison.
+
 Within the isolated Laputa tree, bind `XSHT` and its sibling `xsh` to candidate
 products and use existing exact selectors. Start with these current controls:
 

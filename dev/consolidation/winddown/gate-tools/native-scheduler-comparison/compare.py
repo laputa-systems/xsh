@@ -11,6 +11,7 @@ from pathlib import Path
 from pathlib import PurePosixPath
 import re
 import secrets
+import stat
 import subprocess
 import sys
 import tempfile
@@ -47,6 +48,7 @@ MEMORY_LIMIT = 40 * 1024**3
 SUITE_ROUNDS = 3
 WORKERS = {"reference": 8, "candidate": 32}
 BINARIES = ("xsht", "xsh", "xsh-test-helper")
+MOLD = Path("/usr/local/bin/mold")
 LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,47}$")
 REFERENCE_OVERLAY_PATHS = {
     "crates/xsht/src/xsht/test.rs",
@@ -235,6 +237,17 @@ def sha256_file(path: Path) -> str:
         for block in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def mold_sha256() -> str:
+    if not stat.S_ISREG(MOLD.lstat().st_mode) or not os.access(MOLD, os.X_OK):
+        raise ValueError(f"mold must be a regular executable: {MOLD}")
+    return sha256_file(MOLD)
+
+
+def verify_mold(expected: str) -> None:
+    if mold_sha256() != expected:
+        raise ValueError("mold changed during the scheduler comparison")
 
 
 def write_json(path: Path, value: object) -> None:
@@ -665,13 +678,21 @@ def docker_command(
     mode: str, pair: str, label: str, container_name: str,
 ) -> list[str]:
     uid, gid = os.getuid(), os.getgid()
+    common_git = Path(git(source_root, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve(strict=True)
+    tool_common_git = Path(git(ROOT, "rev-parse", "--path-format=absolute", "--git-common-dir")).resolve(strict=True)
+    if common_git != tool_common_git:
+        raise ValueError("scheduler source must share the controller's common Git directory")
     command = [
         "docker", "run", "--rm", "--init", "--pull=never", "--platform", "linux/amd64",
+        "--network", "none", "--hostname", "xsh-test", "--add-host", "xsh-test:127.0.0.1",
         "--name", container_name,
         f"--cpuset-cpus={CPUSETS}", f"--cpus={CPU_QUOTA}",
         "--memory=40g", "--memory-swap=40g",
         "--user", f"{uid}:{gid}", "--tmpfs", "/tmp:rw,nodev,exec,mode=1777",
         "-v", f"{source_root}:/work:ro",
+        "-v", f"{source_root}:{source_root}:ro",
+        "-v", f"{common_git}:{common_git}:ro",
+        "-v", f"{MOLD}:{MOLD}:ro",
         "-v", f"{binary_dir}:/opt/{pair}:ro",
         "-v", f"{output_dir}:/results:rw",
         "-v", f"{CONTAINER_RUNNER}:/bench/container-run.sh:ro",
@@ -700,6 +721,8 @@ def run_stage(
     *, source_root: Path, binary_dir: Path, output_dir: Path, image: str,
     pair: str, mode: str, label: str, run_id: str, verify_after=None,
 ) -> dict:
+    if verify_after is not None:
+        verify_after()
     container_name = f"xshsch-{run_id}-{pair}-{mode}"
     command = docker_command(
         source_root=source_root,
@@ -1037,8 +1060,10 @@ def run_comparison(args: argparse.Namespace) -> int:
     )
     binary_dirs = {"reference": reference_dir, "candidate": candidate_dir}
     binaries = capture_binaries(reference_dir, candidate_dir)
+    mold = mold_sha256()
 
     def verify_stage_inputs() -> dict:
+        verify_mold(mold)
         return verify_timed_stage_inputs(
             source_root=source_root,
             expected_source=source,
@@ -1131,8 +1156,11 @@ def run_comparison(args: argparse.Namespace) -> int:
         "manifest_path": str(manifest_path),
         "output_dir": str(output_dir),
         "runner_artifacts": {
-            str(path): sha256_file(path)
-            for path in (Path(__file__).resolve(), OUTCOMES_MODULE, CONTAINER_RUNNER, VALIDATOR)
+            **{
+                str(path): sha256_file(path)
+                for path in (Path(__file__).resolve(), OUTCOMES_MODULE, CONTAINER_RUNNER, VALIDATOR)
+            },
+            str(MOLD): mold,
         },
         "container_run_id": f"{args.run_id}-{secrets.token_hex(3)}",
         "stages": [],
