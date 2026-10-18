@@ -151,8 +151,10 @@ The supplemental receipt must carry the same `laputa_corpus` binding. Each
 build, warning-deny, and `linux-special-*` container step must select that path
 with one read-only bind mount and one `XSH_LAPUTA_CORPUS` value. The
 `stage-core-compat-extra-xsht` step copies the qualified `xsht` product into the
-harness target. The reader checks its source and destination hashes, target
-paths, pinned image, mount modes, and exact Docker argv. Helper steps bind their
+harness target. The stage validator checks its source and destination hashes,
+target paths, pinned image, mount modes, and exact Docker argv, and requires the
+product, harness, and source-scratch mount roots to remain disjoint from the
+corpus. Helper steps bind their
 NUL-terminated `docker_argv_capture` bytes by path and SHA-256 and must match the
 decoded vector to `docker_argv`; direct Docker steps must match `docker_argv` to
 the recorded step command. Missing, stale, dirty, duplicate, or mismatched

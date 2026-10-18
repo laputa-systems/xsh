@@ -55,6 +55,10 @@ def canonical(value):
     return path
 
 
+def paths_overlap(left, right):
+    return left.is_relative_to(right) or right.is_relative_to(left)
+
+
 @dataclass(frozen=True)
 class Config:
     source_root: Path
@@ -356,6 +360,16 @@ def check_supplemental_stage_step(step, receipt, plan, config):
     require(isinstance(target_dirs, dict), 'supplemental target directories missing')
     products_root = canonical(target_dirs.get('products'))
     harness_root = canonical(target_dirs.get('harness'))
+    require(products_root == products_root.resolve() and harness_root == harness_root.resolve(), 'supplemental stage roots cannot contain symlinks')
+    if step is None:
+        require(staging['action'] == 'already-qualified', 'supplemental staged harness step is missing')
+        scratch = None
+    else:
+        require(staging['action'] == 'staged', 'supplemental harness was already qualified before staging')
+        scratch = canonical(str(config.source_root / '.work/tmp'))
+        require(scratch == scratch.resolve() and scratch.is_dir(), 'supplemental source scratch is unavailable or symlinked')
+    stage_roots = (products_root, harness_root, *((scratch,) if scratch is not None else ()))
+    require(not any(paths_overlap(root, config.laputa_root) for root in stage_roots), 'supplemental stage roots overlap selected Laputa corpus')
     expected_source_path = products_root / target / 'verification' / 'xsht'
     expected_destination_path = harness_root / target / 'verification' / 'xsht'
     source_path = canonical(source['path'])
@@ -411,9 +425,7 @@ def check_supplemental_stage_step(step, receipt, plan, config):
     )
 
     if step is None:
-        require(staging['action'] == 'already-qualified', 'supplemental staged harness step is missing')
         return
-    require(staging['action'] == 'staged', 'supplemental harness was already qualified before staging')
     require(step.get('cwd') == str(config.source_root), 'supplemental harness stage source mismatch')
     log_path = canonical(step.get('log'))
     environment = step.get('env')
@@ -445,8 +457,6 @@ def check_supplemental_stage_step(step, receipt, plan, config):
         'rm -- "$temporary"',
         'trap - EXIT HUP INT TERM',
     ])
-    scratch = canonical(str(config.source_root / '.work/tmp'))
-    require(scratch == scratch.resolve() and scratch.is_dir(), 'supplemental source scratch is unavailable or symlinked')
     expected_argv = [
         'docker', 'run', '--rm', '--init', '--read-only', '--cidfile', str(cidfile),
         '--platform', 'linux/amd64', '--cpus=2', '--memory=1g', '--memory-swap=1g',

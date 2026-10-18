@@ -419,6 +419,37 @@ class PolicyTests(unittest.TestCase):
             'source_hash': source_hash,
         }
 
+    def rewrite_supplemental_stage_roots(self, receipt, plan, products_root, harness_root):
+        target = plan['environment']['target']
+        staging = receipt['harness_artifact_staging']['core-compat-extra-xsht']
+        old_products_root = Path(receipt['cargo_target_dirs']['products'])
+        old_harness_root = Path(receipt['cargo_target_dirs']['harness'])
+        source = Path(staging['source']['path'])
+        destination = Path(staging['destination']['path'])
+        old_harness_xsh = Path(staging['destination']['harness_xsh_path'])
+        new_source = products_root / target / 'verification' / 'xsht'
+        new_harness_xsh = harness_root / target / 'verification' / 'xsh'
+        new_destination = new_harness_xsh.with_name('xsht')
+        receipt['cargo_target_dirs']['products'] = str(products_root)
+        receipt['cargo_target_dirs']['harness'] = str(harness_root)
+        staging['source']['path'] = str(new_source)
+        staging['destination']['path'] = str(new_destination)
+        staging['destination']['harness_xsh_path'] = str(new_harness_xsh)
+        harness = receipt['harnesses']['core-compat-extra']
+        harness['target_dir'] = str(harness_root)
+        harness['xsh_variant']['path'] = str(new_harness_xsh)
+        replacements = {
+            str(source): str(new_source),
+            str(destination): str(new_destination),
+            f'{old_products_root}:{old_products_root}:ro': f'{products_root}:{products_root}:ro',
+            f'{old_harness_root}:{old_harness_root}:rw': f'{harness_root}:{harness_root}:rw',
+        }
+        for step in receipt['steps']:
+            if step.get('id') != 'stage-core-compat-extra-xsht':
+                continue
+            for key in ('argv', 'docker_argv'):
+                step[key] = [replacements.get(argument, argument) for argument in step[key]]
+
     def test_bare_boolean_failed_canonical_and_cleanup_are_rejected(self):
         receipt, config = self.canonical()
         check.check_canonical_policy(receipt, config)
@@ -436,7 +467,9 @@ class PolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=config.scratch) as directory:
             root = Path(directory) / 'laputa'
             binding = self.laputa_binding(root)
-            config = replace(config, laputa_root=root)
+            source_root = Path(directory) / 'source'
+            (source_root / '.work/tmp').mkdir(parents=True)
+            config = replace(config, source_root=source_root, laputa_root=root)
             logs = Path(directory) / 'logs'
             logs.mkdir()
             stage = self.supplemental_stage_fixture(directory, config, plan, logs)
@@ -510,6 +543,45 @@ class PolicyTests(unittest.TestCase):
             qualified_without_stage['steps'] = [step for step in qualified_without_stage['steps'] if step['id'] != 'stage-core-compat-extra-xsht']
             qualified_without_stage['harness_artifact_staging']['core-compat-extra-xsht']['action'] = 'already-qualified'
             check.check_supplemental_policy(qualified_without_stage, plan, config)
+            for root_field in ('products', 'harness'):
+                for overlap in ('equal', 'ancestor', 'descendant'):
+                    wrong = deepcopy(receipt)
+                    laputa = Path(config.laputa_root)
+                    conflicting_root = {
+                        'equal': laputa,
+                        'ancestor': laputa.parent,
+                        'descendant': laputa / f'{root_field}-target',
+                    }[overlap]
+                    products_root = Path(wrong['cargo_target_dirs']['products'])
+                    harness_root = Path(wrong['cargo_target_dirs']['harness'])
+                    if root_field == 'products':
+                        products_root = conflicting_root
+                    else:
+                        harness_root = conflicting_root
+                    self.rewrite_supplemental_stage_roots(wrong, plan, products_root, harness_root)
+                    with (
+                        self.subTest(root=root_field, overlap=overlap),
+                        patch.object(check, 'validate_laputa_corpus', return_value={}),
+                        patch.object(check, 'bound_file', side_effect=AssertionError('stage root boundary checked after file validation')),
+                        self.assertRaisesRegex(check.CheckError, 'supplemental stage roots overlap selected Laputa corpus'),
+                    ):
+                        check.check_supplemental_policy(wrong, plan, config)
+            stage_scratch = config.source_root / '.work/tmp'
+            for overlap, laputa in (
+                ('equal', stage_scratch),
+                ('ancestor', config.source_root),
+                ('descendant', stage_scratch / 'laputa'),
+            ):
+                wrong = deepcopy(receipt)
+                wrong['laputa_corpus']['path'] = str(laputa)
+                scratch_config = replace(config, laputa_root=laputa)
+                with (
+                    self.subTest(root='source-scratch', overlap=overlap),
+                    patch.object(check, 'validate_laputa_corpus', return_value={}),
+                    patch.object(check, 'bound_file', side_effect=AssertionError('stage root boundary checked after file validation')),
+                    self.assertRaisesRegex(check.CheckError, 'supplemental stage roots overlap selected Laputa corpus'),
+                ):
+                    check.check_supplemental_policy(wrong, plan, scratch_config)
             for mutation in ('missing_step', 'missing_staging_record', 'wrong_source', 'stale_source', 'wrong_destination', 'wrong_image', 'wrong_mount_mode', 'wrong_shell_argv', 'wrong_docker_argv', 'wrong_action'):
                 wrong = deepcopy(receipt)
                 stage_step = wrong['steps'][stage_index]
