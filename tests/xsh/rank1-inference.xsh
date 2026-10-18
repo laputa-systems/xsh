@@ -1,12 +1,14 @@
 test rank1_nested_nominal_schemas_preserve_generic_parameters_and_returns { |ctx|
-  test.expect(ctx, r"""
+  let output = test.run_xsh(ctx, r"""
 type Item = {value: Int}
 pure keep(value, items: List[Item]) { value }
 pure make(value, items: List[Item]) -> List[Item] { items }
 let answer: Bool = keep(false, [Item(1)])
 print $answer
 print make(false, [Item(1)])[0].value
-""", stdout: "false\n1\n")?
+""")?
+  assert output.success, output.stderr
+  assert output.stdout == "false\n1\n"
 }
 
 test rank1_exported_identity_instantiates_each_import_root { |ctx|
