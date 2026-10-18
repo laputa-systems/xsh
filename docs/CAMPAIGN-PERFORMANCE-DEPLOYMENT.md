@@ -506,8 +506,8 @@ python3 -B dev/consolidation/winddown/gate-tools/final-performance-gates/final-o
 python3 -B dev/consolidation/winddown/gate-tools/final-performance-gates/profile-cost.py --tree SOURCE --commit COMMIT --functional-close CLOSE_JSON --laputa-corpus LAPUTA --output OUTPUT
 python3 -B dev/consolidation/winddown/gate-tools/final-performance-gates/final-observers.py --execute --tree SOURCE --commit COMMIT --functional-close CLOSE_JSON --profile-receipt PROFILE_JSON --release-opt-level 3 --output OUTPUT
 python3 -B dev/consolidation/winddown/gate-tools/final-performance-gates/forced-frames.py --tree SOURCE --commit COMMIT --functional-close CLOSE_JSON --laputa-corpus LAPUTA --profile-receipt PROFILE_JSON --output OUTPUT
-python3 -B dev/util-linux/check.py resources --check
-python3 -B dev/util-linux/check.py close --check
+python3 -B dev/util-linux/check.py resources --check --laputa-corpus LAPUTA
+python3 -B dev/util-linux/check.py close --check --laputa-corpus LAPUTA
 ```
 
 Reuse `forced-frames.py`, `final-comparative.py`, and
@@ -649,6 +649,9 @@ duplicate per-commit copies of controllers solely to record provenance.
 - The existing structural scanner completed bounded small- and large-file diagnostic probes with matching source/product hashes and resolved container cleanup. A full-source measurement exceeded its initial 120-second bound without a report; this supplies no acceptance or performance credit. The functional adapter now selects the historical 900-second full-scan budget explicitly, while its focused self-test retains 60 seconds. The required full structural report remains pending.
 - Isolated Laputa integration advanced to `cf61f4b`, adding concurrent publication retries with both workers acknowledging readiness before release. The coordinator replayed the composed replacement/publication/removal/GC selector successfully with the immutable historical seed. Candidate qualification and real boot remain pending. The normal sibling checkout is untouched.
 - Follow-up checkouts are `.work/wt/perf-util-close` on `campaign/performance-util-close-20261018` for the integrated controller repairs and `.work/wt/perf-layout` on `campaign/performance-layout-20261018` for the failed layout investigation. The boundary and measurement owners retain their existing isolated checkouts. Keep these checkouts and failed-run evidence until integration and acceptance resolve.
+- The `a857527a7` canonical run finished unsuccessfully with cleanup resolved. Its layout harness rejected existing lint errors when perturbation added redundant-parentheses errors. Harness repair `e9afc26da` preserves all diagnostics and rejects unrelated checker and parse errors. The minimal fixture failed before the repair; five focused controls pass. A fresh full run remains required.
+- Supplemental and util-linux gates now require an explicit clean Laputa corpus. Supplemental receipts retain the executed Docker arguments, and the reader checks the selected read-only mount and environment. Local policy checks pass; no supplemental acceptance receipt has been issued.
+- The authorized host-tools image is saved under `.work/wt/laputa-foundation/.cache/images/laputa-host-tools-x86_64-faf126e1d76d709e.tar`. Reload preserved image ID `sha256:0f1d14f60e28ec442566326db92872916b2ba61fc437ac07fa0e32c9a4fde371`; the coordinator checked the tar digest and loaded image independently. Reuse the saved image offline. Package-closure execution and real boot remain pending.
 
 ## For the owner afterwards
 
