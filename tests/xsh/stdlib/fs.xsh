@@ -483,6 +483,42 @@ test test_fs_root_and_children_preserve_non_utf8_name { |ctx|
   root.close()
 }
 
+test test_fs_root_atomic_interruption_keeps_old_file_and_contains_partial_write { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("SIGXFSZ resource-limit behavior is required")
+    return
+  }
+
+  let root_dir = test.temp_dir(ctx, name: "fs-root-atomic-interruption")?
+  let outside = test.temp_dir(ctx, name: "fs-root-atomic-interruption-outside")?
+  let outside_sentinel = fp"{outside}/sentinel"
+  outside_sentinel.write("outside")
+
+  let root = fs.open_root(root_dir)?
+  defer root.close()
+  root.write(p"state", "old")
+
+  let child = test.run_script(
+    ctx,
+    """
+process.set_signal_action("XFSZ", "default")?
+process.set_rlimit("fsize", soft: 4096)?
+let root = fs.open_root(args[0] as Path)?
+root.write_atomic(p"state", bytes.zero(8192)?)
+""",
+    [root_dir],
+  )?
+
+  assert child.status == 153, f"status={child.status} stdout={child.stdout} stderr={child.stderr}"
+  assert root.read_text(p"state")? == "old"
+  let leftovers = [entry for entry in root.children(p".")?.children if entry != p"state"]
+  assert leftovers.len() == 1
+  let partial = root.stat(leftovers[0])?
+  assert partial.kind == "file" and partial.size == 4096
+  assert outside_sentinel.read_text()? == "outside"
+  assert fs.children(outside)?.collect().len() == 1
+}
+
 test test_fs_root_atomic_publication_keeps_hardlinks_and_confines_symlinks { |ctx|
   let root_dir = test.temp_dir(ctx, name: "fs-root-atomic-boundary")?
   let outside = test.temp_dir(ctx, name: "fs-root-atomic-outside")?
