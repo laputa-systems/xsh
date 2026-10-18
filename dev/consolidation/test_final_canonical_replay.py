@@ -45,6 +45,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         self.cargo_lock = self.infra / "cargo.lock"
         self.scratch_dir = self.repo / ".work/tmp"
         self.receipt_path = self.scratch_dir / "bootstrap-build-receipt.json"
+        self.bootstrap_snapshot = self.receipt_path.parent / "xsh"
         self.build_json_path = self.scratch_dir / "bootstrap-build.jsonl"
         self.scratch_dir.mkdir(parents=True)
         self.infra.mkdir(parents=True)
@@ -84,6 +85,8 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
     def create_build_receipt(self, receipt_updates=None):
         records = self.build_records()
         self.build_json_path.write_text("".join(json.dumps(record) + "\n" for record in records), encoding="utf-8")
+        self.bootstrap_snapshot.write_bytes(self.bootstrap.read_bytes())
+        self.bootstrap_snapshot.chmod(0o755)
         receipt = {
             "schema_version": 1,
             "status": "passed",
@@ -100,9 +103,9 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
                 "exit_code": 0,
             },
             "artifact": {
-                "path": str(self.bootstrap),
-                "size_bytes": self.bootstrap.stat().st_size,
-                "sha256": runner.sha256_file(self.bootstrap),
+                "path": str(self.bootstrap_snapshot),
+                "size_bytes": self.bootstrap_snapshot.stat().st_size,
+                "sha256": runner.sha256_file(self.bootstrap_snapshot),
             },
         }
         if receipt_updates:
@@ -136,7 +139,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
 
         def host_file(path, executable=False):
             path = pathlib.Path(path)
-            if path == self.bootstrap:
+            if path == self.bootstrap or (path.name == "xsh" and path.is_relative_to(self.scratch_dir)):
                 return real_host_file(path, executable=executable)
             return {"path": str(path), "size_bytes": 1, "sha256": "0" * 64}
 
@@ -151,6 +154,12 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         with self.assertRaisesRegex(runner.ReplayError, "required host file is missing"):
             self.validate()
 
+    def test_rejects_symlinked_mutable_bootstrap_binary(self):
+        self.bootstrap.unlink()
+        self.bootstrap.symlink_to(self.bootstrap_snapshot)
+        with self.assertRaisesRegex(runner.ReplayError, "bootstrap product path must not contain symlinks"):
+            self.validate()
+
     def test_rejects_wrong_bootstrap_artifact_path(self):
         receipt = self.create_build_receipt()
         receipt["artifact"]["path"] = str(self.target_dir / "xsh")
@@ -163,6 +172,23 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         receipt["artifact"]["sha256"] = "0" * 64
         self.receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
         with self.assertRaisesRegex(runner.ReplayError, "artifact hash or size"):
+            self.validate()
+
+    def test_rejects_tampered_retained_bootstrap_artifact(self):
+        self.bootstrap_snapshot.write_text("#!/bin/sh\nexit 3\n", encoding="utf-8")
+        self.bootstrap_snapshot.chmod(0o755)
+        with self.assertRaisesRegex(runner.ReplayError, "artifact hash or size"):
+            self.validate()
+
+    def test_rejects_missing_retained_bootstrap_artifact(self):
+        self.bootstrap_snapshot.unlink()
+        with self.assertRaisesRegex(runner.ReplayError, "retained bootstrap artifact file is missing"):
+            self.validate()
+
+    def test_rejects_symlinked_retained_bootstrap_artifact(self):
+        self.bootstrap_snapshot.unlink()
+        self.bootstrap_snapshot.symlink_to(self.bootstrap)
+        with self.assertRaisesRegex(runner.ReplayError, "retained bootstrap artifact path contains a symlink"):
             self.validate()
 
     def test_rejects_bootstrap_receipt_from_another_source(self):
@@ -308,7 +334,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
     def test_bootstrap_producer_writes_a_receipt_accepted_by_the_canonical_validator(self):
         self.create_build_receipt()
         self.receipt_path.unlink()
-        receipt_output = self.output / "bootstrap-receipt.json"
+        receipt_output = self.scratch_dir / "retained-bootstrap" / "bootstrap-receipt.json"
         receipt_output.parent.mkdir()
         source = runner.git_snapshot(self.repo)
 
@@ -327,14 +353,59 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
                 self.repo,
                 self.scratch_dir,
                 source,
-                self.bootstrap,
+                receipt_output.parent / "xsh",
             )
 
         self.assertEqual(receipt["cargo_argv"], runner.BOOTSTRAP_CARGO_ARGV)
         self.assertEqual(receipt["cargo_target_dir"], runner.BOOTSTRAP_CONTAINER_TARGET_DIR)
         self.assertEqual(receipt["rustflags"], runner.RUSTFLAGS)
         self.assertEqual(receipt["build_json"]["sha256"], runner.sha256_file(self.build_json_path))
+        retained_path = receipt_output.parent / "xsh"
+        self.assertEqual(receipt["artifact"]["path"], str(retained_path))
+        self.assertEqual(retained_path.read_bytes(), self.bootstrap.read_bytes())
+        self.assertEqual(retained_path.stat().st_mode & 0o777, 0o755)
         self.assertEqual(validated["record"], receipt)
+
+        self.bootstrap.write_text("#!/bin/sh\nexit 9\n", encoding="utf-8")
+        self.bootstrap.chmod(0o755)
+        with self.with_mocked_tools():
+            retained = runner.validate_bootstrap_receipt(
+                receipt_output,
+                self.repo,
+                self.scratch_dir,
+                source,
+                retained_path,
+            )
+        self.assertEqual(retained["artifact"]["sha256"], receipt["artifact"]["sha256"])
+        with self.assertRaisesRegex(
+            runner.ReplayError,
+            "mutable target differs from the retained bootstrap artifact",
+        ):
+            self.validate(self.arguments(receipt_output))
+
+    def test_run_batch_rejects_stale_mutable_bootstrap_before_docker_launch(self):
+        with self.with_mocked_tools():
+            validated = self.validate()
+
+        def replace_during_image_check(argv, cwd):
+            self.bootstrap.write_text("#!/bin/sh\nexit 5\n", encoding="utf-8")
+            self.bootstrap.chmod(0o755)
+            return runner.IMAGE
+
+        with (
+            mock.patch.object(runner, "source_check", return_value={"where": "before"}),
+            mock.patch.object(runner, "run_text", side_effect=replace_during_image_check) as run_text,
+            mock.patch.object(runner, "stop_container", return_value={"resolved": True}),
+            mock.patch.object(runner.subprocess, "Popen") as popen,
+        ):
+            with self.assertRaisesRegex(
+                runner.ReplayError,
+                "mutable target differs from the retained bootstrap artifact",
+            ):
+                runner.run_batch(validated)
+        run_text.assert_called_once_with(["docker", "image", "inspect", "--format", "{{.Id}}", runner.IMAGE], self.repo)
+        popen.assert_not_called()
+        self.assertTrue(validated["output_root"].exists())
 
     def test_bootstrap_producer_rejects_failed_build_and_wrong_output_directory(self):
         self.create_build_receipt()
@@ -414,7 +485,7 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
                 self.repo,
                 self.scratch_dir,
                 source,
-                self.bootstrap,
+                receipt_path.parent / "xsh",
             )
         self.assertEqual(receipt["record"]["cargo_argv"], runner.BOOTSTRAP_CARGO_ARGV)
 

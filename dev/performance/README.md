@@ -117,7 +117,13 @@ live under the selected source checkout's `.work/tmp/`.
 `final_canonical_replay.py bootstrap` is the producer for this exact command and
 receipt. The supplemental launcher's broader product command and target mount do
 not satisfy the canonical bootstrap contract, and its product receipt does not
-substitute for the canonical bootstrap receipt.
+substitute for the canonical bootstrap receipt. The producer retains the exact
+executable bytes as `<receipt directory>/xsh`; the existing artifact path, hash,
+and size fields identify that executable copy. This keeps the build receipt
+valid after later Cargo commands replace the mutable target executable. Before
+launching the canonical batch, the owner verifies that the mutable target still
+matches the retained copy. The reader validates the retained copy independently
+of later target changes.
 
 ## Inherited baseline close
 

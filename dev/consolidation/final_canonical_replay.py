@@ -11,6 +11,7 @@ import os
 import pathlib
 import re
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -160,6 +161,85 @@ def validate_build_json(path: pathlib.Path, artifact_path: pathlib.Path) -> dict
     return {"record_count": len(records), "executable": expected_executable}
 
 
+def retain_bootstrap_artifact(source_path: pathlib.Path, retained_path: pathlib.Path) -> dict[str, Any]:
+    if retained_path.exists() or retained_path.is_symlink():
+        raise ReplayError(f"bootstrap artifact snapshot output must be fresh: {retained_path}")
+    before = host_file(source_path, executable=True)
+    source_fd = os.open(source_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    retained_fd: int | None = None
+    copied_hash = hashlib.sha256()
+    copied_size = 0
+    try:
+        source_before = os.fstat(source_fd)
+        if not stat.S_ISREG(source_before.st_mode) or source_before.st_mode & 0o111 == 0:
+            raise ReplayError(f"canonical bootstrap artifact is not a regular executable: {source_path}")
+        retained_fd = os.open(
+            retained_path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o700,
+        )
+        os.fchmod(retained_fd, 0o755)
+        while True:
+            chunk = os.read(source_fd, 1024 * 1024)
+            if not chunk:
+                break
+            copied_hash.update(chunk)
+            copied_size += len(chunk)
+            remaining = memoryview(chunk)
+            while remaining:
+                written = os.write(retained_fd, remaining)
+                if written <= 0:
+                    raise OSError("bootstrap artifact snapshot write made no progress")
+                remaining = remaining[written:]
+        os.fsync(retained_fd)
+        source_after = os.fstat(source_fd)
+        source_identity_before = (
+            source_before.st_dev,
+            source_before.st_ino,
+            source_before.st_size,
+            source_before.st_mtime_ns,
+            source_before.st_ctime_ns,
+        )
+        source_identity_after = (
+            source_after.st_dev,
+            source_after.st_ino,
+            source_after.st_size,
+            source_after.st_mtime_ns,
+            source_after.st_ctime_ns,
+        )
+        if source_identity_after != source_identity_before:
+            raise ReplayError("canonical bootstrap artifact changed while it was being retained")
+    finally:
+        os.close(source_fd)
+        if retained_fd is not None:
+            os.close(retained_fd)
+    retained = host_file(retained_path, executable=True)
+    after = host_file(source_path, executable=True)
+    copied_digest = copied_hash.hexdigest()
+    if (
+        copied_size != before["size_bytes"]
+        or copied_digest != before["sha256"]
+        or retained["size_bytes"] != before["size_bytes"]
+        or retained["sha256"] != before["sha256"]
+        or after["size_bytes"] != before["size_bytes"]
+        or after["sha256"] != before["sha256"]
+    ):
+        raise ReplayError("canonical bootstrap artifact changed while it was being retained")
+    return retained
+
+
+def validate_bootstrap_target(target_path: pathlib.Path, retained_artifact: dict[str, Any]) -> dict[str, Any]:
+    if any(path.is_symlink() for path in (*target_path.parents[:4], target_path)):
+        raise ReplayError(f"bootstrap product path must not contain symlinks: {target_path}")
+    target = host_file(target_path, executable=True)
+    if (
+        target["size_bytes"] != retained_artifact.get("size_bytes")
+        or target["sha256"] != retained_artifact.get("sha256")
+    ):
+        raise ReplayError("mutable target differs from the retained bootstrap artifact")
+    return target
+
+
 def validate_bootstrap_receipt(
     receipt_path: pathlib.Path,
     root: pathlib.Path,
@@ -168,6 +248,10 @@ def validate_bootstrap_receipt(
     bootstrap_path: pathlib.Path,
 ) -> dict[str, Any]:
     receipt_path = require_scratch_file(str(receipt_path), root, scratch_dir, "bootstrap receipt")
+    expected_bootstrap_path = receipt_path.parent / "xsh"
+    if bootstrap_path != expected_bootstrap_path:
+        raise ReplayError(f"bootstrap receipt artifact path must be {expected_bootstrap_path}")
+    bootstrap_path = require_scratch_file(str(bootstrap_path), root, scratch_dir, "retained bootstrap artifact")
     try:
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
@@ -399,7 +483,7 @@ def create_bootstrap_receipt(
     if artifact_path != expected_artifact_path:
         raise ReplayError("canonical bootstrap artifact path contains a symlink")
     validate_build_json(build_json_path, artifact_path)
-    artifact = host_file(artifact_path, executable=True)
+    artifact = retain_bootstrap_artifact(artifact_path, parent / "xsh")
     receipt = {
         "schema_version": 1,
         "status": "passed",
@@ -418,7 +502,7 @@ def create_bootstrap_receipt(
         "artifact": artifact,
     }
     write_json(receipt_path, receipt)
-    validate_bootstrap_receipt(receipt_path, root, scratch_dir, source, artifact_path)
+    validate_bootstrap_receipt(receipt_path, root, scratch_dir, source, parent / "xsh")
     return receipt
 
 
@@ -460,16 +544,23 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
     if target_dir.is_symlink() or not target_dir.is_dir() or not os.access(target_dir, os.W_OK):
         raise ReplayError(f"root target directory must exist as a writable real directory: {target_dir}")
     bootstrap_xsh = target_dir / TARGET / PROFILE / "xsh"
-    if any(path.is_symlink() for path in (target_dir / TARGET, target_dir / TARGET / PROFILE, bootstrap_xsh)):
-        raise ReplayError(f"bootstrap product path must not contain symlinks: {bootstrap_xsh}")
-    bootstrap = host_file(bootstrap_xsh, executable=True)
+    bootstrap_receipt_input = pathlib.Path(args.bootstrap_receipt)
+    bootstrap_receipt_path = require_scratch_file(
+        str(bootstrap_receipt_input if bootstrap_receipt_input.is_absolute() else root / bootstrap_receipt_input),
+        root,
+        scratch_dir,
+        "bootstrap receipt",
+    )
     bootstrap_receipt = validate_bootstrap_receipt(
-        args.bootstrap_receipt,
+        bootstrap_receipt_path,
         root,
         scratch_dir,
         source,
-        bootstrap_xsh,
+        bootstrap_receipt_path.parent / "xsh",
     )
+    if any(path.is_symlink() for path in (target_dir / TARGET, target_dir / TARGET / PROFILE, bootstrap_xsh)):
+        raise ReplayError(f"bootstrap product path must not contain symlinks: {bootstrap_xsh}")
+    bootstrap = validate_bootstrap_target(bootstrap_xsh, bootstrap_receipt["artifact"])
 
     lock_path = root / LOCK_PATH
     if lock_path.is_symlink() or not lock_path.is_file() or not os.access(lock_path, os.W_OK):
@@ -501,6 +592,7 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
         "metrics_dir": metrics_dir,
         "target_dir": target_dir,
         "bootstrap": bootstrap,
+        "bootstrap_path": bootstrap_xsh,
         "bootstrap_receipt": bootstrap_receipt,
         "common_git": common_git.resolve(strict=True),
         "lock_path": lock_path,
@@ -1217,6 +1309,7 @@ def run_batch(validated: dict[str, Any]) -> int:
         if cleanup_marker.exists() or cleanup_marker.is_symlink() or lock.read(19) == "cleanup-unresolved:":
             raise ReplayError(f"native-suite cleanup remains unresolved: {lock_path}")
         before = source_check(validated, "before")
+        validate_bootstrap_target(validated["bootstrap_path"], validated["bootstrap_receipt"]["artifact"])
         image_id = run_text(["docker", "image", "inspect", "--format", "{{.Id}}", IMAGE], root)
         if image_id != IMAGE:
             raise ReplayError(f"pinned Docker image ID differs: {image_id}")
@@ -1290,6 +1383,7 @@ def run_batch(validated: dict[str, Any]) -> int:
         previous_handlers = {signum: signal.signal(signum, note_signal) for signum in (signal.SIGINT, signal.SIGTERM)}
         try:
             with stdout_path.open("wb") as stdout_log, stderr_path.open("wb") as stderr_log:
+                validate_bootstrap_target(validated["bootstrap_path"], validated["bootstrap_receipt"]["artifact"])
                 process = subprocess.Popen(
                     command,
                     cwd=root,
