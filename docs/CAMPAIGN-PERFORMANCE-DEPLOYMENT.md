@@ -70,6 +70,7 @@ evidence. Use the cleanup skill for completed worktrees and retain ambiguous wor
 | Execute this campaign with local commits and integration. | Owner launch grant, 2026-10-17. Includes the bounded isolated edits, pinned fetches, and owned Docker/KVM operations in this document. No push. |
 | Allow isolated Laputa edits and pinned input fetches. | Owner answer during planning, 2026-10-17. A separate execution grant is still required. No live roots, host installation, publishing, or pushes. |
 | Allow `doas` for KVM access. | Owner direction during planning, 2026-10-17. Limit elevation to required device/container/VM operations using owned paths. Do not run arbitrary recipe code as host root. |
+| Allow one build of the existing Laputa host-tools image. | Owner answer, 2026-10-18. Its pinned Alpine base installs seven unversioned APK packages. Build only this exact image, save it in the isolated checkout, and use that saved image offline afterwards. This does not authorize other moving inputs. |
 | Retain the thirteen exact `lsipc` reference-crash exceptions. | Existing owner decision in the util-linux campaign. Independent XSH assertions remain behavior evidence and receive no exact-parity credit. |
 
 ### Prescribed decisions
