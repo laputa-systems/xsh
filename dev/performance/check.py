@@ -66,10 +66,12 @@ class Config:
     xsht: Path
     scratch: Path
     functional: dict | None
+    baseline: dict | None = None
 
 
 def parse_config(value):
-    fields(value, ('schema', 'source_root', 'commit', 'tree', 'laputa_root', 'product_receipt', 'xsh', 'xsht', 'scratch', 'functional'), 'config')
+    required = ('schema', 'source_root', 'commit', 'tree', 'laputa_root', 'product_receipt', 'xsh', 'xsht', 'scratch', 'functional')
+    fields(value, (*required, 'baseline') if 'baseline' in value else required, 'config')
     require(type(value['schema']) is int and value['schema'] == 1, 'unsupported config schema')
     for name in ('commit', 'tree'):
         require(isinstance(value[name], str) and re.fullmatch('[0-9a-f]{40}', value[name]), f'{name} must be a full lowercase Git ID')
@@ -80,7 +82,11 @@ def parse_config(value):
         fields(functional, ('canonical', 'supplemental', 'skip_review', 'structural', 'review_evidence', 'output'), 'functional')
         functional = {name: canonical(path) for name, path in functional.items()}
         require(functional['output'].is_relative_to(paths['source_root'] / '.work'), 'functional output must be under source_root/.work')
-    return Config(**paths, commit=value['commit'], tree=value['tree'], functional=functional)
+    baseline = value.get('baseline')
+    if baseline is not None:
+        fields(baseline, ('functional_close', 'profile', 'observer', 'forced', 'comparative', 'scheduler'), 'baseline')
+        baseline = {name: canonical(path) for name, path in baseline.items()}
+    return Config(**paths, commit=value['commit'], tree=value['tree'], functional=functional, baseline=baseline)
 
 
 def git(root, *args):
@@ -88,7 +94,7 @@ def git(root, *args):
 
 
 def source_identity(config):
-    for path in (config.source_root, config.laputa_root, config.product_receipt, config.xsh, config.xsht, config.scratch, *(config.functional or {}).values()):
+    for path in (config.source_root, config.laputa_root, config.product_receipt, config.xsh, config.xsht, config.scratch, *(config.functional or {}).values(), *(config.baseline or {}).values()):
         require(path == path.resolve(), f'path contains a symlink: {path}')
     require(git(config.source_root, 'rev-parse', '--show-toplevel') == str(config.source_root), 'source_root must be a Git repository root')
     require(git(config.source_root, 'rev-parse', 'HEAD') == config.commit, 'source commit mismatch')
@@ -194,7 +200,7 @@ def self_test(config, adapter):
     if adapter:
         qualify_products(config)
         require(config.scratch.is_dir(), 'scratch directory must already exist')
-        image = load_canonical().IMAGE
+        image = load_canonical(config).IMAGE
         command = ['docker', 'run', '--rm', '--init', '--platform', 'linux/amd64', '--network', 'none', '--cpus=1', '--memory=512m', '--memory-swap=512m', '-v', f'{config.source_root}:/source:ro', '-v', f'{config.xsh}:/product/xsh:ro', '-w', '/source', image, '/product/xsh', 'bench/stdlib-port/cold_trivial.xsh']
         result = checked_docker(command, config.scratch)
         check_result(*result, b'hello\n')
@@ -217,11 +223,8 @@ def self_test(config, adapter):
         qualify_products(config)
 
 
-def load_canonical():
-    spec = importlib.util.spec_from_file_location('performance_canonical', TOOLS / 'final_canonical_replay.py')
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+def load_canonical(config):
+    return baseline_owner(config, 'dev/consolidation/final_canonical_replay.py', 'canonical')
 
 
 def check_source_records(records, config, label):
@@ -337,7 +340,7 @@ def check_skip_review_policy(review, config, canonical_hash, supplemental_hash, 
 
 
 def validate_canonical(config, receipt, receipt_path):
-    canonical = load_canonical()
+    canonical = load_canonical(config)
     check_canonical_policy(receipt, config)
     require(receipt.get('image') == {'id': canonical.IMAGE, 'platform': 'linux/amd64'}, 'canonical image mismatch')
     require(receipt.get('command') == canonical.batch_command(), 'canonical command mismatch')
@@ -356,16 +359,13 @@ def validate_canonical(config, receipt, receipt_path):
     require(checked_bootstrap == bootstrap, 'canonical bootstrap binding differs from validation')
 
 
-def functional(config):
+def functional_inputs(config):
     require(config.functional is not None, 'functional inputs are not configured')
     paths = config.functional
     require(config.product_receipt == paths['canonical'], 'functional products require the actual canonical receipt')
     binaries = qualify_products(config)
-    require(not paths['output'].exists(), 'functional close output already exists')
-    canonical = load_canonical()
-    spec = importlib.util.spec_from_file_location('performance_plan', TOOLS / 'winddown/gate-tools/final-correctness-gates/plan_source.py')
-    plan = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(plan)
+    canonical = load_canonical(config)
+    plan = baseline_owner(config, 'dev/consolidation/winddown/gate-tools/final-correctness-gates/plan_source.py', 'plan')
     supplemental = read_json(paths['supplemental'])
     steps = check_supplemental_policy(supplemental, plan.plan_data(), config)
     for name, digest in supplemental['hashes']['binaries_after_tests'].items():
@@ -381,6 +381,14 @@ def functional(config):
     review = read_json(paths['skip_review'])
     expected_contexts = ['canonical', *[step['id'] for step in steps if step['id'].startswith('linux-special-')]]
     check_skip_review_policy(review, config, owned_digest(paths['canonical']), owned_digest(paths['supplemental']), expected_contexts)
+    return binaries, review
+
+
+def functional(config):
+    binaries, review = functional_inputs(config)
+    paths = config.functional
+    require(not paths['output'].exists(), 'functional close output already exists')
+    canonical = load_canonical(config)
     with tempfile.TemporaryDirectory(prefix='functional-', dir=config.scratch) as directory:
         command = [str(config.xsh), str(config.source_root / 'dev/consolidation/metrics.xsh'), 'check-current', '--root', str(config.source_root), '--source-root', 'src', '--xsht-source-root', 'crates/xsht/src', '--baseline', str(paths['structural']), '--review-evidence', str(paths['review_evidence']), '--output', str(Path(directory) / 'current.json'), '--audit', str(Path(directory) / 'audit.json')]
         docker = ['docker', 'run', '--rm', '--init', '--platform', 'linux/amd64', '--network', 'none', '--cpus=2', '--memory=4g', '--memory-swap=4g', '-v', f'{config.source_root}:{config.source_root}:ro', '-v', f'{config.scratch}:{config.scratch}:rw', '-v', f'{config.xsh}:{config.xsh}:ro', '-w', str(config.source_root)]
@@ -407,6 +415,212 @@ def functional(config):
             temporary.unlink()
 
 
+def baseline_owner(config, relative, name):
+    path = config.source_root / relative
+    require(path.is_file() and path == path.resolve(), f'baseline owner unavailable: {path}')
+    key = f'performance_{name}_{hashlib.sha256(str(config.source_root).encode()).hexdigest()}'
+    if key not in sys.modules:
+        sys.path.insert(0, str(path.parent))
+        spec = importlib.util.spec_from_file_location(key, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[key] = module
+        spec.loader.exec_module(module)
+    return sys.modules[key]
+
+
+def baseline_util_linux(config):
+    runtime = baseline_owner(config, 'dev/util-linux/check.py', 'util_linux')
+    for name in ('acceptance', 'resources', 'release', 'leases'):
+        module = __import__(name)
+        require(Path(module.__file__).resolve() == config.source_root / f'dev/util-linux/{name}.py', f'util-linux {name} belongs to another source checkout')
+    return runtime
+
+
+def receipt_binding(path):
+    return {'path': str(path), 'sha256': owned_digest(path)}
+
+
+def completed_receipt(path, schema_key, source):
+    value = read_json(path)
+    require(type(value.get(schema_key)) is int and value[schema_key] == 1 and value.get('state') == 'complete', f'incomplete baseline receipt: {path}')
+    require(all(value.get('source', {}).get(key) == expected for key, expected in source.items()), f'baseline source mismatch: {path}')
+    return value
+
+
+def accepted_timing(value, label, accepted='timing_accepted', discarded='timing_discarded', gate='performance_gate'):
+    require(value.get(accepted) is True and value.get(discarded) is False, f'{label}: timing was not accepted')
+    for boundary in ('before', 'after'):
+        readiness = value if gate is None else value.get(gate, {})
+        status = (readiness.get(boundary) or {}).get('exit_code')
+        require(type(status) is int and status == 0, f'{label}: {boundary} readiness failed')
+
+
+def validate_scheduler(config, path, profile, compare):
+    value = read_json(path)
+    require(type(value.get('schema_version')) is int and value['schema_version'] == 1 and value.get('state') == 'complete' and value.get('complete') is True, 'scheduler receipt incomplete')
+    require(value.get('source_root') == str(config.source_root) and value.get('source_commit_expected') == config.commit, 'scheduler source mismatch')
+    require(value.get('suite_round_count') == compare.SUITE_ROUNDS, 'scheduler requires three paired rounds')
+    order = [{'round': index + 1, 'pairs': list(compare.suite_execution_order(index))} for index in range(compare.SUITE_ROUNDS)]
+    require(value.get('suite_execution_order') == order, 'scheduler rounds are not interleaved in owner order')
+    labels = [f"round-{row['round']}-{arm}-suite" for row in order for arm in row['pairs']]
+    require([stage.get('label') for stage in value.get('stages', []) if stage.get('mode') == 'suite'] == labels, 'scheduler suite execution sequence mismatch')
+    source_path = bound_file({'path': value['source_manifest'], 'sha256': value['source_manifest_sha256']}, path.parent)
+    source = read_json(source_path)
+    require(compare.capture_source(config.source_root, config.commit) == source, 'scheduler source manifest mismatch')
+    binary_path = bound_file({'path': value['binary_manifest'], 'sha256': value['binary_manifest_sha256']}, path.parent)
+    binaries = read_json(binary_path)
+    reference_root = canonical(value['reference_source_root'])
+    reference_path = bound_file({'path': value['reference_source_manifest'], 'sha256': value['reference_source_manifest_sha256']}, path.parent)
+    reference_source = read_json(reference_path)
+    require(compare.capture_reference_source(reference_root, config.commit) == reference_source, 'scheduler reference source changed')
+    compare.validate_reference_overlay(source, reference_source, reference_root)
+    compare.validate_reference_scheduler_ancestry(reference_root, config.commit)
+    directories = {arm: Path(binaries[arm]['xsht']['path']).parent for arm in ('reference', 'candidate')}
+    require(compare.capture_binaries(directories['reference'], directories['candidate']) == binaries, 'scheduler products changed')
+    for arm in ('reference', 'candidate'):
+        recorded = value[f'{arm}_build_receipt']
+        build_path = bound_file(recorded, path.parent)
+        manifest_path = source_path if arm == 'candidate' else reference_path
+        manifest_source = read_json(manifest_path)
+        root = config.source_root if arm == 'candidate' else Path(value['reference_source_root'])
+        compare.validate_build_receipt(build_path, label=arm, source_root=root, source_commit=config.commit, source_manifest=manifest_source, binaries=binaries[arm])
+        require(read_json(build_path) == value[f'{arm}_build_receipt_content'], f'scheduler {arm} build binding changed')
+    candidate = value['candidate_build_receipt_content']
+    for name, record in profile['binaries'].items():
+        require(candidate.get('binaries', {}).get(name, {}).get('sha256') == record['sha256'], f'scheduler profile product mismatch: {name}')
+    manifest = canonical(value['manifest_path'])
+    ids = compare.read_manifest(manifest)
+    require(compare.manifest_sha256(ids) == value['manifest']['ids_sha256'] and owned_digest(manifest) == value['manifest']['file_sha256'], 'scheduler manifest changed')
+    stages = value.get('stages', [])
+    runs = {}
+    for stage in stages:
+        label = stage['label']
+        require(label not in runs, 'scheduler duplicate suite stage')
+        runs[label] = stage
+        accepted_timing(stage, label)
+        check_cleanup(stage.get('container_cleanup', {}))
+        require(type(stage.get('exit_code')) is int and stage['exit_code'] == 0 and type(stage.get('container_exit_code')) is int and stage['container_exit_code'] == 0, f'{label}: suite failed')
+        bound_file({'path': stage['result_log'], 'sha256': stage['result_log_sha256']}, path.parent)
+        for boundary in ('before', 'after'):
+            cgroup_path = canonical(stage[f'cgroup_{boundary}'])
+            require(cgroup_path == path.parent / f'{label}.cgroup-{boundary}.txt', f'{label}: unexpected cgroup path')
+            bound_file({'path': str(cgroup_path), 'sha256': stage['artifact_hashes'][f'.cgroup-{boundary}.txt']}, path.parent)
+        compare.validate_cgroup_snapshots(Path(stage['cgroup_before']).read_text(), Path(stage['cgroup_after']).read_text())
+        require(stage.get('post_stage_validation') == {'source': compare.source_summary(source), 'binaries': binaries, 'unchanged': True}, f'{label}: source or products changed during suite')
+    expected = {f'{arm}-{mode}' for arm in ('reference', 'candidate') for mode in ('list', 'help')}
+    expected.update(f'round-{index + 1}-{arm}-suite' for index in range(compare.SUITE_ROUNDS) for arm in ('reference', 'candidate'))
+    require(set(runs) == expected, 'scheduler requires both list/help stages and all six suite executions')
+    require(value.get('expected_default_workers') == compare.WORKERS, 'scheduler worker policy mismatch')
+    for arm in ('reference', 'candidate'):
+        require(compare.read_manifest(Path(runs[f'{arm}-list']['result_log'])) == ids, f'scheduler {arm} list differs from manifest')
+        text = value.get('default_policy_help', {}).get(f'{arm}_expected_text')
+        require(isinstance(text, str) and text and text in Path(runs[f'{arm}-help']['result_log']).read_text(), f'scheduler {arm} help policy mismatch')
+    for index in range(compare.SUITE_ROUNDS):
+        pair = []
+        for arm in ('reference', 'candidate'):
+            matches = [stage for stage in runs.values() if stage['pair'] == arm and stage['label'] == f'round-{index + 1}-{arm}-suite']
+            require(len(matches) == 1, f'scheduler missing round {index + 1} {arm}')
+            pair.append(compare.validate_log(Path(matches[0]['result_log']), ids))
+        require(compare.compare_pair(*pair, 0, 0)['accepted'] is True, f'scheduler round {index + 1} outcomes rejected')
+    return value
+
+
+def baseline_receipts(config):
+    require(config.baseline is not None, 'baseline receipt paths are not configured')
+    source = source_identity(config)
+    paths = config.baseline
+    require(config.functional is not None and paths['functional_close'] == config.functional['output'], 'baseline requires the configured canonical functional close')
+    binaries, review = functional_inputs(config)
+    close = read_json(paths['functional_close'])
+    expected_evidence = {name: receipt_binding(path) for name, path in config.functional.items() if name != 'output'}
+    require(close.get('functional_complete') is True and close.get('commit') == config.commit and close.get('tree') == config.tree, 'functional close source mismatch or incomplete')
+    require(close.get('evidence') == expected_evidence and close.get('products_used') == binaries and close.get('reviewer') == review['reviewer'], 'functional close evidence or products changed')
+    prefix = 'dev/consolidation/winddown/gate-tools/final-performance-gates/'
+    forced = baseline_owner(config, prefix + 'forced-frames.py', 'forced')
+    observer = baseline_owner(config, prefix + 'final-observers.py', 'observer')
+    comparative = baseline_owner(config, prefix + 'final-comparative.py', 'comparative')
+    compare = baseline_owner(config, 'dev/consolidation/winddown/gate-tools/native-scheduler-comparison/compare.py', 'scheduler')
+    profile = forced.load_profile(paths['profile'], config.source_root, config.commit, source)
+    observer.load_profile_binaries(paths['profile'], config.source_root, config.commit, 3)
+    bridge = baseline_owner(config, 'dev/consolidation/final_scheduler_receipt_bridge.py', 'bridge')
+    profile_receipt = read_json(paths['profile'])
+    require(type(profile_receipt.get('schema')) is int and profile_receipt['schema'] == 1 and profile_receipt.get('source_tree') == str(config.source_root), 'profile schema or explicit source root mismatch')
+    require(profile_receipt.get('functional_close') == {**receipt_binding(paths['functional_close']), 'record': close}, 'profile functional close mismatch')
+    for name in ('build', 'native_suite'):
+        stage = profile_receipt['results'][0].get(name)
+        bridge.require_successful_stage(stage, name)
+        require(type(stage.get('status')) is int and stage['status'] == 0, f'profile {name} failed')
+        require(stage.get('stage_validation') == {'source': source, 'binary_hashes': profile_receipt['results'][0]['binaries']}, f'profile {name} source or products changed')
+        filename = 'build.log' if name == 'build' else 'native-suite.log'
+        bound_file({'path': str(paths['profile'].parent / 'opt3' / filename), 'sha256': stage['log_sha256']}, paths['profile'].parent)
+    close_binding = {**receipt_binding(paths['functional_close']), 'record': close}
+    observed = completed_receipt(paths['observer'], 'schema_version', source)
+    require(observed['source'].get('root') == str(config.source_root), 'observer source root mismatch')
+    require(observed.get('execution_mode') == 'timed' and observed.get('functional_close') == close_binding and observed.get('profile_cost_receipt') == profile['receipt'], 'observer qualification mismatch')
+    for name in ('selected_release_binaries', 'selected_release_binaries_after_lint', 'selected_release_binaries_after_gate_batch'):
+        require(observed.get(name) == profile['binaries'], f'observer products changed: {name}')
+    fields(observed.get('stages'), ('isolated_repository_lint', 'canonical_gate_batch'), 'observer stages')
+    for name, stage in observed['stages'].items():
+        accepted_timing(stage, name)
+        require(stage.get('observation_accepted') is True and type(stage.get('status')) is int and stage['status'] == 0, f'observer stage failed: {name}')
+        check_cleanup(stage.get('container_cleanup', {}))
+        for stream in ('stdout', 'stderr'):
+            bound_file(stage[stream], paths['observer'].parent)
+        resource = stage.get('container_resources')
+        require(isinstance(resource, dict), f'observer resource record absent: {name}')
+        resource_path = bound_file(resource, paths['observer'].parent)
+        require(observer.resource_receipt(resource_path) == resource, f'observer resource binding changed: {name}')
+        observer.validate_gate_batch_resources(resource_path, observed['resource_policy']['gate_batch_cpu_set'])
+        validation = stage.get('post_stage_validation', {})
+        require(validation.get('source') == source and validation.get('selected_release_binaries') == profile['binaries'], f'observer source or products changed: {name}')
+    require(observed.get('source_after') == source, 'observer final source mismatch')
+    framed = completed_receipt(paths['forced'], 'schema', source)
+    require(framed.get('environment', {}).get('XSH_LAPUTA_CORPUS') == str(config.laputa_root), 'forced-frame Laputa corpus differs from explicit configuration')
+    require(framed.get('functional_close') == close_binding and framed.get('profile_cost_receipt') == profile['receipt'], 'forced-frame qualification mismatch')
+    require(framed.get('binaries_before') == profile['binaries'] and framed.get('inputs_unchanged') is True and framed.get('inputs_before') == framed.get('inputs_after'), 'forced-frame inputs changed')
+    require(framed.get('inputs_before') == {'source': source, 'binaries': profile['binaries']}, 'forced-frame input qualification mismatch')
+    stage = framed.get('stage', {})
+    require(type(stage.get('status')) is int and stage['status'] == 0 and stage.get('cleanup_resolved') is True and stage.get('error') is None and stage.get('interrupted_signal') is None, 'forced-frame suite failed or cleanup unresolved')
+    check_cleanup(stage.get('container_cleanup', {}))
+    require(framed.get('command') == [str(Path(profile['directory']) / 'xsht'), 'test', '--force-frames'], 'forced-frame command mismatch')
+    final = completed_receipt(paths['comparative'], 'schema', source)
+    require(final.get('functional_close') == close_binding, 'comparative functional close mismatch')
+    binding = comparative.profile_cost_receipt_binding(paths['profile'], config.source_root, config.commit, Path(profile['binaries']['xsh']['path']))
+    require(final.get('profile_cost_receipt') == binding, 'comparative profile mismatch')
+    timing = final.get('timing', {})
+    accepted_timing(timing, 'comparative', accepted='accepted', discarded='discarded', gate=None)
+    check_cleanup(timing.get('cleanup', {}))
+    report_path = bound_file({'path': 'comparative.json', 'sha256': final['comparative_report_sha256']}, paths['comparative'].parent)
+    bench = config.source_root / 'bench/consolidation'
+    lock_path = bench / 'versions.lock.json'
+    require(final.get('run_harness_sha256') == owned_digest(bench / 'run.py'), 'comparative harness changed')
+    command = final['command']
+    require(command[2] == str(bench / 'run.py') and command.count('--fixtures') == 1, 'comparative owner command mismatch')
+    fixture_path = canonical(command[command.index('--fixtures') + 1])
+    bench_owner = baseline_owner(config, 'bench/consolidation/run.py', 'comparative_bench')
+    require(bench_owner.validate_fixtures(fixture_path) == final['fixtures_sha256'], 'comparative fixtures changed')
+    comparative.verify_report(read_json(report_path), config.commit, final['comparative_image'], read_json(lock_path), owned_digest(lock_path), final['fixtures_sha256'], profile['binaries']['xsh']['sha256'], close)
+    scheduler = validate_scheduler(config, paths['scheduler'], profile, compare)
+    ids = compare.read_manifest(Path(scheduler['manifest_path']))
+    require(compare.validate_log(Path(stage['log']), ids).accepted, 'forced-frame outcomes rejected')
+    require(compare.validate_log(paths['profile'].parent / 'opt3/native-suite.log', ids).accepted, 'profile native outcomes rejected')
+    require(source_identity(config) == source, 'baseline source changed during receipt validation')
+    return {**{name: receipt_binding(path) for name, path in paths.items()}, 'forced_stdout': receipt_binding(Path(stage['log']))}
+
+
+def baseline(config, runtime=None):
+    runtime = baseline_util_linux(config) if runtime is None else runtime
+    require(runtime is baseline_util_linux(config) and runtime.ROOT == config.source_root, 'util-linux runtime must belong to the explicit frozen source')
+    require(runtime._review_scope_active.get() and runtime._review_result.get() is not None, 'baseline requires an active one-use util-linux independent_review context before any gate execution')
+    import acceptance
+    review = runtime._review_result.get()
+    acceptance._validate_gate_result(review, runtime.source_identity())
+    before = baseline_receipts(config)
+    with runtime.cancellation_scope(), runtime.campaign_leases(config.source_root, native=True, cargo=True):
+        acceptance.close(runtime)
+    require(baseline_receipts(config) == before, 'baseline receipts changed during util-linux close')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', required=True, type=Path)
@@ -423,6 +637,9 @@ def main():
             self_test(config, args.adapter)
         elif args.mode == 'functional':
             functional(config)
+        elif args.mode == 'baseline':
+            require(args.check, 'baseline requires --check')
+            baseline(config)
         else:
             raise CheckError(f'{args.mode}: unavailable until existing owner is integrated')
         return 0
@@ -431,7 +648,7 @@ def main():
         for note in getattr(error, '__notes__', []):
             print(note, file=sys.stderr)
         return 128 + error.signum
-    except (CheckError, OSError, KeyError, TypeError, json.JSONDecodeError, subprocess.SubprocessError) as error:
+    except (ValueError, RuntimeError, OSError, KeyError, TypeError, json.JSONDecodeError, subprocess.SubprocessError) as error:
         print(f'performance check: {error}', file=sys.stderr)
         for note in getattr(error, '__notes__', []):
             print(note, file=sys.stderr)

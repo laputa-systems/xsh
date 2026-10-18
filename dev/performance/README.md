@@ -1,7 +1,7 @@
 # Performance adapter reference
 
 `check.py` dispatches to existing measurement and acceptance owners. Python 3.11
-or newer is required. It adds no production dependency. The planned `baseline`, `inference`, `measure`, `optimize`, `deployment`, and
+or newer is required. It adds no production dependency. The planned `inference`, `measure`, `optimize`, `deployment`, and
 `close` modes remain unavailable and exit nonzero. The existing
 `xsht runtime-stats` diagnostic supplies the phase attribution below.
 
@@ -32,6 +32,7 @@ absolute, and free of symlinks. Unknown and duplicate fields are rejected.
 | `xsh`, `xsht` | Exact product paths bound by the selected existing owner |
 | `scratch` | Existing directory under the adapter checkout's `.work/tmp/` |
 | `functional` | `null`, or the functional input object below |
+| `baseline` | Optional `null`, or the baseline receipt paths below |
 
 Product qualification checks the clean commit and tree, executable paths and
 hashes, successful owner result, and resolved cleanup. The profile provider
@@ -44,6 +45,11 @@ The functional object requires exactly `canonical`, `supplemental`, `skip_review
 The output must be under the source checkout's `.work/` and must not exist.
 Functional validation requires `product_receipt` to equal `canonical`; it does
 not require a prior release profile or functional-close record.
+
+The optional baseline object requires exactly `functional_close`, `profile`,
+`observer`, `forced`, `comparative`, and `scheduler`, each an absolute receipt
+path. Omitting the object preserves existing schema-1 configurations, but cannot
+pass baseline acceptance. `functional_close` must equal `functional.output`.
 
 ## Functional validation
 
@@ -101,6 +107,38 @@ live under the selected source checkout's `.work/tmp/`.
 receipt. The supplemental launcher's broader product command and target mount do
 not satisfy the canonical bootstrap contract, and its product receipt does not
 substitute for the canonical bootstrap receipt.
+
+## Inherited baseline close
+
+```sh
+python3 -B dev/performance/check.py --config CONFIG baseline --check
+```
+
+This command validates existing completed receipts for canonical functional close,
+the normal release profile, timed observers, forced frames, comparative parity and
+samples, and three scheduler pairs. It uses the frozen checkout's owner readers,
+checks exact source and product bindings, and replays the existing scheduler
+manifest, log, build, and resource validators. Missing receipts, artifact-only
+profiles, discarded timings, changed products, and unresolved cleanup fail.
+It creates no baseline receipt and runs no replacement benchmark suite.
+
+Util-linux close requires its existing in-memory independent review. The standalone
+CLI fails before expensive effects when that context is absent. The parent can
+load this module, obtain `runtime = baseline_util_linux(config)`, and invoke
+`baseline(config, runtime)` inside `runtime.independent_review(actual_gate_result)`.
+The result must come from actual independent review; this adapter provides no
+serialized review import or fabricated result. Executable delivery of that review
+remains required before standalone acceptance can close.
+
+After receipt and review validation, `baseline` calls the existing util-linux
+acceptance close under its native/Cargo leases and release-product scope. This is
+an expensive stage: its full native suite uses private mount, IPC, and PID
+namespaces with `SYS_ADMIN`, followed by host/API, repository, documentation,
+resource, review, and cleanup checks. These private boundaries require separate
+coverage from canonical correctness. Close owns resource validation; the adapter
+does not invoke a second resource pass. Existing owner checkout/output constraints
+remain in force. Source, receipt bindings, and products are checked again after
+close. No accepted current-source baseline exists yet.
 
 ## Limits
 

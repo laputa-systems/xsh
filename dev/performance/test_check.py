@@ -1,8 +1,13 @@
 from copy import deepcopy
+from contextlib import ExitStack, nullcontext, redirect_stderr
 import importlib.util
+from io import StringIO
+import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('performance_check', Path(__file__).with_name('check.py'))
 check = importlib.util.module_from_spec(spec)
@@ -178,6 +183,171 @@ class PolicyTests(unittest.TestCase):
             with self.assertRaises(check.CheckError):
                 validate(unresolved)
 
+
+
+class BaselineTests(unittest.TestCase):
+    def setUp(self):
+        self.config = check.parse_config(PolicyTests().config())
+
+    def test_optional_baseline_requires_every_explicit_receipt(self):
+        value = PolicyTests().config()
+        self.assertIsNone(check.parse_config(value).baseline)
+        paths = {name: str(self.config.source_root / '.work' / f'{name}.json') for name in ('functional_close', 'profile', 'observer', 'forced', 'comparative', 'scheduler')}
+        value['baseline'] = paths
+        self.assertEqual(check.parse_config(value).baseline, {name: Path(path) for name, path in paths.items()})
+        for name in paths:
+            invalid = deepcopy(value)
+            del invalid['baseline'][name]
+            with self.subTest(missing=name), self.assertRaises(check.CheckError):
+                check.parse_config(invalid)
+        value['baseline']['profile'] = 'relative.json'
+        with self.assertRaises(check.CheckError):
+            check.parse_config(value)
+
+    def test_review_is_required_before_receipts_or_expensive_effects(self):
+        runtime = check.baseline_util_linux(self.config)
+        with patch.object(check, 'baseline_receipts', side_effect=AssertionError('receipt access')), patch.object(runtime, 'campaign_leases', side_effect=AssertionError('effects')):
+            with self.assertRaisesRegex(check.CheckError, 'independent_review'):
+                check.baseline(self.config, runtime)
+
+    def test_standalone_cli_fails_without_live_review(self):
+        error = StringIO()
+        with patch.object(sys, 'argv', ['check.py', '--config', '/explicit/config.json', 'baseline', '--check']), patch.object(check, 'read_json', return_value=PolicyTests().config()), patch.object(check, 'baseline_receipts', side_effect=AssertionError('receipt access')), redirect_stderr(error):
+            self.assertEqual(check.main(), 1)
+        self.assertIn('active one-use util-linux independent_review context', error.getvalue())
+
+    def test_actual_one_use_review_context_routes_only_owner_close(self):
+        runtime = check.baseline_util_linux(self.config)
+        acceptance = sys.modules['acceptance']
+        source = acceptance.SourceIdentity(self.config.commit, self.config.tree, True)
+        review = acceptance.GateResult('adversarial-review', source, 0, 1, 1, 0, (), (), ('independent reviewed item',), ())
+        events = []
+        def close(actual):
+            self.assertIs(actual, runtime)
+            self.assertEqual(actual.adversarial_review(source), review)
+            events.append('close')
+        with patch.object(runtime, 'source_identity', return_value=source), patch.object(check, 'baseline_receipts', side_effect=lambda _: events.append('receipts') or {}), patch.object(runtime, 'campaign_leases', return_value=nullcontext()), patch.object(acceptance, 'close', side_effect=close):
+            with runtime.independent_review(review):
+                check.baseline(self.config, runtime)
+                with self.assertRaisesRegex(check.CheckError, 'independent_review'):
+                    check.baseline(self.config, runtime)
+        self.assertEqual(events, ['receipts', 'close', 'receipts'])
+
+    def test_missing_receipt_and_stale_source_fail(self):
+        with tempfile.TemporaryDirectory(dir=self.config.scratch) as directory:
+            path = Path(directory) / 'receipt.json'
+            with self.assertRaises(FileNotFoundError):
+                check.completed_receipt(path, 'schema', {})
+            path.write_text(json.dumps({'schema': 1, 'state': 'complete', 'source': {'commit': 'wrong'}}))
+            with self.assertRaisesRegex(check.CheckError, 'source mismatch'):
+                check.completed_receipt(path, 'schema', {'commit': self.config.commit})
+            path.write_text(json.dumps({'schema': 1, 'state': 'artifact-qualified', 'source': {}}))
+            with self.assertRaisesRegex(check.CheckError, 'incomplete'):
+                check.completed_receipt(path, 'schema', {})
+
+    def test_timing_requires_both_readiness_boundaries(self):
+        value = {'timing_accepted': True, 'timing_discarded': False, 'performance_gate': {'before': {'exit_code': 0}, 'after': {'exit_code': 0}}}
+        check.accepted_timing(value, 'owner')
+        for boundary in ('before', 'after'):
+            for status in (None, False, 1):
+                invalid = deepcopy(value)
+                invalid['performance_gate'][boundary] = {'exit_code': status}
+                with self.subTest(boundary=boundary, status=status), self.assertRaises(check.CheckError):
+                    check.accepted_timing(invalid, 'owner')
+
+    def scheduler_fixture(self, root, compare):
+        def write(name, value):
+            path = root / name
+            path.write_text(json.dumps(value))
+            return path
+        source = {'commit': self.config.commit, 'source_diff_sha256': 'd' * 64, 'worktree_status': 'clean', 'tracked_file_count': 1, 'tracked_tree_sha256': 'e' * 64}
+        binaries = {}
+        for arm in ('reference', 'candidate'):
+            directory = root / arm
+            directory.mkdir()
+            binaries[arm] = {}
+            for name in compare.BINARIES:
+                binary = directory / name
+                binary.write_text(arm if name == 'xsht' else name)
+                binary.chmod(0o755)
+        binaries = compare.capture_binaries(root / 'reference', root / 'candidate')
+        source_path = write('source.json', source)
+        binary_path = write('binaries.json', binaries)
+        manifest = root / 'manifest.txt'
+        manifest.write_text('tests/example.xsh::test_output\n')
+        record = {'schema_version': 1, 'state': 'complete', 'complete': True, 'source_root': str(self.config.source_root), 'source_commit_expected': self.config.commit, 'suite_round_count': 3, 'source_manifest': str(source_path), 'source_manifest_sha256': check.owned_digest(source_path), 'reference_source_manifest': str(source_path), 'reference_source_manifest_sha256': check.owned_digest(source_path), 'reference_source_root': str(self.config.source_root), 'binary_manifest': str(binary_path), 'binary_manifest_sha256': check.owned_digest(binary_path), 'manifest_path': str(manifest), 'manifest': {'ids_sha256': compare.manifest_sha256(compare.read_manifest(manifest)), 'file_sha256': check.owned_digest(manifest)}, 'stages': []}
+        for arm in ('reference', 'candidate'):
+            build = {'schema_version': 1, 'source_root': str(self.config.source_root), 'base_head': self.config.commit, 'source_diff_sha256': source['source_diff_sha256'], 'working_directory': str(self.config.source_root), 'target': compare.TARGET, 'profile': 'release', 'build_image': compare.PINNED_IMAGE, 'binaries': {name: {key: row[key] for key in ('path', 'sha256')} for name, row in binaries[arm].items()}, 'build_command': ['cargo', 'build', '--release']}
+            build_path = write(f'{arm}-build.json', build)
+            record[f'{arm}_build_receipt'] = check.receipt_binding(build_path)
+            record[f'{arm}_build_receipt_content'] = build
+        cgroup = root / 'cgroup.txt'
+        cgroup.write_text('[cpu.max]\n3200000 100000\n[cpuset.cpus.effective]\n0-31\n[memory.max]\n42949672960\n[memory.current]\n1048576\n[memory.peak]\n2097152\n[memory.swap.current]\n0\n[memory.swap.max]\n0\n[memory.events]\noom 0\noom_kill 0\n[pids.current]\n4\n[pids.peak]\n7\n[pids.max]\nmax\n')
+        record['suite_execution_order'] = [{'round': index + 1, 'pairs': list(compare.suite_execution_order(index))} for index in range(3)]
+        for index in range(3):
+            for arm in compare.suite_execution_order(index):
+                label = f'round-{index + 1}-{arm}-suite'
+                log = root / f'{label}.log'
+                log.write_text('running 1 tests\ntests/example.xsh::test_output ... ok 1ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n')
+                record['stages'].append({'mode': 'suite', 'pair': arm, 'label': label, 'timing_accepted': True, 'timing_discarded': False, 'performance_gate': {'before': {'exit_code': 0}, 'after': {'exit_code': 0}}, 'container_cleanup': {'resolved': True}, 'exit_code': 0, 'container_exit_code': 0, 'result_log': str(log), 'result_log_sha256': check.owned_digest(log), 'cgroup_before': str(cgroup), 'cgroup_after': str(cgroup), 'post_stage_validation': {'source': compare.source_summary(source), 'binaries': binaries, 'unchanged': True}})
+        record['expected_default_workers'] = compare.WORKERS
+        record['default_policy_help'] = {}
+        for arm in ('reference', 'candidate'):
+            text = f'{arm} worker policy'
+            record['default_policy_help'][f'{arm}_expected_text'] = text
+            for mode in ('list', 'help'):
+                log = root / f'{arm}-{mode}.log'
+                log.write_text(manifest.read_text() if mode == 'list' else text)
+                stage = deepcopy(record['stages'][0])
+                stage.update(mode=mode, pair=arm, label=f'{arm}-{mode}', result_log=str(log), result_log_sha256=check.owned_digest(log))
+                record['stages'].append(stage)
+        for stage in record['stages']:
+            stage['artifact_hashes'] = {}
+            for boundary in ('before', 'after'):
+                suffix = f'.cgroup-{boundary}.txt'
+                snapshot = root / f"{stage['label']}{suffix}"
+                snapshot.write_text(cgroup.read_text())
+                stage[f'cgroup_{boundary}'] = str(snapshot)
+                stage['artifact_hashes'][suffix] = check.owned_digest(snapshot)
+        return record, source, binaries
+
+    def test_scheduler_replays_real_owner_log_and_build_validators(self):
+        compare = check.baseline_owner(self.config, 'dev/consolidation/winddown/gate-tools/native-scheduler-comparison/compare.py', 'scheduler')
+        with tempfile.TemporaryDirectory(dir=self.config.scratch) as directory, ExitStack() as stack:
+            root = Path(directory)
+            record, source, binaries = self.scheduler_fixture(root, compare)
+            stack.enter_context(patch.object(compare, 'capture_source', return_value=source))
+            stack.enter_context(patch.object(compare, 'capture_reference_source', return_value=source))
+            stack.enter_context(patch.object(compare, 'validate_reference_overlay'))
+            stack.enter_context(patch.object(compare, 'validate_reference_scheduler_ancestry'))
+            path = root / 'receipt.json'
+            profile = {'binaries': binaries['candidate']}
+            def validate(value):
+                path.write_text(json.dumps(value))
+                return check.validate_scheduler(self.config, path, profile, compare)
+            self.assertEqual(validate(record), record)
+            for mutation in ('missing_round', 'duplicate_round', 'dirty_source', 'product', 'cleanup', 'readiness', 'failed', 'wrong_output'):
+                invalid = deepcopy(record)
+                if mutation == 'missing_round':
+                    invalid['stages'].pop()
+                elif mutation == 'duplicate_round':
+                    invalid['stages'][-1] = invalid['stages'][0]
+                elif mutation == 'dirty_source':
+                    invalid['source_commit_expected'] = 'f' * 40
+                elif mutation == 'product':
+                    invalid['candidate_build_receipt_content']['binaries']['xsh']['sha256'] = 'f' * 64
+                elif mutation == 'cleanup':
+                    invalid['stages'][0]['container_cleanup']['resolved'] = False
+                elif mutation == 'readiness':
+                    invalid['stages'][0]['performance_gate']['after']['exit_code'] = 1
+                elif mutation == 'failed':
+                    invalid['stages'][0]['container_exit_code'] = 2
+                else:
+                    log = root / 'wrong.log'
+                    log.write_text('running 1 tests\ntests/example.xsh::test_other ... ok 1ms\ntest result: ok. 1 passed; 0 failed; 0 skipped\n')
+                    invalid['stages'][0].update(result_log=str(log), result_log_sha256=check.owned_digest(log))
+                with self.subTest(mutation=mutation), self.assertRaises((check.CheckError, ValueError)):
+                    validate(invalid)
 
 
 if __name__ == '__main__':
