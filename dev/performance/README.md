@@ -180,6 +180,17 @@ residual equal `preparation_inclusive`. Execution and diagnostic finishing sit
 outside preparation. Only one finishing field is populated for a run.
 A `null` phase was not reached; zero means an observed zero-length duration.
 
+The tooling-only report also adds `cpu_time_ns`, with `clock: "process_cpu"` and
+the same fields, callable boundaries, null semantics, and separate reconciliation.
+The existing rustix process CPU clock counts all threads in this XSH process.
+Preparation CPU distinguishes frontend work from blocking and scheduling waits;
+execution CPU includes the evaluator and runtime worker threads. Descendant
+process CPU is excluded, so the host sampler still owns whole-workload CPU.
+Parallel process CPU can exceed wall time; subtracting CPU from wall does not
+measure wait time. Both clocks include diagnostic observer overhead and supply
+attribution, not accepted performance samples. The existing Rust allocation
+result and its `to_json()` output remain unchanged.
+
 The checker call combines constraint generation, solving, and fact construction.
 The evaluator preparation call combines lowering, semantic verification,
 installation, and dispatch preparation. These diagnostics do not pretend to

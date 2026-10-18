@@ -6,7 +6,7 @@ use crate::loader::{
 };
 use crate::mem_track::{self, AllocTraffic, WorkerStageTraffic};
 use crate::runtime::eval::Evaluator;
-use crate::runtime_stats::RuntimePhaseWallTimes;
+use crate::runtime_stats::{PhaseDurationSlot, RuntimePhaseTimes};
 use crate::runtime::process::path_bytes;
 use crate::sema::check::{CheckOptions, Checker, byte_argument_main};
 use crate::source::SourceMap;
@@ -49,7 +49,7 @@ pub(crate) struct RuntimeAllocationPhases {
     pub construction: AllocTraffic,
     pub controller: AllocTraffic,
     pub worker_stages: Vec<WorkerStageTraffic>,
-    pub wall_time_ns: RuntimePhaseWallTimes,
+    pub phase_times: RuntimePhaseTimes,
 }
 
 impl PreparedRun {
@@ -201,31 +201,33 @@ pub fn run_script_with_test_fakes(
     finish_run_attempt(&options, attempt)
 }
 
-/// Run one script with allocation traffic and diagnostic wall-time boundaries.
+/// Run one script with allocation traffic and diagnostic wall/CPU boundaries.
 /// Ordinary execution through [`run_script`] does not read the phase clock.
 pub(crate) fn run_script_with_allocation_stats(
     options: RunOptions,
 ) -> (ScriptOutput, RuntimeAllocationPhases) {
-    let mut wall_time_ns = RuntimePhaseWallTimes::default();
+    let mut phase_times = RuntimePhaseTimes::default();
     mem_track::begin_stage();
-    let preparation_start = Instant::now();
-    let prepared = try_prepare_program_observed(&options, Some(&mut wall_time_ns));
-    wall_time_ns.preparation_inclusive = preparation_start.elapsed().as_nanos();
+    let preparation_start = PhaseClockReading::now();
+    let prepared = try_prepare_program_observed(&options, Some(&mut phase_times));
+    let preparation = preparation_start.elapsed(PhaseClockReading::now());
+    phase_times.wall_time_ns.preparation_inclusive = preparation.wall_ns;
+    phase_times.cpu_time_ns.preparation_inclusive = preparation.cpu_ns;
     let construction = mem_track::end_stage();
 
     mem_track::begin_worker_collection();
     mem_track::begin_stage();
     let output = match prepared {
-        Ok(Ok(prepared)) => observe_wall_time(
-            Some(&mut wall_time_ns.execution_finish_exclusive),
+        Ok(Ok(prepared)) => observe_phase_time(
+            Some(phase_times.slot(|times| &mut times.execution_finish_exclusive)),
             || finish_run_attempt(&options, prepared.run()),
         ),
-        Ok(Err(attempt)) => observe_wall_time(
-            Some(&mut wall_time_ns.diagnostic_finish_exclusive),
+        Ok(Err(attempt)) => observe_phase_time(
+            Some(phase_times.slot(|times| &mut times.diagnostic_finish_exclusive)),
             || finish_run_attempt(&options, attempt),
         ),
-        Err(err) => observe_wall_time(
-            Some(&mut wall_time_ns.diagnostic_finish_exclusive),
+        Err(err) => observe_phase_time(
+            Some(phase_times.slot(|times| &mut times.diagnostic_finish_exclusive)),
             || read_error_output(&options, err),
         ),
     };
@@ -238,7 +240,7 @@ pub(crate) fn run_script_with_allocation_stats(
             construction,
             controller,
             worker_stages,
-            wall_time_ns,
+            phase_times,
         },
     )
 }
@@ -388,12 +390,46 @@ fn try_run_program(options: &RunOptions) -> Result<RunAttempt, std::io::Error> {
     })
 }
 
-fn observe_wall_time<T>(duration: Option<&mut Option<u128>>, operation: impl FnOnce() -> T) -> T {
+struct PhaseClockReading {
+    wall: Instant,
+    process_cpu_ns: u128,
+}
+
+struct PhaseElapsed {
+    wall_ns: u128,
+    cpu_ns: u128,
+}
+
+impl PhaseClockReading {
+    fn now() -> Self {
+        let wall = Instant::now();
+        let cpu = rustix::time::clock_gettime(rustix::time::ClockId::ProcessCPUTime);
+        let seconds = u128::try_from(cpu.tv_sec).expect("process CPU seconds must be nonnegative");
+        let nanos = u128::try_from(cpu.tv_nsec).expect("process CPU nanoseconds must be nonnegative");
+        Self { wall, process_cpu_ns: seconds * 1_000_000_000 + nanos }
+    }
+
+    fn elapsed(self, end: Self) -> PhaseElapsed {
+        PhaseElapsed {
+            wall_ns: end.wall.duration_since(self.wall).as_nanos(),
+            cpu_ns: end.process_cpu_ns.checked_sub(self.process_cpu_ns)
+                .expect("process CPU clock must not go backwards"),
+        }
+    }
+}
+
+fn observe_phase_time<T>(duration: Option<PhaseDurationSlot<'_>>, operation: impl FnOnce() -> T) -> T {
+    observe_phase_time_with_clock(duration, PhaseClockReading::now, operation)
+}
+
+fn observe_phase_time_with_clock<T>(duration: Option<PhaseDurationSlot<'_>>, mut clock: impl FnMut() -> PhaseClockReading, operation: impl FnOnce() -> T) -> T {
     match duration {
         Some(duration) => {
-            let start = Instant::now();
+            let start = clock();
             let result = operation();
-            *duration = Some(start.elapsed().as_nanos());
+            let elapsed = start.elapsed(clock());
+            *duration.wall_ns = Some(elapsed.wall_ns);
+            *duration.cpu_ns = Some(elapsed.cpu_ns);
             result
         }
         None => operation(),
@@ -408,7 +444,7 @@ fn try_prepare_program(
 
 fn try_prepare_program_observed(
     options: &RunOptions,
-    wall_time_ns: Option<&mut RuntimePhaseWallTimes>,
+    phase_times: Option<&mut RuntimePhaseTimes>,
 ) -> Result<Result<PreparedRun, RunAttempt>, std::io::Error> {
     let route_witness_context =
         match crate::runtime::eval::route_witness::ChildCaptureContext::from_inherited_descriptor()
@@ -427,7 +463,7 @@ fn try_prepare_program_observed(
         }
     };
     let entry_source = entry_source_from_bytes(&options.script, bytes);
-    Ok(prepare_entry_source(options, entry_source, route_witness, wall_time_ns))
+    Ok(prepare_entry_source(options, entry_source, route_witness, phase_times))
 }
 
 fn route_witness_error_attempt(message: String) -> RunAttempt {
@@ -457,7 +493,7 @@ fn prepare_entry_source(
     options: &RunOptions,
     entry_source: EntrySource,
     route_witness: Option<crate::runtime::eval::route_witness::ChildCapture>,
-    mut wall_time_ns: Option<&mut RuntimePhaseWallTimes>,
+    mut phase_times: Option<&mut RuntimePhaseTimes>,
 ) -> Result<PreparedRun, RunAttempt> {
     let source_id = entry_source.source_id;
     if !entry_source.diagnostics.is_empty() {
@@ -470,8 +506,8 @@ fn prepare_entry_source(
             ),
         }));
     }
-    let (sources, parsed, module_roots) = observe_wall_time(
-        wall_time_ns.as_deref_mut().map(|times| &mut times.project_parse_load_exclusive),
+    let (sources, parsed, module_roots) = observe_phase_time(
+        phase_times.as_deref_mut().map(|times| times.slot(|times| &mut times.project_parse_load_exclusive)),
         || {
             let module_roots = crate::project::project_module_roots(Path::new(&options.script))
                 .map_err(|message| RunAttempt::Output(ScriptOutput {
@@ -496,8 +532,8 @@ fn prepare_entry_source(
     drop(cst);
     let arena = Arc::new(arena);
 
-    let check = observe_wall_time(
-        wall_time_ns.as_deref_mut().map(|times| &mut times.check_solve_fact_build_exclusive),
+    let check = observe_phase_time(
+        phase_times.as_deref_mut().map(|times| times.slot(|times| &mut times.check_solve_fact_build_exclusive)),
         || Checker::check_arena_with_sources_options_and_type_program(
             &arena,
             &sources,
@@ -538,12 +574,12 @@ fn prepare_entry_source(
             evaluator.with_env_var(XSH_COVERAGE_TRACE_DIR.as_bytes().to_vec(), path_bytes(dir));
     }
     let Ok(plan) = arena.symbol_owner().with_current(|| {
-        let declarations = observe_wall_time(
-            wall_time_ns.as_deref_mut().map(|times| &mut times.declaration_publication_exclusive),
+        let declarations = observe_phase_time(
+            phase_times.as_deref_mut().map(|times| times.slot(|times| &mut times.declaration_publication_exclusive)),
             || Checker::compact_declarations(&arena, check),
         );
-        observe_wall_time(
-            wall_time_ns.as_deref_mut().map(|times| &mut times.lower_verify_install_exclusive),
+        observe_phase_time(
+            phase_times.as_deref_mut().map(|times| times.slot(|times| &mut times.lower_verify_install_exclusive)),
             || evaluator.prepare_checked_compact_indexed_only(&arena, source_id, false, declarations),
         )
     }) else {
@@ -822,16 +858,42 @@ mod tests {
             assert_eq!(observed.status, ordinary.status);
             assert_eq!(observed.stdout, ordinary.stdout);
             assert_eq!(observed.stderr, ordinary.stderr);
-            let times = phases.wall_time_ns;
-            assert!(times.project_parse_load_exclusive.is_some());
-            assert_eq!(times.check_solve_fact_build_exclusive.is_some(), checked);
-            assert_eq!(times.declaration_publication_exclusive.is_some(), status == 0);
-            assert_eq!(times.lower_verify_install_exclusive.is_some(), status == 0);
-            assert_eq!(times.execution_finish_exclusive.is_some(), status == 0);
-            assert_eq!(times.diagnostic_finish_exclusive.is_some(), status != 0);
+            for times in [phases.phase_times.wall_time_ns, phases.phase_times.cpu_time_ns] {
+                assert!(times.project_parse_load_exclusive.is_some());
+                assert_eq!(times.check_solve_fact_build_exclusive.is_some(), checked);
+                assert_eq!(times.declaration_publication_exclusive.is_some(), status == 0);
+                assert_eq!(times.lower_verify_install_exclusive.is_some(), status == 0);
+                assert_eq!(times.execution_finish_exclusive.is_some(), status == 0);
+                assert_eq!(times.diagnostic_finish_exclusive.is_some(), status != 0);
+            }
             fs::remove_dir_all(path.parent().expect("temporary script parent"))
                 .expect("remove phase fixture");
         }
+    }
+
+    #[test]
+    fn phase_clock_records_independent_cpu_and_wall_deltas() {
+        let wall = Instant::now();
+        let mut readings = [
+            PhaseClockReading { wall, process_cpu_ns: 100 },
+            PhaseClockReading { wall: wall + std::time::Duration::from_nanos(10), process_cpu_ns: 125 },
+        ].into_iter();
+        let mut times = RuntimePhaseTimes::default();
+        let result = observe_phase_time_with_clock(
+            Some(times.slot(|times| &mut times.execution_finish_exclusive)),
+            || readings.next().expect("exactly two phase clock reads"),
+            || 42,
+        );
+        assert_eq!(result, 42);
+        assert!(readings.next().is_none());
+        assert_eq!(times.wall_time_ns.execution_finish_exclusive, Some(10));
+        assert_eq!(times.cpu_time_ns.execution_finish_exclusive, Some(25));
+        assert!(times.cpu_time_ns.diagnostic_finish_exclusive.is_none());
+    }
+
+    #[test]
+    fn disabled_phase_observation_does_not_read_either_clock() {
+        assert_eq!(observe_phase_time_with_clock(None, || panic!("disabled observer read a clock"), || 42), 42);
     }
 
     #[test]

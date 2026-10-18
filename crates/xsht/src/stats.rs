@@ -37,7 +37,10 @@ into stdout. Worker peaks are thread-local allocation-pressure evidence, not
 process RSS or an exact concurrent-live total. The report separately attributes
 worker allocation traffic to setup, result buffering, item evaluation, and
 fused reduction. The wall_time_ns object records diagnostic monotonic wall time
-for actual preparation and execution boundaries. Combined check/solve/fact-build
+for actual preparation and execution boundaries. The cpu_time_ns object records
+process CPU across all XSH threads at the same boundaries, excluding descendants
+and blocking or scheduled-out time. Parallel CPU may exceed wall time; their
+difference is not wait time. Combined check/solve/fact-build
 and lower/verify/install phases are not split. Null means a phase was not reached.
 These instrumented durations are not performance samples or first-output latency.
 ";

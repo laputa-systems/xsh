@@ -1,7 +1,8 @@
-//! Allocation traffic and observed wall-time boundaries for one indexed run.
+//! Allocation traffic and observed wall/CPU boundaries for one indexed run.
 //!
 //! Wall time uses the monotonic clock and includes observer overhead. Allocation
-//! traffic remains thread-attributed; neither signal measures process RSS.
+//! traffic remains thread-attributed. CPU covers this process's threads and
+//! excludes descendants and waiting; none of these signals measures process RSS.
 
 use crate::execution::script::{RunOptions, ScriptOutput};
 use crate::mem_track::{self, AllocTraffic, WorkerAllocationScope, WorkerStageTraffic};
@@ -79,7 +80,27 @@ pub struct RuntimeAllocationStats {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct RuntimePhaseWallTimes {
+pub(crate) struct RuntimePhaseTimes {
+    pub wall_time_ns: RuntimePhaseDurations,
+    pub cpu_time_ns: RuntimePhaseDurations,
+}
+
+pub(crate) struct PhaseDurationSlot<'a> {
+    pub wall_ns: &'a mut Option<u128>,
+    pub cpu_ns: &'a mut Option<u128>,
+}
+
+impl RuntimePhaseTimes {
+    pub fn slot(&mut self, select: fn(&mut RuntimePhaseDurations) -> &mut Option<u128>) -> PhaseDurationSlot<'_> {
+        PhaseDurationSlot {
+            wall_ns: select(&mut self.wall_time_ns),
+            cpu_ns: select(&mut self.cpu_time_ns),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct RuntimePhaseDurations {
     pub preparation_inclusive: u128,
     pub project_parse_load_exclusive: Option<u128>,
     pub check_solve_fact_build_exclusive: Option<u128>,
@@ -89,7 +110,7 @@ pub(crate) struct RuntimePhaseWallTimes {
     pub diagnostic_finish_exclusive: Option<u128>,
 }
 
-impl RuntimePhaseWallTimes {
+impl RuntimePhaseDurations {
     fn preparation_other_exclusive(&self) -> u128 {
         let observed = [
             self.project_parse_load_exclusive,
@@ -102,15 +123,16 @@ impl RuntimePhaseWallTimes {
             .expect("exclusive preparation phases must fit inside preparation")
     }
 
-    fn to_json(&self) -> String {
+    fn to_json(&self, clock: &str) -> String {
         format!(
             concat!(
-                "{{\"clock\":\"monotonic_wall\",\"preparation_inclusive\":{},",
+                "{{\"clock\":\"{}\",\"preparation_inclusive\":{},",
                 "\"project_parse_load_exclusive\":{},\"check_solve_fact_build_exclusive\":{},",
                 "\"declaration_publication_exclusive\":{},\"lower_verify_install_exclusive\":{},",
                 "\"preparation_other_exclusive\":{},\"execution_finish_exclusive\":{},",
                 "\"diagnostic_finish_exclusive\":{}}}"
             ),
+            clock,
             self.preparation_inclusive,
             optional_ns(self.project_parse_load_exclusive),
             optional_ns(self.check_solve_fact_build_exclusive),
@@ -143,19 +165,19 @@ pub fn run_script(options: RunOptions) -> MeasuredScriptRun {
 /// Run once and return allocation data plus the tooling phase JSON report.
 /// Instrumented durations are not unobserved performance samples.
 pub fn run_script_with_phase_report(options: RunOptions) -> (MeasuredScriptRun, String) {
-    let (measured, wall_time_ns) = measured_script(options);
-    let report = measured.json_report(Some(&wall_time_ns));
+    let (measured, phase_times) = measured_script(options);
+    let report = measured.json_report(Some(&phase_times));
     (measured, report)
 }
 
-fn measured_script(options: RunOptions) -> (MeasuredScriptRun, RuntimePhaseWallTimes) {
+fn measured_script(options: RunOptions) -> (MeasuredScriptRun, RuntimePhaseTimes) {
     let (output, phases) = run_script_with_allocation_stats(options);
-    let wall_time_ns = phases.wall_time_ns.clone();
+    let phase_times = phases.phase_times.clone();
     let measured = MeasuredScriptRun {
         output,
         allocation: RuntimeAllocationStats::from_phases(phases),
     };
-    (measured, wall_time_ns)
+    (measured, phase_times)
 }
 
 impl RuntimeAllocationStats {
@@ -176,9 +198,11 @@ impl MeasuredScriptRun {
         self.json_report(None)
     }
 
-    fn json_report(&self, wall_time_ns: Option<&RuntimePhaseWallTimes>) -> String {
-        let phases = wall_time_ns.map_or_else(String::new, |times| {
-            format!(",\"wall_time_ns\":{}", times.to_json())
+    fn json_report(&self, phase_times: Option<&RuntimePhaseTimes>) -> String {
+        let phases = phase_times.map_or_else(String::new, |times| {
+            format!(",\"wall_time_ns\":{},\"cpu_time_ns\":{}",
+                times.wall_time_ns.to_json("monotonic_wall"),
+                times.cpu_time_ns.to_json("process_cpu"))
         });
         format!(
             "{{\"tracking_active\":{},\"status\":{},\"stdout_bytes\":{},\"stderr_bytes\":{},\"construction\":{},\"controller\":{},\"execution\":{},\"workers\":{}{}}}\n",
@@ -236,7 +260,7 @@ mod tests {
 
     #[test]
     fn phase_wall_times_reconcile_exclusive_work_without_counting_execution_twice() {
-        let times = super::RuntimePhaseWallTimes {
+        let times = super::RuntimePhaseDurations {
             preparation_inclusive: 100,
             project_parse_load_exclusive: Some(10),
             check_solve_fact_build_exclusive: Some(20),
@@ -246,27 +270,27 @@ mod tests {
             diagnostic_finish_exclusive: None,
         };
         assert_eq!(times.preparation_other_exclusive(), 15);
-        let json = times.to_json();
+        let json = times.to_json("monotonic_wall");
         assert!(json.contains("\"execution_finish_exclusive\":500"));
         assert!(json.contains("\"diagnostic_finish_exclusive\":null"));
-        let interrupted = super::RuntimePhaseWallTimes {
+        let interrupted = super::RuntimePhaseDurations {
             preparation_inclusive: 45,
             project_parse_load_exclusive: Some(10),
             check_solve_fact_build_exclusive: Some(20),
             diagnostic_finish_exclusive: Some(5),
-            ..super::RuntimePhaseWallTimes::default()
+            ..super::RuntimePhaseDurations::default()
         };
         assert_eq!(interrupted.preparation_other_exclusive(), 15);
-        assert!(interrupted.to_json().contains("\"declaration_publication_exclusive\":null"));
+        assert!(interrupted.to_json("monotonic_wall").contains("\"declaration_publication_exclusive\":null"));
     }
 
     #[test]
     #[should_panic(expected = "exclusive preparation phases must fit inside preparation")]
     fn phase_wall_times_reject_overlapping_or_out_of_parent_measurements() {
-        let times = super::RuntimePhaseWallTimes {
+        let times = super::RuntimePhaseDurations {
             preparation_inclusive: 10,
             project_parse_load_exclusive: Some(11),
-            ..super::RuntimePhaseWallTimes::default()
+            ..super::RuntimePhaseDurations::default()
         };
         times.preparation_other_exclusive();
     }
@@ -350,11 +374,18 @@ print "once"
             panic!("phase report must be an object");
         };
         let phases = report.remove("wall_time_ns").expect("phase report adds wall times");
+        let cpu = report.remove("cpu_time_ns").expect("phase report adds CPU times");
         assert_eq!(compact_raw_json(&JsonValue::Object(report)), compact_raw_json(&allocation));
         assert!(raw_json_get(&allocation, "wall_time_ns").is_none());
+        assert!(raw_json_get(&allocation, "cpu_time_ns").is_none());
         assert!(raw_json_get(&phases, "preparation_inclusive").and_then(raw_json_as_u64).is_some());
         assert!(raw_json_get(&phases, "execution_finish_exclusive").and_then(raw_json_as_u64).is_some());
         assert!(matches!(raw_json_get(&phases, "diagnostic_finish_exclusive"), Some(JsonValue::Null)));
+        assert!(matches!(raw_json_get(&cpu, "clock"), Some(JsonValue::String(clock)) if clock == "process_cpu"));
+        for key in ["preparation_inclusive", "project_parse_load_exclusive", "check_solve_fact_build_exclusive", "declaration_publication_exclusive", "lower_verify_install_exclusive", "preparation_other_exclusive", "execution_finish_exclusive"] {
+            assert!(raw_json_get(&cpu, key).and_then(raw_json_as_u64).is_some(), "{key}");
+        }
+        assert!(matches!(raw_json_get(&cpu, "diagnostic_finish_exclusive"), Some(JsonValue::Null)));
     }
 
     #[test]
