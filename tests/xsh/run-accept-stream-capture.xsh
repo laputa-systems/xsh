@@ -199,11 +199,16 @@ print "not spawned"
 }
 
 test test_process_stream_timeout_preserves_unobservable_child_identity { |ctx|
+  let ready = test.temp_path(ctx, name: "stream-timeout-echild-ready")
   let acknowledged = test.temp_path(ctx, name: "stream-timeout-echild-ack")
   let survived = test.temp_path(ctx, name: "stream-timeout-echild-survived")
-  let source = r"""let acknowledged = Path(args[0])
-let survived = Path(args[1])
-let rows = run.stream --bytes --timeout=5s sh -c "printf x; while [ ! -e \"$1\" ]; do sleep 0.01; done; printf survived > \"$2\"" sh $acknowledged $survived ?
+  let source = r"""let ready = Path(args[0])
+let acknowledged = Path(args[1])
+let survived = Path(args[2])
+let rows = run.stream --bytes --timeout=5s sh -c "printf x && touch \"$1\"; while [ ! -e \"$2\" ]; do sleep 0.01; done; printf survived > \"$3\"" sh $ready $acknowledged $survived ?
+var ready_attempts = 0
+while ! ready.exists()? and ready_attempts < 5000 { time.sleep(1ms)?; ready_attempts += 1 }
+assert ready.exists()?
 process.set_signal_action("CLD", "ignore")?
 process.set_signal_action("CLD", "default")?
 let outcome: Result[Unit, ProcessError] = try {
@@ -220,7 +225,7 @@ while ! survived.exists()? and attempts < 5000 { time.sleep(1ms)?; attempts += 1
 assert survived.exists()?
 print "survived"
 """
-  let output = test.run_script(ctx, source, [acknowledged, survived])?
+  let output = test.run_script(ctx, source, [ready, acknowledged, survived])?
   assert output.success, output.stderr
   assert output.stdout == "survived\n"
 }
