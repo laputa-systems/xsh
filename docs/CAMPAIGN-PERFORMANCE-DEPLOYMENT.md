@@ -72,13 +72,14 @@ evidence. Use the cleanup skill for completed worktrees and retain ambiguous wor
 | Allow `doas` for KVM access. | Owner direction during planning, 2026-10-17. Limit elevation to required device/container/VM operations using owned paths. Do not run arbitrary recipe code as host root. |
 | Allow one build of the existing Laputa host-tools image. | Owner answer, 2026-10-18. Its pinned Alpine base installs seven unversioned APK packages. Build only this exact image, save it in the isolated checkout, and use that saved image offline afterwards. This does not authorize other moving inputs. |
 | Retain the thirteen exact `lsipc` reference-crash exceptions. | Existing owner decision in the util-linux campaign. Independent XSH assertions remain behavior evidence and receive no exact-parity credit. |
+| Require Laputa world and Asterinas acceptance immediately after consolidation cleanup. | Owner direction, 2026-10-18. G6 follows G5 before further inference implementation or performance measurements. Laputa must remain functional. Use isolated checkouts of the sibling's named source, the accepted XSH candidate, the existing world recipe set and existing Asterinas backend. |
 
 ### Prescribed decisions
 
 | Decision | Reason and reversal condition |
 |---|---|
 | Start at local master `3ed58895c0b1423c8f7ac4852bb9ec9a23922da2`. | It includes the merged util-linux work and preserves the accepted Lean tree. The supplied review's `7e8881d9` predates that merge. Reseal once if master advances before launch. |
-| Keep x86-64 Linux musl and the existing pinned test image. | Reuse established product settings and isolation. No new OS or kernel substitution. |
+| Keep x86-64 Linux musl and the existing pinned test image for XSH qualification. | Reuse established product settings and isolation. G6 additionally qualifies Laputa's existing pinned Asterinas backend under the owner's explicit direction. No replacement of the Linux baseline or new backend. |
 | Audit inference by capability and patch, then merge only reviewed changes. | The accepted checkpoint is hundreds of commits divergent. A whole-branch merge can restore obsolete compiler or toolchain state. |
 | Keep original accounting and practical acceptance separate. | Preserve 9,194 sites, 693 eligible locals, 2,190 eligible internal annotations, and the historical 95%/85% targets. Do not claim those targets pass unless they do. |
 | Classify every retained eligible annotation. | Distinguish semantic meaning, unavailable information, and missing relationships. `{}` remains a Record; Map selection remains purposeful. |
@@ -89,7 +90,7 @@ evidence. Use the cleanup skill for completed worktrees and retain ambiguous wor
 | Reuse current measurement and VM tooling. | Extend narrow selectors and phase counters where missing. Do not build another benchmark platform, VM supervisor, proof inventory, or provenance system. |
 | Test immutable package/root generations. | Laputa has no mutable install/uninstall contract. Model upgrade as a replacement generation and removal as recomposition plus reachability-based collection. |
 | Use the existing `qemu-dwl-foot` profile. | It is Laputa's supported image and guest proof. Add bounded shutdown assertions there; do not invent a second distribution or a handwritten package list. |
-| Keep all test/build execution offline after explicit input acquisition. | Fetch only recipe/image-pinned inputs for the selected closure. No broad `make fetch`, package-catalog expansion, or moving dependency versions. |
+| Keep all test/build execution offline after explicit input acquisition. | Fetch only recipe/image-pinned inputs for the selected closure. G6 includes the existing full x86-64 world plan and Asterinas inputs. No broad `make fetch`, new package catalogue entries, or moving dependency versions. |
 | Preserve source-facing APIs and the single indexed executor. | New private types and scheme metadata may change. A new public contract, native backend, daemon, or compile-first workflow is outside this plan. |
 | Start with no new production dependency. | Use existing codecs and tools. A concrete missing operation can justify a dependency only after license, maintenance, transitive-weight, build, size, and startup review. |
 | Keep compiler qualification separate from a receipt-reader repair. | The existing adapter configuration binds compiler source, products and receipts independently of its tool checkout. Freeze and name both revisions. A reader-only correction gives no compiler credit to the newer tool revision or master. |
@@ -250,6 +251,7 @@ suite lock. Width limits are ceilings, never a requirement to saturate timing ru
 | G3: Audit isolated inference and freeze the practical cohort | M; G0 | Read-only implementation audit plus `dev/performance/` corpus subdirectory and inference evidence docs; tooling owner assigns disjoint files first | Produce a minimal reviewed capability dependency list, source diff, original/reduced cohort, and retained-site classes. No whole-history merge. Pin the actual implementation source behind the accepted evidence. |
 | G4: Prove disposable Laputa inputs | M; G0 | Laputa foundation lane; isolated checkout's local test fixture adapter and owned output roots | Run synthetic PM controls, verify exact candidate-XSH injection, prove network-disabled execution and output confinement, inspect existing profile input closure and KVM path. No guest or recipe is credited by a host-only fixture. |
 | G5: Retire consolidation infrastructure | M; G1 | Tooling owner; `dev/consolidation/`, `dev/performance/`, `dev/util-linux/`, testing and baseline docs | Complete XSH-19. Trace current callers, retain reusable checks under ordinary developer commands, and remove obsolete campaign adapters, duplicate entry points and historical-pin dependencies. Preserve required acceptance behavior and prove replacement commands reject invalid inputs before deleting their predecessors. |
+| G6: Qualify Laputa world and Asterinas | L; G5 and G4 | Laputa acceptance lane; isolated sibling-source checkout, existing world and Asterinas owners, pinned fork for demonstrated kernel defects | Run the full existing x86-64 world build with the accepted XSH candidate, prove root functionality and unchanged rebuild reuse, then require the actual Asterinas smoke and full guest acceptance. Resolve failures at their owning boundary. No mock, filtered package subset, stale compiler pin or host-only proof supplies acceptance. |
 
 At G1 completion, publish `docs/PERFORMANCE-BASELINE.md` with the accepted source,
 product locations, platform, limitations, and gate commands. Update that same page
@@ -257,13 +259,36 @@ after inference integration and final close. Keep the accepted code source expli
 when the documentation commit differs. Do not wait until campaign end to provide
 the everyday baseline reference.
 
-Run G5 immediately after G1, before I1 implementation and M1 measurements.
+Run G5 immediately after G1, then G6 before I1 implementation and M1 measurements.
 This is infrastructure cleanup, separate from deleting disposable worktrees and
 build products. Keep checks required by the remaining campaign until ordinary
 commands own them. Archive historical evidence outside the everyday command path.
 Use focused owner tests and rejection controls for the cleanup. The next combined
 regression boundary remains I1's responsibility. R3 removes machinery introduced
 later in this campaign.
+
+At G6 launch, name a clean Laputa source from `../laputa` and test it in an
+isolated checkout. Keep the normal checkout and its shared artifact store intact.
+Bind the accepted XSH source and products into the host tools, seed and package
+build. Asterinas currently uses its own XSH commit pin. Update that isolated pin
+and its existing source-cache selection to the same accepted local revision.
+An older locked XSH build cannot qualify the current candidate.
+
+Use `make plan` and `make build ARCH=x86_64` without `PKGS` or `STOP` to cover the
+existing world. Fetch only the frozen plan's pinned missing inputs, then execute
+offline. Run the existing Laputa checks and suites, root inspection and execution
+proof, and an unchanged rebuild. Keep publication local to an owned loopback
+mirror when the existing root workflow requires it. No external publication.
+
+Run `make asterinas-setup` for its real KVM smoke marker, then
+`make asterinas-test` for the PM-built root, xinit, XSH, filesystem and process
+proofs. Require the existing guest markers, successful result and complete owned
+VM cleanup. Smoke alone does not establish full Laputa acceptance. Keep the
+existing pinned fork and input policy. Required syscall defects belong in that
+fork with kernel regressions, never userspace workarounds or skips. Bound build
+attempts by the concrete stage and resume that stage after a diagnosed failure.
+Rerun applicable G6 checks after I1 and later shared-path changes. A broken world
+or Asterinas acceptance blocks progression and final campaign closure.
 
 G1, G2, G3, and G4 can overlap after G0. G1 owns broad acceptance; other lanes
 stop expensive work for its timed windows. The coordinator resolves any shared
@@ -333,11 +358,11 @@ schema.
 
 | Item | Size and prerequisites | Exclusive ownership | Outcome and proof |
 |---|---|---|---|
-| I1: Integrate the accepted inference capabilities | L; G5 and G3 | One compiler lane; `src/sema/`, corresponding syntax metadata, compact facts, lowerer, indexed schema/verifier, compiler-facing tests | Review and port/cherry-pick the minimal dependency set. Preserve master Lean, cleanup, and util-linux changes. Run ground-type, schemes, rows, host anchors, recursion, rollback, importer-order, diagnostics, frontend-drop, and forged-IR tests. Then run the combined regression boundary once. |
+| I1: Integrate the accepted inference capabilities | L; G6 and G3 | One compiler lane; `src/sema/`, corresponding syntax metadata, compact facts, lowerer, indexed schema/verifier, compiler-facing tests | Review and port/cherry-pick the minimal dependency set. Preserve master Lean, cleanup, and util-linux changes. Run ground-type, schemes, rows, host anchors, recursion, rollback, importer-order, diagnostics, frontend-drop, and forged-IR tests. Then run the combined regression boundary once. |
 | I2: Remove missing inference relationships by class | L; I1; corpus preparation from G3 can precede it | Same compiler lane for implementation; a separate corpus lane owns transformed fixtures and accounting only | Classify 100% of retained eligible sites. Investigate all 202 effect clauses by cause. Fix shared propagation/constraint causes; keep intentional restrictions and all semantic Map annotations. Prove joint original/reduced behavior and useful inferred signatures. |
 | D1: Complete immutable package lifecycle tests | L; G4; use accepted baseline compiler first, then I1 | Laputa PM lane; `tests/pm/`, narrow PM implementation owners, local recipe fixtures; never XSH compiler files | Local source validation, unpack/build/proof, root generation, version replacement, recomposition/removal, GC, and injected failure at each publication boundary. Check exact files, modes, links, ownership, receipts, and unchanged old generation on failure. |
 | D2: Complete process and rooted-filesystem workflows | M; G4 | Boundary lane; `tests/runtime/process.rs`, `tests/xsh/within.xsh`, `tests/xsh/stdlib/fs*.xsh`, narrow host owners; no scheme/IR files | Bound process trees, partial output, signal/timeout outcomes, complete reaping, primary plus cleanup diagnostics, raw filenames, symlink swaps, hardlinks, permission errors, and interrupted publication. No escape from the declared root. |
-| M1: Freeze representative measurements | M; G2 and G5; final checker baseline after I1 | Measurement lane; existing benchmark files and `dev/performance/` selection; no runtime optimization | Qualify all four families, exact outputs, common/demanding shapes, n/2n/4n scaling, completed-work and allocation/syscall counts. Establish the post-inference source/product baseline. |
+| M1: Freeze representative measurements | M; G2 and G6; final checker baseline after I1 | Measurement lane; existing benchmark files and `dev/performance/` selection; no runtime optimization | Qualify all four families, exact outputs, common/demanding shapes, n/2n/4n scaling, completed-work and allocation/syscall counts. Establish the post-inference source/product baseline. |
 | F1: Bind one transformation to applicable formal assumptions | M; G2; final subject after profiles | Formal lane; `formal/` maintenance/evidence and one optimization-specific finite validation fixture; compiler edits belong to I1/P3 owner | Select one measured transformation. Map actual checked input and emitted IR assumptions to the relevant formal result; mutation controls reject a lost assumption. Keep theorem statements separate from finite Rust evidence. |
 
 All scheme, effect, compact publication, and IR changes stay with one compiler
