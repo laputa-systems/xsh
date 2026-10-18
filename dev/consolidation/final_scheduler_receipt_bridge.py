@@ -344,7 +344,7 @@ def reference_build_command() -> list[str]:
         str(RUNNER), str(REFERENCE_ROOT), "build", "cargo", "build", "--locked", "--release",
         "--target", TARGET, "--message-format=json-render-diagnostics",
         "--config", "profile.release.opt-level=3",
-        "--config", "profile.release.lto=thin",
+        "--config", 'profile.release.lto="thin"',
         "--config", "profile.release.codegen-units=16",
         "-p", "xsht", "--bin", "xsht",
     ]

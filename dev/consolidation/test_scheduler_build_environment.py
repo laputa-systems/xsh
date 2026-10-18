@@ -5,6 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 import tempfile
+import tomllib
 from unittest.mock import patch
 
 root = Path(__file__).resolve().parents[2]
@@ -12,6 +13,17 @@ spec = spec_from_file_location("scheduler_bridge", Path(__file__).with_name("fin
 bridge = module_from_spec(spec)
 spec.loader.exec_module(bridge)
 
+
+
+def test_reference_build_configs_are_valid_toml():
+    with patch.multiple(bridge, create=True, RUNNER=Path("/reviewed/runner"), REFERENCE_ROOT=Path("/frozen/reference")):
+        command = bridge.reference_build_command()
+    configs = [tomllib.loads(command[index + 1]) for index, argument in enumerate(command[:-1]) if argument == "--config"]
+    assert configs == [
+        {"profile": {"release": {"opt-level": 3}}},
+        {"profile": {"release": {"lto": "thin"}}},
+        {"profile": {"release": {"codegen-units": 16}}},
+    ]
 
 
 def test_reference_output_uses_the_shared_launcher_namespace():
@@ -200,6 +212,7 @@ def test_reference_preflight_from_tool_and_controller_paths():
 
 
 if __name__ == "__main__":
+    test_reference_build_configs_are_valid_toml()
     test_reference_output_uses_the_shared_launcher_namespace()
     test_reference_runner_receives_and_records_its_tool_directory()
     test_reference_docker_capture_matches_the_actual_launcher()
