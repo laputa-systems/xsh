@@ -106,7 +106,7 @@ after final measurement; never substitute a summary for the samples.
 ## Hostpipe observation and selected scales
 
 Measured samples add `first_useful_stdout_ns`, `useful_stdout_prefix_bytes`,
-`stdout_bytes`, `stderr_bytes`, and `failure_count` without removing existing
+`useful_stdout_observed`, `stdout_bytes`, `stderr_bytes`, and `failure_count` without removing existing
 fields. For the frozen text workloads, useful output is the first complete
 expected stdout line observed on the host pipe. It is not first-byte latency.
 The completion interval ends after process exit and full stdout/stderr capture.
@@ -118,7 +118,8 @@ and reaps the initial child. A pipe holder that escapes the group makes cleanup
 fail loudly. SIGINT and SIGTERM clean up the owned group before cancellation
 propagates. Failed output comparison, status, stderr, timeout, effects, or
 cleanup receives no timing credit. Non-measured parity runs emit null timing
-fields.
+fields. Useful-line observation remains available for non-measured parity
+without populating either clock field.
 
 The existing fixture generator also accepts explicit `package_rows=4096` and
 `package_rows=8192` shapes for the frozen XSH cohort in

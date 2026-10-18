@@ -119,6 +119,7 @@ class HarnessTests(unittest.TestCase):
             return value
         script = "import os,pathlib,sys; os.write(1,b're'); os.write(2,b'x'*200000); os.write(1,b'ady\\n'); pathlib.Path(sys.argv[1]).read_bytes(); os.write(1,b'done\\n')"
         observation = invoke([sys.executable, "-c", script, str(release)], work, {}, 5, measured=True, useful_prefix=b"ready\n", clock_ns=clock)
+        self.assertTrue(observation["useful_stdout_observed"])
         self.assertEqual(observation["first_useful_stdout_ns"], 100)
         self.assertEqual(observation["wall_ns"], 200)
         self.assertEqual(base64.b64decode(observation["stdout_base64"]), b"ready\ndone\n")
@@ -133,7 +134,15 @@ class HarnessTests(unittest.TestCase):
                 observation = invoke([sys.executable, "-c", script], self.root, {}, 5, measured=True, useful_prefix=b"ready\n", clock_ns=lambda: next(readings))
                 self.assertEqual(observation["status"], status)
                 self.assertIsNone(observation["first_useful_stdout_ns"])
+                self.assertFalse(observation["useful_stdout_observed"])
                 self.assertFalse(equivalent(observation, b"ready\n"))
+
+    def test_parity_observes_useful_line_without_emitting_timestamps(self):
+        observation = invoke([sys.executable, "-c", "print('ready')"], self.root, {}, 5, useful_prefix=b"ready\n")
+        self.assertTrue(equivalent(observation, b"ready\n"))
+        self.assertTrue(observation["useful_stdout_observed"])
+        self.assertIsNone(observation["first_useful_stdout_ns"])
+        self.assertIsNone(observation["wall_ns"])
 
     def test_exited_parent_with_descendant_holding_pipes_hits_deadline_and_cleans_group(self):
         script = "import subprocess,sys; subprocess.Popen([sys.executable,'-c','import signal; signal.pause()']); print('ready',flush=True)"

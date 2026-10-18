@@ -120,6 +120,7 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
     timed_out = False
     stdout, stderr = bytearray(), bytearray()
     first_useful = None
+    useful_observed = False
     primary = None
     finished = None
     try:
@@ -137,8 +138,10 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
                         selector.unregister(key.fileobj)
                         continue
                     key.data.extend(chunk)
-                    if measured and first_useful is None and useful_prefix is not None and stdout.startswith(useful_prefix):
-                        first_useful = clock_ns() - started
+                    if not useful_observed and useful_prefix is not None and stdout.startswith(useful_prefix):
+                        useful_observed = True
+                        if measured:
+                            first_useful = clock_ns() - started
             if not timed_out:
                 try:
                     process.wait(timeout=max(0, deadline - time.monotonic()))
@@ -172,7 +175,7 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
         raise primary
     elapsed = finished - started if measured else None
     effects = changes(before, snapshot(cwd))
-    return {"wall_ns": elapsed, "first_useful_stdout_ns": first_useful, "useful_stdout_prefix_bytes": len(useful_prefix) if useful_prefix is not None else None, "status": process.returncode, "timed_out": timed_out, "stdout_base64": base64.b64encode(stdout).decode(), "stderr_base64": base64.b64encode(stderr).decode(), "stdout_bytes": len(stdout), "stderr_bytes": len(stderr), "effects": effects}
+    return {"wall_ns": elapsed, "first_useful_stdout_ns": first_useful, "useful_stdout_observed": useful_observed, "useful_stdout_prefix_bytes": len(useful_prefix) if useful_prefix is not None else None, "status": process.returncode, "timed_out": timed_out, "stdout_base64": base64.b64encode(stdout).decode(), "stderr_base64": base64.b64encode(stderr).decode(), "stdout_bytes": len(stdout), "stderr_bytes": len(stderr), "effects": effects}
 
 
 def equivalent(observation, expected):
