@@ -95,30 +95,35 @@ to test the adapter's qualification guards and exact-output parser.
 
 The denominator remains the frozen 9,194-site inventory at `15243e97`. Its
 1,843 retained eligible rows are the exact `retained.tsv` at that checkpoint;
-the current 877 table is not a substitute. The rows divide into 758 Proc
-signature restrictions (549 non-default parameter types and 209 explicit
-non-Unit returns), 149 purposeful empty-Map annotations, one nonempty Map
-selection site (3598), and 202 private effect clauses. The 149 empty Maps
-preserve the requested distinction between a Map and an empty record. Site
-3598 likewise needs an expected Map type rather than record construction. These
-are semantic selection or contract restrictions, not missing type propagation.
+the current 877 table is not a substitute. The rows include 758 Proc signature
+restrictions (549 non-default parameter types and 209 explicit non-Unit
+returns), 149 purposeful empty-Map annotations, the local annotation at site
+3598, and 202 private effect clauses. The 149 empty Maps preserve the requested
+distinction between a Map and an empty record. Site 3598 is a local type
+annotation for a nonempty Map literal; the eligibility inventory records it as
+`eligible-local`, and its source evidence says erasure leaves an unchecked
+dynamic Record. It is a local Map-selection requirement. The accepted 1,040
+README at `15243e97:dev/consolidation/typing-corpus/README.md` gives the source
+context.
 
-Source review also identifies 18 specific missing-inference relationships and
-one unavailable-information case. The ten null-branch sites 2332, 2543, 3406,
-3407, 3476, 6436, 6564, 7427, 7822, and 7823 join plain Null with a concrete
-type without an Optional witness. Site 2285 needs `MonitorBattery` field
-context; site 6338 depends on the later USB endpoints producer; sites 973 and
-3914 need nominal enum return context; sites 3599 and 3665 need a Str receiver
-anchor because `replace` also accepts Regex; and sites 9111 and 9112 are outside
-the checked membership body grammar. Site 2850 is the unavailable-information
-case: its parameter is used only in interpolation, which does not constrain its
-type. These source facts establish the present relationship or information
-limit; they do not prescribe a new inference rule. The accepted 1,040 README at
-`15243e97:dev/consolidation/typing-corpus/README.md` gives the source context
-for these sites.
+Source review surfaced 18 additional retained sites but does not establish a
+single cause for them. Sites 2332, 2543, 3406, 3407, 3476, 6436, 6564, 7427,
+7822, and 7823 join plain Null with a concrete type without an Optional witness;
+whether those joins should infer an Optional remains unresolved. Site 2285
+retains `MonitorBattery` field context, and site 6338 depends on a later USB
+endpoints producer; source order and intended context have not been separated
+from an inference limitation. Sites 973 and 3914 need nominal enum return
+context, but the evidence does not establish that inference should choose a
+variant without that context. Sites 9111 and 9112 are outside the checked
+membership body grammar, which records a capability boundary without proving
+that the annotations are semantically unnecessary. Keep these 16 sites pending
+with those source facts attached. Sites 3599 and 3665 need a Str anchor for
+`replace`, which also accepts Regex; the accepted negative-control contract
+requires this call to remain ambiguous without local evidence, so these two are
+semantic restrictions. Site 2850 is an unavailable-information case: its
+parameter is used only in interpolation, which does not constrain its type.
 
-The remaining 714 checker-restored rows are still unclassified. The retained
-table records observed diagnostic families, including `infer-return` (288),
+The retained table records observed diagnostic families, including `infer-return` (288),
 `local-inference` (232), `dynamic-boundary` (70), `type-mismatch` (66),
 `unknown-method` (56), and `try-context` (37), with smaller families for
 iterators, result fallback, display conversion, indexing, assignment targets,
@@ -138,13 +143,22 @@ deletion proof covers these 202 sites. Retain all of them, including the 142
 individual results, until that relationship is checked. The exact source list
 is `individual-effects-sites.tsv` at the 1,040 checkpoint.
 
-The accounting is 908 semantic restrictions/selections, 18 source-supported
-missing relationships, one unavailable-information site, 714 pending
-checker-restored rows, and 202 pending effects: 1,843 retained eligible sites.
-This classifies 927 sites from direct source evidence; the other 916 remain
-explicitly pending. It does not change the 693-local or 2,190-internal
-denominators, authorize any further removals, or establish the 95% and 85%
-targets.
+The accounting is 910 semantic restrictions/selections (758 Proc contracts,
+149 empty Maps, site 3598, and the two ambiguous `replace` receivers), one
+unavailable-information site, 730 checker-restored rows pending cause review,
+and 202 pending effects: 1,843 retained eligible sites. This classifies 911
+sites from direct source evidence; the other 932 remain pending. Of the 730
+checker-restored rows, 16 have the source facts above but unresolved causes; the
+other 714 have only diagnostic-family evidence recorded in the retained table.
+
+The frozen local target cannot be reached while preserving the 149 required
+empty-Map locals and site 3598: at most 543 of 693 locals (78.35%) could be
+removed, even if every other retained local became inferable. The 758 required
+Proc signatures cap internal removals at 1,432 of 2,190 (65.39%), below 85%;
+retaining all 202 effect clauses pending joint proof lowers that ceiling to
+1,230 of 2,190 (56.16%). These ceilings preserve the frozen denominator and
+make the existing 95% local and 85% internal goals unattainable under the
+established contract restrictions.
 
 ## Practical source-view preparation
 
@@ -167,9 +181,8 @@ must use its historical source commits and retained table; combine its result
 with practical files only as an explicitly labeled extension, never by
 silently changing the frozen inventory.
 
-The isolated Laputa source view used by the adapter test is `639184e65a712b9d33fa5033e045f8913cd04a5a`;
-the source files can be read from that commit even though its shared worktree
-has unrelated local changes. Its adapter test requires explicit
+The isolated Laputa source view used by the adapter test is
+`639184e65a712b9d33fa5033e045f8913cd04a5a`. Its adapter test requires explicit
 `XSH_LAPUTA_CORPUS`, so set that variable to the isolated checkout. Do not use
 the canonical Laputa checkout as an implicit fallback.
 
