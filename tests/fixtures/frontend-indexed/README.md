@@ -1,22 +1,10 @@
 # Indexed Frontend Fixtures
 
-`indexed-execution.xsh` is the frozen indexed-execution fixture. It prints:
+`tests/xsh/frontend-indexed.xsh` runs `indexed-execution.xsh` and
+`indexed-method-call.xsh` through the standard execution path. The first
+covers indexed control flow and calls; the second guards dynamic method calls.
 
-```text
-slice 13 120 true true
-```
-
-It covers literals, slots, parameters, capture, assignment, return, direct and
-recursive calls, mutual recursion, control flow, propagation, a guarded match,
-a record field read, a registered bytes operation, and an unused operation with
-a stable error location.
-
-`indexed-method-call.xsh` covers the dynamically typed `sources.len()` call as
-an explicit indexed method operation. It guards the requirement that this form
-remain executable rather than becoming a placeholder instruction or selecting a
-different evaluator.
-
-`builtin-templates.xsh` retains nested collection domains, ordinary named and
-spread binding, fresh map constraints, and lazy Optional method arguments after
-frontend state has been dropped. The indexed verifier and both execution routes
-consume the same prepared builtin calls.
+`src/runtime/eval/indexed/full.rs` uses `builtin-templates.xsh` to check nested
+collection domains, named and spread binding, fresh map constraints, and lazy
+Optional method arguments after frontend state is dropped. Both indexed routes
+must use the same prepared builtin calls.

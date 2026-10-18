@@ -42,9 +42,9 @@ original identifiers:
 
 Targeted text reports remain in [wrap](results-text-wrap-fastpath.json),
 [padding](results-text-pad-seed.json), and
-[small formatting](results-fmt-small-bytes.json) results. The JSON files are
-the historical measurements; their results apply only to the recorded
-binaries, fixtures, and host.
+[small formatting](results-fmt-small-bytes.json) results.
+These JSON files are historical measurements; results apply only to their
+recorded binaries, fixtures, and host.
 
 ## Host run
 

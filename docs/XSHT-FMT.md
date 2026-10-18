@@ -1,110 +1,68 @@
 # XSHT Formatter Design
 
-`xsht fmt` is a normalizing formatter, not a byte-preserving printer. The AST
-supplies semantic shape and precedence; the CST supplies comments, exact spans,
-and layout clues; a document layer (`Doc`, `DocRenderer` in
-`crates/xsht/src/format.rs`) chooses flat or broken layout. The language
-contract stays in `docs/SPEC.md`.
-
-| Concern | Symbols | Owner |
-|---|---|---|
-| entry and output | `Formatter`, `format_files` | `crates/xsht/src/format.rs`, `crates/xsht/src/cli/fmt.rs` |
-| source-faithful input | `SyntaxTree`, `apply_cst_guarded_edits` | `src/syntax/cst.rs`, `crates/xsht/src/edit.rs` |
-| layout decisions | `canonical_parens_when_empty`, `needs_top_level_blank`, `prefer_broken` | `src/syntax/node.rs`, `crates/xsht/src/format.rs` |
-| equivalence check | `verify_formatted_output` | `crates/xsht/src/format_equivalence.rs` |
+`xsht fmt` normalizes source rather than preserving every byte. The AST supplies
+semantic shape and precedence; the CST supplies spans, comments, and layout
+cues. `crates/xsht/src/format.rs` owns layout. The language contract is in
+`SPEC.md`.
 
 ## Policy
 
-- Source intent breaks ties. When flat and broken forms are both readable, keep
-  the author's choice (blocks, control-flow expressions, `with` bindings, call
-  arguments, comprehensions, collections, method chains, pipeline stages, and a
-  line break before a continuation operator). A collection counts as broken
-  when the author broke it between elements, not inside one. A `"..."` string
-  keeps its escapes, a quoted command word with interpolations stays one
-  quoted string, and a `{name}` pattern field stays shorthand. Do not preserve
-  accidental cramped or one-token-per-line layout.
-- A block the author wrote on one line with a single statement stays on one
-  line when it fits: `{ return 1 }`, `{ |x| x + 1 }`. The branches of an `if`
-  are all flat or all broken, and a `match` arm holds a control-flow statement
-  unbraced only when it stays on the arm's line. Arm-specific expression
-  grouping applies to the arm's own statement; statements inside a declaration
-  initializer keep ordinary block syntax.
-- Break at semantic boundaries, in this order: between chained calls, call
-  arguments, record fields, collection items, comprehension clauses, pipeline
-  stages; inside nested expressions only as a last resort.
-- Broken argument lists put one argument per line with a trailing comma. Method
-  chains keep the first call on the receiver and continue with leading-dot lines
-  that still parse as one expression.
-- Once a collection breaks, similar siblings share a shape: when any element
-  cannot fit flat on its own line, every element expands, and so do the
-  collections nested in them. Otherwise each element keeps its own layout, so
-  rows of short records stay one per line.
-- A command stays on one line while it fits. Its parts are the arguments,
-  `run` options, environment assignments, redirections, and the `| run`
-  segments of a byte pipeline. A part begins a continuation line, after ` \`
-  and indented one level under the command, where the author began a line
-  with it, so a flag stays with its value; a part that does not fit on the
-  current line begins one too, and the following parts fill that line. The
-  first part stays with the command's name, the trailing `?` and the `{` of a
-  block stay on the last line, and a part too wide for a line of its own stays
-  where it is. Continuation lines of a command that has a block are indented
-  two levels, clear of the block's body.
-- Pipeline stages use a two-space continuation. Blank lines mark sections,
-  declarations, and multi-line control-flow statements, decided from the
-  formatted output so the first and second passes agree.
-- Comments are layout constraints. Leading comments stay leading, trailing
-  comments stay with their statement, a comment that ends a block stays inside
-  it, and nested comments block AST-only regeneration. A blank line next to a
-  comment is kept as one blank line where the author left it and never added.
-  `# fmt: skip` preserves the next statement byte-for-byte.
-- Strings, paths, comments, and other indivisible tokens are never split;
-  they may exceed `format.line-width` (from the nearest `xsht-config.ini`,
-  default 120). Multi-line literal contents are never reindented.
-  A path before an interpolation format spec stays quoted so the spec's colon
-  does not become part of the path.
-- Width is measured in characters; there is no display-column policy and no
-  second layout-preference setting until a real source case needs one.
+- Preserve meaningful source choices when flat and broken forms both fit:
+  blocks, control-flow expressions, `with` bindings, calls, comprehensions,
+  collections, method chains, pipeline stages, and breaks before continuation
+  operators. Do not keep accidental cramped or one-token-per-line layouts.
+- A one-statement block stays on one line when it fits. The branches of an
+  `if` share a flat or broken shape; a `match` arm keeps a control-flow
+  statement unbraced only while it fits on that arm's line.
+- Break at semantic boundaries before breaking inside nested expressions:
+  chained calls, arguments, record fields, collection items, comprehension
+  clauses, and pipeline stages. Broken calls put one argument per line with a
+  trailing comma; method chains continue on leading-dot lines. A collection
+  that breaks between elements expands its siblings consistently, including
+  nested collections; a break inside one element does not make the collection
+  broken.
+- Keep a fitting command on one line. Otherwise, break at its arguments,
+  options, environment assignments, redirections, and pipeline segments, with
+  each option kept with its value. Continuations use ` \` and one indent
+  level; command blocks use two. Pipeline stages use a two-space continuation.
+- Blank lines separate sections, declarations, and multi-line control flow.
+  Comments constrain layout: leading and trailing comments stay attached,
+  block-ending comments stay inside the block, and comments prevent AST-only
+  regeneration where their position would be lost. Keep an existing blank line
+  beside a comment, but do not add one. `# fmt: skip` preserves the next
+  statement byte-for-byte.
+- Strings, paths, comments, and other indivisible tokens are not split and may
+  exceed `[format] line-width` (default 120 characters). Multiline literal
+  contents are not reindented. Width is measured in characters, not display
+  columns. Preserve string escapes, quoted command words with interpolation,
+  and shorthand pattern fields.
 
 ## Invariants
 
-- Output parses without diagnostics and checks without new checker diagnostics.
-- Output reparses to the input's syntax tree, ignoring positions.
-  `verify_formatted_output` compares canonical walks and returns a
-  `format-equivalence` error instead of writing, for both `fmt` and
-  `lint --fix`.
-- Output has exactly the parentheses `syntax::grouping::needs_parens` requires,
-  the same rule `check.redundant-parens` enforces on source, and adjacent
-  tokens are joined through `lexer::join_tokens`. `xsht fmt` ignores only
-  `check.redundant-parens`; every other checker diagnostic, including
-  `check.mixed-logical`, blocks formatting, so the formatter never chooses
-  grouping for the author. `format_proofs` checks the rule over every slot and
-  expression form and over generated trees.
-- Formatting is idempotent. A conditional branch kept on one line as
-  `{ value }` never breaks inside the value; when the value cannot fit, every
-  branch breaks, in an assigned value and in an operand as in an initializer.
-- Comments are never duplicated or dropped; `fmt: skip` source is preserved.
-- Expression continuations never become separate statements.
-- A comprehension value is grouped against the qualifier's rendered boundary:
-  an inline keyword or a newline in a broken comprehension. Optional pipeline
-  callbacks must not gain redundant parentheses when the qualifier moves to
-  the next line.
-- Lint diagnostics are unchanged by formatting (`docs/XSHT.md`).
-- A typed command argument loses its parentheses only where the command
-  parser reads the same expression without them: a prefixed string and a
-  chain that calls or indexes. `(name)`, `(7)`, and `("costs $5")` keep
-  theirs, because the bare text is a word.
-- `xsht fmt` writes files only after every file is formatted, and answers
-  SIGINT or SIGTERM without waiting for the file a worker is in, so an
-  interrupted run writes none
-  (`crates/xsht/tests/cli.rs::fmt_cancellation_during_one_large_file_is_prompt_and_writes_no_file`).
+- Output parses without diagnostics, checks without new checker diagnostics,
+  and reparses to the same syntax tree ignoring positions. `fmt` and `lint
+  --fix` verify this before writing; a mismatch is a `format-equivalence`
+  error.
+- Parentheses match the grouping required by the parser. Formatting ignores
+  only `check.redundant-parens`; every other checker diagnostic blocks a write.
+- Formatting is idempotent. A fitting conditional value stays on its line; if
+  it must break, all branches break. Expression continuations never become
+  separate statements. Comprehension values stay grouped at their rendered
+  qualifier boundary, and moving an optional pipeline qualifier does not add
+  redundant callback parentheses.
+- Formatting neither duplicates nor drops comments, and preserves `fmt: skip`.
+  It leaves lint diagnostics unchanged; see [XSHT tooling](XSHT.md#lint).
+- A typed command argument loses parentheses only where its bare form parses
+  as the same expression. Parentheses around a name, number, or ordinary string
+  remain because those forms are command words.
+- `xsht fmt` writes only after every selected file formats successfully.
+  Cancellation during a file writes none of the selected files.
 
 ## Tests
 
-The curated corpus is one annotated file, `tests/fixtures/fmt/beauty.xsh`, with
-one golden, `tests/fixtures/fmt/beauty.expected.xsh`. Add an annotated section
-there when a source shape or the CLI rewrite path is part of the behavior;
-`tests/xsh/formatter.xsh::test_fmt_fixture` formats a copy, compares the golden,
-then runs `xsht check` and `xsht fmt --check`. Narrow Rust contracts go in
-`crates/xsht/tests/syntax.rs` or `crates/xsht/tests/formal_bridge.rs`; use the
-focused command in `docs/TESTING.md`. The sibling `../laputa` corpus, when
-present, is a broad stress test, not a golden.
+Add visible formatting cases to the annotated golden pair in
+`tests/fixtures/fmt/`. The disk-backed test is
+`tests/xsh/formatter.xsh::test_fmt_fixture`; narrow host contracts live in
+`crates/xsht/tests/syntax.rs` and `crates/xsht/tests/formal_bridge.rs`. See
+[Testing](TESTING.md#native-tests-first) for focused commands. The sibling
+`../laputa` corpus is an optional stress test, not a golden.

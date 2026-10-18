@@ -31,13 +31,9 @@ before exit. YSH and Elvish also use image `find`; YSH sorts JSON names with
 image `sort`. Other parsing/transformation stays in each language. Helpers
 are part of the timed command and their executable hashes are recorded.
 
-The overlay starts from an immutable `Dockerfile.test` image ID. It adds
-dash 0.5.12 and Oils/YSH 0.37.0 source builds, Nushell 0.107.0's official musl
-binary, and Elvish 0.21.0's official binary. Bash 5.3.9 and Python 3.14.8 come
-from that base image. Download URLs and SHA-256 pins for both architectures
-are in `versions.lock.json`; the overlay does not mutate its parent image.
-Preparation creates a dedicated local base alias because BuildKit treats bare
-image IDs as registry tags; the alias must resolve to the pinned image ID.
+The overlay starts from the immutable `Dockerfile.test` image ID and adds the
+other pinned tool versions. URLs, SHA-256 pins, and architecture choices live
+in `versions.lock.json`. The overlay does not mutate its base image.
 
 Prepare inputs and the overlay under ignored `.work/`. Set `TMPDIR` there for
 any temporary files:
@@ -69,17 +65,12 @@ python3 -B bench/consolidation/run.py --image xsh-comparative:consolidation \
   --source-commit FULL_SOURCE_COMMIT
 ```
 
-The runner uses one unprivileged, read-only, network-disabled container. Suite,
-binary, and fixture mounts are read-only; output and per-tool scratch mounts
-are writable. Exact stdout bytes, empty stderr, status zero, timeout state,
-and no remaining scratch changes must agree before measuring. Any failure
-stops the run and leaves its raw observation in the report. Process-group
-timeouts kill workload descendants, and scratch is removed on exit.
-The container is pinned to the first CPU allowed to the host runner, with a
-4 GiB memory limit and swap disabled. It checks the in-container CPU affinity,
-cgroup memory limit, and zero swap limit before running, then records the
-host's allowed CPU set, requested cpuset, observed affinity, memory limit, and
-swap limit in the report.
+The runner uses one unprivileged, read-only, network-disabled container.
+Inputs are read-only; output and per-tool scratch are writable. It requires
+exact stdout, empty stderr, status zero, no timeout, and unchanged scratch before
+measuring. Failures stop the run and retain raw observations. Process-group
+timeouts kill descendants and scratch is removed on exit. The runner pins one
+allowed host CPU, disables swap, and limits memory to 4 GiB.
 
 For measurement, add `--measure --functional-close /absolute/close.json`.
 The integrator supplies that JSON record with `functional_complete: true`
@@ -89,43 +80,13 @@ or 60 for startup. Filesystem caches are warm. Tools rotate cyclically within
 each sample, with alternating reversal and round offsets. Each workload runs
 serially; other test/build lanes must be idle during measurement.
 
-`perf_counter_ns` measures from process creation through collection of stdout
-and stderr. Script loading/checking, subprocesses, helper work, and output
-capture are included; fixture preparation, scratch fingerprinting, and report
-writes are outside the interval. Raw samples retain nanoseconds, round,
-sample position, order, argv, status, stderr, effects, and stdout hash; exact
-successful stdout is retained in the preceding parity observations. Failed
-samples retain stdout bytes. Reports include executable/script/helper hashes,
-versions, image and target, clock, fixture manifest hash, and source commit.
-XSH is pinned by source commit and executable hash, and dash by source archive;
-neither runtime supplies a version command. Their version output is null.
-Summaries report each tool's pooled median, median absolute deviation, and
-three round medians. Commit method, version lock, and the complete raw report
-after final measurement; never substitute a summary for the samples.
+`perf_counter_ns` measures process creation through stdout and stderr capture.
+Fixture preparation and report writes are outside the interval. Reports retain
+raw samples and tool, script, helper, image, fixture, and source identities.
+Summaries report pooled medians, median absolute deviation, and round medians.
+Keep complete reports with final measurements.
 
-## Hostpipe observation and selected scales
-
-Measured samples add `first_useful_stdout_ns`, `useful_stdout_prefix_bytes`,
-`useful_stdout_observed`, `stdout_bytes`, `stderr_bytes`, and `failure_count` without removing existing
-fields. For the frozen text workloads, useful output is the first complete
-expected stdout line observed on the host pipe. It is not first-byte latency.
-The completion interval ends after process exit and full stdout/stderr capture.
-Process-group cleanup and scratch comparison follow that interval.
-
-The Linux sampler uses a pidfd and drains both output pipes concurrently.
-It retains the waitable leader until owned-group cleanup, then reaps it.
-Cancellation during process creation is deferred until the handle is tracked. Its deadline includes pipe
-holders that outlive the initial child. Timeout kills the owned process group
-and reaps the initial child. A pipe holder that escapes the group makes cleanup
-fail loudly. SIGINT and SIGTERM clean up the owned group before cancellation
-propagates. Failed output comparison, status, stderr, timeout, effects, or
-cleanup receives no timing credit. Non-measured parity runs emit null timing
-fields. Useful-line observation remains available for non-measured parity
-without populating either clock field.
-
-The existing fixture generator also accepts explicit `package_rows=4096` and
-`package_rows=8192` shapes for the frozen XSH cohort in
-[`dev/performance/workloads.py`](../../dev/performance/workloads.py).
-Its default remains 2,048 and retains the original pinned manifest. Scaled
-fixtures do not satisfy that original manifest pin and do not replace inputs to
-the existing seven-tool comparative gate.
+The separate XSH performance cohort uses 4,096- and 8,192-row shapes from the
+same fixture generator. [`dev/performance/README.md`](../../dev/performance/README.md)
+owns its measurement policy. Scaled fixtures do not replace the pinned inputs
+to this seven-tool comparison.
