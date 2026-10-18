@@ -250,15 +250,98 @@ def bound_file(record, base):
     return path
 
 
+def docker_option_values(arguments, names):
+    values = []
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in names:
+            require(index + 1 < len(arguments), f'incomplete Docker option: {argument}')
+            values.append((argument, arguments[index + 1]))
+            index += 2
+            continue
+        option = next((name for name in names if argument.startswith(name + '=')), None)
+        if option is not None:
+            values.append((option, argument[len(option) + 1:]))
+            index += 1
+            continue
+        option = next((name for name in names if len(name) == 2 and name.startswith('-') and not name.startswith('--') and argument.startswith(name) and argument != name), None)
+        if option is not None:
+            values.append((option, argument[len(option):].removeprefix('=')))
+        index += 1
+    return values
+
+
+def check_supplemental_laputa_command(step, config, image, *, helper):
+    laputa = str(config.laputa_root)
+    arguments = step.get('docker_argv')
+    require(isinstance(arguments, list) and all(type(argument) is str for argument in arguments), f"supplemental Docker argv missing: {step.get('id')}")
+    require(arguments[:2] == ['docker', 'run'] and arguments.count(image) == 1, f"supplemental command must use the pinned Docker image exactly once: {step.get('id')}")
+    if helper:
+        environment = step.get('env')
+        require(isinstance(environment, dict) and environment.get('XSH_GATE_LAPUTA_CORPUS') == laputa, f"supplemental helper Laputa selection mismatch: {step.get('id')}")
+        capture_record = step.get('docker_argv_capture')
+        fields(capture_record, ('path', 'sha256'), f"supplemental Docker argv capture: {step.get('id')}")
+        require(isinstance(capture_record['path'], str) and Path(capture_record['path']).is_absolute(), f"supplemental Docker argv capture must have an absolute path: {step.get('id')}")
+        require(environment.get('XSH_GATE_DOCKER_ARGV_CAPTURE') == capture_record['path'], f"supplemental Docker argv capture path mismatch: {step.get('id')}")
+        capture_path = bound_file(capture_record, config.source_root)
+        log_path = bound_file({'path': step.get('log'), 'sha256': step.get('log_sha256')}, config.source_root)
+        require(capture_path.parent == log_path.parent, f"supplemental Docker argv capture is outside step logs: {step.get('id')}")
+        captured = capture_path.read_bytes()
+        require(captured.endswith(b'\0'), f"supplemental Docker argv capture is truncated: {step.get('id')}")
+        decoded = [os.fsdecode(argument) for argument in captured[:-1].split(b'\0')]
+        require(decoded == arguments, f"supplemental Docker argv differs from captured command: {step.get('id')}")
+    else:
+        require(arguments == step.get('argv'), f"supplemental direct Docker argv mismatch: {step.get('id')}")
+        require('docker_argv_capture' not in step, f"supplemental direct Docker argv must not use a helper capture: {step.get('id')}")
+
+    image_index = arguments.index(image)
+    docker_options = arguments[:image_index]
+    mounts = docker_option_values(docker_options, ('-v', '--volume'))
+    selected_mounts = []
+    for option, mount in mounts:
+        parts = mount.split(':', 2)
+        if len(parts) >= 2:
+            source, target = (Path(parts[0]), Path(parts[1]))
+            if source == config.laputa_root or source.is_relative_to(config.laputa_root) or target == config.laputa_root or target.is_relative_to(config.laputa_root) or config.laputa_root.is_relative_to(target):
+                selected_mounts.append((option, mount))
+    for _, mount in docker_option_values(docker_options, ('--mount',)):
+        fields_by_name = [part.split('=', 1) for part in mount.split(',') if '=' in part]
+        sources = [value for name, value in fields_by_name if name in ('source', 'src')]
+        targets = [value for name, value in fields_by_name if name in ('target', 'destination', 'dst')]
+        if any(Path(source) == config.laputa_root or Path(source).is_relative_to(config.laputa_root) for source in sources) or any(Path(target) == config.laputa_root or Path(target).is_relative_to(config.laputa_root) or config.laputa_root.is_relative_to(Path(target)) for target in targets):
+            selected_mounts.append(('--mount', mount))
+    for _, mount in docker_option_values(docker_options, ('--tmpfs',)):
+        target = Path(mount.split(':', 1)[0])
+        if target == config.laputa_root or target.is_relative_to(config.laputa_root) or config.laputa_root.is_relative_to(target):
+            selected_mounts.append(('--tmpfs', mount))
+    require(selected_mounts == [('-v', f'{laputa}:{laputa}:ro')], f"supplemental command must mount only the selected Laputa corpus read-only: {step.get('id')}")
+
+    environments = docker_option_values(docker_options, ('-e', '--env'))
+    selected_environments = [
+        (option, value)
+        for option, value in environments
+        if value.partition('=')[0] == 'XSH_LAPUTA_CORPUS' or value == 'XSH_LAPUTA_CORPUS'
+    ]
+    require(selected_environments == [('-e', f'XSH_LAPUTA_CORPUS={laputa}')], f"supplemental command must select only the configured Laputa corpus: {step.get('id')}")
+
+
 def check_supplemental_policy(receipt, plan, config):
     require(receipt.get('schema') == 1 and receipt.get('status') == 'commands-passed-needs-privilege-skip-and-close-review', 'supplemental commands incomplete')
     require(receipt.get('source_expected') == {'commit': config.commit, 'tree': config.tree}, 'supplemental source mismatch')
     require(receipt.get('environment') == {key: plan['environment'][key] for key in ('target', 'image')}, 'supplemental target or image mismatch')
+    validate_laputa_corpus(receipt.get('laputa_corpus'), config)
     check_source_records(receipt.get('source_checks'), config, 'supplemental')
     steps = receipt.get('steps')
     require(isinstance(steps, list) and steps, 'supplemental steps missing')
     ids = [step['id'] for step in steps]
     require(len(ids) == len(set(ids)), 'supplemental duplicate step')
+    for step in steps:
+        observed = step.get('argv', [])
+        if isinstance(observed, list) and observed and isinstance(observed[0], str) and observed[0].endswith('/run-native-final.sh'):
+            check_supplemental_laputa_command(step, config, plan['environment']['image'], helper=True)
+        elif isinstance(observed, list) and observed[:2] == ['docker', 'run']:
+            check_supplemental_laputa_command(step, config, plan['environment']['image'], helper=False)
     expected = {
         'verify-pinned-image-id': ['docker', 'image', 'inspect', '--format', '{{.Id}}', plan['environment']['image']],
         'tracked-diff-check': ['git', 'diff', '--check'],

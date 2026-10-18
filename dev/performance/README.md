@@ -134,6 +134,14 @@ validation. The forced-frame executed Docker command must mount that same root
 read-only at its own path and select it through `XSH_LAPUTA_CORPUS`.
 Historical receipts missing these owner bindings cannot close baseline acceptance.
 
+The supplemental receipt must carry the same `laputa_corpus` binding. Every
+container step must prove the executed Docker arguments select that path with
+one read-only bind mount and one `XSH_LAPUTA_CORPUS` value. Helper steps bind
+their NUL-terminated `docker_argv_capture` bytes by path and SHA-256 and must
+match the decoded vector to `docker_argv`; direct Docker steps must match
+`docker_argv` to the recorded step command. Missing, stale, dirty, duplicate,
+or mismatched bindings fail functional close.
+
 Util-linux close requires its existing in-memory independent review. The standalone
 CLI fails before expensive effects when that context is absent. The parent can
 load this module, obtain `runtime = baseline_util_linux(config)`, and invoke
@@ -158,6 +166,8 @@ for their read-only mount and `XSH_LAPUTA_CORPUS` value. The receipt reader chec
 the configured path and its clean commit, tree, and status before and after close.
 Direct `dev/util-linux/check.py resources --check` and `close --check` commands
 require `--laputa-corpus PATH`. Harness and parity commands do not use a corpus.
+Each corpus scope verifies a clean Git identity before work and again when it
+ends, including direct CLI runs.
 
 ## Limits
 

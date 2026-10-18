@@ -115,6 +115,43 @@ class PolicyTests(unittest.TestCase):
         receipt = {'schema_version': 1, 'kind': 'canonical_gate_batch_replay', 'source_expected': {'commit': config.commit, 'tree': config.tree}, 'status': 'passed', 'exit_code': 0, 'timed_out': False, 'received_signal': None, 'failure': None, 'cleanup': {'resolved': True}, 'source_checks': [source, deepcopy(source)]}
         return receipt, config
 
+    def laputa_binding(self, root):
+        root.mkdir()
+        (root / 'pm').mkdir()
+        (root / 'pm/generation.xsh').write_text('print "generation"\n')
+        subprocess.run(['git', 'init', '--quiet', str(root)], check=True)
+        subprocess.run(['git', '-C', str(root), 'add', 'pm/generation.xsh'], check=True)
+        subprocess.run(['git', '-C', str(root), '-c', 'user.name=G1 fixture', '-c', 'user.email=g1-fixture@example.invalid', 'commit', '--quiet', '-m', 'test(performance): freeze Laputa corpus fixture'], check=True)
+        identity = {
+            'commit': check.git(root, 'rev-parse', 'HEAD'),
+            'git_tree': check.git(root, 'rev-parse', 'HEAD^{tree}'),
+            'status': 'clean',
+        }
+        return {'path': str(root), 'source_identity': identity, 'source_identity_after': deepcopy(identity)}
+
+    def supplemental_docker_argv(self, root, command):
+        return [
+            'docker', 'run', '--network=none', '--memory=1g', '--memory-swap=1g',
+            '--cpus=12', '--user', '0:0', '-v', f'{root}:{root}:ro',
+            '-e', f'XSH_LAPUTA_CORPUS={root}', 'pinned-image', *command,
+        ]
+
+    def supplemental_step(self, logs, step_id, argv, *, root=None, docker_argv=None):
+        step = {'id': step_id, 'argv': argv, 'env': {}, 'exit_code': 0, 'timed_out': False}
+        log = logs / f'{step_id}.log'
+        log.write_text(f'{step_id}\n')
+        step['log'] = str(log)
+        step['log_sha256'] = check.owned_digest(log)
+        if docker_argv is not None:
+            step['docker_argv'] = docker_argv
+            if root is not None:
+                step['env']['XSH_GATE_LAPUTA_CORPUS'] = str(root)
+                capture = logs / f'{step_id}.docker-argv'
+                capture.write_bytes(b'\0'.join(item.encode() for item in docker_argv) + b'\0')
+                step['env']['XSH_GATE_DOCKER_ARGV_CAPTURE'] = str(capture)
+                step['docker_argv_capture'] = {'path': str(capture), 'sha256': check.owned_digest(capture)}
+        return step
+
     def test_bare_boolean_failed_canonical_and_cleanup_are_rejected(self):
         receipt, config = self.canonical()
         check.check_canonical_policy(receipt, config)
@@ -129,29 +166,102 @@ class PolicyTests(unittest.TestCase):
     def test_required_supplemental_context_and_build_steps_are_not_optional(self):
         canonical, config = self.canonical()
         plan = {'environment': {'image': 'pinned-image', 'target': 'target'}, 'products': [['cargo', 'build', '-p', 'xsh']], 'rust_harness_builds': [], 'warning_deny': [['cargo', 'clippy']], 'linux_context_runs': [{'id': 'boundary', 'binary': 'xsht', 'argv': ['test', 'boundary.xsh'], 'memory': '1g', 'network': 'none', 'privileged': False}]}
-        steps = [
-            {'id': 'verify-pinned-image-id', 'argv': ['docker', 'image', 'inspect', '--format', '{{.Id}}', 'pinned-image']},
-            {'id': 'build-product-01-xsh', 'argv': ['/tools/run-native-final.sh', str(config.source_root), 'build', 'cargo', 'build', '-p', 'xsh']},
-            {'id': 'warning-deny-01', 'argv': ['/tools/run-native-final.sh', str(config.source_root), 'lint', 'cargo', 'clippy']},
-            {'id': 'linux-special-01-boundary', 'argv': ['docker', 'run', '--network=none', '--memory=1g', '--memory-swap=1g', '--cpus=12', '--user', '0:0', 'pinned-image', '/products/target/verification/xsht', 'test', 'boundary.xsh']},
-            {'id': 'tracked-diff-check', 'argv': ['git', 'diff', '--check']},
-        ]
-        for step in steps:
-            step.update(exit_code=0, timed_out=False)
-        receipt = {'schema': 1, 'status': 'commands-passed-needs-privilege-skip-and-close-review', 'source_expected': canonical['source_expected'], 'source_checks': canonical['source_checks'], 'steps': steps, 'cargo_target_dirs': {'products': '/products'}, 'environment': plan['environment']}
-        products = {name + '-verification': 'c' * 64 for name in ('xsh', 'xsht', 'xshi', 'xsh-fuzz', 'xsh-test-helper')}
-        receipt['hashes'] = {name: products for name in ('products_after_initial_build', 'binaries_after_build', 'binaries_before_tests', 'binaries_after_tests')}
-        receipt['hashes'].update({name: {'harness': 'd' * 64} for name in ('harnesses_before_tests', 'harnesses_after_tests', 'harness_variant_binaries_before_tests', 'harness_variant_binaries_after_tests')})
-        check.check_supplemental_policy(receipt, plan, config)
-        for name in ('linux-special-01-boundary', 'build-product-01-xsh', 'warning-deny-01'):
+        with tempfile.TemporaryDirectory(dir=config.scratch) as directory:
+            root = Path(directory) / 'laputa'
+            binding = self.laputa_binding(root)
+            config = replace(config, laputa_root=root)
+            logs = Path(directory) / 'logs'
+            logs.mkdir()
+            helper_argv = self.supplemental_docker_argv(root, ['/bin/sh', '-lc', 'cargo build'])
+            lint_argv = self.supplemental_docker_argv(root, ['/bin/sh', '-lc', 'cargo clippy'])
+            context_argv = self.supplemental_docker_argv(root, ['/products/target/verification/xsht', 'test', 'boundary.xsh'])
+            steps = [
+                {'id': 'verify-pinned-image-id', 'argv': ['docker', 'image', 'inspect', '--format', '{{.Id}}', 'pinned-image'], 'exit_code': 0, 'timed_out': False},
+                self.supplemental_step(logs, 'build-product-01-xsh', ['/tools/run-native-final.sh', str(config.source_root), 'build', 'cargo', 'build', '-p', 'xsh'], root=root, docker_argv=helper_argv),
+                self.supplemental_step(logs, 'warning-deny-01', ['/tools/run-native-final.sh', str(config.source_root), 'lint', 'cargo', 'clippy'], root=root, docker_argv=lint_argv),
+                self.supplemental_step(logs, 'linux-special-01-boundary', context_argv, docker_argv=context_argv),
+                {'id': 'tracked-diff-check', 'argv': ['git', 'diff', '--check'], 'exit_code': 0, 'timed_out': False},
+            ]
+            receipt = {'schema': 1, 'status': 'commands-passed-needs-privilege-skip-and-close-review', 'source_expected': canonical['source_expected'], 'source_checks': canonical['source_checks'], 'steps': steps, 'cargo_target_dirs': {'products': '/products'}, 'environment': plan['environment'], 'laputa_corpus': binding}
+            products = {name + '-verification': 'c' * 64 for name in ('xsh', 'xsht', 'xshi', 'xsh-fuzz', 'xsh-test-helper')}
+            receipt['hashes'] = {name: products for name in ('products_after_initial_build', 'binaries_after_build', 'binaries_before_tests', 'binaries_after_tests')}
+            receipt['hashes'].update({name: {'harness': 'd' * 64} for name in ('harnesses_before_tests', 'harnesses_after_tests', 'harness_variant_binaries_before_tests', 'harness_variant_binaries_after_tests')})
+            check.check_supplemental_policy(receipt, plan, config)
+            for name in ('linux-special-01-boundary', 'build-product-01-xsh', 'warning-deny-01'):
+                wrong = deepcopy(receipt)
+                wrong['steps'] = [step for step in wrong['steps'] if step['id'] != name]
+                with self.assertRaisesRegex(check.CheckError, 'required supplemental step'):
+                    check.check_supplemental_policy(wrong, plan, config)
             wrong = deepcopy(receipt)
-            wrong['steps'] = [step for step in wrong['steps'] if step['id'] != name]
-            with self.assertRaisesRegex(check.CheckError, 'required supplemental step'):
+            wrong['steps'][2]['argv'][-1] = 'check'
+            with self.assertRaisesRegex(check.CheckError, 'command mismatch'):
                 check.check_supplemental_policy(wrong, plan, config)
-        wrong = deepcopy(receipt)
-        wrong['steps'][2]['argv'][-1] = 'check'
-        with self.assertRaisesRegex(check.CheckError, 'command mismatch'):
-            check.check_supplemental_policy(wrong, plan, config)
+            wrong = deepcopy(receipt)
+            del wrong['laputa_corpus']
+            with self.assertRaisesRegex(check.CheckError, 'Laputa corpus binding'):
+                check.check_supplemental_policy(wrong, plan, config)
+            for mutation in ('wrong_path', 'stale_identity'):
+                wrong = deepcopy(receipt)
+                if mutation == 'wrong_path':
+                    wrong['laputa_corpus']['path'] = str(root.parent)
+                else:
+                    wrong['laputa_corpus']['source_identity_after']['git_tree'] = 'e' * 40
+                with self.subTest(mutation=mutation), self.assertRaises(check.CheckError):
+                    check.check_supplemental_policy(wrong, plan, config)
+
+            helper = receipt['steps'][1]
+            capture = Path(helper['docker_argv_capture']['path'])
+            original_capture = capture.read_bytes()
+            capture.write_bytes(original_capture + b'changed\0')
+            try:
+                with self.assertRaisesRegex(check.CheckError, 'evidence file hash mismatch'):
+                    check.check_supplemental_policy(receipt, plan, config)
+            finally:
+                capture.write_bytes(original_capture)
+            capture.write_bytes(original_capture + b'changed\0')
+            try:
+                wrong = deepcopy(receipt)
+                wrong['steps'][1]['docker_argv_capture']['sha256'] = check.owned_digest(capture)
+                with self.assertRaisesRegex(check.CheckError, 'captured command'):
+                    check.check_supplemental_policy(wrong, plan, config)
+            finally:
+                capture.write_bytes(original_capture)
+
+            for mutation in ('duplicate_mount', 'duplicate_env'):
+                wrong = deepcopy(receipt)
+                helper = wrong['steps'][1]
+                actual = list(helper['docker_argv'])
+                image_index = actual.index('pinned-image')
+                if mutation == 'duplicate_mount':
+                    actual[image_index:image_index] = ['-v', f'{root}:{root}:rw']
+                else:
+                    actual[image_index:image_index] = ['-e', 'XSH_LAPUTA_CORPUS=/another/laputa']
+                capture = Path(helper['docker_argv_capture']['path'])
+                original_capture = capture.read_bytes()
+                capture.write_bytes(b'\0'.join(item.encode() for item in actual) + b'\0')
+                helper['docker_argv'] = actual
+                helper['docker_argv_capture']['sha256'] = check.owned_digest(capture)
+                try:
+                    with self.subTest(mutation=mutation), self.assertRaises(check.CheckError):
+                        check.check_supplemental_policy(wrong, plan, config)
+                finally:
+                    capture.write_bytes(original_capture)
+
+            wrong = deepcopy(receipt)
+            del wrong['steps'][1]['docker_argv_capture']
+            with self.assertRaises(check.CheckError):
+                check.check_supplemental_policy(wrong, plan, config)
+            wrong = deepcopy(receipt)
+            wrong['steps'][3]['docker_argv_capture'] = {'path': '/unused/capture', 'sha256': 'f' * 64}
+            with self.assertRaisesRegex(check.CheckError, 'direct Docker argv must not use a helper capture'):
+                check.check_supplemental_policy(wrong, plan, config)
+            wrong = deepcopy(receipt)
+            direct = wrong['steps'][3]
+            env_index = direct['argv'].index('-e')
+            del direct['argv'][env_index:env_index + 2]
+            direct['docker_argv'] = direct['argv']
+            with self.assertRaisesRegex(check.CheckError, 'configured Laputa corpus'):
+                check.check_supplemental_policy(wrong, plan, config)
 
     def test_canonical_products_bootstrap_without_profile_or_prior_close(self):
         receipt, config = self.canonical()
@@ -225,6 +335,15 @@ class BaselineTests(unittest.TestCase):
     def setUp(self):
         self.config = check.parse_config(PolicyTests().config())
 
+    def laputa_root(self, root):
+        root.mkdir()
+        (root / 'pm').mkdir()
+        (root / 'pm/generation.xsh').write_text('print "generation"\n')
+        subprocess.run(['git', 'init', '--quiet', str(root)], check=True)
+        subprocess.run(['git', '-C', str(root), 'add', 'pm/generation.xsh'], check=True)
+        subprocess.run(['git', '-C', str(root), '-c', 'user.name=G1 fixture', '-c', 'user.email=g1-fixture@example.invalid', 'commit', '--quiet', '-m', 'test(performance): freeze Laputa corpus fixture'], check=True)
+        return root
+
     def test_optional_baseline_requires_every_explicit_receipt(self):
         value = PolicyTests().config()
         self.assertIsNone(check.parse_config(value).baseline)
@@ -254,9 +373,7 @@ class BaselineTests(unittest.TestCase):
 
     def test_actual_one_use_review_context_routes_only_owner_close(self):
         with tempfile.TemporaryDirectory(dir=self.config.scratch) as directory:
-            laputa_root = Path(directory)
-            (laputa_root / 'pm').mkdir()
-            subprocess.run(['git', 'init', '--quiet', str(laputa_root)], check=True)
+            laputa_root = self.laputa_root(Path(directory) / 'laputa')
             config = replace(self.config, laputa_root=laputa_root)
             runtime = check.baseline_util_linux(config)
             acceptance = sys.modules['acceptance']
@@ -282,9 +399,7 @@ class BaselineTests(unittest.TestCase):
         source = acceptance.SourceIdentity(self.config.commit, self.config.tree, True)
         review = acceptance.GateResult('adversarial-review', source, 0, 1, 1, 0, (), (), ('independent reviewed item',), ())
         with tempfile.TemporaryDirectory(dir=self.config.scratch) as directory:
-            laputa_root = Path(directory)
-            (laputa_root / 'pm').mkdir()
-            subprocess.run(['git', 'init', '--quiet', str(laputa_root)], check=True)
+            laputa_root = self.laputa_root(Path(directory) / 'laputa')
             config = replace(self.config, laputa_root=laputa_root)
             def close(actual):
                 self.assertIs(actual, runtime)
