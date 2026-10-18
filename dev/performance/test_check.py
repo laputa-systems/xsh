@@ -1,4 +1,5 @@
 from copy import deepcopy
+import base64
 from contextlib import ExitStack, nullcontext, redirect_stderr
 from dataclasses import replace
 import importlib.util
@@ -8,6 +9,7 @@ from pathlib import Path
 import sys
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +17,146 @@ spec = importlib.util.spec_from_file_location('performance_check', Path(__file__
 check = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = check
 spec.loader.exec_module(check)
+sys.path.insert(0, str(check.ADAPTER_ROOT))
+from dev.performance import workloads
+
+
+class CohortTests(unittest.TestCase):
+    def setUp(self):
+        (check.ADAPTER_ROOT / '.work/tmp').mkdir(parents=True, exist_ok=True)
+
+    def test_syscall_summary_and_complete_helper_lifecycles_are_required(self):
+        rows = [{'type': 'syscall.summary', 'syscall_count': 17},
+                {'payload': {'type': 'run.start'}}, {'payload': {'type': 'run.end', 'pid': 19, 'error': None}}]
+        self.assertEqual(workloads.trace_counts(iter(rows)), {'syscalls': 17, 'subprocesses': 1})
+        for changed in (rows[1:], rows[:2], rows + rows[:1], rows[:2] + [{'payload': {'type': 'run.end', 'pid': None, 'error': 'failed'}}]):
+            with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, 'attribution unavailable'):
+                workloads.trace_counts(iter(changed))
+
+    def run_fake_cohort(self, root, *, failure=None):
+        cases = tuple(workloads.Workload(name, family, 'common', root / 'script.xsh', (), b'ready\n', 0)
+                      for name, family in (('cold', 'startup'), ('algorithm', 'algorithms')))
+        def invoke(argv, directory, environment, timeout, *, measured=False, useful_prefix=None):
+            row = {'wall_ns': 10 if measured else None, 'first_useful_stdout_ns': 3 if measured else None,
+                   'useful_stdout_observed': True, 'cpu_ns': 7, 'max_rss_bytes': 4096, 'status': 0,
+                   'timed_out': False, 'stdout_base64': base64.b64encode(b'ready\n').decode(),
+                   'stderr_base64': '', 'effects': {}}
+            if failure and measured:
+                row.update(failure)
+            return row
+        sampler = SimpleNamespace(invoke=invoke, equivalent=lambda row, expected: row['stdout_base64'] == base64.b64encode(expected).decode(),
+                                  summarize_samples=lambda *_: {'samples': 1})
+        resources = SimpleNamespace(cgroup_snapshot=lambda: {'memory_peak': '8192'})
+        with patch.object(workloads, 'frozen_workloads', return_value=cases):
+            workloads.run_cohort(root, root / 'xsh', root / 'xsht', root / 'work', root / 'report.json', sampler, resources)
+        return check.read_json(root / 'report.json')
+
+    def test_frozen_sample_counts_and_completion_remain_distinct_from_attribution(self):
+        writes = []
+        real_write = Path.write_text
+        def write(path, *args, **kwargs):
+            writes.append(path)
+            return real_write(path, *args, **kwargs)
+        with tempfile.TemporaryDirectory(dir=check.ADAPTER_ROOT / '.work/tmp') as directory:
+            with patch.object(Path, 'write_text', new=write):
+                report = self.run_fake_cohort(Path(directory))
+        self.assertEqual(len(report['samples']), 3 * (60 + 30))
+        self.assertEqual(len(report['parity']), 4)
+        self.assertTrue(report['timing_complete'])
+        self.assertFalse(report['complete'])
+        self.assertEqual(report['attribution'], {})
+        self.assertTrue(all(row['first_useful_stdout_ns'] < row['wall_ns'] for row in report['samples']))
+        self.assertTrue(all('stdout_base64' not in row and 'stdout_sha256' in row for row in report['samples']))
+        self.assertLess(len(writes), len(report['samples']) // 10)
+
+    def test_wrong_output_and_absent_cpu_retain_failed_sample_without_completion(self):
+        for failure, message in (({'stdout_base64': base64.b64encode(b'wrong\n').decode()}, 'output/status/effects'),
+                                 ({'cpu_ns': None}, 'CPU/RSS accounting unavailable')):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(dir=check.ADAPTER_ROOT / '.work/tmp') as directory:
+                root = Path(directory)
+                with self.assertRaisesRegex(ValueError, message):
+                    self.run_fake_cohort(root, failure=failure)
+                report = check.read_json(root / 'report.json')
+                self.assertFalse(report['complete'])
+                self.assertFalse(report['timing_complete'])
+                self.assertEqual(len(report['samples']), 1)
+
+    def test_failed_final_publication_does_not_replace_wrong_output(self):
+        real_write = Path.write_text
+        def write(path, *args, **kwargs):
+            if json.loads(args[0])['samples']:
+                raise OSError('publication failed')
+            return real_write(path, *args, **kwargs)
+        with tempfile.TemporaryDirectory(dir=check.ADAPTER_ROOT / '.work/tmp') as directory:
+            with patch.object(Path, 'write_text', new=write), self.assertRaisesRegex(ValueError, 'output/status/effects') as caught:
+                self.run_fake_cohort(Path(directory), failure={'stdout_base64': ''})
+        self.assertIn('publication failed', caught.exception.__notes__[0])
+
+    def run_diagnostic(self, root, name, *, syscall_count=17, failure=None, helper=True):
+        case = workloads.Workload('helper', 'filesystem-process', 'common', root / 'script.xsh', ('argument with space',), b'ready\n', 1)
+        calls = []
+        def invoke(argv, directory, environment, timeout, *, measured=False, useful_prefix=None):
+            calls.append((argv, measured, useful_prefix))
+            phase_times = {'preparation_inclusive': 4, 'project_parse_load_exclusive': 1, 'check_solve_fact_build_exclusive': 1,
+                           'declaration_publication_exclusive': 1, 'lower_verify_install_exclusive': 1,
+                           'preparation_other_exclusive': 0, 'execution_finish_exclusive': 1, 'diagnostic_finish_exclusive': None}
+            phase = {'tracking_active': True, 'status': 0, 'stdout_bytes': 6, 'stderr_bytes': 0,
+                     **{key: {'live_bytes': 1, 'peak_bytes': 2, 'alloc_count': 3, 'alloc_bytes': 4} for key in ('construction', 'controller', 'execution')},
+                     'workers': {'stage_count': 0, 'alloc_count': 0, 'alloc_bytes': 0, 'peak_thread_bytes': 0, 'attributions': []},
+                     'cpu_time_ns': dict(phase_times, clock='process_cpu'), 'wall_time_ns': dict(phase_times, clock='monotonic_wall')}
+            if argv[1] == 'runtime-stats':
+                Path(argv[3]).write_text(json.dumps(phase))
+            else:
+                events = [{'payload': {'type': 'run.start', 'argv': []}},
+                          {'payload': {'type': 'run.end', 'pid': 19, 'status': {'code': 0}, 'error': None}}] if helper else []
+                summary = {'type': 'syscall.summary', 'syscall_count': syscall_count, 'syscall_seconds': 0,
+                           'top_syscalls_by_count': [], 'per_program_top_syscalls': [], 'per_process_top_syscalls': []}
+                Path(argv[argv.index('--trace-file') + 1]).write_text(''.join(json.dumps(row) + '\n' for row in [*events, summary]))
+            row = {'wall_ns': None, 'first_useful_stdout_ns': None, 'useful_stdout_observed': True,
+                   'status': 0, 'timed_out': False, 'stdout_base64': base64.b64encode(b'ready\n').decode(),
+                   'stderr_base64': '', 'effects': {}}
+            return row | (failure or {})
+        config = check.parse_config(PolicyTests().config())
+        owner = check.baseline_owner(config, 'bench/consolidation/run.py', 'comparative_bench')
+        sampler = SimpleNamespace(invoke=invoke, equivalent=owner.equivalent)
+        resources = SimpleNamespace(cgroup_snapshot=lambda: {'memory_peak': '8192'})
+        output = root / f'{name}.json'
+        with patch.object(workloads, 'frozen_workloads', return_value=(case,)):
+            workloads.run_cohort(root, root / 'xsh', root / 'xsht', root / name, output, sampler, resources, diagnostic=True)
+        return check.read_json(output), calls
+
+    def test_two_diagnostic_reports_in_one_parent_keep_distinct_sidecars(self):
+        with tempfile.TemporaryDirectory(dir=check.ADAPTER_ROOT / '.work/tmp') as directory:
+            root = Path(directory)
+            first, calls = self.run_diagnostic(root, 'first')
+            paths = [Path(first['attribution']['helper'][key]) for key in ('runtime_stats', 'syscall_trace')]
+            before = [path.read_bytes() for path in paths]
+            second, _ = self.run_diagnostic(root, 'second', syscall_count=23)
+            for path, contents, key in zip(paths, before, ('runtime_stats', 'syscall_trace')):
+                self.assertEqual(path.read_bytes(), contents)
+                self.assertNotEqual(str(path), second['attribution']['helper'][key])
+                self.assertTrue(path.is_relative_to(root / 'first'))
+            self.assertTrue(first['attribution_complete'])
+            self.assertFalse(first['timing_complete'])
+            self.assertEqual(first['attribution']['helper']['subprocesses'], 1)
+            self.assertEqual(first['attribution']['helper']['syscalls'], 17)
+            self.assertTrue(all(not measured and prefix == b'ready\n' for _, measured, prefix in calls))
+            self.assertEqual(calls[0][0][-3:], [str(root / 'script.xsh'), '--', 'argument with space'])
+            self.assertEqual(calls[1][0][-3:], calls[0][0][-3:])
+
+    def test_diagnostic_output_status_effects_and_helper_mismatch_reject(self):
+        for failure, helper, message in (({'stdout_base64': ''}, True, 'output/status/effects'),
+                                         ({'status': 7}, True, 'output/status/effects'),
+                                         ({'effects': {'leak': {'after': 'file'}}}, True, 'output/status/effects'),
+                                         (None, False, 'unexpected helper count')):
+            with self.subTest(failure=failure, helper=helper), tempfile.TemporaryDirectory(dir=check.ADAPTER_ROOT / '.work/tmp') as directory:
+                root = Path(directory)
+                with self.assertRaisesRegex(ValueError, message):
+                    self.run_diagnostic(root, 'failed', failure=failure, helper=helper)
+                report = check.read_json(root / 'failed.json')
+                self.assertFalse(report['complete'])
+                self.assertFalse(report['attribution_complete'])
+                self.assertTrue(report['attribution']['helper']['observations'])
 
 
 class PolicyTests(unittest.TestCase):
@@ -48,6 +190,21 @@ class PolicyTests(unittest.TestCase):
         value['schema'] = True
         with self.assertRaises(check.CheckError):
             check.parse_config(value)
+
+    def test_optional_measurement_paths_are_explicit_and_do_not_change_old_configs(self):
+        value = self.config()
+        self.assertIsNone(check.parse_config(value).measurement)
+        value['measurement'] = {'fixtures': '/frozen/fixtures', 'output': '/frozen/output.json'}
+        self.assertEqual(check.parse_config(value).measurement['fixtures'], Path('/frozen/fixtures'))
+        for changed in ({'fixtures': 'relative', 'output': '/frozen/output.json'}, {'fixtures': '/frozen/fixtures'}, {'fixtures': '/frozen/fixtures', 'output': '/frozen/output.json', 'accepted': True}):
+            with self.subTest(changed=changed), self.assertRaises(check.CheckError):
+                check.parse_config(value | {'measurement': changed})
+
+    def test_measure_without_live_close_report_fails_before_effects(self):
+        config = check.parse_config(self.config())
+        with patch.object(check, 'qualify_products', side_effect=AssertionError('unexpected qualification')), patch.object(check, 'checked_docker', side_effect=AssertionError('unexpected Docker')):
+            with self.assertRaisesRegex(check.CheckError, 'live.*CloseReport'):
+                check.measure(config)
 
     def product(self):
         source = {'commit': 'a' * 40, 'git_tree': 'b' * 40, 'status': 'clean'}
@@ -338,6 +495,75 @@ class AdapterDeadlineTests(unittest.TestCase):
 class BaselineTests(unittest.TestCase):
     def setUp(self):
         self.config = check.parse_config(PolicyTests().config())
+
+    def test_measure_discards_the_whole_batch_after_readiness_failure_and_preserves_primary(self):
+        self.config.scratch.mkdir(parents=True, exist_ok=True)
+        runtime = check.baseline_util_linux(self.config)
+        import acceptance
+        sampler = check.baseline_owner(self.config, 'bench/consolidation/run.py', 'comparative_bench')
+        for operation_fails in (False, True):
+            with self.subTest(operation_fails=operation_fails), tempfile.TemporaryDirectory(dir=self.config.scratch) as directory:
+                root = Path(directory)
+                fixtures = root / 'fixtures'
+                fixtures.mkdir()
+                output = root / 'samples.json'
+                profile_path = root / 'profile.json'
+                profile_path.write_text(json.dumps({'native_image': {'image_id': 'pinned-image'}}))
+                binaries = {}
+                for name in ('xsh', 'xsht'):
+                    binary = root / name
+                    binary.write_text(name)
+                    binaries[name] = {'path': str(binary)}
+                config = replace(self.config, baseline={'profile': profile_path}, measurement={'fixtures': fixtures, 'output': output})
+                events = []
+                def ready(after=False):
+                    events.append('after' if after else 'before')
+                    return {'exit_code': 1 if after else 0}
+                def docker(command, scratch, *, timeout_seconds):
+                    arguments = command[command.index('-c') + 2:]
+                    self.assertEqual(arguments[:4], [str(config.source_root), str(fixtures), binaries['xsh']['path'], binaries['xsht']['path']])
+                    self.assertEqual(arguments[5], str(output))
+                    self.assertEqual(timeout_seconds, 900)
+                    mode = arguments[6]
+                    events.append(mode)
+                    if mode == 'diagnostic':
+                        output.write_text(json.dumps({'complete': False, 'attribution_complete': True, 'samples': []}))
+                    else:
+                        report = check.read_json(output)
+                        report.update(timing_complete=True, samples=[{'workload': 'first', 'wall_ns': 17}, {'workload': 'last', 'wall_ns': 23}])
+                        output.write_text(json.dumps(report))
+                        if operation_fails:
+                            raise RuntimeError('primary Docker failure')
+                    return 0, b'', b''
+                fixture_owner = SimpleNamespace(PACKAGE_ROW_SHAPES=(2048,), generate=lambda path, **_: path.mkdir(), snapshot=lambda _: {})
+                def owner(config, relative, name):
+                    if relative.endswith('/fixtures.py'):
+                        return fixture_owner
+                    if relative.endswith('/run.py'):
+                        return sampler
+                    if relative.endswith('/final-comparative.py'):
+                        return SimpleNamespace(perf_gate_check=ready)
+                    self.fail(f'unexpected owner: {relative}')
+                with (patch.object(check, 'baseline_util_linux', return_value=runtime),
+                      patch.object(acceptance, 'validate_close_report'),
+                      patch.object(check, 'baseline_receipts', return_value={}),
+                      patch.object(check, 'measurement_profile', return_value={'binaries': binaries}),
+                      patch.object(check, 'baseline_owner', side_effect=owner),
+                      patch.object(check, 'load_canonical', return_value=SimpleNamespace(IMAGE='pinned-image')),
+                      patch.object(sampler, 'validate_fixtures'),
+                      patch.object(sampler, 'host_allowed_cpus', return_value=[0]),
+                      patch.object(check, 'checked_docker', side_effect=docker)):
+                    error = RuntimeError if operation_fails else check.CheckError
+                    with self.assertRaisesRegex(error, 'primary Docker failure' if operation_fails else 'host busy') as caught:
+                        check.measure(config, object())
+                if operation_fails:
+                    self.assertIn('post-measurement readiness failed', caught.exception.__notes__[0])
+                self.assertEqual(events, ['diagnostic', 'before', 'timed', 'after'])
+                report = check.read_json(output)
+                self.assertFalse(report['complete'])
+                self.assertTrue(report['timing_discarded'])
+                self.assertEqual([row['wall_ns'] for row in report['samples']], [17, 23])
+                self.assertEqual(report['performance_gate']['after']['exit_code'], 1)
 
     def laputa_root(self, root):
         root.mkdir()

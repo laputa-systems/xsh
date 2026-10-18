@@ -923,11 +923,21 @@ def _validate_gate_result(gate: GateResult, source: SourceIdentity) -> None:
         raise ValueError(f"mandatory close gate skipped behavior: {gate.name}")
 
 
-def close(runtime: AcceptanceRuntime) -> None:
+def close(runtime: AcceptanceRuntime) -> CloseReport:
     before = _current_source(runtime)
     report = runtime.close_gates()
     after = _current_source(runtime)
     if after != before or report.source != before:
+        raise ValueError("close results are not bound to the current source")
+    validate_close_report(runtime, report)
+    all_selectors = _all_parity_selectors(runtime)
+    print(f"util-linux close: {len(all_selectors)} parity selectors, {len(runtime.COHORT)} positive boundaries, {len(report.gates)} required gates passed")
+    return report
+
+
+def validate_close_report(runtime: AcceptanceRuntime, report: CloseReport) -> None:
+    before = _current_source(runtime)
+    if not isinstance(report, CloseReport) or report.source != before:
         raise ValueError("close results are not bound to the current source")
     if report.remaining_owned_processes != 0:
         raise ValueError("owned util-linux processes remain after close gates")
@@ -955,4 +965,5 @@ def close(runtime: AcceptanceRuntime) -> None:
     _validate_resource_report(report.resources, runtime, before)
     if isinstance(report.resources.timing, DeferredTiming):
         raise ValueError(f"perf gate deferred: {report.resources.timing.reason}")
-    print(f"util-linux close: {len(all_selectors)} parity selectors, {len(positive_selectors)} positive boundaries, {len(gates)} required gates passed")
+    if _current_source(runtime) != before:
+        raise ValueError("close source changed during report validation")

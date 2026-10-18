@@ -1,7 +1,7 @@
 # Performance adapter reference
 
 `check.py` dispatches to existing measurement and acceptance owners. Python 3.11
-or newer is required. It adds no production dependency. The planned `inference`, `measure`, `optimize`, `deployment`, and
+or newer is required. It adds no production dependency. The planned `inference`, `optimize`, `deployment`, and
 `close` modes remain unavailable and exit nonzero. The existing
 `xsht runtime-stats` diagnostic supplies the phase attribution below.
 
@@ -33,6 +33,7 @@ absolute, and free of symlinks. Unknown and duplicate fields are rejected.
 | `scratch` | Existing directory under the adapter checkout's `.work/tmp/` |
 | `functional` | `null`, or the functional input object below |
 | `baseline` | Optional `null`, or the baseline receipt paths below |
+| `measurement` | Optional `null`, or explicit absolute `fixtures` and `output` paths |
 
 Product qualification checks the clean commit and tree, executable paths and
 hashes, successful owner result, and resolved cleanup. The profile provider
@@ -50,6 +51,12 @@ The optional baseline object requires exactly `functional_close`, `profile`,
 `observer`, `forced`, `comparative`, and `scheduler`, each an absolute receipt
 path. Omitting the object preserves existing schema-1 configurations, but cannot
 pass baseline acceptance. `functional_close` must equal `functional.output`.
+
+The measurement fixtures directory contains the frozen `2048`, `4096`, and
+`8192` fixture roots. The output must be a fresh JSON file below `scratch`.
+Measurement regenerates references through the existing fixture maker and
+compares all bytes, modes, entries, links, and goldens before launching work.
+The default 2048 manifest retains its existing pinned validation.
 
 ## Functional validation
 
@@ -168,6 +175,73 @@ Direct `dev/util-linux/check.py resources --check` and `close --check` commands
 require `--laputa-corpus PATH`. Harness and parity commands do not use a corpus.
 Each corpus scope verifies a clean Git identity before work and again when it
 ends, including direct CLI runs.
+
+## Representative measurement
+
+Measurement requires the actual same-source util-linux `CloseReport`. The
+existing `acceptance.close(runtime)` now returns that report after validation;
+`acceptance.validate_close_report(runtime, report)` rechecks clean current
+source, selectors, resources, readiness, and cleanup without rerunning suites.
+`baseline()` returns the same report. The reviewed coordinator can run both
+operations in one process:
+
+```python
+runtime = check.baseline_util_linux(config)
+with runtime.independent_review(actual_gate_result):
+    closed = check.baseline(config, runtime)
+    report = check.measure(config, closed)
+```
+
+`measure --check` without this live prerequisite fails before timing. The
+standalone CLI cannot deserialize or synthesize acceptance. The same-process
+flow avoids a second private full suite. Measurement validates inherited
+receipts and the normal completed release opt3 profile, including the existing
+producer's exact build command, default features, pinned image, and build input
+files. It selects the release products from that explicit profile receipt;
+the config's canonical verification products continue to qualify functional
+close. There is no product fallback or build inside measurement.
+
+The existing hostpipe sampler runs all 15 frozen cases. Each case retains
+exact stdout, empty stderr, successful status, effects, deadline, and owned
+process-group checks. Samples retain the existing three rounds, with 60 fresh
+startup processes or 30 other processes per round, after parity and warmup.
+First useful output means the first complete expected line observed on the
+pipe; completion requires leader exit and drained stdout/stderr. Accepted
+samples bind complete consumed output through the existing SHA-256 field;
+failed output remains in the report. Reports flush at round boundaries and on
+failure, rather than serializing growing samples after every invocation.
+Attribution sidecars live under each unique diagnostic run directory, so reports
+sharing one output parent cannot overwrite each other's diagnostic evidence.
+A baseline has one selected product;
+baseline/candidate comparisons still require the campaign's alternating pairs.
+
+The host runs `perf-gate-ready` immediately around the entire timed Docker
+batch, with `-1` immediately after success or failure. This shared window
+accepts or discards every sample together. Attribution runs precede the window
+and supply no timing credit. Each Docker batch has a 900-second deadline;
+each workload invocation retains the existing 60-second bound. Failures retain
+their report, and publication errors never replace the primary failure.
+
+The sampler adds `cpu_ns`, `max_rss_bytes`, and `resource_scope` to existing
+observations. Linux `wait4` accounts for the owned leader only after group
+cleanup while that leader remains unreaped. CPU is user plus system CPU and
+includes descendant usage only when the leader actually waited for it. RSS is
+the kernel's returned `ru_maxrss`, converted from KiB; it is neither summed
+process-tree RSS nor cgroup memory. Missing accounting is `null` and cannot
+pass measurement. Existing resource readers retain separate container-lifetime
+cgroup peak snapshots for the timed and diagnostic batches, explicitly including
+their controller overhead. Binary sizes come from the qualified release files.
+
+Each case separately executes existing ordinary `runtime-stats` and direct
+`xsht trace --syscalls` diagnostics with the same output/effect checks.
+Runtime reports supply ordinary runner phase CPU/wall and allocation traffic.
+Trace reports count syscalls of the instrumented indexed XSH process; detached
+external helper descendants are excluded. Process events independently enforce
+the frozen direct helper count. The stronger uninstrumented ordinary CLI or
+whole-process-tree syscall metric remains `production_syscalls: null`.
+Instrumented syscall and phase durations are never startup timing samples.
+Raw reports and diagnostic files provide measurement evidence; they do not
+assert a performance improvement or complete campaign acceptance.
 
 ## Limits
 

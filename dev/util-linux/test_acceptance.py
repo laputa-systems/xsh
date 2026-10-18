@@ -459,6 +459,21 @@ class NativeSuiteParserTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "processes remain"):
             acceptance.close(runtime)
 
+    def test_reused_close_report_rechecks_current_source_before_other_gates(self):
+        source = acceptance.SourceIdentity("commit", "tree", True)
+        report = acceptance.CloseReport(source, (), None, 0, False)
+        for current in (acceptance.SourceIdentity("new", "tree", True), acceptance.SourceIdentity("commit", "tree", False)):
+            runtime = SimpleNamespace(source_identity=lambda: current)
+            with self.subTest(current=current), self.assertRaises(ValueError):
+                acceptance.validate_close_report(runtime, report)
+
+    def test_reused_close_report_cannot_omit_required_gates(self):
+        source = acceptance.SourceIdentity("commit", "tree", True)
+        report = acceptance.CloseReport(source, (), None, 0, False)
+        runtime = SimpleNamespace(source_identity=lambda: source)
+        with self.assertRaisesRegex(ValueError, "gate set is incomplete"):
+            acceptance.validate_close_report(runtime, report)
+
 
 if __name__ == "__main__":
     unittest.main()

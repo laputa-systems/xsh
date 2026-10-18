@@ -125,6 +125,8 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
     primary = None
     finished = None
     pidfd = None
+    cpu_ns = None
+    max_rss_bytes = None
     previous_signals = {signum: signal.signal(signum, cancel) for signum in (signal.SIGINT, signal.SIGTERM)}
     try:
         process = subprocess.Popen(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
@@ -169,7 +171,19 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        process.wait(timeout=5)
+        if hasattr(os, "wait4"):
+            if pidfd is None:
+                pidfd = os.pidfd_open(process.pid)
+            with selectors.DefaultSelector() as selector:
+                selector.register(pidfd, selectors.EVENT_READ)
+                if not selector.select(5):
+                    raise subprocess.TimeoutExpired(argv, 5)
+            _, status, usage = os.wait4(process.pid, 0)
+            process.returncode = os.waitstatus_to_exitcode(status)
+            cpu_ns = round((usage.ru_utime + usage.ru_stime) * 1_000_000_000)
+            max_rss_bytes = usage.ru_maxrss * 1024
+        else:
+            process.wait(timeout=5)
         trailing_stdout, trailing_stderr = process.communicate(timeout=5)
         stdout.extend(trailing_stdout)
         stderr.extend(trailing_stderr)
@@ -189,7 +203,7 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
         raise primary
     elapsed = finished - started if measured else None
     effects = changes(before, snapshot(cwd))
-    return {"wall_ns": elapsed, "first_useful_stdout_ns": first_useful, "useful_stdout_observed": useful_observed, "useful_stdout_prefix_bytes": len(useful_prefix) if useful_prefix is not None else None, "status": process.returncode, "timed_out": timed_out, "stdout_base64": base64.b64encode(stdout).decode(), "stderr_base64": base64.b64encode(stderr).decode(), "stdout_bytes": len(stdout), "stderr_bytes": len(stderr), "effects": effects}
+    return {"wall_ns": elapsed, "first_useful_stdout_ns": first_useful, "useful_stdout_observed": useful_observed, "useful_stdout_prefix_bytes": len(useful_prefix) if useful_prefix is not None else None, "cpu_ns": cpu_ns, "max_rss_bytes": max_rss_bytes, "resource_scope": "wait4_owned_leader" if cpu_ns is not None else None, "status": process.returncode, "timed_out": timed_out, "stdout_base64": base64.b64encode(stdout).decode(), "stderr_base64": base64.b64encode(stderr).decode(), "stdout_bytes": len(stdout), "stderr_bytes": len(stderr), "effects": effects}
 
 
 def equivalent(observation, expected):

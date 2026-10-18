@@ -168,6 +168,43 @@ class HarnessTests(unittest.TestCase):
         with self.assertRaises(ChildProcessError):
             os.waitid(os.P_PID, leaders[0], os.WEXITED | os.WNOWAIT | os.WNOHANG)
 
+    def test_resource_accounting_comes_from_the_owned_leader_reap(self):
+        real_wait4 = os.wait4
+        reaped = []
+        def capture_wait4(pid, options):
+            result = real_wait4(pid, options)
+            reaped.append(result)
+            return result
+        with patch("run.os.wait4", side_effect=capture_wait4):
+            observation = invoke([sys.executable, "-c", "print('ready')"], self.root, {}, 5, useful_prefix=b"ready\n")
+        self.assertTrue(equivalent(observation, b"ready\n"))
+        self.assertEqual(len(reaped), 1)
+        usage = reaped[0][2]
+        self.assertEqual(observation["cpu_ns"], round((usage.ru_utime + usage.ru_stime) * 1_000_000_000))
+        self.assertEqual(observation["max_rss_bytes"], usage.ru_maxrss * 1024)
+        self.assertEqual(observation["resource_scope"], "wait4_owned_leader")
+
+    def test_resource_reap_failure_preserves_the_primary_failure(self):
+        real_popen = subprocess.Popen
+        real_read = os.read
+        children = []
+        def spawn(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            children.append(process)
+            return process
+        def read(fd, count):
+            if children and fd == children[0].stdout.fileno():
+                raise RuntimeError("pipe failure")
+            return real_read(fd, count)
+        try:
+            with patch("run.subprocess.Popen", side_effect=spawn), patch("run.os.wait4", side_effect=OSError("accounting unavailable")), patch("run.os.read", side_effect=read):
+                with self.assertRaisesRegex(RuntimeError, "pipe failure") as caught:
+                    invoke([sys.executable, "-c", "print('ready')"], self.root, {}, 5)
+        finally:
+            for child in children:
+                child.wait(timeout=5)
+        self.assertIn("accounting unavailable", caught.exception.__notes__[0])
+
     def test_cancellation_during_spawn_tracks_then_reaps_the_owned_child(self):
         real_popen = subprocess.Popen
         children = []

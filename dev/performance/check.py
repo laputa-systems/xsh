@@ -67,11 +67,12 @@ class Config:
     scratch: Path
     functional: dict | None
     baseline: dict | None = None
+    measurement: dict | None = None
 
 
 def parse_config(value):
     required = ('schema', 'source_root', 'commit', 'tree', 'laputa_root', 'product_receipt', 'xsh', 'xsht', 'scratch', 'functional')
-    fields(value, (*required, 'baseline') if 'baseline' in value else required, 'config')
+    fields(value, (*required, *(name for name in ('baseline', 'measurement') if name in value)), 'config')
     require(type(value['schema']) is int and value['schema'] == 1, 'unsupported config schema')
     for name in ('commit', 'tree'):
         require(isinstance(value[name], str) and re.fullmatch('[0-9a-f]{40}', value[name]), f'{name} must be a full lowercase Git ID')
@@ -86,7 +87,11 @@ def parse_config(value):
     if baseline is not None:
         fields(baseline, ('functional_close', 'profile', 'observer', 'forced', 'comparative', 'scheduler'), 'baseline')
         baseline = {name: canonical(path) for name, path in baseline.items()}
-    return Config(**paths, commit=value['commit'], tree=value['tree'], functional=functional, baseline=baseline)
+    measurement = value.get('measurement')
+    if measurement is not None:
+        fields(measurement, ('fixtures', 'output'), 'measurement')
+        measurement = {name: canonical(path) for name, path in measurement.items()}
+    return Config(**paths, commit=value['commit'], tree=value['tree'], functional=functional, baseline=baseline, measurement=measurement)
 
 
 def git(root, *args):
@@ -94,7 +99,7 @@ def git(root, *args):
 
 
 def source_identity(config):
-    for path in (config.source_root, config.laputa_root, config.product_receipt, config.xsh, config.xsht, config.scratch, *(config.functional or {}).values(), *(config.baseline or {}).values()):
+    for path in (config.source_root, config.laputa_root, config.product_receipt, config.xsh, config.xsht, config.scratch, *(config.functional or {}).values(), *(config.baseline or {}).values(), *(config.measurement or {}).values()):
         require(path == path.resolve(), f'path contains a symlink: {path}')
     require(git(config.source_root, 'rev-parse', '--show-toplevel') == str(config.source_root), 'source_root must be a Git repository root')
     require(git(config.source_root, 'rev-parse', 'HEAD') == config.commit, 'source commit mismatch')
@@ -728,8 +733,111 @@ def baseline(config, runtime=None):
     import resources
     with resources._laputa_corpus_scope(config.laputa_root):
         with runtime.cancellation_scope(), runtime.campaign_leases(config.source_root, native=True, cargo=True):
-            acceptance.close(runtime)
+            report = acceptance.close(runtime)
     require(baseline_receipts(config) == before, 'baseline receipts changed during util-linux close')
+    return report
+
+
+def measurement_profile(config):
+    prefix = 'dev/consolidation/winddown/gate-tools/final-performance-gates/'
+    forced = baseline_owner(config, prefix + 'forced-frames.py', 'forced')
+    producer = baseline_owner(config, prefix + 'profile-cost.py', 'profile_producer')
+    path = config.baseline['profile']
+    value = read_json(path)
+    profile = forced.load_profile(path, config.source_root, config.commit, source_identity(config))
+    require(value.get('native_image', {}).get('image_id') == producer.NATIVE_IMAGE_ID, 'measurement requires the pinned native release image')
+    for key, filename in (('cargo_lock_sha256', 'Cargo.lock'), ('cargo_toml_sha256', 'Cargo.toml'), ('rust_toolchain_sha256', 'rust-toolchain.toml')):
+        require(value.get(key) == owned_digest(config.source_root / filename), f'release build input changed: {filename}')
+    stage = value['results'][0]['build']
+    command = stage['command']
+    volumes = [command[index + 1] for index, argument in enumerate(command[:-1]) if argument == '-v']
+    temporary = [volume.split(':')[0] for volume in volumes if volume.endswith(':/t:rw')]
+    require(len(temporary) == 1, 'release build temporary mount is ambiguous')
+    expected = producer.profile_build(config.source_root, Path(profile['directory']).parents[1], 3,
+                                      value['resources']['cpuset_cpus'], producer.NATIVE_IMAGE_ID,
+                                      Path(temporary[0]), laputa_corpus=config.laputa_root)
+    expected = owned.owned_docker_command(expected, cidfile=path.parent / 'opt3/build.cid', owner=value['run_id'], stage='release-opt3-build')
+    require(command == expected and value['results'][0].get('build_command') == command, 'release command/features differ from the existing profile producer')
+    return profile
+
+
+def measure(config, baseline_report=None):
+    require(baseline_report is not None, 'measure requires a live same-source util-linux CloseReport from baseline(config, runtime)')
+    runtime = baseline_util_linux(config)
+    import acceptance
+    acceptance.validate_close_report(runtime, baseline_report)
+    require(config.measurement is not None, 'measurement fixture/output paths are not configured')
+    before = baseline_receipts(config)
+    profile = measurement_profile(config)
+    fixtures, output = (config.measurement[name] for name in ('fixtures', 'output'))
+    require(fixtures.is_dir() and not output.exists(), 'measurement requires existing frozen fixtures and a fresh output')
+    require(output.parent.is_dir() and output.is_relative_to(config.scratch), 'measurement output must be under the existing adapter scratch directory')
+    fixture_owner = baseline_owner(config, 'bench/consolidation/fixtures.py', 'measurement_fixtures')
+    sampler = baseline_owner(config, 'bench/consolidation/run.py', 'comparative_bench')
+    require(Path(sys.modules[sampler.snapshot.__module__].__file__).resolve() == config.source_root / 'bench/consolidation/fixtures.py', 'measurement fixture reader belongs to another source')
+    with tempfile.TemporaryDirectory(prefix='fixture-reference-', dir=config.scratch) as reference:
+        for count in fixture_owner.PACKAGE_ROW_SHAPES:
+            root = Path(reference) / str(count)
+            fixture_owner.generate(root, package_rows=count)
+            require(fixture_owner.snapshot(root) == fixture_owner.snapshot(fixtures / str(count)), f'frozen fixture/golden mismatch: {count}')
+        sampler.validate_fixtures(fixtures / str(fixture_owner.PACKAGE_ROW_SHAPES[0]))
+    fixture_snapshot = fixture_owner.snapshot(fixtures)
+    image = load_canonical(config).IMAGE
+    require(image == read_json(config.baseline['profile'])['native_image']['image_id'], 'measurement image differs from qualified release image')
+    cpu = sampler.host_allowed_cpus()[0]
+    run_directory = Path(tempfile.mkdtemp(prefix='measurement-', dir=config.scratch))
+    paths = [config.source_root, config.scratch, fixtures, *(Path(profile['binaries'][name]['path']) for name in ('xsh', 'xsht'))]
+    docker = ['docker', 'run', '--rm', '--init', '--platform', 'linux/amd64', '--network', 'none', '--read-only',
+              '--cpuset-cpus', str(cpu), '--memory=4g', '--memory-swap=4g', '--user', f'{os.getuid()}:{os.getgid()}']
+    for path in dict.fromkeys(paths):
+        docker += ['-v', f'{path}:{path}:{"rw" if path == config.scratch else "ro"}']
+    docker += ['-w', str(config.source_root), image, '/usr/bin/python3', '-B', '-c']
+    driver = (
+        'import os,sys; from pathlib import Path; from types import SimpleNamespace; '
+        'sys.path.insert(0,sys.argv[1]); from dev.performance import check,workloads; '
+        'config=SimpleNamespace(source_root=Path(sys.argv[1])); '
+        'sampler=check.baseline_owner(config,"bench/consolidation/run.py","comparative_bench"); '
+        'resources=check.baseline_owner(config,"dev/consolidation/winddown/gate-tools/final-performance-gates/capture-container-resources.py","measurement_resources"); '
+        'sampler.validate_container_resources(int(sys.argv[8]),4*1024**3,sorted(os.sched_getaffinity(0)),sampler.cgroup_memory_limit(),sampler.cgroup_memory_swap_limit()); '
+        'workloads.run_cohort(Path(sys.argv[2]),Path(sys.argv[3]),Path(sys.argv[4]),Path(sys.argv[5]),Path(sys.argv[6]),sampler,resources,diagnostic=sys.argv[7]=="diagnostic")'
+    )
+    readiness = {}
+    comparative = baseline_owner(config, 'dev/consolidation/winddown/gate-tools/final-performance-gates/final-comparative.py', 'comparative')
+    def ready(after):
+        value = comparative.perf_gate_check(after=after)
+        readiness['after' if after else 'before'] = value
+        require(value['exit_code'] == 0, 'perf gate deferred: host busy')
+    def launch(diagnostic):
+        command = docker + [driver, str(config.source_root), str(fixtures),
+                            profile['binaries']['xsh']['path'], profile['binaries']['xsht']['path'],
+                            str(run_directory / ('diagnostic' if diagnostic else 'samples')), str(output),
+                            'diagnostic' if diagnostic else 'timed', str(cpu)]
+        check_result(*checked_docker(command, config.scratch, timeout_seconds=900), b'')
+    try:
+        launch(True)
+        readiness_window(ready, lambda: launch(False))
+        require(fixture_owner.snapshot(fixtures) == fixture_snapshot, 'frozen fixtures changed during measurement')
+        require(baseline_receipts(config) == before and measurement_profile(config) == profile, 'measurement source/products/evidence changed')
+        acceptance.validate_close_report(runtime, baseline_report)
+        report = read_json(output)
+        require(report.get('attribution_complete') is True and report.get('timing_complete') is True, 'measurement report incomplete')
+        for prefix in ('timed_batch', 'diagnostic'):
+            peak = report.get(f'{prefix}_cgroup_after', {}).get('memory_peak')
+            require(isinstance(peak, str) and peak.isdecimal(), f'{prefix}: batch cgroup memory peak unavailable')
+    except BaseException as primary:
+        if output.exists():
+            try:
+                report = read_json(output)
+                report.update(complete=False, timing_discarded=True, performance_gate=readiness)
+                output.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+            except BaseException as failure:
+                primary.add_note(f'failed report finalization: {failure}')
+        raise
+    report.update(complete=True, source_commit=config.commit, tools=profile['binaries'], image_id=image,
+                  binary_sizes={name: Path(record['path']).stat().st_size for name, record in profile['binaries'].items()},
+                  performance_gate=readiness, timing_discarded=False)
+    output.write_text(json.dumps(report, indent=2, sort_keys=True) + '\n')
+    return report
 
 
 def main():
@@ -751,6 +859,9 @@ def main():
         elif args.mode == 'baseline':
             require(args.check, 'baseline requires --check')
             baseline(config)
+        elif args.mode == 'measure':
+            require(args.check, 'measure requires --check')
+            measure(config)
         else:
             raise CheckError(f'{args.mode}: unavailable until existing owner is integrated')
         return 0
