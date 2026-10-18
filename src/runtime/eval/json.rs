@@ -235,7 +235,7 @@ fn project<'a>(value: JsonInput<'a>) -> JsonNode<'a> {
             LoweredValue::Record(fields) => JsonNode::Object(JsonFields::LoweredRecord(fields.iter())),
             LoweredValue::RecordVec(fields) => {
                 let mut ordered: Vec<_> = fields.iter().map(|(key, value)| (key, value)).collect();
-                ordered.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+                ordered.sort_unstable_by_key(|(name, _)| *name);
                 JsonNode::Object(JsonFields::RecordVec(ordered.into_iter()))
             }
             LoweredValue::Stats { blanks, code, comments } => JsonNode::Stats(JsonStats { blanks: *blanks, blobs: None, code: *code, comments: *comments }),

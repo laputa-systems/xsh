@@ -579,7 +579,7 @@ fn prepare_entry_source(
             || Checker::compact_declarations(&arena, check),
         );
         observe_phase_time(
-            phase_times.as_deref_mut().map(|times| times.slot(|times| &mut times.lower_verify_install_exclusive)),
+            phase_times.map(|times| times.slot(|times| &mut times.lower_verify_install_exclusive)),
             || evaluator.prepare_checked_compact_indexed_only(&arena, source_id, false, declarations),
         )
     }) else {

@@ -956,7 +956,6 @@ fn wait_one_child_event(span: Span) -> Result<Option<ChildEvent>, RuntimeError> 
     let Some((pid, status)) = (match wait_any_child_nohang() {
         Ok(wait) => wait,
         Err(error) => {
-            let error = io::Error::from(error);
             if error.raw_os_error() == Some(libc::ECHILD) {
                 return Ok(None);
             }

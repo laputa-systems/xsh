@@ -711,10 +711,11 @@ mod tests {
                 || matches!(character, '.' | '_' | '-' | '/' | '\\'))
         }) {
             let path = Path::new(token.trim_end_matches('.'));
-            if token.contains('/') && root.join(path).is_file() {
-                if let Some(basename) = path.file_name().and_then(|name| name.to_str()) {
-                    basenames.insert(basename.to_string());
-                }
+            if token.contains('/')
+                && root.join(path).is_file()
+                && let Some(basename) = path.file_name().and_then(|name| name.to_str())
+            {
+                basenames.insert(basename.to_string());
             }
         }
         basenames

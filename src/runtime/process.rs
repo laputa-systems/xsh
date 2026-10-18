@@ -951,9 +951,7 @@ impl InputDelivery {
         let Some(writer) = child.stdin.take() else {
             return Err(RunError::new("io", "missing Bytes input pipe"));
         };
-        if let Err(error) = set_nonblocking(writer.as_fd()) {
-            return Err(error);
-        }
+        set_nonblocking(writer.as_fd())?;
         Ok(Some(Self {
             writer: Some(writer),
             bytes,
@@ -1785,13 +1783,11 @@ fn spawn_managed_inner(
         accepted_exit_codes: invocation.accepted_exit_codes,
     };
     if watch_stream_timeout {
-        if let Err(error) = drive_stream_managed_input(
+        drive_stream_managed_input(
             &mut managed,
             timed_identity.as_ref(),
             &mut timeout_watch,
-        ) {
-            return Err(error);
-        }
+        )?;
     } else {
         drive_managed_input(&mut managed)?;
     }

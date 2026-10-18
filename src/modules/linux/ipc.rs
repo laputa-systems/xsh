@@ -62,6 +62,10 @@ mod real {
         // SAFETY: mq_attr contains only integer fields and accepts the all-zero representation.
         let mut attributes: libc::mq_attr = unsafe { std::mem::zeroed() };
         // SAFETY: queue is live and attributes points to writable storage for one mq_attr.
+        #[allow(
+            clippy::useless_conversion,
+            reason = "Linux mq_curmsgs can use a narrower c_long ABI and must widen to i64"
+        )]
         let read = returned(unsafe { libc::mq_getattr(queue, &mut attributes) }).map(|()| i64::from(attributes.mq_curmsgs));
         // SAFETY: this function owns the successful mq_open descriptor and closes it exactly once.
         let close = returned(unsafe { libc::mq_close(queue) });
