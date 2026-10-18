@@ -740,6 +740,8 @@ duplicate per-commit copies of controllers solely to record provenance.
 
 - The corrected full R13 forced-frame attempt passed with 13,947 passes, zero failures and 211 reviewed skips. All five former failures passed. The skip selectors and reasons exactly match the normal profile. Source, Laputa corpus, selected binaries and the qualified mold snapshot stayed unchanged. Process/container cleanup resolved and all three shared locks were free after the run. The independent reviewer bound the completed receipt and native log. This qualifies forced execution behavior, without a speedup or private-parity claim. Comparative profiling, scheduler pairs and private/resource close remain pending.
 
+- Comparative attempt `comparative-0dfebb001-r13-r2` passed on clean R13 source with the qualified opt3 product. This was the first actual comparative measurement; the unused original output name remains absent. All 35 parity cases matched across five workloads and seven tools, and all 3,780 samples completed. Readiness passed before and after, timing was accepted, and cleanup resolved. The independent reviewer bound the final report and receipt. These finite benchmark cases do not extend util-linux exact-parity credit or establish the later four-family performance objective. Three scheduler pairs and private/resource close remain required before G1.
+
 ## For the owner afterwards
 
 - Read the concise accepted baseline page and deployment reproduction commands.
