@@ -157,6 +157,10 @@ def test_forced_frames_uses_the_selected_source_tmp_root():
                     assert f"{tree / '.work/consolidation'}:{tree / '.work/consolidation'}" in command
                     assert f"{root / '.work/consolidation'}:{root / '.work/consolidation'}" not in command
                     assert "/laputa:/laputa:ro" in command
+                    assert command[command.index("--network") + 1] == "none"
+                    assert command[command.index("--hostname") + 1] == "xsh-test"
+                    assert command[command.index("--add-host") + 1] == "xsh-test:127.0.0.1"
+                    assert f"{forced.MOLD}:{forced.MOLD}:ro" in command
                     assert "XSH_LAPUTA_CORPUS=/laputa" in command
                     assert "/home/josh/d/laputa-systems/laputa" not in command
             assert not private_tmp.exists()
@@ -193,6 +197,51 @@ def test_forced_frames_removes_symlinks_without_touching_targets():
                 (private_tmp / "external").symlink_to(target, target_is_directory=True)
         assert marker.read_text(encoding="utf-8") == "retained"
         assert stat.S_IMODE(target.stat().st_mode) == 0o500
+
+
+def test_forced_frames_rejects_missing_unsafe_or_changed_profile_mold():
+    with setgid_repository() as (root, _):
+        mold = root / "mold"
+        mold.write_bytes(b"qualified mold")
+        mold.chmod(0o755)
+        receipt = root / "profile.json"
+        expected = {"path": str(mold), "sha256": forced.digest(mold)}
+        with patch.object(forced, "MOLD", mold):
+            receipt.write_text(json.dumps({"toolchain": {"mold": expected}}))
+            assert forced.profile_mold_snapshot(receipt) == forced.executable_snapshot(mold)
+            for record in (None, {}, {**expected, "extra": True}, {**expected, "path": str(root / "other")}, {**expected, "sha256": "0" * 64}):
+                receipt.write_text(json.dumps({"toolchain": {"mold": record}}))
+                try:
+                    forced.profile_mold_snapshot(receipt)
+                except forced.GateFailure:
+                    pass
+                else:
+                    raise AssertionError(f"unqualified mold record accepted: {record}")
+            receipt.write_text(json.dumps({"toolchain": {"mold": expected}}))
+            mold.write_bytes(b"changed mold")
+            try:
+                forced.profile_mold_snapshot(receipt)
+            except forced.GateFailure:
+                pass
+            else:
+                raise AssertionError("changed mold executable accepted")
+            mold.unlink()
+            for state in ("missing", "symlink", "nonexecutable"):
+                if state == "symlink":
+                    target = root / "target"
+                    target.write_bytes(b"qualified mold")
+                    target.chmod(0o755)
+                    mold.symlink_to(target)
+                elif state == "nonexecutable":
+                    mold.unlink()
+                    mold.write_bytes(b"qualified mold")
+                    mold.chmod(0o644)
+                try:
+                    forced.profile_mold_snapshot(receipt)
+                except forced.GateFailure:
+                    pass
+                else:
+                    raise AssertionError(f"unsafe mold executable accepted: {state}")
 
 
 def test_forced_frames_records_the_yielded_tmp_in_receipt_and_command():
@@ -239,6 +288,7 @@ def test_forced_frames_records_the_yielded_tmp_in_receipt_and_command():
             patch.object(forced, "laputa_corpus_source", return_value=(laputa_corpus, laputa_identity)),
             patch.object(forced, "load_functional_close", return_value=close),
             patch.object(forced, "load_profile", return_value=profile),
+            patch.object(forced, "profile_mold_snapshot", return_value={"path": "/usr/local/bin/mold", "sha256": "e" * 64}),
             patch.object(forced.shutil, "which", return_value="/usr/bin/docker"),
             patch.object(forced, "cpu_set", return_value=",".join(str(cpu) for cpu in range(12))),
             patch.object(forced.subprocess, "check_output", side_effect=git_path),
@@ -365,6 +415,7 @@ if __name__ == "__main__":
     test_profile_tmp_cleanup_error_does_not_mask_gate_error()
     test_forced_frames_does_not_use_shared_setgid_tmp()
     test_forced_frames_uses_the_selected_source_tmp_root()
+    test_forced_frames_rejects_missing_unsafe_or_changed_profile_mold()
     test_forced_frames_removes_execute_only_directories()
     test_forced_frames_removes_symlinks_without_touching_targets()
     test_forced_frames_records_the_yielded_tmp_in_receipt_and_command()

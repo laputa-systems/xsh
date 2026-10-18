@@ -772,6 +772,32 @@ def validate_scheduler(config, path, profile, compare):
     return value
 
 
+def check_forced_context(framed, source, binaries, profile_receipt, forced):
+    mold = forced.executable_snapshot(Path('/usr/local/bin/mold'))
+    toolchain = profile_receipt.get('toolchain')
+    recorded = toolchain.get('mold') if isinstance(toolchain, dict) else None
+    require(recorded == {key: mold[key] for key in ('path', 'sha256')}, 'forced-frame mold differs from the qualified profile tool')
+    require(framed.get('inputs_before') == {'source': source, 'binaries': binaries, 'mold': mold}, 'forced-frame input qualification mismatch')
+    command = framed.get('stage', {}).get('command')
+    require(isinstance(command, list) and all(isinstance(argument, str) for argument in command), 'forced-frame executed Docker command missing')
+    require(command.count(forced.IMAGE) == 1, 'forced-frame pinned Docker image missing or ambiguous')
+    options = command[:command.index(forced.IMAGE)]
+    for argument in options:
+        alternate = (
+            argument.partition('=')[0] in ('--net', '--volume', '--mount')
+            or argument.startswith(('--network=', '--hostname=', '--add-host=', '-h'))
+            or (argument.startswith('-v') and argument != '-v')
+        )
+        require(not alternate, f'forced-frame Docker context requires separated owner options: {argument}')
+    for flag, expected in (('--network', 'none'), ('--hostname', 'xsh-test'), ('--add-host', 'xsh-test:127.0.0.1')):
+        observed = [options[index + 1] for index, argument in enumerate(options[:-1]) if argument == flag]
+        require(options.count(flag) == 1 and observed == [expected], f'forced-frame local host context mismatch: {flag}')
+    volumes = [options[index + 1] for index, argument in enumerate(options[:-1]) if argument == '-v']
+    require(options.count('-v') == len(volumes), 'forced-frame Docker volume option is incomplete')
+    mold_mounts = [volume for volume in volumes if len(volume.split(':')) >= 2 and volume.split(':')[1] == mold['path']]
+    require(mold_mounts == [f"{mold['path']}:{mold['path']}:ro"], 'forced-frame mold mount must be the qualified read-only executable')
+
+
 def baseline_receipts(config):
     require(config.baseline is not None, 'baseline receipt paths are not configured')
     source = source_identity(config)
@@ -827,7 +853,7 @@ def baseline_receipts(config):
     require(framed.get('environment', {}).get('XSH_LAPUTA_CORPUS') == str(config.laputa_root), 'forced-frame Laputa corpus differs from explicit configuration')
     require(framed.get('functional_close') == close_binding and framed.get('profile_cost_receipt') == profile['receipt'], 'forced-frame qualification mismatch')
     require(framed.get('binaries_before') == profile['binaries'] and framed.get('inputs_unchanged') is True and framed.get('inputs_before') == framed.get('inputs_after'), 'forced-frame inputs changed')
-    require(framed.get('inputs_before') == {'source': source, 'binaries': profile['binaries']}, 'forced-frame input qualification mismatch')
+    check_forced_context(framed, source, profile['binaries'], profile_receipt, forced)
     stage = framed.get('stage', {})
     docker_command = stage.get('command')
     require(isinstance(docker_command, list) and all(isinstance(argument, str) for argument in docker_command), 'forced-frame executed Docker command missing')

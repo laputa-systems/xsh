@@ -48,6 +48,7 @@ IMAGE = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c
 CPU_LIMIT = 12
 MEMORY_LIMIT = "24g"
 BINARY_NAMES = ("xsh", "xsht", "xsh-test-helper")
+MOLD = Path("/usr/local/bin/mold")
 OWNER_HELPER_SHA256 = "de1104e5c225596c99d565ae2f5587071db35b45bb67073eaafa5c1d6cf26078"
 STAGE = "forced-frames-full-native-suite"
 
@@ -261,6 +262,18 @@ def load_functional_close(path: Path, commit: str) -> dict[str, Any]:
     return {"path": str(path), "sha256": digest(path), "record": close}
 
 
+def profile_mold_snapshot(receipt_path: Path) -> dict[str, Any]:
+    receipt = read_json(receipt_path)
+    toolchain = receipt.get("toolchain")
+    recorded = toolchain.get("mold") if isinstance(toolchain, dict) else None
+    if not isinstance(recorded, dict) or set(recorded) != {"path", "sha256"} or recorded.get("path") != str(MOLD):
+        raise GateFailure("profile-cost receipt must bind the required mold executable")
+    observed = executable_snapshot(MOLD)
+    if recorded.get("sha256") != observed["sha256"]:
+        raise GateFailure("mold executable differs from the qualified profile tool")
+    return observed
+
+
 def load_profile(receipt_path: Path, tree: Path, commit: str, source: dict[str, str]) -> dict[str, Any]:
     receipt = read_json(receipt_path)
     if receipt.get("state") != "complete" or receipt.get("source_commit") != commit:
@@ -333,6 +346,7 @@ def verify_inputs(
     profile: dict[str, Any],
     laputa_corpus: Path,
     laputa_identity: dict[str, str],
+    mold: dict[str, Any],
 ) -> dict[str, Any]:
     current_source = source_identity(tree, commit)
     if current_source != expected_source:
@@ -347,7 +361,10 @@ def verify_inputs(
     current_binaries = {name: executable_snapshot(Path(profile["directory"]) / name) for name in BINARY_NAMES}
     if current_binaries != profile["binaries"]:
         raise GateFailure("sealed opt3 release binaries changed during the forced-frame suite")
-    return {"source": current_source, "binaries": current_binaries}
+    current_mold = profile_mold_snapshot(Path(profile["receipt"]["path"]))
+    if current_mold != mold:
+        raise GateFailure("qualified mold executable changed during the forced-frame suite")
+    return {"source": current_source, "binaries": current_binaries, "mold": current_mold}
 
 
 def validate_image_info(info: dict[str, Any]) -> dict[str, str]:
@@ -433,6 +450,10 @@ def container_command(
         MEMORY_LIMIT,
         "--network",
         "none",
+        "--hostname",
+        "xsh-test",
+        "--add-host",
+        "xsh-test:127.0.0.1",
         "--tmpfs",
         "/tmp:rw,exec,nosuid,mode=1777",
         "-v",
@@ -447,6 +468,8 @@ def container_command(
         f"{laputa_corpus}:{laputa_corpus}:ro",
         "-v",
         f"{profile_dir}:{profile_dir}:ro",
+        "-v",
+        f"{MOLD}:{MOLD}:ro",
         "-w",
         str(tree),
         "-e",
@@ -751,6 +774,7 @@ def run(args: argparse.Namespace) -> int:
     laputa_corpus, laputa_identity = laputa_corpus_source(args.laputa_corpus)
     close = load_functional_close(close_path, args.commit)
     profile = load_profile(receipt_path, tree, args.commit, source)
+    mold = profile_mold_snapshot(receipt_path)
     laputa_binding = profile["laputa_corpus"]
     if (
         laputa_binding["path"] != str(laputa_corpus)
@@ -826,7 +850,7 @@ def run(args: argparse.Namespace) -> int:
                 repository_tmp,
                 cpus,
             )
-            before = verify_inputs(tree, args.commit, source, close, profile, laputa_corpus, laputa_identity)
+            before = verify_inputs(tree, args.commit, source, close, profile, laputa_corpus, laputa_identity, mold)
             receipt["inputs_before"] = before
             receipt["native_image"] = image
             receipt["docker_command"] = owned_docker_command(
@@ -837,7 +861,7 @@ def run(args: argparse.Namespace) -> int:
             stage = run_container(command, log_path, cidfile, run_id)
             receipt["stage"] = stage
             try:
-                after = verify_inputs(tree, args.commit, source, close, profile, laputa_corpus, laputa_identity)
+                after = verify_inputs(tree, args.commit, source, close, profile, laputa_corpus, laputa_identity, mold)
                 receipt["inputs_after"] = after
                 receipt["laputa_corpus"]["source_identity_after"] = laputa_identity
                 inputs_unchanged = before == after

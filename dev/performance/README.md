@@ -149,6 +149,14 @@ validation. The forced-frame executed Docker command must mount that same root
 read-only at its own path and select it through `XSH_LAPUTA_CORPUS`.
 Historical receipts missing these owner bindings cannot close baseline acceptance.
 
+The forced container keeps `--network none` and maps its `xsh-test` hostname to
+`127.0.0.1`. It mounts `/usr/local/bin/mold` read-only using the executable qualified
+by the passed profile's `toolchain.mold` record. The existing schema-1
+`inputs_before` and `inputs_after` require the same `mold` executable snapshot
+alongside `source` and `binaries`. Missing, unsafe or changed tools and incomplete
+older receipts fail validation. Preserve failed output directories and select a
+fresh `forced-frames-COMMIT-attempt-LABEL` directory for a new attempt.
+
 The supplemental receipt must carry the same `laputa_corpus` binding. Each
 build, warning-deny, and `linux-special-*` container step must select that path
 with one read-only bind mount and one `XSH_LAPUTA_CORPUS` value. The

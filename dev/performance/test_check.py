@@ -797,6 +797,59 @@ class BaselineTests(unittest.TestCase):
     def setUp(self):
         self.config = check.parse_config(PolicyTests().config())
 
+    def test_forced_receipt_requires_bound_mold_and_offline_local_context(self):
+        mold = {'path': '/usr/local/bin/mold', 'sha256': 'e' * 64, 'size_bytes': 17, 'mode': '0o0755'}
+        source = {'commit': 'a' * 40}
+        binaries = {'xsh': {'sha256': 'b' * 64}}
+        profile = {'toolchain': {'mold': {key: mold[key] for key in ('path', 'sha256')}}}
+        command = ['docker', 'run', '--network', 'none', '--hostname', 'xsh-test', '--add-host', 'xsh-test:127.0.0.1', '-v', '/usr/local/bin/mold:/usr/local/bin/mold:ro', 'image']
+        framed = {'inputs_before': {'source': source, 'binaries': binaries, 'mold': mold}, 'stage': {'command': command}}
+        owner = SimpleNamespace(executable_snapshot=lambda _: mold, IMAGE='image')
+        check.check_forced_context(framed, source, binaries, profile, owner)
+        for mutation in ('missing_mold', 'mismatched_mold', 'changed_mold', 'missing_profile_mold', 'mismatched_profile_mold', 'network', 'hostname', 'hosts', 'duplicate_hosts', 'writable_mold', 'missing_mount'):
+            with self.subTest(mutation=mutation):
+                changed = deepcopy(framed)
+                selected_profile = deepcopy(profile)
+                selected_owner = owner
+                if mutation == 'missing_mold':
+                    del changed['inputs_before']['mold']
+                elif mutation == 'mismatched_mold':
+                    changed['inputs_before']['mold']['sha256'] = '0' * 64
+                elif mutation == 'changed_mold':
+                    selected_owner = SimpleNamespace(executable_snapshot=lambda _: {**mold, 'sha256': '0' * 64}, IMAGE='image')
+                elif mutation == 'missing_profile_mold':
+                    del selected_profile['toolchain']['mold']
+                elif mutation == 'mismatched_profile_mold':
+                    selected_profile['toolchain']['mold']['sha256'] = '0' * 64
+                elif mutation in ('network', 'hostname', 'hosts'):
+                    flag = {'network': '--network', 'hostname': '--hostname', 'hosts': '--add-host'}[mutation]
+                    changed['stage']['command'][command.index(flag) + 1] = 'wrong'
+                elif mutation == 'duplicate_hosts':
+                    changed['stage']['command'][2:2] = ['--add-host', 'xsh-test:127.0.0.1']
+                elif mutation == 'writable_mold':
+                    changed['stage']['command'][command.index('-v') + 1] = '/usr/local/bin/mold:/usr/local/bin/mold:rw'
+                elif mutation == 'missing_mount':
+                    del changed['stage']['command'][command.index('-v'):command.index('-v') + 2]
+                with self.assertRaises(check.CheckError):
+                    check.check_forced_context(changed, source, binaries, selected_profile, selected_owner)
+        for override in (
+            ['--hostname=wrong'], ['--network=host'], ['--add-host=xsh-test:192.0.2.1'],
+            ['--hostname'], ['--network'], ['--add-host'], ['-v'],
+            ['--net', 'host'], ['--net=host'], ['-h', 'wrong'], ['-hwrong'],
+            ['--volume', '/wrong:/usr/local/bin/mold:rw'], ['--volume=/wrong:/usr/local/bin/mold:rw'],
+            ['-v/wrong:/usr/local/bin/mold:rw'], ['-v=/wrong:/usr/local/bin/mold:rw'],
+            ['--mount', 'type=bind,src=/wrong,dst=/usr/local/bin/mold'],
+            ['--mount=type=bind,src=/wrong,dst=/usr/local/bin/mold'],
+        ):
+            with self.subTest(override=override):
+                changed = deepcopy(framed)
+                changed['stage']['command'][-1:-1] = override
+                with self.assertRaises(check.CheckError):
+                    check.check_forced_context(changed, source, binaries, profile, owner)
+                child_arguments = deepcopy(framed)
+                child_arguments['stage']['command'].extend(override)
+                check.check_forced_context(child_arguments, source, binaries, profile, owner)
+
     def test_measure_discards_the_whole_batch_after_readiness_failure_and_preserves_primary(self):
         self.config.scratch.mkdir(parents=True, exist_ok=True)
         runtime = check.baseline_util_linux(self.config)
