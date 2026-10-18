@@ -24,6 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 WORKLOADS = [
     # Cold startup: a fresh process through a fixed tiny script.
     ("cold_trivial", "cold", 60, False),
+    ("cold_template", "cold", 60, False),
     ("cold_quote", "cold", 60, False),
     ("cold_pad", "cold", 60, False),
     ("cold_cli_parse", "cold", 60, False),

@@ -102,3 +102,26 @@ neither runtime supplies a version command. Their version output is null.
 Summaries report each tool's pooled median, median absolute deviation, and
 three round medians. Commit method, version lock, and the complete raw report
 after final measurement; never substitute a summary for the samples.
+
+## Hostpipe observation and selected scales
+
+Measured samples add `first_useful_stdout_ns`, `useful_stdout_prefix_bytes`,
+`stdout_bytes`, `stderr_bytes`, and `failure_count` without removing existing
+fields. For the frozen text workloads, useful output is the first complete
+expected stdout line observed on the host pipe. It is not first-byte latency.
+The completion interval ends after process exit and full stdout/stderr capture.
+Process-group cleanup and scratch comparison follow that interval.
+
+The sampler drains both output pipes concurrently. Its deadline includes pipe
+holders that outlive the initial child. Timeout kills the owned process group
+and reaps the initial child. A pipe holder that escapes the group makes cleanup
+fail loudly. Failed output comparison, status, stderr, timeout, effects, or
+cleanup receives no timing credit. Non-measured parity runs emit null timing
+fields.
+
+The existing fixture generator also accepts explicit `package_rows=4096` and
+`package_rows=8192` shapes for the frozen XSH cohort in
+[`dev/performance/workloads.py`](../../dev/performance/workloads.py).
+Its default remains 2,048 and retains the original pinned manifest. Scaled
+fixtures do not satisfy that original manifest pin and do not replace inputs to
+the existing seven-tool comparative gate.

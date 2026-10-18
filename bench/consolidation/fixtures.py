@@ -9,6 +9,9 @@ import re
 import stat
 
 
+PACKAGE_ROW_SHAPES = (2048, 4096, 8192)
+
+
 def digest(path):
     with open(path, "rb") as source:
         return hashlib.file_digest(source, "sha256").hexdigest()
@@ -33,18 +36,20 @@ def snapshot(root):
     return dict(sorted(result.items()))
 
 
-def generate(root):
+def generate(root, *, package_rows=PACKAGE_ROW_SHAPES[0]):
+    if type(package_rows) is not int or package_rows not in PACKAGE_ROW_SHAPES:
+        raise ValueError(f"package rows must be one of the frozen shapes: {PACKAGE_ROW_SHAPES}")
     root.mkdir(parents=True, exist_ok=False)
     header = (
         b"#define CAP_CHOWN 0\n#define\tCAP_NET_ADMIN\t0007 \t\n"
         b"#define CAP_LAST_CAP (CAP_CHOWN)\n#define cap_bad 9\n"
         b" #define CAP_INDENTED 10\n#define CAP_TRAILING 11 // ignored\n"
         + (b"/* " + b"x" * 120 + b" */\n") * 8
-    ) * 8192
+    ) * (package_rows * 4)
     (root / "capability.h").write_bytes(header)
     tree = root / "tree"
     tree.mkdir()
-    for directory in range(32):
+    for directory in range(package_rows // 64):
         folder = tree / f"{'hidden' if directory % 2 else 'group'}-{directory:03}"
         if directory % 2:
             folder = tree / ("." + folder.name)
@@ -59,7 +64,7 @@ def generate(root):
     (tree / "link-file").symlink_to("group-000/file 000 [x]*.txt")
     (tree / "link-dangling").symlink_to("missing")
     (tree / "link-parent").symlink_to(".", target_is_directory=True)
-    rows = [{"name": f"pkg-{index:05}", "version": index} for index in range(2048)]
+    rows = [{"name": f"pkg-{index:05}", "version": index} for index in range(package_rows)]
     rows.reverse()
     rows.insert(19, {"name": "pkg-00500", "version": -1})
     replacement = {"name": "pkg-00500", "version": 9000}

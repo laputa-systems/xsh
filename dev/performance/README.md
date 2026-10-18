@@ -148,3 +148,42 @@ call boundaries. It does not instrument statements, instructions, or output.
 Buffered output becomes available after evaluation returns; that boundary is
 completion, not first useful output. M1 must observe the host pipe for first
 output latency.
+
+## Frozen workload selection
+
+`workloads.py` freezes fifteen cases before candidate measurements. It supplies
+scripts, arguments, exact stdout, and expected helper-process counts to existing
+samplers. It does not time workloads or issue acceptance records.
+
+| Family | Common input | Demanding input | Scaling series |
+|---|---|---|---|
+| Startup | Existing `cold_trivial.xsh`, `hello\n` | `cold_template.xsh`, `hello xsh\n` | Not applicable: each is one fresh invocation |
+| Streaming | Existing `stream-stage-cost.xsh`, count and map/where, 65,536 items | Same modes, 262,144 items | 65,536, 131,072, 262,144 items |
+| Algorithms | Existing comparative JSON replace/append/name-sort, 2,049 input records | Same program, 8,193 input records | 2,048, 4,096, 8,192 base records plus the retained duplicate |
+| Filesystem and process orchestration | Existing comparative directory traversal and 128 sequential external printf children | Same traversal with four times the directory count | 32, 64, 128 directories, each with 32 ordinary files; hidden entries and links retained |
+
+For scaled cases, `n` is common and `4n` is demanding. The fixed spawn case has
+128 children and no artificial scaling claim. The JSON and directory scripts
+are unchanged. The existing comparative fixture generator owns all their input
+bytes, modes, links, and independently computed golden outputs. Its new explicit
+`package_rows` choices are 2,048, 4,096, and 8,192. The default remains 2,048 and
+keeps the existing pinned manifest unchanged.
+
+Generate each selected fixture tree with that owner under an ignored scratch
+root. `frozen_workloads` reads the owner's expected bytes from trees named
+`2048`, `4096`, and `8192`. The existing `invoke` and `equivalent` functions own
+process execution and observable checks. Every case expects status zero, empty
+stderr, exact stdout, and no changes to its working directory. Expected helper
+counts are workload contracts, not traced observations.
+
+For these text workloads, useful output means the first complete expected stdout
+line observed on the host pipe. It is not first-byte latency or the return of a
+buffered `ScriptOutput`. Full stdout and stderr remain captured through process
+completion. Wrong output, early failure, timeout, or unresolved cleanup receives
+no timing credit. Hostpipe timestamps are populated only in measured mode;
+fixture checks do not establish a timing baseline.
+
+Common and demanding names do not assert a measured cost. The later accepted
+baseline must establish which substantial cases exceed 50 ms of CPU and qualify
+resource, allocation, syscall, and completed-work counts. Post-inference source
+and products remain the final measurement baseline.

@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import selectors
 import shutil
 import signal
 import statistics
@@ -99,20 +100,65 @@ def changes(before, after):
     return {path: {"before": before.get(path), "after": after.get(path)} for path in sorted(before.keys() | after.keys()) if before.get(path) != after.get(path)}
 
 
-def invoke(argv, cwd, environment, timeout, measured=False):
+def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, clock_ns=time.perf_counter_ns):
+    if useful_prefix is not None and (not isinstance(useful_prefix, bytes) or not useful_prefix):
+        raise ValueError("useful output prefix must be nonempty bytes")
     before = snapshot(cwd)
-    started = time.perf_counter_ns() if measured else None
+    started = clock_ns() if measured else None
     process = subprocess.Popen(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    deadline = time.monotonic() + timeout
     timed_out = False
+    stdout, stderr = bytearray(), bytearray()
+    first_useful = None
+    primary = None
+    finished = None
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        os.killpg(process.pid, signal.SIGKILL)
-        stdout, stderr = process.communicate()
-    elapsed = time.perf_counter_ns() - started if measured else None
+        with selectors.DefaultSelector() as selector:
+            selector.register(process.stdout, selectors.EVENT_READ, stdout)
+            selector.register(process.stderr, selectors.EVENT_READ, stderr)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                for key, _ in selector.select(remaining):
+                    chunk = os.read(key.fd, 65536)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    key.data.extend(chunk)
+                    if measured and first_useful is None and useful_prefix is not None and stdout.startswith(useful_prefix):
+                        first_useful = clock_ns() - started
+            if not timed_out:
+                try:
+                    process.wait(timeout=max(0, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+        finished = clock_ns() if measured else None
+    except BaseException as error:
+        primary = error
+    try:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=5)
+        trailing_stdout, trailing_stderr = process.communicate(timeout=5)
+        stdout.extend(trailing_stdout)
+        stderr.extend(trailing_stderr)
+    except BaseException as cleanup:
+        if primary is not None:
+            primary.add_note(f"process-group cleanup unresolved: {cleanup}")
+            raise primary
+        raise RuntimeError(f"process-group cleanup unresolved for {process.pid}; status={process.returncode}; stdout={bytes(stdout)!r}; stderr={bytes(stderr)!r}") from cleanup
+    finally:
+        process.stdout.close()
+        process.stderr.close()
+    if primary is not None:
+        raise primary
+    elapsed = finished - started if measured else None
     effects = changes(before, snapshot(cwd))
-    return {"wall_ns": elapsed, "status": process.returncode, "timed_out": timed_out, "stdout_base64": base64.b64encode(stdout).decode(), "stderr_base64": base64.b64encode(stderr).decode(), "effects": effects}
+    return {"wall_ns": elapsed, "first_useful_stdout_ns": first_useful, "useful_stdout_prefix_bytes": len(useful_prefix) if useful_prefix is not None else None, "status": process.returncode, "timed_out": timed_out, "stdout_base64": base64.b64encode(stdout).decode(), "stderr_base64": base64.b64encode(stderr).decode(), "stdout_bytes": len(stdout), "stderr_bytes": len(stderr), "effects": effects}
 
 
 def equivalent(observation, expected):
@@ -215,8 +261,9 @@ def inside(args):
     def record(tool, workload, measured=False):
         key = (tool, workload)
         argv = argv_for(tool, workload, args.fixtures, args.xsh)
-        observation = invoke(argv, directories[key], environments[key], args.timeout, measured=measured)
+        observation = invoke(argv, directories[key], environments[key], args.timeout, measured=measured, useful_prefix=expected[workload].splitlines(keepends=True)[0])
         observation.update({"tool": tool, "workload": workload, "argv": argv, "equal": equivalent(observation, expected[workload])})
+        observation["failure_count"] = int(not observation["equal"])
         return observation
 
     def write_report():
@@ -230,7 +277,7 @@ def inside(args):
                 write_report()
                 if not observation["equal"]:
                     raise ValueError(f"observable parity failed: {tool}/{workload}; see {args.output}")
-        report["method"] = {"rounds": 3, "samples_per_tool_per_round": 30, "startup_samples_per_tool_per_round": 60, "filesystem": "warm", "process": "fresh", "timing": "serialized wall clock including process creation, script loading/checking, helpers, stdout/stderr capture", "order": "cyclic rotation with alternating reversal; offsets include round index", "warmups_per_tool_workload": 1}
+        report["method"] = {"rounds": 3, "samples_per_tool_per_round": 30, "startup_samples_per_tool_per_round": 60, "filesystem": "warm", "process": "fresh", "timing": "serialized wall clock including process creation, script loading/checking, helpers, stdout/stderr capture", "first_useful_stdout": "first complete expected stdout line observed on the host pipe; not first byte", "order": "cyclic rotation with alternating reversal; offsets include round index", "warmups_per_tool_workload": 1}
         if args.measure:
             for workload in WORKLOADS:
                 for tool in TOOLS:

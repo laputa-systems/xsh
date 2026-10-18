@@ -5,6 +5,8 @@ import base64
 from contextlib import redirect_stdout
 import io
 import json
+import os
+import signal
 from pathlib import Path
 import shutil
 import subprocess
@@ -103,6 +105,56 @@ class HarnessTests(unittest.TestCase):
         self.assertTrue(observation["timed_out"])
         subprocess.run([sys.executable, "-c", "import time; time.sleep(0.5)"], check=True)
         self.assertFalse((self.root / "leaked").exists())
+
+    def test_first_useful_line_precedes_completion_and_drains_both_pipes(self):
+        work = self.root / "work"
+        work.mkdir()
+        release = self.root / "release"
+        os.mkfifo(release)
+        readings = iter((100, 200, 300))
+        def clock():
+            value = next(readings)
+            if value == 200:
+                release.write_bytes(b"release")
+            return value
+        script = "import os,pathlib,sys; os.write(1,b're'); os.write(2,b'x'*200000); os.write(1,b'ady\\n'); pathlib.Path(sys.argv[1]).read_bytes(); os.write(1,b'done\\n')"
+        observation = invoke([sys.executable, "-c", script, str(release)], work, {}, 5, measured=True, useful_prefix=b"ready\n", clock_ns=clock)
+        self.assertEqual(observation["first_useful_stdout_ns"], 100)
+        self.assertEqual(observation["wall_ns"], 200)
+        self.assertEqual(base64.b64decode(observation["stdout_base64"]), b"ready\ndone\n")
+        self.assertEqual(observation["stderr_bytes"], 200000)
+        self.assertEqual(base64.b64decode(observation["stderr_base64"]), b"x" * 200000)
+        self.assertFalse(observation["timed_out"])
+
+    def test_no_output_early_failure_and_wrong_output_have_no_useful_line(self):
+        for script, status in (("pass", 0), ("import sys; sys.stderr.write('failure'); sys.exit(7)", 7), ("print('wrong')", 0)):
+            with self.subTest(script=script):
+                readings = iter((100, 200))
+                observation = invoke([sys.executable, "-c", script], self.root, {}, 5, measured=True, useful_prefix=b"ready\n", clock_ns=lambda: next(readings))
+                self.assertEqual(observation["status"], status)
+                self.assertIsNone(observation["first_useful_stdout_ns"])
+                self.assertFalse(equivalent(observation, b"ready\n"))
+
+    def test_exited_parent_with_descendant_holding_pipes_hits_deadline_and_cleans_group(self):
+        script = "import subprocess,sys; subprocess.Popen([sys.executable,'-c','import signal; signal.pause()']); print('ready',flush=True)"
+        observation = invoke([sys.executable, "-c", script], self.root, {}, 0.1, useful_prefix=b"ready\n")
+        self.assertTrue(observation["timed_out"])
+        self.assertEqual(observation["status"], 0)
+        self.assertEqual(base64.b64decode(observation["stdout_base64"]), b"ready\n")
+        self.assertFalse(equivalent(observation, b"ready\n"))
+
+    def test_escaped_descendant_holding_pipe_rejects_unresolved_cleanup(self):
+        work = self.root / "work"
+        work.mkdir()
+        pid_path = self.root / "escaped.pid"
+        child = "import os,pathlib,signal,sys; os.setsid(); pathlib.Path(sys.argv[1]).write_text(str(os.getpid())); signal.pause()"
+        parent = "import subprocess,sys,signal; subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[2]]); signal.pause()"
+        try:
+            with self.assertRaisesRegex(RuntimeError, "cleanup unresolved"):
+                invoke([sys.executable, "-c", parent, child, str(pid_path)], work, {}, 0.2)
+        finally:
+            if pid_path.exists():
+                os.kill(int(pid_path.read_text()), signal.SIGKILL)
 
     def test_overlay_does_not_build_if_base_alias_resolves_to_another_image(self):
         source = self.root / "suite"
