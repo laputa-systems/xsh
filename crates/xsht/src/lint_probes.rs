@@ -186,8 +186,14 @@ pub(super) fn checked_return_removal_facts_from_output(
     if checked
         .diagnostics
         .iter()
-        .any(|diagnostic| diagnostic.severity == Severity::Error)
-        || (source_diagnostics_forbidden && !checked.diagnostics.is_empty())
+        .any(|diagnostic| {
+            diagnostic.severity == Severity::Error
+                && diagnostic.code != Some(xsh::diagnostic::DiagnosticCode::CheckRedundantParens)
+        })
+        || (source_diagnostics_forbidden
+            && checked.diagnostics.iter().any(|diagnostic| {
+                diagnostic.code != Some(xsh::diagnostic::DiagnosticCode::CheckRedundantParens)
+            }))
     {
         return None;
     }
@@ -631,5 +637,59 @@ mod tests {
             )
         });
         assert!(facts.is_none(), "workspace diagnostics still veto this proof");
+    }
+
+    #[test]
+    fn return_proof_allows_redundant_parentheses_but_rejects_other_errors() {
+        let source_id = SourceId::new(0);
+        let source = "let value = (1) + (2)\n";
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(xsh::diagnostic::DiagnosticCode::CheckRedundantParens)
+        }));
+        let (_, effect_bodies) = checked_source_effect_bodies(
+            &parsed.arena,
+            parsed.arena.statement_ids(),
+            source,
+        )
+        .expect("the original source owns its statements");
+        let facts = parsed.arena.symbol_owner().with_current(|| {
+            checked_return_removal_facts_from_output(
+                &checked,
+                source_id,
+                &effect_bodies,
+                &[],
+                true,
+            )
+        });
+        assert!(facts.is_some(), "redundant parentheses preserve proof facts");
+
+        let source = "let value = (1) + (true)\n";
+        let parsed = Parser::parse_source_arena_only(source_id, source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == xsh::diagnostic::Severity::Error
+                && diagnostic.code
+                    != Some(xsh::diagnostic::DiagnosticCode::CheckRedundantParens)
+        }));
+        let (_, effect_bodies) = checked_source_effect_bodies(
+            &parsed.arena,
+            parsed.arena.statement_ids(),
+            source,
+        )
+        .expect("the invalid source still owns its statements");
+        let facts = parsed.arena.symbol_owner().with_current(|| {
+            checked_return_removal_facts_from_output(
+                &checked,
+                source_id,
+                &effect_bodies,
+                &[],
+                true,
+            )
+        });
+        assert!(facts.is_none(), "other checker errors still veto proofs");
     }
 }

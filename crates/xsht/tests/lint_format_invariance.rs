@@ -651,6 +651,57 @@ print ${parse("0")}
 }
 
 #[test]
+fn redundant_parentheses_preserve_default_parameter_and_close_lints() {
+    const SOURCE: &str = "proc check(dir: Path, value: Int = 0) [fs, error] -> Result[Bool] {\n  let root = fs.open_root(dir)?\n  defer root.close()\n  let is_zero = value == 0\n  if is_zero { root.exists(p\".\") } else { root.exists(p\".\") }\n}\n";
+    let scratch = TempDir::new().expect("scratch directory");
+    let baseline = scratch.path().join("baseline");
+    let perturbed = scratch.path().join("perturbed");
+    fs::create_dir_all(&baseline).expect("create baseline directory");
+    fs::create_dir_all(&perturbed).expect("create perturbed directory");
+    fs::write(baseline.join("main.xsh"), SOURCE).expect("write baseline source");
+    let source = perturb_layout(SOURCE).expect("fixture accepts layout perturbations");
+    assert_ne!(source, SOURCE);
+    fs::write(perturbed.join("main.xsh"), source).expect("write perturbed source");
+
+    let before = lint_tree(&baseline, false);
+    assert!(before.contains_key(&(
+        String::from("main.xsh"),
+        String::from("warn[lint.default-param-type]")
+    )));
+    assert!(before.contains_key(&(
+        String::from("main.xsh"),
+        String::from("warn[lint.redundant-close]")
+    )));
+    let mut after = lint_tree(&perturbed, false);
+    assert!(after.contains_key(&(
+        String::from("main.xsh"),
+        String::from("err[check.redundant-parens]")
+    )));
+    without_redundant_parens(&mut after);
+    assert_same_diagnostics("redundant-parentheses fixture", &before, &after);
+
+    let fixed = scratch.path().join("fixed");
+    fs::create_dir_all(&fixed).expect("create fixed directory");
+    fs::copy(perturbed.join("main.xsh"), fixed.join("main.xsh"))
+        .expect("copy perturbed source for fixes");
+    let output = xsht(&fixed, &["lint", "--fix", "main.xsh"]);
+    assert!(
+        output.status.success(),
+        "xsht lint --fix failed:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let fixed_source = fs::read_to_string(fixed.join("main.xsh")).expect("read fixed source");
+    assert!(!fixed_source.contains("value: Int"), "{fixed_source}");
+    assert!(!fixed_source.contains("defer root.close()"), "{fixed_source}");
+    let check = xsht(&fixed, &["check", "main.xsh"]);
+    assert!(
+        check.status.success(),
+        "fixed source does not check:\n{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+}
+
+#[test]
 fn layout_perturbation_rejects_other_check_errors() {
     let diagnostics = diagnostics_for(&[
         "err[lint.shadowing]",

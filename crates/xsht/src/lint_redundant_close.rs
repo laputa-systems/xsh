@@ -183,6 +183,7 @@ fn check_has_errors_in_source(
 ) -> bool {
     checked.diagnostics.iter().any(|diagnostic| {
         diagnostic.severity == Severity::Error
+            && diagnostic.code != Some(DiagnosticCode::CheckRedundantParens)
             && (diagnostic.labels.is_empty()
                 || diagnostic
                     .labels
@@ -398,6 +399,29 @@ mod tests {
         assert_eq!(diagnostics[0].severity, xsh::diagnostic::Severity::Warning);
         assert_eq!(diagnostics[0].fix_hints.len(), 1);
         assert!(diagnostics[0].notes[0].contains("already explicitly closed"));
+    }
+
+    #[test]
+    fn other_checker_errors_keep_deferred_close_fixes_blocked() {
+        let source = "proc check(dir: Path) [fs, error] -> Result[Bool] {\n  let root = fs.open_root(dir)?\n  defer root.close()\n  let invalid: Int = \"not an integer\"\n  root.exists(p\".\")\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == xsh::diagnostic::Severity::Error
+                && diagnostic.code != Some(DiagnosticCode::CheckRedundantParens)
+        }));
+        let linted = Linter::lint(
+            &parsed.arena,
+            source,
+            LintOptions {
+                checked_output: Some(std::sync::Arc::new(checked)),
+                ..LintOptions::default()
+            },
+        );
+        assert!(!linted.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::LintRedundantClose)
+        }));
     }
 
     #[test]
