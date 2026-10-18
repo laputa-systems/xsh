@@ -303,7 +303,7 @@ def check_supplemental_laputa_command(step, config, image, *, helper):
         parts = mount.split(':', 2)
         if len(parts) >= 2:
             source, target = (Path(parts[0]), Path(parts[1]))
-            if source == config.laputa_root or source.is_relative_to(config.laputa_root) or target == config.laputa_root or target.is_relative_to(config.laputa_root) or config.laputa_root.is_relative_to(target):
+            if source == config.laputa_root or source.is_relative_to(config.laputa_root) or config.laputa_root.is_relative_to(source) or target == config.laputa_root or target.is_relative_to(config.laputa_root) or config.laputa_root.is_relative_to(target):
                 selected_mounts.append((option, mount))
     for _, mount in docker_option_values(docker_options, ('--mount',)):
         fields_by_name = [part.split('=', 1) for part in mount.split(',') if '=' in part]
