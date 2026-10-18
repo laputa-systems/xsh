@@ -349,6 +349,31 @@ products. Any later persisted artifact needs an explicit format version and
 rejection checks before decoding. Reusing a historical harness or unchecked
 scheme payload does not qualify the candidate.
 
+### Source-review controls before I1 acceptance
+
+Independent review of `0fe1469d1808b5f963bd841165af6c10f2c3e93b`
+identified two cases to reproduce on the dependency-complete port. These are
+source findings, not executable failures or accepted fixes.
+
+- In `full/schemes.rs`, `intern_scheme_schema` computes a parent's instance
+  range after recursively interning children. A nested nominal schema may
+  therefore give parent and child overlapping ranges. Exercise a generic
+  callable with an annotated `List[Item]` parameter and a separately inferred
+  parameter, then require successful verification and execution. Cover nested
+  return schemas too.
+- In `full.rs`, the unsigned literal sign check appears to depend on an
+  optional checked-expression fact. Extend
+  `full_verifier_preserves_unsigned_integer_generic_arguments` by removing
+  that fact and forging a negative UInt payload; require rejection. Exercise
+  the producer path too. A literal tag's invariant must hold without optional
+  evidence.
+
+Existing constructor-origin tests mutate type facts. They do not establish
+rejection of coordinated origin-and-type forgery. Keep that coverage limit
+explicit rather than claiming universal authentication from those tests.
+Preserve the current timed-stream identity and cleanup contracts when adapting
+the overlapping evaluator and producer files.
+
 ### Focused I1 checks
 
 Reuse G1's pinned container, kache configuration, target mount, and dependency
