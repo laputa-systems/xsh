@@ -106,8 +106,16 @@ dynamic Record. It is a local Map-selection requirement. The accepted 1,040
 README at `15243e97:dev/consolidation/typing-corpus/README.md` gives the source
 context.
 
-Source review surfaced 18 additional retained sites but does not establish a
-single cause for them. Sites 2332, 2543, 3406, 3407, 3476, 6436, 6564, 7427,
+Source review gives specific context for 19 retained sites. Of these, 17
+remain pending cause review; sites 3599 and 3665 are semantic restrictions
+described below. Site 2850 is classified separately as unavailable
+information. Site 2483 is `cgroup_maximum`'s `SourceRead` parameter.
+Its body reads `source.observation.state` and `.value`, then passes `source` to
+`collectors.bounded_number`. The frozen retained reason says the inferred field
+shape disagrees with the original `SourceRead` schema. These facts identify a
+context path for a candidate query. The query should determine whether current
+inference chooses a different shape and, if so, why. Sites 2332, 2543, 3406,
+3407, 3476, 6436, 6564, 7427,
 7822, and 7823 join plain Null with a concrete type without an Optional witness;
 whether those joins should infer an Optional remains unresolved. Site 2285
 retains `MonitorBattery` field context, and site 6338 depends on a later USB
@@ -116,22 +124,42 @@ from an inference limitation. Sites 973 and 3914 need nominal enum return
 context, but the evidence does not establish that inference should choose a
 variant without that context. Sites 9111 and 9112 are outside the checked
 membership body grammar, which records a capability boundary without proving
-that the annotations are semantically unnecessary. Keep these 16 sites pending
+that the annotations are semantically unnecessary. Keep these 17 sites pending
 with those source facts attached. Sites 3599 and 3665 need a Str anchor for
 `replace`, which also accepts Regex; the accepted negative-control contract
 requires this call to remain ambiguous without local evidence, so these two are
 semantic restrictions. Site 2850 is an unavailable-information case: its
 parameter is used only in interpolation, which does not constrain its type.
 
-The retained table records observed diagnostic families, including `infer-return` (288),
-`local-inference` (232), `dynamic-boundary` (70), `type-mismatch` (66),
-`unknown-method` (56), and `try-context` (37), with smaller families for
-iterators, result fallback, display conversion, indexing, assignment targets,
-and other checks. A diagnostic identifies where erasure currently fails; it
-does not by itself establish whether the missing fact is unavailable, a
-semantic restriction, or a specific inference relationship. Keep those rows
-pending source-level witnesses rather than assigning a cause from the code
-alone.
+The 730 checker-restored rows split into 17 with source facts but unresolved
+causes and 713 with diagnostic-family evidence only. Removing 150 Map-selection
+locals, two ambiguous `replace` receivers, and site 2850 from the 883 joint-check
+rows gives those 730. The 17 source-fact rows are site 2483, the ten
+null/concrete joins, two producer or source-order cases, two nominal variant
+returns, and two membership-grammar boundaries listed above. They remain
+pending cause review.
+
+The remaining 713 rows have these frozen diagnostic families:
+
+| Diagnostic | Sites | Diagnostic | Sites |
+|---|---:|---|---:|
+| `infer-return` | 284 | `local-inference` | 229 |
+| `type-mismatch` | 38 | `try-context` | 37 |
+| `for-iterator` | 27 | `result-fallback` | 25 |
+| `display-conversion` | 20 | `index-type` | 8 |
+| `slice-type` | 7 | `spread-not-record` | 7 |
+| `listcomp-iterator` | 5 | `required-return` | 5 |
+| `ambiguous-overload` | 3 | `if-condition` | 3 |
+| `inferred-variant` | 2 | `dynamic-boundary` | 2 |
+| `unknown-method` | 2 | `membership-type` | 2 |
+| `pattern-type` | 2 | `infer-param` | 1 |
+| `field-access` | 1 | `try-error` | 1 |
+| `guard-binding` | 1 | `record-update-field` | 1 |
+
+A diagnostic identifies where erasure currently fails. It does not establish
+whether the missing fact is unavailable, a semantic restriction, or a specific
+inference relationship. Keep these 713 rows pending source-level witnesses;
+do not assign a cause from the code alone.
 
 The 288 `infer-return` rows cover 128 return annotations and 160 parameter
 annotations across 158 declarations. Sixty-four declarations retain both
@@ -167,16 +195,31 @@ report converters, and reference parsers. Compare exact diagnostics and
 retained source views; do not generalize from `infer-return` alone.
 
 All 202 effect clauses remain pending joint proof. The accepted source lint
-records individual equality and rewrite-equivalence results for 142 clauses;
-the other 60 have no retained per-site effect fact or unknown-call chain. The
-60 rows group as 42 in `dev/system_report_check.xsh` (38 `compare_live_*`
-procedures and four helpers), ten across Laputa's `pm/` modules, and eight in
-`core/wc.xsh`, `core/lib/system_report_live.xsh`, `core/lib/textio_a1.xsh`,
-`core/lib/text_a2.xsh`, and `dev/stage.xsh`. These source groups show host
-operations and `Result` handling, but do not establish whether the missing
-proof reflects an intentional wider caller bound, an unknown summary, or an
-inference relationship. For example, `compare_live_identity` at line 21766
-uses filesystem operations, `time.now`, `process.run`, and propagated errors;
+records individual equality and rewrite-equivalence results for 142 clauses.
+The other 60 have no retained per-site effect fact or unknown-call chain. Their
+exact declarations in the frozen source views are:
+
+| Source | Declarations without an individual fact |
+|---|---|
+| Laputa `pm/catalog.xsh` | `make_catalog` |
+| Laputa `pm/fingerprint.xsh` | `digest_lines` |
+| Laputa `pm/graph.xsh` | `closure_from_edges` |
+| Laputa `pm/plan.xsh` | `plan_digest_lines`, `absolute_recipe_package`, `find_remote`, `require_supported_target`, `require_build_epoch` |
+| Laputa `pm/plan_json.xsh` | `plan_json_remote` |
+| Laputa `pm/recipe.xsh` | `package_contract_error` |
+| XSH `core/lib/system_report_live.xsh` | `network_link_target`, `collect_network` |
+| XSH `core/lib/text_a2.xsh` | `tab_error` |
+| XSH `core/lib/textio_a1.xsh` | `size_is_reached` |
+| XSH `core/wc.xsh` | `number_width`, `count_input`, `write_streamed_line` |
+| XSH `dev/stage.xsh` | `execute_with` |
+| XSH `dev/system_report_check.xsh` | `reference_powercap_parent`, `device_class_reference_parent`, `print_cpu_id_set_result`, `compare_live_identity`, `compare_live_namespaces`, `compare_live_meminfo`, `compare_live_thp`, `compare_live_huge_pages`, `compare_live_psi`, `compare_live_vulnerabilities`, `compare_live_swaps`, `compare_live_pci_identity`, `compare_live_pci_links`, `compare_live_usb_topology`, `compare_live_usb_ids`, `compare_live_usb_power`, `compare_live_usb_interfaces`, `compare_live_power_supplies`, `compare_live_powercap`, `compare_live_device_classes`, `compare_live_hwmon`, `compare_live_pci_bindings`, `compare_live_thermal`, `compare_live_ip_links`, `compare_live_ip_addresses`, `compare_live_ip_rules`, `compare_live_ip_routes`, `compare_live_storage`, `compare_live_queue`, `compare_live_mounts`, `compare_live_mount_usage`, `compare_live_modules`, `compare_live_kernel_command_line`, `compare_live_kernel_parameters`, `compare_live_cpu_scope`, `compare_live_cgroup2`, `compare_live_cpu_cache`, `compare_live_cpu_topology`, `compare_live_cpufreq`, `compare_live_cpuidle`, `compare_live_processes`, `run_fixture_cases` |
+
+The frozen eligibility table gives a source path and declaration name for each
+site. The integrated checker query must map its body spans to those entries.
+The source groups contain host operations and `Result` handling. They do not
+distinguish a wider caller bound, an unknown summary, or a missing inference
+relationship. For example, `compare_live_identity` at line 21766 uses
+filesystem operations, `time.now`, `process.run`, and propagated errors.
 `pm/plan.xsh`'s `require_supported_target` constructs and returns `Err` without
 `?`, so its `[error]` clause cannot be called required from the body alone.
 Neither example proves intent or a checker defect.
@@ -210,8 +253,8 @@ The accounting is 910 semantic restrictions/selections (758 Proc contracts,
 unavailable-information site, 730 checker-restored rows pending cause review,
 and 202 pending effects: 1,843 retained eligible sites. This classifies 911
 sites from direct source evidence; the other 932 remain pending. Of the 730
-checker-restored rows, 16 have the source facts above but unresolved causes; the
-other 714 have only diagnostic-family evidence recorded in the retained table.
+checker-restored rows, 17 have the source facts above but unresolved causes; the
+other 713 have diagnostic-family evidence recorded in the retained table.
 
 The frozen local target cannot be reached while preserving the 149 required
 empty-Map locals and site 3598: at most 543 of 693 locals (78.35%) could be
@@ -229,8 +272,67 @@ The frozen inventory covers the selected 48 files but contains no spans for
 `cohort.py` must not be treated as inventory for these files. The practical
 corpus adapter already checks `wc`, `sort`, and `awk`, plus Laputa plan and
 generation modules, but that is a behavior/checking corpus without annotation
-removal credit. Before I1 accepts the compiler baseline, do not transform these
-files or claim runtime behavior for a reduced view.
+removal credit. `dev/performance/corpus/inventory.rs` now records AST type and
+effect spans for these four roots. `inventory.sh` pins their clean source
+revisions and the compiler source, and writes its output under `.work/tmp`.
+`apply_spans.py` accepts explicit site selections and rejects exported,
+entry, Proc, Stream, Map-typed, and `.require()` target annotations. These
+source-only tools prepare the extension; they do not establish checker or
+runtime behavior. Before I1 accepts the compiler baseline, do not transform
+these files or claim behavior for a reduced view.
+
+The signature probes cover `byte_count`, `padded_decimal`,
+`directive_operand`, `newlines`, `generation_sorted_unique`, and
+`generation_plan_dto`. They are query targets, not preclassified removals.
+Append the same `reveal_type` probes to original and reduced copies, and compare
+the inferred callable signatures after checking both views. `wc.continuation`'s
+`data`, `wc.within`'s `data`, and `wc.byte_words`'s `data` are candidate
+diagnostic controls: each body uses `byte_at`, and `byte_words` also uses
+`len`, methods available on both `Str` and `Bytes`. Query them by removing one
+parameter annotation at a time in disposable copies. Keep
+`wc.sequence_width.data` separate because typed helper calls may constrain it.
+These controls remain unclassified until the candidate's exact diagnostics are
+observed.
+
+The runtime pair is `test_wc_characters_and_invalid_bytes`,
+`test_sort_general_numeric_orders_past_double_precision`,
+`test_awk_arrays_functions_and_loops`,
+`test_generation_plan_and_receipt_are_deterministic_for_root_order_and_duplicates`,
+and `test_generation_plan_json_round_trips_and_rejects_changed_identity`.
+Run each exact selector against both source views; a pass is useful only when it
+selects one test and reports zero failures and skips. This pairs inferred
+signatures with retained diagnostics and observable command behavior without
+changing the frozen 48-file accounting.
+
+The practical run is prepared from exact source commits. First write the AST
+inventory to `.work/tmp`, then build original and selected reduced trees with
+`prepare_views.sh`. `check_views.sh` recreates both trees from the pinned
+archives, verifies the selected spans byte-for-byte, runs the same checker and
+five exact runtime selectors on each view, and compares all six revealed
+signatures. It also checks each of the three `wc` diagnostic controls after
+removing only that parameter annotation, and restores temporary probe lines
+before returning. Its source and product arguments must use the accepted
+compiler pair and clean pinned source checkouts described above.
+`SITE_IDS` is a comma-separated list of exact
+`project|path|kind|line|owner` selectors from the generated inventory. The
+paired runner rejects numeric row ids and reserves the three diagnostic
+controls plus `wc.sequence_width.data` from the reduced view.
+
+```sh
+INVENTORY="$PWD/.work/tmp/performance-practical-sites.tsv"
+VIEWS="$PWD/.work/tmp/performance-practical-views"
+bash dev/performance/corpus/inventory.sh \
+  "$COMPILER_SOURCE" "$COMPILER_REV" \
+  "$XSH_ROOT" "$XSH_REV" "$LAPUTA_ROOT" "$LAPUTA_REV" "$INVENTORY"
+bash dev/performance/corpus/prepare_views.sh \
+  "$XSH_ROOT" "$XSH_REV" "$LAPUTA_ROOT" "$LAPUTA_REV" \
+  "$INVENTORY" "$SITE_IDS" "$VIEWS"
+bash dev/performance/corpus/check_views.sh \
+  "$COMPILER_SOURCE" "$COMPILER_REV" \
+  "$XSH_ROOT" "$XSH_REV" "$LAPUTA_ROOT" "$LAPUTA_REV" \
+  "$XSH_PRODUCT" "$XSHT_PRODUCT" "$XSH_SHA256" "$XSHT_SHA256" \
+  "$INVENTORY" "$SITE_IDS" "$VIEWS"
+```
 
 After I1, archive the exact qualified source commits into `.work/tmp`, retaining
 whole trees so imports resolve, then copy each `original` tree to a `reduced`
