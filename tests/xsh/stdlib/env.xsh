@@ -226,15 +226,17 @@ test test_env_conversions_read_the_scoped_overlay {
 test test_env_functions_and_path_list { |ctx|
   let root = test.temp_dir(ctx, name: "env")?
   let tool_dir = fp"{root}/bin"
-  tool_dir.mkdir()
-  let tool = fp"{tool_dir}/xsh-env-helper"
-
-  tool.write(
-    """#!/bin/sh
-printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
+  let helper = test.expect(
+    ctx,
+    r"""let tool_dir = Path(args[0])
+let tool = fp"{tool_dir}/xsh-env-helper"
+tool_dir.mkdir()
+tool.write("#!/bin/sh\nprintf '%s|%s|%s' \"$XSH_STDLIB_ENV\" \"$DESTDIR\" \"$PATH\"\n", mode: 0o755)
 """,
-    mode: 0o755,
-  )
+    status: 0,
+    args: [tool_dir],
+  )?
+  assert helper.stdout == "" and helper.stderr == ""
 
   env XSH_STDLIB_ENV=yes DESTDIR=/tmp/xsh-stdlib-env XSH_STDLIB_COUNT=7 XSH_STDLIB_BOOL=true XSH_STDLIB_PATH=$root {
     assert e"XSH_STDLIB_ENV"? == "yes"
