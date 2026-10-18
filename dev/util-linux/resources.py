@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 import contextlib
+from contextvars import ContextVar
 from dataclasses import replace
 from pathlib import Path
 import hashlib
@@ -41,8 +42,8 @@ from acceptance import (
 
 GitRunner = Callable[..., subprocess.CompletedProcess[str]]
 PRODUCTS = ("xsh", "xsht", "xsh-test-helper")
-LAPUTA_CORPUS = Path("/home/josh/d/laputa-systems/laputa")
 MOLD_PATH = Path("/usr/local/bin/mold")
+_LAPUTA_CORPUS: ContextVar[Path | None] = ContextVar("util_linux_laputa_corpus", default=None)
 POSITIVE_SELECTORS = {
     "lslocks": "test_lslocks_blocker_flock",
     "lsipc": "test_lsipc_visibility_matches_for_owner_and_unprivileged_observer",
@@ -101,6 +102,40 @@ _RUST_GATE_CASES = (
         (),
     ),
 )
+
+
+@contextlib.contextmanager
+def _laputa_corpus_scope(root: Path) -> Iterator[Path]:
+    try:
+        if not root.is_absolute() or root.resolve(strict=True) != root or not stat.S_ISDIR(root.lstat().st_mode):
+            raise ValueError("Laputa corpus must be a canonical non-symlink directory")
+        pm = root / "pm"
+        if pm.is_symlink() or not stat.S_ISDIR(pm.lstat().st_mode):
+            raise ValueError("Laputa corpus must contain a non-symlink pm directory")
+    except OSError as error:
+        raise ValueError(f"Laputa corpus is unavailable: {root}") from error
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    if result.returncode != 0 or Path(result.stdout.strip()) != root:
+        raise ValueError(f"Laputa corpus must be a Git repository root: {root}")
+    token = _LAPUTA_CORPUS.set(root)
+    try:
+        yield root
+    finally:
+        _LAPUTA_CORPUS.reset(token)
+
+
+def _selected_laputa_corpus() -> Path:
+    root = _LAPUTA_CORPUS.get()
+    if root is None:
+        raise RuntimeError("util-linux resource gates require an explicit Laputa corpus selection")
+    return root
 
 
 class ResourceRuntime(Protocol):
@@ -911,7 +946,7 @@ def build(source, side, sample):
         "RUSTC_WRAPPER": "/usr/local/bin/kache",
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER": "/usr/local/bin/xsh-mold-linker",
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS": RUSTFLAGS,
-        "XSH_LAPUTA_CORPUS": "/home/josh/d/laputa-systems/laputa",
+        "XSH_LAPUTA_CORPUS": @LAPUTA_CORPUS@,
         "CC": "/usr/bin/clang-23",
         "AR": "/usr/local/bin/llvm-ar",
         "LD_PRELOAD": "/usr/lib/libjemalloc.so.2",
@@ -1036,6 +1071,7 @@ def _build_driver_source(
         .replace("@EXPECTED@", repr(expected))
         .replace("@ORDER@", repr(order.value))
         .replace("@SAMPLE@", repr(sample))
+        .replace("@LAPUTA_CORPUS@", repr(str(_selected_laputa_corpus())))
     )
 
 
@@ -2051,6 +2087,7 @@ def _cargo_mounts(
     *,
     writable_source: bool = False,
 ) -> list[str]:
+    laputa_corpus = _selected_laputa_corpus()
     kache = shutil.which("kache")
     linker = runtime.ROOT / "dev" / "musl-linker.sh"
     if (
@@ -2061,8 +2098,8 @@ def _cargo_mounts(
         or not os.access(linker, os.X_OK)
     ):
         raise RuntimeError("host and documentation gates require kache, mold, and the repository musl linker")
-    if not LAPUTA_CORPUS.is_dir():
-        raise RuntimeError("host and documentation gates require the qualified Laputa corpus")
+    if not laputa_corpus.is_dir():
+        raise RuntimeError("selected Laputa corpus is unavailable")
     worktree = runtime.ROOT if worktree is None else worktree
     worktree_mode = "" if writable_source else ",readonly"
     return [
@@ -2071,17 +2108,18 @@ def _cargo_mounts(
         f"type=bind,source={kache},target=/usr/local/bin/kache,readonly",
         f"type=bind,source={MOLD_PATH},target=/usr/local/bin/mold,readonly",
         f"type=bind,source={linker},target=/usr/local/bin/xsh-mold-linker,readonly",
-        f"type=bind,source={LAPUTA_CORPUS},target={LAPUTA_CORPUS},readonly",
+        f"type=bind,source={laputa_corpus},target={laputa_corpus},readonly",
         "type=volume,source=xsh-cargo-registry,target=/root/.cargo/registry",
         "type=volume,source=xsh-consolidation-kache,target=/root/.cache/kache",
     ]
 
 
 def _cargo_environment() -> str:
+    laputa_corpus = _selected_laputa_corpus()
     return (
         "export CARGO_TARGET_DIR=/cargo-target CARGO_NET_OFFLINE=true "
         "RUSTC_WRAPPER=/usr/local/bin/kache TARGET=" + TARGET + " "
-        "XSH_LAPUTA_CORPUS=" + str(LAPUTA_CORPUS) + " "
+        "XSH_LAPUTA_CORPUS=" + str(laputa_corpus) + " "
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker "
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS='-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol' "
     )

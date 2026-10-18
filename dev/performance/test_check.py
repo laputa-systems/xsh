@@ -253,21 +253,66 @@ class BaselineTests(unittest.TestCase):
         self.assertIn('active one-use util-linux independent_review context', error.getvalue())
 
     def test_actual_one_use_review_context_routes_only_owner_close(self):
+        with tempfile.TemporaryDirectory(dir=self.config.scratch) as directory:
+            laputa_root = Path(directory)
+            (laputa_root / 'pm').mkdir()
+            subprocess.run(['git', 'init', '--quiet', str(laputa_root)], check=True)
+            config = replace(self.config, laputa_root=laputa_root)
+            runtime = check.baseline_util_linux(config)
+            acceptance = sys.modules['acceptance']
+            source = acceptance.SourceIdentity(config.commit, config.tree, True)
+            review = acceptance.GateResult('adversarial-review', source, 0, 1, 1, 0, (), (), ('independent reviewed item',), ())
+            events = []
+            def close(actual):
+                self.assertIs(actual, runtime)
+                self.assertEqual(actual.adversarial_review(source), review)
+                events.append('close')
+            with patch.object(runtime, 'source_identity', return_value=source), patch.object(check, 'baseline_receipts', side_effect=lambda _: events.append('receipts') or {}), patch.object(runtime, 'campaign_leases', return_value=nullcontext()), patch.object(acceptance, 'close', side_effect=close):
+                with runtime.independent_review(review):
+                    check.baseline(config, runtime)
+                    with self.assertRaisesRegex(check.CheckError, 'independent_review'):
+                        check.baseline(config, runtime)
+            self.assertEqual(events, ['receipts', 'close', 'receipts'])
+
+    def test_close_dispatch_uses_the_configured_laputa_checkout(self):
         runtime = check.baseline_util_linux(self.config)
         acceptance = sys.modules['acceptance']
+        resources = sys.modules['resources']
+        release = sys.modules['release']
         source = acceptance.SourceIdentity(self.config.commit, self.config.tree, True)
         review = acceptance.GateResult('adversarial-review', source, 0, 1, 1, 0, (), (), ('independent reviewed item',), ())
-        events = []
-        def close(actual):
-            self.assertIs(actual, runtime)
-            self.assertEqual(actual.adversarial_review(source), review)
-            events.append('close')
-        with patch.object(runtime, 'source_identity', return_value=source), patch.object(check, 'baseline_receipts', side_effect=lambda _: events.append('receipts') or {}), patch.object(runtime, 'campaign_leases', return_value=nullcontext()), patch.object(acceptance, 'close', side_effect=close):
-            with runtime.independent_review(review):
-                check.baseline(self.config, runtime)
-                with self.assertRaisesRegex(check.CheckError, 'independent_review'):
-                    check.baseline(self.config, runtime)
-        self.assertEqual(events, ['receipts', 'close', 'receipts'])
+        with tempfile.TemporaryDirectory(dir=self.config.scratch) as directory:
+            laputa_root = Path(directory)
+            (laputa_root / 'pm').mkdir()
+            subprocess.run(['git', 'init', '--quiet', str(laputa_root)], check=True)
+            config = replace(self.config, laputa_root=laputa_root)
+            def close(actual):
+                self.assertIs(actual, runtime)
+                self.assertEqual(resources._selected_laputa_corpus(), config.laputa_root)
+                mounts = resources._cargo_mounts(runtime, config.scratch / 'target')
+                environment = resources._cargo_environment()
+                build_script = release._build_script(source)
+                build_driver = resources._build_driver_source({}, acceptance.PairOrder.BASELINE_FIRST, 0)
+                self.assertIn(
+                    f'type=bind,source={laputa_root},target={laputa_root},readonly',
+                    mounts,
+                )
+                self.assertIn(f'XSH_LAPUTA_CORPUS={laputa_root}', environment)
+                self.assertIn(f'XSH_LAPUTA_CORPUS={laputa_root}', build_script)
+                self.assertIn(f'"XSH_LAPUTA_CORPUS": {str(laputa_root)!r}', build_driver)
+            with (
+                patch.object(runtime, 'source_identity', return_value=source),
+                patch.object(check, 'baseline_receipts', return_value={}),
+                patch.object(runtime, 'campaign_leases', return_value=nullcontext()),
+                patch.object(acceptance, 'close', side_effect=close),
+                patch.object(resources.shutil, 'which', return_value='/usr/local/bin/kache'),
+                patch.object(resources, 'MOLD_PATH', laputa_root / 'mold'),
+                patch.object(resources.os, 'access', return_value=True),
+                patch.object(Path, 'is_file', return_value=True),
+                patch.object(Path, 'is_dir', return_value=True),
+            ):
+                with runtime.independent_review(review):
+                    check.baseline(config, runtime)
 
     def test_missing_receipt_and_stale_source_fail(self):
         with tempfile.TemporaryDirectory(dir=self.config.scratch) as directory:

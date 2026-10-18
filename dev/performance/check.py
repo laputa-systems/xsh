@@ -637,8 +637,10 @@ def baseline(config, runtime=None):
     review = runtime._review_result.get()
     acceptance._validate_gate_result(review, runtime.source_identity())
     before = baseline_receipts(config)
-    with runtime.cancellation_scope(), runtime.campaign_leases(config.source_root, native=True, cargo=True):
-        acceptance.close(runtime)
+    import resources
+    with resources._laputa_corpus_scope(config.laputa_root):
+        with runtime.cancellation_scope(), runtime.campaign_leases(config.source_root, native=True, cargo=True):
+            acceptance.close(runtime)
     require(baseline_receipts(config) == before, 'baseline receipts changed during util-linux close')
 
 

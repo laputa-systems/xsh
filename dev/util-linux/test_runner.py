@@ -1,6 +1,8 @@
+from contextlib import nullcontext
 from pathlib import Path
 import signal
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -62,6 +64,44 @@ class ContainerTests(unittest.TestCase):
             with check.cancellation_scope():
                 signal.raise_signal(signal.SIGTERM)
         self.assertEqual(signal.getsignal(signal.SIGTERM), previous)
+
+
+class LaputaCorpusCliTests(unittest.TestCase):
+    def test_resource_and_close_cli_require_an_explicit_corpus_before_leasing(self):
+        for mode in ("resources", "close"):
+            with self.subTest(mode=mode):
+                with patch.object(sys, "argv", ["check.py", mode, "--check"]), patch.object(check, "campaign_leases") as leases:
+                    with self.assertRaises(SystemExit) as caught:
+                        check.main()
+                self.assertEqual(caught.exception.code, 2)
+                leases.assert_not_called()
+
+    def test_resource_and_close_dispatch_bind_the_supplied_corpus(self):
+        import acceptance
+        import resources
+        with tempfile.TemporaryDirectory(dir=check.ROOT / ".work/tmp") as directory:
+            root = Path(directory)
+            (root / "pm").mkdir()
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            for mode in ("resources", "close"):
+                with self.subTest(mode=mode):
+                    observed = []
+
+                    def dispatch(runtime):
+                        self.assertIs(runtime, check)
+                        observed.append(resources._selected_laputa_corpus())
+
+                    with patch.object(sys, "argv", ["check.py", mode, "--check", "--laputa-corpus", str(root)]), patch.object(check, "campaign_leases", return_value=nullcontext()), patch.object(acceptance, mode, side_effect=dispatch):
+                        self.assertEqual(check.main(), 0)
+                    self.assertEqual(observed, [root])
+
+    def test_harness_and_parity_remain_corpus_independent(self):
+        with patch.object(sys, "argv", ["check.py", "harness", "--self-test"]), patch.object(check, "campaign_leases", return_value=nullcontext()), patch.object(check, "harness") as harness:
+            self.assertEqual(check.main(), 0)
+        harness.assert_called_once_with()
+        with patch.object(sys, "argv", ["check.py", "parity", "--command", "lslocks"]), patch.object(check, "campaign_leases", return_value=nullcontext()), patch.object(check, "parity") as parity:
+            self.assertEqual(check.main(), 0)
+        self.assertEqual(parity.call_args.args[0].command, "lslocks")
 
 
 class NativeCaseDispatchTests(unittest.TestCase):

@@ -526,7 +526,10 @@ def main() -> int:
     modes.add_parser("inventory").add_argument("--check", action="store_true", required=True)
     modes.add_parser("harness").add_argument("--self-test", action="store_true", required=True)
     for mode in ("baseline", "resources", "close"):
-        modes.add_parser(mode).add_argument("--check", action="store_true", required=True)
+        mode_parser = modes.add_parser(mode)
+        mode_parser.add_argument("--check", action="store_true", required=True)
+        if mode in {"resources", "close"}:
+            mode_parser.add_argument("--laputa-corpus", type=Path, required=True)
     source_parser = modes.add_parser("source")
     source_parser.add_argument("--check", action="store_true", required=True)
     source_parser.add_argument("paths", nargs="+")
@@ -552,7 +555,12 @@ def main() -> int:
                 parity(args)
             else:
                 import acceptance
-                getattr(acceptance, args.mode)(sys.modules[__name__])
+                if args.mode in {"resources", "close"}:
+                    import resources
+                    with resources._laputa_corpus_scope(args.laputa_corpus):
+                        getattr(acceptance, args.mode)(sys.modules[__name__])
+                else:
+                    getattr(acceptance, args.mode)(sys.modules[__name__])
         return 0
     except Cancelled as error:
         print(str(error), file=sys.stderr)

@@ -1,4 +1,5 @@
 import ast
+from contextlib import contextmanager
 import io
 import json
 import os
@@ -36,6 +37,46 @@ REGRESSIONS = (
     "core/tests/test-util-linux-process-regressions.xsh::test_process_case",
     "core/tests/test-util-linux-storage-regressions.xsh::test_storage_case",
 )
+
+
+@contextmanager
+def laputa_corpus_scope():
+    with tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-laputa-") as directory:
+        root = Path(directory)
+        subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+        (root / "pm").mkdir()
+        with resources._laputa_corpus_scope(root):
+            yield root
+
+
+class LaputaCorpusScopeTests(unittest.TestCase):
+    def test_selection_is_required_and_restored_after_scope(self):
+        with self.assertRaisesRegex(RuntimeError, "explicit Laputa corpus selection"):
+            resources._selected_laputa_corpus()
+        with laputa_corpus_scope() as root:
+            self.assertEqual(resources._selected_laputa_corpus(), root)
+        with self.assertRaisesRegex(RuntimeError, "explicit Laputa corpus selection"):
+            resources._selected_laputa_corpus()
+
+    def test_selection_requires_canonical_git_root_and_pm_directory(self):
+        with tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-laputa-invalid-") as directory:
+            root = Path(directory)
+            (root / "pm").mkdir()
+            with self.assertRaisesRegex(ValueError, "Git repository root"):
+                with resources._laputa_corpus_scope(root):
+                    self.fail("non-Git corpus was selected")
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            alias = root.parent / (root.name + "-alias")
+            alias.symlink_to(root, target_is_directory=True)
+            self.addCleanup(alias.unlink)
+            with self.assertRaisesRegex(ValueError, "canonical non-symlink"):
+                with resources._laputa_corpus_scope(alias):
+                    self.fail("symlink corpus was selected")
+            (root / "pm").rmdir()
+            (root / "pm").symlink_to(root, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "pm directory"):
+                with resources._laputa_corpus_scope(root):
+                    self.fail("symlink pm directory was selected")
 
 
 class SourceIdentityTests(unittest.TestCase):
@@ -240,7 +281,8 @@ class BuildScratchTests(unittest.TestCase):
         sentinel.write_text("keep", encoding="utf-8")
         (work / "outside-link").symlink_to(outside, target_is_directory=True)
 
-        tree = ast.parse(resources._build_driver_source({"baseline": (), "candidate": ()}, PairOrder.BASELINE_FIRST, 0))
+        with laputa_corpus_scope():
+            tree = ast.parse(resources._build_driver_source({"baseline": (), "candidate": ()}, PairOrder.BASELINE_FIRST, 0))
         functions = [
             node for node in tree.body
             if isinstance(node, ast.FunctionDef) and node.name in ("clear_build_directory", "stage_source")
@@ -457,6 +499,7 @@ class CloseCommandDispatchTests(unittest.TestCase):
                 return b""
 
         with (
+            laputa_corpus_scope(),
             patch.object(resources, "_qualified_candidate", return_value=(Path("/candidate"), self.context, ())),
             patch.object(resources, "_run_private_native", return_value=private),
             patch.object(resources, "_recheck_candidate"),
@@ -690,11 +733,12 @@ class PrivateHostBoundaryTests(unittest.TestCase):
 
 class BuildCostAdapterTests(unittest.TestCase):
     def test_build_driver_stages_both_archives_at_the_same_work_path(self):
-        driver = resources._build_driver_source(
-            {"baseline": (), "candidate": ()},
-            PairOrder.BASELINE_FIRST,
-            0,
-        )
+        with laputa_corpus_scope():
+            driver = resources._build_driver_source(
+                {"baseline": (), "candidate": ()},
+                PairOrder.BASELINE_FIRST,
+                0,
+            )
 
         self.assertIn('Path(f"/cargo-target/{side}-{sample}")', driver)
         self.assertIn('commands = ((Path("/baseline.tar"), "baseline"), (Path("/candidate.tar"), "candidate"))', driver)
@@ -777,7 +821,8 @@ class BuildCostAdapterTests(unittest.TestCase):
             patch.object(Path, "is_dir", return_value=True),
             patch.object(resources.os, "access", return_value=True),
         ):
-            mounts = resources._cargo_mounts(runtime, Path("/build-target"))
+            with laputa_corpus_scope() as corpus:
+                mounts = resources._cargo_mounts(runtime, Path("/build-target"))
 
         self.assertEqual(calls, ["kache"])
         self.assertIn(
@@ -785,6 +830,7 @@ class BuildCostAdapterTests(unittest.TestCase):
             mounts,
         )
         self.assertIn(f"type=bind,source={ROOT},target=/work,readonly", mounts)
+        self.assertIn(f"type=bind,source={corpus},target={corpus},readonly", mounts)
         self.assertNotIn(
             "type=bind,source=/home/josh/.local/bin/mold,target=/usr/local/bin/mold,readonly",
             mounts,
@@ -863,6 +909,7 @@ class BuildCostAdapterTests(unittest.TestCase):
             raise TimeoutError("build timed out")
 
         with (
+            laputa_corpus_scope(),
             patch.object(resources.shutil, "which", side_effect=lambda tool: "/usr/local/bin/kache"),
             patch.object(Path, "is_file", return_value=True),
             patch.object(Path, "is_dir", return_value=True),
@@ -920,6 +967,7 @@ class BuildCostAdapterTests(unittest.TestCase):
             raise TimeoutError("build timed out")
 
         with (
+            laputa_corpus_scope(),
             patch.object(resources.shutil, "which", side_effect=lambda _tool: "/usr/local/bin/kache"),
             patch.object(Path, "is_file", return_value=True),
             patch.object(Path, "is_dir", return_value=True),
@@ -965,10 +1013,10 @@ class MeasurementProtocolTests(unittest.TestCase):
             self.parse(self.rows(), regressions=REGRESSIONS + ("unexpected::test_extra",))
 
     def test_cargo_gates_inherit_pinned_musl_c_compiler_flags(self):
-        self.assertNotIn(
-            "CFLAGS_x86_64_unknown_linux_musl=",
-            resources._cargo_environment(),
-        )
+        with laputa_corpus_scope() as corpus:
+            environment = resources._cargo_environment()
+        self.assertNotIn("CFLAGS_x86_64_unknown_linux_musl=", environment)
+        self.assertIn(f"XSH_LAPUTA_CORPUS={corpus}", environment)
 
     def test_zero_rows_duplicate_selectors_and_unknown_rows_fail(self):
         with self.assertRaisesRegex(ValueError, "positive boundary exactly once"):
@@ -1367,11 +1415,12 @@ class EffectBoundaryTests(unittest.TestCase):
     def test_generated_container_programs_are_valid_python(self):
         driver = resources._driver_source(REGRESSIONS, COHORT)
         compile(driver, "resource-driver", "exec")
-        build = resources._build_driver_source(
-            {"baseline": (("xsh", "a" * 64),), "candidate": (("xsh", "b" * 64),)},
-            PairOrder.BASELINE_FIRST,
-            0,
-        )
+        with laputa_corpus_scope():
+            build = resources._build_driver_source(
+                {"baseline": (("xsh", "a" * 64),), "candidate": (("xsh", "b" * 64),)},
+                PairOrder.BASELINE_FIRST,
+                0,
+            )
         compile(build, "build-driver", "exec")
         compile(resources._BUILD_CLEANUP_DRIVER, "build-cleanup-driver", "exec")
 

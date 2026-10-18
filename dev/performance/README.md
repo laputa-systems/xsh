@@ -152,6 +152,13 @@ does not invoke a second resource pass. Existing owner checkout/output constrain
 remain in force. Source, receipt bindings, and products are checked again after
 close. No accepted current-source baseline exists yet.
 
+`baseline` binds `config.laputa_root` for the entire close. Release builds,
+resource gates, documentation gates, and the paired build driver use that path
+for their read-only mount and `XSH_LAPUTA_CORPUS` value. The receipt reader checks
+the configured path and its clean commit, tree, and status before and after close.
+Direct `dev/util-linux/check.py resources --check` and `close --check` commands
+require `--laputa-corpus PATH`. Harness and parity commands do not use a corpus.
+
 ## Limits
 
 Policy tests cover config rejection, product identity, output comparison, failed

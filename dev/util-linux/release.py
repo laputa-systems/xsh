@@ -137,7 +137,7 @@ def _build_script(source: SourceIdentity) -> str:
         "RUSTUP_HOME": "/root/.rustup",
         "TARGET": TARGET,
         "TMPDIR": "/t",
-        "XSH_LAPUTA_CORPUS": str(resources.LAPUTA_CORPUS),
+        "XSH_LAPUTA_CORPUS": str(resources._selected_laputa_corpus()),
     }
     exports = "export " + " ".join(f"{name}={shlex.quote(value)}" for name, value in environment.items())
     command = shlex.join(BUILD_COMMAND)

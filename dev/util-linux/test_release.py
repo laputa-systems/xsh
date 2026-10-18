@@ -1,5 +1,6 @@
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -87,6 +88,10 @@ class ReleaseProducerTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.scratch = self.root / ".work" / "tmp"
         self.scratch.mkdir(parents=True)
+        self.laputa = self.root / "laputa"
+        self.laputa.mkdir()
+        (self.laputa / "pm").mkdir()
+        subprocess.run(["git", "init", "--quiet", str(self.laputa)], check=True)
         (self.root / ".git").mkdir()
         self.common = self.root / ".git"
         self.jemalloc = self.root / "libjemalloc.so.2"
@@ -103,6 +108,7 @@ class ReleaseProducerTests(unittest.TestCase):
 
     def run_with_fake_build(self, runtime, operation, source=SOURCE):
         with (
+            resources._laputa_corpus_scope(self.laputa),
             patch.object(resources, "_cargo_mounts", self.cargo_mounts),
             patch.object(release, "_git_common_dir", return_value=self.common),
             patch.object(release, "JEMALLOC", self.jemalloc),
@@ -132,7 +138,8 @@ class ReleaseProducerTests(unittest.TestCase):
         self.assertEqual(list(self.scratch.iterdir()), [])
 
     def test_build_script_uses_the_pinned_release_recipe_without_cflags_override(self):
-        script = release._build_script(SOURCE)
+        with resources._laputa_corpus_scope(self.laputa):
+            script = release._build_script(SOURCE)
         self.assertIn("cargo build --locked --offline --release --target x86_64-unknown-linux-musl", script)
         self.assertIn("CARGO_PROFILE_RELEASE_OPT_LEVEL=3", script)
         self.assertIn("CARGO_PROFILE_RELEASE_LTO=thin", script)
@@ -142,6 +149,7 @@ class ReleaseProducerTests(unittest.TestCase):
         self.assertIn("CC=/usr/bin/clang-23", script)
         self.assertIn("AR=/usr/local/bin/llvm-ar", script)
         self.assertIn("LD_PRELOAD=/usr/lib/libjemalloc.so.2", script)
+        self.assertIn(f"XSH_LAPUTA_CORPUS={self.laputa}", script)
         self.assertNotIn("CFLAGS_x86_64_unknown_linux_musl=", script)
 
     def test_dirty_source_fails_before_build_dispatch(self):
