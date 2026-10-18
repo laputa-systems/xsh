@@ -63,6 +63,19 @@ test test_process_stream_is_stopped_before_its_scope_defers { |ctx|
   }
 }
 
+test test_default_process_byte_stream_yields_before_child_completion { |ctx|
+  let acknowledged = test.temp_path(ctx, name: "default-process-byte-stream-ack")
+  let rows = run.stream --bytes --timeout=2s sh -c "printf '\\001\\002'; while [ ! -e \"$1\" ]; do sleep 0.01; done; printf '\\003'" sh $acknowledged ?
+  var chunks = []
+  for chunk in rows {
+    chunks += [chunk]
+    if chunks.len() == 1 {
+      acknowledged.write("received")?
+    }
+  }
+  assert bytes.concat(chunks) == b"\x01\x02\x03"
+}
+
 test test_discarded_process_streams_remain_owned_until_scope_exit { |ctx|
   let first_pidfile = test.temp_path(ctx, name: "discarded-process-stream-first-pid")
   let second_pidfile = test.temp_path(ctx, name: "discarded-process-stream-second-pid")

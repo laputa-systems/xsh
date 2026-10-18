@@ -198,9 +198,7 @@ impl Evaluator {
         assert_success: bool,
         span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        if invocation.accepted_exit_codes.is_some()
-            && matches!(kind, RunKind::StreamText | RunKind::StreamBytes)
-        {
+        if matches!(kind, RunKind::StreamText | RunKind::StreamBytes) {
             let value = self.start_policy_process_stream(
                 &invocation,
                 kind == RunKind::StreamText,

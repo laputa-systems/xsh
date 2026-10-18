@@ -1561,7 +1561,7 @@ impl ProcessStream {
                     return Err(cancellation.error(Some(status.clone())));
                 }
                 if let Some(error) =
-                    completion_error(status, &[self.child.accepted_exit_codes], false)
+                    completion_error(status, &[self.child.accepted_exit_codes], true)
                 {
                     return Err(error);
                 }

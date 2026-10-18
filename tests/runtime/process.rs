@@ -5,6 +5,63 @@ fn test_helper() -> &'static str {
     cargo_env!("CARGO_BIN_EXE_xsh-test-helper")
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+struct ProcessGroupGuard(Option<libc::pid_t>);
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl Drop for ProcessGroupGuard {
+    fn drop(&mut self) {
+        if let Some(pgid) = self.0
+            && process_group_exists(pgid)
+        {
+            unsafe {
+                libc::kill(-pgid, libc::SIGKILL);
+            }
+            let _ = wait_for_process_group_exit(pgid, Duration::from_secs(2));
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+struct ScriptChild(Child);
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl ScriptChild {
+    fn child(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl Drop for ScriptChild {
+    fn drop(&mut self) {
+        if !matches!(self.0.try_wait(), Ok(Some(_))) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn process_group_exists(pgid: libc::pid_t) -> bool {
+    if unsafe { libc::kill(-pgid, 0) } == 0 {
+        return true;
+    }
+    std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn wait_for_process_group_exit(pgid: libc::pid_t, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if !process_group_exists(pgid) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    !process_group_exists(pgid)
+}
+
 // The command runs under an argv[0] (`show`) that differs from its path, and
 // the helper prints each argument's exact bytes in hex. A standard tool cannot
 // stand in: a multi-call `sh` selects its applet by argv[0].
@@ -626,6 +683,170 @@ run ${{helper}} group-leak ${{ready}} ${{leaked}} | run cat > (output) ?
     assert!(stderr.contains("kind=pipeline.exit"));
     std::thread::sleep(Duration::from_millis(2300));
     assert!(!leaked.exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn sigterm_after_stream_output_cancels_descendants_and_reports_cleanup_failure() {
+    let root = temp_path("stream-signal-cleanup-root");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let ready = root.join("ready");
+    let group_id = root.join("group-id");
+    let descendant_ready = root.join("descendant-ready");
+    let shell = "printf '%s\\n' \"$$\" > \"$1.tmp\"; mv \"$1.tmp\" \"$1\"; printf 'partial\\n'; (printf ready > \"$2\"; exec sleep 30) & wait";
+    let source = format!(
+        r#"
+let ready = Path({})
+let group_id = Path({})
+let descendant_ready = Path({})
+defer {{ error.fail("secondary cleanup failure")? }}
+let lines = run.stream --text sh -c {} sh {} {} ?
+for line in lines {{
+  print $line
+  while ! group_id.exists()? {{ time.sleep(1ms)? }}
+  while ! descendant_ready.exists()? {{ time.sleep(1ms)? }}
+  ready.write("observed")?
+}}
+"#,
+        xsh_string_literal(ready.to_str().unwrap()),
+        xsh_string_literal(group_id.to_str().unwrap()),
+        xsh_string_literal(descendant_ready.to_str().unwrap()),
+        xsh_string_literal(shell),
+        xsh_string_literal(group_id.to_str().unwrap()),
+        xsh_string_literal(descendant_ready.to_str().unwrap())
+    );
+
+    let script = write_temp_script("stream-signal-cleanup", &source);
+    let mut child = ScriptChild(
+        Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn stream cancellation script"),
+    );
+    let group_id_path = group_id;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut group = None;
+    loop {
+        if group.is_none()
+            && let Ok(text) = std::fs::read_to_string(&group_id_path)
+            && let Ok(group_id) = text.trim().parse::<libc::pid_t>()
+        {
+            if group_id <= 1 {
+                unsafe {
+                    libc::kill(child.child().id() as libc::pid_t, libc::SIGTERM);
+                }
+                let _ = wait_child_status(child.child(), Duration::from_secs(5));
+                let _ = std::fs::remove_file(&script);
+                panic!("invalid process group leader id {group_id}");
+            }
+            let actual_pgid = unsafe { libc::getpgid(group_id) };
+            if actual_pgid != group_id {
+                unsafe {
+                    libc::kill(child.child().id() as libc::pid_t, libc::SIGTERM);
+                }
+                let _ = wait_child_status(child.child(), Duration::from_secs(5));
+                let _ = std::fs::remove_file(&script);
+                panic!("run.stream child process group {actual_pgid} does not match its leader {group_id}");
+            }
+            group = Some(ProcessGroupGuard(Some(actual_pgid)));
+        }
+        if ready.exists() {
+            break;
+        }
+        if let Some(status) = child
+            .child()
+            .try_wait()
+            .expect("poll stream cancellation script")
+        {
+            let mut stdout = String::new();
+            let mut stderr = String::new();
+            child
+                .child()
+                .stdout
+                .take()
+                .expect("stream script stdout")
+                .read_to_string(&mut stdout)
+                .expect("read stream script stdout");
+            child
+                .child()
+                .stderr
+                .take()
+                .expect("stream script stderr")
+                .read_to_string(&mut stderr)
+                .expect("read stream script stderr");
+            let _ = std::fs::remove_file(&script);
+            panic!("stream cancellation script exited before readiness: {status}; stdout: {stdout}; stderr: {stderr}");
+        }
+        if Instant::now() >= deadline {
+            unsafe {
+                libc::kill(child.child().id() as libc::pid_t, libc::SIGTERM);
+            }
+            let _ = std::fs::remove_file(&script);
+            let _ = wait_child_status(child.child(), Duration::from_secs(5));
+            panic!("stream cancellation script did not reach readiness");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    if group.is_none() {
+        let text = std::fs::read_to_string(&group_id_path).expect("read process group marker");
+        let group_id = text.trim().parse::<libc::pid_t>().expect("parse process group marker");
+        let actual_pgid = unsafe { libc::getpgid(group_id) };
+        if group_id <= 1 || actual_pgid != group_id {
+            unsafe {
+                libc::kill(child.child().id() as libc::pid_t, libc::SIGTERM);
+            }
+            let _ = wait_child_status(child.child(), Duration::from_secs(5));
+            let _ = std::fs::remove_file(&script);
+            panic!("run.stream child process group {actual_pgid} does not match its leader {group_id}");
+        }
+        group = Some(ProcessGroupGuard(Some(actual_pgid)));
+    }
+    let mut group = group.expect("ready process group guard");
+    assert!(descendant_ready.exists(), "descendant did not reach readiness");
+    let signal_result = unsafe { libc::kill(child.child().id() as libc::pid_t, libc::SIGTERM) };
+    assert_eq!(signal_result, 0, "send SIGTERM to stream cancellation script");
+    let status = wait_child_status(child.child(), Duration::from_secs(5));
+    assert!(
+        wait_for_process_group_exit(
+            group.0.expect("owned process group id"),
+            Duration::from_secs(3)
+        ),
+        "owned process group was not reaped"
+    );
+    group.0 = None;
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    child
+        .child()
+        .stdout
+        .take()
+        .expect("stream script stdout")
+        .read_to_end(&mut stdout)
+        .expect("read stream script stdout");
+    child
+        .child()
+        .stderr
+        .take()
+        .expect("stream script stderr")
+        .read_to_end(&mut stderr)
+        .expect("read stream script stderr");
+    let _ = std::fs::remove_file(&script);
+    let output = std::process::Output {
+        status,
+        stdout,
+        stderr,
+    };
+
+    assert_eq!(output.status.code(), Some(3));
+    assert_eq!(output.stdout, b"partial\n");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("canceled"), "{stderr}");
+    assert!(stderr.contains("cleanup error ["), "{stderr}");
+    assert!(stderr.contains("secondary cleanup failure"), "{stderr}");
     let _ = std::fs::remove_dir_all(root);
 }
 

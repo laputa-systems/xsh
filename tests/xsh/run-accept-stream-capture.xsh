@@ -29,6 +29,49 @@ captured
 """
 }
 
+test test_default_stream_completion_still_rejects_nonzero_exit { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""let rows = run.stream --text sh -c "printf 'row\\n'; exit 7" ?
+for row in rows { print $row }
+""",
+  )?
+  assert ! output.success
+  assert output.stdout == "row\n"
+  assert "err: `sh` exited 7" in output.stderr
+
+  let accepted = test.run_script(
+    ctx,
+    r"""let rows = run.stream --text --accept=[7] sh -c "printf 'row\\n'; exit 7" ?
+for row in rows { print $row }
+""",
+  )?
+  assert accepted.success, accepted.stderr
+  assert accepted.stdout == "row\n"
+
+  let rejected = test.run_script(
+    ctx,
+    r"""let rows = run.stream --text --accept=[0] sh -c "printf 'row\\n'; exit 7" ?
+for row in rows { print $row }
+""",
+  )?
+  assert ! rejected.success
+  assert rejected.stdout == "row\n"
+  assert "err: `sh` exited with unaccepted status 7" in rejected.stderr
+}
+
+test test_default_stream_decode_failure_follows_yielded_rows { |ctx|
+  let output = test.run_script(
+    ctx,
+    r"""let rows = run.stream --text sh -c "printf 'first\\n'; printf '\\377'" ?
+for row in rows { print $row }
+""",
+  )?
+  assert ! output.success
+  assert output.stdout == "first\n"
+  assert "streamed stdout was not valid UTF-8" in output.stderr
+}
+
 test test_accept_stream_decode_failure_is_a_checked_process_error { |ctx|
   let output = test.run_script(
     ctx,
