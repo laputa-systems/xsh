@@ -235,7 +235,7 @@ fn project<'a>(value: JsonInput<'a>) -> JsonNode<'a> {
             LoweredValue::Record(fields) => JsonNode::Object(JsonFields::LoweredRecord(fields.iter())),
             LoweredValue::RecordVec(fields) => {
                 let mut ordered: Vec<_> = fields.iter().map(|(key, value)| (key, value)).collect();
-                ordered.sort_unstable_by(|(left, _), (right, _)| left.with_str(|left| right.with_str(|right| left.cmp(right))));
+                ordered.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
                 JsonNode::Object(JsonFields::RecordVec(ordered.into_iter()))
             }
             LoweredValue::Stats { blanks, code, comments } => JsonNode::Stats(JsonStats { blanks: *blanks, blobs: None, code: *code, comments: *comments }),
@@ -386,9 +386,176 @@ mod tests {
     use crate::runtime::eval::LoweredTagValue;
     use crate::symbol::SymbolOwner;
     use crate::source::SourceId;
+    use std::any::Any;
+    use std::process::{Command, Stdio};
+    use std::sync::Barrier;
+    use std::time::{Duration, Instant};
+
+    const RECORD_SORT_WORKER: &str = "XSH_JSON_RECORD_SORT_LOCK_WORKER";
+    const RECORD_SORT_DEADLINE: Duration = Duration::from_secs(10);
 
     fn span() -> Span {
         Span::new(SourceId::new(0), 0, 1)
+    }
+
+    #[test]
+    fn dynamic_record_vec_json_completes_while_symbols_are_interned() {
+        if std::env::var_os(RECORD_SORT_WORKER).is_some() {
+            run_concurrent_record_sort_worker();
+            return;
+        }
+
+        let test_name = std::thread::current()
+            .name()
+            .expect("named test thread")
+            .to_string();
+        let mut child = Command::new(std::env::current_exe().expect("test executable"))
+            .arg("--exact")
+            .arg(&test_name)
+            .arg("--nocapture")
+            .env(RECORD_SORT_WORKER, "1")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("start concurrent record sort worker");
+        let deadline = Instant::now() + RECORD_SORT_DEADLINE;
+        let mut timed_out = false;
+        let mut poll_error = None;
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if Instant::now() < deadline => std::thread::yield_now(),
+                Ok(None) => {
+                    timed_out = true;
+                    break;
+                }
+                Err(error) => {
+                    poll_error = Some(error);
+                    break;
+                }
+            }
+        }
+        let kill_error = (timed_out || poll_error.is_some())
+            .then(|| child.kill().err())
+            .flatten();
+        let output = child.wait_with_output();
+        if let Some(error) = poll_error {
+            panic!(
+                "poll concurrent record sort worker failed: {error}; kill error: {kill_error:?}; output: {output:?}"
+            );
+        }
+        let output = output.unwrap_or_else(|error| {
+            panic!("collect concurrent record sort worker output: {error}; kill error: {kill_error:?}")
+        });
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !timed_out,
+            "concurrent record sort worker exceeded {:?}; kill error: {:?}; status={:?}\nstdout:\n{}\nstderr:\n{}",
+            RECORD_SORT_DEADLINE,
+            kill_error,
+            output.status,
+            stdout,
+            stderr,
+        );
+        assert!(
+            stdout.contains(&format!("test {test_name} ... ok")),
+            "child did not run exactly the requested test successfully\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+        assert!(
+            output.status.success(),
+            "concurrent record sort worker failed ({:?})\nstdout:\n{}\nstderr:\n{}",
+            output.status,
+            stdout,
+            stderr,
+        );
+    }
+
+    fn run_concurrent_record_sort_worker() {
+        const ENCODERS: usize = 8;
+        const INTERNERS: usize = 4;
+        const FIELD_COUNT: usize = 16;
+        const ENCODE_ITERATIONS: usize = 512;
+        const INTERN_ITERATIONS: usize = 1024;
+
+        let ready = Arc::new(Barrier::new(ENCODERS + INTERNERS));
+        std::thread::scope(|scope| {
+            let encoder_handles = (0..ENCODERS)
+                .map(|encoder| {
+                    let ready = Arc::clone(&ready);
+                    scope.spawn(move || {
+                        let owner = SymbolOwner::new();
+                        let fields = owner.with_current(|| {
+                            (0..FIELD_COUNT)
+                                .rev()
+                                .map(|field| {
+                                    (
+                                        Name::intern(format!("record_{encoder}_{field:02}")),
+                                        LoweredValue::Int(field as i64),
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                        });
+                        let value = LoweredValue::RecordVec(Arc::new(fields));
+                        let expected = format!(
+                            "{{{}}}",
+                            (0..FIELD_COUNT)
+                                .map(|field| format!("\"record_{encoder}_{field:02}\":{field}"))
+                                .collect::<Vec<_>>()
+                                .join(",")
+                        );
+                        ready.wait();
+                        for _ in 0..ENCODE_ITERATIONS {
+                            assert_eq!(encode_lowered(&value, false, span()).expect("encode record"), expected);
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+            let interner_handles = (0..INTERNERS)
+                .map(|interner| {
+                    let ready = Arc::clone(&ready);
+                    scope.spawn(move || {
+                        ready.wait();
+                        for symbol in 0..INTERN_ITERATIONS {
+                            let owner = SymbolOwner::new();
+                            owner.with_current(|| {
+                                Name::intern(format!("writer_{interner}_{symbol}"));
+                            });
+                            drop(owner);
+                        }
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            let failures = encoder_handles
+                .into_iter()
+                .enumerate()
+                .filter_map(|(index, handle)| {
+                    handle
+                        .join()
+                        .err()
+                        .map(|panic| format!("encoder {index}: {}", panic_message(panic)))
+                })
+                .chain(interner_handles.into_iter().enumerate().filter_map(|(index, handle)| {
+                    handle
+                        .join()
+                        .err()
+                        .map(|panic| format!("interner {index}: {}", panic_message(panic)))
+                }))
+                .collect::<Vec<_>>();
+            assert!(failures.is_empty(), "worker failures: {}", failures.join("; "));
+        });
+    }
+
+    fn panic_message(panic: Box<dyn Any + Send>) -> String {
+        match panic.downcast::<String>() {
+            Ok(message) => *message,
+            Err(panic) => match panic.downcast::<&'static str>() {
+                Ok(message) => (*message).to_string(),
+                Err(_) => "non-string panic".to_string(),
+            },
+        }
     }
 
     #[test]
