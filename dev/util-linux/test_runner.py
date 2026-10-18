@@ -82,7 +82,10 @@ class LaputaCorpusCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(dir=check.ROOT / ".work/tmp") as directory:
             root = Path(directory)
             (root / "pm").mkdir()
+            (root / "pm/generation.xsh").write_text('print "generation"\n')
             subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "pm/generation.xsh"], check=True)
+            subprocess.run(["git", "-C", str(root), "-c", "user.name=G1 fixture", "-c", "user.email=g1-fixture@example.invalid", "commit", "--quiet", "-m", "test(util-linux): freeze Laputa corpus fixture"], check=True)
             for mode in ("resources", "close"):
                 with self.subTest(mode=mode):
                     observed = []

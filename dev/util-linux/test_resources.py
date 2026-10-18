@@ -40,11 +40,14 @@ REGRESSIONS = (
 
 
 @contextmanager
-def laputa_corpus_scope():
-    with tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-laputa-") as directory:
+def laputa_corpus_scope(prefix="resource-laputa-"):
+    with tempfile.TemporaryDirectory(dir=SCRATCH, prefix=prefix) as directory:
         root = Path(directory)
         subprocess.run(["git", "init", "--quiet", str(root)], check=True)
         (root / "pm").mkdir()
+        (root / "pm/generation.xsh").write_text('print "generation"\n')
+        subprocess.run(["git", "-C", str(root), "add", "pm/generation.xsh"], check=True)
+        subprocess.run(["git", "-C", str(root), "-c", "user.name=G1 fixture", "-c", "user.email=g1-fixture@example.invalid", "commit", "--quiet", "-m", "test(util-linux): freeze Laputa corpus fixture"], check=True)
         with resources._laputa_corpus_scope(root):
             yield root
 
@@ -77,6 +80,37 @@ class LaputaCorpusScopeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "pm directory"):
                 with resources._laputa_corpus_scope(root):
                     self.fail("symlink pm directory was selected")
+
+    def test_scope_requires_a_clean_corpus_before_selection(self):
+        with tempfile.TemporaryDirectory(dir=SCRATCH, prefix="resource-laputa-dirty-") as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+            (root / "pm").mkdir()
+            (root / "pm/generation.xsh").write_text('print "generation"\n')
+            subprocess.run(["git", "-C", str(root), "add", "pm/generation.xsh"], check=True)
+            subprocess.run(["git", "-C", str(root), "-c", "user.name=G1 fixture", "-c", "user.email=g1-fixture@example.invalid", "commit", "--quiet", "-m", "test(util-linux): freeze Laputa corpus fixture"], check=True)
+            (root / "untracked.xsh").write_text('print "dirty"\n')
+            with self.assertRaisesRegex(ValueError, "Laputa corpus must be clean"):
+                with resources._laputa_corpus_scope(root):
+                    self.fail("dirty corpus was selected")
+            with self.assertRaisesRegex(RuntimeError, "explicit Laputa corpus selection"):
+                resources._selected_laputa_corpus()
+
+    def test_scope_detects_changes_and_preserves_the_primary_exception(self):
+        with self.assertRaisesRegex(ValueError, "Laputa corpus changed or became dirty"):
+            with laputa_corpus_scope() as root:
+                (root / "pm/generation.xsh").write_text('print "changed"\n')
+
+        with self.assertRaisesRegex(ValueError, "Laputa corpus changed or became dirty"):
+            with laputa_corpus_scope() as root:
+                (root / "pm/generation.xsh").write_text('print "changed"\n')
+                subprocess.run(["git", "-C", str(root), "add", "pm/generation.xsh"], check=True)
+                subprocess.run(["git", "-C", str(root), "-c", "user.name=G1 fixture", "-c", "user.email=g1-fixture@example.invalid", "commit", "--quiet", "-m", "test(util-linux): change Laputa corpus fixture"], check=True)
+
+        with self.assertRaisesRegex(RuntimeError, "primary failure"):
+            with laputa_corpus_scope() as root:
+                (root / "untracked.xsh").write_text('print "dirty"\n')
+                raise RuntimeError("primary failure")
 
 
 class SourceIdentityTests(unittest.TestCase):
@@ -1017,6 +1051,16 @@ class MeasurementProtocolTests(unittest.TestCase):
             environment = resources._cargo_environment()
         self.assertNotIn("CFLAGS_x86_64_unknown_linux_musl=", environment)
         self.assertIn(f"XSH_LAPUTA_CORPUS={corpus}", environment)
+
+    def test_cargo_environment_roundtrips_a_corpus_path_with_spaces(self):
+        with laputa_corpus_scope(prefix="resource laputa spaced-") as corpus:
+            result = subprocess.run(
+                ["sh", "-c", resources._cargo_environment() + '; printf "%s" "$XSH_LAPUTA_CORPUS"'],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        self.assertEqual(result.stdout, str(corpus))
 
     def test_zero_rows_duplicate_selectors_and_unknown_rows_fail(self):
         with self.assertRaisesRegex(ValueError, "positive boundary exactly once"):

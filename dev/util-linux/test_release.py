@@ -91,7 +91,10 @@ class ReleaseProducerTests(unittest.TestCase):
         self.laputa = self.root / "laputa"
         self.laputa.mkdir()
         (self.laputa / "pm").mkdir()
+        (self.laputa / "pm/generation.xsh").write_text('print "generation"\n')
         subprocess.run(["git", "init", "--quiet", str(self.laputa)], check=True)
+        subprocess.run(["git", "-C", str(self.laputa), "add", "pm/generation.xsh"], check=True)
+        subprocess.run(["git", "-C", str(self.laputa), "-c", "user.name=G1 fixture", "-c", "user.email=g1-fixture@example.invalid", "commit", "--quiet", "-m", "test(util-linux): freeze Laputa corpus fixture"], check=True)
         (self.root / ".git").mkdir()
         self.common = self.root / ".git"
         self.jemalloc = self.root / "libjemalloc.so.2"

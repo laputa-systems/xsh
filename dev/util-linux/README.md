@@ -76,6 +76,17 @@ signatures. Nested resource operations reuse that invocation's candidate; the
 products are removed when the outer operation finishes. Ordinary functional
 checks keep the protected verification provider. Verification products cannot
 qualify as release samples.
+
+Direct `resources` and `close` commands require `--laputa-corpus PATH`. Pass an
+absolute canonical Git root with a non-symlink `pm/` directory. The corpus must
+be clean before the command starts, and its commit, tree, and clean status must
+match when the command exits. Mounts and `XSH_LAPUTA_CORPUS` use this path.
+These commands have no sibling-checkout fallback.
+
+`python3 dev/util-linux/check.py resources --check --laputa-corpus PATH` runs
+resource acceptance. `python3 dev/util-linux/check.py close --check
+--laputa-corpus PATH` runs closure acceptance.
+
 Readiness checks bracket every timing pair. Only the readiness helper's busy
 status defers timing; other errors fail. A deferred measurement prevents closure.
 Build execution also requires the original exclusive Cargo guard.

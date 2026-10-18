@@ -124,11 +124,25 @@ def _laputa_corpus_scope(root: Path) -> Iterator[Path]:
     )
     if result.returncode != 0 or Path(result.stdout.strip()) != root:
         raise ValueError(f"Laputa corpus must be a Git repository root: {root}")
+    before = source_identity(root)
+    if not before.clean:
+        raise ValueError(f"Laputa corpus must be clean before selection: {root}")
     token = _LAPUTA_CORPUS.set(root)
+    primary_error = None
     try:
         yield root
+    except BaseException as error:
+        primary_error = error
+        raise
     finally:
         _LAPUTA_CORPUS.reset(token)
+        try:
+            after = source_identity(root)
+            if after != before:
+                raise ValueError(f"Laputa corpus changed or became dirty during selection: {root}")
+        except BaseException:
+            if primary_error is None:
+                raise
 
 
 def _selected_laputa_corpus() -> Path:
@@ -2119,7 +2133,7 @@ def _cargo_environment() -> str:
     return (
         "export CARGO_TARGET_DIR=/cargo-target CARGO_NET_OFFLINE=true "
         "RUSTC_WRAPPER=/usr/local/bin/kache TARGET=" + TARGET + " "
-        "XSH_LAPUTA_CORPUS=" + str(laputa_corpus) + " "
+        "XSH_LAPUTA_CORPUS=" + shlex.quote(str(laputa_corpus)) + " "
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/usr/local/bin/xsh-mold-linker "
         "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS='-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol' "
     )
