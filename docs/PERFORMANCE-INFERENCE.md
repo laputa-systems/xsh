@@ -91,6 +91,88 @@ directory to `PATH`. Set `XSH_LAPUTA_CORPUS` to a Laputa checkout, then run
 `XSH_LAPUTA_CORPUS="$LAPUTA_ROOT" python3 dev/performance/corpus/test_check.py`
 to test the adapter's qualification guards and exact-output parser.
 
+## Retained-site source classification
+
+The denominator remains the frozen 9,194-site inventory at `15243e97`. Its
+1,843 retained eligible rows are the exact `retained.tsv` at that checkpoint;
+the current 877 table is not a substitute. The rows divide into 758 Proc
+signature restrictions (549 non-default parameter types and 209 explicit
+non-Unit returns), 149 purposeful empty-Map annotations, one nonempty Map
+selection site (3598), and 202 private effect clauses. The 149 empty Maps
+preserve the requested distinction between a Map and an empty record. Site
+3598 likewise needs an expected Map type rather than record construction. These
+are semantic selection or contract restrictions, not missing type propagation.
+
+Source review also identifies 18 specific missing-inference relationships and
+one unavailable-information case. The ten null-branch sites 2332, 2543, 3406,
+3407, 3476, 6436, 6564, 7427, 7822, and 7823 join plain Null with a concrete
+type without an Optional witness. Site 2285 needs `MonitorBattery` field
+context; site 6338 depends on the later USB endpoints producer; sites 973 and
+3914 need nominal enum return context; sites 3599 and 3665 need a Str receiver
+anchor because `replace` also accepts Regex; and sites 9111 and 9112 are outside
+the checked membership body grammar. Site 2850 is the unavailable-information
+case: its parameter is used only in interpolation, which does not constrain its
+type. These source facts establish the present relationship or information
+limit; they do not prescribe a new inference rule. The accepted 1,040 README at
+`15243e97:dev/consolidation/typing-corpus/README.md` gives the source context
+for these sites.
+
+The remaining 714 checker-restored rows are still unclassified. The retained
+table records observed diagnostic families, including `infer-return` (288),
+`local-inference` (232), `dynamic-boundary` (70), `type-mismatch` (66),
+`unknown-method` (56), and `try-context` (37), with smaller families for
+iterators, result fallback, display conversion, indexing, assignment targets,
+and other checks. A diagnostic identifies where erasure currently fails; it
+does not by itself establish whether the missing fact is unavailable, a
+semantic restriction, or a specific inference relationship. Keep those rows
+pending source-level witnesses rather than assigning a cause from the code
+alone.
+
+All 202 effect clauses also remain pending joint proof. The source lint found
+142 clauses individually redundant when each one is removed in isolation;
+the other 60 lack that individual equivalence result. `src/sema/check/infer_effects.rs`
+models declared callees with contract edges, so an isolated proof leaves other
+declared contracts fixed and cannot establish equivalence after removing a
+mutually supporting set. No declaration/call-cycle analysis or simultaneous
+deletion proof covers these 202 sites. Retain all of them, including the 142
+individual results, until that relationship is checked. The exact source list
+is `individual-effects-sites.tsv` at the 1,040 checkpoint.
+
+The accounting is 908 semantic restrictions/selections, 18 source-supported
+missing relationships, one unavailable-information site, 714 pending
+checker-restored rows, and 202 pending effects: 1,843 retained eligible sites.
+This classifies 927 sites from direct source evidence; the other 916 remain
+explicitly pending. It does not change the 693-local or 2,190-internal
+denominators, authorize any further removals, or establish the 95% and 85%
+targets.
+
+## Practical source-view preparation
+
+The frozen inventory covers the selected 48 files but contains no spans for
+`core/sort.xsh`, `core/awk.xsh`, or Laputa `pm/generation.xsh`. The existing
+`cohort.py` must not be treated as inventory for these files. The practical
+corpus adapter already checks `wc`, `sort`, and `awk`, plus Laputa plan and
+generation modules, but that is a behavior/checking corpus without annotation
+removal credit. Before I1 accepts the compiler baseline, do not transform these
+files or claim runtime behavior for a reduced view.
+
+After I1, archive the exact qualified source commits into `.work/tmp`, retaining
+whole trees so imports resolve, then copy each `original` tree to a `reduced`
+tree. Extend the source inventory with exact AST spans for eligible annotations
+in the four practical roots, preserve their source commit and denominator, and
+apply only those selected spans to the reduced copies. Run the existing source
+validator against both copies before using the corpus adapter with the accepted
+products. The frozen 1,040 `cohort.py` recipe remains a separate baseline and
+must use its historical source commits and retained table; combine its result
+with practical files only as an explicitly labeled extension, never by
+silently changing the frozen inventory.
+
+The isolated Laputa source view used by the adapter test is `639184e65a712b9d33fa5033e045f8913cd04a5a`;
+the source files can be read from that commit even though its shared worktree
+has unrelated local changes. Its adapter test requires explicit
+`XSH_LAPUTA_CORPUS`, so set that variable to the isolated checkout. Do not use
+the canonical Laputa checkout as an implicit fallback.
+
 ## Capability and patch order
 
 The checkpoint's accepted implementation line is a set of bounded capabilities
