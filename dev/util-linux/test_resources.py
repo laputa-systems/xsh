@@ -327,6 +327,221 @@ class ProductSignatureTests(unittest.TestCase):
                 resources._product_pair(Runtime(), SOURCE)
 
 
+class ClosePositiveBoundaryTests(unittest.TestCase):
+    def test_close_parses_actual_positive_selector_and_accounts_private_gate(self):
+        positive_name = acceptance.POSITIVE_BOUNDARIES["lsipc"]
+        positive_selector = f"core/tests/test-lsipc.xsh::{positive_name}"
+        regression_selectors = (
+            "core/tests/test-util-linux-process-regressions.xsh::test_process_case",
+            "core/tests/test-util-linux-storage-regressions.xsh::test_storage_case",
+        )
+        baseline = BuildContext("baseline", "release", resources.TARGET, "image", "mimalloc", "1cpu/1GiB")
+        candidate = BuildContext(SOURCE.key, "release", resources.TARGET, "image", "mimalloc", "1cpu/1GiB")
+        native_calls = []
+
+        class Runtime:
+            ROOT = ROOT
+            COHORT = ("lsipc",)
+
+            def source_identity(self):
+                return SOURCE
+
+            def native_case(self, selector, *, private=False, timeout=30):
+                native_calls.append((selector, private, timeout))
+                return (
+                    f"running 1 tests\n{selector} ... ok 1ms\n"
+                    "test result: ok. 1 passed; 0 failed; 0 skipped\n"
+                ).encode()
+
+            def inventory(self):
+                pass
+
+            def harness(self):
+                pass
+
+            def baseline(self):
+                pass
+
+            def gate(self, name):
+                return GateResult(name, SOURCE, 0, 1, 1, 0, (), (), (), ())
+
+            def run_full_native(self, source):
+                return self.gate("full-native")
+
+            def run_host_boundaries(self, source):
+                return self.gate("host-boundaries")
+
+            def run_repository_contract(self, source):
+                return self.gate("repository-contract")
+
+            def run_docs(self, source):
+                return self.gate("docs")
+
+            def measure_resources(self):
+                report = acceptance.ResourceReport(
+                    SOURCE,
+                    (acceptance.BinarySize("xsh", 1, 1, baseline, candidate),),
+                    (),
+                    (),
+                    acceptance.MeasuredTiming((), (), acceptance.BuildCost(baseline, candidate, ())),
+                )
+                return report
+
+            def adversarial_review(self, source):
+                return self.gate("adversarial-review")
+
+            def owned_cleanup(self, source):
+                observations = (
+                    "remaining-owned-processes:0",
+                    "unresolved-markers:0",
+                    "lost-work:false",
+                )
+                return GateResult("cleanup", SOURCE, 0, 3, 3, 0, (), (), observations, ())
+
+        with (
+            patch.object(resources, "_product_pair"),
+            patch.object(resources, "_selectors", return_value=regression_selectors),
+            patch.object(acceptance, "_case_names", return_value=(positive_name,)),
+            patch.object(acceptance, "_validate_resource_report"),
+        ):
+            report = resources.close(Runtime())
+
+        gates = {gate.name: gate for gate in report.gates}
+        self.assertEqual(gates["parity"].selectors, (positive_selector,))
+        self.assertEqual(gates["parity"].private_selectors, (positive_selector,))
+        positive = gates["positive-boundaries"]
+        self.assertEqual(positive.executed, 1)
+        self.assertEqual(positive.selectors, (positive_selector,))
+        self.assertEqual(positive.private_selectors, (positive_selector,))
+        self.assertEqual(
+            tuple(sorted(gates["focused-regressions"].selectors)),
+            tuple(sorted(regression_selectors)),
+        )
+        self.assertEqual(
+            tuple(sorted(gates["focused-regressions"].private_selectors)),
+            tuple(sorted(regression_selectors)),
+        )
+        self.assertEqual(
+            tuple(selector for selector, private, _timeout in native_calls if private),
+            (positive_selector, positive_selector, *sorted(regression_selectors)),
+        )
+
+
+class CloseCommandDispatchTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="close-command-dispatch-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.context = BuildContext(
+            SOURCE.key,
+            "release",
+            resources.TARGET,
+            "pinned-image",
+            "mimalloc",
+            "1cpu/4GiB",
+        )
+
+    def test_api_snippet_check_runs_from_worktree_root(self):
+        private = ("core/tests/test-host-boundary.xsh::test_boundary",)
+        api = ("tests/xsh/api-tool.xsh::test_api",)
+        calls = []
+
+        class Runtime:
+            ROOT = self.root
+
+            def source_identity(self):
+                return SOURCE
+
+            def container(self, script, **kwargs):
+                calls.append((script, kwargs))
+                return b""
+
+        with (
+            patch.object(resources, "_qualified_candidate", return_value=(Path("/candidate"), self.context, ())),
+            patch.object(resources, "_run_private_native", return_value=private),
+            patch.object(resources, "_recheck_candidate"),
+            patch.object(resources, "_cargo_mounts", return_value=[]),
+            patch.object(resources, "_native_file", return_value=acceptance.NativeResult(1, 0, 0, api)),
+            patch.object(resources, "_parse_rust_gate", return_value=(1, ("rust::test",), ())),
+            patch.object(acceptance, "declared_native_selectors", return_value=private),
+        ):
+            resources.run_host_boundaries(Runtime(), SOURCE)
+
+        script = next(script for script, _kwargs in calls if "docs/snippets/api" in script)
+        self.assertTrue(script.startswith("cd /work; "))
+
+    def test_repository_contract_runs_from_worktree_root(self):
+        selector = "dev/tests/test-repository-contracts.xsh::test_contract"
+        source = self.root / "dev/tests/test-repository-contracts.xsh"
+        source.parent.mkdir(parents=True)
+        source.write_text("test test_contract {\n}\n", encoding="utf-8")
+        calls = []
+
+        class Runtime:
+            ROOT = self.root
+
+            def source_identity(self):
+                return SOURCE
+
+            def container(self, script, **kwargs):
+                calls.append((script, kwargs))
+                return (
+                    f"running 1 tests\n{selector} ... ok 1ms\n"
+                    "test result: ok. 1 passed; 0 failed; 0 skipped\n"
+                ).encode()
+
+        with (
+            patch.object(resources, "_qualified_candidate", return_value=(Path("/candidate"), self.context, ())),
+            patch.object(resources, "_recheck_candidate"),
+        ):
+            resources.run_repository_contract(Runtime(), SOURCE)
+
+        self.assertTrue(calls[0][0].startswith("cd /work; "))
+
+
+class IdentityKeeperDeadlineTests(unittest.TestCase):
+    def test_outer_wait_leaves_the_deadline_to_its_container_owner(self):
+        path = ROOT / "core/tests/fixtures/util-linux/contexts/identity_keeper.py"
+        namespace = {"__name__": "identity_keeper_test"}
+        exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), namespace)
+
+        class Child:
+            pid = 123
+
+            def __init__(self):
+                self.returncode = None
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, *args, **kwargs):
+                timeout = kwargs.get("timeout", args[0] if args else None)
+                if timeout is not None and timeout < 300 and self.returncode is None:
+                    raise namespace["subprocess"].TimeoutExpired(["true"], timeout)
+                if self.returncode is None:
+                    self.returncode = 0
+                return self.returncode
+
+        child = Child()
+        file_info = type("FileInfo", (), {"st_dev": 1, "st_ino": 2})()
+
+        def terminate_group(_pid, number):
+            child.returncode = -number
+
+        with (
+            patch.object(namespace["tempfile"], "mkstemp", return_value=(11, "/t/keeper")),
+            patch.object(namespace["os"], "fstat", return_value=file_info),
+            patch.object(namespace["os"], "close"),
+            patch.object(namespace["os"], "unlink"),
+            patch.object(namespace["os"], "killpg", side_effect=terminate_group),
+            patch.object(namespace["fcntl"], "flock"),
+            patch.object(namespace["signal"], "pthread_sigmask", return_value=set()),
+            patch.object(namespace["signal"], "signal"),
+            patch.object(namespace["subprocess"], "Popen", return_value=child),
+        ):
+            self.assertEqual(namespace["outer"](["true"]), 0)
+
+
 class FullNativeProducerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=SCRATCH, prefix="full-native-producer-")
@@ -423,6 +638,7 @@ class FullNativeProducerTests(unittest.TestCase):
         self.assertIn("private-namespace", script)
         self.assertIn('"/products/xsht", "test", "--jobs", "1"', script)
         self.assertEqual((options["cpus"], options["memory_gib"]), (1, 4))
+        self.assertEqual(options["timeout"], resources.FULL_NATIVE_TIMEOUT_SECONDS)
 
     def test_full_native_rejects_mandatory_skips_and_product_mutation(self):
         for runtime, reason in (

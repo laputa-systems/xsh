@@ -79,9 +79,9 @@ pure lsmem_zero_entry_error_matches(reference: uu.Ran, candidate: uu.Ran, args: 
     reference.args == args and candidate.args == args and
     reference.status == 1 and candidate.status == 1 and
     reference.stdout == b"" and candidate.stdout == b"" and
-    reference.stderr.starts_with(prefix) and candidate.stderr.starts_with(prefix) and
+    reference.stderr.starts_with(prefix) and
     lsmem_zero_entry_suffix_is_one_line(reference.stderr, prefix.len()) and
-    lsmem_zero_entry_suffix_is_one_line(candidate.stderr, prefix.len())
+    candidate.stderr == bytes.concat([prefix, b"no numeric memory entries\n"])
 }
 
 proc compare_lsmem_zero_entry_rooted(s: uu.Scene, args: List[Str]) [fs, process, env, error] -> Result[Unit, Error] {
@@ -354,9 +354,12 @@ test test_lsmem_rooted_nonnumeric_memory_entries_match_reference { |ctx|
   let memory_path = "/fixture/sys/devices/system/memory"
   let prefix = bytes.from_text(f"lsmem: Failed to read {memory_path}: ")
   let reference: uu.Ran = {util: "lsmem", args: args, status: 1, stdout: b"", stderr: bytes.concat([prefix, b"Not a tty\n"])}
-  let candidate: uu.Ran = {util: "lsmem", args: args, status: 1, stdout: b"", stderr: bytes.concat([prefix, b"No such file or directory\n"])}
+  let candidate: uu.Ran = {util: "lsmem", args: args, status: 1, stdout: b"", stderr: bytes.concat([prefix, b"no numeric memory entries\n"])}
   assert lsmem_zero_entry_error_matches(reference, candidate, args, memory_path)
   assert ! ul.equal(reference, candidate)
+  assert lsmem_zero_entry_error_matches({...reference, stderr: bytes.concat([prefix, b"reference errno changed\n"])}, candidate, args, memory_path)
+  assert ! lsmem_zero_entry_error_matches(reference, {...candidate, stderr: bytes.concat([prefix, b"arbitrary candidate diagnostic\n"])}, args, memory_path)
+  assert ! lsmem_zero_entry_error_matches(reference, {...candidate, stderr: bytes.concat([prefix, b"No such file or directory\n"])}, args, memory_path)
   assert ! lsmem_zero_entry_error_matches(reference, {...candidate, status: 2}, args, memory_path)
   assert ! lsmem_zero_entry_error_matches(reference, {...candidate, args: ["--sysroot", "/other"]}, args, memory_path)
   assert ! lsmem_zero_entry_error_matches(reference, {...candidate, stdout: b"unexpected\n"}, args, memory_path)

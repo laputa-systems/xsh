@@ -1610,8 +1610,9 @@ def close(runtime: ResourceRuntime) -> CloseReport:
     positive_names = tuple(selector.rsplit("::", 1)[-1] for selector in positive_selectors)
     for selector, name in zip(positive_selectors, positive_names, strict=True):
         _require_current(runtime, source, "positive-boundaries")
+        relative = selector.split("::", 1)[0]
         result = acceptance._parse_native_group(
-            selector.split("/", 1)[1].split(".xsh::", 1)[0].removeprefix("test-"),
+            Path(relative).stem.removeprefix("test-"),
             (name,),
             runtime.native_case(selector, private=True),
         )
@@ -2152,7 +2153,7 @@ def run_host_boundaries(runtime: ResourceRuntime, source: SourceIdentity) -> Gat
     rust_executed, rust_selectors, rust_skips = _parse_rust_gate(cargo_output)
 
     runtime.container(
-        "/products/xsht check docs/snippets/api",
+        "cd /work; " + shlex.join(["/products/xsht", "check", "docs/snippets/api"]),
         mounts=_candidate_mounts(runtime, products[0]),
         capabilities=[],
         timeout=120,
@@ -2184,7 +2185,7 @@ def run_repository_contract(runtime: ResourceRuntime, source: SourceIdentity) ->
     relative = "dev/tests/test-repository-contracts.xsh"
     expected = acceptance.declared_native_selectors(runtime.ROOT, (relative,))
     output = runtime.container(
-        shlex.join(["/products/xsht", "test", "-j", "1", relative]),
+        "cd /work; " + shlex.join(["/products/xsht", "test", "-j", "1", relative]),
         mounts=_candidate_mounts(runtime, products[0]),
         capabilities=[],
         timeout=REPOSITORY_GATE_TIMEOUT_SECONDS,

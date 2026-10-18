@@ -57,9 +57,7 @@ def outer(command):
                                  preexec_fn=lambda: signal.pthread_sigmask(signal.SIG_SETMASK, previous))
         try:
             signal.pthread_sigmask(signal.SIG_SETMASK, previous)
-            result = child.wait(timeout=120)
-        except subprocess.TimeoutExpired:
-            result = 124
+            result = child.wait()
         except Interrupted as interrupted:
             result = 128 + interrupted.number
         finally:
