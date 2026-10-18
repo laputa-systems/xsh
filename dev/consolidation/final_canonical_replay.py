@@ -169,6 +169,7 @@ def retain_bootstrap_artifact(source_path: pathlib.Path, retained_path: pathlib.
     retained_fd: int | None = None
     copied_hash = hashlib.sha256()
     copied_size = 0
+    copy_error: BaseException | None = None
     try:
         source_before = os.fstat(source_fd)
         if not stat.S_ISREG(source_before.st_mode) or source_before.st_mode & 0o111 == 0:
@@ -209,10 +210,27 @@ def retain_bootstrap_artifact(source_path: pathlib.Path, retained_path: pathlib.
         )
         if source_identity_after != source_identity_before:
             raise ReplayError("canonical bootstrap artifact changed while it was being retained")
+    except BaseException as error:
+        copy_error = error
+        raise
     finally:
-        os.close(source_fd)
+        close_errors: list[tuple[str, BaseException]] = []
+        owned_descriptors = [("source", source_fd)]
         if retained_fd is not None:
-            os.close(retained_fd)
+            owned_descriptors.append(("retained", retained_fd))
+        for name, descriptor in owned_descriptors:
+            try:
+                os.close(descriptor)
+            except BaseException as error:
+                close_errors.append((name, error))
+        if copy_error is not None:
+            for name, error in close_errors:
+                copy_error.add_note(f"also failed to close the {name} bootstrap artifact descriptor: {error}")
+        elif close_errors:
+            _, primary_close_error = close_errors[0]
+            for name, error in close_errors[1:]:
+                primary_close_error.add_note(f"also failed to close the {name} bootstrap artifact descriptor: {error}")
+            raise primary_close_error
     retained = host_file(retained_path, executable=True)
     after = host_file(source_path, executable=True)
     copied_digest = copied_hash.hexdigest()

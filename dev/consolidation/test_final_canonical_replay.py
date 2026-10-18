@@ -383,6 +383,85 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         ):
             self.validate(self.arguments(receipt_output))
 
+    def test_retained_copy_failure_remains_primary_when_descriptor_close_fails(self):
+        retained_path = self.scratch_dir / "copy-failure" / "xsh"
+        retained_path.parent.mkdir()
+        real_open = os.open
+        real_close = os.close
+        real_write = os.write
+        opened = {}
+        closed = []
+        copy_error = OSError("snapshot write failed")
+        source_close_error = OSError("source close failed")
+
+        def track_open(path, *args):
+            descriptor = real_open(path, *args)
+            if pathlib.Path(path) == self.bootstrap:
+                opened["source"] = descriptor
+            elif pathlib.Path(path) == retained_path:
+                opened["retained"] = descriptor
+            return descriptor
+
+        def fail_snapshot_write(descriptor, data):
+            if descriptor == opened.get("retained"):
+                raise copy_error
+            return real_write(descriptor, data)
+
+        def fail_source_close(descriptor):
+            closed.append(descriptor)
+            real_close(descriptor)
+            if descriptor == opened.get("source"):
+                raise source_close_error
+
+        with (
+            mock.patch.object(runner.os, "open", side_effect=track_open),
+            mock.patch.object(runner.os, "write", side_effect=fail_snapshot_write),
+            mock.patch.object(runner.os, "close", side_effect=fail_source_close),
+        ):
+            with self.assertRaises(OSError) as raised:
+                runner.retain_bootstrap_artifact(self.bootstrap, retained_path)
+
+        self.assertIs(raised.exception, copy_error)
+        self.assertEqual(closed, [opened["source"], opened["retained"]])
+        self.assertTrue(any("source bootstrap artifact descriptor" in note for note in copy_error.__notes__))
+
+    def test_retained_copy_surfaces_close_failure_and_attempts_remaining_close(self):
+        retained_path = self.scratch_dir / "close-failure" / "xsh"
+        retained_path.parent.mkdir()
+        real_open = os.open
+        real_close = os.close
+        opened = {}
+        closed = []
+        source_close_error = OSError("source close failed")
+        retained_close_error = OSError("retained close failed")
+
+        def track_open(path, *args):
+            descriptor = real_open(path, *args)
+            if pathlib.Path(path) == self.bootstrap:
+                opened["source"] = descriptor
+            elif pathlib.Path(path) == retained_path:
+                opened["retained"] = descriptor
+            return descriptor
+
+        def fail_owned_closes(descriptor):
+            closed.append(descriptor)
+            real_close(descriptor)
+            if descriptor == opened.get("source"):
+                raise source_close_error
+            if descriptor == opened.get("retained"):
+                raise retained_close_error
+
+        with (
+            mock.patch.object(runner.os, "open", side_effect=track_open),
+            mock.patch.object(runner.os, "close", side_effect=fail_owned_closes),
+        ):
+            with self.assertRaises(OSError) as raised:
+                runner.retain_bootstrap_artifact(self.bootstrap, retained_path)
+
+        self.assertIs(raised.exception, source_close_error)
+        self.assertEqual(closed, [opened["source"], opened["retained"]])
+        self.assertTrue(any("retained bootstrap artifact descriptor" in note for note in source_close_error.__notes__))
+
     def test_run_batch_rejects_stale_mutable_bootstrap_before_docker_launch(self):
         with self.with_mocked_tools():
             validated = self.validate()
