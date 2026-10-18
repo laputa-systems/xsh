@@ -2056,8 +2056,9 @@ never counts toward exhaustiveness, so a `match` over text ends in `else`.
 Taking text apart by position says less: `parts[1]` after a `split` fails at
 run time where a pattern would not match, and a `starts_with` test followed
 by a slice states the prefix twice. The opt-in `lint.prefer-text-pattern`
-notes (16.1) both shapes and rewrites neither, because a pattern's last hole keeps
+notes both shapes and rewrites neither, because a pattern's last hole keeps
 any further separator where `split` makes another piece.
+See the [XSHT lint notes](XSHT.md#lint) for how notes differ from warnings.
 
 ### 6.11 Conversion
 
@@ -2348,10 +2349,11 @@ empty title; a conditional binding (8.6) keeps the two apart:
 {{.spec.empty_sentinel.source}}
 ```
 
-`lint.empty-sentinel` notes (16.1) a `Str?` or `Result[Str]` bound through
+`lint.empty-sentinel` notes a `Str?` or `Result[Str]` bound through
 `?? ""` whose binding a later statement of the same block compares with `""`
 or asks `.is_empty()`. It offers no rewrite, because the two programs differ
-when the value is present and empty.
+when the value is present and empty. See the [XSHT lint notes](XSHT.md#lint)
+for how notes differ from warnings.
 
 ### 8.5 Results as values
 
@@ -3142,10 +3144,11 @@ marker, a repeated label, or no type is also `check.callable-type`. A function
 that does not fit, a dynamic `Proc` or `Pure` where a callable type is
 expected, and a spliced call are `check.callable-mismatch`. `Proc` and `Pure`
 stay the types of callables whose signature is not known until run time.
-`lint.prefer-typed-callable` notes (16.1) a `Proc` or `Pure` parameter
+`lint.prefer-typed-callable` notes a `Proc` or `Pure` parameter
 of a private function when every call in the module passes a function with
 one signature, and names the callable type. It offers no fix: the body's
 `.call(...)` and what it does with the dynamic result change with the type.
+See the [XSHT lint notes](XSHT.md#lint) for how notes differ from warnings.
 
 ```xsh
 {{.spec.callable_mismatch.source}}
@@ -3364,13 +3367,14 @@ where the type is not known. A `NAME=$list` word keeps its older rule for
 every other list, which accepts exactly one item; that includes an empty
 list, which does not say what it is a list of.
 
-`lint.prefer-env-path-list` notes (16.1) a `NAME: f"{dir}:{e"NAME" ?? ""}"` field.
+`lint.prefer-env-path-list` notes a `NAME: f"{dir}:{e"NAME" ?? ""}"` field.
 Its rewrite, `NAME: [fp"{dir}", @env.PathList.NAME ?? []]`, is offered but
 not applied by `--fix`, because it is not the same value in three cases: an
 unset variable no longer leaves a trailing empty entry (which a search treats
 as the current directory), a value that is not UTF-8 is kept instead of
 dropped, and a directory that contains `:` fails instead of becoming two
-entries.
+entries. See the [XSHT lint notes](XSHT.md#lint) for how notes differ from
+warnings.
 
 In statement position a scope returns `Result[Unit]`. The parenthesized forms
 `cd (path) { ... }` and `env (overlay) { ... }` may be used in value position
@@ -4288,35 +4292,9 @@ program knows the shape, and keep dynamic matching inside small helpers.
 
 Standard modules are always in scope. Operations on a value are methods on its
 type; modules hold factories and operations with no natural receiver. The
-complete, generated index is `docs/reference/stdlib.md`, and
-`xsht api module:NAME`, `xsht api method:Type.name`, and
-`xsht api search:TERMS` give full signatures and details.
-
-| Module | Role |
-|---|---|
-| `fs` | filesystem walks, metadata (`stat`, `statvfs`), ownership, mode and nanosecond timestamps, device nodes, hard links, sparse and reflink copies, no-clobber rename, reads and writes, atomic writes, installs, locks, temp files, and `FsRoot` confined directory capabilities |
-| `path` | absolute-path computation; most path operations are `Path` methods |
-| `env` | environment variables and the scoped `env.PATH` view |
-| `process` | process listing, `Command` plans, `process.run`/`process.spawn`, `which` |
-| `io` | script stdin and unbuffered stdout |
-| `json`, `ini` | data formats |
-| `text`, `bytes` | stream adapters and byte-level helpers; text operations are `Str` methods |
-| `regex` | runtime regex compilation; `Regex` methods match, find, capture, and replace |
-| `hash` | byte and bounded file/stdin digests (MD5, SHA-1, SHA-224/256/384/512, BLAKE2b), POSIX CRC and BSD/SysV checksums |
-| `archive` | tar, cpio, and zip listing, extraction, creation, and compression |
-| `diff`, `patch` | unified diffs and confined patch application |
-| `net`, `dns` | HTTP(S) requests, downloads, uploads, batches, pooled clients, `NetJob`; DNS lookups |
-| `time` | clock, `sleep`, measurement, duration helpers |
-| `cli` | argument parsing beyond `cli main` and its subcommand entries |
-| `module` | runtime module loading |
-| `error` | `error.fail` validation failures |
-| `map`, `set` | empty-map factory; the set constructors `set.empty()` and `set.from(items)` (4.5) |
-| `system`, `cpu`, `user`, `group` | host identity and resources |
-| `unix`, `linux`, `elf` | privileged and platform-specific host operations, ELF inspection |
-| `mime`, `shlex`, `tui`, `utils` | MIME lookup, shell quoting for display, terminal styling, process-scoped cache |
-| `template` | text templates |
-| `test` | native test support (17) |
-| `applet` | internal host support for the shipped core utilities; not a stable user API |
+generated [standard-library index](reference/stdlib.md) lists the modules and
+signatures. Query `xsht api module:NAME`, `xsht api method:Type.name`, or
+`xsht api search:TERMS` for full contracts and examples.
 
 Contracts worth knowing without consulting the reference:
 
@@ -4749,85 +4727,12 @@ unrenderable value) report `template-render`. A missing field is always an
 error, including inside `if`; represent optional data as null. Messages start
 with `template:LINE:COLUMN:`, 1-based, with the column counted in characters.
 
-## 16. Tools
+## 16. Runtime errors and traces
 
-### 16.1 Commands
+For command usage and configuration, see [XSHT](XSHT.md) and the generated
+[CLI reference](reference/cli.md).
 
-| Command | Purpose |
-|---|---|
-| `xsh SCRIPT [--] ARGS...`, `xsh -- SCRIPT ARGS...` | run a script (the second form suits shebang lines) |
-| `xshi` | interactive shell ([contract](SPEC-INTERACTIVE.md)); interactive implementation requires the `xshi` crate's `laputa-asterinas` Cargo feature |
-| `xsht check [--summary] [--annotate[=CLASSES]] [PATH...]` | parse, type-check, and validate scripts |
-| `xsht fmt [--check] [FILE...]` | format |
-| `xsht lint [--fix] [--only RULE,...] [--runless] [--deny-notes] [FILE...]` | quality checks and safe fixes |
-| `xsht test [OPTIONS] [FILTER]` | run native tests (17) |
-| `xsht trace [--raw] [--trace-format text\|jsonl\|flamegraph] [--trace-file PATH] [--syscalls] [--trace-top-syscalls N] SCRIPT ARGS...` | run with tracing; `--syscalls` adds native totals on Linux x86_64 and aarch64 |
-| `xsht api [QUERY...]` | query language and standard-library reference data |
-| `xsht ast SCRIPT` | print the parse tree |
-| `xsht highlight SCRIPT` | print syntax highlighting runs as JSON Lines |
-| `xsht grammar [--format ebnf\|json]` | print the language grammar as EBNF or JSON |
-| `xsht desugar SCRIPT` | print the script with every sugar statement replaced by its expansion |
-| `xsht grep PATTERN [FILE...]`, `xsht refactor PATTERN REPLACEMENT [FILE...]` | structural search and rewrite |
-
-`xsht help [COMMAND]` and `COMMAND --help` print generated usage, collected in
-the generated `docs/reference/cli.md`. `xsh` is a plain runner and rejects
-tracing flags. Runtime stdout and stderr are never
-decorated; diagnostics go to stderr.
-
-Without paths, `check`, `lint`, `fmt`, `grep`, and `refactor` process every
-`.xsh` file under the current directory and under the `include` entries of
-the `xsht-config.ini` in the current directory; a directory argument stands
-for the files under it. Each file is governed by the nearest config above
-it and by no other, wherever the command was started: that config supplies
-the file's `module_path`, `[format] line-width` (default 120), lint options,
-and `[check] annotate`. A file with no config above it takes the defaults
-and has no project module roots (3.3). Discovery skips a file named by the
-`exclude` (for `xsht fmt`, also the `[format] exclude`) of any config from
-the file's nearest one up to the one governing the directory discovery
-started from, so an exclusion covers the projects nested below it. A file
-named on the command line is processed whatever an `exclude` says.
-
-`xsht check` runs exactly the checks that execution runs before evaluating
-anything, plus a lowering check that also needs no execution. Dynamic
-boundaries are always enforced; there is no permissive mode.
-`--annotate` rewrites requested scripts in place with safe inferred
-annotations (defaulted parameters, inferred returns, exported bindings, and
-optionally local bindings), only when checking reports no diagnostics.
-
-`xsht lint` reports `lint.*` findings and the checker findings that carry fixes
-(such as `check.bool-statement`). `--fix` applies only fixes that preserve
-behavior and comments; a rewritten file must parse and check with no new
-diagnostics. `--only RULE,...` limits reporting and fixing to the named codes,
-runs a named rule even where a `[lint]` key leaves it off, and applies
-exactly the named rules' edits, leaving every other byte unformatted, so
-`xsht lint --fix --only check.bool-statement` inserts `assert` where Bool
-statements appear. `xsht lint --list [--format text|jsonl]` prints every
-selectable code with a one-line summary; the generated
-`docs/reference/lints.md` is that catalog. Each finding names its rule, and a fix is withheld (with an
-explanation) whenever equivalence cannot be proved.
-
-A lint finding has one of two severities. A warning (`warn[CODE]`) is a
-shape with one preferred spelling; it fails the run with status 1. A note
-(`note[CODE]`) is advice that no rewrite can apply safely, because the
-better form means something else at some input or needs a decision outside
-the file, such as `lint.prefer-non-empty-argv`. A note is printed and
-selected with `--only` like a warning, but a run that reports only notes
-exits 0, and `--fix` writes nothing for one. A run that printed a note ends
-its findings with a count of each kind, `xsht lint: 2 findings, 3 notes`.
-`--deny-notes` makes a note fail the run with status 1. `xsht check` reports
-no lint finding of either severity.
-
-`xsht grep` patterns are XSH expressions where uppercase identifiers are
-metavariables (`X.push(ITEM)`, `ARGS..` for zero or more arguments). Matching
-respects expression boundaries and ignores whitespace and comments.
-A `xsht grep` pattern that begins with `for` is a loop head instead,
-`for NAME in ITER` or `for INDEX, NAME in ITER`: it matches the loops written
-with that many bindings, a metavariable in a binding position matches any
-loop binding, and the source is an expression pattern.
-`xsht refactor` substitutes the captured text into a replacement template;
-`--dry-run` prints a diff.
-
-### 16.2 Traces and tracebacks
+### Traces and tracebacks
 
 Tracing records the runtime graph. Events have an id, a parent id, a depth, a
 kind, a source span when available, a name, and timing. Event kinds cover
@@ -4871,12 +4776,10 @@ the call that reached that function is the last frame of the call path. An
 error that a function returns with `return Err(...)` or `fail` has propagated
 nowhere yet, so its traceback starts at the caller's form.
 
-## 17. Native Tests
+## 17. Native tests
 
-`xsht test` discovers tests in the `test_roots` of the `xsht-config.ini` in
-the current directory, or in `tests` when it names none. Missing roots mean
-zero tests. Test ids have the
-form `tests/file.xsh::name`.
+[Testing](TESTING.md) covers test discovery, filters, and runner options. This
+section describes test declarations and the `test` module.
 
 ```xsh
 {{.spec.native_tests.source}}

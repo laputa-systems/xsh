@@ -3,7 +3,9 @@
 `system-report` collects a bounded inventory from the process-visible Linux
 system and renders text or JSON v1. It reads system sources without starting
 child processes. A report is a set of observations, not an atomic snapshot or
-a description of the physical host.
+a description of the physical host. The
+[`xsh-root` owner docs](../crates/xsh-root/README.md) describe how rooted paths
+are confined.
 
 ## Run
 
@@ -63,12 +65,3 @@ targets. Overmounts and shadowed ancestors are skipped because resolving a
 mount path could reach a different filesystem. Automount filesystems such as
 `autofs` are ineligible, avoiding a capacity lookup that could trigger an
 automount.
-
-The report describes only data visible to the current process. Collection may
-race with system changes, and unavailable or malformed sources remain marked
-as such instead of being represented as observed values.
-
-On Linux, collection anchors path lookups to `O_PATH` directory descriptors
-and resolves descendants beneath the root with `openat2`. `O_PATH` identifies a
-path but does not grant read access; directory enumeration opens a separate
-readable descriptor, so ordinary filesystem permissions still apply.

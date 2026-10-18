@@ -1,7 +1,9 @@
 # Command-Line Reference
 
 The help text of `xsh` and every `xsht` command, as the binaries print it.
-`docs/SPEC.md` §16 describes what the commands guarantee.
+Tool behavior and configuration are documented in [XSHT](../XSHT.md);
+language and interactive behavior are specified in [SPEC](../SPEC.md) and
+[the interactive SPEC](../SPEC-INTERACTIVE.md).
 
 ## `xsh`
 

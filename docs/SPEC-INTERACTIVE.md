@@ -77,23 +77,6 @@ is not a second script language.
   `ProcessRedirection::ChildDup`, which applies descriptor copies such as
   `2>&1` in the child in list order; scripts cannot express it.
 
-Source layout under `crates/xshi/src/interactive/`:
-
-| Module | Owns |
-| --- | --- |
-| `repl.rs` | the read loop, key handling per mode, layout dump |
-| `input.rs`, `line.rs` | key decoding, bracketed paste, the line buffer and kill ring |
-| `render.rs`, `term.rs`, `prompt.rs` | repainting geometry, terminal control, prompt text |
-| `complete.rs`, `path.rs` | candidates, grid layout, PATH executable cache |
-| `history.rs`, `history/store.rs` | in-memory history and search, on-disk log, cache, lock, reset |
-| `app.rs`, `session.rs`, `builtin.rs`, `alias.rs`, `config.rs` | line execution, session state, builtins, aliases, config |
-| `shell/` | lexer, parser, syntax tree, glob expansion |
-| `denv.rs`, `z.rs`, `listing.rs` | directory environments, frecency jumps, `l` |
-| `signal.rs`, `sys.rs` | SIGWINCH self-pipe and small descriptor helpers |
-
-Tests live beside the code (`ported_tests.rs` holds the ports of `ish`'s unit
-and integration tests; `history/tests.rs` holds the history store's).
-
 ## 3. Process And Command Line
 
 ```text
@@ -420,9 +403,6 @@ prompt marker.
 
 [Testing](TESTING.md#interactive-parity) owns the interactive test commands,
 feature requirements, and limits of the historical PTY transcripts.
-
-History concurrency, torn and stale files, and large logs are exercised against
-real files in `crates/xshi/src/interactive/history/tests.rs`.
 
 ## 15. Deferrals
 
