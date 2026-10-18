@@ -114,9 +114,17 @@ class CoverageTests(unittest.TestCase):
         self.assertIn('"--skip", "lint_format_invariance::formatting_preserves_lints_on_laputa_corpus"', workflow)
         batch = re.search(r"export proc batch\(.*?\n}\n", gates, re.S)
         full = re.search(r"export proc full\(.*?\n}\n", workflow, re.S)
+        native = re.search(r"export proc native\(.*?\n}\n", workflow, re.S)
         self.assertIsNotNone(batch)
         self.assertIsNotNone(full)
-        self.assertEqual(batch.group(0).count('tests.full(ctx, profile, privileged: ctx.target.os == "linux")'), 1)
+        self.assertIsNotNone(native)
+        native_filters = re.findall(
+            r"tests\.native\(ctx,\s*profile,\s*(\[[^\]]*\])\)",
+            batch.group(0),
+        )
+        self.assertEqual([re.sub(r"\s+", "", filters) for filters in native_filters], ['["--jobs","4"]'])
+        self.assertRegex(native.group(0), r'xsht\.display\(\),\s*"test",\s*@filters')
+        self.assertNotIn("tests.full(", batch.group(0))
         self.assertEqual(batch.group(0).count("docs_gate(ctx, profile)"), 1)
         self.assertEqual(full.group(0).count("native(ctx, profile, [])"), 1)
         self.assertEqual(self.plan["rust_harness_runs"], [])
