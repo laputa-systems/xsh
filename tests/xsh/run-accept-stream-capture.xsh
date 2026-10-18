@@ -72,6 +72,187 @@ for row in rows { print $row }
   assert "streamed stdout was not valid UTF-8" in output.stderr
 }
 
+test test_process_stream_timeout_counts_while_consumer_is_paused { |ctx|
+  let ready = test.temp_path(ctx, name: "stream-timeout-ready")
+  let acknowledged = test.temp_path(ctx, name: "stream-timeout-ack")
+  let source = r"""let ready = Path(args[0])
+let acknowledged = Path(args[1])
+let outcome: Result[Unit, Error] = try {
+  let rows = run.stream --bytes --timeout=3s sh -c "printf '\\001'; touch \"$1\"; while [ ! -e \"$2\" ]; do sleep 0.01; done; sleep 3.25; printf '\\002'" sh $ready $acknowledged ?
+  var first = true
+  for chunk in rows {
+    io.write_stdout_bytes(chunk)?
+    if first {
+      first = false
+      var attempts = 0
+      while ! ready.exists()? and attempts < 5000 { time.sleep(1ms)?; attempts += 1 }
+      assert ready.exists()?
+      acknowledged.write("go")?
+      time.sleep(5s)?
+    }
+  }
+  Ok()
+}
+match outcome {
+  Err(ProcessError.Timeout {..}) => print "timeout"
+  _ => exit 98
+}
+"""
+  let output = test.run_script(ctx, source, [ready, acknowledged])?
+  assert output.success, output.stderr
+  assert output.stdout == "\x01timeout\n"
+}
+
+test test_process_stream_text_timeout_counts_while_consumer_is_paused { |ctx|
+  let ready = test.temp_path(ctx, name: "stream-text-timeout-ready")
+  let acknowledged = test.temp_path(ctx, name: "stream-text-timeout-ack")
+  let source = r"""let ready = Path(args[0])
+let acknowledged = Path(args[1])
+let rows = run.stream --text --timeout=3s sh -c "printf 'ready\\n'; touch \"$1\"; while [ ! -e \"$2\" ]; do sleep 0.01; done; sleep 3.25; printf 'late\\n'" sh $ready $acknowledged ?
+var first = true
+for row in rows {
+  print $row
+  if first {
+    first = false
+    var attempts = 0
+    while ! ready.exists()? and attempts < 5000 { time.sleep(1ms)?; attempts += 1 }
+    assert ready.exists()?
+    acknowledged.write("go")?
+    time.sleep(5s)?
+  }
+}
+"""
+  let output = test.run_script(ctx, source, [ready, acknowledged])?
+  assert ! output.success, output.stderr
+  assert output.stdout == "ready\n", output.stderr
+  assert "timeout" in output.stderr
+}
+
+test test_process_stream_keeps_predeadline_completion_after_consumer_pause { |ctx|
+  let ready = test.temp_path(ctx, name: "stream-predeadline-ready")
+  let acknowledged = test.temp_path(ctx, name: "stream-predeadline-ack")
+  let completed = test.temp_path(ctx, name: "stream-predeadline-completed")
+  let source = r"""let ready = Path(args[0])
+let acknowledged = Path(args[1])
+let completed = Path(args[2])
+let rows = run.stream --bytes --timeout=3s sh -c "printf '\\001'; touch \"$1\"; while [ ! -e \"$2\" ]; do sleep 0.01; done; printf '\\002'; touch \"$3\"; exit 0" sh $ready $acknowledged $completed ?
+var first = true
+for chunk in rows {
+  io.write_stdout_bytes(chunk)?
+  if first {
+    first = false
+    var attempts = 0
+    while ! ready.exists()? and attempts < 5000 { time.sleep(1ms)?; attempts += 1 }
+    assert ready.exists()?
+    acknowledged.write("go")?
+    attempts = 0
+    while ! completed.exists()? and attempts < 5000 { time.sleep(1ms)?; attempts += 1 }
+    assert completed.exists()?
+    time.sleep(4s)?
+  }
+}
+"""
+  let output = test.run_script(ctx, source, [ready, acknowledged, completed])?
+  assert output.success, output.stderr
+  assert output.stdout == "\x01\x02"
+}
+
+test test_process_stream_timeout_waits_for_child_after_stdout_closes { |ctx|
+  let source = r"""let rows = run.stream --bytes --timeout=100ms sh -c "exec 1>&-; exec sleep 10" ?
+for chunk in rows { io.write_stdout_bytes(chunk)? }
+"""
+  let output = test.run_script(ctx, source, [])?
+  assert ! output.success, output.stderr
+  assert "timeout" in output.stderr
+  assert output.stdout == ""
+}
+
+test test_process_stream_timeout_waits_for_pipe_writers_after_child_exits { |ctx|
+  let source = r"""let rows = run.stream --bytes --timeout=100ms sh -c "sleep 10 & exit 0" ?
+for chunk in rows { io.write_stdout_bytes(chunk)? }
+"""
+  let output = test.run_script(ctx, source, [])?
+  assert ! output.success, output.stderr
+  assert "timeout" in output.stderr
+  assert output.stdout == ""
+}
+
+test test_timed_process_stream_requires_retained_child_status { |ctx|
+  let started = test.temp_path(ctx, name: "stream-no-child-status-started")
+  let source = r"""process.set_signal_action("CLD", "ignore")?
+let started = Path(args[0])
+let outcome: Result[Unit, ProcessError] = try {
+  let rows = run.stream --text --timeout=5s sh -c "touch \"$1\"" sh $started ?
+  for chunk in rows { var byte_count = chunk.byte_len() }
+  Ok()
+}
+match outcome {
+  Err(is HostIo) => {}
+  _ => exit 98
+}
+assert ! started.exists()?
+print "not spawned"
+"""
+  let output = test.run_script(ctx, source, [started])?
+  assert output.success, output.stderr
+  assert output.stdout == "not spawned\n"
+}
+
+test test_process_stream_timeout_preserves_unobservable_child_identity { |ctx|
+  let acknowledged = test.temp_path(ctx, name: "stream-timeout-echild-ack")
+  let survived = test.temp_path(ctx, name: "stream-timeout-echild-survived")
+  let source = r"""let acknowledged = Path(args[0])
+let survived = Path(args[1])
+let rows = run.stream --bytes --timeout=5s sh -c "printf x; while [ ! -e \"$1\" ]; do sleep 0.01; done; printf survived > \"$2\"" sh $acknowledged $survived ?
+process.set_signal_action("CLD", "ignore")?
+process.set_signal_action("CLD", "default")?
+let outcome: Result[Unit, ProcessError] = try {
+  for chunk in rows { var byte_count = chunk.len() }
+  Ok()
+}
+match outcome {
+  Err(is HostIo) => {}
+  _ => exit 98
+}
+acknowledged.write("go")?
+var attempts = 0
+while ! survived.exists()? and attempts < 5000 { time.sleep(1ms)?; attempts += 1 }
+assert survived.exists()?
+print "survived"
+"""
+  let output = test.run_script(ctx, source, [acknowledged, survived])?
+  assert output.success, output.stderr
+  assert output.stdout == "survived\n"
+}
+
+test test_process_stream_cancel_reports_unobservable_child_identity { |ctx|
+  let acknowledged = test.temp_path(ctx, name: "stream-cancel-echild-ack")
+  let survived = test.temp_path(ctx, name: "stream-cancel-echild-survived")
+  let source = r"""let acknowledged = Path(args[0])
+let survived = Path(args[1])
+let rows = run.stream --bytes --timeout=5s sh -c "printf x; while [ ! -e \"$1\" ]; do sleep 0.01; done; printf survived > \"$2\"" sh $acknowledged $survived ?
+let outcome: Result[Unit, Error] = try {
+  for _chunk in rows {
+    process.set_signal_action("CLD", "ignore")?
+    break
+  }
+  Ok()
+}
+match outcome {
+  Err(is HostIo) => {}
+  _ => exit 98
+}
+acknowledged.write("go")?
+var attempts = 0
+while ! survived.exists()? and attempts < 5000 { time.sleep(1ms)?; attempts += 1 }
+assert survived.exists()?
+print "survived"
+"""
+  let output = test.run_script(ctx, source, [acknowledged, survived])?
+  assert output.success, output.stderr
+  assert output.stdout == "survived\n"
+}
+
 test test_accept_stream_decode_failure_is_a_checked_process_error { |ctx|
   let output = test.run_script(
     ctx,

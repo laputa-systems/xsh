@@ -660,14 +660,25 @@ impl ProcessProducer {
                 let error =
                     super::RunError::new("invalid-utf8", "streamed stdout was not valid UTF-8")
                         .with_span(self.span);
-                self.process.cancel();
-                self.finish(evaluator, Some(error.clone()));
+                let error = self.cancel_with_error(error);
+                let error = self.finish(evaluator, Some(error.clone())).unwrap_or(error);
                 Err(Self::checked_process_error(error, span))
             }
         }
     }
 
-    fn finish(&mut self, evaluator: &mut Evaluator, error: Option<super::RunError>) {
+    fn cancel_with_error(&mut self, error: super::RunError) -> super::RunError {
+        match self.process.cancel(Some(&error)) {
+            Ok(()) => error,
+            Err(cleanup) => crate::runtime::process::with_cleanup_error(error, cleanup),
+        }
+    }
+
+    fn finish(
+        &mut self,
+        evaluator: &mut Evaluator,
+        error: Option<super::RunError>,
+    ) -> Option<super::RunError> {
         if !self.finished {
             evaluator.live_process_streams -= 1;
         }
@@ -681,6 +692,7 @@ impl ProcessProducer {
             evaluator.event_stack.push(trace);
             evaluator.trace_process_run_end(self.span, &end);
         }
+        end.error
     }
 }
 
@@ -706,13 +718,18 @@ impl crate::runtime::value::ScriptStream for ProcessProducer {
     ) {
         (None, Vec::new(), None)
     }
-    fn cancel(&mut self, evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
-        self.process.cancel();
-        self.finish(
-            evaluator,
-            Some(super::RunError::new("canceled", "process stream canceled")),
-        );
-        Ok(())
+    fn cancel(&mut self, evaluator: &mut Evaluator, span: Span) -> Result<(), RuntimeError> {
+        let error = self.process.cancel(None).err().unwrap_or_else(|| {
+            super::RunError::new("canceled", "process stream canceled")
+        });
+        let failed = error.kind != "canceled";
+        let error = error.with_span(self.span);
+        let final_error = self.finish(evaluator, Some(error.clone())).unwrap_or(error);
+        if failed {
+            Err(Self::checked_process_error(final_error, span))
+        } else {
+            Ok(())
+        }
     }
     fn poll(
         &mut self,
@@ -723,8 +740,8 @@ impl crate::runtime::value::ScriptStream for ProcessProducer {
             return Ok(ScriptStreamStep::Finished);
         }
         if let Some(error) = self.completion_error.take() {
-            self.process.cancel();
-            self.finish(evaluator, Some(error.clone()));
+            let error = self.cancel_with_error(error);
+            let error = self.finish(evaluator, Some(error.clone())).unwrap_or(error);
             return Err(Self::checked_process_error(error, span));
         }
         loop {
@@ -753,7 +770,7 @@ impl crate::runtime::value::ScriptStream for ProcessProducer {
                     } else {
                         None
                     };
-                    self.finish(evaluator, None);
+                    let _ = self.finish(evaluator, None);
                     return Ok(final_row.unwrap_or(ScriptStreamStep::Finished));
                 }
                 Err(error) => {
@@ -764,8 +781,8 @@ impl crate::runtime::value::ScriptStream for ProcessProducer {
                         self.completion_error = Some(error);
                         return Ok(row);
                     }
-                    self.process.cancel();
-                    self.finish(evaluator, Some(error.clone()));
+                    let error = self.cancel_with_error(error);
+                    let error = self.finish(evaluator, Some(error.clone())).unwrap_or(error);
                     return Err(Self::checked_process_error(error, span));
                 }
             }
@@ -803,7 +820,10 @@ impl Evaluator {
                 return Ok(super::lowered_process_run_error(error.with_span(span)));
             }
         };
-        self.track_process_group(process.process_group());
+        self.track_process_group_with_identity(
+            process.process_group(),
+            process.timed_child_identity(),
+        );
         self.live_process_streams += 1;
         let state = ScriptStreamState::new(ProcessProducer {
             process,

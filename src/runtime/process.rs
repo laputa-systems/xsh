@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use crate::runtime::cgroup::{CgroupError, CgroupScope};
-use crate::runtime::value::RunError;
+use crate::runtime::value::{ErrorContext, RunError, Value};
 use rustc_hash::FxHashMap;
 use rustix::{event as revent, fs as rfs, io as rio, process as rprocess, stdio, termios};
 use std::cell::RefCell;
@@ -10,15 +10,16 @@ use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io;
 use std::num::NonZeroI32;
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdout, Command, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::time::{Duration, Instant};
 
 pub const CAPTURE_LIMIT: usize = 16 * 1024 * 1024;
@@ -26,6 +27,7 @@ const CANCELLATION_GRACE: Duration = Duration::from_millis(150);
 pub(crate) const WAIT_POLL: Duration = Duration::from_millis(10);
 static PRIMARY_SIGNAL: AtomicI32 = AtomicI32::new(0);
 static ESCALATION_SIGNAL: AtomicI32 = AtomicI32::new(0);
+static CHILD_STATUS_AUTHORITY: OnceLock<Mutex<ChildStatusAuthority>> = OnceLock::new();
 
 /// Whether SIGPIPE is ignored as far as scripts and the processes they start
 /// are concerned. The runtime itself always ignores SIGPIPE so that a closed
@@ -68,7 +70,7 @@ pub(crate) fn apply_sigpipe_disposition_to_child() {
 }
 
 pub fn install_cancellation_signal_handlers() -> io::Result<SignalHandlerGuard> {
-    restore_default_sigchld();
+    restore_default_sigchld()?;
     SignalHandlerGuard::install_many_preserving_ignored(&[libc::SIGINT, libc::SIGTERM])
 }
 
@@ -77,10 +79,239 @@ pub fn install_cancellation_signal_handlers() -> io::Result<SignalHandlerGuard> 
 /// it starts. A parent that ignores SIGCHLD (`trap '' CHLD`) is inherited
 /// across exec, so the runtime takes back the default action, which also
 /// keeps what its children inherit well defined.
-fn restore_default_sigchld() {
-    // SAFETY: SIG_DFL is a valid disposition and SIGCHLD may be changed.
+fn restore_default_sigchld() -> io::Result<()> {
+    let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+    action.sa_sigaction = libc::SIG_DFL;
     unsafe {
-        libc::signal(libc::SIGCHLD, libc::SIG_DFL);
+        libc::sigemptyset(&mut action.sa_mask);
+    }
+    set_sigchld_action(&action)
+}
+
+pub(crate) fn set_sigchld_action(action: &libc::sigaction) -> io::Result<()> {
+    change_process_signal_action(libc::SIGCHLD, action, None)
+}
+
+fn begin_timed_child_launch(
+) -> io::Result<MutexGuard<'static, ChildStatusAuthority>> {
+    let mut authority = child_status_authority();
+    authority.refresh_status_retention()?;
+    if !authority.retains_status {
+        return Err(io::Error::from_raw_os_error(libc::ECHILD));
+    }
+    Ok(authority)
+}
+
+fn signal_action_retains_child_status(action: &libc::sigaction) -> bool {
+    action.sa_sigaction != libc::SIG_IGN && action.sa_flags & libc::SA_NOCLDWAIT == 0
+}
+
+fn child_status_authority() -> MutexGuard<'static, ChildStatusAuthority> {
+    CHILD_STATUS_AUTHORITY
+        .get_or_init(|| Mutex::new(ChildStatusAuthority::new()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+pub(crate) fn wait_any_child_nohang(
+) -> io::Result<Option<(rprocess::Pid, rprocess::WaitStatus)>> {
+    let mut authority = child_status_authority();
+    authority.refresh_status_retention()?;
+    let waited = rprocess::wait(rprocess::WaitOptions::NOHANG).map_err(io::Error::from)?;
+    if let Some((pid, _)) = &waited {
+        authority.invalidate_pid(pid.as_raw_pid() as u32);
+    }
+    Ok(waited)
+}
+
+struct ChildStatusAuthority {
+    epoch: u64,
+    retains_status: bool,
+    identities: FxHashMap<u32, Weak<AtomicBool>>,
+}
+
+impl ChildStatusAuthority {
+    fn new() -> Self {
+        Self {
+            epoch: 0,
+            retains_status: true,
+            identities: FxHashMap::default(),
+        }
+    }
+
+    fn update_status_retention(&mut self, retains_status: bool) {
+        if self.retains_status && !retains_status {
+            self.epoch = self.epoch.wrapping_add(1);
+            for identity in self.identities.values().filter_map(Weak::upgrade) {
+                identity.store(false, Ordering::Release);
+            }
+            self.identities.clear();
+        }
+        self.retains_status = retains_status;
+    }
+
+    fn register(&mut self, pid: u32) -> TimedChildIdentity {
+        self.identities.retain(|_, identity| identity.strong_count() != 0);
+        self.invalidate_pid(pid);
+        let valid = Arc::new(AtomicBool::new(true));
+        self.identities.insert(pid, Arc::downgrade(&valid));
+        TimedChildIdentity {
+            pid,
+            epoch: self.epoch,
+            valid,
+        }
+    }
+
+    fn is_valid(&self, identity: &TimedChildIdentity) -> bool {
+        self.retains_status
+            && self.epoch == identity.epoch
+            && identity.valid.load(Ordering::Acquire)
+    }
+
+    fn refresh_status_retention(&mut self) -> io::Result<()> {
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        if unsafe { libc::sigaction(libc::SIGCHLD, std::ptr::null(), &mut action) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        self.update_status_retention(signal_action_retains_child_status(&action));
+        Ok(())
+    }
+
+    fn invalidate_pid(&mut self, pid: u32) {
+        if let Some(identity) = self.identities.remove(&pid).and_then(|value| value.upgrade()) {
+            identity.store(false, Ordering::Release);
+        }
+    }
+
+    fn invalidate_identity(&mut self, identity: &TimedChildIdentity) {
+        let matches = self
+            .identities
+            .get(&identity.pid)
+            .and_then(Weak::upgrade)
+            .is_some_and(|active| Arc::ptr_eq(&active, &identity.valid));
+        if matches {
+            self.identities.remove(&identity.pid);
+        }
+        identity.valid.store(false, Ordering::Release);
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct TimedChildIdentity {
+    pid: u32,
+    epoch: u64,
+    valid: Arc<AtomicBool>,
+}
+
+impl TimedChildIdentity {
+    fn signal_group_checked(&self, group: ProcessGroup, signal: i32) -> Result<bool, RunError> {
+        let mut authority = child_status_authority();
+        authority
+            .refresh_status_retention()
+            .map_err(map_wait_error)?;
+        if !authority.is_valid(self) {
+            return Ok(false);
+        }
+        signal_process_group_checked(group, signal)?;
+        Ok(true)
+    }
+
+    fn signal_process_checked(&self, signal: i32) -> Result<bool, RunError> {
+        let mut authority = child_status_authority();
+        authority
+            .refresh_status_retention()
+            .map_err(map_wait_error)?;
+        if !authority.is_valid(self) {
+            return Ok(false);
+        }
+        signal_process_checked(self.pid, signal)?;
+        Ok(true)
+    }
+
+    pub(crate) fn signal_group(&self, group: ProcessGroup, signal: i32) -> bool {
+        let mut authority = child_status_authority();
+        if authority.refresh_status_retention().is_err() {
+            return false;
+        }
+        if !authority.is_valid(self) {
+            return false;
+        }
+        group.signal(signal);
+        true
+    }
+
+    fn is_valid(&self) -> bool {
+        let mut authority = child_status_authority();
+        authority.refresh_status_retention().is_ok() && authority.is_valid(self)
+    }
+
+    fn observe(&self) -> Result<ChildIdentityObservation, RunError> {
+        let pid = rprocess::Pid::from_raw(self.pid as i32)
+            .ok_or_else(|| RunError::new("io", "child pid is out of range"))?;
+        let mut authority = child_status_authority();
+        authority
+            .refresh_status_retention()
+            .map_err(map_wait_error)?;
+        if !authority.is_valid(self) {
+            return Ok(ChildIdentityObservation::Lost);
+        }
+        loop {
+            match rprocess::waitid(
+                rprocess::WaitId::Pid(pid),
+                rprocess::WaitIdOptions::NOHANG
+                    | rprocess::WaitIdOptions::EXITED
+                    | rprocess::WaitIdOptions::NOWAIT,
+            ) {
+                Ok(Some(status)) => {
+                    return Ok(if status.exited() || status.killed() || status.dumped() {
+                        ChildIdentityObservation::Exited
+                    } else {
+                        ChildIdentityObservation::Running
+                    });
+                }
+                Ok(None) => return Ok(ChildIdentityObservation::Running),
+                Err(rustix::io::Errno::INTR) => {}
+                Err(rustix::io::Errno::CHILD) => {
+                    authority.invalidate_identity(self);
+                    return Ok(ChildIdentityObservation::Lost);
+                }
+                Err(error) => return Err(map_wait_error(io::Error::from(error))),
+            }
+        }
+    }
+
+    fn waitpid(
+        &self,
+        flags: rprocess::WaitOptions,
+    ) -> Result<Option<(rprocess::Pid, rprocess::WaitStatus)>, RunError> {
+        let pid = rprocess::Pid::from_raw(self.pid as i32)
+            .ok_or_else(|| RunError::new("io", "child pid is out of range"))?;
+        let mut authority = child_status_authority();
+        authority
+            .refresh_status_retention()
+            .map_err(map_wait_error)?;
+        if !authority.is_valid(self) {
+            return Err(map_wait_error(io::Error::from_raw_os_error(libc::ECHILD)));
+        }
+        loop {
+            match rprocess::waitpid(Some(pid), flags) {
+                Ok(None) => return Ok(None),
+                Ok(Some((waited, status))) if waited == pid => {
+                    let raw = status.as_raw();
+                    if wifexited(raw) || wifsignaled(raw) {
+                        authority.invalidate_identity(self);
+                    }
+                    return Ok(Some((waited, status)));
+                }
+                Ok(Some((_waited, _status))) => {}
+                Err(rustix::io::Errno::INTR) => {}
+                Err(rustix::io::Errno::CHILD) => {
+                    authority.invalidate_identity(self);
+                    return Err(map_wait_error(io::Error::from_raw_os_error(libc::ECHILD)));
+                }
+                Err(error) => return Err(map_wait_error(io::Error::from(error))),
+            }
+        }
     }
 }
 
@@ -696,6 +927,21 @@ impl InputDelivery {
         invocation: &ProcessInvocation,
         group: ProcessGroup,
     ) -> Result<Option<Self>, RunError> {
+        match Self::start_stream(child, invocation) {
+            Ok(input) => Ok(input),
+            Err(error) => {
+                group.kill();
+                let _ = child.kill();
+                let _ = child.wait();
+                Err(error)
+            }
+        }
+    }
+
+    fn start_stream(
+        child: &mut std::process::Child,
+        invocation: &ProcessInvocation,
+    ) -> Result<Option<Self>, RunError> {
         let Some(bytes) = invocation.redirections.iter().find_map(|item| match item {
             ProcessRedirection::Input { bytes } => Some(bytes.clone()),
             _ => None,
@@ -703,15 +949,9 @@ impl InputDelivery {
             return Ok(None);
         };
         let Some(writer) = child.stdin.take() else {
-            group.kill();
-            let _ = child.kill();
-            let _ = child.wait();
             return Err(RunError::new("io", "missing Bytes input pipe"));
         };
         if let Err(error) = set_nonblocking(writer.as_fd()) {
-            group.kill();
-            let _ = child.kill();
-            let _ = child.wait();
             return Err(error);
         }
         Ok(Some(Self {
@@ -1423,6 +1663,29 @@ pub fn spawn_managed(
     invocation: &ProcessInvocation,
     options: SpawnManagedOptions,
 ) -> Result<ManagedChild, RunError> {
+    spawn_managed_inner(invocation, options, false).map(|(child, _, _)| child)
+}
+
+fn spawn_stream_managed(
+    invocation: &ProcessInvocation,
+    options: SpawnManagedOptions,
+) -> Result<(
+    ManagedChild,
+    Option<ProcessTimeoutWatch>,
+    Option<TimedChildIdentity>,
+), RunError> {
+    spawn_managed_inner(invocation, options, true)
+}
+
+fn spawn_managed_inner(
+    invocation: &ProcessInvocation,
+    options: SpawnManagedOptions,
+    watch_stream_timeout: bool,
+) -> Result<(
+    ManagedChild,
+    Option<ProcessTimeoutWatch>,
+    Option<TimedChildIdentity>,
+), RunError> {
     if options.spawn.same_group && (options.spawn.detach || options.spawn.new_session) {
         return Err(RunError::new(
             "spawn-options",
@@ -1432,8 +1695,23 @@ pub fn spawn_managed(
     let executable = resolve_executable(invocation)?;
     let cgroup = CgroupScope::cpu_max(invocation.cpu_max, "xsh-spawn").map_err(map_cgroup_error)?;
     let mut command = command_with_managed_stdio(invocation, executable, options)?;
+    let timed_stream = watch_stream_timeout && invocation.timeout.is_some();
+    let mut launch_authority = if timed_stream {
+        Some(begin_timed_child_launch().map_err(map_wait_error)?)
+    } else {
+        None
+    };
+    let spawn_deadline = if watch_stream_timeout {
+        invocation.timeout.map(|timeout| Instant::now() + timeout)
+    } else {
+        None
+    };
     let mut child = command.spawn().map_err(map_spawn_error)?;
     let pid = child.id();
+    let timed_identity = launch_authority
+        .as_mut()
+        .map(|authority| authority.register(pid));
+    drop(launch_authority);
     let group = match options.group {
         ProcessGroupConfig::Join(pgid) => ProcessGroup::from_pgid(pgid),
         ProcessGroupConfig::NewRoot => ProcessGroup::from_child(&child),
@@ -1442,12 +1720,50 @@ pub fn spawn_managed(
     if options.group.parent_sets_group() {
         assign_child_to_process_group(&child, group);
     }
-    if let Err(error) = cgroup.assign_pid(i64::from(pid)) {
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(map_cgroup_error(error));
+    let mut timeout_watch = None;
+    if let (Some(deadline), Some(identity)) = (spawn_deadline, timed_identity.as_ref()) {
+        let stdout = child.stdout.as_ref().map(AsFd::as_fd);
+        match ProcessTimeoutWatch::start(group, stdout, deadline, identity.clone()) {
+            Ok(watch) => timeout_watch = Some(watch),
+            Err(error) => {
+                let mut no_watch = None;
+                let error = cleanup_stream_spawn_failure(
+                    error,
+                    &mut child,
+                    pid,
+                    group,
+                    timed_identity.as_ref(),
+                    &mut no_watch,
+                );
+                return Err(error);
+            }
+        }
     }
-    let input = InputDelivery::start(&mut child, invocation, group)?;
+    if let Err(error) = cgroup.assign_pid(i64::from(pid)) {
+        let error = cleanup_stream_spawn_failure(
+            map_cgroup_error(error),
+            &mut child,
+            pid,
+            group,
+            timed_identity.as_ref(),
+            &mut timeout_watch,
+        );
+        return Err(error);
+    }
+    let input = match InputDelivery::start_stream(&mut child, invocation) {
+        Ok(input) => input,
+        Err(error) => {
+            let error = cleanup_stream_spawn_failure(
+                error,
+                &mut child,
+                pid,
+                group,
+                timed_identity.as_ref(),
+                &mut timeout_watch,
+            );
+            return Err(error);
+        }
+    };
     let mut managed = ManagedChild {
         child,
         pid,
@@ -1456,7 +1772,11 @@ pub fn spawn_managed(
         argv: invocation.argv.clone(),
         cwd: invocation.cwd.clone(),
         env_overlay: invocation.env_overlay.clone(),
-        deadline: invocation.timeout.map(|timeout| Instant::now() + timeout),
+        deadline: if watch_stream_timeout {
+            spawn_deadline
+        } else {
+            invocation.timeout.map(|timeout| Instant::now() + timeout)
+        },
         detached: options.spawn.detach || options.spawn.new_session,
         consumed: false,
         cgroup,
@@ -1464,8 +1784,18 @@ pub fn spawn_managed(
         input_error: None,
         accepted_exit_codes: invocation.accepted_exit_codes,
     };
-    drive_managed_input(&mut managed)?;
-    Ok(managed)
+    if watch_stream_timeout {
+        if let Err(error) = drive_stream_managed_input(
+            &mut managed,
+            timed_identity.as_ref(),
+            &mut timeout_watch,
+        ) {
+            return Err(error);
+        }
+    } else {
+        drive_managed_input(&mut managed)?;
+    }
+    Ok((managed, timeout_watch, timed_identity))
 }
 
 pub(crate) fn drive_managed_input(child: &mut ManagedChild) -> Result<(), RunError> {
@@ -1483,11 +1813,682 @@ pub(crate) fn drive_managed_input(child: &mut ManagedChild) -> Result<(), RunErr
     Ok(())
 }
 
-/// An owned stdout cursor keeps input delivery, cancellation, and reaping with
-/// the same child while consumers suspend between pulls.
+fn drive_stream_managed_input(
+    child: &mut ManagedChild,
+    identity: Option<&TimedChildIdentity>,
+    timeout_watch: &mut Option<ProcessTimeoutWatch>,
+) -> Result<(), RunError> {
+    if let Some(error) = &child.input_error {
+        return Err(error.clone());
+    }
+    if let Err(error) = feed_input(&mut child.input) {
+        let outcome = stop_timeout_watch(timeout_watch);
+        let mut primary = outcome
+            .as_ref()
+            .and_then(timeout_outcome_error)
+            .map_or(error.clone(), |cleanup| with_cleanup_error(error.clone(), cleanup));
+        let mut identity_lost = outcome
+            .as_ref()
+            .is_some_and(timeout_outcome_identity_lost);
+        let group = child.process_group();
+        if let Err(cleanup) = terminate_stream_child(
+            &mut child.child,
+            child.pid,
+            group,
+            identity,
+            &mut child.consumed,
+            &mut identity_lost,
+        ) {
+            primary = with_cleanup_error(primary, cleanup);
+        }
+        child.input = None;
+        child.input_error = Some(error.clone());
+        return Err(primary);
+    }
+    Ok(())
+}
+
+fn timeout_outcome_error(outcome: &ProcessTimeoutOutcome) -> Option<RunError> {
+    match outcome {
+        ProcessTimeoutOutcome::TimedOut {
+            signal_error: Some(error),
+            ..
+        } => Some(error.clone()),
+        ProcessTimeoutOutcome::Failed(failure) => Some(failure.error.clone()),
+        ProcessTimeoutOutcome::Completed
+        | ProcessTimeoutOutcome::TimedOut {
+            signal_error: None,
+            ..
+        }
+        | ProcessTimeoutOutcome::Stopped => None,
+    }
+}
+
+fn timeout_outcome_identity_lost(outcome: &ProcessTimeoutOutcome) -> bool {
+    matches!(
+        outcome,
+        ProcessTimeoutOutcome::Failed(ProcessTimeoutFailure {
+            child_identity_lost: true,
+            ..
+        }) | ProcessTimeoutOutcome::TimedOut {
+            child_identity_lost: true,
+            ..
+        }
+    )
+}
+
+fn cleanup_stream_spawn_failure(
+    mut primary: RunError,
+    child: &mut std::process::Child,
+    pid: u32,
+    group: ProcessGroup,
+    identity: Option<&TimedChildIdentity>,
+    timeout_watch: &mut Option<ProcessTimeoutWatch>,
+) -> RunError {
+    let outcome = stop_timeout_watch(timeout_watch);
+    if let Some(outcome) = &outcome
+        && let Some(cleanup) = timeout_outcome_error(outcome)
+    {
+        primary = with_cleanup_error(primary, cleanup);
+    }
+    let mut consumed = false;
+    let mut identity_lost = outcome
+        .as_ref()
+        .is_some_and(timeout_outcome_identity_lost);
+    if let Err(cleanup) =
+        terminate_stream_child(
+            child,
+            pid,
+            group,
+            identity,
+            &mut consumed,
+            &mut identity_lost,
+        )
+    {
+        primary = with_cleanup_error(primary, cleanup);
+    }
+    primary
+}
+
+pub(crate) fn with_cleanup_error(mut primary: RunError, cleanup: RunError) -> RunError {
+    primary.contexts.push(ErrorContext {
+        kind: cleanup.kind.clone(),
+        message: Some(cleanup.message.clone()),
+        span: cleanup.span,
+    });
+    let previous_cause = primary.cause.take();
+    let cleanup = Value::RunError(Box::new(cleanup));
+    let cause = previous_cause.map_or(cleanup.clone(), |previous| {
+        append_error_cause(previous.as_value().clone(), cleanup)
+    });
+    let Value::RunError(primary) = Value::RunError(Box::new(primary))
+        .with_error_cause(cause)
+        .expect("process cleanup errors can be attached as causes")
+    else {
+        unreachable!("attaching a process cleanup cause preserves the outer error")
+    };
+    *primary
+}
+
+fn append_error_cause(mut value: Value, suffix: Value) -> Value {
+    let mut chain = Vec::new();
+    loop {
+        let cause = match &mut value {
+            Value::Error(error) => error.cause.take(),
+            Value::RunError(error) => error.cause.take(),
+            _ => None,
+        };
+        chain.push(value);
+        let Some(cause) = cause else {
+            break;
+        };
+        value = cause.as_value().clone();
+    }
+    let tail = chain.pop().expect("a process error has a cause chain");
+    chain.push(
+        tail.with_error_cause(suffix)
+            .expect("error causes contain only errors"),
+    );
+    let mut rebuilt = None;
+    for value in chain.into_iter().rev() {
+        rebuilt = Some(match rebuilt {
+            Some(cause) => value
+                .with_error_cause(cause)
+                .expect("error causes contain only errors"),
+            None => value,
+        });
+    }
+    rebuilt.expect("a cleanup error has a cause chain")
+}
+
+fn stop_timeout_watch(watch: &mut Option<ProcessTimeoutWatch>) -> Option<ProcessTimeoutOutcome> {
+    watch.take().map(|mut watch| watch.stop_and_join())
+}
+
+#[derive(Clone, Copy)]
+enum ProcessTimeoutControl {
+    Monitoring,
+    StopRequested,
+    Finished,
+}
+
+enum ProcessTimeoutOutcome {
+    Completed,
+    TimedOut {
+        signal_error: Option<RunError>,
+        child_identity_lost: bool,
+    },
+    Failed(ProcessTimeoutFailure),
+    Stopped,
+}
+
+enum ProcessStreamTimeout {
+    Watching(ProcessTimeoutWatch),
+    TimedOut(Option<RunError>),
+}
+
+struct ProcessTimeoutFailure {
+    error: RunError,
+    child_identity_lost: bool,
+}
+
+enum ChildIdentityObservation {
+    Running,
+    Exited,
+    Lost,
+}
+
+struct ProcessTimeoutWatch {
+    control: Arc<Mutex<ProcessTimeoutControl>>,
+    worker: Option<std::thread::JoinHandle<ProcessTimeoutOutcome>>,
+    identity: TimedChildIdentity,
+    group: ProcessGroup,
+}
+
+impl ProcessTimeoutWatch {
+    fn start(
+        group: ProcessGroup,
+        stdout: Option<BorrowedFd<'_>>,
+        deadline: Instant,
+        identity: TimedChildIdentity,
+    ) -> Result<Self, RunError> {
+        let stdout = stdout
+            .map(|stdout| rio::fcntl_dupfd_cloexec(stdout, 0))
+            .transpose()
+            .map_err(|error| RunError::new("io", error.to_string()))?;
+        let control = Arc::new(Mutex::new(ProcessTimeoutControl::Monitoring));
+        let worker_control = Arc::clone(&control);
+        let watch_identity = identity.clone();
+        let worker = std::thread::Builder::new()
+            .name("xsh-process-timeout".to_string())
+            .spawn(move || {
+                match catch_unwind(AssertUnwindSafe(|| {
+                    process_timeout_watch_loop(
+                        group,
+                        stdout,
+                        deadline,
+                        identity.clone(),
+                        Arc::clone(&worker_control),
+                    )
+                })) {
+                    Ok(outcome) => outcome,
+                    Err(_) => fail_process_timeout_watch(
+                        &identity,
+                        group,
+                        &worker_control,
+                        RunError::new("io", "process timeout monitor panicked"),
+                    ),
+                }
+            })
+            .map_err(map_wait_error)?;
+        Ok(Self {
+            control,
+            worker: Some(worker),
+            identity: watch_identity,
+            group,
+        })
+    }
+
+    fn is_finished(&self) -> bool {
+        self.worker.as_ref().is_some_and(std::thread::JoinHandle::is_finished)
+    }
+
+    fn request_stop(&self) {
+        let mut control = self
+            .control
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if matches!(*control, ProcessTimeoutControl::Monitoring) {
+            *control = ProcessTimeoutControl::StopRequested;
+        }
+    }
+
+    fn finish(&mut self) -> ProcessTimeoutOutcome {
+        let Some(worker) = self.worker.take() else {
+            return ProcessTimeoutOutcome::Failed(ProcessTimeoutFailure {
+                error: RunError::new("io", "process timeout monitor was already joined"),
+                child_identity_lost: false,
+            });
+        };
+        match worker.join() {
+            Ok(outcome) => outcome,
+            Err(_) => fail_process_timeout_watch(
+                &self.identity,
+                self.group,
+                &self.control,
+                RunError::new("io", "process timeout monitor panicked"),
+            ),
+        }
+    }
+
+    fn try_finish(&mut self) -> Option<ProcessTimeoutOutcome> {
+        if !self.is_finished() {
+            return None;
+        }
+        Some(self.finish())
+    }
+
+    fn stop_and_join(&mut self) -> ProcessTimeoutOutcome {
+        self.request_stop();
+        self.finish()
+    }
+}
+
+impl Drop for ProcessTimeoutWatch {
+    fn drop(&mut self) {
+        if self.worker.is_some() {
+            let _ = self.stop_and_join();
+        }
+    }
+}
+
+fn process_timeout_watch_loop(
+    group: ProcessGroup,
+    stdout: Option<OwnedFd>,
+    deadline: Instant,
+    identity: TimedChildIdentity,
+    control: Arc<Mutex<ProcessTimeoutControl>>,
+) -> ProcessTimeoutOutcome {
+    let mut stdout_closed = stdout.is_none();
+    loop {
+        if process_timeout_stop_requested(&control) {
+            return ProcessTimeoutOutcome::Stopped;
+        }
+        let child_exited = match identity.observe() {
+            Ok(ChildIdentityObservation::Exited) => true,
+            Ok(ChildIdentityObservation::Running) => false,
+            Ok(ChildIdentityObservation::Lost) => {
+                return finish_process_timeout_watch(
+                    &control,
+                    ProcessTimeoutOutcome::Failed(ProcessTimeoutFailure {
+                        error: RunError::new("io", "child process identity was lost"),
+                        child_identity_lost: true,
+                    }),
+                );
+            }
+            Err(error) => {
+                return fail_process_timeout_watch(&identity, group, &control, error);
+            }
+        };
+        if child_exited && stdout_closed && Instant::now() < deadline {
+            return finish_process_timeout_watch(&control, ProcessTimeoutOutcome::Completed);
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            if !claim_process_timeout_watch(&control) {
+                return ProcessTimeoutOutcome::Stopped;
+            }
+            let (signal_error, child_identity_lost) = match identity
+                .signal_group_checked(group, libc::SIGKILL)
+            {
+                Ok(true) => (None, false),
+                Ok(false) => (
+                    Some(RunError::new("io", "child process identity was lost")),
+                    true,
+                ),
+                Err(error) => match identity.signal_process_checked(libc::SIGKILL) {
+                    Ok(true) => (Some(error), false),
+                    Ok(false) => (
+                        Some(with_cleanup_error(
+                            error,
+                            RunError::new("io", "child process identity was lost"),
+                        )),
+                        true,
+                    ),
+                    Err(cleanup_error) => {
+                        (Some(with_cleanup_error(error, cleanup_error)), false)
+                    }
+                },
+            };
+            return ProcessTimeoutOutcome::TimedOut {
+                signal_error,
+                child_identity_lost,
+            };
+        }
+        let poll_for = remaining.min(WAIT_POLL);
+        if !stdout_closed {
+            let Some(stdout) = stdout.as_ref() else {
+                stdout_closed = true;
+                continue;
+            };
+            let timeout =
+                revent::Timespec::try_from(poll_for).expect("WAIT_POLL fits Timespec");
+            let mut pollfds = [revent::PollFd::new(stdout, revent::PollFlags::HUP)];
+            match revent::poll(&mut pollfds, Some(&timeout)) {
+                Ok(_) => {
+                    let events = pollfds[0].revents();
+                    if events.contains(revent::PollFlags::NVAL) {
+                        return fail_process_timeout_watch(
+                            &identity,
+                            group,
+                            &control,
+                            RunError::new(
+                                "io",
+                                "process stdout monitor received an invalid descriptor",
+                            ),
+                        );
+                    }
+                    if events.contains(revent::PollFlags::ERR) {
+                        return fail_process_timeout_watch(
+                            &identity,
+                            group,
+                            &control,
+                            RunError::new(
+                                "io",
+                                "process stdout monitor received a poll error",
+                            ),
+                        );
+                    }
+                    stdout_closed = events.contains(revent::PollFlags::HUP);
+                }
+                Err(rustix::io::Errno::INTR) => {}
+                Err(error) => {
+                    return fail_process_timeout_watch(
+                        &identity,
+                        group,
+                        &control,
+                        map_wait_error(io::Error::from(error)),
+                    );
+                }
+            }
+        } else {
+            std::thread::sleep(poll_for);
+        }
+    }
+}
+
+fn fail_process_timeout_watch(
+    identity: &TimedChildIdentity,
+    group: ProcessGroup,
+    control: &Mutex<ProcessTimeoutControl>,
+    mut error: RunError,
+) -> ProcessTimeoutOutcome {
+    let mut child_identity_lost = false;
+    match identity.signal_group_checked(group, libc::SIGKILL) {
+        Ok(true) => {}
+        Ok(false) => {
+            child_identity_lost = true;
+            error = with_cleanup_error(
+                error,
+                RunError::new("io", "child process identity was lost"),
+            );
+        }
+        Err(group_error) => match identity.signal_process_checked(libc::SIGKILL) {
+            Ok(true) => error = with_cleanup_error(error, group_error),
+            Ok(false) => {
+                child_identity_lost = true;
+                error = with_cleanup_error(
+                    with_cleanup_error(
+                        error,
+                        group_error,
+                    ),
+                    RunError::new("io", "child process identity was lost"),
+                );
+            }
+            Err(child_error) => {
+                error = with_cleanup_error(
+                    with_cleanup_error(error, group_error),
+                    child_error,
+                );
+            }
+        },
+    }
+    finish_process_timeout_watch(
+        control,
+        ProcessTimeoutOutcome::Failed(ProcessTimeoutFailure {
+            error,
+            child_identity_lost,
+        }),
+    )
+}
+
+fn process_timeout_stop_requested(control: &Mutex<ProcessTimeoutControl>) -> bool {
+    let mut control = control
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if matches!(*control, ProcessTimeoutControl::StopRequested) {
+        *control = ProcessTimeoutControl::Finished;
+        true
+    } else {
+        false
+    }
+}
+
+fn claim_process_timeout_watch(control: &Mutex<ProcessTimeoutControl>) -> bool {
+    let mut control = control
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    match *control {
+        ProcessTimeoutControl::Monitoring => {
+            *control = ProcessTimeoutControl::Finished;
+            true
+        }
+        ProcessTimeoutControl::StopRequested => {
+            *control = ProcessTimeoutControl::Finished;
+            false
+        }
+        ProcessTimeoutControl::Finished => false,
+    }
+}
+
+fn finish_process_timeout_watch(
+    control: &Mutex<ProcessTimeoutControl>,
+    outcome: ProcessTimeoutOutcome,
+) -> ProcessTimeoutOutcome {
+    if matches!(&outcome, ProcessTimeoutOutcome::Failed(_)) {
+        let mut control = control
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *control = ProcessTimeoutControl::Finished;
+        return outcome;
+    }
+    if claim_process_timeout_watch(control) {
+        outcome
+    } else {
+        ProcessTimeoutOutcome::Stopped
+    }
+}
+
+fn process_exited_without_reaping(pid: u32) -> Result<ChildIdentityObservation, RunError> {
+    let pid = rprocess::Pid::from_raw(pid as i32)
+        .ok_or_else(|| RunError::new("io", "child pid is out of range"))?;
+    loop {
+        match rprocess::waitid(
+            rprocess::WaitId::Pid(pid),
+            rprocess::WaitIdOptions::NOHANG
+                | rprocess::WaitIdOptions::EXITED
+                | rprocess::WaitIdOptions::NOWAIT,
+        ) {
+            Ok(Some(status)) => {
+                return Ok(if status.exited() || status.killed() || status.dumped() {
+                    ChildIdentityObservation::Exited
+                } else {
+                    ChildIdentityObservation::Running
+                });
+            }
+            Ok(None) => return Ok(ChildIdentityObservation::Running),
+            Err(rustix::io::Errno::INTR) => {}
+            Err(rustix::io::Errno::CHILD) => return Ok(ChildIdentityObservation::Lost),
+            Err(error) => return Err(map_wait_error(io::Error::from(error))),
+        }
+    }
+}
+
+fn signal_process_group_checked(group: ProcessGroup, signal: i32) -> Result<(), RunError> {
+    let pgid = rprocess::Pid::from_raw(group.pgid)
+        .ok_or_else(|| RunError::new("io", "process group id is invalid"))?;
+    let signal = signal_from_i32(signal)
+        .ok_or_else(|| RunError::new("io", "process signal is invalid"))?;
+    let result = if group.pid_only {
+        rprocess::kill_process(pgid, signal)
+    } else {
+        rprocess::kill_process_group(pgid, signal)
+    };
+    if let Err(error) = result {
+        let error = io::Error::from(error);
+        if !matches!(error.raw_os_error(), Some(libc::ESRCH)) {
+            return Err(map_wait_error(error));
+        }
+    }
+    Ok(())
+}
+
+fn signal_process_checked(pid: u32, signal: i32) -> Result<(), RunError> {
+    let pid = rprocess::Pid::from_raw(pid as i32)
+        .ok_or_else(|| RunError::new("io", "process id is invalid"))?;
+    let signal = signal_from_i32(signal)
+        .ok_or_else(|| RunError::new("io", "process signal is invalid"))?;
+    if let Err(error) = rprocess::kill_process(pid, signal) {
+        let error = io::Error::from(error);
+        if !matches!(error.raw_os_error(), Some(libc::ESRCH)) {
+            return Err(map_wait_error(error));
+        }
+    }
+    Ok(())
+}
+
+fn terminate_stream_child(
+    child: &mut std::process::Child,
+    pid: u32,
+    group: ProcessGroup,
+    identity: Option<&TimedChildIdentity>,
+    consumed: &mut bool,
+    identity_lost: &mut bool,
+) -> Result<Option<std::process::ExitStatus>, RunError> {
+    if *identity_lost {
+        *consumed = true;
+        return Ok(None);
+    }
+    let mut failure = None;
+    if !*consumed {
+        let observation = match identity {
+            Some(identity) => identity.observe(),
+            None => process_exited_without_reaping(pid),
+        };
+        match observation {
+            Ok(ChildIdentityObservation::Running | ChildIdentityObservation::Exited) => {}
+            Ok(ChildIdentityObservation::Lost) => {
+                *identity_lost = true;
+                *consumed = true;
+                return Err(map_wait_error(io::Error::from_raw_os_error(libc::ECHILD)));
+            }
+            Err(error) => {
+                failure = Some(error);
+            }
+        }
+    }
+    let group_signal = match identity {
+        Some(identity) => identity.signal_group_checked(group, libc::SIGKILL),
+        None => signal_process_group_checked(group, libc::SIGKILL).map(|()| true),
+    };
+    match group_signal {
+        Ok(true) => {}
+        Ok(false) => {
+            *identity_lost = true;
+            *consumed = true;
+            let error = map_wait_error(io::Error::from_raw_os_error(libc::ECHILD));
+            return Err(failure.map_or(error.clone(), |primary| {
+                with_cleanup_error(primary, error)
+            }));
+        }
+        Err(error) => {
+            failure = Some(match failure.take() {
+                Some(primary) => with_cleanup_error(primary, error),
+                None => error,
+            });
+        }
+    }
+    if failure.is_some() && !*consumed {
+        let direct_signal = match identity {
+            Some(identity) => identity.signal_process_checked(libc::SIGKILL),
+            None => signal_process_checked(pid, libc::SIGKILL).map(|()| true),
+        };
+        match direct_signal {
+            Ok(true) => {}
+            Ok(false) => {
+                *identity_lost = true;
+                *consumed = true;
+                let error = map_wait_error(io::Error::from_raw_os_error(libc::ECHILD));
+                return Err(failure.map_or(error.clone(), |primary| {
+                    with_cleanup_error(primary, error)
+                }));
+            }
+            Err(error) => {
+                failure = Some(match failure.take() {
+                    Some(primary) => with_cleanup_error(primary, error),
+                    None => error,
+                });
+            }
+        }
+    }
+    let status = if *consumed {
+        None
+    } else {
+        let waited = if let Some(identity) = identity {
+            loop {
+                match identity.waitpid(rprocess::WaitOptions::NOHANG) {
+                    Ok(Some((_, status)))
+                        if wifexited(status.as_raw()) || wifsignaled(status.as_raw()) =>
+                    {
+                        break Ok(<std::process::ExitStatus as ExitStatusExt>::from_raw(
+                            status.as_raw(),
+                        ));
+                    }
+                    Ok(Some(_)) | Ok(None) => std::thread::sleep(WAIT_POLL),
+                    Err(error) => break Err(error),
+                }
+            }
+        } else {
+            child.wait().map_err(map_wait_error)
+        };
+        match waited {
+            Ok(status) => {
+                *consumed = true;
+                Some(status)
+            }
+            Err(error) => {
+                *identity_lost = identity.is_some_and(|identity| !identity.is_valid());
+                *consumed = true;
+                failure = Some(match failure.take() {
+                    Some(primary) => with_cleanup_error(primary, error),
+                    None => error,
+                });
+                None
+            }
+        }
+    };
+    if let Some(error) = failure {
+        Err(error)
+    } else {
+        Ok(status)
+    }
+}
+
 pub(crate) struct ProcessStream {
     child: ManagedChild,
+    identity: Option<TimedChildIdentity>,
     stdout: Option<std::process::ChildStdout>,
+    timeout: Option<ProcessStreamTimeout>,
     status: Option<ProcessStatus>,
     cancellation: Option<Cancellation>,
     captured: usize,
@@ -1498,20 +2499,38 @@ impl ProcessStream {
     pub(crate) fn start(invocation: &ProcessInvocation) -> Result<Self, RunError> {
         let mut options = SpawnManagedOptions::inherited_process_group();
         options.stdout = ManagedStdio::Piped;
-        let mut child = spawn_managed(invocation, options)?;
+        let (mut child, mut timeout_watch, identity) = spawn_stream_managed(invocation, options)?;
         let stdout = child.child.stdout.take();
         if let Some(stdout) = &stdout
             && let Err(error) = set_nonblocking(stdout.as_fd())
         {
-            child.process_group().kill();
-            let _ = child.child.wait();
-            child.consumed = true;
-            return Err(error);
+            let outcome = stop_timeout_watch(&mut timeout_watch);
+            let mut primary = outcome
+                .as_ref()
+                .and_then(timeout_outcome_error)
+                .map_or(error.clone(), |cleanup| with_cleanup_error(error.clone(), cleanup));
+            let mut identity_lost = outcome
+                .as_ref()
+                .is_some_and(timeout_outcome_identity_lost);
+            let group = child.process_group();
+            if let Err(cleanup) = terminate_stream_child(
+                &mut child.child,
+                child.pid,
+                group,
+                identity.as_ref(),
+                &mut child.consumed,
+                &mut identity_lost,
+            ) {
+                primary = with_cleanup_error(primary, cleanup);
+            }
+            return Err(primary);
         }
         let foreground = ForegroundTerminal::take(child.process_group());
         Ok(Self {
             child,
+            identity,
             stdout,
+            timeout: timeout_watch.map(ProcessStreamTimeout::Watching),
             status: None,
             cancellation: None,
             captured: 0,
@@ -1524,7 +2543,15 @@ impl ProcessStream {
         policy: &mut dyn CancellationPolicy,
     ) -> Result<Option<Vec<u8>>, RunError> {
         loop {
-            drive_managed_input(&mut self.child)?;
+            self.update_timeout_watch()?;
+            if let Some(error) = &self.child.input_error {
+                return Err(error.clone());
+            }
+            if let Err(error) = feed_input(&mut self.child.input) {
+                self.child.input = None;
+                self.child.input_error = Some(error.clone());
+                return Err(error);
+            }
             if let Some(stdout) = &self.stdout {
                 let mut bytes = vec![0; 8192];
                 match rio::read(stdout.as_fd(), &mut bytes) {
@@ -1544,8 +2571,10 @@ impl ProcessStream {
                     Err(error) => return Err(RunError::new("io", error.to_string())),
                 }
             }
-            if self.status.is_none() {
-                match poll_managed(&mut self.child)? {
+            if self.status.is_none()
+                && !matches!(self.timeout.as_ref(), Some(ProcessStreamTimeout::Watching(_)))
+            {
+                match poll_stream_child(&mut self.child, self.identity.as_ref())? {
                     ChildWaitOutcome::Exited(status) | ChildWaitOutcome::Signaled(status) => {
                         self.child.consumed = true;
                         self.status = Some(status);
@@ -1557,6 +2586,9 @@ impl ProcessStream {
             if let Some(status) = &self.status
                 && self.stdout.is_none()
             {
+                if self.is_timed_out() {
+                    return Err(self.timeout_error(Some(status.clone())));
+                }
                 if let Some(cancellation) = &self.cancellation {
                     return Err(cancellation.error(Some(status.clone())));
                 }
@@ -1567,21 +2599,141 @@ impl ProcessStream {
                 }
                 return Ok(None);
             }
-            if timeout_elapsed(self.child.deadline) {
-                self.child.process_group().kill();
-                let status = self.child.child.wait().map_err(map_wait_error)?;
-                self.child.consumed = true;
-                let status = process_status(status, 0, &self.child.target, Some(self.child.pid));
-                self.status = Some(status.clone());
-                return Err(RunError::new("timeout", "process timed out").with_status(status));
+            if self.is_timed_out() {
+                self.stdout = None;
+                if self.identity.as_ref().is_some_and(|identity| !identity.is_valid()) {
+                    self.child.consumed = true;
+                    return Err(self.timeout_error(None));
+                }
+                return match self.reap_timeout_child() {
+                    Ok(status) => Err(self.timeout_error(Some(status))),
+                    Err(cleanup) => {
+                        self.child.consumed = true;
+                        Err(with_cleanup_error(self.timeout_error(None), cleanup))
+                    }
+                };
             }
-            check_cancellation(self.child.process_group(), &mut self.cancellation, policy);
+            check_cancellation_with_identity(
+                self.child.process_group(),
+                self.identity.as_ref(),
+                &mut self.cancellation,
+                policy,
+            );
             std::thread::sleep(WAIT_POLL);
         }
     }
 
+    fn update_timeout_watch(&mut self) -> Result<(), RunError> {
+        let outcome = match self.timeout.as_mut() {
+            Some(ProcessStreamTimeout::Watching(watch)) => watch.try_finish(),
+            Some(ProcessStreamTimeout::TimedOut(_)) | None => None,
+        };
+        let Some(outcome) = outcome else {
+            return Ok(());
+        };
+        match outcome {
+            ProcessTimeoutOutcome::Completed => {
+                self.timeout = None;
+                Ok(())
+            }
+            ProcessTimeoutOutcome::TimedOut { signal_error, .. } => {
+                self.timeout = Some(ProcessStreamTimeout::TimedOut(signal_error));
+                Ok(())
+            }
+            ProcessTimeoutOutcome::Failed(failure) => {
+                self.timeout = None;
+                Err(self.cleanup_after_timeout_watch_failure(
+                    failure.error,
+                    failure.child_identity_lost,
+                ))
+            }
+            ProcessTimeoutOutcome::Stopped => {
+                self.timeout = None;
+                Err(self.cleanup_after_timeout_watch_failure(RunError::new(
+                    "io",
+                    "process timeout monitor stopped before the stream ended",
+                ), false))
+            }
+        }
+    }
+
+    fn cleanup_after_timeout_watch_failure(
+        &mut self,
+        mut error: RunError,
+        mut identity_lost: bool,
+    ) -> RunError {
+        self.stdout = None;
+        let group = self.child.process_group();
+        match terminate_stream_child(
+            &mut self.child.child,
+            self.child.pid,
+            group,
+            self.identity.as_ref(),
+            &mut self.child.consumed,
+            &mut identity_lost,
+        ) {
+            Ok(Some(status)) => {
+                let status = process_status(status, 0, &self.child.target, Some(self.child.pid));
+                self.status = Some(status.clone());
+                error = error.with_status(status);
+            }
+            Ok(None) => {}
+            Err(cleanup_error) => error = with_cleanup_error(error, cleanup_error),
+        }
+        self.child.input = None;
+        error
+    }
+
+    fn reap_timeout_child(&mut self) -> Result<ProcessStatus, RunError> {
+        if let Some(status) = &self.status {
+            return Ok(status.clone());
+        }
+        let status = if let Some(identity) = &self.identity {
+            loop {
+                match identity.waitpid(rprocess::WaitOptions::NOHANG)? {
+                    Some((_, status)) if wifexited(status.as_raw()) || wifsignaled(status.as_raw()) => {
+                        break <std::process::ExitStatus as ExitStatusExt>::from_raw(
+                            status.as_raw(),
+                        );
+                    }
+                    Some(_) | None => std::thread::sleep(WAIT_POLL),
+                }
+            }
+        } else {
+            self.child.child.wait().map_err(map_wait_error)?
+        };
+        self.child.consumed = true;
+        let status = process_status(status, 0, &self.child.target, Some(self.child.pid));
+        self.status = Some(status.clone());
+        Ok(status)
+    }
+
+    fn timeout_error(&self, status: Option<ProcessStatus>) -> RunError {
+        let error = status.map_or_else(
+            || RunError::new("timeout", "process timed out"),
+            |status| RunError::new("timeout", "process timed out").with_status(status),
+        );
+        self.timeout_signal_error()
+            .map_or(error.clone(), |cleanup| with_cleanup_error(error, cleanup.clone()))
+    }
+
+    fn timeout_signal_error(&self) -> Option<&RunError> {
+        match self.timeout.as_ref() {
+            Some(ProcessStreamTimeout::TimedOut(error)) => error.as_ref(),
+            Some(ProcessStreamTimeout::Watching(_)) | None => None,
+        }
+    }
+
+    fn is_timed_out(&self) -> bool {
+        matches!(self.timeout.as_ref(), Some(ProcessStreamTimeout::TimedOut(_)))
+    }
+
     pub(crate) fn process_group(&self) -> ProcessGroup {
         self.child.process_group()
+    }
+
+    pub(crate) fn timed_child_identity(&self) -> Option<TimedChildIdentity> {
+        self.identity.clone()
     }
 
     pub(crate) fn end(&self, error: Option<RunError>) -> ProcessEnd {
@@ -1596,37 +2748,120 @@ impl ProcessStream {
         }
     }
 
-    pub(crate) fn cancel(&mut self) {
-        // Descendants can retain stdout after the direct child has been reaped.
-        // Closing that cursor must still terminate its owned process group.
-        if self.stdout.is_some() || !self.child.consumed {
-            self.child.process_group().kill();
-        }
-        if !self.child.consumed {
-            if let Ok(status) = self.child.child.wait() {
-                self.status = Some(process_status(
-                    status,
-                    0,
-                    &self.child.target,
-                    Some(self.child.pid),
-                ));
+    pub(crate) fn cancel(
+        &mut self,
+        reported_error: Option<&RunError>,
+    ) -> Result<(), RunError> {
+        let mut failure = None;
+        let mut identity_lost = false;
+        if let Some(timeout) = self.timeout.take() {
+            match timeout {
+                ProcessStreamTimeout::Watching(mut timeout_watch) => {
+                    match timeout_watch.stop_and_join() {
+                        ProcessTimeoutOutcome::TimedOut { signal_error, .. } => {
+                            self.timeout = Some(ProcessStreamTimeout::TimedOut(signal_error));
+                        }
+                        ProcessTimeoutOutcome::Failed(watch_failure) => {
+                            identity_lost = watch_failure.child_identity_lost;
+                            failure = Some(watch_failure.error);
+                        }
+                        ProcessTimeoutOutcome::Completed | ProcessTimeoutOutcome::Stopped => {}
+                    }
+                }
+                ProcessStreamTimeout::TimedOut(signal_error) => {
+                    self.timeout = Some(ProcessStreamTimeout::TimedOut(signal_error));
+                }
             }
-            self.child.consumed = true;
+        }
+        if self.stdout.is_some() || !self.child.consumed {
+            let group = self.child.process_group();
+            match terminate_stream_child(
+                &mut self.child.child,
+                self.child.pid,
+                group,
+                self.identity.as_ref(),
+                &mut self.child.consumed,
+                &mut identity_lost,
+            ) {
+                Ok(Some(status)) => {
+                    self.status = Some(process_status(
+                        status,
+                        0,
+                        &self.child.target,
+                        Some(self.child.pid),
+                    ));
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    failure = Some(match failure.take() {
+                        Some(primary) => with_cleanup_error(primary, error),
+                        None => error,
+                    });
+                }
+            }
         }
         self.stdout = None;
         self.child.input = None;
+        if self.is_timed_out()
+            && !reported_error.is_some_and(|error| error.kind == "timeout")
+        {
+            let timeout = self.timeout_error(self.status.clone());
+            failure = Some(match failure.take() {
+                Some(cleanup) => with_cleanup_error(timeout, cleanup),
+                None => timeout,
+            });
+        }
+        match failure {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 }
 
 impl Drop for ProcessStream {
     fn drop(&mut self) {
-        self.cancel();
+        let _ = self.cancel(None);
     }
 }
 
 #[allow(dead_code)]
 pub fn poll_managed(child: &mut ManagedChild) -> Result<ChildWaitOutcome, RunError> {
     waitpid_managed(child, WaitMode::Nonblocking)
+}
+
+fn poll_stream_child(
+    child: &mut ManagedChild,
+    identity: Option<&TimedChildIdentity>,
+) -> Result<ChildWaitOutcome, RunError> {
+    let Some(identity) = identity else {
+        return poll_managed(child);
+    };
+    if child.consumed {
+        return Ok(ChildWaitOutcome::StillRunning);
+    }
+    let flags = rprocess::WaitOptions::NOHANG | rprocess::WaitOptions::UNTRACED;
+    loop {
+        match identity.waitpid(flags)? {
+            None => return Ok(ChildWaitOutcome::StillRunning),
+            Some((waited, status)) if waited.as_raw_pid() as u32 == child.pid => {
+                let outcome = child_wait_outcome_from_raw(
+                    status.as_raw(),
+                    0,
+                    &child.target,
+                    Some(child.pid),
+                );
+                if matches!(
+                    outcome,
+                    ChildWaitOutcome::Exited(_) | ChildWaitOutcome::Signaled(_)
+                ) {
+                    child.consumed = true;
+                    child.input = None;
+                }
+                return Ok(outcome);
+            }
+            Some((_waited, _status)) => {}
+        }
+    }
 }
 
 pub fn wait_managed(
@@ -1809,8 +3044,12 @@ pub struct Cancellation {
 }
 
 impl Cancellation {
-    fn new(signal: i32, group: ProcessGroup) -> Self {
-        group.signal(signal);
+    fn new(
+        signal: i32,
+        group: ProcessGroup,
+        identity: Option<&TimedChildIdentity>,
+    ) -> Self {
+        signal_process_group_owned(group, signal, identity);
         Self {
             signal,
             started_at: Instant::now(),
@@ -1818,9 +3057,9 @@ impl Cancellation {
         }
     }
 
-    fn tick(&mut self, group: ProcessGroup) {
+    fn tick(&mut self, group: ProcessGroup, identity: Option<&TimedChildIdentity>) {
         if !self.killed && self.started_at.elapsed() >= CANCELLATION_GRACE {
-            group.kill();
+            signal_process_group_owned(group, libc::SIGKILL, identity);
             self.killed = true;
         }
     }
@@ -2032,15 +3271,24 @@ fn check_cancellation(
     cancellation: &mut Option<Cancellation>,
     policy: &mut dyn CancellationPolicy,
 ) {
+    check_cancellation_with_identity(group, None, cancellation, policy);
+}
+
+fn check_cancellation_with_identity(
+    group: ProcessGroup,
+    identity: Option<&TimedChildIdentity>,
+    cancellation: &mut Option<Cancellation>,
+    policy: &mut dyn CancellationPolicy,
+) {
     match policy.check_process_group(group) {
         CancellationDecision::Continue => {}
         CancellationDecision::Forward(signal) => {
             if cancellation.is_none() {
-                *cancellation = Some(Cancellation::new(signal, group));
+                *cancellation = Some(Cancellation::new(signal, group, identity));
             }
         }
         CancellationDecision::Escalate(signal) => {
-            group.kill();
+            signal_process_group_owned(group, libc::SIGKILL, identity);
             if cancellation.is_none() {
                 *cancellation = Some(Cancellation {
                     signal,
@@ -2053,7 +3301,21 @@ fn check_cancellation(
         }
     }
     if let Some(cancellation) = cancellation {
-        cancellation.tick(group);
+        cancellation.tick(group, identity);
+    }
+}
+
+fn signal_process_group_owned(
+    group: ProcessGroup,
+    signal: i32,
+    identity: Option<&TimedChildIdentity>,
+) -> bool {
+    match identity {
+        Some(identity) => identity.signal_group(group, signal),
+        None => {
+            group.signal(signal);
+            true
+        }
     }
 }
 
@@ -2142,18 +3404,35 @@ fn install_signal_handler(signal: i32, handler: usize) -> io::Result<libc::sigac
     let mut old: libc::sigaction = unsafe { std::mem::zeroed() };
     unsafe {
         libc::sigemptyset(&mut action.sa_mask);
-        if libc::sigaction(signal, &action, &mut old) == 0 {
-            Ok(old)
-        } else {
-            Err(io::Error::last_os_error())
-        }
     }
+    change_process_signal_action(signal, &action, Some(&mut old))?;
+    Ok(old)
 }
 
 fn restore_signal_handler(signal: i32, old: &libc::sigaction) {
-    unsafe {
-        let _ = libc::sigaction(signal, old, std::ptr::null_mut());
+    let _ = change_process_signal_action(signal, old, None);
+}
+
+fn change_process_signal_action(
+    signal: i32,
+    action: &libc::sigaction,
+    old: Option<&mut libc::sigaction>,
+) -> io::Result<()> {
+    let mut previous: libc::sigaction = unsafe { std::mem::zeroed() };
+    if signal == libc::SIGCHLD {
+        let mut authority = child_status_authority();
+        if unsafe { libc::sigaction(signal, action, &mut previous) } != 0 {
+            return Err(io::Error::last_os_error());
+        }
+        authority.update_status_retention(signal_action_retains_child_status(&previous));
+        authority.update_status_retention(signal_action_retains_child_status(action));
+    } else if unsafe { libc::sigaction(signal, action, &mut previous) } != 0 {
+        return Err(io::Error::last_os_error());
     }
+    if let Some(old) = old {
+        *old = previous;
+    }
+    Ok(())
 }
 
 fn reset_child_signal_handlers() {
@@ -2821,6 +4100,80 @@ mod tests {
                 signal: libc::SIGTSTP
             }
         );
+    }
+
+    #[test]
+    fn process_cleanup_errors_keep_their_order_and_nested_contexts() {
+        let Value::RunError(primary) = Value::RunError(Box::new(RunError::new("io", "read")))
+            .with_error_cause(Value::RunError(Box::new(RunError::new("spawn", "origin"))))
+            .unwrap()
+        else {
+            panic!("a process error remains a process error")
+        };
+        let group_failure = RunError::new("io", "group signal").with_context(ErrorContext {
+            kind: "group-kill".to_string(),
+            message: Some("process group signal failed".to_string()),
+            span: None,
+        });
+        let fallback_failure = RunError::new("io", "child signal").with_context(ErrorContext {
+            kind: "child-kill".to_string(),
+            message: Some("direct child signal failed".to_string()),
+            span: None,
+        });
+
+        let combined = with_cleanup_error(
+            with_cleanup_error(*primary, group_failure),
+            fallback_failure,
+        );
+        assert_eq!(combined.contexts.len(), 2);
+        let origin = combined.cause.as_ref().unwrap().as_value();
+        assert_eq!(origin.error_kind(), Some("spawn"));
+        let group_failure = origin.error_cause().unwrap().as_value();
+        assert_eq!(group_failure.error_kind(), Some("io"));
+        let Value::RunError(group_failure) = group_failure else {
+            panic!("group failure remains a process error")
+        };
+        assert_eq!(group_failure.message, "group signal");
+        assert_eq!(group_failure.contexts[0].kind, "group-kill");
+        let fallback_failure = group_failure.cause.as_ref().unwrap().as_value();
+        let Value::RunError(fallback_failure) = fallback_failure else {
+            panic!("fallback failure remains a process error")
+        };
+        assert_eq!(fallback_failure.message, "child signal");
+        assert_eq!(fallback_failure.contexts[0].kind, "child-kill");
+
+        assert_eq!(map_wait_error(io::Error::from_raw_os_error(libc::ECHILD)).variant_name(), "Io");
+        assert!(map_wait_error(io::Error::from_raw_os_error(libc::ECHILD))
+            .facets()
+            .iter()
+            .any(|facet| facet == "HostIo"));
+        assert_eq!(RunError::new("timeout", "deadline").variant_name(), "Timeout");
+    }
+
+    #[test]
+    fn process_timeout_stop_request_preserves_worker_failure() {
+        let control = Mutex::new(ProcessTimeoutControl::StopRequested);
+        let error = with_cleanup_error(
+            RunError::new("io", "monitor failed"),
+            RunError::new("io", "cleanup failed"),
+        );
+
+        let ProcessTimeoutOutcome::Failed(failure) = finish_process_timeout_watch(
+            &control,
+            ProcessTimeoutOutcome::Failed(ProcessTimeoutFailure {
+                error,
+                child_identity_lost: false,
+            }),
+        ) else {
+            panic!("a worker failure remains observable after a stop request")
+        };
+
+        assert_eq!(failure.error.message, "monitor failed");
+        let cleanup = failure.error.cause.as_ref().unwrap().as_value();
+        let Value::RunError(cleanup) = cleanup else {
+            panic!("the cleanup cause remains a process error")
+        };
+        assert_eq!(cleanup.message, "cleanup failed");
     }
 
     #[test]

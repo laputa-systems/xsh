@@ -4,7 +4,7 @@
 
 use super::{signal_info, signal_record, signal_table};
 use crate::modules::RuntimeOp;
-use crate::runtime::process::{set_sigpipe_ignored, sigpipe_ignored};
+use crate::runtime::process::{set_sigchld_action, set_sigpipe_ignored, sigpipe_ignored};
 use crate::runtime::value::{PathValue, RecordMap, RuntimeError, Value};
 use crate::source::Span;
 use rustix::process::{self as rprocess, Pid};
@@ -509,11 +509,17 @@ fn set_signal_action(args: &Args<'_>) -> Result<Value, RuntimeError> {
     action.sa_sigaction = handler;
     // SAFETY: `action` is fully initialised and the signal mask is emptied
     // before the call.
-    let status = unsafe {
+    unsafe {
         libc::sigemptyset(&mut action.sa_mask);
-        libc::sigaction(number, &action, std::ptr::null_mut())
+    }
+    let result = if number == libc::SIGCHLD {
+        set_sigchld_action(&action)
+    } else if unsafe { libc::sigaction(number, &action, std::ptr::null_mut()) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
     };
-    if status == 0 {
+    if result.is_ok() {
         if number == libc::SIGPIPE {
             set_sigpipe_ignored(handler == libc::SIG_IGN);
         }
@@ -521,7 +527,7 @@ fn set_signal_action(args: &Args<'_>) -> Result<Value, RuntimeError> {
     } else {
         Err(host_error(
             "process-set-signal-action",
-            io::Error::last_os_error(),
+            result.expect_err("a failed signal action retains its error"),
             args.span(),
         ))
     }

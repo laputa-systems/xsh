@@ -3828,6 +3828,13 @@ them. Its completion check (exit status, `--accept`, decoding) can fail after
 rows were consumed, and a consumer that stops early cancels and reaps the
 child.
 
+Timed `run.stream` needs the host to retain child exit status. Starting a timed
+stream while `SIGCHLD` is ignored or `SA_NOCLDWAIT` is set fails with `HostIo`
+before the child starts. Setting `SIGCHLD` to ignore or enabling `SA_NOCLDWAIT`
+while a timed stream is active invalidates its child identity, even if you later
+restore status collection. The stream reports `HostIo` when it next checks
+completion and does not signal or reap an unverified process ID.
+
 ### 11.6 Pipelines, redirections, and environment
 
 ```xsh

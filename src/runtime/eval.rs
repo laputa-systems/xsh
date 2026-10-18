@@ -11,6 +11,7 @@ use crate::runtime::process::{
     CancellationDecision, CancellationPolicy, ManagedChild, ProcessGroup, ProcessSegmentStatus,
     ProcessSegmentStatusKind, ProcessStatus, ProcessStatusKind, SignalHandlerGuard, cancel_managed,
     install_hook_signal_handler, path_bytes, release_to_reaper, signal_snapshot,
+    TimedChildIdentity,
 };
 use crate::runtime::signal::{
     HookSignal, hook_signal_from_number, normalize_hook_signal, signal_rejection_message,
@@ -591,10 +592,11 @@ struct DynamicFunction {
     kind: LoweredFunctionKind,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 struct ActiveProcessGroup {
     group: ProcessGroup,
     hook_owned: bool,
+    identity: Option<TimedChildIdentity>,
 }
 
 struct LiveProcessHandle {
@@ -3707,16 +3709,30 @@ impl Evaluator {
     }
 
     fn track_process_group(&mut self, group: ProcessGroup) {
+        self.track_process_group_with_identity(group, None);
+    }
+
+    fn track_process_group_with_identity(
+        &mut self,
+        group: ProcessGroup,
+        identity: Option<TimedChildIdentity>,
+    ) {
         let hook_owned = self.signal_state.hook_running;
-        if self
+        if let Some(active) = self
             .active_process_groups
-            .iter()
-            .any(|active| active.group == group && active.hook_owned == hook_owned)
+            .iter_mut()
+            .find(|active| active.group == group && active.hook_owned == hook_owned)
         {
+            if identity.is_some() {
+                active.identity = identity;
+            }
             return;
         }
-        self.active_process_groups
-            .push(ActiveProcessGroup { group, hook_owned });
+        self.active_process_groups.push(ActiveProcessGroup {
+            group,
+            hook_owned,
+            identity,
+        });
     }
 
     fn untrack_process_group(&mut self, group: ProcessGroup) {
@@ -3730,7 +3746,11 @@ impl Evaluator {
         }
         for active in &self.active_process_groups {
             if !active.hook_owned {
-                active.group.signal(primary.number);
+                if let Some(identity) = &active.identity {
+                    identity.signal_group(active.group, primary.number);
+                } else {
+                    active.group.signal(primary.number);
+                }
             }
         }
         self.signal_state.primary_forwarded = true;
@@ -3744,7 +3764,11 @@ impl Evaluator {
 
     fn kill_active_process_groups(&mut self) {
         for active in &self.active_process_groups {
-            active.group.kill();
+            if let Some(identity) = &active.identity {
+                identity.signal_group(active.group, libc::SIGKILL);
+            } else {
+                active.group.kill();
+            }
         }
     }
 

@@ -5,6 +5,7 @@ use crate::runtime::cgroup::{CgroupError, CgroupScope};
 use crate::runtime::process::{
     ProcessInvocation, ProcessRedirection, ProcessSegmentStatus, ProcessSegmentStatusKind,
     ProcessStatus, RedirectionStream, apply_redirections, resolve_executable, validate_input_sources,
+    set_sigchld_action, wait_any_child_nohang,
 };
 use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
@@ -822,11 +823,13 @@ fn install_signal_handler(signal: libc::c_int) -> io::Result<()> {
     action.sa_flags = 0;
     unsafe {
         libc::sigemptyset(&mut action.sa_mask);
-        if libc::sigaction(signal, &action, std::ptr::null_mut()) == 0 {
-            Ok(())
-        } else {
-            Err(io::Error::last_os_error())
-        }
+    }
+    if signal == libc::SIGCHLD {
+        set_sigchld_action(&action)
+    } else if unsafe { libc::sigaction(signal, &action, std::ptr::null_mut()) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
     }
 }
 
@@ -950,7 +953,7 @@ pub(crate) struct Pid1Shutdown {
 }
 
 fn wait_one_child_event(span: Span) -> Result<Option<ChildEvent>, RuntimeError> {
-    let Some((pid, status)) = (match rprocess::wait(rprocess::WaitOptions::NOHANG) {
+    let Some((pid, status)) = (match wait_any_child_nohang() {
         Ok(wait) => wait,
         Err(error) => {
             let error = io::Error::from(error);
