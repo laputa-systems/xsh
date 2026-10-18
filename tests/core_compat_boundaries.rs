@@ -302,9 +302,7 @@ fn test_stdin_is_socket() {
 }
 
 fn boundary_directory() -> tempfile::TempDir {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/core-compat-boundaries");
-    std::fs::create_dir_all(&root).unwrap();
-    tempfile::tempdir_in(root).unwrap()
+    tempfile::tempdir().unwrap()
 }
 
 // A clone shares the child's open file description, so reading the clone after
