@@ -1,14 +1,11 @@
-# XSH Design Notes
+# XSH design notes
 
-`docs/SPEC.md` §1 lists the properties the language guarantees. This file
-records the taste behind them: how new syntax is judged before it reaches the
-SPEC. It is not a contract; when it disagrees with the SPEC, the SPEC wins.
+[`SPEC.md`](SPEC.md) owns the language contract. This page records the reasons
+behind syntax choices. When this page disagrees with the SPEC, follow the SPEC.
 
-## Read like the sentence you would say
+## Choose forms readers can infer
 
-Prefer a keyword form that reads as plain English over a sigil, a method
-chain, or a configuration argument, when the English form is short and has
-one obvious meaning.
+Prefer a short keyword form when it has one obvious meaning.
 
 ```xsh
 return cached when cached != null
@@ -16,78 +13,47 @@ continue unless entry.kind == "file"
 guard ready else { return }
 ```
 
-`when`, `unless`, and `guard ... else` each read aloud the way the program
-behaves; `tempdir scratch at PATH { ... }` follows the same rule, though it
-is a core scope and not sugar.
-A reader who has never seen the form can guess it, and a reader who has can
-grep for it.
+A reader should be able to guess what the form does and search for it later.
+A sugar form must expand mechanically to existing forms with the same
+evaluation order, effects, and failures. A form that needs a new runtime
+concept is core.
 
-Such a form must desugar trivially: it has a short, local, mechanical
-expansion into forms the language already has, with the same evaluation
-order, effects, and failures. `return x when c` is `if c { return x }`;
-`repeat n times { ... }` is `for _ in range(n) { ... }`.
-If explaining a form needs a new runtime concept, it is not sugar and must
-justify itself as a feature. The implementation takes this literally: the
-parser builds a sugar form's expansion beside its operands, the checker and
-runtime see only the expansion, and a test compares it with the expansion the
-SPEC states (`docs/ARCHITECTURE.md`, "Adding a sugar form"). Postfix `when`
-and `unless`, `guard cond else`, `repeat`, and `fail` are built this way.
+`guard let NAME = EXPR else { ... }` stays core because it declares a binding
+in the enclosing block. `tempdir NAME at PATH { ... }` also stays core: it
+extends the existing `tempdir` scope and preserves its result behavior.
 
-`guard let NAME = EXPR else { ... }` reads like the others but is not sugar.
-It puts a binding in the enclosing block, and the only core statements that
-bind there are `let` and `var`, which have no failure branch; the nearest
-spelling, `let NAME = EXPR else { ... }`, would be `guard let` under another
-name. It stays a core form with its own checking and lowering.
+`with NAME = VALUE { ... }` is a core resource scope. It releases the resource
+on every exit and returns a failed release as the scope's `Result`. The
+language has no user-defined resource protocol; adding a trait system for this
+form would be broader than the feature needs.
 
-`tempdir NAME at PATH { ... }` began as sugar for a block and was moved out
-for another reason: a second spelling of an existing core form must behave as
-that form does. `tempdir NAME { ... }` already was a scope that returns a
-`Result`, usable as a value; a block that propagates its failures could not
-be that, so the fixed-path form became a second head of the same scope.
+## Give each concept one spelling
 
-`with NAME = VALUE { ... }`, the scope that releases a resource, is a core
-form for the first reason: releasing on every exit, and returning a failed
-release as the scope's `Result`, is not an expansion a reader could write
-out in a line. It reuses `with` instead of adding a word such as `using`:
-both forms bind names for one block, and the `else` that the grouping form
-always has is the whole difference, visible at the site and never decided by
-a type. The resource types are the ones the checker knows; a protocol that
-programs implement would need a trait system this one feature does not
-justify.
+Two spellings for one operation split the corpus and make code reviews debate
+style. When a better spelling replaces an old one, add a lint and an autofix
+when the rewrite preserves behavior.
 
-## One name per concept, no overloaded sigils
-
-Each concept gets one spelling. Two ways to say the same thing (`fs.write(p, x)`
-and `p.write(x)`) split the corpus and make code review argue about style.
-When a better spelling arrives, the old one gets a lint with an autofix rather
-than living on as an alternative.
-
-Sigils carry fixed meanings (`$`/`${...}` interpolate into command words, `@`
-splices argv, `?` propagates). New syntax must not reuse a sigil with a second
-meaning, and must not introduce delimiter noise (hash fences, doubled
-prefixes) to dodge a conflict. When no clean spelling exists, record the
+Keep sigils' meanings fixed: `$` and `${...}` interpolate command words, `@`
+splices argv, and `?` propagates a result. Do not reuse a sigil or add delimiter
+noise to work around a conflict. If no clear spelling exists, record the
 problem in `TODO.md` and wait.
 
-## Greppable beats clever
+## Make syntax searchable
 
-A reader must be able to find every use of a concept with one search. Name
-related forms so they share a searchable stem (`defer` and `errdefer`, not
-`defer` and `on failure`), keep stage and API names (`par-map`, `sort-by`)
-as the only spelling instead of adding English phrasings that hide them, and
-prefer a keyword or method name over punctuation or word order that a search
-cannot anchor on.
+Use a shared stem for related forms, such as `defer` and `errdefer`. Keep API
+and stage names such as `par-map` and `sort-by` as their only spellings. Prefer
+a keyword or method name over punctuation or word order that gives search no
+stable term.
 
-## Earn every form with the corpus
+## Require corpus evidence
 
-Changes start from repetition measured in real code: this repository and
-Laputa (`../laputa`), which is written entirely in XSH. A proposal states the
-before and after on a real site and roughly how many sites it removes. Forms
-that would save a handful of lines, or that only rename an existing idiom,
-are not worth a keyword.
+Measure repetition in this repository and Laputa before proposing syntax. Show
+a real before-and-after example and estimate how many sites the form removes.
+A form that saves only a few lines or renames an existing idiom does not earn a
+keyword.
 
-## Migration is part of the feature
+## Ship migration with syntax
 
-A new form ships with the lint that finds the old shape and, wherever the
-rewrite provably preserves behavior, an autofix. An autofix never changes
-behavior; when it cannot prove that, the lint explains the manual rewrite
-instead.
+A new form ships with a lint for the old shape. Add an autofix when the rewrite
+provably preserves behavior. Otherwise, have the lint explain the manual
+rewrite.

@@ -1,8 +1,11 @@
 # xsh-root
 
-`xsh-root` protects rooted file opens from CWE-22/path traversal on Linux 5.6+
-and macOS 26+. A `Root` holds a directory descriptor; every later open is
-kernel-confined beneath it.
+`Root` confines pathname resolution to a trusted directory. Linux 5.6 and
+later use `openat2` with `RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS`. macOS 26
+and later use `openat` with `O_RESOLVE_BENEATH`. Linux retries transient
+`EAGAIN` responses. Other platforms are unsupported.
+
+Open the trusted root before using paths from untrusted input:
 
 ```rust
 use xsh_root::Root;
@@ -12,44 +15,14 @@ let file = root.open_file("users/alice/avatar.png")?;
 # Ok::<(), std::io::Error>(())
 ```
 
-`../etc/passwd` and `escape-symlink/etc/passwd` cannot escape `root`. Relative
-symlinks that resolve inside the root work normally.
+`../etc/passwd` and symlinks that leave the root cannot escape it. Relative
+symlinks that resolve inside the root work. `open_readable_dir` requires a
+directory during the open, so a regular file or FIFO cannot be mistaken for a
+directory. `open_stat_target` opens a confined target for metadata queries
+without reading its contents. `open_with` applies its limited options; `create`
+creates or truncates for writing. `open_dir` creates a narrower `Root`.
 
-`Root::open_readable_dir` opens a directory for entry iteration under the same
-confined resolution rules. It requires a directory during the open, so an
-unexpected regular file or FIFO cannot be mistaken for an iterable directory.
-`Root::open_dir` instead creates another confined root descriptor; on Linux
-that descriptor is `O_PATH` and cannot be used to read entries.
-
-Linux calls `openat2` directly with `RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS`.
-macOS calls `openat` with `O_RESOLVE_BENEATH`. An existing file needs exactly
-one pathname-opening syscall after `Root::open`; there is no component walker
-and no older-kernel fallback.
-
-This is path-resolution protection, not a sandbox. It confines only opens made
-through `Root`; it cannot stop other code from using `std::fs`, and it does not
-restrict mount points or device nodes beneath the root or enforce higher-level
-authorization or mutation policy.
-
-To inspect the pathname-opening calls in the example, build it and trace it:
-
-```sh
-cargo build -p xsh-root --example open_bench
-```
-
-On Linux, trace it with:
-
-```sh
-strace -e trace=openat2 ./target/debug/examples/open_bench
-```
-
-On macOS, trace it with:
-
-```sh
-sudo dtruss -t openat ./target/debug/examples/open_bench
-```
-
-Each rooted label makes 100,000 `Root::open_file` calls, each through one
-pathname-opening syscall: `openat2` on Linux or `openat(...,
-O_RESOLVE_BENEATH, ...)` on macOS. The example compares path depths rather than
-making one sample call.
+`Root::open` establishes the trusted anchor through the ambient filesystem.
+Calls through `Root` protect pathname resolution only. They do not constrain
+other code that uses `std::fs`, mount points or special files below the root,
+or higher-level authorization and mutation policy.
