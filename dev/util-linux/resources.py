@@ -140,9 +140,10 @@ def _laputa_corpus_scope(root: Path) -> Iterator[Path]:
             after = source_identity(root)
             if after != before:
                 raise ValueError(f"Laputa corpus changed or became dirty during selection: {root}")
-        except BaseException:
+        except BaseException as error:
             if primary_error is None:
                 raise
+            primary_error.add_note(f"Laputa corpus post-selection validation failed: {error}")
 
 
 def _selected_laputa_corpus() -> Path:

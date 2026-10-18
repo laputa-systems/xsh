@@ -112,6 +112,16 @@ class LaputaCorpusScopeTests(unittest.TestCase):
                 (root / "untracked.xsh").write_text('print "dirty"\n')
                 raise RuntimeError("primary failure")
 
+    def test_scope_notes_postcheck_failure_on_the_original_exception(self):
+        primary = RuntimeError("primary failure")
+        with self.assertRaises(RuntimeError) as raised:
+            with laputa_corpus_scope() as root:
+                (root / "untracked.xsh").write_text('print "dirty"\n')
+                raise primary
+
+        self.assertIs(raised.exception, primary)
+        self.assertTrue(any("Laputa corpus changed or became dirty" in note for note in raised.exception.__notes__))
+
 
 class SourceIdentityTests(unittest.TestCase):
     def test_clean_identity_binds_commit_tree_and_worktree_status(self):
