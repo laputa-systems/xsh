@@ -483,6 +483,62 @@ test test_fs_root_and_children_preserve_non_utf8_name { |ctx|
   root.close()
 }
 
+test test_fs_root_atomic_publication_keeps_hardlinks_and_confines_symlinks { |ctx|
+  let root_dir = test.temp_dir(ctx, name: "fs-root-atomic-boundary")?
+  let outside = test.temp_dir(ctx, name: "fs-root-atomic-outside")?
+  let outside_link = fp"{outside}/retained"
+  let outside_secret = fp"{outside}/secret"
+  outside_secret.write("outside")
+
+  let root = fs.open_root(root_dir)?
+  defer root.close()
+  root.write(p"linked", "old")
+  fs.link(fp"{root_dir}/linked", outside_link)
+  let original = root.stat(p"linked")?
+  assert original.nlink == 2
+
+  root.write_atomic(p"linked", "new")
+  let published = root.stat(p"linked")?
+  let retained = fs.stat(outside_link)?
+  assert root.read_text(p"linked")? == "new"
+  assert outside_link.read_text()? == "old"
+  assert published.ino != original.ino
+  assert retained.ino == original.ino
+
+  root.symlink(target: outside_secret, path: p"escape")
+  test.error_kind(root.read_text(p"escape"), "fs-root-read")
+  root.write_atomic(p"escape", "contained")
+  assert root.stat(p"escape")?.kind == "file"
+  assert root.read_text(p"escape")? == "contained"
+  assert outside_secret.read_text()? == "outside"
+
+  root.mkdir(p"occupied")
+  root.write(p"occupied/data", "stable")
+  assert root.write_atomic(p"occupied", "replacement") is Err(_)
+  assert root.read_text(p"occupied/data")? == "stable"
+  assert root.children(p".")?.children == [p"escape", p"linked", p"occupied"]
+}
+
+test test_fs_root_atomic_permission_failure_keeps_existing_file { |ctx|
+  if applet.current_euid() == 0 {
+    test.skip("root bypasses directory write permissions")
+    return
+  }
+
+  let root_dir = test.temp_dir(ctx, name: "fs-root-atomic-permission")?
+  let root = fs.open_root(root_dir)?
+  defer root.close()
+  root.mkdir(p"restricted")
+  root.write(p"restricted/state", "old")
+  defer { root.chmod(p"restricted", 0o700) }
+  root.chmod(p"restricted", 0o500)
+
+  let result = root.write_atomic(p"restricted/state", "new")
+  root.chmod(p"restricted", 0o700)
+  assert result is Err(_)
+  assert root.read_text(p"restricted/state")? == "old"
+}
+
 test test_fs_root_symlink_preserves_default_parents_with_named_overwrite { |ctx|
   let root_dir = test.temp_dir(ctx, name: "root-symlink-overwrite-defaults")?
   let root = fs.open_root(root_dir)?
