@@ -445,19 +445,20 @@ test test_tail_follow_descriptor_reports_truncation_and_reads_from_start { |ctx|
   log.write(b"1\n2\n3\n4\n5\n")
   let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
-  let writer = spawn run sh -c "sleep 0.2; printf 'hi\\n' > \"$1\"" sh $log ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)
-
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-f", "-s.02", "log"]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
-  let status = process.run(plan)?
+  let follower = spawn plan?
+  defer follower.cancel(signal: "KILL", kill_after: 0ms)
+  assert tail_wait_for_bytes(stdout, b"1\n2\n3\n4\n5\n")?, stdout.read_text()?
+  log.write(b"hi\n")
+  assert tail_wait_for_bytes(stdout, b"1\n2\n3\n4\n5\nhi\n")?, stdout.read_text()?
+  let status = wait follower?
 
   assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
   assert stdout.read_text()? == "1\n2\n3\n4\n5\nhi\n"
   assert stderr.read_text()? == "tail: log: file truncated\n", stderr.read_text()?
-  assert (wait writer?).exited_with(0)
 }
 
 test test_tail_descriptor_retry_waits_for_a_missing_file { |ctx|
@@ -465,19 +466,22 @@ test test_tail_descriptor_retry_waits_for_a_missing_file { |ctx|
   let log = fp"{root}/log"
   let timeout = fp"{ctx.core_dir}/timeout.xsh"
   let tail = fp"{ctx.core_dir}/tail.xsh"
-  let writer = spawn run sh -c "sleep 0.2; printf 'one\\n' > \"$1\"; sleep 0.2; printf 'two\\n' >> \"$1\"" sh $log ?
-  defer writer.cancel(signal: "KILL", kill_after: 0ms)
-
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-f", "--retry", "-s.02", "log"]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
-  let status = process.run(plan)?
+  let follower = spawn plan?
+  defer follower.cancel(signal: "KILL", kill_after: 0ms)
+  assert tail_wait_for_bytes(stderr, b"tail: warning: --retry only effective for the initial open\ntail: cannot open 'log' for reading: No such file or directory\n")?, stderr.read_text()?
+  log.write(b"one\n")
+  assert tail_wait_for_bytes(stdout, b"one\n")?, stdout.read_text()?
+  tail_append(log, b"two\n")
+  assert tail_wait_for_bytes(stdout, b"one\ntwo\n")?, stdout.read_text()?
+  let status = wait follower?
 
   assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
   assert stdout.read_text()? == "one\ntwo\n"
   assert stderr.read_text()? == "tail: warning: --retry only effective for the initial open\ntail: cannot open 'log' for reading: No such file or directory\ntail: 'log' has appeared;  following new file\n", stderr.read_text()?
-  assert (wait writer?).exited_with(0)
 }
 
 test test_tail_descriptor_retry_gives_up_when_the_name_becomes_a_directory { |ctx|
@@ -604,19 +608,28 @@ test test_tail_follow_name_reports_removed_directory_once { |ctx|
     let file = fp"{dir}/f"
     dir.mkdir()
     file.write(b"foo\n")
-    let writer = spawn run sh -c "sleep 0.2; rm -f \"$1\"; sleep 0.2; rmdir \"$2\"; sleep 0.2; mkdir \"$2\"; printf 'bar\\n' > \"$1\"" sh $file $dir ?
-    defer writer.cancel(signal: "KILL", kill_after: 0ms)
-
     let stdout = fp"{root}/stdout"
     let stderr = fp"{root}/stderr"
     let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.5", ctx.xsh_bin.display(), tail.display(), "-F", "-s.02", "--max-unchanged-stats=1", "d/f", @case.extra]
     let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 4s)
-    let status = process.run(plan)?
+    let follower = spawn plan?
+    defer follower.cancel(signal: "KILL", kill_after: 0ms)
+    assert tail_wait_for_bytes(stdout, b"foo\n")?, stdout.read_text()?
+    file.remove()
+    let inaccessible = "tail: 'd/f' has become inaccessible: No such file or directory\n"
+    assert tail_wait_for_bytes(stderr, bytes.from_text(inaccessible))?, stderr.read_text()?
+    dir.remove()
+    if case.extra.is_empty() {
+      assert tail_wait_for_bytes(stderr, bytes.from_text(inaccessible + "tail: directory containing watched file was removed\ntail: inotify cannot be used, reverting to polling\n"))?, stderr.read_text()?
+    }
+    dir.mkdir()
+    file.write(b"bar\n")
+    assert tail_wait_for_bytes(stdout, b"foo\nbar\n")?, stdout.read_text()?
+    let status = wait follower?
 
     assert status.exit_code()? == 124, f"exit={status.exit_code()?} stderr={stderr.read_text()?}"
     assert stdout.read_text()? == "foo\nbar\n", case.name
     assert stderr.read_text()? == case.stderr, f"{case.name}: {stderr.read_text()?}"
-    assert (wait writer?).exited_with(0)
   }
 }
 

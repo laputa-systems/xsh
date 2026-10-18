@@ -48,7 +48,6 @@ proc read_exact(reader: Int, count: Int, deadline: Int) [process, net, error, fs
 }
 
 proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, time] {
-  let deadline = time.now() + (if short_read { 5000 } else { 100 })
   uu.mkfifo(s, "stream-input")
   uu.mkfifo(s, "stream-output")
   let reader = unix.open_fd(uu.at(s, "stream-output"), nonblock: true)?
@@ -58,9 +57,10 @@ proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, tim
   let plan = process.command_argv(p"/bin/sh", [p"sh", p"-c", r"""exec "$@" <stream-input >stream-output """ as Path, p"sh"].extend(words), s.root, {}, b"", uu.at(s, "stream-capture"), uu.at(s, "stream-errors"), timeout: 5s)
   let child = spawn plan?
   defer child.cancel(signal: "KILL", kill_after: 0ms)
+  let ready_deadline = time.now() + 5000
   var writer = null
   while writer == null {
-    assert time.now() < deadline, "tee did not open its input pipe"
+    assert time.now() < ready_deadline, "tee did not open its input pipe"
     match unix.open_fd(uu.at(s, "stream-input"), write: true, nonblock: true) {
       Ok(fd) => writer = fd,
       Err(failure) => { assert failure.errno == 6, failure.message; time.sleep(1ms) },
@@ -69,6 +69,11 @@ proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, tim
   let producer = writer ?? -1
   var producer_open = true
   defer { if producer_open { unix.close_fd(producer) } }
+  while ! uu.at(s, file).exists() {
+    assert time.now() < ready_deadline, "tee did not open its output file"
+    time.sleep(1ms)
+  }
+  let deadline = time.now() + (if short_read { 5000 } else { 100 })
   if short_read {
     assert unix.write_fd(producer, b"first\n")? == 6
     assert read_exact(reader, 6, deadline)? == b"first\n"
@@ -85,7 +90,10 @@ proc streaming(s: uu.Scene, short_read: Bool) [fs, process, net, env, error, tim
   } else {
     assert unix.write_fd(producer, b"a")? == 1
     assert read_exact(reader, 1, deadline)? == b"a"
-    time.sleep(1ms)
+    while uu.read(s, file)? != b"a" {
+      assert time.now() < deadline, "Nothing was received through output file"
+      time.sleep(1ms)
+    }
     assert uu.read(s, file)? == b"a"
     assert time.now() < deadline
   }
