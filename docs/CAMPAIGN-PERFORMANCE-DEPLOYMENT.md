@@ -72,7 +72,7 @@ evidence. Use the cleanup skill for completed worktrees and retain ambiguous wor
 | Allow `doas` for KVM access. | Owner direction during planning, 2026-10-17. Limit elevation to required device/container/VM operations using owned paths. Do not run arbitrary recipe code as host root. |
 | Allow one build of the existing Laputa host-tools image. | Owner answer, 2026-10-18. Its pinned Alpine base installs seven unversioned APK packages. Build only this exact image, save it in the isolated checkout, and use that saved image offline afterwards. This does not authorize other moving inputs. |
 | Retain the thirteen exact `lsipc` reference-crash exceptions. | Existing owner decision in the util-linux campaign. Independent XSH assertions remain behavior evidence and receive no exact-parity credit. |
-| Require Laputa world and Asterinas acceptance immediately after consolidation cleanup. | Owner direction, 2026-10-18. G6 follows G5 before further inference implementation or performance measurements. Laputa must remain functional. Use isolated checkouts of the sibling's named source, the accepted XSH candidate, the existing world recipe set and existing Asterinas backend. |
+| Start Laputa world and Asterinas acceptance in parallel with consolidation. | Latest owner direction, 2026-10-18, supersedes waiting for cleanup before starting G6. Preserve exclusive G1 timing windows. Laputa must remain functional. Use an isolated checkout of the sibling's named source, the frozen XSH candidate, the existing world recipe set and existing Asterinas backend. Final G6 acceptance requires that same XSH source to qualify under G1. |
 
 ### Prescribed decisions
 
@@ -251,7 +251,7 @@ suite lock. Width limits are ceilings, never a requirement to saturate timing ru
 | G3: Audit isolated inference and freeze the practical cohort | M; G0 | Read-only implementation audit plus `dev/performance/` corpus subdirectory and inference evidence docs; tooling owner assigns disjoint files first | Produce a minimal reviewed capability dependency list, source diff, original/reduced cohort, and retained-site classes. No whole-history merge. Pin the actual implementation source behind the accepted evidence. |
 | G4: Prove disposable Laputa inputs | M; G0 | Laputa foundation lane; isolated checkout's local test fixture adapter and owned output roots | Run synthetic PM controls, verify exact candidate-XSH injection, prove network-disabled execution and output confinement, inspect existing profile input closure and KVM path. No guest or recipe is credited by a host-only fixture. |
 | G5: Retire consolidation infrastructure | M; G1 | Tooling owner; `dev/consolidation/`, `dev/performance/`, `dev/util-linux/`, testing and baseline docs | Complete XSH-19. Trace current callers, retain reusable checks under ordinary developer commands, and remove obsolete campaign adapters, duplicate entry points and historical-pin dependencies. Preserve required acceptance behavior and prove replacement commands reject invalid inputs before deleting their predecessors. |
-| G6: Qualify Laputa world and Asterinas | L; G5 and G4 | Laputa acceptance lane; isolated sibling-source checkout, existing world and Asterinas owners, pinned fork for demonstrated kernel defects | Run the full existing x86-64 world build with the accepted XSH candidate, prove root functionality and unchanged rebuild reuse, then require the actual Asterinas smoke and full guest acceptance. Resolve failures at their owning boundary. No mock, filtered package subset, stale compiler pin or host-only proof supplies acceptance. |
+| G6: Qualify Laputa world and Asterinas | L; G4 to start, G1 for final source qualification | Laputa acceptance lane; isolated sibling-source checkout, existing world and Asterinas owners, pinned fork for demonstrated kernel defects | Start in parallel with consolidation. Run the full existing x86-64 world build with the frozen XSH candidate, prove root functionality and unchanged rebuild reuse, then require the actual Asterinas smoke and full guest acceptance. Resolve failures at their owning boundary. No mock, filtered package subset, stale compiler pin or host-only proof supplies acceptance. |
 
 At G1 completion, publish `docs/PERFORMANCE-BASELINE.md` with the accepted source,
 product locations, platform, limitations, and gate commands. Update that same page
@@ -259,7 +259,10 @@ after inference integration and final close. Keep the accepted code source expli
 when the documentation commit differs. Do not wait until campaign end to provide
 the everyday baseline reference.
 
-Run G5 immediately after G1, then G6 before I1 implementation and M1 measurements.
+Run G5 immediately after G1. Start G6 in parallel with consolidation and complete
+it before I1 implementation and M1 measurements. During G1 timing windows,
+G6 may prepare its isolated source, pins and lightweight checks. Schedule G6
+builds and VM execution outside those exclusive windows.
 This is infrastructure cleanup, separate from deleting disposable worktrees and
 build products. Keep checks required by the remaining campaign until ordinary
 commands own them. Archive historical evidence outside the everyday command path.
@@ -269,10 +272,11 @@ later in this campaign.
 
 At G6 launch, name a clean Laputa source from `../laputa` and test it in an
 isolated checkout. Keep the normal checkout and its shared artifact store intact.
-Bind the accepted XSH source and products into the host tools, seed and package
+Bind the frozen XSH source and products into the host tools, seed and package
 build. Asterinas currently uses its own XSH commit pin. Update that isolated pin
-and its existing source-cache selection to the same accepted local revision.
+and its existing source-cache selection to the same frozen local revision.
 An older locked XSH build cannot qualify the current candidate.
+If G1 requires a different source, refresh the affected G6 products and results.
 
 Use `make plan` and `make build ARCH=x86_64` without `PKGS` or `STOP` to cover the
 existing world. Fetch only the frozen plan's pinned missing inputs, then execute
