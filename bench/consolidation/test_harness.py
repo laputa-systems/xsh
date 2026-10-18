@@ -152,6 +152,39 @@ class HarnessTests(unittest.TestCase):
         self.assertEqual(base64.b64decode(observation["stdout_base64"]), b"ready\n")
         self.assertFalse(equivalent(observation, b"ready\n"))
 
+    def test_group_cleanup_keeps_completed_leader_unreaped_until_kill(self):
+        real_killpg = os.killpg
+        leaders = []
+        def checked_killpg(pid, signum):
+            observed = os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
+            self.assertIsNotNone(observed)
+            self.assertEqual(observed.si_pid, pid)
+            leaders.append(pid)
+            return real_killpg(pid, signum)
+        with patch("run.os.killpg", side_effect=checked_killpg):
+            observation = invoke([sys.executable, "-c", "print('ready')"], self.root, {}, 5, useful_prefix=b"ready\n")
+        self.assertTrue(equivalent(observation, b"ready\n"))
+        self.assertEqual(len(leaders), 1)
+        with self.assertRaises(ChildProcessError):
+            os.waitid(os.P_PID, leaders[0], os.WEXITED | os.WNOWAIT | os.WNOHANG)
+
+    def test_cancellation_during_spawn_tracks_then_reaps_the_owned_child(self):
+        real_popen = subprocess.Popen
+        children = []
+        def spawn_then_cancel(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            children.append(process)
+            os.kill(os.getpid(), signal.SIGTERM)
+            return process
+        with patch("run.subprocess.Popen", side_effect=spawn_then_cancel):
+            with self.assertRaises(SystemExit) as cancelled:
+                invoke([sys.executable, "-c", "import signal; signal.pause()"], self.root, {}, 5)
+        self.assertEqual(cancelled.exception.code, 143)
+        self.assertEqual(len(children), 1)
+        self.assertEqual(children[0].returncode, -signal.SIGKILL)
+        with self.assertRaises(ChildProcessError):
+            os.waitid(os.P_PID, children[0].pid, os.WEXITED | os.WNOWAIT | os.WNOHANG)
+
     def test_termination_signal_cleans_and_reaps_the_owned_child(self):
         work = self.root / "work"
         work.mkdir()

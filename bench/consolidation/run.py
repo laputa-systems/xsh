@@ -103,19 +103,20 @@ def changes(before, after):
 def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, clock_ns=time.perf_counter_ns):
     if useful_prefix is not None and (not isinstance(useful_prefix, bytes) or not useful_prefix):
         raise ValueError("useful output prefix must be nonempty bytes")
+    if not hasattr(os, "pidfd_open"):
+        raise ValueError("hostpipe sampling requires Linux pidfd ownership")
     before = snapshot(cwd)
     started = clock_ns() if measured else None
+    spawning = True
+    pending_signal = None
     def cancel(signum, _frame):
+        nonlocal pending_signal
+        if spawning:
+            pending_signal = signum
+            return
         if signum == signal.SIGINT:
             raise KeyboardInterrupt
         raise SystemExit(128 + signum)
-    previous_signals = {signum: signal.signal(signum, cancel) for signum in (signal.SIGINT, signal.SIGTERM)}
-    try:
-        process = subprocess.Popen(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-    except BaseException:
-        for signum, handler in previous_signals.items():
-            signal.signal(signum, handler)
-        raise
     deadline = time.monotonic() + timeout
     timed_out = False
     stdout, stderr = bytearray(), bytearray()
@@ -123,8 +124,21 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
     useful_observed = False
     primary = None
     finished = None
+    pidfd = None
+    previous_signals = {signum: signal.signal(signum, cancel) for signum in (signal.SIGINT, signal.SIGTERM)}
     try:
+        process = subprocess.Popen(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    except BaseException:
+        for signum, handler in previous_signals.items():
+            signal.signal(signum, handler)
+        raise
+    try:
+        spawning = False
+        if pending_signal is not None:
+            cancel(pending_signal, None)
+        pidfd = os.pidfd_open(process.pid)
         with selectors.DefaultSelector() as selector:
+            selector.register(pidfd, selectors.EVENT_READ, None)
             selector.register(process.stdout, selectors.EVENT_READ, stdout)
             selector.register(process.stderr, selectors.EVENT_READ, stderr)
             while selector.get_map():
@@ -133,6 +147,9 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
                     timed_out = True
                     break
                 for key, _ in selector.select(remaining):
+                    if key.data is None:
+                        selector.unregister(key.fileobj)
+                        continue
                     chunk = os.read(key.fd, 65536)
                     if not chunk:
                         selector.unregister(key.fileobj)
@@ -142,11 +159,6 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
                         useful_observed = True
                         if measured:
                             first_useful = clock_ns() - started
-            if not timed_out:
-                try:
-                    process.wait(timeout=max(0, deadline - time.monotonic()))
-                except subprocess.TimeoutExpired:
-                    timed_out = True
         finished = clock_ns() if measured else None
     except BaseException as error:
         primary = error
@@ -169,6 +181,8 @@ def invoke(argv, cwd, environment, timeout, measured=False, useful_prefix=None, 
     finally:
         process.stdout.close()
         process.stderr.close()
+        if pidfd is not None:
+            os.close(pidfd)
         for signum, handler in previous_signals.items():
             signal.signal(signum, handler)
     if primary is not None:

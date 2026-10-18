@@ -112,7 +112,9 @@ expected stdout line observed on the host pipe. It is not first-byte latency.
 The completion interval ends after process exit and full stdout/stderr capture.
 Process-group cleanup and scratch comparison follow that interval.
 
-The sampler drains both output pipes concurrently. Its deadline includes pipe
+The Linux sampler uses a pidfd and drains both output pipes concurrently.
+It retains the waitable leader until owned-group cleanup, then reaps it.
+Cancellation during process creation is deferred until the handle is tracked. Its deadline includes pipe
 holders that outlive the initial child. Timeout kills the owned process group
 and reaps the initial child. A pipe holder that escapes the group makes cleanup
 fail loudly. SIGINT and SIGTERM clean up the owned group before cancellation
