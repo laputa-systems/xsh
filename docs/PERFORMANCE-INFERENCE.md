@@ -133,15 +133,44 @@ semantic restriction, or a specific inference relationship. Keep those rows
 pending source-level witnesses rather than assigning a cause from the code
 alone.
 
-All 202 effect clauses also remain pending joint proof. The source lint found
-142 clauses individually redundant when each one is removed in isolation;
-the other 60 lack that individual equivalence result. `src/sema/check/infer_effects.rs`
-models declared callees with contract edges, so an isolated proof leaves other
-declared contracts fixed and cannot establish equivalence after removing a
-mutually supporting set. No declaration/call-cycle analysis or simultaneous
-deletion proof covers these 202 sites. Retain all of them, including the 142
-individual results, until that relationship is checked. The exact source list
-is `individual-effects-sites.tsv` at the 1,040 checkpoint.
+All 202 effect clauses remain pending joint proof. The accepted source lint
+records individual equality and rewrite-equivalence results for 142 clauses;
+the other 60 have no retained per-site effect fact or unknown-call chain. The
+60 rows group as 42 in `dev/system_report_check.xsh` (38 `compare_live_*`
+procedures and four helpers), ten across Laputa's `pm/` modules, and eight in
+`core/wc.xsh`, `core/lib/system_report_live.xsh`, `core/lib/textio_a1.xsh`,
+`core/lib/text_a2.xsh`, and `dev/stage.xsh`. These source groups show host
+operations and `Result` handling, but do not establish whether the missing
+proof reflects an intentional wider caller bound, an unknown summary, or an
+inference relationship. For example, `compare_live_identity` at line 21766
+uses filesystem operations, `time.now`, `process.run`, and propagated errors;
+`pm/plan.xsh`'s `require_supported_target` constructs and returns `Err` without
+`?`, so its `[error]` clause cannot be called required from the body alone.
+Neither example proves intent or a checker defect.
+
+The effect-graph behavior described here is from the accepted implementation
+source commit `0fe1469d1808b5f963bd841165af6c10f2c3e93b` (tree
+`79fdb956ee01e3bf4cced9b85ff109bcb8b7d662`), not the current master source
+view. Its `src/sema/check/infer_effects.rs` records resolved calls as edges;
+edges to explicitly declared callees keep reading those clauses. The
+redundancy proof unclauses one declaration at a time, and its own-contract
+traversal stops at other declared clauses. This cannot prove a joint deletion
+through mutually supporting clauses, but the checkpoint does not establish
+that such a cycle exists. The existing recursive-effect test covers an
+inferred `even`/`odd` fixed point, not simultaneous removal of explicit
+contracts.
+
+Opaque `Proc.call` and `Pure.call` are assigned unknown effect contracts in that
+source view. A lexical scan of the 22 frozen clause-bearing files found no
+`.call(` use, so that dynamic-call restriction is not supported as a
+cohort-wide explanation. Callable schemes carry inferred-effect metadata, but
+no retained output connects the 60 cases to scheme publication or a recursive
+generic boundary. Keep all 202 clauses and the 2,190-site internal denominator;
+the 142 single-clause results earn no joint-removal credit. The next evidence
+needed is per-site effect facts and resolved call edges for the 60, followed by
+a joint solve only for source-confirmed dependency components. The exact list
+of the 142 lint findings is at `15243e97` in
+`dev/consolidation/evidence/typing-corpus-host-obligations/individual-effects-sites.tsv`.
 
 The accounting is 910 semantic restrictions/selections (758 Proc contracts,
 149 empty Maps, site 3598, and the two ambiguous `replace` receivers), one
