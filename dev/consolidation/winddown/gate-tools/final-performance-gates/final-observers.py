@@ -897,7 +897,8 @@ def lint_command(
     resources_only: bool = False,
 ) -> list[str]:
     scratch_path = owned_scratch_directory(scratch_dir, output_dir.parent, tree)
-    observer = CAPTURE_HELPER_CONTAINER
+    observer = str(tree / CAPTURE_HELPER_RELATIVE)
+    common_dir = (ROOT / ".git").resolve(strict=True)
     cidfile = output_dir / "container.cid"
     resource_file = output_dir / "container-resources.json"
     resource_in_container = "/observer/container-resources.json"
@@ -912,11 +913,12 @@ def lint_command(
         "--memory", MEMORY_LIMIT,
         "--memory-swap", MEMORY_LIMIT,
         "--network", "none",
-        "-v", f"{tree}:/work:ro",
+        "-v", f"{tree}:{tree}:ro",
+        "-v", f"{common_dir}:{common_dir}:ro",
         "-v", f"{profile_dir}:/release:ro",
         "-v", f"{output_dir}:/observer:rw",
         "-v", f"{scratch_path}:/t:rw",
-        "-w", "/work",
+        "-w", str(tree),
         "-e", "LC_ALL=C",
         "-e", "TZ=UTC",
         "-e", "TMPDIR=/t",

@@ -461,6 +461,7 @@ def assert_gate_target_cli_forwarding() -> None:
 
 def assert_observer_scratch_bindings(scratch_dir: Path) -> None:
     repo = scratch_dir.parents[4]
+    (repo / ".git").mkdir()
     output = scratch_dir.parent
     batch_stage = output / "canonical-gate-batch"
     lint_stage = output / "isolated-repository-lint"
@@ -517,16 +518,17 @@ def assert_observer_scratch_bindings(scratch_dir: Path) -> None:
             )
             image_at = lint.index(observer.NATIVE_IMAGE_ID)
             assert lint[image_at + 1:] == [
-                "/usr/bin/python3", observer.CAPTURE_HELPER_CONTAINER,
+                "/usr/bin/python3", str(repo / observer.CAPTURE_HELPER_RELATIVE),
                 *( ["--resources-only"] if resources_only else [] ),
                 "/observer/container-resources.json", "--", "/release/xsht", "lint",
             ]
             assert "--tmpfs" not in lint
             volumes = [lint[index + 1] for index, value in enumerate(lint[:-1]) if value == "-v"]
             assert volumes == [
-                f"{repo}:/work:ro", "/release:/release:ro",
+                f"{repo}:{repo}:ro", f"{repo / '.git'}:{repo / '.git'}:ro", "/release:/release:ro",
                 f"{lint_stage}:/observer:rw", f"{scratch_dir}:/t:rw",
             ]
+            assert lint[lint.index("-w") + 1] == str(repo)
             assert [value for value in lint if value.startswith("TMPDIR=")] == ["TMPDIR=/t"]
 
     symlink_run = output.parent / "symlink-run"
