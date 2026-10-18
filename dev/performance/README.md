@@ -63,6 +63,10 @@ checks, and cleanup. It validates required product builds, harness builds, warni
 all five current Linux contexts, product stability, harness stability, and log bindings.
 
 The command runs `metrics.xsh check-current --review-evidence` in the pinned image.
+This full scan of both Rust source roots has a 900-second bound, matching the
+historical full structural gate budget. The focused adapter self-test retains
+its 60-second bound. Each private Docker call selects its bound explicitly;
+timeout still requires owned-process/container cleanup and never supplies credit.
 The existing metrics owner measures current source, validates the structural
 report, and checks all nine functional semantic review rows. The report retains
 all ten canonical rows. Functional evidence excludes exactly `timings`; final

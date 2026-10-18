@@ -187,6 +187,40 @@ class PolicyTests(unittest.TestCase):
 
 
 
+class AdapterDeadlineTests(unittest.TestCase):
+    def test_operation_deadline_reaches_child_and_timeout_preserves_cleanup(self):
+        scratch = check.parse_config(PolicyTests().config()).scratch
+        for seconds, timed_out, resolved in [(60, False, True), (900, True, True), (900, True, False)]:
+            with self.subTest(seconds=seconds, timed_out=timed_out, resolved=resolved), tempfile.TemporaryDirectory(dir=scratch) as directory:
+                events = []
+                primary = subprocess.TimeoutExpired(['docker', 'run'], seconds)
+                class Child:
+                    returncode = 0
+                    def communicate(self, *, timeout):
+                        events.append(('communicate', timeout))
+                        if timed_out:
+                            raise primary
+                        return b'output', b''
+                child = Child()
+                def cleanup(actual, remove_container):
+                    self.assertIs(actual, child)
+                    events.append(('cleanup',))
+                    return remove_container()
+                previous = object()
+                with patch.object(check.owned, 'owned_docker_command', side_effect=lambda command, **_: command), patch.object(check.owned, 'install_signal_handlers', return_value=previous), patch.object(check.owned, 'restore_signal_handlers') as restore, patch.object(check.owned, 'cleanup_window', side_effect=nullcontext), patch.object(check.owned, 'cleanup_container_process', side_effect=cleanup), patch.object(check.owned, 'cleanup_cidfile_container', return_value={'resolved': resolved}), patch.object(check.subprocess, 'Popen', return_value=child):
+                    if timed_out:
+                        with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                            check.checked_docker(['docker', 'run'], Path(directory), timeout_seconds=seconds)
+                        self.assertIs(caught.exception, primary)
+                        if not resolved:
+                            self.assertIn('cleanup unresolved', primary.__notes__[0])
+                    else:
+                        self.assertEqual(check.checked_docker(['docker', 'run'], Path(directory), timeout_seconds=seconds), (0, b'output', b''))
+                    restore.assert_called_once_with(previous)
+                self.assertEqual(events, [('communicate', seconds), ('cleanup',)])
+                self.assertEqual(bool(list(Path(directory).iterdir())), not resolved)
+
+
 class BaselineTests(unittest.TestCase):
     def setUp(self):
         self.config = check.parse_config(PolicyTests().config())

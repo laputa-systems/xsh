@@ -162,7 +162,7 @@ def check_cleanup(cleanup):
     require(cleanup.get('resolved') is True, f'owned container cleanup unresolved: {cleanup}')
 
 
-def checked_docker(command, scratch):
+def checked_docker(command, scratch, *, timeout_seconds):
     directory = Path(tempfile.mkdtemp(prefix='adapter-', dir=scratch))
     cidfile = directory / 'container.cid'
     owner = directory.name
@@ -173,7 +173,7 @@ def checked_docker(command, scratch):
     previous = owned.install_signal_handlers()
     try:
         process = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
-        stdout, stderr = process.communicate(timeout=60)
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
         result = process.returncode, stdout, stderr
     except BaseException as error:
         primary = error
@@ -202,7 +202,7 @@ def self_test(config, adapter):
         require(config.scratch.is_dir(), 'scratch directory must already exist')
         image = load_canonical(config).IMAGE
         command = ['docker', 'run', '--rm', '--init', '--platform', 'linux/amd64', '--network', 'none', '--cpus=1', '--memory=512m', '--memory-swap=512m', '-v', f'{config.source_root}:/source:ro', '-v', f'{config.xsh}:/product/xsh:ro', '-w', '/source', image, '/product/xsh', 'bench/stdlib-port/cold_trivial.xsh']
-        result = checked_docker(command, config.scratch)
+        result = checked_docker(command, config.scratch, timeout_seconds=60)
         check_result(*result, b'hello\n')
         try:
             check_result(*result, b'intentionally wrong output\n')
@@ -396,7 +396,7 @@ def functional(config):
             docker += ['-v', f'{path}:{path}:ro']
         common = git(config.source_root, 'rev-parse', '--path-format=absolute', '--git-common-dir')
         docker += ['-v', f'{common}:{common}:ro', canonical.IMAGE, *command]
-        status, stdout, stderr = checked_docker(docker, config.scratch)
+        status, stdout, stderr = checked_docker(docker, config.scratch, timeout_seconds=900)
         require(status == 0, f'metrics owner rejected current source: {stdout!r} {stderr!r}')
         require(read_json(Path(directory) / 'current.json') == read_json(paths['structural']), 'structural report does not match current source')
     qualify_products(config)
