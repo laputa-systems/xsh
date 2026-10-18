@@ -1,7 +1,7 @@
 # TODO
 
 Prefix: XSH
-Next: 18
+Next: 19
 
 ### XSH-1 · P2 · Qualify util-linux resource acceptance after the staging repair
 
@@ -120,6 +120,15 @@ Next: 18
 - **Problem:** Seven Laputa tests require writes to `/var/cache/laputa/linux-kbuild`. They fail under the unprivileged x86-64 Alpine test environment.
 - **Recommendation:** Route the cache through a test-owned root or fixture and rerun the seven selectors without host privileges.
 - **Fix with:** isolate-effects
+- **Effort:** S
+
+### XSH-18 · P3 · Restore the ambient filesystem policy guard
+
+- **Area:** Tests
+- **Where:** `tests/ambient_fs_policy.rs:590`, `src/modules/linux/real/netlink.rs:1490`
+- **Problem:** Canonical verification ignores `ambient_filesystem_use_is_allowlisted` pending a netlink allowlist decision. Source review finds the netlink filesystem operations inside its test module, including opt-in capture and replay. The disabled guard supplies no policy-test coverage.
+- **Recommendation:** Scope the permitted fixture I/O to test code without allowing production filesystem access throughout the file. Remove the ignore and run the exact guard plus a rejection control for an unapproved production access.
+- **Fix with:** os-boundaries
 - **Effort:** S
 
 ### XSH-5 · P4 · Decide whether inferred proc returns become default
