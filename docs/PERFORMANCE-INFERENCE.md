@@ -329,9 +329,20 @@ For schema changes, start with the existing debug checks for `xsh --lib` and
 then `xsht --lib`, with the pinned musl target and `--all-features`.
 Do not start a workspace build or a release build during this loop.
 
-Build the debug root-lib test harness once with
-`cargo test --locked --target "$TARGET" -p xsh --lib --no-run` inside the
-pinned container. Record its newly emitted executable path as `HARNESS`.
+Build the debug root-lib test harness once inside the pinned container:
+
+```sh
+cargo test --locked --offline --target "$TARGET" -p xsh --lib --all-features --no-run --message-format=json-render-diagnostics
+```
+
+When tooling adapters change, build only their library harness with the same flags:
+
+```sh
+cargo test --locked --offline --target "$TARGET" -p xsht --lib --all-features --no-run --message-format=json-render-diagnostics
+```
+
+Record each emitted executable path. Set `HARNESS` to the candidate root-lib
+executable for the selectors below.
 For each selector, run `"$HARNESS" --exact SELECTOR --nocapture` and require
 exactly one pass with zero failures or skips. Never reuse the hardcoded old
 harness path in the historical evidence scripts.
