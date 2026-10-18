@@ -78,6 +78,5 @@ case "$mode" in
 esac
 trap - INT
 capture_resources >"/results/$label.cgroup-after.txt"
-printf 'exit_code=%s\n' "$status" >>"/results/$label.cgroup-after.txt"
 printf '%s\n' "$status" >"/results/$label.exit-code"
 exit "$status"
