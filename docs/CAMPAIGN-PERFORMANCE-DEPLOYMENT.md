@@ -249,12 +249,21 @@ suite lock. Width limits are ceilings, never a requirement to saturate timing ru
 | G2: Add narrow measurement adapters | M; G0 | Tooling lane; `dev/performance/`, existing benchmark selectors, `src/frontend_stats.rs`, `src/runner.rs` phase-observation seam | Extend existing reports with parse/load, check/solve, publish, lower, verify, execute, and first-output boundaries. Separate inclusive from exclusive time. No observer in production hot paths when disabled. Validate exact output and reject wrong products, unsupported workloads, and failed readiness. |
 | G3: Audit isolated inference and freeze the practical cohort | M; G0 | Read-only implementation audit plus `dev/performance/` corpus subdirectory and inference evidence docs; tooling owner assigns disjoint files first | Produce a minimal reviewed capability dependency list, source diff, original/reduced cohort, and retained-site classes. No whole-history merge. Pin the actual implementation source behind the accepted evidence. |
 | G4: Prove disposable Laputa inputs | M; G0 | Laputa foundation lane; isolated checkout's local test fixture adapter and owned output roots | Run synthetic PM controls, verify exact candidate-XSH injection, prove network-disabled execution and output confinement, inspect existing profile input closure and KVM path. No guest or recipe is credited by a host-only fixture. |
+| G5: Retire consolidation infrastructure | M; G1 | Tooling owner; `dev/consolidation/`, `dev/performance/`, `dev/util-linux/`, testing and baseline docs | Complete XSH-19. Trace current callers, retain reusable checks under ordinary developer commands, and remove obsolete campaign adapters, duplicate entry points and historical-pin dependencies. Preserve required acceptance behavior and prove replacement commands reject invalid inputs before deleting their predecessors. |
 
 At G1 completion, publish `docs/PERFORMANCE-BASELINE.md` with the accepted source,
 product locations, platform, limitations, and gate commands. Update that same page
 after inference integration and final close. Keep the accepted code source explicit
 when the documentation commit differs. Do not wait until campaign end to provide
 the everyday baseline reference.
+
+Run G5 immediately after G1, before I1 implementation and M1 measurements.
+This is infrastructure cleanup, separate from deleting disposable worktrees and
+build products. Keep checks required by the remaining campaign until ordinary
+commands own them. Archive historical evidence outside the everyday command path.
+Use focused owner tests and rejection controls for the cleanup. The next combined
+regression boundary remains I1's responsibility. R3 removes machinery introduced
+later in this campaign.
 
 G1, G2, G3, and G4 can overlap after G0. G1 owns broad acceptance; other lanes
 stop expensive work for its timed windows. The coordinator resolves any shared
@@ -324,11 +333,11 @@ schema.
 
 | Item | Size and prerequisites | Exclusive ownership | Outcome and proof |
 |---|---|---|---|
-| I1: Integrate the accepted inference capabilities | L; G1 and G3 | One compiler lane; `src/sema/`, corresponding syntax metadata, compact facts, lowerer, indexed schema/verifier, compiler-facing tests | Review and port/cherry-pick the minimal dependency set. Preserve master Lean, cleanup, and util-linux changes. Run ground-type, schemes, rows, host anchors, recursion, rollback, importer-order, diagnostics, frontend-drop, and forged-IR tests. Then run the combined regression boundary once. |
+| I1: Integrate the accepted inference capabilities | L; G5 and G3 | One compiler lane; `src/sema/`, corresponding syntax metadata, compact facts, lowerer, indexed schema/verifier, compiler-facing tests | Review and port/cherry-pick the minimal dependency set. Preserve master Lean, cleanup, and util-linux changes. Run ground-type, schemes, rows, host anchors, recursion, rollback, importer-order, diagnostics, frontend-drop, and forged-IR tests. Then run the combined regression boundary once. |
 | I2: Remove missing inference relationships by class | L; I1; corpus preparation from G3 can precede it | Same compiler lane for implementation; a separate corpus lane owns transformed fixtures and accounting only | Classify 100% of retained eligible sites. Investigate all 202 effect clauses by cause. Fix shared propagation/constraint causes; keep intentional restrictions and all semantic Map annotations. Prove joint original/reduced behavior and useful inferred signatures. |
 | D1: Complete immutable package lifecycle tests | L; G4; use accepted baseline compiler first, then I1 | Laputa PM lane; `tests/pm/`, narrow PM implementation owners, local recipe fixtures; never XSH compiler files | Local source validation, unpack/build/proof, root generation, version replacement, recomposition/removal, GC, and injected failure at each publication boundary. Check exact files, modes, links, ownership, receipts, and unchanged old generation on failure. |
 | D2: Complete process and rooted-filesystem workflows | M; G4 | Boundary lane; `tests/runtime/process.rs`, `tests/xsh/within.xsh`, `tests/xsh/stdlib/fs*.xsh`, narrow host owners; no scheme/IR files | Bound process trees, partial output, signal/timeout outcomes, complete reaping, primary plus cleanup diagnostics, raw filenames, symlink swaps, hardlinks, permission errors, and interrupted publication. No escape from the declared root. |
-| M1: Freeze representative measurements | M; G2 and G1; final checker baseline after I1 | Measurement lane; existing benchmark files and `dev/performance/` selection; no runtime optimization | Qualify all four families, exact outputs, common/demanding shapes, n/2n/4n scaling, completed-work and allocation/syscall counts. Establish the post-inference source/product baseline. |
+| M1: Freeze representative measurements | M; G2 and G5; final checker baseline after I1 | Measurement lane; existing benchmark files and `dev/performance/` selection; no runtime optimization | Qualify all four families, exact outputs, common/demanding shapes, n/2n/4n scaling, completed-work and allocation/syscall counts. Establish the post-inference source/product baseline. |
 | F1: Bind one transformation to applicable formal assumptions | M; G2; final subject after profiles | Formal lane; `formal/` maintenance/evidence and one optimization-specific finite validation fixture; compiler edits belong to I1/P3 owner | Select one measured transformation. Map actual checked input and emitted IR assumptions to the relevant formal result; mutation controls reject a lost assumption. Keep theorem statements separate from finite Rust evidence. |
 
 All scheme, effect, compact publication, and IR changes stay with one compiler
