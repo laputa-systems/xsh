@@ -61,6 +61,17 @@ def test_profile_cost_does_not_use_shared_setgid_tmp():
         assert not private_tmp.exists()
 
 
+def test_profile_cost_uses_the_selected_source_tmp_root():
+    with setgid_repository() as (root, _):
+        with setgid_repository() as (tree, _):
+            with patch.object(profile, "ROOT", root):
+                with profile.repository_tmp_dir("selected-source", tree) as private_tmp:
+                    assert private_tmp.parent == tree / ".work/tmp"
+                    assert private_tmp.parent != root / ".work/tmp"
+                    assert stat.S_IMODE(private_tmp.lstat().st_mode) == 0o700
+            assert not private_tmp.exists()
+
+
 def test_profile_cost_removes_execute_only_directories():
     with setgid_repository() as (root, _):
         with patch.object(profile, "ROOT", root):
@@ -126,6 +137,28 @@ def test_forced_frames_does_not_use_shared_setgid_tmp():
         assert not private_tmp.exists()
 
 
+def test_forced_frames_uses_the_selected_source_tmp_root():
+    with setgid_repository() as (root, _):
+        with setgid_repository() as (tree, _):
+            with patch.object(forced, "ROOT", root):
+                requested = forced.repository_tmp_path("selected-source", tree)
+                with forced.ensure_repository_tmp(requested, tree) as private_tmp:
+                    assert private_tmp.parent == tree / ".work/tmp"
+                    assert private_tmp.parent != root / ".work/tmp"
+                    assert stat.S_IMODE(private_tmp.lstat().st_mode) == 0o700
+                    command = forced.container_command(
+                        tree,
+                        Path("/release"),
+                        root / ".git",
+                        Path("/laputa"),
+                        private_tmp,
+                        "0-11",
+                    )
+                    assert f"{tree / '.work/consolidation'}:{tree / '.work/consolidation'}" in command
+                    assert f"{root / '.work/consolidation'}:{root / '.work/consolidation'}" not in command
+            assert not private_tmp.exists()
+
+
 def test_forced_frames_removes_execute_only_directories():
     with setgid_repository() as (root, _):
         with patch.object(forced, "ROOT", root):
@@ -180,6 +213,14 @@ def test_forced_frames_records_the_yielded_tmp_in_receipt_and_command():
         stage = {"status": 0, "cleanup_resolved": True, "interrupted_signal": None, "error": None}
         git_common = root / ".git"
         args = Namespace(tree=root, commit=source["commit"], functional_close=close_path, profile_receipt=profile_receipt_path, output=output)
+
+        def git_path(command, **_kwargs):
+            if command[-1] == "--git-common-dir":
+                return str(git_common)
+            if command[-1] == "info/exclude":
+                return str(git_common / "info/exclude")
+            raise AssertionError(command)
+
         with (
             patch.object(forced, "ROOT", root),
             patch.object(forced, "validate_static_paths", return_value=(root, close_path, profile_receipt_path, output, output.parent)),
@@ -188,7 +229,7 @@ def test_forced_frames_records_the_yielded_tmp_in_receipt_and_command():
             patch.object(forced, "load_profile", return_value=profile),
             patch.object(forced.shutil, "which", return_value="/usr/bin/docker"),
             patch.object(forced, "cpu_set", return_value=",".join(str(cpu) for cpu in range(12))),
-            patch.object(forced.subprocess, "check_output", return_value=str(git_common)),
+            patch.object(forced.subprocess, "check_output", side_effect=git_path),
             patch.object(forced, "native_suite_lock", side_effect=lambda: nullcontext()),
             patch.object(forced, "install_signal_handlers", return_value=None),
             patch.object(forced, "restore_signal_handlers"),
@@ -201,6 +242,7 @@ def test_forced_frames_records_the_yielded_tmp_in_receipt_and_command():
         ):
             assert forced.run(args) == 0
         receipt = json.loads((output / "receipt.json").read_text(encoding="utf-8"))
+        assert receipt["native_suite_lock"]["path"] == str(forced.NATIVE_LOCK)
         repository_tmp_volume = next(
             receipt["docker_command"]["argv"][index + 1]
             for index, argument in enumerate(receipt["docker_command"]["argv"][:-1])
@@ -299,10 +341,12 @@ def test_forced_frames_accepts_reviewed_helper_and_rejects_changes():
 
 if __name__ == "__main__":
     test_profile_cost_does_not_use_shared_setgid_tmp()
+    test_profile_cost_uses_the_selected_source_tmp_root()
     test_profile_cost_removes_execute_only_directories()
     test_profile_cost_removes_symlinks_without_touching_targets()
     test_profile_tmp_cleanup_error_does_not_mask_gate_error()
     test_forced_frames_does_not_use_shared_setgid_tmp()
+    test_forced_frames_uses_the_selected_source_tmp_root()
     test_forced_frames_removes_execute_only_directories()
     test_forced_frames_removes_symlinks_without_touching_targets()
     test_forced_frames_records_the_yielded_tmp_in_receipt_and_command()

@@ -73,6 +73,53 @@ def check_source(tree, commit):
     return {"commit": head, "git_tree": tree_id, "status": "clean"}
 
 
+def source_tree_path(requested):
+    root = ROOT.resolve(strict=True)
+    tree = Path(os.path.abspath(requested))
+    if tree != root and tree.parent != root / ".work/wt":
+        raise ValueError(f"source tree must be the main checkout or an owned checkout below {root / '.work/wt'}")
+    current = Path(tree.anchor)
+    for component in tree.parts[1:]:
+        current /= component
+        try:
+            if stat.S_ISLNK(current.lstat().st_mode):
+                raise ValueError(f"source tree path cannot contain symlinks: {current}")
+        except FileNotFoundError:
+            raise ValueError(f"source tree path does not exist: {current}")
+    if tree.resolve(strict=True) != tree:
+        raise ValueError(f"source tree path cannot contain symlinks: {tree}")
+    try:
+        common_dir = Path(subprocess.check_output(
+            ["git", "-C", str(tree), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            text=True,
+            timeout=30,
+        ).strip()).resolve(strict=True)
+        top_level = Path(subprocess.check_output(
+            ["git", "-C", str(tree), "rev-parse", "--show-toplevel"],
+            text=True,
+            timeout=30,
+        ).strip()).resolve(strict=True)
+        expected_common_dir = (root / ".git").resolve(strict=True)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise ValueError(f"cannot inspect source checkout identity: {error}") from error
+    if common_dir != expected_common_dir or top_level != tree:
+        raise ValueError("source tree must be a checkout of this repository")
+    return tree
+
+
+def absolute_without_symlinks(path, label):
+    absolute = Path(os.path.abspath(path))
+    cursor = Path(absolute.anchor)
+    for component in absolute.parts[1:]:
+        cursor /= component
+        try:
+            if stat.S_ISLNK(cursor.lstat().st_mode):
+                raise ValueError(f"{label} path cannot contain symlinks: {cursor}")
+        except FileNotFoundError:
+            continue
+    return absolute
+
+
 def verify_profile_stage(tree, source_identity, binary_paths, expected_binaries=None):
     observed_source = check_source(tree, source_identity["commit"])
     if observed_source != source_identity:
@@ -189,8 +236,8 @@ def expand_cpu_list(raw):
     return sorted(result)
 
 
-def repository_tmp_parent():
-    root = ROOT.resolve(strict=True)
+def repository_tmp_parent(root=None):
+    root = Path(root if root is not None else ROOT).resolve(strict=True)
     path = root / ".work/tmp"
     cursor = root
     for component in path.relative_to(root).parts:
@@ -198,13 +245,20 @@ def repository_tmp_parent():
         if cursor.is_symlink():
             raise ValueError(f"repository temporary path cannot contain symlinks: {cursor}")
     try:
+        exclude_path = Path(subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],
+            text=True,
+            timeout=30,
+        ).strip())
         patterns = {
             line.strip()
-            for line in (root / ".git/info/exclude").read_text(encoding="utf-8").splitlines()
+            for line in exclude_path.read_text(encoding="utf-8").splitlines()
             if line.strip() and not line.lstrip().startswith("#")
         }
     except OSError as error:
         raise ValueError(f"cannot read local Git excludes: {error}") from error
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise ValueError(f"cannot locate local Git excludes: {error}") from error
     if not patterns.intersection({".work", ".work/", "/.work", "/.work/"}):
         raise ValueError("repository .work directory must be excluded by .git/info/exclude")
     path.mkdir(parents=True, exist_ok=True)
@@ -224,8 +278,8 @@ def repository_tmp_parent():
 
 
 @contextmanager
-def repository_tmp_dir(run_id):
-    parent = repository_tmp_parent()
+def repository_tmp_dir(run_id, root=None):
+    parent = repository_tmp_parent(root)
     temporary = tempfile.TemporaryDirectory(prefix=f"profile-cost-{run_id}-", dir=parent)
     path = Path(temporary.name)
     try:
@@ -267,7 +321,7 @@ def docker_base(tree, target_dir, cpus, native_image, repository_tmp, user=False
             )
     elif candidate_xsh is not None:
         raise ValueError("build profile container does not accept a candidate XSH executable")
-    work = ROOT / ".work/consolidation"
+    work = tree / ".work/consolidation"
     laputa = Path("/home/josh/d/laputa-systems/laputa")
     uid, gid = os.getuid(), os.getgid()
     path_prefix = f"{candidate_xsh.parent}:" if candidate_xsh is not None else ""
@@ -495,8 +549,8 @@ def probe_profile_resources(tree, target_dir, cpus, image, candidate_xsh, *, run
 
 
 def run(args):
-    tree = args.tree.resolve()
-    output = args.output.resolve()
+    tree = source_tree_path(args.tree)
+    output = absolute_without_symlinks(args.output, "profile output")
     source_identity = check_source(tree, args.commit)
     close = check_close(args.functional_close, args.commit)
     image = image_identity()
@@ -508,7 +562,7 @@ def run(args):
     run_id = secrets.token_hex(16)
     ownership = exclusive_lock(PROFILE_LOCK, reject_unresolved=True)
     native_suite_lock = nullcontext() if args.artifacts_only else exclusive_lock(INFRA / "native-suite.lock")
-    with ownership as ownership_stream, native_suite_lock, repository_tmp_dir(run_id) as repository_tmp:
+    with ownership as ownership_stream, native_suite_lock, repository_tmp_dir(run_id, tree) as repository_tmp:
         if args.artifacts_only:
             with (INFRA / "native-suite.lock").open() as native_lock:
                 reject_unresolved_cleanup(INFRA / "native-suite.lock", native_lock)

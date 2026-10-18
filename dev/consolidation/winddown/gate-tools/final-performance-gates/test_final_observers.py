@@ -28,6 +28,8 @@ def load_module(name: str, path: Path):
 observer = load_module("final_observers", HERE / "final-observers.py")
 container_resources = load_module("capture_container_resources", HERE / "capture-container-resources.py")
 docker_shim = load_module("docker_observer_shim", HERE / "docker-observer-shim.py")
+profile = load_module("profile_cost", HERE / "profile-cost.py")
+forced = load_module("forced_frames", HERE / "forced-frames.py")
 
 
 def successful_resource_receipt(path: Path, *, resources_only: bool = False) -> None:
@@ -86,11 +88,13 @@ def exercise_stage(*, status: int = 0, ready_codes: tuple[int, int] = (0, 0), re
                 ownership_stream=ownership_stream,
                 validate_after=lambda: {"source": "sealed"},
                 resources_only=resources_only,
+                cwd=root,
             )
         return {
             "stage": stage,
             "perf": perf,
             "popen": popen,
+            "cwd": root,
             "process": process,
             "clock": clock,
             "receipt_exists": (stage_dir / "receipt.json").is_file(),
@@ -230,6 +234,11 @@ def assert_supplemental_handoff() -> dict[str, object]:
         ):
             plan = observer.plan_data()
     handoff = plan["post_batch_supplemental_launcher"]
+    assert plan["required_locks"] == [
+        str(observer.PROFILE_LOCK),
+        str(observer.NATIVE_SUITE_LOCK),
+        str(observer.CARGO_LOCK),
+    ]
     assert handoff["after_stage"] == "canonical-gate-batch"
     assert handoff["linux_context_runs"] == len(manifest["linux_context_runs"]) == 5
     assert handoff["broad_test_run_counts"] == {
@@ -326,6 +335,95 @@ def assert_gate_target_reuse_contract() -> None:
         reject(cache_link, expected="symlink components")
 
 
+def assert_frozen_gate_target_contract() -> None:
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
+        root = Path(temporary)
+        worktrees = root / ".work/wt"
+        tree = worktrees / "frozen"
+        sibling = worktrees / "sibling"
+        tree_work = tree / ".work"
+        output = tree_work / "final-review-evidence/final-performance-gates/run"
+        release = root / "release"
+        archive = root / ".work/final-review-evidence/final-performance-gates"
+        infrastructure = root / ".work/consolidation/infra"
+        for directory in (output, sibling / ".work/cache", release, archive, infrastructure):
+            directory.mkdir(parents=True)
+        own_target = tree_work / "target-cache"
+        own_target.mkdir()
+        sealed = tree_work / "sealed-input"
+        sealed.mkdir()
+        common = {
+            "output": output,
+            "tree": tree,
+            "selected_release_directory": release,
+            "source_worktrees": worktrees,
+            "sealed_inputs": (sealed, archive, infrastructure),
+        }
+        with patch.object(observer, "ROOT", root):
+            target, reused = observer.gate_target_directory(own_target, **common)
+            assert target == own_target.resolve()
+            assert reused is True
+
+            def reject(path: Path, expected: str) -> None:
+                try:
+                    observer.gate_target_directory(path, **common)
+                except observer.ObserverFailure as error:
+                    assert expected in str(error)
+                else:
+                    raise AssertionError(f"unsafe frozen-source Cargo target was accepted: {path}")
+
+            reject(sibling / ".work/cache", "below the source .work")
+            reject(sealed, "sealed input")
+            reject(archive, "below the source .work")
+            reject(infrastructure, "below the source .work")
+
+
+def assert_source_tree_path_contract() -> None:
+    with tempfile.TemporaryDirectory(dir=TEST_SCRATCH) as temporary:
+        root = Path(temporary)
+        (root / ".git").mkdir()
+        tree = root / ".work/wt/frozen"
+        tree.mkdir(parents=True)
+        linked_path = root / ".work/wt/linked"
+        linked_path.symlink_to(tree, target_is_directory=True)
+
+        def git_path(command: list[str], **_kwargs: object) -> str:
+            selected = Path(command[command.index("-C") + 1])
+            if command[-1] == "--git-common-dir":
+                return str(root / ".git")
+            if command[-1] == "--show-toplevel":
+                return str(selected)
+            raise AssertionError(command)
+
+        with (
+            patch.object(observer, "ROOT", root),
+            patch.object(profile, "ROOT", root),
+            patch.object(forced, "ROOT", root),
+            patch.object(observer.subprocess, "check_output", side_effect=git_path),
+        ):
+            try:
+                observer.absolute_without_symlinks(linked_path)
+            except observer.ObserverFailure as error:
+                assert "symlinks" in str(error)
+            else:
+                raise AssertionError("observer accepted a symlinked output path")
+            for module in (observer, profile, forced):
+                assert module.source_tree_path(root) == root
+                assert module.source_tree_path(tree) == tree
+                try:
+                    module.source_tree_path(root.parent / "outside")
+                except (observer.ObserverFailure, forced.GateFailure, ValueError) as error:
+                    assert "owned checkout" in str(error)
+                else:
+                    raise AssertionError(f"{module.__name__} accepted an outside source checkout")
+                try:
+                    module.source_tree_path(linked_path)
+                except (observer.ObserverFailure, forced.GateFailure, ValueError) as error:
+                    assert "symlinks" in str(error)
+                else:
+                    raise AssertionError(f"{module.__name__} accepted a symlinked source checkout")
+
+
 def assert_gate_target_cli_forwarding() -> None:
     cache = HERE / "existing-cache"
     arguments = [
@@ -371,9 +469,21 @@ def assert_observer_scratch_bindings(scratch_dir: Path) -> None:
     environment = {"PATH": "/usr/bin"}
     cpuset = ",".join(str(cpu) for cpu in range(12))
     with patch.object(observer, "ROOT", repo):
+        pins = observer.verify_artifact_pins()
+        capture_helper = repo / observer.CAPTURE_HELPER_RELATIVE
+        capture_helper.parent.mkdir(parents=True)
+        shutil.copyfile(WORKTREE_ROOT / observer.CAPTURE_HELPER_RELATIVE, capture_helper)
+        assert observer.validate_source_capture_helper(repo, pins) == observer.CAPTURE_HELPER_CONTAINER
+        capture_helper.write_bytes(capture_helper.read_bytes() + b"changed")
+        try:
+            observer.validate_source_capture_helper(repo, pins)
+        except observer.ObserverFailure as error:
+            assert "pinned executed helper" in str(error)
+        else:
+            raise AssertionError("observer accepted an unpinned source resource helper")
         shim_path = observer.prepare_docker_shim(
             output, environment, "/usr/bin/docker", "synthetic-run", batch_stage, cpuset,
-            scratch_dir=scratch_dir, resources_only=True,
+            scratch_dir=scratch_dir, tree=repo, resources_only=True,
         )
         assert shim_path.is_file()
         assert environment["XSH_OBSERVER_CPUSET"] == cpuset
@@ -407,7 +517,7 @@ def assert_observer_scratch_bindings(scratch_dir: Path) -> None:
             )
             image_at = lint.index(observer.NATIVE_IMAGE_ID)
             assert lint[image_at + 1:] == [
-                "/usr/bin/python3", "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py",
+                "/usr/bin/python3", observer.CAPTURE_HELPER_CONTAINER,
                 *( ["--resources-only"] if resources_only else [] ),
                 "/observer/container-resources.json", "--", "/release/xsht", "lint",
             ]
@@ -632,6 +742,7 @@ def exercise_repeated_signal_cleanup(*, process_exited: bool) -> tuple[dict[str,
                     resource_file=resource_path,
                     ownership_stream=ownership_stream,
                     validate_after=lambda: {"source": "sealed"},
+                    cwd=root,
                 )
         finally:
             observer.restore_signal_handlers(previous)
@@ -658,6 +769,8 @@ def main() -> None:
     assert plan["supplemental_isolated_tests"]["stage"] == "core-compat-extra-privileged"
     assert plan["supplemental_isolated_tests"]["context"].find("nodev /tmp") >= 0
     assert_gate_target_reuse_contract()
+    assert_frozen_gate_target_contract()
+    assert_source_tree_path_contract()
     assert_gate_target_cli_forwarding()
     assert_batch_child_owns_cargo_lock()
     assert_container_resource_timing_modes()
@@ -780,6 +893,7 @@ def main() -> None:
             raise AssertionError("a changed selected-release binary must reject timing")
 
     success = exercise_stage()
+    assert success["popen"].call_args.kwargs["cwd"] == success["cwd"]
     assert success["stage"]["timing_accepted"] is True
     assert success["stage"]["observation_accepted"] is True
     assert success["stage"]["wall_ns"] > 0

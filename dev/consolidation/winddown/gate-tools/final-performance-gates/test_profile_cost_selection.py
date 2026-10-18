@@ -77,6 +77,23 @@ def test_profile_build_context_has_no_baseline_xsh_dependency():
         assert path == "/usr/local/bin:/root/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 
+def test_profile_build_mounts_selected_source_work_directory():
+    with make_working_tree() as (root, _close_record, _commit):
+        with make_working_tree() as (tree, _tree_close, _tree_commit):
+            target_dir = tree / ".work/consolidation/target"
+            repository_tmp = tree / ".work/tmp/container"
+            with patch.object(profile, "ROOT", root):
+                command = profile.docker_base(
+                    tree,
+                    target_dir,
+                    "0-11",
+                    "sha256:test-image",
+                    repository_tmp,
+                )
+            assert f"{tree / '.work/consolidation'}:{tree / '.work/consolidation'}" in command
+            assert f"{root / '.work/consolidation'}:{root / '.work/consolidation'}" not in command
+
+
 def test_profile_runtime_context_requires_explicit_candidate_xsh():
     with make_working_tree() as (tree, _close_record, _commit):
         try:
@@ -134,6 +151,21 @@ def test_profile_runtime_context_uses_only_the_candidate_xsh():
             pass
         else:
             raise AssertionError("runtime profile container accepted a symlink candidate")
+
+
+def test_profile_output_path_rejects_symlinks():
+    with tempfile.TemporaryDirectory(dir=Path.cwd() / ".work/tmp") as temporary:
+        root = Path(temporary)
+        outside = root / "outside"
+        outside.mkdir()
+        linked = root / "profile-output"
+        linked.symlink_to(outside, target_is_directory=True)
+        try:
+            profile.absolute_without_symlinks(linked, "profile output")
+        except ValueError as error:
+            assert "cannot contain symlinks" in str(error)
+        else:
+            raise AssertionError("profile accepted a symlinked output path")
 
 
 def run_profile_cost(tree, output, close_record, commit, *, artifacts_only=False):
@@ -222,7 +254,13 @@ def run_profile_cost(tree, output, close_record, commit, *, artifacts_only=False
 def test_profile_cost_emits_only_the_selected_release_profile():
     with make_working_tree() as (tree, close_record, commit):
         output = tree / ".work/consolidation/profile-cost-test"
-        receipt, stages, _lock_paths = run_profile_cost(tree, output, close_record, commit)
+        receipt, stages, lock_paths = run_profile_cost(tree, output, close_record, commit)
+
+        assert lock_paths == [
+            profile.PROFILE_LOCK,
+            profile.INFRA / "native-suite.lock",
+            profile.INFRA / "cargo.lock",
+        ]
 
         assert stages == ["release-opt3-build", "release-opt3-native-suite"]
         assert receipt["profile"] == {
@@ -436,8 +474,10 @@ def test_artifact_qualification_is_resources_only_input():
 
 if __name__ == "__main__":
     test_profile_build_context_has_no_baseline_xsh_dependency()
+    test_profile_build_mounts_selected_source_work_directory()
     test_profile_runtime_context_requires_explicit_candidate_xsh()
     test_profile_runtime_context_uses_only_the_candidate_xsh()
+    test_profile_output_path_rejects_symlinks()
     test_profile_cost_emits_only_the_selected_release_profile()
     test_artifact_qualification_is_resources_only_input()
     print("selected release opt3 and artifact-qualified profile receipts passed")

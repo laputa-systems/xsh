@@ -37,6 +37,8 @@ ROOT = Path("/home/josh/d/laputa-systems/xsh")
 HERE = ROOT / ".work/final-review-evidence/final-performance-gates"
 INFRA = ROOT / ".work/consolidation/infra"
 TARGET = "x86_64-unknown-linux-musl"
+CAPTURE_HELPER_RELATIVE = Path("dev/consolidation/winddown/gate-tools/final-performance-gates/capture-container-resources.py")
+CAPTURE_HELPER_CONTAINER = "/work/" + CAPTURE_HELPER_RELATIVE.as_posix()
 NATIVE_IMAGE_ID = "sha256:3b8b01330d40d578781f6391fe25f7b86ef5efdae5628e6eec9bf30487d8852c"
 IMAGE_REFERENCES = (NATIVE_IMAGE_ID, "xsh-test", "xsh-test:consolidation-native")
 CPU_LIMIT = 12
@@ -169,6 +171,70 @@ def source_identity(tree: Path, commit: str) -> dict[str, str]:
     if status:
         raise ObserverFailure("source tree must be clean before final observer gates")
     return {"commit": head, "git_tree": tree_id, "status": "clean"}
+
+
+def absolute_without_symlinks(path: Path) -> Path:
+    absolute = Path(os.path.abspath(path))
+    current = Path(absolute.anchor)
+    for component in absolute.parts[1:]:
+        current /= component
+        try:
+            if stat.S_ISLNK(current.lstat().st_mode):
+                raise ObserverFailure(f"gate path cannot contain symlinks: {current}")
+        except FileNotFoundError:
+            continue
+    return absolute
+
+
+def source_tree_path(requested: Path) -> Path:
+    root = ROOT.resolve(strict=True)
+    tree = absolute_without_symlinks(requested)
+    if tree != root and tree.parent != root / ".work/wt":
+        raise ObserverFailure(f"source tree must be the main checkout or an owned checkout below {root / '.work/wt'}")
+    try:
+        resolved = tree.resolve(strict=True)
+        common_dir = Path(subprocess.check_output(
+            ["git", "-C", str(tree), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            text=True,
+            timeout=30,
+        ).strip()).resolve(strict=True)
+        top_level = Path(subprocess.check_output(
+            ["git", "-C", str(tree), "rev-parse", "--show-toplevel"],
+            text=True,
+            timeout=30,
+        ).strip()).resolve(strict=True)
+        expected_common_dir = (root / ".git").resolve(strict=True)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise ObserverFailure(f"cannot inspect source checkout identity: {error}") from error
+    if resolved != tree or common_dir != expected_common_dir or top_level != tree:
+        raise ObserverFailure("source tree must be a checkout of this repository without symlink paths")
+    return tree
+
+
+def source_work_is_ignored(tree: Path) -> None:
+    work = tree / ".work"
+    absolute_without_symlinks(work)
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(tree), "check-ignore", "--quiet", "--no-index", ".work"],
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise ObserverFailure(f"cannot verify source .work exclusion: {error}") from error
+    if result.returncode != 0:
+        raise ObserverFailure("source .work directory must be ignored by Git before observer artifacts are written")
+
+
+def validate_source_capture_helper(tree: Path, pins: dict[str, Any]) -> str:
+    path = tree / CAPTURE_HELPER_RELATIVE
+    try:
+        mode = path.lstat().st_mode
+    except OSError as error:
+        raise ObserverFailure(f"source resource helper is missing: {error}") from error
+    if not stat.S_ISREG(mode) or sha256(path) != pins["file_hashes"]["capture-container-resources.py"]:
+        raise ObserverFailure("source resource helper differs from the pinned executed helper")
+    return CAPTURE_HELPER_CONTAINER
 
 
 def functional_close(path: Path, commit: str) -> dict[str, Any]:
@@ -710,6 +776,7 @@ def run_stage(
     resource_file: Path,
     ownership_stream: Any,
     validate_after: Callable[[], dict[str, Any]],
+    cwd: Path,
     resources_only: bool = False,
 ) -> dict[str, Any]:
     stdout_path = stage_dir / "stdout.log"
@@ -736,7 +803,7 @@ def run_stage(
     try:
         with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
             try:
-                process = subprocess.Popen(command, stdout=stdout, stderr=stderr, env=environment, start_new_session=True)
+                process = subprocess.Popen(command, stdout=stdout, stderr=stderr, env=environment, cwd=cwd, start_new_session=True)
                 status = process.wait()
             except OSError as error:
                 spawn_error = error
@@ -830,7 +897,7 @@ def lint_command(
     resources_only: bool = False,
 ) -> list[str]:
     scratch_path = owned_scratch_directory(scratch_dir, output_dir.parent, tree)
-    observer = "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py"
+    observer = CAPTURE_HELPER_CONTAINER
     cidfile = output_dir / "container.cid"
     resource_file = output_dir / "container-resources.json"
     resource_in_container = "/observer/container-resources.json"
@@ -941,7 +1008,7 @@ def gate_target_directory(
 
     if not target.is_dir():
         raise ObserverFailure("Cargo target directory must already be an existing directory")
-    work_root = (ROOT / ".work").resolve(strict=True)
+    work_root = (tree / ".work").resolve(strict=True)
     try:
         target.relative_to(work_root)
     except ValueError as error:
@@ -952,11 +1019,14 @@ def gate_target_directory(
     protected_paths = (
         ("source tree", tree, True),
         ("source Git directory", tree / ".git", True),
-        ("source worktrees", source_worktrees, False),
         ("observer output", output, False),
         ("selected release binaries", selected_release_directory, False),
         *(("sealed input", path, False) for path in sealed_inputs),
     )
+    source_worktrees = source_worktrees.resolve(strict=False)
+    if paths_overlap(target, source_worktrees):
+        if tree == ROOT.resolve(strict=True) or not target.is_relative_to(work_root):
+            raise ObserverFailure("Cargo target directory must not overlap other source worktrees")
     for label, protected, exact_only in protected_paths:
         protected = protected.resolve(strict=False)
         if target == protected or (not exact_only and paths_overlap(target, protected)):
@@ -981,10 +1051,11 @@ def prepare_docker_shim(
     batch_stage: Path,
     cpuset_cpus: str,
     scratch_dir: Path,
+    tree: Path,
     *,
     resources_only: bool = False,
 ) -> Path:
-    scratch_path = owned_scratch_directory(scratch_dir, output, ROOT)
+    scratch_path = owned_scratch_directory(scratch_dir, output, tree)
     shim_dir = output / "host-bin"
     shim_dir.mkdir()
     shim_path = shim_dir / "docker"
@@ -994,8 +1065,8 @@ def prepare_docker_shim(
     environment["XSH_OBSERVER_DOCKER_LOG"] = str(batch_stage / "docker-commands.jsonl")
     environment["XSH_OBSERVER_RUN_ID"] = run_id
     environment["XSH_OBSERVER_CIDFILE"] = str(batch_stage / "container.cid")
-    environment["XSH_OBSERVER_CONTAINER_SCRIPT"] = "/work/.work/final-review-evidence/final-performance-gates/capture-container-resources.py"
-    output_relative = manifest_relative_output(batch_stage / "container-resources.json", ROOT)
+    environment["XSH_OBSERVER_CONTAINER_SCRIPT"] = CAPTURE_HELPER_CONTAINER
+    output_relative = manifest_relative_output(batch_stage / "container-resources.json", tree)
     environment["XSH_OBSERVER_CONTAINER_RESOURCE"] = "/work/" + output_relative
     environment["XSH_OBSERVER_CPUSET"] = cpuset_cpus
     environment["XSH_OBSERVER_SCRATCH_DIR"] = str(scratch_path)
@@ -1011,18 +1082,19 @@ def read_docker_observer_log(path: Path) -> list[dict[str, Any]]:
 
 
 def run(args: argparse.Namespace) -> int:
-    tree = args.tree.resolve()
-    output = args.output.resolve()
-    if tree != ROOT.resolve():
-        raise ObserverFailure("this launcher is bound to the real-main checkout")
-    if output.parent != HERE.resolve() or output.exists() or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", output.name):
-        raise ObserverFailure("choose a new output directory directly under final-performance-gates")
+    tree = source_tree_path(args.tree)
+    output = absolute_without_symlinks(args.output)
+    artifact_root = tree / ".work/final-review-evidence/final-performance-gates"
+    if output.parent != artifact_root or output.exists() or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", output.name):
+        raise ObserverFailure("choose a new output directory directly under the source final-performance-gates artifact root")
     if Path("/tmp") in output.parents:
         raise ObserverFailure("observer output must remain under the ignored artifact root")
     if sys.platform != "linux" or not hasattr(os, "sched_getaffinity"):
         raise ObserverFailure("final observers require the Linux host that owns the pinned Docker image")
 
     pins = verify_artifact_pins()
+    validate_source_capture_helper(tree, pins)
+    source_work_is_ignored(tree)
     supplemental_handoff = plan_data()["post_batch_supplemental_launcher"]
     source = source_identity(tree, args.commit)
     close = functional_close(args.functional_close.resolve(), args.commit)
@@ -1053,7 +1125,8 @@ def run(args: argparse.Namespace) -> int:
             INFRA,
         ),
     )
-    output.mkdir(parents=True, mode=0o755)
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    output.mkdir(mode=0o755)
     lint_dir = output / "isolated-repository-lint"
     batch_dir = output / "canonical-gate-batch"
     scratch_dir = output / "tmp"
@@ -1079,6 +1152,7 @@ def run(args: argparse.Namespace) -> int:
     host_env = dict(baseline_environment)
     batch_shim = prepare_docker_shim(
         output, host_env, docker, run_id, batch_dir, lint_cpus, scratch_dir,
+        tree=tree,
         resources_only=args.resources_only,
     )
     batch_env = dict(host_env)
@@ -1163,6 +1237,7 @@ def run(args: argparse.Namespace) -> int:
                     "profile_qualification_tool": validate_qualification_tool(selected),
                 },
                 resources_only=args.resources_only,
+                cwd=tree,
             )
             receipt["stages"]["isolated_repository_lint"] = lint_stage
             after_lint = binary_set(Path(selected["directory"]))
@@ -1205,6 +1280,7 @@ def run(args: argparse.Namespace) -> int:
                     "profile_qualification_tool": validate_qualification_tool(selected),
                 },
                 resources_only=args.resources_only,
+                cwd=tree,
             )
             receipt["stages"]["canonical_gate_batch"] = gate_stage
             batch_receipt_path = batch_dir / "receipt.json"

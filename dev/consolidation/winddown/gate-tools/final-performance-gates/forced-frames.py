@@ -97,13 +97,13 @@ def write_json(path: Path, value: dict[str, Any]) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def reject_symlinks_below_root(path: Path) -> None:
+def reject_symlinks_below_root(path: Path, root: Path | None = None) -> None:
     absolute = Path(os.path.abspath(path))
-    root = ROOT.resolve(strict=True)
+    root = (root if root is not None else ROOT).resolve(strict=True)
     try:
         relative = absolute.relative_to(root)
     except ValueError as error:
-        raise GateFailure(f"path must remain under the primary checkout: {path}") from error
+        raise GateFailure(f"path must remain under the selected source checkout: {path}") from error
     cursor = root
     for part in relative.parts:
         cursor = cursor / part
@@ -115,12 +115,12 @@ def reject_symlinks_below_root(path: Path) -> None:
             raise GateFailure(f"symlinks are not accepted in gate paths: {cursor}")
 
 
-def require_exact_path(observed: Path, expected: Path, *, must_exist: bool) -> Path:
+def require_exact_path(observed: Path, expected: Path, *, must_exist: bool, root: Path | None = None) -> Path:
     candidate = Path(os.path.abspath(observed))
     expected = Path(os.path.abspath(expected))
     if candidate != expected:
         raise GateFailure(f"expected path {expected}, received {observed}")
-    reject_symlinks_below_root(candidate)
+    reject_symlinks_below_root(candidate, root)
     if must_exist and not candidate.exists():
         raise GateFailure(f"required path is missing: {candidate}")
     return candidate
@@ -132,14 +132,15 @@ def require_attempt_path(
     stem: str,
     *,
     must_exist: bool,
+    root: Path | None = None,
 ) -> Path:
     candidate = Path(os.path.abspath(observed))
-    parent = require_exact_path(parent, parent, must_exist=True)
+    parent = require_exact_path(parent, parent, must_exist=True, root=root)
     if candidate.parent != parent:
         raise GateFailure(f"attempt path must be a direct child of {parent}: {observed}")
     if not re.fullmatch(re.escape(stem) + r"(?:-attempt-[A-Za-z0-9][A-Za-z0-9._-]*)?", candidate.name):
         raise GateFailure(f"attempt path must use {stem} or a fresh attempt suffix: {observed}")
-    reject_symlinks_below_root(candidate)
+    reject_symlinks_below_root(candidate, root)
     if must_exist and not candidate.exists():
         raise GateFailure(f"required path is missing: {candidate}")
     return candidate
@@ -163,6 +164,40 @@ def source_identity(tree: Path, commit: str) -> dict[str, str]:
     if status:
         raise GateFailure("source tree must be clean before the forced-frame suite")
     return {"commit": head, "git_tree": tree_id, "status": "clean"}
+
+
+def source_tree_path(requested: Path) -> Path:
+    root = ROOT.resolve(strict=True)
+    tree = Path(os.path.abspath(requested))
+    if tree != root and tree.parent != root / ".work/wt":
+        raise GateFailure(f"source tree must be the main checkout or an owned checkout below {root / '.work/wt'}")
+    current = Path(tree.anchor)
+    for component in tree.parts[1:]:
+        current /= component
+        try:
+            if stat.S_ISLNK(current.lstat().st_mode):
+                raise GateFailure(f"source tree path cannot contain symlinks: {current}")
+        except FileNotFoundError as error:
+            raise GateFailure(f"source tree path does not exist: {current}") from error
+    if tree.resolve(strict=True) != tree:
+        raise GateFailure(f"source tree path cannot contain symlinks: {tree}")
+    try:
+        common_dir = Path(subprocess.check_output(
+            ["git", "-C", str(tree), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            text=True,
+            timeout=30,
+        ).strip()).resolve(strict=True)
+        top_level = Path(subprocess.check_output(
+            ["git", "-C", str(tree), "rev-parse", "--show-toplevel"],
+            text=True,
+            timeout=30,
+        ).strip()).resolve(strict=True)
+        expected_common_dir = (root / ".git").resolve(strict=True)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise GateFailure(f"cannot inspect source checkout identity: {error}") from error
+    if common_dir != expected_common_dir or top_level != tree:
+        raise GateFailure("source tree must be a checkout of this repository")
+    return tree
 
 
 def executable_snapshot(path: Path) -> dict[str, Any]:
@@ -316,7 +351,7 @@ def container_command(
     repository_tmp: Path,
     cpus: str,
 ) -> list[str]:
-    work = ROOT / ".work/consolidation"
+    work = tree / ".work/consolidation"
     xsh = profile_dir / "xsh"
     xsht = profile_dir / "xsht"
     path = os.pathsep.join((str(profile_dir), "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"))
@@ -537,35 +572,37 @@ def retain_unresolved_cleanup(run_id: str, stage: dict[str, Any]) -> dict[str, A
 
 
 def validate_static_paths(args: argparse.Namespace) -> tuple[Path, Path, Path, Path, Path]:
-    root = ROOT.resolve(strict=True)
-    tree = args.tree.resolve(strict=True)
-    if tree != root:
-        raise GateFailure("final forced-frame acceptance must use the primary checkout")
+    tree = source_tree_path(args.tree)
     if not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         raise GateFailure("source commit must be a full lowercase 40-character Git ID")
     close_path = require_exact_path(
         args.functional_close,
-        FUNCTIONAL_CLOSE_ROOT / f"functional-close-{args.commit}.json",
+        tree / ".work/final-review-evidence" / f"functional-close-{args.commit}.json",
         must_exist=True,
+        root=tree,
     )
-    output_parent = require_exact_path(PROFILE_OUTPUT_ROOT, PROFILE_OUTPUT_ROOT, must_exist=True)
+    profile_output_root = tree / ".work/consolidation/final-performance-gates"
+    output_parent = require_exact_path(profile_output_root, profile_output_root, must_exist=True, root=tree)
     profile_name = f"profile-cost-{args.commit}"
     profile_dir = require_attempt_path(
         args.profile_receipt.parent,
         output_parent,
         profile_name,
         must_exist=True,
+        root=tree,
     )
     receipt_path = require_exact_path(
         args.profile_receipt,
         profile_dir / "receipt.json",
         must_exist=True,
+        root=tree,
     )
     output = require_attempt_path(
         args.output,
         output_parent,
         f"forced-frames-{args.commit}",
         must_exist=False,
+        root=tree,
     )
     if output.exists() or output.is_symlink():
         raise GateFailure("forced-frame output already exists; use a fresh commit-specific path")
@@ -576,14 +613,23 @@ def validate_static_paths(args: argparse.Namespace) -> tuple[Path, Path, Path, P
     return tree, close_path, receipt_path, output, output_parent
 
 
-def repository_tmp_path(run_id: str) -> Path:
-    return ROOT / ".work/tmp" / f"forced-frames-{run_id}"
+def repository_tmp_path(run_id: str, root: Path | None = None) -> Path:
+    root = root if root is not None else ROOT
+    return root / ".work/tmp" / f"forced-frames-{run_id}"
 
 
 @contextmanager
-def ensure_repository_tmp(private_path: Path):
-    path = require_exact_path(ROOT / ".work/tmp", ROOT / ".work/tmp", must_exist=False)
-    exclude_path = ROOT / ".git/info/exclude"
+def ensure_repository_tmp(private_path: Path, root: Path | None = None):
+    root = root if root is not None else ROOT
+    path = require_exact_path(root / ".work/tmp", root / ".work/tmp", must_exist=False, root=root)
+    try:
+        exclude_path = Path(subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],
+            text=True,
+            timeout=30,
+        ).strip())
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise GateFailure(f"cannot locate local Git excludes: {error}") from error
     try:
         patterns = {
             line.strip()
@@ -595,12 +641,12 @@ def ensure_repository_tmp(private_path: Path):
     if not patterns.intersection({".work", ".work/", "/.work", "/.work/"}):
         raise GateFailure("repository .work directory must be excluded by .git/info/exclude")
     path.mkdir(parents=True, exist_ok=True)
-    path = require_exact_path(path, ROOT / ".work/tmp", must_exist=True)
+    path = require_exact_path(path, root / ".work/tmp", must_exist=True, root=root)
     if not path.is_dir():
         raise GateFailure(f"repository temporary directory is not a directory: {path}")
     try:
         result = subprocess.run(
-            ["git", "-C", str(ROOT), "check-ignore", "--quiet", "--no-index", ".work/tmp"],
+            ["git", "-C", str(root), "check-ignore", "--quiet", "--no-index", ".work/tmp"],
             check=False,
             timeout=30,
         )
@@ -608,7 +654,7 @@ def ensure_repository_tmp(private_path: Path):
         raise GateFailure(f"cannot verify repository temporary directory is ignored: {error}") from error
     if result.returncode != 0:
         raise GateFailure("repository temporary directory is not ignored by Git")
-    private_path = require_exact_path(private_path, path / private_path.name, must_exist=False)
+    private_path = require_exact_path(private_path, path / private_path.name, must_exist=False, root=root)
     if not private_path.name.startswith("forced-frames-"):
         raise GateFailure(f"forced-frame temporary path is not run-scoped: {private_path}")
     if private_path.exists() or private_path.is_symlink():
@@ -616,7 +662,7 @@ def ensure_repository_tmp(private_path: Path):
     temporary = tempfile.TemporaryDirectory(prefix=f"{private_path.name}-", dir=path)
     actual_path = Path(temporary.name)
     try:
-        actual_path = require_exact_path(actual_path, path / actual_path.name, must_exist=True)
+        actual_path = require_exact_path(actual_path, path / actual_path.name, must_exist=True, root=root)
         if not actual_path.name.startswith(f"{private_path.name}-"):
             raise GateFailure(f"forced-frame temporary path is not run-scoped: {actual_path}")
         descriptor = os.open(actual_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -660,7 +706,7 @@ def run(args: argparse.Namespace) -> int:
     if not laputa_corpus.is_dir():
         raise GateFailure(f"required Laputa corpus is not a directory: {laputa_corpus}")
     run_id = secrets.token_hex(16)
-    repository_tmp = repository_tmp_path(run_id)
+    repository_tmp = repository_tmp_path(run_id, tree)
     log_path = output / "native-suite.log"
     cidfile = output / "container.cid"
     receipt_path_out = output / "receipt.json"
@@ -690,7 +736,7 @@ def run(args: argparse.Namespace) -> int:
         "timing_claim": "none; correctness-only forced-frame full-suite run",
     }
     output_created = False
-    with native_suite_lock(), ensure_repository_tmp(repository_tmp) as repository_tmp:
+    with native_suite_lock(), ensure_repository_tmp(repository_tmp, tree) as repository_tmp:
         previous_handlers = install_signal_handlers()
         try:
             output.mkdir(mode=0o755)
