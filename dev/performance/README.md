@@ -187,3 +187,20 @@ Common and demanding names do not assert a measured cost. The later accepted
 baseline must establish which substantial cases exceed 50 ms of CPU and qualify
 resource, allocation, syscall, and completed-work counts. Post-inference source
 and products remain the final measurement baseline.
+
+### Fixture qualification scope
+
+The 2026-10-18 check used the immutable `laputa-xsh-seed-1` products from clean
+source `429f6ff080efac12e5706ab45ec05539a24e57e6`, with the seed manifest's
+`release, lto=false, incremental` profile and declared net, tools, and native-test
+features. All fifteen frozen cases passed exact stdout, zero status, empty
+stderr, useful-line observation, and unchanged working-directory checks.
+Both timing fields remained null. Product hashes matched the existing seed
+manifest before, inside, and after the pinned offline container.
+
+The original 2,048-record fixture retained its pinned manifest. The earlier
+tranche using mutable shared product paths remains unqualified because those
+paths changed during verification. Its passing outputs do not supply source
+credit. This qualification covers the selected fixture behavior on the seed
+products; it does not establish current canonical acceptance, CPU thresholds,
+observed helper counts, first-output latency, or a performance baseline.
