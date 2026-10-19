@@ -3939,10 +3939,17 @@ that function's full signature (labels, defaults, return type, and effects):
 ```xsh
 let build = toolchain.build
 build(root, jobs: 4)
+let identity = toolchain.identity
+let number: Int = identity(42)
+let text: Str = identity("demo")
+assert number == 42
+assert text == "demo"
 ```
 
-An alias to a quantified pure function can be a direct call target; each call
-instantiates the function's scheme independently. It cannot be stored where a
+An alias to a quantified pure function can be a direct call target. This includes
+an unannotated immutable alias to a known module export, such as
+`let identity = utilities.identity`. Each call instantiates the function's
+scheme independently. It cannot be stored where a
 first-class callable type is required (`check.callable-mismatch`).
 
 A `var`, a conditional selection, or an explicit `Pure`/`Proc` annotation gives

@@ -20,6 +20,34 @@ The deliverables are:
 
 ## Current checkpoint
 
+The first full-inference compiler slice, `dbfea6b51`, admits unannotated
+immutable aliases to known generic module exports. Each call keeps fresh type
+instantiation and the authenticated imported declaration. It preserves the
+remaining typed-storage, conditional-callable, generic-body, proc and stream
+frontiers. The focused checker and normal/forced frontend-disposal tests pass.
+Four existing native controls and the new Int/Str/Bool alias witness each pass
+with zero skips. Independent review finds no P1/P2 issue. The generated SPEC,
+snippet diagnostics and all three tour-project tests pass. The integration
+source also passes workspace Clippy with all targets/features and denied
+warnings. This is focused progress, not full canonical or baseline acceptance.
+
+F1 records 22 exact capability selectors: seven baseline controls pass and
+15 expose missing capabilities or the wrong rejection reason. The imported
+alias target now passes on the combined first-slice products. Other mandatory
+cases remain open, including constant projections, typed storage, conditional
+selection, ordinary generic bodies, proc/stream omission, recursion and callback
+relationships. Safety and broader body witnesses continue in separate files.
+F1's source-only frozen-corpus validator passes eight tests and reproduces all
+1,843 retained-site records against both accepted view digests and the exact
+1,040 edits. This adds no annotation removals. All 202 effects stay in one
+conservative joint group until resolved dependencies are available.
+
+The next canonical graph slice has three minimal failing tests for nested
+callable generalization, component resolution, and structural unification.
+The standalone independent type/row oracle passes its own checks but remains
+unwired to production; its differential adapter and environment-identity
+comparison are still under review. No symbolic-effect correspondence is claimed.
+
 Full-inference F0 integrates the warning repair at `2ed638691`. The pinned
 offline xsh Clippy check passes with all targets and features under the ordinary
 two-CPU, 8-GiB limit. The old failed supplemental receipt remains failed; no
