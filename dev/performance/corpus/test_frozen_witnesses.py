@@ -81,6 +81,59 @@ class FrozenWitnessTests(unittest.TestCase):
             ("interpolation-contract-pending", "source-observation-contract-recheck"),
         )
 
+    def test_source_context_shapes_keep_the_seventeen_site_partition(self):
+        counts = corpus.Counter(corpus.SOURCE_CONTEXT_CLASSES.values())
+        self.assertEqual(counts, corpus.EXPECTED_SOURCE_CONTEXT_SHAPES)
+        self.assertEqual(len(corpus.SOURCE_CONTEXT_CLASSES), 17)
+        self.assertEqual(corpus.SOURCE_CONTEXT_CLASSES[973], "single-visible-variant-spelling")
+        self.assertEqual(corpus.SOURCE_CONTEXT_CLASSES[3914], "shared-variant-spelling")
+        self.assertEqual(corpus.SOURCE_CONTEXT_CLASSES[9111], "enum-membership-operands")
+        self.assertEqual(corpus.SOURCE_CONTEXT_CLASSES[9112], "enum-membership-operands")
+
+    def test_historical_shape_totals_preserve_the_713_site_partition(self):
+        self.assertEqual(
+            sum(sites for sites, _groups in corpus.EXPECTED_DIAGNOSTIC_SOURCE_SHAPES.values()),
+            713,
+        )
+        self.assertEqual(
+            sum(groups for _sites, groups in corpus.EXPECTED_DIAGNOSTIC_SOURCE_SHAPES.values()),
+            388,
+        )
+
+    def test_diagnostic_source_shape_priority_is_reproducible(self):
+        cases = (
+            ("pure f() { for x in xs { yield x } }", {"parameter-type", "return-type"}, "coupled-parameter-return"),
+            ("pure f() { if x == null { return Some(y) } }", set(), "mixed-strong-cues"),
+            ("pure f() { if x == null { return x } }", set(), "optional-row-join"),
+            ("pure f() { for x in xs { yield x } }", set(), "iteration-collection"),
+            ("pure f() { {name: value} }", set(), "record-variant-construction"),
+            ("pure f() { match x { _ => y } }", set(), "variant-match"),
+            ("pure f() { helper() }", set(), "typed-call-method"),
+            ("pure f() { x + y }", set(), "operator-member-index"),
+            ('pure f() { print f"{x}" }', set(), "format-interpolation"),
+            ("var values = []", {"local-type"}, "empty-collection-initializer"),
+            ("var enabled = true", {"local-type"}, "other-typed-initializer"),
+        )
+        for owner, kinds, expected in cases:
+            candidate = site(owner=owner.split("(", 1)[0])
+            self.assertEqual(corpus.historical_source_shape(candidate, owner.encode(), kinds), expected)
+
+    def test_effect_spelling_candidates_are_not_resolved_edges(self):
+        sites, _eligibility, retained, _individual, facts = corpus.load_corpus()
+        labels, pairs, components = corpus.effect_spelling_candidate_components(sites, retained, facts)
+        self.assertEqual(len(labels), 202)
+        self.assertEqual(len(pairs), 42)
+        self.assertEqual(components, corpus.Counter({1: 157, 2: 4, 3: 1, 9: 1, 25: 1}))
+        label_counts = corpus.Counter(labels.values())
+        self.assertEqual(label_counts["lint-only-outgoing-spellings-unavailable"], 119)
+        self.assertEqual(label_counts["source-fact-no-spelling-candidate"], 38)
+        component_sizes = sorted(
+            label_counts[label]
+            for label in label_counts
+            if label.startswith("lexical-candidate-component:")
+        )
+        self.assertEqual(component_sizes, [2, 2, 2, 2, 3, 9, 25])
+
     def test_reduced_span_tracks_prior_accepted_deletions(self):
         original = b"pure f(a: Int, b: Str)"
         removed = corpus.Span(8, 13)

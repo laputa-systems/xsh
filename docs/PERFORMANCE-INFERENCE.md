@@ -141,12 +141,14 @@ inference chooses a different shape and, if so, why. Sites 2332, 2543, 3406,
 whether those joins should infer an Optional remains unresolved. Site 2285
 retains `MonitorBattery` field context, and site 6338 depends on a later USB
 endpoints producer; source order and intended context have not been separated
-from an inference limitation. Sites 973 and 3914 need nominal enum return
-context, but the evidence does not establish that inference should choose a
-variant without that context. Sites 9111 and 9112 are outside the checked
-membership body grammar, which records a capability boundary without proving
-that the annotations are semantically unnecessary. Keep these 17 sites pending
-with those source facts attached. Sites 3599 and 3665 need a Str anchor for
+from an inference limitation. Sites 973 and 3914 carry nominal enum return
+annotations. Site 973 constructs the `InvalidCpuList` variant; site 3914 uses the
+shorthand `.Invalid`, whose spelling appears in several nominal error families
+in the frozen source. That lexical difference does not establish whether either
+return annotation is needed for selection. Sites 9111 and 9112 use enum
+membership operands with typed call-site arguments, but the body shape does not
+identify which relationship is missing. Keep these 17 sites pending with these
+source shapes attached. Sites 3599 and 3665 need a `Str` anchor for
 `replace`, which also accepts Regex; the accepted negative-control contract
 requires this call to remain ambiguous without local evidence, so these two are
 negative controls. Site 2850's parameter is used only in interpolation in the
@@ -192,6 +194,32 @@ A historical diagnostic identifies where that earlier erasure failed. It does no
 whether the missing fact is unavailable, a semantic restriction, or a specific
 inference relationship. Keep these 713 rows pending source-level witnesses;
 do not assign a cause from the code alone.
+
+The validator's `source_shape` column groups sites by frozen owner and fixed
+lexical cue priority. These labels summarize source structure; they do not say
+that an annotation supplies a missing relationship or that inference should
+select one.
+
+| Source-body shape | Sites | Owner declarations |
+|---|---:|---:|
+| Coupled parameter and return annotations | 330 | 131 |
+| Mixed iteration, join, construction, or match cues | 116 | 89 |
+| Optional or row join cues | 80 | 55 |
+| Iteration or collection cues | 64 | 40 |
+| Record or variant construction cues | 39 | 16 |
+| Typed call or method cues | 38 | 29 |
+| Operator, member, or index cues | 17 | 8 |
+| Format interpolation cues | 13 | 4 |
+| Variant match cues | 7 | 7 |
+| Empty collection initializer | 8 | 8 |
+| Other typed initializer | 1 | 1 |
+
+These counts partition all 713 rows and 388 owner declarations. The 17
+source-context rows have their own shape partition: ten nullable branch joins;
+one each for an empty-list accumulator, later-produced nullable record state,
+schema projection with typed call, single visible variant spelling, and shared
+variant spelling; and two enum-membership operand sites. Those shapes keep the
+source distinctions inspectable without changing their pending status.
 
 Source review against R12 (`55032a7ee`) reconciles the two largest families.
 These are historical diagnostic groups, not annotation kinds or current failures:
@@ -368,7 +396,20 @@ grant clause-removal credit.
 TSV's call-site column records written call spellings, not checker-resolved
 dependencies. Those spellings contain no direct calls between two of the 60
 target names, but that lexical result does not rule out aliases or paths through
-other functions. No joint component or cycle is established by this query.
+other functions. For navigation, the validator also matches unqualified
+spellings from those 60 fact rows against the 202 frozen effect-clause owner
+names in the same file. It finds 42 distinct caller-to-owner spelling
+candidates whose target names belong to owners without an R6 fact. Their
+202-node candidate graph has 164 components: 157 singletons, four pairs, and components of sizes
+three, nine, and twenty-five. The
+`effect_spelling_candidate_component` field identifies these groups. The
+other 142 owners have no call-site fact rows; some are candidate targets of
+these spellings, and the rest are singleton nodes because their outgoing calls
+are unobserved. A same-file spelling can be
+shadowed or aliased, so these are navigation candidates, not confirmed edges or
+complete dependency components. They establish no cycle and do not narrow the
+all-202 joint proof group. The lexical scan still finds no direct call between
+two of the 60 fact owners.
 `compare_live_identity` at line 21766 shows source operations that account for
 its required filesystem, time, process, and error effects. `pm/plan.xsh`'s
 `require_supported_target` returns `Err` without propagating it, which matches
@@ -497,9 +538,10 @@ source-fact rows. Neither evidence kind proves a joint effect removal. The
 remaining records split into 149 empty-Map literal selectors, one nonempty Map
 selector at site 3598, two `replace` negative controls, one interpolation-only
 parameter at site 2850 pending contract review, 17 source-context rows, and 713
-rows with historical diagnostic evidence only. The R6 call-site field records
-written call spellings; resolved call edges and joint effect components remain
-unknown.
+rows with historical diagnostic evidence only. The `source_shape` field groups
+the 17 source-context rows and the 713 diagnostic-only rows by source
+structure. The effect component field records only the spelling candidates
+described above; it does not resolve calls or change the all-202 joint group.
 
 These are source observations and witness selections. The 758 Proc rows still
 need capability-specific rechecks. The 17 source-context rows still need cause
@@ -513,10 +555,11 @@ Run the focused Python tests with:
 PYTHONDONTWRITEBYTECODE=1 python3 dev/performance/corpus/test_frozen_witnesses.py
 ```
 
-The tests check the accepted denominator and effect partition, source review
-classification boundaries, exact span shifting, overlap rejection, path
-containment, and rejection of lockstep source-view mutation. They do not run a
-compiler or native test.
+The tests check the accepted denominator and effect partition, both source-shape
+partitions, the spelling-candidate graph counts, source review classification
+boundaries, exact span shifting, overlap rejection, path containment, and
+rejection of lockstep source-view mutation. They do not run a compiler or native
+test.
 
 The foundation receipt remains the planning evidence in
 `full-inference-campaign.md`. It records one pass with no failures or skips for

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import csv
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 import io
 from pathlib import Path, PurePosixPath
@@ -37,24 +38,62 @@ EXPECTED_COUNTS = {
     "historical-diagnostic-only-pending": 713,
 }
 SOURCE_CONTEXT_CLASSES = {
-    2483: "source-read-schema-shape-pending",
-    2332: "null-concrete-join-pending",
-    2543: "null-concrete-join-pending",
-    3406: "null-concrete-join-pending",
-    3407: "null-concrete-join-pending",
-    3476: "null-concrete-join-pending",
-    6436: "null-concrete-join-pending",
-    6564: "null-concrete-join-pending",
-    7427: "null-concrete-join-pending",
-    7822: "null-concrete-join-pending",
-    7823: "null-concrete-join-pending",
-    2285: "producer-or-source-order-pending",
-    6338: "producer-or-source-order-pending",
-    973: "nominal-variant-return-context-pending",
-    3914: "nominal-variant-return-context-pending",
-    9111: "membership-grammar-boundary-pending",
-    9112: "membership-grammar-boundary-pending",
+    2483: "schema-projection-and-typed-call",
+    2332: "nullable-branch-join",
+    2543: "nullable-branch-join",
+    3406: "nullable-branch-join",
+    3407: "nullable-branch-join",
+    3476: "nullable-branch-join",
+    6436: "nullable-branch-join",
+    6564: "nullable-branch-join",
+    7427: "nullable-branch-join",
+    7822: "nullable-branch-join",
+    7823: "nullable-branch-join",
+    2285: "empty-list-accumulator",
+    6338: "nullable-record-state-with-later-producer",
+    973: "single-visible-variant-spelling",
+    3914: "shared-variant-spelling",
+    9111: "enum-membership-operands",
+    9112: "enum-membership-operands",
 }
+EXPECTED_SOURCE_CONTEXT_SHAPES = Counter(
+    {
+        "nullable-branch-join": 10,
+        "empty-list-accumulator": 1,
+        "nullable-record-state-with-later-producer": 1,
+        "schema-projection-and-typed-call": 1,
+        "single-visible-variant-spelling": 1,
+        "shared-variant-spelling": 1,
+        "enum-membership-operands": 2,
+    }
+)
+EXPECTED_DIAGNOSTIC_SOURCE_SHAPES = {
+    "coupled-parameter-return": (330, 131),
+    "mixed-strong-cues": (116, 89),
+    "iteration-collection": (64, 40),
+    "optional-row-join": (80, 55),
+    "record-variant-construction": (39, 16),
+    "typed-call-method": (38, 29),
+    "operator-member-index": (17, 8),
+    "format-interpolation": (13, 4),
+    "variant-match": (7, 7),
+    "empty-collection-initializer": (8, 8),
+    "other-typed-initializer": (1, 1),
+}
+UNQUALIFIED_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+SOURCE_SHAPE_CUES = {
+    "iter": re.compile(rb"\b(for|while|collect|yield)\b"),
+    "join": re.compile(rb"\?\?|\.\.\.|\b(?:None|null)\b"),
+    "construction": re.compile(rb"\{\s*[A-Za-z_]\w*\s*:|\b(?:Some|None|Ok|Err|List|Map|Set|Bytes|Str|Int|Bool)\s*\("),
+    "match": re.compile(rb"\bmatch\b"),
+    "call": re.compile(rb"(?<![.\w])(?:[a-z][A-Za-z0-9_]*|[A-Z][A-Za-z0-9_]*)\s*\("),
+    "method": re.compile(rb"\.[A-Za-z_]\w*\s*\("),
+    "arith": re.compile(rb"(?<![=!<>])(?:\+|-|\*|/|%)(?![=])"),
+    "field": re.compile(rb"\.[A-Za-z_]\w*(?!\s*\()"),
+    "index": re.compile(rb"\[[^\]]+\]"),
+    "format": re.compile(rb"\bf\""),
+}
+STRONG_SOURCE_SHAPE_CUES = {"iter", "join", "construction", "match"}
 PROC_PARAMETER_REASON = "current grammar requires nondefault proc/stream parameter type"
 PROC_RETURN_REASON = "omitted proc return defaults to Unit; preserve explicit value-return contract"
 EFFECT_REASON = "retain explicit private effect set; individual lint proof does not establish joint equivalence through declared-call cycles"
@@ -515,7 +554,7 @@ def classification(site, annotation, owner):
             raise ValueError("frozen interpolation-only input at site 2850 changed")
         return "interpolation-contract-pending", "source-observation-contract-recheck"
     if site.site in SOURCE_CONTEXT_CLASSES:
-        return "source-context-pending", SOURCE_CONTEXT_CLASSES[site.site]
+        return "source-context-pending", "source-shape-review"
     if site.reason.startswith("joint check check."):
         return "historical-diagnostic-only-pending", "declaration-group-recheck"
     raise ValueError(f"no frozen source classification for retained site {site.site}")
@@ -526,6 +565,110 @@ def declaration_key(site):
     if tokens and tokens[0] in {"pure", "proc", "stream"} and len(tokens) > 1:
         return f"{site.project}:{site.path}:{tokens[0]} {tokens[1]}"
     return f"{site.project}:{site.path}:{site.owner}"
+
+
+def historical_source_shape(site, owner, declaration_kinds):
+    if site.owner.startswith(("pure ", "proc ", "stream ")):
+        body = owner.split(b"{", 1)[-1]
+    else:
+        body = owner.split(b"=", 1)[-1]
+    cues = {name for name, pattern in SOURCE_SHAPE_CUES.items() if pattern.search(body)}
+    strong = cues & STRONG_SOURCE_SHAPE_CUES
+    if {"parameter-type", "return-type"}.issubset(declaration_kinds):
+        return "coupled-parameter-return"
+    if len(strong) > 1:
+        return "mixed-strong-cues"
+    if strong:
+        return {
+            "iter": "iteration-collection",
+            "join": "optional-row-join",
+            "construction": "record-variant-construction",
+            "match": "variant-match",
+        }[next(iter(strong))]
+    if "call" in cues or "method" in cues:
+        return "typed-call-method"
+    if cues & {"arith", "field", "index"}:
+        return "operator-member-index"
+    if "format" in cues:
+        return "format-interpolation"
+    if "local-type" in declaration_kinds:
+        return "empty-collection-initializer" if body.strip() == b"[]" else "other-typed-initializer"
+    raise ValueError(f"historical site {site.site} has no source-shape cue")
+
+
+def effect_spelling_candidate_components(sites, retained, effect_facts):
+    effect_sites = [
+        site
+        for site in sites
+        if site.site in retained and site.kind == "effect-list" and site.reason == EFFECT_REASON
+    ]
+    site_by_target = {}
+    targets_by_file_and_name = defaultdict(list)
+    for site in effect_sites:
+        tokens = site.owner.split()
+        key = (site.project, site.path, tokens[1])
+        if key in site_by_target:
+            raise ValueError(f"duplicate effect target source site: {key}")
+        site_by_target[key] = site.site
+        targets_by_file_and_name[(site.project, site.path, tokens[1])].append(site.site)
+
+    adjacency = {site.site: set() for site in effect_sites}
+    candidate_pairs = set()
+    for key, fact in effect_facts.items():
+        caller_site = site_by_target.get(key)
+        if caller_site is None:
+            raise ValueError(f"effect fact has no retained source site: {key}")
+        for call in fact["source_call_sites"].split(";"):
+            _line, separator, callee = call.partition(":")
+            if not separator or not UNQUALIFIED_NAME.fullmatch(callee):
+                continue
+            targets = targets_by_file_and_name.get((key[0], key[1], callee), [])
+            if len(targets) != 1:
+                continue
+            callee_site = targets[0]
+            if caller_site == callee_site:
+                continue
+            candidate_pairs.add((caller_site, callee_site))
+            adjacency[caller_site].add(callee_site)
+            adjacency[callee_site].add(caller_site)
+
+    labels = {}
+    component_sizes = Counter()
+    visited = set()
+    for start in sorted(adjacency):
+        if start in visited:
+            continue
+        component = set()
+        pending = deque([start])
+        visited.add(start)
+        while pending:
+            current = pending.popleft()
+            component.add(current)
+            for neighbor in adjacency[current] - visited:
+                visited.add(neighbor)
+                pending.append(neighbor)
+        component_sizes[len(component)] += 1
+        if len(component) > 1:
+            label = f"lexical-candidate-component:{min(component)}"
+            labels.update({site_id: label for site_id in component})
+        else:
+            site_id = next(iter(component))
+            site = next(site for site in effect_sites if site.site == site_id)
+            tokens = site.owner.split()
+            key = (site.project, site.path, tokens[1])
+            labels[site_id] = (
+                "source-fact-no-spelling-candidate"
+                if key in effect_facts
+                else "lint-only-outgoing-spellings-unavailable"
+            )
+
+    if len(effect_sites) != 202 or len(effect_facts) != 60:
+        raise ValueError("effect spelling graph no longer covers the frozen 202 sites and 60 fact rows")
+    if len(candidate_pairs) != 42 or component_sizes != Counter({1: 157, 2: 4, 3: 1, 9: 1, 25: 1}):
+        raise ValueError(
+            f"effect spelling graph changed: {len(candidate_pairs)} pairs, {component_sizes} components"
+        )
+    return labels, candidate_pairs, component_sizes
 
 
 def format_bytes(value):
@@ -547,7 +690,14 @@ def witness_rows(views_root, sites, retained, eligibility, individual_effect_ids
         if row["category"] in {"eligible-local", "eligible-internal"}
     }
     removed = spans_by_file(sites, eligible_ids, set(retained))
+    effect_components, _effect_pairs, _effect_component_sizes = effect_spelling_candidate_components(
+        sites,
+        retained,
+        effect_facts,
+    )
     rows = []
+    diagnostic_kinds = defaultdict(set)
+    diagnostic_owners = {}
     for site in sites:
         if site.site not in retained:
             continue
@@ -573,6 +723,14 @@ def witness_rows(views_root, sites, retained, eligibility, individual_effect_ids
             group = declaration_key(site)
         else:
             group = declaration_key(site)
+        if kind == "historical-diagnostic-only-pending":
+            diagnostic_kinds[group].add(site.kind)
+            diagnostic_owners[group] = owner
+        source_shape = SOURCE_CONTEXT_CLASSES.get(site.site, "")
+        if kind == "effect-joint-proof-pending":
+            effect_component = effect_components[site.site]
+        else:
+            effect_component = ""
         rows.append(
             (
                 site.site,
@@ -583,7 +741,7 @@ def witness_rows(views_root, sites, retained, eligibility, individual_effect_ids
                 site.owner,
                 site.reason,
                 kind,
-            "in-scope; source-only; pending executable recheck; no necessity or removal claim",
+                "in-scope; source-only; pending executable recheck; no necessity or removal claim",
                 witness_type,
                 group,
                 f"site:{site.site}",
@@ -592,9 +750,46 @@ def witness_rows(views_root, sites, retained, eligibility, individual_effect_ids
                 format_bytes(annotation),
                 format_bytes(context),
                 effect_evidence,
+                source_shape,
+                effect_component,
             )
         )
 
+    diagnostic_shapes = {
+        group: historical_source_shape(
+            next(site for site in sites if declaration_key(site) == group and site.site in retained),
+            owner,
+            diagnostic_kinds[group],
+        )
+        for group, owner in diagnostic_owners.items()
+    }
+    diagnostic_shape_counts = Counter()
+    diagnostic_shape_groups = defaultdict(set)
+    source_context_shape_counts = Counter()
+    for row in rows:
+        group = row[10]
+        if row[7] == "historical-diagnostic-only-pending":
+            shape = diagnostic_shapes[group]
+            diagnostic_shape_counts[shape] += 1
+            diagnostic_shape_groups[shape].add(group)
+        elif row[7] == "source-context-pending":
+            source_context_shape_counts[row[17]] += 1
+    actual_shape_summary = {
+        shape: (diagnostic_shape_counts[shape], len(diagnostic_shape_groups[shape]))
+        for shape in EXPECTED_DIAGNOSTIC_SOURCE_SHAPES
+    }
+    if actual_shape_summary != EXPECTED_DIAGNOSTIC_SOURCE_SHAPES:
+        raise ValueError(f"historical source-shape partition changed: {actual_shape_summary}")
+    if source_context_shape_counts != EXPECTED_SOURCE_CONTEXT_SHAPES:
+        raise ValueError(f"source-context shape partition changed: {source_context_shape_counts}")
+    rows = [
+        row[:17]
+        + ((diagnostic_shapes[row[10]],) if row[7] == "historical-diagnostic-only-pending" else ())
+        + row[18:]
+        if row[7] == "historical-diagnostic-only-pending"
+        else row
+        for row in rows
+    ]
     counts = {}
     for row in rows:
         counts[row[7]] = counts.get(row[7], 0) + 1
@@ -651,6 +846,8 @@ def main():
             "annotation_bytes_utf8_escaped",
             "minimal_source_context_utf8_escaped",
             "effect_evidence",
+            "source_shape",
+            "effect_spelling_candidate_component",
         )
     )
     writer.writerows(rows)
