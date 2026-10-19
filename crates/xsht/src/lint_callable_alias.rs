@@ -135,7 +135,7 @@ fn lint_callable_aliases_with_check(
                     .and_then(|start| {
                         let start = outer.span.start() + start;
                         let end = start + name.as_str().as_str().len();
-                        checked.callable_contract_at(xsh::frontend::source::Span::new(
+                        checked.callable_value_contract_at(xsh::frontend::source::Span::new(
                             outer.span.source_id,
                             start,
                             end,
@@ -261,11 +261,9 @@ mod tests {
     }
 
     #[test]
-    fn callable_aliases_compare_resolved_contracts_and_preserve_default_values() {
-        let equivalent = "type Quantity = Int\npure target(value: Quantity) -> Quantity { value }\npure wrapper(value: Int) -> Int { target(value) }\n";
-        let diagnostics = lint(equivalent, true);
-        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
-        assert_eq!(diagnostics[0].fix_hints.len(), 1, "{diagnostics:?}");
+    fn callable_aliases_keep_schema_contexts_and_preserve_default_values() {
+        let different_schema = "type Quantity = Int\npure target(value: Quantity) -> Quantity { value }\npure wrapper(value: Int) -> Int { target(value) }\n";
+        assert!(lint(different_schema, true).is_empty());
 
         let different_defaults = "pure target(value: Int = 1) -> Int { value }\npure wrapper(value: Int = 2) -> Int { target(value) }\n";
         assert!(lint(different_defaults, true).is_empty());

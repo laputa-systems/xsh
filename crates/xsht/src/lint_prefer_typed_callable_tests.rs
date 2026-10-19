@@ -68,8 +68,15 @@ fn pure_parameter_passed_one_signature_names_its_callable_type() {
 }
 
 #[test]
-fn equivalent_checked_contracts_ignore_transparent_type_alias_spelling() {
+fn callable_contracts_keep_distinct_schema_contexts() {
     let source = "type Quantity = Int\npure quantity(value: Quantity) -> Quantity { value }\npure integer(value: Int) -> Int { value }\npure apply(callback: Pure, value: Int) -> Result[Int] { callback.call(value).require(Int) }\nprint ${apply(quantity, 1)? + apply(integer, 2)?}\n";
+    let diagnostics = lint(source);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}
+
+#[test]
+fn callable_contracts_equate_explicit_and_inferred_int_returns() {
+    let source = "pure explicit(value: Int) -> Int { value }\npure inferred(value: Int) { value }\npure apply(callback: Pure, value: Int) -> Result[Int] { callback.call(value).require(Int) }\nprint ${apply(explicit, 1)? + apply(inferred, 2)?}\n";
     let diagnostics = lint(source);
     assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
     assert_eq!(

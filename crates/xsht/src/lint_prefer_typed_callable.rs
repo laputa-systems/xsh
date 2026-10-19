@@ -204,7 +204,7 @@ impl CallableParameters {
                 })?
                 .1
                 .1;
-            let found = checked.callable_contract_at(span)?;
+            let found = checked.callable_value_contract_at(span)?;
             if found.kind() != expected_kind {
                 return None;
             }
