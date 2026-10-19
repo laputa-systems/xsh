@@ -215,6 +215,7 @@ impl GroundProducerIndex {
                 }
             }
         }
+        let mut callback_anchors = BTreeMap::new();
         for instruction in range.clone() {
             work.borrow_mut().charge(1)?;
             if decoder.store.tags[instruction] == FullTag::StmtMatch {
@@ -254,9 +255,6 @@ impl GroundProducerIndex {
                     preceding.push((pattern.raw(), guard.is_some()));
                 }
             }
-        }
-        for instruction in range.clone() {
-            work.borrow_mut().charge(1)?;
             match decoder.store.tags[instruction] {
                 FullTag::ExprPatternIf => {
                     let schema::ExprView::PatternIf { mut branches, .. } = decoder.expression_view(instruction)? else { unreachable!("pattern conditional has another view") };
@@ -280,42 +278,36 @@ impl GroundProducerIndex {
                 }
                 _ => {}
             }
-        }
-        for instruction in range.clone() {
-            work.borrow_mut().charge(1)?;
-            if !matches!(decoder.store.tags[instruction], FullTag::ExprListComp | FullTag::ExprMapComp) { continue; }
-            let (mut qualifiers, outputs) = match decoder.expression_view(instruction)? {
-                schema::ExprView::ListComp { qualifiers, value, .. } => (qualifiers, vec![value.raw() as usize]),
-                schema::ExprView::MapComp { qualifiers, key, value, .. } => (qualifiers, vec![key.raw() as usize, value.raw() as usize]),
-                _ => unreachable!("comprehension has another expression view"),
-            };
-            let mut active = Vec::new();
-            for qualifier in &mut qualifiers {
-                work.borrow_mut().charge(1 + active.len())?;
-                match qualifier? {
-                    super::super::decode::CompQualifierView::For { target, iter, .. } => {
-                        let iter = iter.raw() as usize;
-                        for &(slot, binding) in &active { owner.region_bindings.insert((iter, slot), binding); }
-                        let mut slots = Vec::new();
-                        decoder.comp_target_written_slots(target, &mut slots)?;
-                        for slot in slots {
-                            work.borrow_mut().charge(1)?;
-                            let binding = ProducerBinding::ScopedDeclaration(iter, slot);
-                            owner.comprehension_sources.insert(binding, (instruction, iter));
-                            active.push((slot, binding));
+            if matches!(decoder.store.tags[instruction], FullTag::ExprListComp | FullTag::ExprMapComp) {
+                let (mut qualifiers, outputs) = match decoder.expression_view(instruction)? {
+                    schema::ExprView::ListComp { qualifiers, value, .. } => (qualifiers, vec![value.raw() as usize]),
+                    schema::ExprView::MapComp { qualifiers, key, value, .. } => (qualifiers, vec![key.raw() as usize, value.raw() as usize]),
+                    _ => unreachable!("comprehension has another expression view"),
+                };
+                let mut active = Vec::new();
+                for qualifier in &mut qualifiers {
+                    work.borrow_mut().charge(1 + active.len())?;
+                    match qualifier? {
+                        super::super::decode::CompQualifierView::For { target, iter, .. } => {
+                            let iter = iter.raw() as usize;
+                            for &(slot, binding) in &active { owner.region_bindings.insert((iter, slot), binding); }
+                            let mut slots = Vec::new();
+                            decoder.comp_target_written_slots(target, &mut slots)?;
+                            for slot in slots {
+                                work.borrow_mut().charge(1)?;
+                                let binding = ProducerBinding::ScopedDeclaration(iter, slot);
+                                owner.comprehension_sources.insert(binding, (instruction, iter));
+                                active.push((slot, binding));
+                            }
+                        }
+                        super::super::decode::CompQualifierView::If { condition, .. } => {
+                            for &(slot, binding) in &active { owner.region_bindings.insert((condition.raw() as usize, slot), binding); }
                         }
                     }
-                    super::super::decode::CompQualifierView::If { condition, .. } => {
-                        for &(slot, binding) in &active { owner.region_bindings.insert((condition.raw() as usize, slot), binding); }
-                    }
                 }
+                work.borrow_mut().charge(outputs.len().saturating_mul(active.len()))?;
+                for output in outputs { for &(slot, binding) in &active { owner.region_bindings.insert((output, slot), binding); } }
             }
-            work.borrow_mut().charge(outputs.len().saturating_mul(active.len()))?;
-            for output in outputs { for &(slot, binding) in &active { owner.region_bindings.insert((output, slot), binding); } }
-        }
-        let mut callback_anchors = BTreeMap::new();
-        for instruction in range.clone() {
-            work.borrow_mut().charge(1)?;
             if decoder.store.tags[instruction] != FullTag::ExprPipeline { continue; }
             let schema::ExprView::ListPipeline { mut stages, .. } = decoder.expression_view(instruction)? else { unreachable!("pipeline has another view") };
             let mut position = 0;
@@ -533,16 +525,19 @@ struct ProducerProof<'a> {
     prefixes: BTreeMap<(u32, usize, usize), Vec<Arc<Type>>>,
     decoders: BTreeMap<u32, Rc<FullDecoder<'a>>>,
     types: BTreeMap<TypeId, Arc<Type>>,
+    declared_types: BTreeMap<(u32, usize), ProducerTypeDerivation>,
     incoming: BTreeMap<usize, Vec<usize>>,
     budget: SchemeInstantiationBudget,
 }
 
 pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>) -> Result<Vec<(u32, super::super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
-    if store.registered_calls.is_empty() && store.checked_expr_types.iter().any(|fact| !fact.is_contract()) {
+    if index.demand == crate::runtime::eval::ProducerDemand::Absent
+        && store.checked_expr_types.iter().any(|fact| !fact.is_contract())
+    {
         return Err(IrVerifyError::new("producer context has no selected operation"));
     }
     if index.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(Vec::new()); }
-    let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), expressions: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
+    let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), expressions: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), declared_types: BTreeMap::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
     for call in &store.checked_call_targets { proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize); }
     for &fact_index in &index.result_constructors {
         let fact = store.checked_expr_types[fact_index];
@@ -597,6 +592,11 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
         }
     }
     Ok(proof.used_contexts.into_iter().map(|(instruction, (owner, ty))| (instruction, owner, ty)).collect())
+}
+
+enum ProducerTypeDerivation {
+    Pending,
+    Resolved(Option<Arc<Type>>),
 }
 
 #[derive(Clone, Copy)]
@@ -685,6 +685,20 @@ impl<'a> ProducerProof<'a> {
 
     fn declared_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
         self.budget.charge(1)?;
+        let key = (decoder.owner, instruction);
+        if let Some(derivation) = self.declared_types.get(&key) {
+            return match derivation {
+                ProducerTypeDerivation::Pending => Err(IrVerifyError::new("ground producer type derivation is cyclic")),
+                ProducerTypeDerivation::Resolved(ty) => Ok(ty.clone()),
+            };
+        }
+        self.declared_types.insert(key, ProducerTypeDerivation::Pending);
+        let ty = self.derive_declared_type(decoder, instruction)?;
+        self.declared_types.insert(key, ProducerTypeDerivation::Resolved(ty.clone()));
+        Ok(ty)
+    }
+
+    fn derive_declared_type(&mut self, decoder: &FullDecoder<'a>, instruction: usize) -> Result<Option<Arc<Type>>, IrVerifyError> {
         if let Some(id) = checked_expression_type_id(self.store, instruction as u32) { return self.contract_type(id).map(Some); }
         let literal = match decoder.expression_view(instruction)? {
             schema::ExprView::Null => Some(Type::Null),

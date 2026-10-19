@@ -1827,7 +1827,12 @@ impl Checker {
                         self.expect_type(&Type::Error, &arg.ty, arg.span);
                     }
                 }
-                Type::Result(Box::new(Type::Unknown), Box::new(outer))
+                let success = match expected_context {
+                    Some(Type::Result(success, _)) => (**success).clone(),
+                    Some(Type::Inference(_)) => self.type_constraints.fresh_at_level(span, 1),
+                    _ => Type::Unknown,
+                };
+                Type::Result(Box::new(success), Box::new(outer))
             }
             "Error" => {
                 self.error(

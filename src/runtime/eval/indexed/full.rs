@@ -20404,7 +20404,7 @@ run true
                     " return Ok()\n",
                     "}\n",
                 ),
-                "##! Generic proc exports.\n## Preserve its supplied value inside success.\nexport proc wrap(value) { value }\n",
+                "##! Generic proc exports.\nproc private_wrap(value) { value }\n## Preserve its supplied value inside success.\nexport proc wrap(value) { private_wrap(value) }\n",
             ));
             FullVerifier::verify(&program).unwrap();
             let import_step = scheme_fixture_use_step(&program, program_name(&program, "model"));
@@ -20418,6 +20418,88 @@ run true
                     &[], Span::new(program.store.source_id, 0, 0),
                 ).unwrap().unwrap();
                 assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Unit))));
+            }
+        });
+    }
+
+    #[test]
+    fn generic_proc_result_arguments_preserve_error_payloads() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-proc-error-payload.xsh", concat!(
+                "proc wrap(value) { value }\n",
+                "let error_payload: Result[Int, Str] = wrap(Err(\"kept\"))?\n",
+                "assert error_payload == Err(\"kept\")\n",
+                "let stored: Result[Int, Str] = Err(\"stored\")\n",
+                "let restored: Result[Int, Str] = wrap(stored)?\n",
+                "assert restored == Err(\"stored\")\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let program = Arc::new(program);
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_preserve_pipeline_contexts() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("strict-result-pipeline.xsh", concat!(
+                "pure keep(value: Int) -> Result[Int] { Ok(value) }\n",
+                "proc read() [error] -> Result[Int] {\n",
+                " let offset = 3\n",
+                " let captured = [1, 2] |> map { |item| item + offset } |> collect()\n",
+                " keep(captured[0])?\n",
+                "}\n",
+                "let alternate = false\n",
+            )));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "read")), LoweredFunctionKind::Proc,
+                    &[], Span::new(program.store.source_id, 0, 0),
+                ).unwrap().unwrap();
+                assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(4)))));
+            }
+            let integer = program.store.tags.iter().enumerate().find_map(|(instruction, tag)| {
+                (*tag == FullTag::ExprInt && program.store.payload(program.store.data[instruction].range()).unwrap() == [1, 0]).then_some(instruction)
+            }).unwrap();
+            let boolean = program.store.tags.iter().position(|tag| *tag == FullTag::ExprBool).unwrap();
+            let mut bad = (*program).clone();
+            bad.store.tags[integer] = FullTag::ExprBool;
+            bad.store.data[integer] = program.store.data[boolean];
+            FullVerifier::verify(&bad).expect_err("pipeline input producers must authenticate the retained callback context");
+        });
+    }
+
+    #[test]
+    fn strict_result_producers_reuse_repeated_initializer_evidence() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("strict-result-repeated-fields.xsh", r#"
+type Task = {tool: Str}
+pure sample(source: Str) -> Result[Str] {
+    let task = json.decode(source)?.require(Task)?
+    Ok(f"{task.tool} {task.tool} {task.tool} {task.tool}")
+}
+assert sample("{\"tool\":\"make\"}")? == "make make make make"
+"#));
+            FullVerifier::verify(&program).unwrap();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
             }
         });
     }
@@ -21334,12 +21416,19 @@ run true
             .expect("module export block is in bounds");
         let words = &program.store.extra[range.clone()];
         let count = words[0] as usize;
-        assert_eq!(words.len(), 1 + count * 3);
         let name = program_name(program, export_name);
-        let index = (0..count)
-            .find(|index| Name::from_symbol(Symbol::from_raw(words[1 + index * 3])) == name)
-            .expect("module export row exists");
-        range.start + 1 + index * 3 + field
+        let mut cursor = 1;
+        let mut selected = None;
+        for _ in 0..count {
+            let length = if words[cursor + 1] == 3 { 4 } else { 3 };
+            if Name::from_symbol(Symbol::from_raw(words[cursor])) == name {
+                assert!(field < length);
+                selected = Some(range.start + cursor + field);
+            }
+            cursor += length;
+        }
+        assert_eq!(cursor, words.len());
+        selected.expect("module export row exists")
     }
 
     #[test]
@@ -21373,11 +21462,20 @@ run true
                 .set_module_export_payload_for_test(
                     semantic_module_type,
                     program_name(&program, "identity"),
-                    0,
+                    3,
                 )
                 .unwrap();
             let error = FullVerifier::verify(&generic_payload).unwrap_err();
-            assert_eq!(error.message, "generic callable module export has a payload");
+            assert_eq!(error.message, "generic module callable kind is invalid");
+
+            let mut wrong_callable_kind = program.clone();
+            wrong_callable_kind.store.semantic.set_module_export_payload_for_test(
+                semantic_module_type, program_name(&program, "identity"),
+                crate::sema::types::CallableKind::Proc as u32,
+            ).unwrap();
+            let callable_kind = scheme_fixture_export_word(&program, use_step, "identity", 2);
+            wrong_callable_kind.store.extra[callable_kind] = crate::sema::types::CallableKind::Proc as u32;
+            FullVerifier::verify(&wrong_callable_kind).expect_err("exported callable kind must agree with its actual child function");
 
             let mut missing_payload = program.clone();
             let marker_payload = scheme_fixture_export_word(&program, use_step, "marker", 2);
@@ -21398,8 +21496,8 @@ run true
             );
 
             let mut wrong_kind = program.clone();
-            let identity_kind = scheme_fixture_export_word(&program, use_step, "identity", 1);
-            wrong_kind.store.extra[identity_kind] = 1;
+            let identity_kind = scheme_fixture_export_word(&program, use_step, "identity", 2);
+            wrong_kind.store.extra[identity_kind] = crate::sema::types::CallableKind::Proc as u32;
             let error = FullVerifier::verify(&wrong_kind).unwrap_err();
             assert_eq!(
                 error.message,
@@ -21408,7 +21506,7 @@ run true
 
             let mut wrong_namespace = program.clone();
             let identity_namespace =
-                scheme_fixture_export_word(&program, use_step, "identity", 2);
+                scheme_fixture_export_word(&program, use_step, "identity", 3);
             wrong_namespace.store.extra[identity_namespace] = program_name(&program, "entry")
                 .symbol()
                 .raw();
@@ -28593,7 +28691,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let checked = Checker::check_arena_with_sources_and_options(&parsed.arena, &sources, source_id, CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
             let declarations = Checker::compact_declarations(&parsed.arena, checked);
             assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
-            assert_eq!(crate::runtime::eval::ProducerDemand::for_declarations(&declarations), crate::runtime::eval::ProducerDemand::Needed);
+            assert_eq!(crate::runtime::eval::ProducerDemand::for_declarations(&parsed.arena, &declarations), crate::runtime::eval::ProducerDemand::Needed);
             let root = parsed.arena.statements;
             let selected = crate::syntax::arena::ArenaRange { start: root.start + 1, len: 1 };
             let view = CheckBundleView::for_root(&parsed.arena, selected, Some(&sources), Some(source_id));
@@ -28627,6 +28725,19 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             assert!(decoder.instruction_proof.is_none());
             let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
             index.record(&decoder).expect("absent producer demand must not inspect the instruction graph");
+            let mut stray_context = program.clone();
+            let FullCallableContract::Ground(signature) = program.store.functions[helper].contract else { panic!("ground helper") };
+            let type_id = program.store.semantic.signature_return_type(signature).unwrap();
+            let instruction = program.store.function_instruction_range(helper).unwrap()
+                .find(|&instruction| program.store.tags[instruction] == FullTag::ExprInt).unwrap();
+            stray_context.store.checked_expr_types.push(FullCheckedExprType {
+                instruction: instruction as u32,
+                type_id,
+                purpose: FullCheckedExprPurpose::ProducerContext(ExecutableOwner::Function(IrFunctionId::from_raw(helper as u32 + 1).unwrap())),
+            });
+            stray_context.store.checked_expr_types.sort_by_key(|fact| fact.instruction);
+            let error = FullVerifier::verify(&stray_context).unwrap_err();
+            assert_eq!(error.message, "producer context has no selected operation");
         });
     }
 

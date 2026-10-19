@@ -839,12 +839,32 @@ enum ProducerDemand {
 }
 
 impl ProducerDemand {
-    fn for_declarations(declarations: &crate::sema::check::CompactDeclOutput) -> Self {
-        if declarations.scheme_bodies.values().any(|facts| !facts.registered_calls().is_empty()) {
+    fn for_declarations(
+        program: &crate::syntax::arena::ArenaProgram,
+        declarations: &crate::sema::check::CompactDeclOutput,
+    ) -> Self {
+        if declarations.scheme_bodies.values().any(|facts| !facts.registered_calls().is_empty())
+            || Self::checked_result_constructors(program, declarations).next().is_some()
+        {
             Self::Needed
         } else {
             Self::Absent
         }
+    }
+
+    fn checked_result_constructors<'a>(
+        program: &'a crate::syntax::arena::ArenaProgram,
+        declarations: &'a crate::sema::check::CompactDeclOutput,
+    ) -> impl Iterator<Item = Span> + 'a {
+        declarations.bodies.expr_types.iter().filter_map(move |(expression, ty)| {
+            if !matches!(ty, Type::Result(_, _)) || ty.contains_typed_callable()
+                || ty.contains_inference() || ty.contains_recovery() || ty.contains_any()
+            {
+                return None;
+            }
+            let span = program.arena.expr(*expression).span;
+            declarations.bodies.checked_control_flow.result_constructors.contains_key(&span).then_some(span)
+        })
     }
 }
 

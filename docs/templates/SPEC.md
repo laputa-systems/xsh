@@ -2407,7 +2407,9 @@ A constructor takes its payload and error types from the expected type. Where
 a `Result[T, E]?` is expected, `Ok(...)` and `Err(...)` are checked against
 the `Result[T, E]` under the `?`, since neither is `null`: `Ok(7)` has the
 error type `E`, and `Err(.Variant(...))` selects the variant from `E`
-(6.8).
+(6.8). An `Err` keeps the expected success type even though it carries only
+an error payload. This also applies when the result is stored in a typed local
+or passed to an inferred generic parameter.
 
 `result.context(kind, message)` returns `Ok` unchanged and adds a diagnostic
 context frame to an `Err`.

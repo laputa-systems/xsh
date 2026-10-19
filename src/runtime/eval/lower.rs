@@ -1332,6 +1332,20 @@ pub(super) fn compact_function_selection(
         if declarations.scheme_bodies.get(&span).is_some_and(|facts| !facts.registered_calls().is_empty()) { producer_demand = super::ProducerDemand::Needed; }
         function.key
     }).collect();
+    if producer_demand == super::ProducerDemand::Absent {
+        let constructors = super::ProducerDemand::checked_result_constructors(program, declarations)
+            .collect::<std::collections::BTreeSet<_>>();
+        let contains_constructor = |statement| {
+            let span = program.arena.stmt(statement).span;
+            constructors.range(Span::at(span.source_id, span.start())..Span::at(span.source_id, span.end()))
+                .next().is_some()
+        };
+        if program.arena.stmt_ids(scope.root_statements).any(contains_constructor)
+            || scope.modules.iter().any(|module| program.module_statements(module).any(contains_constructor))
+        {
+            producer_demand = super::ProducerDemand::Needed;
+        }
+    }
     CompactFunctionSelection { keys, producer_demand }
 }
 
@@ -5534,7 +5548,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn record_prepared_tag_schemas(&self, value: &LoweredValue) -> Option<()> {
-        let demand = *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.declarations));
+        let demand = *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.program, self.declarations));
         if demand == super::ProducerDemand::Absent { return Some(()); }
         self.record_checked_prepared_tag_schemas(value)
     }
@@ -5583,7 +5597,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         let lowered = self.lower_expr(id, slots, current_function, item_slot)?;
-        let demand = *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.declarations));
+        let demand = *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.program, self.declarations));
         if demand == super::ProducerDemand::Needed
             && let Some(ty) = self.bodies.expr_types.get(&id).cloned()
             && (compact_checked_type_is_concrete(&ty) && !ty.contains_recovery())
@@ -5595,7 +5609,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn record_lowered_producer_inputs(&mut self, id: ExprId, lowered: BuildExprId) -> Option<()> {
-        let demand = *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.declarations));
+        let demand = *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.program, self.declarations));
         if demand == super::ProducerDemand::Absent { return Some(()); }
         let source = match self.program.arena.expr(id).kind {
             ArenaExprKind::Call { callee, .. } => match self.program.arena.expr(callee).kind {
@@ -5644,20 +5658,36 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 )
         });
         let checked_result_constructor = self.bodies.checked_control_flow.result_constructors
-            .contains_key(&self.program.arena.expr(id).span);
+            .get(&self.program.arena.expr(id).span).copied();
         let Some(ty) = self
             .bodies
             .expr_types
             .get(&id)
             .filter(|ty| {
                 ty.contains_typed_callable() || with_error_source || checked_uint_literal
-                    || checked_result_constructor && !ty.contains_inference() && !ty.contains_recovery() && !ty.contains_any()
+                    || checked_result_constructor.is_some() && !ty.contains_inference() && !ty.contains_recovery() && !ty.contains_any()
             })
             .cloned()
         else {
             return Some(lowered);
         };
         let ty = self.canonicalize_checked_type(ty);
+        let contract_producer = if let Some(selected) = checked_result_constructor {
+            let scratch = self.scratch.borrow();
+            let mut producer = lowered;
+            while let Some(BuildExprRow::CheckedValue { value, .. }) = scratch.expressions.get(producer.index()) {
+                producer = *value;
+            }
+            if !matches!((selected, scratch.expressions.get(producer.index())),
+                (crate::sema::check::CheckedResultConstructor::Ok, Some(BuildExprRow::Ok(_)))
+                | (crate::sema::check::CheckedResultConstructor::Err, Some(BuildExprRow::Err { .. })))
+            {
+                self.last_blocker_detail = Some((self.program.arena.expr(id).span,
+                    "checked Result constructor has no matching physical producer".to_string()));
+                return None;
+            }
+            producer
+        } else { lowered };
         if ty.contains_typed_callable() {
             let parameter_slot = {
                 let scratch = self.scratch.borrow();
@@ -5690,7 +5720,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let recorded = self
             .scratch
             .borrow_mut()
-            .record_checked_expr_type(lowered, ty.clone(), with_error_source);
+            .record_checked_expr_type(contract_producer, ty.clone(), with_error_source);
         if !recorded {
             self.last_blocker_detail = Some((
                 self.program.arena.expr(id).span,
@@ -6148,7 +6178,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         .get(&(self.current_namespace, self.program.arena.span(stage.span)))?
                         .input
                         .clone();
-                    let demand = *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.declarations));
+                    let demand = *self.scratch.borrow_mut().producer_demand.get_or_insert_with(|| super::ProducerDemand::for_declarations(self.program, self.declarations));
                     let start = self.scratch.borrow().expressions.len();
                     let lowered_stage = self.lower_pipeline_stage(
                         stage,
