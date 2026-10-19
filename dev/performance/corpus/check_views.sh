@@ -114,8 +114,8 @@ python3 "$repo/dev/performance/corpus/apply_spans.py" \
   "$scratch/expected/reduced/xsh" "$scratch/expected/reduced/laputa"
 for view in original reduced; do
   for project in xsh laputa; do
-    if ! diff -qr "$scratch/expected/$view/$project" "$views/$view/$project" >"$scratch/diff.$view.$project"; then
-      cat "$scratch/diff.$view.$project" >&2
+    if ! python3 "$repo/dev/performance/corpus/compare_tree.py" \
+      "$scratch/expected/$view/$project" "$views/$view/$project"; then
       printf '%s %s view differs from its pinned source and selected spans\n' "$view" "$project" >&2
       exit 1
     fi
@@ -244,8 +244,8 @@ restore_probes
 rm -f "$scratch/probe-restore-required"
 for view in original reduced; do
   for project in xsh laputa; do
-    if ! diff -qr "$scratch/expected/$view/$project" "$views/$view/$project" >"$scratch/diff-final.$view.$project"; then
-      cat "$scratch/diff-final.$view.$project" >&2
+    if ! python3 "$repo/dev/performance/corpus/compare_tree.py" \
+      "$scratch/expected/$view/$project" "$views/$view/$project"; then
       printf '%s %s view changed during paired checking\n' "$view" "$project" >&2
       exit 1
     fi

@@ -50,7 +50,15 @@ fn edit_span(source: &str, kind: &str, span: Span) -> Span {
         "missing annotation delimiter before byte {}",
         span.start()
     );
-    Span::new(span.source_id, prefix_start, span.end())
+    let edit_start = if kind == "return"
+        && prefix_start > 0
+        && bytes[prefix_start - 1] == b' '
+    {
+        prefix_start - 1
+    } else {
+        prefix_start
+    };
+    Span::new(span.source_id, edit_start, span.end())
 }
 
 fn escaped(value: &str) -> String {
@@ -439,9 +447,8 @@ fn inventory(project: &str, revision: &str, root: &Path, relative: &str) -> Vec<
         parsed.diagnostics
     );
     let program = parsed.arena;
-    let source_id = SourceId::new(0);
     let mut sites = Vec::new();
-    for id in program.arena.stmt_ids(source_id) {
+    for id in program.arena.stmt_ids(program.statements) {
         inventory_statement(
             &mut sites,
             project,
