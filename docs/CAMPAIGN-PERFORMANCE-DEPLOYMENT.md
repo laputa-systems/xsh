@@ -107,6 +107,26 @@ F1's source-only frozen-corpus validator passes eight tests and reproduces all
 1,040 edits. This adds no annotation removals. All 202 effects stay in one
 conservative joint group until resolved dependencies are available.
 
+Fixture source `0b2f9cd97` adds these F1 selectors. Prefix each name with
+`tests/xsh/<file>::`. Reference products from `55032a7ee` give two passes,
+seven failures and zero skips. Matching candidate results remain pending.
+
+| File | Exact test name | Reference result |
+|---|---|---|
+| `full-inference-recursive-components.xsh` | `test_full_inference_self_recursive_scc_generalizes_after_checking` | Required return and monomorphic-call failures |
+| `full-inference-recursive-components.xsh` | `test_full_inference_mutual_recursive_scc_is_declaration_order_independent` | Required return failures |
+| `full-inference-captured-callables.xsh` | `test_full_inference_returned_generic_callable_uses_immutable_capture` | Generic-body and factory-return failures |
+| `full-inference-captured-callables.xsh` | `test_full_inference_returned_callable_keeps_shared_capture_monomorphic` | Wrong rejection: proc omission parse failure |
+| `full-inference-captured-callables.xsh` | `test_full_inference_returned_mutable_capture_ground_control` | Pass |
+| `full-inference-stream-effects.xsh` | `test_full_inference_stream_effect_is_lazy_through_returned_alias` | Stream omission parse failure |
+| `full-inference-stream-effects.xsh` | `test_full_inference_inferred_stream_effect_alias_rejects_empty_bound` | Wrong rejection: stream omission parse failure |
+| `full-inference-stream-effects.xsh` | `test_full_inference_stream_effect_survives_inferred_returned_producer` | Wrong rejection: stream omission parse failure |
+| `full-inference-stream-effects.xsh` | `test_full_inference_stream_effect_alias_typed_ground_control` | Pass |
+
+The stream ground control uses a direct typed producer call. Its first alias
+version tested another unsupported capability and failed name resolution.
+The mandatory inferred alias cases remain unchanged.
+
 The nested callable graph is integrated at `3c41f3b3a`. Eight focused tests
 pass, covering shared binders, component resolution, rollback, rest parameters,
 unresolved origins, schema guards, and independently verified prepared metadata.
