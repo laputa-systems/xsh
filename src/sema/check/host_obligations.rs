@@ -83,9 +83,16 @@ impl HostObligation {
         let mut matching = Vec::new();
         for candidate in std::mem::take(&mut self.candidates) {
             let params = crate::sema::builtin_templates::callable_parameters(&candidate.signature.sig);
-            if crate::sema::arguments::bind_static_arguments(&params, &self.arguments).is_ok()
-                && constraints.trial(|constraints| self.constrain_candidate(candidate, constraints, false))?
-            {
+            let arguments_match =
+                crate::sema::arguments::bind_static_arguments(&params, &self.arguments).is_ok();
+            let candidate_matches = if arguments_match {
+                #[cfg(test)]
+                constraints.record_host_candidate_trial();
+                constraints.trial(|constraints| self.constrain_candidate(candidate, constraints, false))?
+            } else {
+                false
+            };
+            if candidate_matches {
                 matching.push(candidate);
             }
         }
@@ -94,9 +101,14 @@ impl HostObligation {
                 .then_some(candidate.receiver)
         }).collect::<Vec<_>>();
         for candidate in matching {
-            if competing_domains.contains(&candidate.receiver)
-                || constraints.trial(|constraints| self.constrain_candidate(candidate, constraints, true))?
-            {
+            let candidate_matches = if competing_domains.contains(&candidate.receiver) {
+                true
+            } else {
+                #[cfg(test)]
+                constraints.record_host_candidate_trial();
+                constraints.trial(|constraints| self.constrain_candidate(candidate, constraints, true))?
+            };
+            if candidate_matches {
                 self.candidates.push(candidate);
             }
         }
@@ -193,6 +205,8 @@ impl Checker {
                     if let Some(dependents) = watchers.remove(&dependency) {
                         for dependent in dependents {
                             if pending[dependent].is_some() && queued.insert(dependent) {
+                                #[cfg(test)]
+                                self.type_constraints.record_host_obligation_requeue();
                                 queue.push_back(dependent);
                             }
                         }
@@ -285,6 +299,7 @@ mod tests {
             assert_eq!(obligation.select(&mut constraints), Ok(false));
             assert_eq!(obligation.candidates.len(), 2);
             assert_eq!(constraints.resolve(&receiver), Ok(receiver));
+            assert_eq!(constraints.metrics().host_candidate_trials, 2);
             let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), "");
             let overloads = [string.clone(), bytes.clone()];
             for context in [Type::Str, Type::Bytes] {
@@ -294,6 +309,132 @@ mod tests {
                 assert!(checker.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)));
             }
         });
+    }
+
+    #[test]
+    fn host_candidate_metrics_exclude_the_committed_selection() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let span = Span::at(crate::source::SourceId::new(0), 0);
+            let signature = &api_spec().method_overloads(MethodReceiver::Str, "trim").unwrap()[0];
+            let mut constraints = TypeConstraints::default();
+            let receiver = constraints.fresh(span);
+            let result = constraints.fresh(span);
+            let mut obligation = HostObligation {
+                receiver: receiver.clone(),
+                result: result.clone(),
+                expected: None,
+                arguments: Vec::new(),
+                candidates: vec![HostMethod { receiver: MethodReceiver::Str, signature }],
+                span,
+            };
+
+            assert_eq!(obligation.select(&mut constraints), Ok(true));
+            assert_eq!(obligation.candidates.len(), 1);
+            assert_eq!(constraints.resolve(&receiver), Ok(Type::Str));
+            assert_eq!(constraints.resolve(&result), Ok(Type::Str));
+            assert_eq!(constraints.metrics().host_candidate_trials, 2);
+            assert_eq!(constraints.metrics().host_obligation_requeues, 0);
+        });
+    }
+
+    #[test]
+    fn host_obligation_metrics_count_deduplicated_dependency_requeues() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let receiver_span = Span::at(crate::source::SourceId::new(0), 0);
+            let result_span = Span::at(crate::source::SourceId::new(0), 1);
+            let mut checker = Checker::new(crate::sema::check::CheckOptions::default());
+            let receiver = checker.type_constraints.fresh(receiver_span);
+            let byte_result = checker.type_constraints.fresh(result_span);
+            let byte_at = [MethodReceiver::Bytes, MethodReceiver::Str]
+                .map(|receiver_domain| HostMethod {
+                    receiver: receiver_domain,
+                    signature: &api_spec()
+                        .method_overloads(receiver_domain, "byte_at")
+                        .expect("registered byte_at receiver domain")[0],
+                });
+            checker.local_inference.host_obligations.0.push(HostObligation {
+                receiver: receiver.clone(),
+                result: byte_result.clone(),
+                expected: None,
+                arguments: vec![ExpandedArgument {
+                    entry_index: 0,
+                    name: None,
+                    value: crate::sema::arguments::ArgumentValueSource::CheckedType,
+                    ty: Type::Int,
+                    span: receiver_span,
+                }],
+                candidates: byte_at.into(),
+                span: receiver_span,
+            });
+            checker.local_inference.host_obligations.0.push(HostObligation {
+                receiver: receiver.clone(),
+                result: byte_result.clone(),
+                expected: None,
+                arguments: vec![ExpandedArgument {
+                    entry_index: 0,
+                    name: None,
+                    value: crate::sema::arguments::ArgumentValueSource::CheckedType,
+                    ty: Type::Int,
+                    span: receiver_span,
+                }],
+                candidates: vec![HostMethod {
+                    receiver: MethodReceiver::Str,
+                    signature: &api_spec()
+                        .method_overloads(MethodReceiver::Str, "byte_at")
+                        .expect("registered Str.byte_at method")[0],
+                }],
+                span: receiver_span,
+            });
+
+            assert_eq!(checker.solve_host_obligations(), Ok(()));
+            assert_eq!(checker.type_constraints.resolve(&receiver), Ok(Type::Str));
+            assert_eq!(
+                checker.type_constraints.resolve(&byte_result),
+                Ok(Type::Optional(Box::new(Type::Int)))
+            );
+            assert!(checker.local_inference.host_obligations.0.is_empty());
+            let metrics = checker.type_constraints.metrics();
+            assert_eq!(metrics.host_candidate_trials, 9);
+            assert_eq!(metrics.host_obligation_requeues, 1);
+        });
+    }
+
+    #[test]
+    fn host_obligation_selection_publishes_api_evidence_and_real_ambiguity() {
+        let selected_source = "pure first_byte(raw: Str) -> Int? { raw.byte_at(0) }\n";
+        let selected = crate::syntax::parser::Parser::parse_source_arena_only(
+            crate::source::SourceId::new(0),
+            selected_source,
+        );
+        assert!(selected.diagnostics.is_empty(), "{:?}", selected.diagnostics);
+        let checked = Checker::check_arena_with_options(
+            &selected.arena,
+            selected_source,
+            crate::sema::check::CheckOptions::for_execution(),
+        );
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(checked.api_calls.len(), 1);
+        let call = checked.api_calls.values().next().expect("selected API call");
+        assert_eq!(call.receiver, Some(MethodReceiver::Str));
+        assert_eq!(call.params, vec![Type::Int]);
+        assert_eq!(call.argument_slots, vec![0]);
+
+        let ambiguous_source =
+            "pure ambiguous(raw) -> Int? { raw.byte_at(0) }\nlet output = ambiguous(b\"A\")\n";
+        let ambiguous = crate::syntax::parser::Parser::parse_source_arena_only(
+            crate::source::SourceId::new(0),
+            ambiguous_source,
+        );
+        assert!(ambiguous.diagnostics.is_empty(), "{:?}", ambiguous.diagnostics);
+        let checked = Checker::check_arena_with_options(
+            &ambiguous.arena,
+            ambiguous_source,
+            crate::sema::check::CheckOptions::for_execution(),
+        );
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::CheckAmbiguousOverload)
+        }));
+        assert!(checked.api_calls.is_empty());
     }
 
     #[test]

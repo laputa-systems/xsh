@@ -182,6 +182,10 @@ struct ConstraintCounters {
     scheme_instantiations: AtomicU64,
     successful_generic_call_resolutions: AtomicU64,
     worklist_wakeups: AtomicU64,
+    #[cfg(test)]
+    host_candidate_trials: AtomicU64,
+    #[cfg(test)]
+    host_obligation_requeues: AtomicU64,
     rollbacks: AtomicU64,
     rollback_changes: AtomicU64,
 }
@@ -209,6 +213,14 @@ impl Clone for ConstraintCounters {
                 self.successful_generic_call_resolutions.load(Ordering::Relaxed),
             ),
             worklist_wakeups: AtomicU64::new(self.worklist_wakeups.load(Ordering::Relaxed)),
+            #[cfg(test)]
+            host_candidate_trials: AtomicU64::new(
+                self.host_candidate_trials.load(Ordering::Relaxed),
+            ),
+            #[cfg(test)]
+            host_obligation_requeues: AtomicU64::new(
+                self.host_obligation_requeues.load(Ordering::Relaxed),
+            ),
             rollbacks: AtomicU64::new(self.rollbacks.load(Ordering::Relaxed)),
             rollback_changes: AtomicU64::new(self.rollback_changes.load(Ordering::Relaxed)),
         }
@@ -228,6 +240,8 @@ pub(crate) struct ConstraintMetrics {
     pub(crate) scheme_instantiations: u64,
     pub(crate) successful_generic_call_resolutions: u64,
     pub(crate) worklist_wakeups: u64,
+    pub(crate) host_candidate_trials: u64,
+    pub(crate) host_obligation_requeues: u64,
     pub(crate) rollbacks: u64,
     pub(crate) rollback_changes: u64,
 }
@@ -473,9 +487,28 @@ impl TypeConstraints {
                 .successful_generic_call_resolutions
                 .load(Ordering::Relaxed),
             worklist_wakeups: self.counters.worklist_wakeups.load(Ordering::Relaxed),
+            host_candidate_trials: self.counters.host_candidate_trials.load(Ordering::Relaxed),
+            host_obligation_requeues: self
+                .counters
+                .host_obligation_requeues
+                .load(Ordering::Relaxed),
             rollbacks: self.counters.rollbacks.load(Ordering::Relaxed),
             rollback_changes: self.counters.rollback_changes.load(Ordering::Relaxed),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_host_candidate_trial(&self) {
+        self.counters
+            .host_candidate_trials
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn record_host_obligation_requeue(&self) {
+        self.counters
+            .host_obligation_requeues
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     #[cfg(test)]
