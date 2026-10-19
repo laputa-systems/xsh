@@ -781,6 +781,8 @@ duplicate per-commit copies of controllers solely to record provenance.
 
 - The measurement selection now appends six demanding JSON and directory cases at package ranges 16,384, 32,768 and 65,536. The original fifteen cases and their provisional observations remain unchanged. Three focused generator, selection and measurement-failure controls pass on the integrated source. The new cases have no timing or acceptance credit yet.
 
+- Combined source `63130a3d5` passed bootstrap, 228 root integration tests and the previously failing allocation, hook and grammar controls. Canonical execution then stopped in the debug library: 1,040 passed, one failed and three were ignored. The documentation scanner mistook the member expression `source.observation.state` for a diagnostic code. The corpus consistency check passed. A focused scanner regression reproduces the false positive; the token-boundary fix passes all six diagnostic checks while retaining actual unknown-code controls. Preserve the failed receipt in `.work/wt/perf-i1-combined-freeze-r2`. Native and supplemental stages did not run.
+
 ## For the owner afterwards
 
 - Read the concise accepted baseline page and deployment reproduction commands.
