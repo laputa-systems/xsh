@@ -3828,6 +3828,10 @@ fn module_has_inference(
 mod reference_tests;
 
 #[cfg(test)]
+#[path = "constraints/scaling_tests.rs"]
+mod scaling_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::source::SourceId;
