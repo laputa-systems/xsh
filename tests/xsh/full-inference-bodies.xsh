@@ -122,7 +122,41 @@ print ${number.metadata} ${number.spread} ${number.defaulted}
 print ${word.metadata} ${word.spread} ${word.defaulted}
 """,
     status: 0,
-    stdout: ["second\nfirst\ndefault\nsecond\nfirst\ndefault\n11 15 7\ntag 11 6\n"],
+    stdout: ["second\nfirst\ndefault\nsecond\nfirst\ndefault\n11 15 7\ntag 6 6\n"],
+  )?
+  assert output.stderr == "", output.stderr
+}
+
+test test_full_inference_body_ground_defaults_spreads_splices_and_source_order { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""type GroundForwardRow = {metadata: Str, first: Int, second: Int, rest: List[Int]}
+type GroundForwardResult = {metadata: Str, spread: Int, defaulted: Int}
+proc note(label: Str, value: Int) [io] -> Int {
+  print $label
+  return value
+}
+pure score(first: Int, second: Int = 5, ...rest: List[Int]) -> Int {
+  var total = first + second
+  for value in rest {
+    total += value
+  }
+  total
+}
+proc forward(row: GroundForwardRow) [io] -> Result[GroundForwardResult] {
+  let {metadata: metadata, first: first, second: second, rest: rest} = row
+  let options = {second: note("second", second), first: note("first", first)}
+  let spread = score(...options, @rest)
+  let defaulted = score(first: note("default", first))
+  return Ok({metadata: metadata, spread: spread, defaulted: defaulted})
+}
+let number = forward({metadata: "number", first: 2, second: 3, rest: [4, 6]})?
+let word = forward({metadata: "tag", first: 1, second: 2, rest: [3]})?
+print ${number.metadata} ${number.spread} ${number.defaulted}
+print ${word.metadata} ${word.spread} ${word.defaulted}
+""",
+    status: 0,
+    stdout: ["second\nfirst\ndefault\nsecond\nfirst\ndefault\nnumber 15 7\ntag 6 6\n"],
   )?
   assert output.stderr == "", output.stderr
 }
@@ -224,14 +258,48 @@ print "done"
 test test_full_inference_body_nested_stream_failure_runs_each_defer { |ctx|
   let output = test.expect(
     ctx,
-    r"""stream child(value, fail_after) [error] {
+    r"""proc fail_stream() [] -> Result[Unit, Str] {
+  return Err("stream failed")
+}
+stream child(value, fail_after) [io, error] {
   defer { print "child closed" }
   yield value
   if fail_after {
-    fail "stream failed"
+    fail_stream()?
   }
 }
-stream parent(value, fail_after) [error] {
+stream parent(value, fail_after) [io, error] {
+  defer { print "parent closed" }
+  yield @child(value, fail_after)
+}
+let outcome = try {
+  for value in parent("row", true) {
+    print $value
+  }
+}
+assert outcome is Err(_)
+print "failure captured"
+""",
+    status: 0,
+    stdout: ["row\nchild closed\nparent closed\nfailure captured\n"],
+  )?
+  assert output.stderr == "", output.stderr
+}
+
+test test_full_inference_body_ground_nested_stream_failure_runs_each_defer { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""proc fail_stream() [] -> Result[Unit, Str] {
+  return Err("stream failed")
+}
+stream child(value: Str, fail_after: Bool) [io, error] -> Stream[Str] {
+  defer { print "child closed" }
+  yield value
+  if fail_after {
+    fail_stream()?
+  }
+}
+stream parent(value: Str, fail_after: Bool) [io, error] -> Stream[Str] {
   defer { print "parent closed" }
   yield @child(value, fail_after)
 }
