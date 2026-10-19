@@ -23,5 +23,9 @@ test = false
 name = "soundness"
 path = "tests/soundness.rs"
 
+[[test]]
+name = "effect_oracle"
+path = "tests/effect_oracle.rs"
+
 [lints]
 workspace = true
