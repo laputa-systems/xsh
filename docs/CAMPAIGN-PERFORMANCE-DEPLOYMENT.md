@@ -60,7 +60,7 @@ remain open; the earlier annotation-test success does not qualify this source.
 CLI cleanup `401950302` removes an unused internal accessor and fixes a new
 test-only Clippy warning. Seven descriptor checks pass before integration,
 and warning-denied Clippy passes for xsh and xsht with all targets and features.
-Merged replay remains required.
+The merged seven-test replay also passes.
 
 The canonical `io.flush_stdout` coordinated callee/owner effect-forgery test is
 red. Its initial Print-based premise was wrong: print and eprint require no
@@ -128,7 +128,9 @@ conservative joint group until resolved dependencies are available.
 
 Fixture source `0b2f9cd97` adds these F1 selectors. Prefix each name with
 `tests/xsh/<file>::`. Reference products from `55032a7ee` give two passes,
-seven failures and zero skips. Matching candidate results remain pending.
+seven failures and zero skips. Matching `1710bf2ff` products give the same
+two passes and seven failures, with zero skips; the failures remain required
+capabilities.
 
 | File | Exact test name | Reference result |
 |---|---|---|
@@ -142,6 +144,11 @@ seven failures and zero skips. Matching candidate results remain pending.
 | `full-inference-stream-effects.xsh` | `test_full_inference_stream_effect_survives_inferred_returned_producer` | Wrong rejection: stream omission parse failure |
 | `full-inference-stream-effects.xsh` | `test_full_inference_stream_effect_alias_typed_ground_control` | Pass |
 
+Source `56a9532b4` retains two native host-result regressions. Both pass on
+frozen reference products from `55032a7ee`; both fail on `1710bf2ff` products
+with the context-producer and process-propagation proof errors above. They
+check scope restoration and text, byte, capture and pipeline payload values.
+
 The stream ground control uses a direct typed producer call. Its first alias
 version tested another unsupported capability and failed name resolution.
 The mandatory inferred alias cases remain unchanged.
@@ -153,7 +160,8 @@ Source `c1ae1db64` adds three selectors in
 `test_full_inference_callable_list_generalizes_its_outer_relationship` fails
 with `check.call-target` at both indexed calls. The target generalizes the
 immutable list's outer type relationship; it requires no per-element forall.
-Matching candidate replay remains pending.
+Matching `1710bf2ff` products reproduce those two passes and one
+`check.call-target` failure, with zero skips.
 
 F4 adapter source `d5f7b6267` adds the documented `check_views.sh --frozen`
 invocation. Six focused controls pass before integration and on the merged source,
