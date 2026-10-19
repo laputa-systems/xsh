@@ -3059,16 +3059,20 @@ callable types, and module contracts still need annotations.
 When a checked pure signature retains quantified type or row variables, its
 executable body may contain immutable `let` bindings followed by one value
 tail or explicit `return`. Values may be scalar literals, parameter or local
-reads, ground immutable runtime captures, required `.field` projections, or statically
-selected pure calls. User function calls must supply every fixed required
-parameter, by position or name. Registered calls must have a selected pure
+reads, ground immutable runtime captures, required `.field` projections,
+list literals without splices, records with named fields, `Ok` and `Err`
+constructors, value blocks, value-producing `if` branches, or statically
+selected pure calls. Conditions constrain unannotated parameters to `Bool`;
+branch results share constraints from the declaration body. Branches evaluate
+only the selected value, in ordinary source order. User function calls must
+supply every fixed required parameter, by position or name. Registered calls must have a selected pure
 signature with no host effects; their receiver domain and argument layout are
 fixed while checking the declaration. A caller never supplies type evidence
 for choosing that declaration's operations. Unsigned argument and map-key
 contracts keep the ordinary checked conversions and failure propagation.
 
-This body subset excludes mutation, destructuring, operators, branches, loops,
-optional field access, indexing, constructed collections and records,
+This body subset excludes mutation, destructuring, operators, loops,
+optional field access, indexing, map and set literals, record spreads,
 interpolated text, dynamically selected calls, expression statements before
 the terminal value, and captured mutable or resource state. Compile-time constant bindings remain outside this
 quantified body subset. Registered calls
@@ -3085,10 +3089,15 @@ and collection callbacks. The compiler verifies their actual producers against
 the selected operation contracts. These helpers do not acquire quantified body
 restrictions.
 
+```xsh
+{{.spec.generic_values.source}}
+```
+
 A checked value return keeps an explicit `Bool` value, including `false`.
 Closed ground `Result` returns preserve an existing result envelope or wrap a
 plain success value under the ordinary return rules. A `Result` whose success
-kind is itself a bare quantified parameter still blocks lowering. Statement
+kind is itself a bare quantified parameter retains the constructor's checked
+`Ok` or `Err` envelope without a runtime payload type guess. Statement
 assertion or discard elaboration is outside this quantified body subset;
 annotated `Unit` returns are supported when their terminal checked value is
 already `Unit`.

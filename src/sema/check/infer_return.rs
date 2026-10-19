@@ -740,6 +740,12 @@ impl Checker {
             None if matches!(left, Type::Invalid) || matches!(right, Type::Invalid) => {
                 Type::Invalid
             }
+            None if left.contains_inference() || right.contains_inference() => {
+                let diagnostics = self.diagnostics.len();
+                self.expect_type(&left, &right, span);
+                if self.diagnostics.len() != diagnostics { return Type::Invalid; }
+                self.type_constraints.resolve(&left).unwrap_or(Type::Invalid)
+            }
             None => {
                 if let Some(conflicts) = &mut self.return_conflicts {
                     conflicts.push((left, right, span));

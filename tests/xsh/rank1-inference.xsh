@@ -367,24 +367,26 @@ assert returned(false) == false
 """, status: 0)?
 }
 
-test rank1_quantified_bodies_reject_optional_fields_and_collection_literals { |ctx|
-  for source in [
+test rank1_quantified_bodies_accept_collections_and_guard_optional_fields { |ctx|
+  test.expect(
+    ctx,
     r"""pure optional_name(value) {
   value?.name
 }
 """,
+    status: 2,
+    stderr: ["[check.local-inference]"],
+  )?
+  test.expect(
+    ctx,
     r"""pure wrapped(value) {
   [value]
 }
+assert wrapped(42) == [42]
+assert wrapped("demo") == ["demo"]
 """,
-  ] {
-    test.expect(
-      ctx,
-      source,
-      status: 2,
-      stderr: ["[check.local-inference]"],
-    )?
-  }
+    status: 0,
+  )?
 }
 
 test rank1_nongeneric_unresolved_function_material_still_needs_annotation { |ctx|

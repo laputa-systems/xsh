@@ -996,6 +996,7 @@ pub(super) fn lowered_return_value(
     match (kind, value) {
         (LoweredReturnKind::Erased, value) => Ok(value),
         (LoweredReturnKind::OptionalResult, value) => Ok(value),
+        (LoweredReturnKind::QuantifiedResult, value @ (LoweredValue::ResultOk(_) | LoweredValue::ResultErr(_))) => Ok(value),
         (LoweredReturnKind::Plain(_), LoweredValue::ResultErr(error)) => {
             let mut error = super::runtime_error_from_value(*error, span);
             error.propagated = true;

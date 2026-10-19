@@ -259,8 +259,10 @@ impl Checker {
                 &pure_calls,
                 &registered_calls,
                 &generalized_body_types,
+                &self.result_constructors,
+                super::scheme_body::BodyCompletion::Function,
             ) {
-                let message = "generic pure body requires immutable bindings and a terminal value composed from checked reads, required fields, and selected pure calls";
+                let message = "generic pure body requires immutable bindings and checked value constructors, branches, projections, or selected pure calls";
                 let reported = self.diagnostics.iter().any(|diagnostic| {
                     diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
                         && diagnostic.message == message

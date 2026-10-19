@@ -1752,6 +1752,7 @@ impl Checker {
         };
         match name {
             "Ok" => {
+                self.result_constructors.insert(span, super::CheckedResultConstructor::Ok);
                 let expected = expected_context.and_then(Type::result_ok);
                 let schema = self
                     .boundary.expected_schema
@@ -1774,6 +1775,7 @@ impl Checker {
                 Type::Result(Box::new(ty), Box::new(error))
             }
             "Err" => {
+                self.result_constructors.insert(span, super::CheckedResultConstructor::Err);
                 use crate::sema::arguments::{bind_err_arguments, expand_named_arguments};
                 let expected = match expected_context {
                     Some(Type::Result(_, error)) => Some(error.as_ref()),

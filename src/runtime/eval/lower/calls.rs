@@ -2314,7 +2314,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     );
                     return Some(self.wrap_argument_bindings(value, bindings, span));
                 }
-                if name == "Err" {
+                if self.bodies.checked_control_flow.result_constructors.get(&span) == Some(&crate::sema::check::CheckedResultConstructor::Err) {
                     let argument_slots = self.call_argument_slots(id)?;
                     if args_vec.len() == 1 && args_vec[0].name.is_none() && !args_vec[0].splice {
                         let value = self.lower_call_argument(
@@ -2354,11 +2354,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     );
                     return Some(result);
                 }
-                if name == "Ok"
+                if self.bodies.checked_control_flow.result_constructors.get(&span) == Some(&crate::sema::check::CheckedResultConstructor::Ok)
                     && let Some(positional) = positional.as_ref()
                 {
                     let value = match positional.as_slice() {
-                        [] if name == "Ok" => push_build_row!(self, expr, BuildExprRow::Unit),
+                        [] => push_build_row!(self, expr, BuildExprRow::Unit),
                         [value] => self.lower_call_argument(value, slots, current_function, item_slot)?,
                         _ => return None,
                     };

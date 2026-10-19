@@ -2,6 +2,9 @@ use super::{BindingId, FxHashSet, ResolvedBindings};
 use crate::source::Span;
 use crate::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStmtKind, BlockId};
 
+#[derive(Clone, Copy)]
+pub(super) enum BodyCompletion { Function, Value }
+
 pub(super) fn supports_generalized_body(
     program: &ArenaProgram,
     body: BlockId,
@@ -13,6 +16,8 @@ pub(super) fn supports_generalized_body(
     pure_calls: &FxHashSet<Span>,
     registered_calls: &std::collections::BTreeMap<crate::syntax::arena::ExprId, std::sync::Arc<crate::sema::schemes::RegisteredCallPlan>>,
     types: &std::collections::BTreeMap<crate::syntax::arena::ExprId, crate::sema::schemes::SchemeType>,
+    result_constructors: &std::collections::BTreeMap<Span, super::CheckedResultConstructor>,
+    completion: BodyCompletion,
 ) -> bool {
     use crate::syntax::arena::{ArenaBindingTargetKind, ArenaExprOrRun};
     let block = program.arena.block(body);
@@ -23,7 +28,7 @@ pub(super) fn supports_generalized_body(
     for &statement in prefix {
         let ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(value), .. } = program.arena.stmt(statement).kind else { return false };
         let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind else { return false };
-        if !is_body_expression(program, bindings, &available, captures, pure_calls, registered_calls, types, value) { return false; }
+        if !is_body_expression(program, bindings, &available, captures, tails, positions, pure_calls, registered_calls, types, result_constructors, value) { return false; }
         let Some(binding) = bindings.declaration_sites.get(&(program.arena.stmt(statement).span, name)) else { return false };
         available.insert(*binding);
     }
@@ -37,8 +42,14 @@ pub(super) fn supports_generalized_body(
     }
     match tail_statement.kind {
         ArenaStmtKind::TailBareIdent(_) => bindings.tails.get(&tail).is_some_and(|identity| available.contains(identity) || captures.contains(identity) && tails.get(&tail).is_some_and(|ty| ty.closed_ground_type().is_some_and(|ty| !ty.may_hold_resource()))),
-        ArenaStmtKind::Expr(expression)
-        | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) => is_body_expression(program, bindings, &available, captures, pure_calls, registered_calls, types, expression),
+        ArenaStmtKind::Expr(expression) => is_body_expression(program, bindings, &available, captures, tails, positions, pure_calls, registered_calls, types, result_constructors, expression),
+        ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) if matches!(completion, BodyCompletion::Function) => is_body_expression(program, bindings, &available, captures, tails, positions, pure_calls, registered_calls, types, result_constructors, expression),
+        ArenaStmtKind::If { branches, else_block: Some(else_block) } => {
+            program.arena.if_branches(branches).iter().all(|branch| {
+                is_body_expression(program, bindings, &available, captures, tails, positions, pure_calls, registered_calls, types, result_constructors, branch.condition)
+                    && supports_generalized_body(program, branch.block, bindings, &available, captures, tails, positions, pure_calls, registered_calls, types, result_constructors, completion)
+            }) && supports_generalized_body(program, else_block, bindings, &available, captures, tails, positions, pure_calls, registered_calls, types, result_constructors, completion)
+        }
         _ => false,
     }
 }
@@ -48,9 +59,12 @@ fn is_body_expression(
     bindings: &ResolvedBindings,
     available: &FxHashSet<BindingId>,
     captures: &FxHashSet<BindingId>,
+    tails: &std::collections::BTreeMap<crate::syntax::arena::StmtId, crate::sema::schemes::SchemeType>,
+    positions: &std::collections::BTreeMap<Span, super::StatementPosition>,
     pure_calls: &FxHashSet<Span>,
     registered_calls: &std::collections::BTreeMap<crate::syntax::arena::ExprId, std::sync::Arc<crate::sema::schemes::RegisteredCallPlan>>,
     types: &std::collections::BTreeMap<crate::syntax::arena::ExprId, crate::sema::schemes::SchemeType>,
+    result_constructors: &std::collections::BTreeMap<Span, super::CheckedResultConstructor>,
     expression: crate::syntax::arena::ExprId,
 ) -> bool {
     let mut pending = vec![expression];
@@ -62,13 +76,36 @@ fn is_body_expression(
             }
             ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Regex(_) | ArenaExprKind::PathStr(_) => {}
             ArenaExprKind::Field { base, .. } => pending.push(base),
+            ArenaExprKind::List(items) => {
+                for item in program.arena.list_elements(items) {
+                    if item.splice_span.is_some() { return false; }
+                    pending.push(item.value);
+                }
+            }
+            ArenaExprKind::Record(fields) => {
+                for field in program.arena.record_fields(fields) {
+                    let crate::syntax::arena::ArenaRecordFieldKind::Named { value, .. } = field.kind else { return false; };
+                    pending.push(value);
+                }
+            }
+            ArenaExprKind::If { branches, else_value } => {
+                for branch in program.arena.if_expr_branches(branches) { pending.push(branch.condition); pending.push(branch.value); }
+                pending.push(else_value);
+            }
+            ArenaExprKind::ValueBlock(block) => {
+                if !supports_generalized_body(program, block, bindings, available, captures,
+                    tails, positions, pure_calls, registered_calls, types, result_constructors, BodyCompletion::Value)
+                { return false; }
+            }
+
             ArenaExprKind::Call { callee, args } => {
                 if let Some(plan) = registered_calls.get(&expression) {
                     if plan.receiver.is_some() {
                         let ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { return false };
                         pending.push(base);
                     }
-                } else if !pure_calls.contains(&program.arena.expr(expression).span) { return false; }
+                } else if !pure_calls.contains(&program.arena.expr(expression).span)
+                    && !result_constructors.contains_key(&program.arena.expr(expression).span) { return false; }
                 for argument in program.arena.call_args(args) {
                     match argument.kind {
                         ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => pending.push(value),
@@ -139,6 +176,8 @@ mod tests {
                 generic_pure_calls,
                 &std::collections::BTreeMap::new(),
                 &std::collections::BTreeMap::new(),
+                &std::collections::BTreeMap::new(),
+                super::BodyCompletion::Function,
             )
         })
     }
@@ -153,16 +192,16 @@ mod tests {
     }
 
     #[test]
-    fn rejects_constructed_branching_and_called_values() {
-        assert!(!accepts(
+    fn accepts_constructed_and_branching_values_but_rejects_unchecked_operations() {
+        assert!(accepts(
             "pure duplicate(value: Int) { [value, value] }\n",
             "duplicate"
         ));
-        assert!(!accepts(
+        assert!(accepts(
             "pure construct(value: Int) { { first: value, second: value } }\n",
             "construct"
         ));
-        assert!(!accepts(
+        assert!(accepts(
             "pure choose(value: Int) { if true { value } else { value } }\n",
             "choose"
         ));

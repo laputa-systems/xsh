@@ -4484,7 +4484,7 @@ impl FullBuilder {
                     Box::new(Type::Error),
                 ))),
             ),
-            LoweredReturnKind::Erased => Err(IrBuildError::format(
+            LoweredReturnKind::Erased | LoweredReturnKind::QuantifiedResult => Err(IrBuildError::format(
                 "erased_return_without_scheme",
                 None,
                 0,
@@ -5017,11 +5017,7 @@ fn scheme_return_kind(
                 .map_err(|_| IrVerifyError::new("scheme result child id is invalid"))?;
             match scheme_type_physical_kind(store, inner)? {
                 Some(kind) => LoweredReturnKind::Result(kind),
-                None => {
-                    return Err(IrVerifyError::new(
-                        "scheme result return has an erased payload kind",
-                    ));
-                }
+                None => LoweredReturnKind::QuantifiedResult,
             }
         }
         schema::FullSchemeTypeTag::Optional => {
@@ -20299,6 +20295,50 @@ run true
                     Span::new(program.store.source_id, 0, 0),
                 ).expect("generic alias importer exists").expect("generic alias importer executes");
                 assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Unit))));
+            }
+        });
+    }
+
+    #[test]
+    fn generic_constructed_values_execute_after_frontend_disposal() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-constructed-values.xsh", concat!(
+                "pure box(value) { [value] }\n",
+                "pure succeed(value) { Ok(value) }\n",
+                "pure named(value) { {value: value} }\n",
+                "pure choose(flag, left, right) { if flag { left } else { right } }\n",
+                "assert box(41) == [41]\n",
+                "assert box(\"demo\") == [\"demo\"]\n",
+                "assert succeed(41) == Ok(41)\n",
+                "assert succeed(\"demo\") == Ok(\"demo\")\n",
+                "assert named(\"demo\").value == \"demo\"\n",
+                "assert choose(false, \"first\", \"second\") == \"second\"\n",
+                "let number: Int = choose(true, named(41).value, 0) + 1\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let succeed = program.function_view(LoweredFunctionKey::Name(program_name(&program, "succeed")), LoweredFunctionKind::Pure).unwrap().unwrap();
+            assert!(matches!(succeed.header().unwrap().return_kind, LoweredReturnKind::QuantifiedResult));
+            assert!(crate::runtime::eval::lowered_ops::lowered_return_value(LoweredReturnKind::QuantifiedResult,
+                crate::runtime::eval::LoweredValue::Int(42), Span::new(program.store.source_id, 0, 0)).is_err());
+            let mut forged = program.clone();
+            let function = scheme_fixture_root_function(&forged, "box");
+            let FullCallableContract::Scheme(scheme) = forged.store.functions[function].contract else { panic!("box scheme") };
+            let facts = forged.store.schemes[scheme.index()].body_facts.bounds(forged.store.scheme_body_facts.len()).unwrap();
+            let list = forged.store.scheme_body_facts[facts].iter().map(|fact| fact.ty)
+                .find(|ty| forged.store.scheme_types[ty.index()].tag == schema::FullSchemeTypeTag::List).unwrap();
+            forged.store.scheme_types[list.index()].tag = schema::FullSchemeTypeTag::Set;
+            let error = FullVerifier::verify(&forged).unwrap_err();
+            assert!(error.message.contains("generic list producer has no item contract"), "{}", error.message);
+            let program = Arc::new(program);
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+                assert_eq!(evaluator.lookup(Name::intern("number")).unwrap().value, Value::Int(42));
             }
         });
     }

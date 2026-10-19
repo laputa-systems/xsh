@@ -952,11 +952,7 @@ fn verify_scheme_body_facts(
             match decoder.statement_view(instruction)? {
                 schema::StmtView::Let { slot, value, annotation } if !returned => {
                     let ty = verify_body_expression(store, &decoder, value.raw() as usize, &types, &slots, &mut visited, &mut registered_coverage, &mut budget)?;
-                    let stored = if let Some(annotation) = annotation {
-                        let annotation = annotation.materialize()?;
-                        if !body_type_matches_ground(&ty, &annotation) || annotation.has_unsigned_constraint() && ty.closed_ground_type() != Some(annotation.clone()) { return Err(IrVerifyError::new("generic local storage disagrees with its checked type")); }
-                        SchemeType::Ground(annotation)
-                    } else { ty };
+                    let stored = scheme_stored_type(ty, annotation.map(|annotation| annotation.materialize()).transpose()?)?;
                     if slot >= function.slot_count as usize || slots.insert(slot, stored).is_some() { return Err(IrVerifyError::new("generic body slot has multiple writers or is out of bounds")); }
                 }
                 schema::StmtView::Return { value } if !returned && position + 2 == statements.len() => {
@@ -999,6 +995,14 @@ fn body_type_matches_ground(actual: &SchemeType, expected: &Type) -> bool {
     }
 }
 
+fn scheme_stored_type(actual: SchemeType, annotation: Option<Type>) -> Result<SchemeType, IrVerifyError> {
+    let Some(annotation) = annotation else { return Ok(actual); };
+    if !body_type_matches_ground(&actual, &annotation) || annotation.has_unsigned_constraint() && actual.closed_ground_type() != Some(annotation.clone()) {
+        return Err(IrVerifyError::new("generic local storage disagrees with its checked type"));
+    }
+    Ok(SchemeType::Ground(annotation))
+}
+
 fn verify_body_expression(
     store: &FullStore,
     decoder: &FullDecoder<'_>,
@@ -1026,6 +1030,60 @@ fn verify_body_expression(
         schema::ExprView::Duration(_) => SchemeType::Ground(Type::Duration),
         schema::ExprView::PreparedRegex(_) => SchemeType::Ground(Type::Regex),
         schema::ExprView::Path(_) => SchemeType::Ground(Type::Path),
+        schema::ExprView::List(mut values) => {
+            let SchemeType::List(item) = ty else { return Err(IrVerifyError::new("generic list producer has no item contract")); };
+            for value in &mut values {
+                if !body_type_matches(&child(value?)?, item) { return Err(IrVerifyError::new("generic list item disagrees with its checked contract")); }
+            }
+            ty.clone()
+        }
+        schema::ExprView::Record(mut entries) => {
+            let mut fields = BTreeMap::new();
+            for entry in &mut entries {
+                let super::decode::RecordEntryView::Field(name, value) = entry? else { return Err(IrVerifyError::new("generic record producer has an unsupported spread")); };
+                if fields.insert(name, child(value)?).is_some() { return Err(IrVerifyError::new("generic record producer repeats a field")); }
+            }
+            SchemeType::Record { fields, tail: SchemeRowTail::Closed }
+        }
+        schema::ExprView::Ok(value) => {
+            let SchemeType::Result(ok, _) = ty else { return Err(IrVerifyError::new("generic success producer has no result contract")); };
+            if !body_type_matches(&child(value)?, ok) { return Err(IrVerifyError::new("generic success payload disagrees with its checked contract")); }
+            ty.clone()
+        }
+        schema::ExprView::Err { value, cause } => {
+            let SchemeType::Result(_, error) = ty else { return Err(IrVerifyError::new("generic failure producer has no result contract")); };
+            if !body_type_matches(&child(value)?, error) { return Err(IrVerifyError::new("generic failure payload disagrees with its checked contract")); }
+            if let Some(cause) = cause && !body_type_matches_ground(&child(cause)?, &Type::Error) { return Err(IrVerifyError::new("generic failure cause is not an error")); }
+            ty.clone()
+        }
+        schema::ExprView::IfExpr { mut branches, else_value, .. } => {
+            for branch in &mut branches {
+                let (condition, value) = branch?;
+                if !matches!(child(condition)?.closed_ground_type(), Some(Type::Bool | Type::Status)) { return Err(IrVerifyError::new("generic branch condition has no checked boolean contract")); }
+                if !body_type_matches(&child(value)?, ty) { return Err(IrVerifyError::new("generic branch value disagrees with its checked contract")); }
+            }
+            if !body_type_matches(&child(else_value)?, ty) { return Err(IrVerifyError::new("generic fallback value disagrees with its checked contract")); }
+            ty.clone()
+        }
+        schema::ExprView::ValueBlock { body, .. } => {
+            let mut local_slots = slots.clone();
+            let mut result = None;
+            let count = body.len();
+            for (index, statement) in body.enumerate() {
+                match decoder.statement_view(statement?.raw() as usize)? {
+                    schema::StmtView::Let { slot, value, annotation } if result.is_none() => {
+                        let actual = verify_body_expression(store, decoder, value.raw() as usize, types, &local_slots, visited, registered_coverage, budget)?;
+                        let stored = scheme_stored_type(actual, annotation.map(|annotation| annotation.materialize()).transpose()?)?;
+                        if local_slots.insert(slot, stored).is_some() { return Err(IrVerifyError::new("generic value block rewrites an initialized slot")); }
+                    }
+                    schema::StmtView::Value { value } if index + 1 == count && result.is_none() => {
+                        result = Some(verify_body_expression(store, decoder, value.raw() as usize, types, &local_slots, visited, registered_coverage, budget)?);
+                    }
+                    _ => return Err(IrVerifyError::new("generic value block requires immutable bindings and a terminal value")),
+                }
+            }
+            result.ok_or_else(|| IrVerifyError::new("generic value block has no terminal value"))?
+        }
         schema::ExprView::Field { base, name, .. } => {
             let base = child(base)?;
             match base {

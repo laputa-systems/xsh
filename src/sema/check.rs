@@ -500,6 +500,9 @@ pub struct CheckedStreamStage {
     pub output: Type,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum CheckedResultConstructor { Ok, Err }
+
 /// Opaque checker proofs used by lowering to preserve checked control flow.
 /// The carrier stays public so output structs remain constructible with
 /// `..Default::default()` without allowing callers to forge individual proofs.
@@ -507,6 +510,7 @@ pub struct CheckedStreamStage {
 pub struct CheckedControlFlowFacts {
     complete: bool,
     pub(crate) builtin_range_calls: BTreeSet<Span>,
+    pub(crate) result_constructors: BTreeMap<Span, CheckedResultConstructor>,
     pub(crate) cardinality_preserving_collection_calls: BTreeSet<Span>,
     pub(crate) propagating_error_spans: BTreeSet<Span>,
     pub(crate) latent_stream_error_spans: BTreeSet<Span>,
@@ -523,6 +527,7 @@ impl CheckedControlFlowFacts {
     fn merge_from(&mut self, mut other: Self) {
         self.complete &= other.complete;
         self.builtin_range_calls.append(&mut other.builtin_range_calls);
+        self.result_constructors.append(&mut other.result_constructors);
         self.cardinality_preserving_collection_calls
             .append(&mut other.cardinality_preserving_collection_calls);
         self.propagating_error_spans
@@ -1780,6 +1785,7 @@ pub struct Checker {
     from_end_indexes: BTreeMap<Span, u32>,
     conversions: BTreeMap<Span, Conversion>,
     builtin_range_calls: BTreeSet<Span>,
+    result_constructors: BTreeMap<Span, CheckedResultConstructor>,
     cardinality_preserving_collection_calls: BTreeSet<Span>,
     propagating_error_spans: BTreeSet<Span>,
     latent_stream_error_spans: BTreeSet<Span>,
@@ -2051,6 +2057,7 @@ impl Checker {
             checked_control_flow: CheckedControlFlowFacts {
                 complete: true,
                 builtin_range_calls: self.builtin_range_calls,
+                result_constructors: self.result_constructors,
                 cardinality_preserving_collection_calls: self.cardinality_preserving_collection_calls,
                 propagating_error_spans: self.propagating_error_spans,
                 latent_stream_error_spans: self.latent_stream_error_spans,
@@ -2172,6 +2179,7 @@ impl Checker {
             from_end_indexes: BTreeMap::new(),
             conversions: BTreeMap::new(),
             builtin_range_calls: BTreeSet::new(),
+            result_constructors: BTreeMap::new(),
             cardinality_preserving_collection_calls: BTreeSet::new(),
             propagating_error_spans: BTreeSet::new(),
             latent_stream_error_spans: BTreeSet::new(),

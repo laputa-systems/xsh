@@ -3532,6 +3532,7 @@ impl Checker {
         );
         self.boundary.control_condition = false;
         let condition_span = arena.arena.expr(condition).span;
+        let condition_ty = self.resolve_local_tail_type(condition_ty, Some(&Type::Bool), condition_span);
         if condition_ty == Type::Any {
             self.expect_type(&Type::Bool, &condition_ty, condition_span);
             return ConditionNarrowings::default();

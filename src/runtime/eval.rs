@@ -1457,6 +1457,7 @@ enum LoweredReturnKind {
     /// an `Err` as the value it is. An `Err` here is data the caller asked
     /// for, not a failure of the call.
     OptionalResult,
+    QuantifiedResult,
     Erased,
 }
 
