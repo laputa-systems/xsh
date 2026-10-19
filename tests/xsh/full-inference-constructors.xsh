@@ -43,7 +43,7 @@ print $text_choice
   assert output.stdout == "right-int\nleft-int\nright-text\nleft-text\n42\ndemo\n7\nready\n11\nkept\n42\nright\n"
 }
 
-test test_full_inference_generic_branch_local_prefix_is_lazy { |ctx|
+test test_full_inference_generic_branch_local_prefix_with_inline_condition_is_lazy { |ctx|
   let output = test.run_xsh(
     ctx,
     r"""pure ground_copy(value: Int) -> Int { value }
@@ -55,6 +55,33 @@ pure select(flag, value) {
   } else {
     let observed: Int = explode(0)
     if observed == 1 { value } else { value }
+  }
+}
+let integer = select(true, 42)
+let text = select(true, "safe")
+assert integer == 42
+assert text == "safe"
+print $integer
+print $text
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "42\nsafe\n"
+}
+
+test test_full_inference_generic_branch_local_prefix_with_ground_condition_is_lazy { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure ground_copy(value: Int) -> Int { value }
+pure explode(divisor: Int) -> Int { 1 / divisor }
+pure is_one(value: Int) -> Bool { value == 1 }
+pure select(flag, value) {
+  if flag {
+    let observed: Int = ground_copy(1)
+    if is_one(observed) { value } else { value }
+  } else {
+    let observed: Int = explode(0)
+    if is_one(observed) { value } else { value }
   }
 }
 let integer = select(true, 42)
