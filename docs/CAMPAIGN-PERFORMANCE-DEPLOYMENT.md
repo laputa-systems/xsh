@@ -45,12 +45,23 @@ four passing effect checks. The 60-row R6 effect audit replays exactly. Locale
 quoting explains `wc.count_input`'s `env` requirement; its `io` clause covers it.
 Keep the frozen inference denominator and removal credit unchanged.
 
-The R13 guest failure still needs an observed timestamp. Its console and
-Firecracker logs are preserved in the failed guest run. The separate
+The UDP fixture released its destination before connecting the probe. An exact
+host-socket diagnostic reproduces a self-connection after 17,482 iterations:
+source and destination are both `127.0.0.1:52275`, and the ordinary receive
+returns the sent packet. The repaired fixture holds the destination until the
+probe has a distinct local port. It passes 100,000 host-socket iterations,
+ten exact native runs and its 22-test file: 21 passes and one raw-socket
+permission skip. The original deadline and ICMP assertions remain unchanged.
+
+The R13 guest clock diagnostic observes XSH time at 2,514 ms since epoch and
+AWK `systime()` at two seconds. The AWK timestamp assertion fails as expected.
+Cleanup resolves. Logs remain under
+`laputa-world-acceptance/.work/tmp/asterinas-guest-test-20261019T085523Z-4331-ab0b6398`.
+The original failed console and Firecracker logs remain preserved. The separate
 `asterinas-clock-adapter/run-clock` permits only the exact AWK shard and the
 reviewed six-line boot-proof patch. Nine build/package and eight metadata
-argument controls pass. No diagnostic KVM run has started. Wait for canonical
-cleanup and lease release before launching it or supplemental correctness.
+argument controls pass. The diagnostic supplies no guest acceptance. Kernel
+wall-clock repair and final source-aligned guest acceptance remain pending.
 
 ## Charter
 

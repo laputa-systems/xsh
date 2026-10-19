@@ -147,14 +147,16 @@ test test_udp_exchange_reports_sender_truncation_and_ttl {
 
 test test_udp_error_queue_reports_the_icmp_origin {
   let c = linux.net_constants()
-  let closed = loopback_udp()?
-  let dead = linux.getsockname(closed)?
-  unix.close_fd(closed)
-
   let probe = linux.socket(c.AF_INET, c.SOCK_DGRAM)?
   defer unix.close_fd(probe)
   linux.setsockopt_int(probe, c.SOL_IP, c.IP_RECVERR, 1)
-  linux.connect(probe, dead)
+  {
+    let reserved = loopback_udp()?
+    defer unix.close_fd(reserved)
+    let destination = linux.getsockname(reserved)?
+    linux.connect(probe, destination)
+    assert linux.getsockname(probe)?.port != destination.port
+  }
   assert linux.sendto(probe, bytes.from_text("x"))? == 1
   assert "error" in unix.poll_fd(probe, [], 1000)?
 
