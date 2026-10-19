@@ -768,6 +768,8 @@ impl Checker {
                         "glob expansion is not allowed in pure functions",
                         DiagnosticCode::CheckPureEffect,
                     );
+                } else {
+                    self.require_effect(Effect::Fs, expr.span, "glob expansion");
                 }
                 Type::List(Box::new(Type::Path))
             }

@@ -279,8 +279,9 @@ contains no whitespace or delimiters is also a path literal:
 ```
 
 **Globs.** `g"..."` expands against the current directory and produces
-`List[Path]`. Globbing is a filesystem effect and is not allowed in pure
-functions. A glob literal and the methods `Path.glob` and `Path.rglob` (15)
+`List[Path]`. Globbing requires the `fs` effect and is not allowed in pure
+functions. Inferred effects include `fs` when the body expands a glob. A glob
+literal and the methods `Path.glob` and `Path.rglob` (15)
 are the only things that glob; every other string, word, and path is taken
 literally.
 
