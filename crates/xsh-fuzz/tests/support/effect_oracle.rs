@@ -266,7 +266,7 @@ impl EffectScheme {
         let mut binders = self.binders.clone();
         binders.sort_unstable();
         binders.dedup();
-        if binders.len() != self.binders.len() {
+        if !self.accepts_binder_order(&binders) {
             return Vec::new();
         }
         permutations(&binders)
@@ -275,15 +275,31 @@ impl EffectScheme {
             .collect()
     }
 
-    fn canonical_form(&self, binder_order: &[u32]) -> Option<CanonicalScheme> {
+    fn accepts_binder_order(&self, binder_order: &[u32]) -> bool {
         let declared_binders = binder_order
             .iter()
             .copied()
             .map(Variable::Bound)
             .collect::<BTreeSet<_>>();
-        if self.variables().iter().any(|variable| {
-            matches!(variable, Variable::Bound(_)) && !declared_binders.contains(variable)
-        }) {
+        let scheme_binders = self
+            .binders
+            .iter()
+            .copied()
+            .map(Variable::Bound)
+            .collect::<BTreeSet<_>>();
+        let variables = self.variables();
+        declared_binders.len() == binder_order.len()
+            && scheme_binders.len() == self.binders.len()
+            && declared_binders == scheme_binders
+            && variables.len() <= MAX_VARIABLES
+            && variables.iter().all(|variable| match variable {
+                Variable::Bound(_) => declared_binders.contains(variable),
+                Variable::Free(_) => true,
+            })
+    }
+
+    fn canonical_form(&self, binder_order: &[u32]) -> Option<CanonicalScheme> {
+        if !self.accepts_binder_order(binder_order) {
             return None;
         }
         let renaming = binder_order
@@ -307,9 +323,6 @@ impl EffectScheme {
             .map(|binder| Variable::Bound(binder as u32))
             .chain(free_variables.iter().copied().map(Variable::Free))
             .collect::<Vec<_>>();
-        if variables.len() > MAX_VARIABLES {
-            return None;
-        }
         let assignments = assignments(&variables);
         let relation = assignments
             .iter()
@@ -321,7 +334,14 @@ impl EffectScheme {
             .collect();
         let contracts = assignments
             .iter()
-            .map(|assignment| contract.evaluate(assignment))
+            .zip(&relation)
+            .map(|(assignment, &allowed)| {
+                if allowed {
+                    Some(contract.evaluate(assignment))
+                } else {
+                    None
+                }
+            })
             .collect();
         Some(CanonicalScheme {
             binder_count: binder_order.len(),
@@ -337,7 +357,7 @@ struct CanonicalScheme {
     binder_count: usize,
     free_variables: BTreeSet<u64>,
     relation: Vec<bool>,
-    contracts: Vec<EffectValue>,
+    contracts: Vec<Option<EffectValue>>,
 }
 
 fn schemes_equivalent(left: &EffectScheme, right: &EffectScheme) -> bool {
@@ -465,7 +485,14 @@ mod tests {
             restricted_form.contracts,
             assignments(&[Variable::Bound(0)])
                 .iter()
-                .map(|assignment| EffectValue::Known(assignment[&Variable::Bound(0)]))
+                .zip(&restricted_form.relation)
+                .map(|(assignment, &allowed)| {
+                    if allowed {
+                        Some(EffectValue::Known(assignment[&Variable::Bound(0)]))
+                    } else {
+                        None
+                    }
+                })
                 .collect::<Vec<_>>()
         );
         assert!(!schemes_equivalent(&restricted, &empty_only));
@@ -479,6 +506,16 @@ mod tests {
             Variable::Bound(2),
         ];
         assert_eq!(assignments(&variables).len(), ASSIGNMENT_COUNT.pow(3));
+    }
+
+    #[test]
+    fn alpha_normalization_rejects_four_bound_variables() {
+        let scheme = EffectScheme {
+            binders: vec![0, 1, 2, 3],
+            constraints: Vec::new(),
+            contract: Contract::Unknown,
+        };
+        assert!(scheme.alpha_forms().is_empty());
     }
 
     #[test]
@@ -563,6 +600,39 @@ mod tests {
             contract: Contract::Known(Term::Variable(Variable::Free(5))),
         };
         assert!(!schemes_equivalent(&free_left, &free_right));
+    }
+
+    #[test]
+    fn contract_differences_outside_relation_are_ignored_but_allowed_differences_are_not() {
+        let constrained_variable = EffectScheme {
+            binders: vec![7],
+            constraints: vec![Constraint::Equal {
+                left: Term::Variable(Variable::Bound(7)),
+                right: Term::Set(EffectSet::EMPTY),
+            }],
+            contract: Contract::Known(Term::Variable(Variable::Bound(7))),
+        };
+        let constant_empty = EffectScheme {
+            binders: vec![11],
+            constraints: vec![Constraint::Equal {
+                left: Term::Variable(Variable::Bound(11)),
+                right: Term::Set(EffectSet::EMPTY),
+            }],
+            contract: Contract::Known(Term::Set(EffectSet::EMPTY)),
+        };
+        let changed_allowed_output = EffectScheme {
+            contract: Contract::Known(Term::Set(set(EFFECT_A))),
+            ..constant_empty.clone()
+        };
+
+        assert!(schemes_equivalent(
+            &constrained_variable,
+            &constant_empty
+        ));
+        assert!(!schemes_equivalent(
+            &constrained_variable,
+            &changed_allowed_output
+        ));
     }
 
     #[test]
