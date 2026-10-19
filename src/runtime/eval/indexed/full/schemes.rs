@@ -6,7 +6,7 @@ use super::{
 };
 use crate::sema::constants::{SchemaComponent, SchemaExpectation};
 use crate::sema::schemes::{
-    CallInstantiation, RowEvidence, SchemeCallableKind, SchemeRowTail,
+    CallInstantiation, RowEvidence, SchemeRowTail,
     SchemeType, SchemeTypeParameterId, SchemeRowParameterId, TypeScheme,
 };
 use crate::sema::types::Type;
@@ -74,14 +74,6 @@ pub(super) enum FullCallableContract {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
-pub(super) enum FullSchemeCallableKind {
-    Pure,
-    Proc,
-    Stream,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
 pub(super) enum FullSchemeBodyFactKind {
     Expression,
     Tail,
@@ -97,7 +89,7 @@ pub(super) struct FullScheme {
     pub(super) return_schema: Option<FullSchemeSchemaExpectationId>,
     pub(super) effects: IrRange,
     pub(super) body_facts: IrRange,
-    pub(super) callable_kind: FullSchemeCallableKind,
+    pub(super) callable_kind: crate::sema::types::CallableKind,
     pub(super) has_effects: bool,
     pub(super) explicit_return: bool,
     pub(super) inferred_effects: bool,
@@ -133,7 +125,7 @@ pub(super) struct FullSchemeCallableMonotype {
     pub(super) return_type: SchemeTypeId,
     pub(super) return_schema: Option<FullSchemeSchemaExpectationId>,
     pub(super) effects: IrRange,
-    pub(super) kind: FullSchemeCallableKind,
+    pub(super) kind: crate::sema::types::CallableKind,
     pub(super) has_effects: bool,
     pub(super) reserved: [u8; 2],
 }
@@ -376,11 +368,7 @@ impl FullBuilder {
             self.store.scheme_effects.extend_from_slice(effects);
         }
         let effects = super::table_range(effects_start, self.store.scheme_effects.len())?;
-        let callable_kind = match scheme.kind() {
-            SchemeCallableKind::Pure => FullSchemeCallableKind::Pure,
-            SchemeCallableKind::Proc => FullSchemeCallableKind::Proc,
-            SchemeCallableKind::Stream => FullSchemeCallableKind::Stream,
-        };
+        let callable_kind = scheme.kind();
         let id = FullSchemeId::new(self.store.schemes.len())?;
         self.store.schemes.push(FullScheme {
             type_parameters: type_parameters_range,
@@ -594,11 +582,7 @@ impl FullBuilder {
                     return_type,
                     return_schema,
                     effects: effects_range,
-                    kind: match kind {
-                        SchemeCallableKind::Pure => FullSchemeCallableKind::Pure,
-                        SchemeCallableKind::Proc => FullSchemeCallableKind::Proc,
-                        SchemeCallableKind::Stream => FullSchemeCallableKind::Stream,
-                    },
+                    kind: *kind,
                     has_effects: effects.is_some(),
                     reserved: [0; 2],
                 });
@@ -950,7 +934,7 @@ mod tests {
     use super::super::FullCodec;
     use super::{FullSchemeBodyFactKind, FullSchemeTypeTag, SchemeTypeId};
     use crate::sema::schemes::{
-        CallInstantiation, RowEvidence, SchemeCallableKind, SchemeParameter, SchemeRowParameter,
+        CallInstantiation, RowEvidence, SchemeParameter, SchemeRowParameter,
         SchemeRowParameterId, SchemeRowTail, SchemeType, SchemeTypeParameterId, TypeScheme,
     };
     use crate::sema::types::Type;
@@ -995,7 +979,7 @@ mod tests {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let binder = SchemeTypeParameterId(7);
             let scheme = TypeScheme::new(
-                SchemeCallableKind::Pure,
+                crate::sema::types::CallableKind::Pure,
                 vec![binder],
                 Vec::new(),
                 vec![SchemeParameter {
@@ -1039,7 +1023,7 @@ mod tests {
     fn explicit_any_is_kept_in_ground_scheme_contracts_but_not_substitutions() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let scheme = TypeScheme::new(
-                SchemeCallableKind::Pure,
+                crate::sema::types::CallableKind::Pure,
                 Vec::new(),
                 Vec::new(),
                 vec![SchemeParameter {
@@ -1095,7 +1079,7 @@ mod tests {
             let mut lacks = BTreeSet::new();
             lacks.insert(Name::intern("required"));
             let scheme = TypeScheme::new(
-                SchemeCallableKind::Pure,
+                crate::sema::types::CallableKind::Pure,
                 vec![type_parameter],
                 vec![SchemeRowParameter {
                     id: row_parameter,
@@ -1219,7 +1203,7 @@ mod tests {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let binder = SchemeTypeParameterId(3);
             let scheme = TypeScheme::new(
-                SchemeCallableKind::Pure,
+                crate::sema::types::CallableKind::Pure,
                 vec![binder],
                 Vec::new(),
                 vec![SchemeParameter {

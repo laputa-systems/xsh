@@ -196,7 +196,7 @@ pub(super) fn parameter_type_is_concrete(ty: &Type) -> bool {
                                 .iter()
                                 .all(|param| parameter_type_is_concrete(&param.ty))
                     }
-                    crate::sema::types::ModuleExportType::GenericPure { .. } => false,
+                    crate::sema::types::ModuleExportType::GenericCallable { .. } => false,
                 })
         }
         Type::Record(fields) => {

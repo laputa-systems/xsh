@@ -777,7 +777,7 @@ pub(super) fn finalize_projection(
             crate::sema::types::ModuleExportType::Proc { sig, .. }
             | crate::sema::types::ModuleExportType::Pure { sig, .. },
         ) => finalize_callable(constraints, sig, span, reported, diagnostics),
-        Some(crate::sema::types::ModuleExportType::GenericPure { .. }) => {}
+        Some(crate::sema::types::ModuleExportType::GenericCallable { .. }) => {}
         None => {}
     }
 }

@@ -1426,6 +1426,66 @@ mod tests {
     }
 
     #[test]
+    fn generic_proc_effect_contracts_are_finite_and_checked() {
+        let helper = "proc mark(label: Str) [io] -> Int { print $label; 1 }\n";
+        let source = format!("{helper}proc traced(value, label: Str) [io] {{ let observed = mark(label); value }}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, &source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let generic = checked.checked_declarations.functions.values().find(|declaration| declaration.scheme.as_ref().is_some_and(|scheme| !scheme.type_parameters().is_empty())).unwrap();
+        assert_eq!(generic.scheme.as_ref().unwrap().effects(), Some([crate::syntax::node::Effect::Io].as_slice()));
+        assert!(generic.scheme_body_facts.is_some());
+        for (source, code) in [
+            (format!("{helper}proc traced(value, label: Str) [] {{ let observed = mark(label); value }}\n"), crate::diagnostic::DiagnosticCode::CheckEffectViolation),
+            ("var shared = 1\nproc capture(value) { let observed = shared; value }\n".to_string(), crate::diagnostic::DiagnosticCode::CheckLocalInference),
+            ("proc invoke(action: Proc) [] -> Int { let observed = action.call(); 42 }\n".to_string(), crate::diagnostic::DiagnosticCode::CheckEffectViolation),
+        ] {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source,
+                CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+            assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUnresolvedCall)), "{:?}", checked.diagnostics);
+            assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(code)), "{:?}", checked.diagnostics);
+        }
+        let source = "proc invoke(value, action: Proc) { let observed = action.call(); value }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena_with_options(&parsed.arena, source,
+            CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+        assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckUnresolvedCall)), "{:?}", checked.diagnostics);
+        assert!(checked.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == Some(crate::diagnostic::DiagnosticCode::CheckLocalInference)
+                && diagnostic.message == "generic callable body requires immutable bindings and checked value constructors, branches, projections, or selected calls with compatible effects"
+        }), "{:?}", checked.diagnostics);
+    }
+
+    #[test]
+    fn generic_proc_result_contract_is_independent_of_callers() {
+        for calls in ["", concat!(
+            "let integer: Int = wrap(42)?\n",
+            "let text: Str = wrap(\"demo\")?\n",
+            "let nested: Result[Int] = wrap(Ok(7))?\n",
+        )] {
+            let source = format!("proc wrap(value) {{ value }}\n{calls}");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena_with_options(&parsed.arena, &source,
+                CheckOptions { embedded_bodies: true, ..CheckOptions::default() });
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            let declaration = checked.checked_declarations.functions.values().next().unwrap();
+            let scheme = declaration.scheme.as_ref().unwrap();
+            assert_eq!(scheme.kind(), crate::sema::types::CallableKind::Proc);
+            let [binder] = scheme.type_parameters() else { panic!("one declaration-owned type parameter") };
+            assert_eq!(scheme.params()[0].ty, SchemeType::Parameter(*binder));
+            assert_eq!(scheme.return_type(), &SchemeType::Result(Box::new(SchemeType::Parameter(*binder)), Box::new(SchemeType::Ground(Type::Error))));
+            assert_eq!(scheme.effects(), Some([].as_slice()));
+            assert!(declaration.scheme_body_facts.is_some());
+        }
+    }
+
+    #[test]
     fn imported_generic_aliases_instantiate_independently_without_changing_exports() {
         let workspace = typing_workspace(&[
             "use shared\nlet identity = shared.identity\nlet project = shared.name_of\nlet number: Int = identity(42)\nlet text: Str = identity(\"demo\")\nlet boolean: Bool = identity(false)\nlet name: Str = project({name: \"package\", version: 1})\n",

@@ -349,8 +349,8 @@ pub(super) fn checked_return_type_shape(ty: &Type) -> String {
                                 sig.effects
                             )
                         }
-                        ModuleExportType::GenericPure { optional } => {
-                            format!("generic-pure:{optional}")
+                        ModuleExportType::GenericCallable { kind, optional } => {
+                            format!("generic-{kind:?}:{optional}")
                         }
                     };
                     (name.to_string(), shape)

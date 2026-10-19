@@ -16,6 +16,14 @@ fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     map
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum CallableKind {
+    Pure,
+    Proc,
+    Stream,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
     BuiltinParameter(BuiltinTypeParameter),
@@ -475,8 +483,8 @@ pub enum ModuleExportType {
     Value { ty: Type, optional: bool },
     Proc { sig: CallableType, optional: bool },
     Pure { sig: CallableType, optional: bool },
-    /// A quantified pure export whose scheme is verified from the child module.
-    GenericPure { optional: bool },
+    /// A quantified callable whose scheme is authenticated against its child module.
+    GenericCallable { kind: CallableKind, optional: bool },
 }
 
 impl ModuleExportType {
@@ -486,7 +494,7 @@ impl ModuleExportType {
             + match self {
                 Self::Value { ty, .. } => ty.retained_bytes(),
                 Self::Proc { sig, .. } | Self::Pure { sig, .. } => sig.retained_bytes(),
-                Self::GenericPure { .. } => 0,
+                Self::GenericCallable { .. } => 0,
             }
     }
 
@@ -495,22 +503,27 @@ impl ModuleExportType {
             Self::Value { optional, .. }
             | Self::Proc { optional, .. }
             | Self::Pure { optional, .. }
-            | Self::GenericPure { optional } => *optional,
+            | Self::GenericCallable { optional, .. } => *optional,
         }
     }
 
-    pub fn field_type(&self) -> Type {
+    pub fn field_type(&self) -> Option<Type> {
         match self {
-            Self::Value { ty, .. } => ty.clone(),
-            Self::Proc { .. } => Type::Proc,
-            Self::Pure { .. } | Self::GenericPure { .. } => Type::Pure,
+            Self::Value { ty, .. } => Some(ty.clone()),
+            Self::Proc { .. } => Some(Type::Proc),
+            Self::Pure { .. } => Some(Type::Pure),
+            Self::GenericCallable { kind, .. } => match kind {
+                CallableKind::Pure => Some(Type::Pure),
+                CallableKind::Proc => Some(Type::Proc),
+                CallableKind::Stream => None,
+            },
         }
     }
 
     pub(crate) fn field_value_type(&self) -> Option<Type> {
         match self {
-            Self::GenericPure { .. } => None,
-            _ => Some(self.field_type()),
+            Self::GenericCallable { .. } => None,
+            _ => self.field_type(),
         }
     }
 }
@@ -567,7 +580,7 @@ impl Type {
                             for parameter in &sig.params { visit(&parameter.ty); }
                             visit(&sig.return_ty);
                         }
-                        ModuleExportType::GenericPure { .. } => {}
+                        ModuleExportType::GenericCallable { .. } => {}
                     }
                 }
             }
@@ -897,7 +910,7 @@ impl Type {
                         .any(|param| param.ty.contains_recovery())
                         || sig.return_ty.contains_recovery()
                 }
-                ModuleExportType::GenericPure { .. } => false,
+                ModuleExportType::GenericCallable { .. } => false,
             }),
             Self::Record(fields) => fields.values().any(Self::contains_recovery),
             Self::Union(members) => members.iter().any(Self::contains_recovery),
@@ -953,7 +966,7 @@ impl Type {
                                 pending.push(&sig.return_ty);
                                 pending.extend(sig.params.iter().map(|param| &param.ty));
                             }
-                            ModuleExportType::GenericPure { .. } => {}
+                            ModuleExportType::GenericCallable { .. } => {}
                         }
                     }
                 }
@@ -1005,7 +1018,7 @@ impl Type {
                     sig.params.iter().any(|param| param.ty.contains_any())
                         || sig.return_ty.contains_any()
                 }
-                ModuleExportType::GenericPure { .. } => false,
+                ModuleExportType::GenericCallable { .. } => false,
             }),
             _ => false,
         }
@@ -1562,7 +1575,7 @@ fn module_export_any_flows_to_concrete(
             ModuleExportType::Pure { sig: actual, .. },
             ModuleExportType::Pure { sig: expected, .. },
         ) => callable_any_flows_to_concrete(actual, expected),
-        (ModuleExportType::GenericPure { .. }, ModuleExportType::GenericPure { .. }) => false,
+        (ModuleExportType::GenericCallable { .. }, ModuleExportType::GenericCallable { .. }) => false,
         _ => false,
     }
 }
@@ -1581,7 +1594,7 @@ fn module_export_matches_expected(actual: &ModuleExportType, expected: &ModuleEx
             ModuleExportType::Pure { sig: actual, .. },
             ModuleExportType::Pure { sig: expected, .. },
         ) => callable_matches_expected(actual, expected),
-        (ModuleExportType::GenericPure { .. }, ModuleExportType::GenericPure { .. }) => true,
+        (ModuleExportType::GenericCallable { kind: actual, .. }, ModuleExportType::GenericCallable { kind: expected, .. }) => actual == expected,
         _ => false,
     }
 }

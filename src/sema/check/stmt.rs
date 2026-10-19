@@ -4487,11 +4487,10 @@ impl Checker {
         let declaration = super::FunctionDeclarationId::new(
             self.effect_declaration_id(arena, def.body),
         );
-        if pure
-            && self
-                .declaration_inference
-                .pending(declaration)
-                .is_some_and(super::PendingFunctionSig::body_checked)
+        if self
+            .declaration_inference
+            .pending(declaration)
+            .is_some_and(super::PendingFunctionSig::body_checked)
         {
             return;
         }
@@ -4683,8 +4682,7 @@ impl Checker {
         if !inferring {
             self.inferred_returns = outer_inference;
         }
-        if pure
-            && let Some(signature) = self.declaration_inference.pending_mut(declaration)
+        if let Some(signature) = self.declaration_inference.pending_mut(declaration)
         {
             signature.mark_body_checked();
         }
@@ -4924,8 +4922,8 @@ impl Checker {
         } else {
             None
         };
-        let actual = if generic_module_alias.is_some() {
-            Type::Pure
+        let actual = if let Some(alias) = &generic_module_alias {
+            if alias.pure { Type::Pure } else { Type::Proc }
         } else {
             self.check_expr_with_schema_arena(
                 arena,

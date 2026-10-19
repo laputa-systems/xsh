@@ -4,7 +4,7 @@
 
 use rustc_hash::FxHashSet;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, Label};
-use xsh::frontend::check::{CheckOutput, CheckedCallableContract, CheckedFunctionKind};
+use xsh::frontend::check::{CheckOutput, CheckedCallableContract, CallableKind};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::{Name, Symbol};
 use xsh::frontend::syntax::arena::{
@@ -188,9 +188,9 @@ impl CallableParameters {
         pure: bool,
     ) -> Option<String> {
         let expected_kind = if pure {
-            CheckedFunctionKind::Pure
+            CallableKind::Pure
         } else {
-            CheckedFunctionKind::Proc
+            CallableKind::Proc
         };
         let mut contract: Option<CheckedCallableContract> = None;
         for call in calls {

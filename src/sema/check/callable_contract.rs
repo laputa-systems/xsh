@@ -1,6 +1,6 @@
-use super::{CheckedFunctionDeclaration, CheckedFunctionKind, Checker, CheckOutput};
+use super::{CheckedFunctionDeclaration, Checker, CheckOutput};
 use crate::sema::constants::SchemaExpectation;
-use crate::sema::schemes::{CallableMonotype, SchemeCallableKind, SchemeRowParameterId,
+use crate::sema::schemes::{CallableMonotype, SchemeRowParameterId,
     SchemeRowTail, SchemeType, SchemeTypeParameterId, TypeScheme};
 use crate::symbol::SymbolOwner;
 use crate::syntax::arena::{ArenaProgram, TypeDefId};
@@ -65,12 +65,8 @@ impl Checker {
 }
 
 impl CheckedCallableContract {
-    pub fn kind(&self) -> CheckedFunctionKind {
-        match self.scheme.kind() {
-            SchemeCallableKind::Pure => CheckedFunctionKind::Pure,
-            SchemeCallableKind::Proc => CheckedFunctionKind::Proc,
-            SchemeCallableKind::Stream => CheckedFunctionKind::Stream,
-        }
+    pub fn kind(&self) -> crate::sema::types::CallableKind {
+        self.scheme.kind()
     }
 
     pub fn is_generic(&self) -> bool {
@@ -106,9 +102,9 @@ impl CheckedCallableContract {
         use crate::sema::types::{CallableParamType, CallableType, Type, TypedCallable};
         if self.is_generic() || self.scheme.return_schema().is_some_and(schema_has_obligations) { return None; }
         let pure = match self.scheme.kind() {
-            SchemeCallableKind::Pure => true,
-            SchemeCallableKind::Proc => false,
-            SchemeCallableKind::Stream => return None,
+            crate::sema::types::CallableKind::Pure => true,
+            crate::sema::types::CallableKind::Proc => false,
+            crate::sema::types::CallableKind::Stream => return None,
         };
         let params = self.scheme.params().iter().map(|parameter| {
             if parameter.defaulted || parameter.rest || parameter.schema_expectation.as_ref().is_some_and(schema_has_obligations) { return None; }
@@ -295,7 +291,7 @@ mod tests {
         owner.with_current(|| {
             let binder = SchemeTypeParameterId(binder);
             CheckedCallableContract {
-                scheme: Arc::new(TypeScheme::new(SchemeCallableKind::Pure, vec![binder], Vec::new(),
+                scheme: Arc::new(TypeScheme::new(crate::sema::types::CallableKind::Pure, vec![binder], Vec::new(),
                     vec![SchemeParameter { name: Name::intern("value"), ty: SchemeType::Parameter(binder),
                         schema_expectation: None, defaulted: false, rest: false }],
                     result.map_or(SchemeType::Parameter(binder), SchemeType::Ground), None, false, None, false).unwrap()),
@@ -443,7 +439,7 @@ mod tests {
         let right = identity(&owner, 91, None);
         assert!(left.equivalent_to(&right));
         assert_eq!(left.to_string(), right.to_string());
-        assert_eq!(left.kind(), CheckedFunctionKind::Pure);
+        assert_eq!(left.kind(), crate::sema::types::CallableKind::Pure);
         assert!(left.is_generic());
         assert!(left.source_annotation().is_none());
         assert!(!left.equivalent_to(&identity(&owner, 91, Some(Type::Int))));
@@ -465,7 +461,7 @@ mod tests {
                 if extra { lacks.insert(Name::intern("other")); }
                 let row = SchemeRowParameterId(id);
                 CheckedCallableContract {
-                    scheme: Arc::new(TypeScheme::new(SchemeCallableKind::Pure, Vec::new(),
+                    scheme: Arc::new(TypeScheme::new(crate::sema::types::CallableKind::Pure, Vec::new(),
                         vec![SchemeRowParameter { id: row, lacks }],
                         vec![SchemeParameter { name: Name::intern("record"),
                             ty: SchemeType::Record { fields: BTreeMap::from([(field, SchemeType::Ground(Type::Int))]), tail: SchemeRowTail::Parameter(row) },
@@ -527,7 +523,7 @@ mod effect_join_tests {
         let owner = SymbolOwner::new();
         owner.with_current(|| {
             let build = |effects, return_type| CheckedCallableContract {
-                scheme: Arc::new(TypeScheme::new(SchemeCallableKind::Proc, Vec::new(), Vec::new(),
+                scheme: Arc::new(TypeScheme::new(crate::sema::types::CallableKind::Proc, Vec::new(), Vec::new(),
                     vec![SchemeParameter { name: Name::intern("value"), ty: SchemeType::Ground(Type::Str),
                         schema_expectation: None, defaulted: false, rest: false }],
                     SchemeType::Ground(return_type), None, false, effects, false).unwrap()),

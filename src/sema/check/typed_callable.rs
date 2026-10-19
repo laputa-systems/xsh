@@ -238,9 +238,9 @@ impl Checker {
         };
         let signature = FunctionSig::ground(
             if callable.pure {
-                super::super::schemes::SchemeCallableKind::Pure
+                crate::sema::types::CallableKind::Pure
             } else {
-                super::super::schemes::SchemeCallableKind::Proc
+                crate::sema::types::CallableKind::Proc
             },
             None,
             false,

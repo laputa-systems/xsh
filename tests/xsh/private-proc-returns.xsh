@@ -166,13 +166,24 @@ proc pick(flag: Bool) [io] { if flag { count() } else { print none } }
   }
 }
 
+test test_exported_proc_inference_preserves_success_contract { |ctx|
+  test.expect(
+    ctx,
+    """export proc public_value() { 1 }
+export proc wrap(value) { value }
+let number: Int = public_value()?
+let text: Str = wrap("demo")?
+let nested: Result[Int] = wrap(Ok(7))?
+assert number == 1
+assert text == "demo"
+assert nested == Ok(7)
+""",
+    status: 0,
+  )?
+}
+
 test test_private_proc_inference_rejects_boundaries { |ctx|
   for case in [
-    {
-      source: """export proc public_value() { 1 }
-""",
-      code: "check.required-return",
-    },
     {
       source: """proc main() { 1 }
 """,

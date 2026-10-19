@@ -7,10 +7,10 @@ use super::{
     RowTail, TypeConstraints, TypeVariableId,
 };
 use crate::sema::schemes::{
-    SchemeBuildError, SchemeCallableKind, SchemeParameter, SchemeRowParameter,
+    SchemeBuildError, SchemeParameter, SchemeRowParameter,
     SchemeRowParameterId, SchemeRowTail, SchemeType, TypeScheme,
 };
-use crate::sema::types::Type;
+use crate::sema::types::{CallableKind, Type};
 use crate::source::{SourceId, Span};
 use crate::symbol::{Name, SymbolOwner};
 use std::collections::{BTreeMap, BTreeSet};
@@ -491,7 +491,7 @@ fn callable_scheme_rejects_record_fields_missing_from_row_lacks() {
     symbols.with_current(|| {
         let row_parameter = SchemeRowParameterId(0);
         let result = TypeScheme::new(
-            SchemeCallableKind::Pure,
+            CallableKind::Pure,
             Vec::new(),
             vec![SchemeRowParameter {
                 id: row_parameter,

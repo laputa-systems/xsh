@@ -13,7 +13,7 @@ use crate::sema::check::{
     standard_record_type,
 };
 use crate::sema::schemes::{
-    CallableScheme, SchemeCallableKind, SchemeParameter, TypeScheme,
+    CallableScheme, SchemeParameter, TypeScheme,
 };
 use crate::syntax::arena::{
     ArenaBindingTargetKind, ArenaChild, ArenaModuleContractEntryKind, ArenaProgram, ArenaRange,
@@ -133,6 +133,9 @@ impl Checker {
         if pending.generalized().is_some() {
             return Some(());
         }
+        if pending.kind() == crate::sema::types::CallableKind::Proc && self.collecting_effects {
+            return None;
+        }
         let shape = pending.provisional()?;
         let params = program.arena.params(def.params);
         let mut types = Vec::with_capacity(shape.params().len() + 1);
@@ -220,7 +223,7 @@ impl Checker {
                         .copied()
                 })
                 .collect::<super::FxHashSet<_>>();
-            let pure_calls = generalized_body_types.keys().filter_map(|&expression| {
+            let checked_calls = generalized_body_types.keys().filter_map(|&expression| {
                 let span = program.arena.expr(expression).span;
                 let target = self.selected_function_calls.get(&span)?;
                 let definition = program.arena.function_def(target.definition);
@@ -231,12 +234,18 @@ impl Checker {
                 });
                 let pure = self.checked_declarations.functions.get(&target.definition)
                     .is_some_and(|declaration| declaration.kind == CheckedFunctionKind::Pure)
-                    || self.declaration_inference.pending(id).is_some_and(|signature| signature.kind() == SchemeCallableKind::Pure)
-                    || self.declaration_inference.checked(id).is_some_and(|signature| signature.scheme.kind() == SchemeCallableKind::Pure)
+                    || self.declaration_inference.pending(id).is_some_and(|signature| signature.kind() == crate::sema::types::CallableKind::Pure)
+                    || self.declaration_inference.checked(id).is_some_and(|signature| signature.scheme.kind() == crate::sema::types::CallableKind::Pure)
                     || self.qualified_pures.values()
                         .any(|signature| signature.definition_target() == Some(*target)
-                            && signature.scheme().kind() == SchemeCallableKind::Pure);
-                pure.then_some(span)
+                            && signature.scheme().kind() == crate::sema::types::CallableKind::Pure);
+                let finite_proc = pending.kind() == crate::sema::types::CallableKind::Proc
+                    && self.declaration_effects(pending.effect_declaration).is_some_and(|ceiling| {
+                        self.declaration_effects(Some(id.effect_declaration())).is_some_and(|effects| {
+                            effects.iter().all(|effect| Self::effects_covers(&ceiling, effect))
+                        })
+                    });
+                (pure || finite_proc).then_some(span)
             }).collect::<super::FxHashSet<_>>();
             let captures = generalized_body_types.keys()
                 .filter_map(|expression| self.resolved_bindings.expressions.get(expression))
@@ -256,13 +265,13 @@ impl Checker {
                 &captures,
                 &generalized_tail_types,
                 &self.statement_positions,
-                &pure_calls,
+                &checked_calls,
                 &registered_calls,
                 &generalized_body_types,
                 &self.result_constructors,
                 super::scheme_body::BodyCompletion::Function,
             ) {
-                let message = "generic pure body requires immutable bindings and checked value constructors, branches, projections, or selected pure calls";
+                let message = "generic callable body requires immutable bindings and checked value constructors, branches, projections, or selected calls with compatible effects";
                 let reported = self.diagnostics.iter().any(|diagnostic| {
                     diagnostic.code == Some(DiagnosticCode::CheckLocalInference)
                         && diagnostic.message == message
@@ -477,6 +486,14 @@ impl Checker {
         let callable = Arc::clone(pending.generalized()?);
         let effects = effect_fact.and_then(|fact| fact.effective.clone());
         let inferred_effects = effect_fact.is_some_and(|fact| fact.inferred);
+        if pending.kind == crate::sema::types::CallableKind::Proc
+            && (!callable.type_parameters().is_empty() || !callable.row_parameters().is_empty())
+            && effects.is_none()
+        {
+            self.error(program.arena.span(program.arena.block(def.body).span),
+                "generic proc requires a finite checked effect contract", DiagnosticCode::CheckLocalInference);
+            return None;
+        }
         let scheme = Arc::new(
             TypeScheme::with_callable(
                 pending.kind,
@@ -519,9 +536,9 @@ impl Checker {
             .mark_checked(declaration, signature.clone())
             .ok()?;
         self.publish_function_declaration(program, def_id, match pending.kind {
-            SchemeCallableKind::Pure => CheckedFunctionKind::Pure,
-            SchemeCallableKind::Proc => CheckedFunctionKind::Proc,
-            SchemeCallableKind::Stream => CheckedFunctionKind::Stream,
+            crate::sema::types::CallableKind::Pure => CheckedFunctionKind::Pure,
+            crate::sema::types::CallableKind::Proc => CheckedFunctionKind::Proc,
+            crate::sema::types::CallableKind::Stream => CheckedFunctionKind::Stream,
         }, pending.exported, Some(&signature), scheme_body_facts);
         Some(signature)
     }
@@ -1315,7 +1332,7 @@ impl Checker {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
         let declaration = FunctionDeclarationId::new(effect_declaration);
-        if kind == CheckedFunctionKind::Pure {
+        if matches!(kind, CheckedFunctionKind::Pure | CheckedFunctionKind::Proc) {
             for parameter in program.arena.params(def.params) {
                 let span = program.arena.span(parameter.span);
                 if parameter.annotation.is_none()
@@ -1329,9 +1346,9 @@ impl Checker {
         }
         let signature = PendingFunctionSig {
             kind: match kind {
-                CheckedFunctionKind::Pure => SchemeCallableKind::Pure,
-                CheckedFunctionKind::Proc => SchemeCallableKind::Proc,
-                CheckedFunctionKind::Stream => SchemeCallableKind::Stream,
+                CheckedFunctionKind::Pure => crate::sema::types::CallableKind::Pure,
+                CheckedFunctionKind::Proc => crate::sema::types::CallableKind::Proc,
+                CheckedFunctionKind::Stream => crate::sema::types::CallableKind::Stream,
                 CheckedFunctionKind::CliMain => unreachable!(),
             },
             exported,
@@ -1512,31 +1529,25 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
             },
         );
     }
-    for (name, sig) in &module.procs {
-        if let Some(sig) = callable_type_from_function_signature(sig) {
-            exports.insert(
-                *name,
-                super::ModuleExportType::Proc { sig, optional: false },
-            );
+    for (kind, signatures) in [
+        (crate::sema::types::CallableKind::Proc, &module.procs),
+        (crate::sema::types::CallableKind::Pure, &module.pures),
+    ] {
+        for (name, signature) in signatures {
+            let export = if let Some(sig) = callable_type_from_function_signature(signature) {
+                match kind {
+                    crate::sema::types::CallableKind::Proc => super::ModuleExportType::Proc { sig, optional: false },
+                    crate::sema::types::CallableKind::Pure => super::ModuleExportType::Pure { sig, optional: false },
+                    crate::sema::types::CallableKind::Stream => unreachable!(),
+                }
+            } else if !signature.scheme().type_parameters().is_empty()
+                || !signature.scheme().row_parameters().is_empty()
+            {
+                super::ModuleExportType::GenericCallable { kind, optional: false }
+            } else { continue };
+            exports.insert(*name, export);
         }
     }
-    for (name, sig) in &module.pures {
-        if let Some(sig) = callable_type_from_function_signature(sig) {
-            exports.insert(
-                *name,
-                super::ModuleExportType::Pure { sig, optional: false },
-            );
-        } else if !sig.scheme().type_parameters().is_empty()
-            || !sig.scheme().row_parameters().is_empty()
-        {
-            exports.insert(
-                *name,
-                super::ModuleExportType::GenericPure { optional: false },
-            );
-        }
-    }
-    // The checker has every export of a statically imported module, so its
-    // type is the module's whole surface.
     Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(
         exports,
     )))

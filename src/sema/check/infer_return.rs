@@ -16,7 +16,6 @@ struct ReturnDeclaration {
     function: Option<FunctionDefId>,
     proc_def: bool,
     statement: StmtId,
-    exported: bool,
     parameters: FxHashSet<Name>,
 }
 
@@ -272,9 +271,9 @@ impl Checker {
         let program = view.program;
         let mut declarations = Vec::new();
         for &statement in statements {
-            let (statement, exported) = match program.arena.stmt(statement).kind {
-                ArenaStmtKind::Export(inner) => (inner, true),
-                _ => (statement, false),
+            let statement = match program.arena.stmt(statement).kind {
+                ArenaStmtKind::Export(inner) => inner,
+                _ => statement,
             };
             let stmt = program.arena.stmt(statement);
             match stmt.kind {
@@ -289,7 +288,6 @@ impl Checker {
                         function: Some(function),
                         proc_def: matches!(stmt.kind, ArenaStmtKind::ProcDef(_)),
                         statement,
-                        exported,
                         parameters: program
                             .arena
                             .params(def.params)
@@ -313,7 +311,6 @@ impl Checker {
                             function: None,
                             proc_def: false,
                             statement,
-                            exported,
                             parameters: FxHashSet::default(),
                         });
                     }
@@ -324,10 +321,9 @@ impl Checker {
         if !declarations.iter().any(|decl| {
             decl.function.is_some_and(|id| {
                 let def = program.arena.function_def(id);
-                let has_inferred_parameter = !decl.proc_def
-                    && program.arena.params(def.params).iter().any(|parameter| {
-                        parameter.annotation.is_none() && parameter.default.is_none()
-                    });
+                let has_inferred_parameter = program.arena.params(def.params).iter().any(|parameter| {
+                    parameter.annotation.is_none() && parameter.default.is_none()
+                });
                 def.return_ty_defaulted
                     && (!decl.proc_def || proc_may_return_value(program, def))
                     || has_inferred_parameter
@@ -482,21 +478,20 @@ impl Checker {
                     continue;
                 };
                 let def = program.arena.function_def(id);
-                if !decl.proc_def && !def.return_ty_defaulted {
-                    self.check_pure_body_before_callers(program, source, decl, &declarations, def);
+                let infers_parameters = program.arena.params(def.params).iter().any(|parameter| {
+                    parameter.annotation.is_none() && parameter.default.is_none()
+                });
+                if !def.return_ty_defaulted {
+                    if decl.proc_def && !infers_parameters { continue; }
+                    self.check_body_before_callers(program, source, decl, &declarations, def);
                     if !cyclic.contains(&index) {
                         self.generalize_pending_function(program, id);
                     }
                     continue;
                 }
-                if !def.return_ty_defaulted {
-                    continue;
-                }
                 if decl.proc_def {
                     if proc_may_return_value(program, def) {
-                        let boundary = if decl.exported {
-                            Some("exported")
-                        } else if decl.name == "main" || decl.name.as_str().starts_with("main ") {
+                        let boundary = if decl.name == "main" || decl.name.as_str().starts_with("main ") {
                             Some("entry")
                         } else if cyclic.contains(&index) {
                             Some("recursive")
@@ -504,6 +499,17 @@ impl Checker {
                             None
                         };
                         self.infer_proc_return(program, source, decl, &declarations, def, boundary);
+                        if infers_parameters {
+                            self.check_body_before_callers(program, source, decl, &declarations, def);
+                            if !cyclic.contains(&index) {
+                                self.generalize_pending_function(program, id);
+                            }
+                        }
+                    } else if infers_parameters {
+                        self.check_body_before_callers(program, source, decl, &declarations, def);
+                        if !cyclic.contains(&index) {
+                            self.generalize_pending_function(program, id);
+                        }
                     }
                     continue;
                 }
@@ -521,7 +527,7 @@ impl Checker {
                 self.inferred_returns = Some(Vec::new());
                 self.inferred_propagations.clear();
                 self.inference_reachable = true;
-                self.check_pure_body_before_callers(program, source, decl, &declarations, def);
+                self.check_body_before_callers(program, source, decl, &declarations, def);
                 let candidates = self.inferred_returns.take().unwrap();
                 let mut inferred = None;
                 for (candidate, span) in candidates {
@@ -600,7 +606,7 @@ impl Checker {
         self.scopes = saved_scopes;
     }
 
-    fn check_pure_body_before_callers(
+    fn check_body_before_callers(
         &mut self,
         program: &ArenaProgram,
         source: &str,
@@ -619,7 +625,7 @@ impl Checker {
                 }
             }
         }
-        self.check_function_arena(program, source, def, true);
+        self.check_function_arena(program, source, def, !decl.proc_def);
         self.scopes = visible_scopes;
     }
 

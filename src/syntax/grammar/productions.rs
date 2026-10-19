@@ -1071,7 +1071,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::Proc),
                 name(),
-                signature(),
+                seq([t(T::LParen), r("inferred_parameters"), t(T::RParen)]),
                 opt(r("effects")),
                 opt(returns()),
                 block(),
@@ -1083,7 +1083,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 kw(Keyword::Pure),
                 ident(),
-                seq([t(T::LParen), r("pure_parameters"), t(T::RParen)]),
+                seq([t(T::LParen), r("inferred_parameters"), t(T::RParen)]),
                 opt(returns()),
                 block(),
             ]),
@@ -1131,7 +1131,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
         ),
         rule(
             Declarations,
-            "pure_parameters",
+            "inferred_parameters",
             list(alt([
                 r("parameter"),
                 seq([

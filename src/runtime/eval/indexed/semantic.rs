@@ -234,10 +234,6 @@ impl SemanticPools {
             .ok_or_else(|| IrVerifyError::new("signature return type id is invalid"))
     }
 
-    pub(super) fn signature_effects_empty(&self, id: SignatureId) -> Result<bool, IrVerifyError> {
-        Ok(signature_effect_count(self.signature_payload(id)?)? == 0)
-    }
-
     pub(super) fn signature_has_error_effect(
         &self,
         id: SignatureId,
@@ -689,8 +685,14 @@ impl SemanticPools {
                             )?,
                             optional,
                         },
-                        3 if export[1] == IR_NONE => {
-                            ModuleExportType::GenericPure { optional }
+                        3 => {
+                            let kind = match export[1] {
+                                0 => crate::sema::types::CallableKind::Pure,
+                                1 => crate::sema::types::CallableKind::Proc,
+                                2 => crate::sema::types::CallableKind::Stream,
+                                _ => return Err(IrVerifyError::new("generic module callable kind is invalid")),
+                            };
+                            ModuleExportType::GenericCallable { kind, optional }
                         }
                         _ => {
                             return Err(IrVerifyError::new("module export kind is invalid"));
@@ -798,7 +800,7 @@ impl SemanticPools {
         self.to_signature_with_budget(id, depth, &mut TypeMaterializationBudget::default())
     }
 
-    fn to_signature_with_budget(
+    pub(super) fn to_signature_with_budget(
         &self,
         id: SignatureId,
         depth: usize,
@@ -1200,10 +1202,8 @@ impl SemanticPools {
                             return Err(IrVerifyError::new("module export flags are invalid"));
                         }
                         if kind == 3 {
-                            if export[1] != IR_NONE {
-                                return Err(IrVerifyError::new(
-                                    "generic pure module export has a payload",
-                                ));
+                            if export[1] > crate::sema::types::CallableKind::Stream as u32 {
+                                return Err(IrVerifyError::new("generic module callable kind is invalid"));
                             }
                         } else if kind == 0 {
                             verify_type_raw(self, export[1], Some(index))?;
@@ -1446,9 +1446,9 @@ impl SemanticPoolBuilder {
                             words.push(2 | (u32::from(*optional) * MODULE_EXPORT_OPTIONAL));
                             words.push(self.intern_signature(pools, sig)?.raw());
                         }
-                        ModuleExportType::GenericPure { optional } => {
+                        ModuleExportType::GenericCallable { kind, optional } => {
                             words.push(3 | (u32::from(*optional) * MODULE_EXPORT_OPTIONAL));
-                            words.push(IR_NONE);
+                            words.push(*kind as u32);
                         }
                     }
                 }
@@ -2151,12 +2151,12 @@ mod tests {
     }
 
     #[test]
-    fn generic_pure_module_exports_reject_payloads() {
+    fn generic_callable_module_exports_reject_invalid_kinds() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let module = Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(
                 BTreeMap::from([(
                     Name::intern("identity"),
-                    ModuleExportType::GenericPure { optional: false },
+                    ModuleExportType::GenericCallable { kind: crate::sema::types::CallableKind::Pure, optional: false },
                 )]),
             )));
             let mut pools = SemanticPools::default();
@@ -2166,12 +2166,12 @@ mod tests {
             assert_eq!(pools.to_type(id).unwrap(), module);
 
             let payload = pools.type_data[id.index()].rhs as usize + 1;
-            assert_eq!(pools.type_extra[payload], IR_NONE);
+            assert_eq!(pools.type_extra[payload], crate::sema::types::CallableKind::Pure as u32);
             let mut corrupted = pools.clone();
-            corrupted.type_extra[payload] = 0;
+            corrupted.type_extra[payload] = IR_NONE;
             assert_eq!(
                 corrupted.verify().unwrap_err().message,
-                "generic pure module export has a payload"
+                "generic module callable kind is invalid"
             );
         });
     }

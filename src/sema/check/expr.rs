@@ -3578,14 +3578,18 @@ impl Checker {
     ) -> Type {
         match export.field_value_type() {
             Some(ty) => ty,
-            None => self.reject_generic_pure_module_value(span),
+            None if matches!(export, crate::sema::types::ModuleExportType::GenericCallable { kind: crate::sema::types::CallableKind::Stream, .. }) => {
+                self.error(span, "generic stream export has no supported callable value projection", DiagnosticCode::CheckModuleMember);
+                Type::Unknown
+            }
+            None => self.reject_generic_callable_module_value(span),
         }
     }
 
-    pub(super) fn reject_generic_pure_module_value(&mut self, span: Span) -> Type {
+    pub(super) fn reject_generic_callable_module_value(&mut self, span: Span) -> Type {
         self.error(
             span,
-            "generic pure module exports must be called directly",
+            "generic callable module exports must be called directly",
             DiagnosticCode::CheckModuleMember,
         );
         Type::Unknown
@@ -3924,7 +3928,7 @@ impl Checker {
                     None,
                 );
                 self.expect_type(&Type::Str, &index_ty, index_span);
-                let generic_export = crate::sema::projection::generic_pure_export_for_key(
+                let generic_export = crate::sema::projection::generic_callable_export_for_key(
                     &arena.arena,
                     &self.prepared_constants,
                     &receiver,
@@ -3933,7 +3937,7 @@ impl Checker {
                 if generic_export.is_some() {
                     self.error(
                         span,
-                        "generic pure module exports must be called directly",
+                        "generic callable module exports must be called directly",
                         DiagnosticCode::CheckModuleMember,
                     );
                     Type::Unknown

@@ -1394,7 +1394,8 @@ enum LoweredModuleExport {
         name: Name,
         function_namespace: Name,
     },
-    GenericPure {
+    GenericCallable {
+        kind: crate::sema::types::CallableKind,
         name: Name,
         function_namespace: Name,
     },

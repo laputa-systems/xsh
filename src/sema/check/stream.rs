@@ -1277,7 +1277,7 @@ mod static_namespace_identity_tests {
         Arc::make_mut(&mut checker.qualified_pures).insert(
             QualifiedName::new(namespace, Name::intern("stage")),
             super::super::FunctionSig::ground(
-                crate::sema::schemes::SchemeCallableKind::Pure,
+                crate::sema::types::CallableKind::Pure,
                 None,
                 false,
                 None,

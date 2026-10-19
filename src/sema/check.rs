@@ -1038,7 +1038,7 @@ impl FunctionDeclarationId {
 
 #[derive(Clone, Debug)]
 pub(super) struct PendingFunctionSig {
-    kind: super::schemes::SchemeCallableKind,
+    kind: crate::sema::types::CallableKind,
     exported: bool,
     effect_declaration: Option<EffectDeclarationId>,
     is_alias: bool,
@@ -1052,7 +1052,7 @@ pub(super) struct PendingFunctionSig {
 }
 
 impl PendingFunctionSig {
-    pub(super) fn kind(&self) -> super::schemes::SchemeCallableKind {
+    pub(super) fn kind(&self) -> crate::sema::types::CallableKind {
         self.kind
     }
 
@@ -1235,7 +1235,7 @@ type PendingCallInstantiation = (
 
 impl FunctionSig {
     pub(super) fn ground(
-        kind: super::schemes::SchemeCallableKind,
+        kind: crate::sema::types::CallableKind,
         effect_declaration: Option<EffectDeclarationId>,
         is_alias: bool,
         definition: Option<Span>,

@@ -46,19 +46,18 @@ impl Checker {
         };
         let alias = self.resolve_callable_alias_target(program, expression)?;
         let scheme = alias.signature.scheme();
-        if !alias.pure
-            || scheme.type_parameters().is_empty() && scheme.row_parameters().is_empty()
+        if scheme.type_parameters().is_empty() && scheme.row_parameters().is_empty()
         {
             return None;
         }
         let Type::Module(exports) = self.check_expr_arena(program, source, base, None) else {
             return None;
         };
-        if !matches!(exports.get(&name), Some(ModuleExportType::GenericPure { optional: false })) {
+        if !matches!(exports.get(&name), Some(ModuleExportType::GenericCallable { kind, optional: false }) if *kind == scheme.kind()) {
             return None;
         }
         self.record_selected_function_value(program.arena.expr(expression).span, &alias.signature);
-        self.expr_types.insert(program.arena.expr(expression).span, Type::Pure);
+        self.expr_types.insert(program.arena.expr(expression).span, if alias.pure { Type::Pure } else { Type::Proc });
         Some(alias)
     }
 
@@ -189,9 +188,9 @@ impl Checker {
             pure,
             signature: FunctionSig::ground(
                 if pure {
-                    super::super::schemes::SchemeCallableKind::Pure
+                    crate::sema::types::CallableKind::Pure
                 } else {
-                    super::super::schemes::SchemeCallableKind::Proc
+                    crate::sema::types::CallableKind::Proc
                 },
                 None,
                 false,

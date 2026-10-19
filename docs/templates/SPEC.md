@@ -3050,19 +3050,19 @@ order, after the supplied arguments. A stream producer evaluates its defaults on
 its first pull. Overloads (standard APIs only) are chosen by argument names and
 types.
 
-A required parameter in a `pure` declaration may omit its type annotation. The
+A required parameter in a `pure` or `proc` declaration may omit its type annotation. The
 checker infers that type from the declaration body. An explicit `Any` remains a
 dynamic type and is never treated as a type variable; it may appear beside
-quantified parameters. Required parameters in `proc` and `stream` declarations,
+quantified parameters. Required parameters in `stream` declarations,
 callable types, and module contracts still need annotations.
 
-When a checked pure signature retains quantified type or row variables, its
+When a checked pure or finite-effect proc signature retains quantified type or row variables, its
 executable body may contain immutable `let` bindings followed by one value
 tail or explicit `return`. Values may be scalar literals, parameter or local
 reads, ground immutable runtime captures, required `.field` projections,
 list literals without splices, records with named fields, `Ok` and `Err`
 constructors, value blocks, value-producing `if` branches, or statically
-selected pure calls. Conditions constrain unannotated parameters to `Bool`;
+selected calls whose finite effects fit the declaration. Conditions constrain unannotated parameters to `Bool`;
 branch results share constraints from the declaration body. Branches evaluate
 only the selected value, in ordinary source order. User function calls must
 supply every fixed required parameter, by position or name. Registered calls must have a selected pure
@@ -3135,7 +3135,7 @@ The checker infers mutually recursive pure parameters together before checking
 callers. Those parameters remain monomorphic. A parameter that the recursive
 bodies leave undetermined needs an annotation.
 
-- A private `proc` with value tails infers `Result[T]`. A `Result` tail keeps
+- A `proc` with value tails infers `Result[T]`. A `Result` tail keeps
   its shape, and a plain `T` is wrapped in `Ok`. If every completion is
   Unit-like (no tail value, an `if` without `else`, a bare `return`, or a
   failure-only `Err(...)`), the proc returns `Result[Unit]`. Value tails that
@@ -3143,9 +3143,21 @@ bodies leave undetermined needs an annotation.
   Failure-only completions (`Err(...)` tails and early `return Err(...)`) and
   `?` propagations join into the error type: variants of one family join to
   the family, anything else to `Error`.
-- An exported `proc` with value returns and `proc main` need explicit return
+- A recursive `proc` with value returns and `proc main` need explicit return
   types (`check.required-return`). Empty collections, error-only bodies, and
   dynamic shapes cannot be inferred (`check.infer-return`).
+
+An inferred proc can quantify body-owned type and row variables when its checked
+effect contract is finite. `proc wrap(value) { value }` has the relation
+`forall T. T -> Result[T]`, independent of its callers. Its plain symbolic tail
+always constructs `Ok`; passing `Ok(7)` therefore returns `Ok(Ok(7))`.
+Exported and statically imported procs keep the same relation. Mutable or
+resource-bearing captures and calls with unrestricted effects cannot enter
+this quantified body contract. Symbolic callback effects remain unsupported.
+
+```xsh
+{{.spec.generic_procs.source}}
+```
 
 A proc with no return type and a statement body returns `Result[Unit]`. A
 caller that ignores an inferred `Result[T]` must handle it like any other

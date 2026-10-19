@@ -70,6 +70,7 @@ impl<'a> DecodeContext<'a> {
             proven_callable_writers: RefCell::default(),
             function_signature_index: None,
             return_analysis: RefCell::default(),
+            producer_demand: crate::runtime::eval::ProducerDemand::Absent,
         prepared_constant_work: Cell::new(0),
             verified: self.verified,
         }

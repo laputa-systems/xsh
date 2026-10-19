@@ -13,7 +13,7 @@ pub(super) fn supports_generalized_body(
     captures: &FxHashSet<BindingId>,
     tails: &std::collections::BTreeMap<crate::syntax::arena::StmtId, crate::sema::schemes::SchemeType>,
     positions: &std::collections::BTreeMap<Span, super::StatementPosition>,
-    pure_calls: &FxHashSet<Span>,
+    checked_calls: &FxHashSet<Span>,
     registered_calls: &std::collections::BTreeMap<crate::syntax::arena::ExprId, std::sync::Arc<crate::sema::schemes::RegisteredCallPlan>>,
     types: &std::collections::BTreeMap<crate::syntax::arena::ExprId, crate::sema::schemes::SchemeType>,
     result_constructors: &std::collections::BTreeMap<Span, super::CheckedResultConstructor>,
@@ -28,7 +28,7 @@ pub(super) fn supports_generalized_body(
     for &statement in prefix {
         let ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(value), .. } = program.arena.stmt(statement).kind else { return false };
         let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind else { return false };
-        if !is_body_expression(program, bindings, &available, captures, tails, positions, pure_calls, registered_calls, types, result_constructors, value) { return false; }
+        if !is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, value) { return false; }
         let Some(binding) = bindings.declaration_sites.get(&(program.arena.stmt(statement).span, name)) else { return false };
         available.insert(*binding);
     }
@@ -42,13 +42,13 @@ pub(super) fn supports_generalized_body(
     }
     match tail_statement.kind {
         ArenaStmtKind::TailBareIdent(_) => bindings.tails.get(&tail).is_some_and(|identity| available.contains(identity) || captures.contains(identity) && tails.get(&tail).is_some_and(|ty| ty.closed_ground_type().is_some_and(|ty| !ty.may_hold_resource()))),
-        ArenaStmtKind::Expr(expression) => is_body_expression(program, bindings, &available, captures, tails, positions, pure_calls, registered_calls, types, result_constructors, expression),
-        ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) if matches!(completion, BodyCompletion::Function) => is_body_expression(program, bindings, &available, captures, tails, positions, pure_calls, registered_calls, types, result_constructors, expression),
+        ArenaStmtKind::Expr(expression) => is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, expression),
+        ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expression))) if matches!(completion, BodyCompletion::Function) => is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, expression),
         ArenaStmtKind::If { branches, else_block: Some(else_block) } => {
             program.arena.if_branches(branches).iter().all(|branch| {
-                is_body_expression(program, bindings, &available, captures, tails, positions, pure_calls, registered_calls, types, result_constructors, branch.condition)
-                    && supports_generalized_body(program, branch.block, bindings, &available, captures, tails, positions, pure_calls, registered_calls, types, result_constructors, completion)
-            }) && supports_generalized_body(program, else_block, bindings, &available, captures, tails, positions, pure_calls, registered_calls, types, result_constructors, completion)
+                is_body_expression(program, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, branch.condition)
+                    && supports_generalized_body(program, branch.block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, completion)
+            }) && supports_generalized_body(program, else_block, bindings, &available, captures, tails, positions, checked_calls, registered_calls, types, result_constructors, completion)
         }
         _ => false,
     }
@@ -61,7 +61,7 @@ fn is_body_expression(
     captures: &FxHashSet<BindingId>,
     tails: &std::collections::BTreeMap<crate::syntax::arena::StmtId, crate::sema::schemes::SchemeType>,
     positions: &std::collections::BTreeMap<Span, super::StatementPosition>,
-    pure_calls: &FxHashSet<Span>,
+    checked_calls: &FxHashSet<Span>,
     registered_calls: &std::collections::BTreeMap<crate::syntax::arena::ExprId, std::sync::Arc<crate::sema::schemes::RegisteredCallPlan>>,
     types: &std::collections::BTreeMap<crate::syntax::arena::ExprId, crate::sema::schemes::SchemeType>,
     result_constructors: &std::collections::BTreeMap<Span, super::CheckedResultConstructor>,
@@ -94,7 +94,7 @@ fn is_body_expression(
             }
             ArenaExprKind::ValueBlock(block) => {
                 if !supports_generalized_body(program, block, bindings, available, captures,
-                    tails, positions, pure_calls, registered_calls, types, result_constructors, BodyCompletion::Value)
+                    tails, positions, checked_calls, registered_calls, types, result_constructors, BodyCompletion::Value)
                 { return false; }
             }
 
@@ -104,7 +104,7 @@ fn is_body_expression(
                         let ArenaExprKind::Field { base, .. } = program.arena.expr(callee).kind else { return false };
                         pending.push(base);
                     }
-                } else if !pure_calls.contains(&program.arena.expr(expression).span)
+                } else if !checked_calls.contains(&program.arena.expr(expression).span)
                     && !result_constructors.contains_key(&program.arena.expr(expression).span) { return false; }
                 for argument in program.arena.call_args(args) {
                     match argument.kind {
@@ -134,7 +134,7 @@ mod tests {
     fn accepts_with_generic_calls(
         source: &str,
         target_function: &str,
-        generic_pure_calls: &FxHashSet<crate::source::Span>,
+        generic_checked_calls: &FxHashSet<crate::source::Span>,
     ) -> bool {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
@@ -173,7 +173,7 @@ mod tests {
                 &FxHashSet::default(),
                 &std::collections::BTreeMap::new(),
                 &std::collections::BTreeMap::new(),
-                generic_pure_calls,
+                generic_checked_calls,
                 &std::collections::BTreeMap::new(),
                 &std::collections::BTreeMap::new(),
                 &std::collections::BTreeMap::new(),
@@ -253,13 +253,13 @@ mod tests {
             let ArenaCallArgKind::Positional(inner) = argument.kind else {
                 panic!("inner generic call argument")
             };
-            let mut generic_pure_calls = FxHashSet::default();
-            generic_pure_calls.insert(program.arena.expr(outer).span);
-            generic_pure_calls.insert(program.arena.expr(inner).span);
+            let mut generic_checked_calls = FxHashSet::default();
+            generic_checked_calls.insert(program.arena.expr(outer).span);
+            generic_checked_calls.insert(program.arena.expr(inner).span);
             assert!(accepts_with_generic_calls(
                 source,
                 "project_identity",
-                &generic_pure_calls,
+                &generic_checked_calls,
             ));
             assert!(!accepts(source, "project_identity"));
         });

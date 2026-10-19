@@ -52,18 +52,18 @@ fn constant_string_key(
     Some(Name::intern(&key))
 }
 
-pub fn generic_pure_export_for_key(
+pub fn generic_callable_export_for_key(
     arena: &AstArena,
     constants: &PreparedConstants,
     receiver: &Type,
     key: ExprId,
 ) -> Option<Name> {
     let Some(field) = constant_string_key(arena, constants, key) else {
-        return generic_pure_export_for_dynamic_key(receiver);
+        return generic_callable_export_for_dynamic_key(receiver);
     };
     match receiver {
         Type::Module(exports)
-            if matches!(exports.get(&field), Some(ModuleExportType::GenericPure { .. })) =>
+            if matches!(exports.get(&field), Some(ModuleExportType::GenericCallable { .. })) =>
         {
             Some(field)
         }
@@ -71,18 +71,18 @@ pub fn generic_pure_export_for_key(
     }
 }
 
-pub fn generic_pure_export_for_dynamic_key(receiver: &Type) -> Option<Name> {
-    module_has_generic_pure_export(receiver)
+pub fn generic_callable_export_for_dynamic_key(receiver: &Type) -> Option<Name> {
+    module_has_generic_callable_export(receiver)
 }
 
-fn module_has_generic_pure_export(receiver: &Type) -> Option<Name> {
+fn module_has_generic_callable_export(receiver: &Type) -> Option<Name> {
     let Type::Module(exports) = receiver else {
         return None;
     };
     exports
         .exports
         .iter()
-        .find_map(|(name, export)| matches!(export, ModuleExportType::GenericPure { .. }).then_some(*name))
+        .find_map(|(name, export)| matches!(export, ModuleExportType::GenericCallable { .. }).then_some(*name))
 }
 
 fn projection_for_visible_field(
@@ -99,7 +99,7 @@ fn projection_for_visible_field(
             let value_type = export.field_value_type()?;
             let callable = match export {
                 ModuleExportType::Value { .. } => None,
-                ModuleExportType::GenericPure { .. } => return None,
+                ModuleExportType::GenericCallable { .. } => return None,
                 _ => Some(export.clone()),
             };
             (value_type, callable)
@@ -133,7 +133,7 @@ pub fn resolve_get_projection(
     )
 }
 
-pub fn generic_pure_export_for_get(
+pub fn generic_callable_export_for_get(
     arena: &AstArena,
     constants: &PreparedConstants,
     receiver: &Type,
@@ -142,14 +142,14 @@ pub fn generic_pure_export_for_get(
     match get_key(arena, constants, args) {
         Some((_, field)) => match receiver {
             Type::Module(exports)
-                if matches!(exports.get(&field), Some(ModuleExportType::GenericPure { .. })) =>
+                if matches!(exports.get(&field), Some(ModuleExportType::GenericCallable { .. })) =>
             {
                 Some(field)
             }
             Type::Module(_) => None,
             _ => None,
         },
-        None => module_has_generic_pure_export(receiver),
+        None => module_has_generic_callable_export(receiver),
     }
 }
 

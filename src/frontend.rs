@@ -29,7 +29,7 @@ pub mod check {
     };
     pub use crate::sema::records::record_schemas;
     pub use crate::sema::types::{
-        CallableParamType, CallableType, ModuleExportType, ModuleType, Type, union_member_error,
+        CallableKind, CallableParamType, CallableType, ModuleExportType, ModuleType, Type, union_member_error,
     };
 }
 

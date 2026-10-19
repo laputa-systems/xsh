@@ -1587,7 +1587,7 @@ impl RecordConstructors {
                             .iter()
                             .any(|param| Self::contains_template_parameter(&param.ty))
                 }
-                ModuleExportType::GenericPure { .. } => false,
+                ModuleExportType::GenericCallable { .. } => false,
             }),
             _ => false,
         }

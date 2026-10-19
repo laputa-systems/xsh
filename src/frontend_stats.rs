@@ -341,7 +341,7 @@ fn measure_compact_type_info(
                         ModuleExportType::Value { .. } => 1,
                         ModuleExportType::Proc { sig, .. }
                         | ModuleExportType::Pure { sig, .. } => sig.params.len() + 1,
-                        ModuleExportType::GenericPure { .. } => 1,
+                        ModuleExportType::GenericCallable { .. } => 1,
                     })
                     .sum()
             } else {

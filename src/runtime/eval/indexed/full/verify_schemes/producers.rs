@@ -10,8 +10,9 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 use std::cell::Cell;
 use super::super::decode::BorrowCodec;
 
-#[derive(Default)]
 pub(in crate::runtime::eval::indexed::full) struct GroundProducerIndex {
+    demand: crate::runtime::eval::ProducerDemand,
+    result_constructors: Vec<usize>,
     owners: BTreeMap<u32, ProducerOwner>,
     starts: BTreeMap<usize, u32>,
     binding_writers: Vec<Option<(usize, usize, u32)>>,
@@ -135,8 +136,27 @@ impl ProducerOwner {
 }
 
 impl GroundProducerIndex {
+    pub(in crate::runtime::eval::indexed::full) fn new(store: &FullStore) -> Result<Self, IrVerifyError> {
+        let mut result_constructors = Vec::new();
+        for (index, fact) in store.checked_expr_types.iter().enumerate() {
+            if !fact.is_contract() { continue; }
+            let Some(&tag @ (FullTag::ExprOk | FullTag::ExprErr)) = store.tags.get(fact.instruction as usize) else { continue };
+            let ty = store.semantic.to_type(fact.type_id)?;
+            if fact.authenticates_result_constructor(tag, &ty)? { result_constructors.push(index); }
+        }
+        let demand = if !store.registered_calls.is_empty() || !result_constructors.is_empty() {
+            crate::runtime::eval::ProducerDemand::Needed
+        } else { crate::runtime::eval::ProducerDemand::Absent };
+        Ok(Self { demand, result_constructors, owners: BTreeMap::new(), starts: BTreeMap::new(),
+            binding_writers: Vec::new(), module_exports: BTreeMap::new(), function_signatures: None, work: None })
+    }
+
+    pub(in crate::runtime::eval::indexed::full) fn demand(&self) -> crate::runtime::eval::ProducerDemand {
+        self.demand
+    }
+
     pub(in crate::runtime::eval::indexed::full) fn record(&mut self, decoder: &FullDecoder<'_>) -> Result<(), IrVerifyError> {
-        if decoder.store.registered_calls.is_empty() { return Ok(()); }
+        if self.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(()); }
         if self.function_signatures.is_none() { self.function_signatures.clone_from(&decoder.function_signature_index); }
         let work = Rc::clone(self.work.get_or_insert_with(|| Rc::new(RefCell::new(SchemeInstantiationBudget::new(decoder.store)))));
         let range = decoder.instruction_range.clone();
@@ -397,7 +417,7 @@ impl GroundProducerIndex {
     }
 
     pub(in crate::runtime::eval::indexed::full) fn record_module_exports(&mut self, store: &FullStore, owner: u32, exports: &[super::super::LoweredModuleExport]) -> Result<(), IrVerifyError> {
-        if store.registered_calls.is_empty() { return Ok(()); }
+        if self.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(()); }
         self.work.get_or_insert_with(|| Rc::new(RefCell::new(SchemeInstantiationBudget::new(store)))).borrow_mut().charge(exports.len())?;
         let values = exports.iter().filter_map(|export| match export {
             super::super::LoweredModuleExport::Value { name, binding: super::super::LoweredModuleExportBinding::Encoded(binding) } => Some((*name, *binding)),
@@ -419,6 +439,7 @@ impl GroundProducerIndex {
     pub(in crate::runtime::eval::indexed::full) fn temporary_payload_bytes(&self) -> usize {
         use std::mem::size_of;
         size_of::<Self>()
+            + self.result_constructors.capacity() * size_of::<usize>()
             + self.work.as_ref().map_or(0, |_| size_of::<RefCell<SchemeInstantiationBudget>>() + 2 * size_of::<usize>())
             + self.starts.len() * size_of::<(usize, u32)>()
             + self.binding_writers.capacity() * size_of::<Option<(usize, usize, u32)>>()
@@ -517,12 +538,19 @@ struct ProducerProof<'a> {
 }
 
 pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, contexts: ProducerContexts<'a>) -> Result<Vec<(u32, super::super::ExecutableOwner, Arc<Type>)>, IrVerifyError> {
-    if store.registered_calls.is_empty() {
-        if store.checked_expr_types.iter().any(|fact| !fact.is_contract()) { return Err(IrVerifyError::new("producer context has no selected operation")); }
-        return Ok(Vec::new());
+    if store.registered_calls.is_empty() && store.checked_expr_types.iter().any(|fact| !fact.is_contract()) {
+        return Err(IrVerifyError::new("producer context has no selected operation"));
     }
+    if index.demand == crate::runtime::eval::ProducerDemand::Absent { return Ok(Vec::new()); }
     let mut proof = ProducerProof { store, index, contexts, used_contexts: BTreeMap::new(), pending: Vec::new(), functions: BTreeSet::new(), expressions: BTreeMap::new(), slots: BTreeMap::new(), prefixes: BTreeMap::new(), decoders: BTreeMap::new(), types: BTreeMap::new(), incoming: BTreeMap::new(), budget: SchemeInstantiationBudget::for_prepared_constants(store, index.owners.values().fold(0usize, |work, owner| work.saturating_add(owner.prepared_constant_work))) };
     for call in &store.checked_call_targets { proof.incoming.entry(call.function.index()).or_default().push(call.instruction as usize); }
+    for &fact_index in &index.result_constructors {
+        let fact = store.checked_expr_types[fact_index];
+        let instruction = fact.instruction as usize;
+        let owner = index.instruction_owner(instruction)?;
+        let ty = proof.contract_type(fact.type_id)?;
+        proof.expression(owner, instruction, ty, false);
+    }
     for (function_index, function) in store.functions.iter().enumerate() {
         let FullCallableContract::Scheme(_) = function.contract else { continue };
         let decoder = proof.owner(function_owner(function_index)?)?;
@@ -627,6 +655,7 @@ impl<'a> ProducerProof<'a> {
             Some(index) => decoder_for_driver_step(self.store, index)?,
             None => decoder_for_function(self.store, function_index(owner)?)?,
         };
+        decoder.producer_demand = self.index.demand;
         decoder.function_signature_index.clone_from(&self.index.function_signatures);
         *decoder.return_analysis.borrow_mut() = Some(super::super::ReturnAnalysisSource::Shared(Rc::clone(&self.index.owners[&owner].return_analysis)));
         let decoder = Rc::new(decoder);

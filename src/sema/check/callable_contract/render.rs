@@ -2,7 +2,7 @@ use super::{CheckedCallableContract, SchemaIdentity};
 use crate::syntax::arena::TypeDefId;
 use crate::sema::constants::{SchemaComponent, SchemaExpectation};
 use crate::sema::schemes::{
-    CallableMonotype, SchemeCallableKind, SchemeParameter, SchemeRowParameterId, SchemeType,
+    CallableMonotype, SchemeParameter, SchemeRowParameterId, SchemeType,
     SchemeTypeParameterId, TypeScheme,
 };
 use crate::sema::types::{CallableType, ModuleExportType, Type};
@@ -330,9 +330,10 @@ fn render_module_export(name: crate::symbol::Name, export: &ModuleExportType) ->
             if *optional { "?" } else { "" },
             render_callable_type("pure", sig)
         ),
-        ModuleExportType::GenericPure { optional } => format!(
-            "{name}{}: generic pure",
-            if *optional { "?" } else { "" }
+        ModuleExportType::GenericCallable { kind, optional } => format!(
+            "{name}{}: generic {}",
+            if *optional { "?" } else { "" },
+            callable_kind(*kind)
         ),
     }
 }
@@ -396,11 +397,11 @@ fn render_effects(effects: Option<&[Effect]>) -> String {
     )
 }
 
-fn callable_kind(kind: SchemeCallableKind) -> &'static str {
+fn callable_kind(kind: crate::sema::types::CallableKind) -> &'static str {
     match kind {
-        SchemeCallableKind::Pure => "pure",
-        SchemeCallableKind::Proc => "proc",
-        SchemeCallableKind::Stream => "stream",
+        crate::sema::types::CallableKind::Pure => "pure",
+        crate::sema::types::CallableKind::Proc => "proc",
+        crate::sema::types::CallableKind::Stream => "stream",
     }
 }
 

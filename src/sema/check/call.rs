@@ -43,7 +43,7 @@ fn call_instantiation_error_message(
                 SchemeBuildError::DuplicateTypeParameter => "type parameter is duplicated",
                 SchemeBuildError::DuplicateRowParameter => "row parameter is duplicated",
                 SchemeBuildError::RowLacksMismatch => "row evidence violates its lacks set",
-                SchemeBuildError::GeneralizationNotPure => "target cannot be generalized",
+                SchemeBuildError::UnresolvedEffects => "generic target requires a finite checked effect contract",
                 SchemeBuildError::DynamicType => "argument contains a dynamic type",
                 SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
                 SchemeBuildError::UnsupportedCallableKind => "target contains an unsupported callable kind",
@@ -952,10 +952,10 @@ impl Checker {
                     );
                 }
                 ModuleExportType::Value { .. } => {}
-                ModuleExportType::GenericPure { .. } => {
+                ModuleExportType::GenericCallable { .. } => {
                     self.error(
                         span,
-                        "generic pure module exports must be called through their static namespace",
+                        "generic callable module exports must be called through their static namespace",
                         DiagnosticCode::CheckModuleMember,
                     );
                     return Type::Unknown;

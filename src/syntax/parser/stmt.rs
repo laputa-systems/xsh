@@ -17,7 +17,7 @@ use std::str::FromStr;
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum ParameterAnnotationContext {
     Required,
-    PureDeclaration,
+    CallableDeclaration,
 }
 
 impl<'a> Parser<'a> {
@@ -1278,11 +1278,7 @@ impl<'a> Parser<'a> {
             );
             return None;
         }
-        let context = if proc_def {
-            ParameterAnnotationContext::Required
-        } else {
-            ParameterAnnotationContext::PureDeclaration
-        };
+        let context = ParameterAnnotationContext::CallableDeclaration;
         let params = self.parse_params_arena_only(arena, context);
         self.expect(TokenKindMatch::RParen, "expected `)` after parameters");
         let effects = if proc_def {

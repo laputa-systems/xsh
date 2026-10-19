@@ -1,6 +1,6 @@
 use super::types::{CallableType, ModuleExportType, Type};
 use super::schemes::{
-    CallInstantiation, CallableMonotype, CallableScheme, RowEvidence, SchemeBuildError, SchemeCallableKind, SchemeParameter, SchemeRowParameter,
+    CallInstantiation, CallableMonotype, CallableScheme, RowEvidence, SchemeBuildError, SchemeParameter, SchemeRowParameter,
     SchemeRowParameterId, SchemeRowTail, SchemeType, SchemeTypeParameterId,
 };
 #[cfg(test)]
@@ -833,7 +833,7 @@ impl TypeConstraints {
                 })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
                 let return_type = self.generalize_type(&callable.sig.return_ty, environment_level, generalization, depth + 1)?;
                 Ok(SchemeType::Callable {
-                    kind: if callable.pure { SchemeCallableKind::Pure } else { SchemeCallableKind::Proc },
+                    kind: if callable.pure { crate::sema::types::CallableKind::Pure } else { crate::sema::types::CallableKind::Proc },
                     monotype: Arc::new(CallableMonotype::new(params, return_type, None)),
                     effects: callable.sig.effects.clone().map(Arc::from),
                 })
@@ -1054,9 +1054,9 @@ impl TypeConstraints {
                     return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSchema));
                 }
                 let pure = match kind {
-                    SchemeCallableKind::Pure => true,
-                    SchemeCallableKind::Proc => false,
-                    SchemeCallableKind::Stream => return Err(SchemeOperationError::Build(SchemeBuildError::UnsupportedCallableKind)),
+                    crate::sema::types::CallableKind::Pure => true,
+                    crate::sema::types::CallableKind::Proc => false,
+                    crate::sema::types::CallableKind::Stream => return Err(SchemeOperationError::Build(SchemeBuildError::UnsupportedCallableKind)),
                 };
                 let params = monotype.params().iter().map(|parameter| Ok(super::types::CallableParamType {
                     name: parameter.name,
@@ -2214,7 +2214,7 @@ impl TypeConstraints {
                                             LevelNode::Type(parameter.ty.clone(), depth + 1)
                                         }));
                                     }
-                                    ModuleExportType::GenericPure { .. } => {}
+                                    ModuleExportType::GenericCallable { .. } => {}
                                 }
                             }
                         }
@@ -3210,7 +3210,7 @@ impl TypeConstraints {
                                 access,
                             )?
                         }
-                        ModuleExportType::GenericPure { .. } => {}
+                        ModuleExportType::GenericCallable { .. } => {}
                     }
                 }
             }
@@ -3404,7 +3404,7 @@ impl TypeConstraints {
                                             OccursNode::Type(&parameter.ty, depth + 1)
                                         }));
                                     }
-                                    ModuleExportType::GenericPure { .. } => {}
+                                    ModuleExportType::GenericCallable { .. } => {}
                                 }
                             }
                         }
@@ -3847,7 +3847,7 @@ fn module_has_inference(
                 }
                 found || has_inference(&sig.return_ty, depth + 2)?
             }
-            ModuleExportType::GenericPure { .. } => false,
+            ModuleExportType::GenericCallable { .. } => false,
         };
         if found {
             return Ok(true);
@@ -5830,7 +5830,7 @@ mod tests {
             assert!(generalized.row_parameters.is_empty());
             assert_eq!(generalized.types[0], generalized.types[1]);
             let scheme = TypeScheme::new(
-                super::super::schemes::SchemeCallableKind::Pure,
+                crate::sema::types::CallableKind::Pure,
                 generalized.type_parameters,
                 generalized.row_parameters,
                 vec![super::super::schemes::SchemeParameter {
@@ -5883,7 +5883,7 @@ mod tests {
             assert_eq!(generalized.row_parameters.len(), 1);
             assert!(generalized.row_parameters[0].lacks.contains(&field));
             let scheme = TypeScheme::new(
-                super::super::schemes::SchemeCallableKind::Pure,
+                crate::sema::types::CallableKind::Pure,
                 generalized.type_parameters,
                 generalized.row_parameters,
                 vec![super::super::schemes::SchemeParameter {

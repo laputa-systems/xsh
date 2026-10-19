@@ -18,7 +18,7 @@ pub(crate) enum SchemeType {
     Ground(Type),
     Parameter(SchemeTypeParameterId),
     Callable {
-        kind: SchemeCallableKind,
+        kind: crate::sema::types::CallableKind,
         monotype: Arc<CallableMonotype>,
         effects: Option<Arc<[Effect]>>,
     },
@@ -57,13 +57,6 @@ pub(crate) struct SchemeParameter {
     pub(crate) rest: bool,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SchemeCallableKind {
-    Pure,
-    Proc,
-    Stream,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CallableScheme {
     type_parameters: Arc<[SchemeTypeParameterId]>,
@@ -81,7 +74,7 @@ pub(crate) struct CallableMonotype {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TypeScheme {
-    kind: SchemeCallableKind,
+    kind: crate::sema::types::CallableKind,
     callable: Arc<CallableScheme>,
     effects: Option<Arc<[Effect]>>,
     inferred_effects: bool,
@@ -162,7 +155,7 @@ pub(crate) enum SchemeBuildError {
     DuplicateTypeParameter,
     DuplicateRowParameter,
     RowLacksMismatch,
-    GeneralizationNotPure,
+    UnresolvedEffects,
     UnsupportedCallableKind,
     UnresolvedSchema,
     DynamicType,
@@ -172,7 +165,7 @@ pub(crate) enum SchemeBuildError {
 impl TypeScheme {
     #[cfg(test)]
     pub(crate) fn new(
-        kind: SchemeCallableKind,
+        kind: crate::sema::types::CallableKind,
         type_parameters: Vec<SchemeTypeParameterId>,
         row_parameters: Vec<SchemeRowParameter>,
         params: Vec<SchemeParameter>,
@@ -182,11 +175,6 @@ impl TypeScheme {
         effects: Option<Vec<Effect>>,
         inferred_effects: bool,
     ) -> Result<Self, SchemeBuildError> {
-        if kind != SchemeCallableKind::Pure
-            && (!type_parameters.is_empty() || !row_parameters.is_empty())
-        {
-            return Err(SchemeBuildError::GeneralizationNotPure);
-        }
         let callable = Arc::new(CallableScheme::new(
             type_parameters,
             row_parameters,
@@ -199,15 +187,18 @@ impl TypeScheme {
     }
 
     pub(crate) fn with_callable(
-        kind: SchemeCallableKind,
+        kind: crate::sema::types::CallableKind,
         callable: Arc<CallableScheme>,
         effects: Option<Vec<Effect>>,
         inferred_effects: bool,
     ) -> Result<Self, SchemeBuildError> {
-        if kind != SchemeCallableKind::Pure
-            && (!callable.type_parameters.is_empty() || !callable.row_parameters.is_empty())
-        {
-            return Err(SchemeBuildError::GeneralizationNotPure);
+        if !callable.type_parameters.is_empty() || !callable.row_parameters.is_empty() {
+            match kind {
+                crate::sema::types::CallableKind::Pure => {}
+                crate::sema::types::CallableKind::Proc if effects.is_some() => {}
+                crate::sema::types::CallableKind::Proc => return Err(SchemeBuildError::UnresolvedEffects),
+                crate::sema::types::CallableKind::Stream => return Err(SchemeBuildError::UnsupportedCallableKind),
+            }
         }
         Ok(Self {
             kind,
@@ -221,7 +212,7 @@ impl TypeScheme {
         &self.callable
     }
 
-    pub(crate) fn kind(&self) -> SchemeCallableKind {
+    pub(crate) fn kind(&self) -> crate::sema::types::CallableKind {
         self.kind
     }
 
@@ -762,9 +753,9 @@ impl SchemeType {
                         return None;
                     }
                     let pure = match kind {
-                        SchemeCallableKind::Pure => true,
-                        SchemeCallableKind::Proc => false,
-                        SchemeCallableKind::Stream => return None,
+                        crate::sema::types::CallableKind::Pure => true,
+                        crate::sema::types::CallableKind::Proc => false,
+                        crate::sema::types::CallableKind::Stream => return None,
                     };
                     Some(Type::Callable(Arc::new(super::types::TypedCallable {
                         pure,
@@ -837,7 +828,7 @@ impl SchemeType {
                                 pending.push(&sig.return_ty);
                                 pending.extend(sig.params.iter().map(|parameter| &parameter.ty));
                             }
-                            ModuleExportType::GenericPure { .. } => {}
+                            ModuleExportType::GenericCallable { .. } => {}
                         }
                     }
                 }
@@ -1109,7 +1100,7 @@ fn validate_schema_ground_types(schema: &SchemaExpectation) -> Result<(), Scheme
 
 #[cfg(test)]
 mod tests {
-    use super::{SchemeBuildError, SchemeCallableKind, SchemeType, TypeScheme};
+    use super::{SchemeBuildError, SchemeType, TypeScheme};
     use crate::sema::constants::{SchemaComponent, SchemaExpectation, SchemaInstance};
     use crate::sema::schemes::{
         CallInstantiation, CallableScheme, RowEvidence, SchemeParameter,
@@ -1122,10 +1113,24 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    fn generic_proc_schemes_reject_unresolved_effects() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let binder = super::SchemeTypeParameterId(0);
+            let callable = Arc::new(super::CallableScheme::new(vec![binder], Vec::new(),
+                vec![SchemeParameter { name: Name::intern("value"), ty: SchemeType::Parameter(binder),
+                    schema_expectation: None, defaulted: false, rest: false }],
+                SchemeType::Result(Box::new(SchemeType::Parameter(binder)), Box::new(SchemeType::Ground(Type::Error))),
+                None, false).unwrap());
+            assert_eq!(TypeScheme::with_callable(crate::sema::types::CallableKind::Proc, Arc::clone(&callable), None, true), Err(SchemeBuildError::UnresolvedEffects));
+            assert!(TypeScheme::with_callable(crate::sema::types::CallableKind::Proc, callable, Some(Vec::new()), true).is_ok());
+        });
+    }
+
+    #[test]
     fn nested_callable_ground_projection_preserves_schema_contracts() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let callback = |parameter_schema, return_schema| SchemeType::Callable {
-                kind: SchemeCallableKind::Pure,
+                kind: crate::sema::types::CallableKind::Pure,
                 monotype: Arc::new(super::CallableMonotype::new(
                     vec![SchemeParameter {
                         name: Name::intern("value"),
@@ -1160,7 +1165,7 @@ mod tests {
             };
             for schema_in_parameter in [false, true] {
                 let callback = SchemeType::Callable {
-                    kind: SchemeCallableKind::Pure,
+                    kind: crate::sema::types::CallableKind::Pure,
                     monotype: Arc::new(super::CallableMonotype::new(
                         vec![SchemeParameter {
                             name: Name::intern("value"), ty: SchemeType::Ground(Type::Int),
@@ -1171,7 +1176,7 @@ mod tests {
                     )),
                     effects: Some(Arc::from([])),
                 };
-                let result = TypeScheme::new(SchemeCallableKind::Pure, Vec::new(), Vec::new(),
+                let result = TypeScheme::new(crate::sema::types::CallableKind::Pure, Vec::new(), Vec::new(),
                     vec![SchemeParameter { name: Name::intern("action"), ty: callback, schema_expectation: None, defaulted: false, rest: false }],
                     SchemeType::Ground(Type::Int), None, false, None, false);
                 assert_eq!(result, Err(SchemeBuildError::UnresolvedType));
@@ -1313,7 +1318,7 @@ mod tests {
     fn rejects_recovery_ground(ty: Type) {
         assert!(matches!(
             TypeScheme::new(
-                SchemeCallableKind::Pure,
+                crate::sema::types::CallableKind::Pure,
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
@@ -1356,7 +1361,7 @@ mod tests {
             .unwrap(),
         );
         let scheme = TypeScheme::with_callable(
-            SchemeCallableKind::Pure,
+            crate::sema::types::CallableKind::Pure,
             Arc::clone(&callable),
             None,
             false,
@@ -1368,7 +1373,7 @@ mod tests {
     #[test]
     fn scheme_ground_type_mapping_visits_both_map_components() {
         let scheme = TypeScheme::new(
-            SchemeCallableKind::Pure,
+            crate::sema::types::CallableKind::Pure,
             Vec::new(),
             Vec::new(),
             Vec::new(),
@@ -1449,7 +1454,7 @@ mod tests {
             )
             .is_ok());
             assert!(TypeScheme::new(
-                SchemeCallableKind::Pure,
+                crate::sema::types::CallableKind::Pure,
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
@@ -1511,7 +1516,7 @@ mod tests {
             let field = Name::intern("record_field");
             let parameter_name = Name::intern("parameter_name");
             let plain = TypeScheme::new(
-                SchemeCallableKind::Pure,
+                crate::sema::types::CallableKind::Pure,
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
@@ -1533,7 +1538,7 @@ mod tests {
                 )])),
             };
             let scheme = TypeScheme::new(
-                SchemeCallableKind::Pure,
+                crate::sema::types::CallableKind::Pure,
                 Vec::new(),
                 vec![SchemeRowParameter {
                     id: SchemeRowParameterId(0),

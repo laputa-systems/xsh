@@ -431,7 +431,7 @@ fn assert_parser_and_grammar_agree(source: &str, accepted: bool) {
 }
 
 #[test]
-fn pure_parameters_allow_inferred_annotations() {
+fn callable_parameters_allow_inferred_annotations() {
     for source in [
         "pure identity(value) { value }\n",
         "export pure identity(value) { value }\n",
@@ -442,6 +442,8 @@ fn pure_parameters_allow_inferred_annotations() {
         "pure nonfinal(... values, last: Int) { last }\n",
         "pure defaults_then_required(first = 1, second) { second }\n",
         "proc defaulted(value = 1) { value }\n",
+        "proc identity(value) { value }\n",
+        "proc rest(... values) { values }\n",
         "stream defaulted(value = 1) -> Stream[Int] { yield value }\n",
         "type Plugin = module { export pure render(value: Str) -> Str }\n",
         "type Plugin = module { export pure render(value = \"x\") -> Str }\n",
@@ -453,8 +455,6 @@ fn pure_parameters_allow_inferred_annotations() {
     for source in [
         "pure rest(... values = 1) { values }\n",
         "pure rest(... values: List[Int] = []) { values }\n",
-        "proc identity(value) { value }\n",
-        "proc rest(... values) { values }\n",
         "stream identity(value) -> Stream[Int] { yield value }\n",
         "stream rest(... values) -> Stream[Int] { yield 1 }\n",
         "type Plugin = module { export pure render(value) -> Str }\n",

@@ -70,6 +70,17 @@ Driver temporary type metadata supports annotation checks. Generic and callable
 contracts require independently authenticated writer evidence. Missing optional
 type information does not relax those contracts.
 
+Closed Result constructor contracts use the existing ground producer proof for
+payloads, including contextual collections and lexical writers. Verification
+derives producer demand once from selected operations and constructor facts;
+its owner indexes and loop analysis share that transient demand.
+
+Quantified proc effects must be finite and include each selected callee's
+checked effect contract. Ground callable effect clauses remain an existing
+trust boundary. Reconstructing language effects from indexed ground bodies,
+including rejection of jointly forged callee clauses and caller bounds,
+remains required work before claiming independent effect validation.
+
 Indexed IDs refer to program-owned tables. `SymbolOwner` owns dynamic names.
 The installed program retains its source map, but not the CST, arena program,
 or checker output.

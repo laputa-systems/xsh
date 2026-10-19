@@ -360,7 +360,7 @@ mod tests {
     use super::{CheckedDeclarations, CheckedFunctionDeclaration, CheckedFunctionKind};
     use crate::diagnostic::DiagnosticCode;
     use crate::sema::schemes::{
-        SchemeBodyFacts, SchemeCallableKind, SchemeParameter, SchemeType,
+        SchemeBodyFacts, SchemeParameter, SchemeType,
         SchemeTypeParameterId, TypeScheme,
     };
     use crate::source::{SourceId, Span};
@@ -619,7 +619,7 @@ mod tests {
             let type_parameter = SchemeTypeParameterId(0);
             let scheme = std::sync::Arc::new(
                 TypeScheme::new(
-                    SchemeCallableKind::Pure,
+                    crate::sema::types::CallableKind::Pure,
                     vec![type_parameter],
                     Vec::new(),
                     vec![SchemeParameter {

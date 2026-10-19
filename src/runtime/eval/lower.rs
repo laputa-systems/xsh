@@ -471,9 +471,9 @@ fn lowered_scheme_physical_type(ty: &SchemeType) -> Option<LoweredType> {
     match ty {
         SchemeType::Ground(ty) => lowered_checked_type(ty).filter(|kind| *kind != LoweredType::Any),
         SchemeType::Callable { kind, .. } => match kind {
-            crate::sema::schemes::SchemeCallableKind::Pure => Some(LoweredType::Pure),
-            crate::sema::schemes::SchemeCallableKind::Proc => Some(LoweredType::Proc),
-            crate::sema::schemes::SchemeCallableKind::Stream => None,
+            crate::sema::types::CallableKind::Pure => Some(LoweredType::Pure),
+            crate::sema::types::CallableKind::Proc => Some(LoweredType::Proc),
+            crate::sema::types::CallableKind::Stream => None,
         },
         SchemeType::List(_) => Some(LoweredType::List),
         SchemeType::Map(_, _) => Some(LoweredType::Map),
@@ -2046,30 +2046,20 @@ fn compact_module_exports_for_use(
                     binding: LoweredModuleExportBinding::Semantic(binding),
                 });
             }
-            ArenaStmtKind::ProcDef(def) => {
-                let name = program.arena.function_def(def).name;
-                exports.push(LoweredModuleExport::Proc {
-                    name,
-                    function_namespace,
-                });
-            }
-            ArenaStmtKind::PureDef(def) => {
+            ArenaStmtKind::ProcDef(def) | ArenaStmtKind::PureDef(def) => {
                 let name = program.arena.function_def(def).name;
                 let function_name = QualifiedName::new(function_namespace, name);
+                let kind = if matches!(program.arena.stmt(inner).kind, ArenaStmtKind::ProcDef(_)) {
+                    crate::sema::types::CallableKind::Proc
+                } else { crate::sema::types::CallableKind::Pure };
                 let generic = qualified_schemes.get(&function_name).is_some_and(|scheme| {
                     !scheme.type_parameters().is_empty() || !scheme.row_parameters().is_empty()
                 });
                 exports.push(if generic {
-                    LoweredModuleExport::GenericPure {
-                        name,
-                        function_namespace,
-                    }
-                } else {
-                    LoweredModuleExport::Pure {
-                        name,
-                        function_namespace,
-                    }
-                });
+                    LoweredModuleExport::GenericCallable { kind, name, function_namespace }
+                } else if kind == crate::sema::types::CallableKind::Pure {
+                    LoweredModuleExport::Pure { name, function_namespace }
+                } else { LoweredModuleExport::Proc { name, function_namespace } });
             }
             ArenaStmtKind::StreamDef(_)
             | ArenaStmtKind::TypeDef(_)
@@ -3069,9 +3059,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             self.lower_scheme_binding(statement, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
         }
         let mut tail_types = BTreeMap::new();
-        let value = self.lower_scheme_tail_value(tail, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
+        let mut value = self.lower_scheme_tail_value(tail, slots, current_function, facts, &mut visited, &mut lowered_types, &mut body)?;
+        if facts.scheme().kind() == crate::sema::types::CallableKind::Proc
+            && let SchemeType::Result(ok, _) = facts.scheme().return_type()
+            && lowered_types.get(&value) == Some(ok.as_ref())
+        {
+            value = push_build_row!(self, expr, BuildExprRow::Ok(value));
+            lowered_types.insert(value, facts.scheme().return_type().clone());
+        }
         let tail_type = if matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::TailBareIdent(_)) {
-            facts.tail_types().get(&tail).cloned()
+            lowered_types.get(&value).cloned()
         } else { None };
         if visited.len() != facts.expression_types().len()
             || !lowered_types.get(&value).is_some_and(|ty| ty.matches_body_return(facts.scheme().return_type()))
@@ -5646,12 +5643,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     Some(BuildExprRow::UInt(_))
                 )
         });
+        let checked_result_constructor = self.bodies.checked_control_flow.result_constructors
+            .contains_key(&self.program.arena.expr(id).span);
         let Some(ty) = self
             .bodies
             .expr_types
             .get(&id)
             .filter(|ty| {
                 ty.contains_typed_callable() || with_error_source || checked_uint_literal
+                    || checked_result_constructor && !ty.contains_inference() && !ty.contains_recovery() && !ty.contains_any()
             })
             .cloned()
         else {
@@ -7142,8 +7142,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 sig: self.canonicalize_checked_callable(sig.clone()),
                                 optional: *optional,
                             },
-                            ModuleExportType::GenericPure { optional } => {
-                                ModuleExportType::GenericPure { optional: *optional }
+                            ModuleExportType::GenericCallable { kind, optional } => {
+                                ModuleExportType::GenericCallable { kind: *kind, optional: *optional }
                             }
                         };
                         (*name, export)

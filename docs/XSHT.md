@@ -59,6 +59,12 @@ bound type and row parameter names. `join_effects` combines finite effect
 requirements only when the remaining checked shape agrees; an unrestricted
 clause remains unrestricted. Per-call instantiation does not replace
 the declaration contract. Failed or unresolved declarations have no view.
+`CheckedCallableContract::kind()` returns the public `CallableKind` (`Pure`,
+`Proc`, or `Stream`), excluding CLI entry declarations. `ModuleExportType`
+uses `GenericCallable { kind, optional }` for quantified exports. Its
+`field_type()` returns `Option<Type>`; an unsupported generic stream value
+projection has no ground callable representation.
+
 `source_annotation()` returns source text only for expressible callable types;
 callers recheck it in the insertion scope. Displayed `forall` notation is
 diagnostic text, not an annotation to insert.

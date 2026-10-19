@@ -439,6 +439,18 @@ impl FullCheckedExprType {
     fn is_contract(self) -> bool {
         matches!(self.purpose, FullCheckedExprPurpose::CheckedContract { .. })
     }
+
+    fn authenticates_result_constructor(self, tag: FullTag, ty: &Type) -> Result<bool, IrVerifyError> {
+        if ty.contains_typed_callable() || self.with_error_source()
+            || !matches!(tag, FullTag::ExprOk | FullTag::ExprErr) || !matches!(ty, Type::Result(_, _)) {
+            return Ok(false);
+        }
+        if self.function_ref().is_some() {
+            return Err(IrVerifyError::new("result constructor fact carries a function reference"));
+        }
+        verify_schemes::ensure_substitution_type(ty)?;
+        Ok(true)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1754,6 +1766,7 @@ impl FullProgram {
             proven_callable_writers: RefCell::default(),
             function_signature_index: Some(function_signature_index.clone()),
             return_analysis: RefCell::default(),
+            producer_demand: producer_index.demand(),
             prepared_constant_work: Cell::new(0),
             verified: false,
         };
@@ -1908,7 +1921,7 @@ impl FullProgram {
                     identity_writers,
                 )?;
             }
-            if !self.store.registered_calls.is_empty() { producer_index.record_module_exports(&self.store, decoder.owner, &exports)?; }
+            producer_index.record_module_exports(&self.store, decoder.owner, &exports)?;
             registered_import = Some((namespace, module_type));
         }
         decoder.finish_function()?;
@@ -4693,7 +4706,7 @@ fn checked_type_contains_typed_callable(ty: &Type) -> bool {
             ModuleExportType::Value { ty, .. } => ty.contains_typed_callable(),
             ModuleExportType::Proc { .. }
             | ModuleExportType::Pure { .. }
-            | ModuleExportType::GenericPure { .. } => true,
+            | ModuleExportType::GenericCallable { .. } => true,
         }),
         _ => ty.contains_typed_callable(),
     }
@@ -4810,8 +4823,8 @@ fn executable_type(ty: &Type) -> Type {
                             sig: executable_callable_type(sig),
                             optional: *optional,
                         },
-                        ModuleExportType::GenericPure { optional } => {
-                            ModuleExportType::GenericPure { optional: *optional }
+                        ModuleExportType::GenericCallable { kind, optional } => {
+                            ModuleExportType::GenericCallable { kind: *kind, optional: *optional }
                         }
                     };
                     (*name, export)
@@ -4960,9 +4973,9 @@ fn scheme_type_physical_kind(
             let callable = store.scheme_callable_monotypes.get(node.first as usize)
                 .ok_or_else(|| IrVerifyError::new("scheme callable monotype id is out of bounds"))?;
             Some(match callable.kind {
-                schemes::FullSchemeCallableKind::Pure => LoweredType::Pure,
-                schemes::FullSchemeCallableKind::Proc => LoweredType::Proc,
-                schemes::FullSchemeCallableKind::Stream => return Err(IrVerifyError::new("stream callable monotype has no supported physical kind")),
+                crate::sema::types::CallableKind::Pure => LoweredType::Pure,
+                crate::sema::types::CallableKind::Proc => LoweredType::Proc,
+                crate::sema::types::CallableKind::Stream => return Err(IrVerifyError::new("stream callable monotype has no supported physical kind")),
             })
         }
         schema::FullSchemeTypeTag::List => Some(LoweredType::List),
@@ -5265,6 +5278,7 @@ impl<'p> FullExecution<'p> {
             proven_callable_writers: RefCell::default(),
             function_signature_index: None,
             return_analysis: RefCell::default(),
+            producer_demand: crate::runtime::eval::ProducerDemand::Absent,
             prepared_constant_work: Cell::new(0),
             verified: self.verified,
         }
@@ -5571,6 +5585,7 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     proven_callable_writers: RefCell<BTreeSet<usize>>,
     function_signature_index: Option<Arc<FunctionSignatureIndex>>,
     return_analysis: RefCell<Option<ReturnAnalysisSource>>,
+    producer_demand: crate::runtime::eval::ProducerDemand,
     prepared_constant_work: Cell<usize>,
     verified: bool,
 }
@@ -6525,6 +6540,7 @@ impl<'a> FullDecoder<'a> {
             proven_callable_writers: RefCell::default(),
             function_signature_index: self.function_signature_index.clone(),
             return_analysis: RefCell::default(),
+            producer_demand: crate::runtime::eval::ProducerDemand::Absent,
             prepared_constant_work: Cell::new(0),
             verified: false,
         };
@@ -7392,7 +7408,7 @@ impl<'a> FullDecoder<'a> {
             let name = match export {
                 LoweredModuleExport::Value { name, .. }
                 | LoweredModuleExport::Pure { name, .. }
-                | LoweredModuleExport::GenericPure { name, .. }
+                | LoweredModuleExport::GenericCallable { name, .. }
                 | LoweredModuleExport::Proc { name, .. } => *name,
             };
             if !names.insert(name) {
@@ -7448,15 +7464,10 @@ impl<'a> FullDecoder<'a> {
                     }
                 }
                 (
-                    LoweredModuleExport::GenericPure {
-                        function_namespace,
-                        ..
-                    },
-                    ModuleExportType::GenericPure { optional: false },
-                ) => self.verify_registered_module_generic_pure(
-                    child,
-                    *function_namespace,
-                    name,
+                    LoweredModuleExport::GenericCallable { kind, function_namespace, .. },
+                    ModuleExportType::GenericCallable { kind: expected, optional: false },
+                ) if kind == expected => self.verify_registered_module_generic_callable(
+                    child, *function_namespace, name, *kind,
                 )?,
                 (
                     LoweredModuleExport::Value {
@@ -7580,6 +7591,7 @@ impl<'a> FullDecoder<'a> {
             proven_callable_writers: RefCell::default(),
             function_signature_index: self.function_signature_index.clone(),
             return_analysis: RefCell::default(),
+            producer_demand: crate::runtime::eval::ProducerDemand::Absent,
             prepared_constant_work: Cell::new(0),
             verified: false,
         };
@@ -7605,11 +7617,12 @@ impl<'a> FullDecoder<'a> {
         decoder.checked_expression_matches_type(value, expected)
     }
 
-    fn verify_registered_module_generic_pure(
+    fn verify_registered_module_generic_callable(
         &self,
         child: u32,
         namespace: Name,
         name: Name,
+        kind: crate::sema::types::CallableKind,
     ) -> Result<(), IrVerifyError> {
         let program_index = child
             .checked_sub(1)
@@ -7619,7 +7632,7 @@ impl<'a> FullDecoder<'a> {
         let program_owner = self.store.driver_programs[program_index].owner;
         if program_owner == IR_NONE || self.store.string(program_owner)? != namespace.as_str() {
             return Err(IrVerifyError::new(
-                "generic pure export is not owned by its child module",
+                "generic callable export is not owned by its child module",
             ));
         }
         let mut function = None;
@@ -7627,37 +7640,40 @@ impl<'a> FullDecoder<'a> {
             let metadata = self.store.function_metadata.get(index)
                 .ok_or_else(|| IrVerifyError::new("function reference metadata is missing"))?;
             if metadata.owner != program_owner
-                || metadata.flags != 0b10
+                || metadata.flags != (0b10 | u8::from(kind == crate::sema::types::CallableKind::Proc))
                 || self.store.string(candidate.name)? != name.as_str()
             {
                 continue;
             }
             if function.replace(candidate).is_some() {
                 return Err(IrVerifyError::new(
-                    "registered generic pure function target is ambiguous",
+                    "registered generic callable function target is ambiguous",
                 ));
             }
         }
         let function = function.ok_or_else(|| {
-            IrVerifyError::new("registered generic pure function target is missing")
+            IrVerifyError::new("registered generic callable function target is missing")
         })?;
         let FullCallableContract::Scheme(scheme_id) = function.contract else {
             return Err(IrVerifyError::new(
-                "generic pure module export has no scheme contract",
+                "generic callable module export has no scheme contract",
             ));
         };
         let scheme = self.store.scheme(scheme_id)?;
+        if scheme.callable_kind != kind || kind == crate::sema::types::CallableKind::Stream {
+            return Err(IrVerifyError::new("generic module export callable kind differs from its child function"));
+        }
         let type_parameters = scheme
             .type_parameters
             .bounds(self.store.scheme_type_parameters.len())
-            .ok_or_else(|| IrVerifyError::new("generic pure type binder range is invalid"))?;
+            .ok_or_else(|| IrVerifyError::new("generic callable type binder range is invalid"))?;
         let row_parameters = scheme
             .row_parameters
             .bounds(self.store.scheme_row_parameters.len())
-            .ok_or_else(|| IrVerifyError::new("generic pure row binder range is invalid"))?;
+            .ok_or_else(|| IrVerifyError::new("generic callable row binder range is invalid"))?;
         if type_parameters.is_empty() && row_parameters.is_empty() {
             return Err(IrVerifyError::new(
-                "generic pure module export has no quantified binder",
+                "generic callable module export has no quantified binder",
             ));
         }
         Ok(())
@@ -9492,9 +9508,9 @@ impl<'a> FullDecoder<'a> {
         let projected = match receiver_type {
             Type::Record(fields) => fields.get(&field).cloned(),
             Type::Module(exports) => match exports.get(&field) {
-                Some(ModuleExportType::GenericPure { .. }) => {
+                Some(ModuleExportType::GenericCallable { .. }) => {
                     return Err(IrVerifyError::new(
-                        "generic pure module export cannot be projected as a value",
+                        "generic callable module export cannot be projected as a value",
                     ));
                 }
                 Some(export) => export.field_value_type(),
@@ -10013,7 +10029,7 @@ impl<'a> FullDecoder<'a> {
         mut body: decode::ListView<'_, BuildStmtId>,
         mut visit: impl FnMut(usize) -> Result<(), IrVerifyError>,
     ) -> Result<bool, IrVerifyError> {
-        if !self.store.registered_calls.is_empty() {
+        if self.producer_demand == crate::runtime::eval::ProducerDemand::Needed {
             let analysis = self.return_analysis()?;
             let values = analysis.loop_values.as_ref().and_then(|values| values.get(&instruction));
             for &value in values.into_iter().flatten() { visit(value)?; }
@@ -10191,12 +10207,14 @@ impl<'a> FullDecoder<'a> {
         };
         let checked_unsigned_integer_literal =
             matches!(&view, schema::ExprView::UInt(_)) && ty == Type::UInt;
+        let checked_result_constructor = fact.authenticates_result_constructor(self.store.tags[instruction], &ty)?;
         if !ty.contains_typed_callable()
             && !fact.with_error_source()
             && !matches!(ty, Type::ErrorVariant { .. })
             && !generic_call_result
             && !checked_unsigned_integer_literal
             && !matches!(&view, schema::ExprView::PreparedConstant(_))
+            && !checked_result_constructor
         {
             return Err(IrVerifyError::new(
                 "checked expression fact is neither callable, a structured error, nor a With error source",
@@ -12330,12 +12348,10 @@ impl<'a> FullDecoder<'a> {
             }
             other => other,
         };
-        if matches!(
-            &receiver,
-            Type::Module(exports)
-                if matches!(exports.get(&field), Some(ModuleExportType::GenericPure { optional: false }))
-        ) {
-            return Ok(Type::Pure);
+        if let Type::Module(exports) = &receiver
+            && let Some(export @ ModuleExportType::GenericCallable { optional: false, .. }) = exports.get(&field)
+        {
+            return export.field_type().ok_or_else(|| IrVerifyError::new("generic stream export has no supported callable value projection"));
         }
         let receiver_id = if matches!(&receiver, Type::Record(_) | Type::Module(_)) {
             self.expression_checked_type_id(base)?
@@ -13919,7 +13935,7 @@ impl IndexedReturnAnalysis {
         }
 
         let mut loop_transfers = FxHashMap::default();
-        let mut loop_values = (!decoder.store.registered_calls.is_empty()).then(FxHashMap::<usize, Vec<usize>>::default);
+        let mut loop_values = (decoder.producer_demand == crate::runtime::eval::ProducerDemand::Needed).then(FxHashMap::<usize, Vec<usize>>::default);
         let mut reached = vec![false; node_count];
         let mut flow_stack = roots
             .into_iter()
@@ -16026,7 +16042,7 @@ impl FullVerifier {
     fn verify_with_contexts(program: &FullProgram, contexts: verify_schemes::ProducerContexts<'_>) -> Result<Vec<(u32, ExecutableOwner, Arc<Type>)>, IrVerifyError> {
         let _symbols = program.symbol_owner().enter();
         let store = &program.store;
-        let mut producer_index = verify_schemes::GroundProducerIndex::default();
+        let mut producer_index = verify_schemes::GroundProducerIndex::new(store)?;
         Self::verify_resource_transfer_sites(store)?;
         Self::verify_checked_call_target_coverage(store)?;
         for plan in &store.prepared_module_call_plans {
@@ -16143,6 +16159,7 @@ impl FullVerifier {
             let checked_unsigned_integer_literal =
                 store.tags[instruction] == FullTag::ExprUInt && ty == Type::UInt;
             let checked_prepared_constant = store.tags[instruction] == FullTag::ExprPreparedConstant;
+            let checked_result_constructor = fact.authenticates_result_constructor(store.tags[instruction], &ty)?;
             if checked_prepared_constant {
                 if fact.function_ref().is_some() || fact.with_error_source() {
                     return Err(IrVerifyError::new("prepared constant fact carries unrelated contract evidence"));
@@ -16162,6 +16179,7 @@ impl FullVerifier {
                 && !generic_call_result
                 && !checked_unsigned_integer_literal
                 && !checked_prepared_constant
+                && !checked_result_constructor
             {
                 return Err(IrVerifyError::new(
                     "checked expression type row is neither callable, a structured error, nor a With error source",
@@ -16435,6 +16453,7 @@ impl FullVerifier {
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: Some(function_signature_index.clone()),
                 return_analysis: RefCell::default(),
+                producer_demand: producer_index.demand(),
                 prepared_constant_work: Cell::new(0),
                 verified: false,
             };
@@ -17904,12 +17923,12 @@ impl FullCodec for LoweredModuleExport {
                 output.push(2);
                 function_namespace.encode(builder, output)?;
             }
-            Self::GenericPure {
-                name,
-                function_namespace,
+            Self::GenericCallable {
+                kind, name, function_namespace,
             } => {
                 name.encode(builder, output)?;
                 output.push(3);
+                output.push(*kind as u32);
                 function_namespace.encode(builder, output)?;
             }
         }
@@ -17934,10 +17953,15 @@ impl FullCodec for LoweredModuleExport {
                 name,
                 function_namespace: Name::decode(decoder, input)?,
             }),
-            3 => Ok(Self::GenericPure {
-                name,
-                function_namespace: Name::decode(decoder, input)?,
-            }),
+            3 => {
+                let kind = match input.raw()? {
+                    0 => crate::sema::types::CallableKind::Pure,
+                    1 => crate::sema::types::CallableKind::Proc,
+                    2 => crate::sema::types::CallableKind::Stream,
+                    _ => return Err(IrVerifyError::new("generic module callable kind is invalid")),
+                };
+                Ok(Self::GenericCallable { kind, name, function_namespace: Name::decode(decoder, input)? })
+            }
             _ => Err(IrVerifyError::new("module export kind is invalid")),
         }
     }
@@ -18858,6 +18882,7 @@ fn stage_view_decoder(store: &FullStore) -> FullDecoder<'_> {
         proven_callable_writers: RefCell::default(),
         function_signature_index: None,
         return_analysis: RefCell::default(),
+        producer_demand: crate::runtime::eval::ProducerDemand::Absent,
         prepared_constant_work: Cell::new(0),
         verified: false,
     }
@@ -20142,6 +20167,10 @@ run true
 
     fn imported_scheme_fixture_after_frontend_drop_with_entry(entry_source: &str) -> FullProgram {
         let model_source = "##! Exports used by the generic callable verifier.\n## Returns its input unchanged.\nexport pure identity(value) { value }\n## Projects the package name.\nexport pure name_of(value) { value.name }\n## Exposes an unused quantified function for verifier mutations.\nexport pure unused(value) { value }\n## Exposes a declared dynamic contract.\nexport pure dynamic(value: Any) -> Any { value }\n## Exposes the module value.\nexport let marker = 17\n";
+        imported_scheme_fixture_after_frontend_drop_with_module(entry_source, model_source)
+    }
+
+    fn imported_scheme_fixture_after_frontend_drop_with_module(entry_source: &str, model_source: &str) -> FullProgram {
         let mut sources = SourceMap::new();
         let entry_source_id = sources.add_file("entry.xsh", entry_source);
         let model_source_id = sources.add_file("model.xsh", model_source);
@@ -20359,6 +20388,105 @@ run true
     }
 
     #[test]
+    fn generic_proc_imports_preserve_quantified_contract_after_frontend_disposal() {
+        run_with_large_stack(|| {
+            let program = Arc::new(imported_scheme_fixture_after_frontend_drop_with_module(
+                concat!(
+                    "use model\n",
+                    "proc main() [error] -> Result[Unit] {\n",
+                    " let wrap = model.wrap\n",
+                    " let number: Int = wrap(42)?\n",
+                    " let text: Str = model.wrap(\"demo\")?\n",
+                    " let nested: Result[Int] = wrap(Ok(7))?\n",
+                    " assert number == 42\n",
+                    " assert text == \"demo\"\n",
+                    " assert nested == Ok(7)\n",
+                    " return Ok()\n",
+                    "}\n",
+                ),
+                "##! Generic proc exports.\n## Preserve its supplied value inside success.\nexport proc wrap(value) { value }\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let import_step = scheme_fixture_use_step(&program, program_name(&program, "model"));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                evaluator.eval_indexed_driver_step(import_step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "main")), LoweredFunctionKind::Proc,
+                    &[], Span::new(program.store.source_id, 0, 0),
+                ).unwrap().unwrap();
+                assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Unit))));
+            }
+        });
+    }
+
+    #[test]
+    fn generic_proc_results_preserve_symbolic_success_after_frontend_disposal() {
+        run_with_large_stack(|| {
+            let program = fixture("generic-proc-results.xsh", concat!(
+                "proc wrap(value) { value }\n",
+                "pure echo(value: Any) -> Any { value }\n",
+                "let action: pure(value: Any) -> Any = echo\n",
+                "let dynamic_result = Ok(action)\n",
+                "type Payload = {items: List[Int]}\n",
+                "let contextual: Result[Payload] = Ok({items: []})\n",
+                "assert contextual == Ok({items: []})\n",
+                "proc mark(label: Str) [io] -> Int { print $label; 1 }\n",
+                "proc traced(value, label: Str) [io] { let observed = mark(label); value }\n",
+                "assert traced(42, \"trace\") == Ok(42)\n",
+                "assert wrap(42) == Ok(42)\n",
+                "assert wrap(\"demo\") == Ok(\"demo\")\n",
+                "assert wrap(Ok(7)) == Ok(Ok(7))\n",
+                "let number: Int = wrap(42)?\n",
+                "let nested: Result[Int] = wrap(Ok(7))?\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let wrap = scheme_fixture_root_function(&program, "wrap");
+            let FullCallableContract::Scheme(scheme_id) = program.store.functions[wrap].contract else { panic!("wrap scheme") };
+            let scheme = program.store.schemes[scheme_id.index()];
+            assert_eq!(scheme.callable_kind, crate::sema::types::CallableKind::Proc);
+            assert!(scheme.has_effects);
+            let mut forged = program.clone();
+            forged.store.schemes[scheme_id.index()].has_effects = false;
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("generic function contract is invalid"));
+            let mut forged = program.clone();
+            forged.store.schemes[scheme_id.index()].callable_kind = crate::sema::types::CallableKind::Pure;
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("generic function contract is invalid"));
+            let traced = scheme_fixture_root_function(&program, "traced");
+            let FullCallableContract::Scheme(traced_scheme) = program.store.functions[traced].contract else { panic!("traced scheme") };
+            let effects = program.store.schemes[traced_scheme.index()].effects.bounds(program.store.scheme_effects.len()).unwrap();
+            assert_eq!(&program.store.scheme_effects[effects.clone()], &[crate::syntax::node::Effect::Io]);
+            let mut forged = program.clone();
+            forged.store.scheme_effects[effects.start] = crate::syntax::node::Effect::Fs;
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("generic body proc effects exceed its owner contract"));
+            let constructor = program.store.checked_expr_types.iter().position(|fact| {
+                program.store.tags[fact.instruction as usize] == FullTag::ExprOk
+                    && matches!(program.store.semantic.to_type(fact.type_id).unwrap(), Type::Result(ok, _) if *ok == Type::Int)
+            }).unwrap();
+            let incompatible = program.store.checked_expr_types.iter().find_map(|fact| {
+                matches!(program.store.semantic.to_type(fact.type_id).unwrap(), Type::Result(ok, _) if *ok == Type::Str).then_some(fact.type_id)
+            }).unwrap();
+            let mut forged = program.clone();
+            forged.store.checked_expr_types[constructor].type_id = incompatible;
+            assert!(FullVerifier::verify(&forged).unwrap_err().message.contains("ground producer value disagrees with its checked contract"));
+            let program = Arc::new(program);
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+                assert_eq!(evaluator.lookup(Name::intern("number")).unwrap().value, Value::Int(42));
+                assert_eq!(evaluator.lookup(Name::intern("nested")).unwrap().value, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7)))));
+            }
+        });
+    }
+
+    #[test]
     fn generic_constructed_values_execute_after_frontend_disposal() {
         run_with_large_stack(|| {
             let program = fixture("generic-constructed-values.xsh", concat!(
@@ -20434,7 +20562,7 @@ run true
                 let monotype = program.store.scheme_callable_monotypes.len();
                 program.store.scheme_callable_monotypes.push(schemes::FullSchemeCallableMonotype {
                     params: IrRange { start: params_start as u32, len: 1 }, return_type: child,
-                    return_schema: None, effects: IrRange::default(), kind: schemes::FullSchemeCallableKind::Pure,
+                    return_schema: None, effects: IrRange::default(), kind: crate::sema::types::CallableKind::Pure,
                     has_effects: false, reserved: [0; 2],
                 });
                 program.store.scheme_types[root.index()] = FullSchemeTypeNode {
@@ -21249,7 +21377,7 @@ run true
                 )
                 .unwrap();
             let error = FullVerifier::verify(&generic_payload).unwrap_err();
-            assert_eq!(error.message, "generic pure module export has a payload");
+            assert_eq!(error.message, "generic callable module export has a payload");
 
             let mut missing_payload = program.clone();
             let marker_payload = scheme_fixture_export_word(&program, use_step, "marker", 2);
@@ -21287,7 +21415,7 @@ run true
             let error = FullVerifier::verify(&wrong_namespace).unwrap_err();
             assert_eq!(
                 error.message,
-                "generic pure export is not owned by its child module"
+                "generic callable export is not owned by its child module"
             );
 
             let mut private_value = program.clone();
@@ -21303,7 +21431,7 @@ run true
             let error = FullVerifier::verify(&private_function).unwrap_err();
             assert_eq!(
                 error.message,
-                "registered generic pure function target is missing"
+                "registered generic callable function target is missing"
             );
 
             let mut wrong_contract = program.clone();
@@ -21319,7 +21447,7 @@ run true
             let error = FullVerifier::verify(&wrong_contract).unwrap_err();
             assert_eq!(
                 error.message,
-                "generic pure module export has no scheme contract"
+                "generic callable module export has no scheme contract"
             );
 
         });
@@ -25991,6 +26119,7 @@ assert results == [4]
                     .expect("fixture signatures are valid")
             }))),
             return_analysis: RefCell::default(),
+            producer_demand: verify_schemes::GroundProducerIndex::new(&program.store).unwrap().demand(),
             prepared_constant_work: Cell::new(0),
             verified: false,
         };
@@ -28440,7 +28569,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
                 let source = format!("pure helper() -> Int {{ {declarations} local_{} }}\npure read(row) -> Int {{ let ignored = row.anchor; helper().bit_or(0) }}\n", locals - 1);
                 let program = fixture("producer-binding-work.xsh", &source);
                 let decoder = return_analysis_decoder(&program, "helper");
-                let mut index = verify_schemes::GroundProducerIndex::default();
+                let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
                 index.record(&decoder).unwrap();
                 let work = index.binding_work();
                 assert!(work.0 >= locals);
@@ -28496,7 +28625,7 @@ pure read(row) -> Int { let ignored = row.anchor; helper().bit_or(0) }
             let helper = scheme_fixture_root_function(&program, "helper");
             let decoder = function_view_decoder(&program.store, helper);
             assert!(decoder.instruction_proof.is_none());
-            let mut index = verify_schemes::GroundProducerIndex::default();
+            let mut index = verify_schemes::GroundProducerIndex::new(&program.store).unwrap();
             index.record(&decoder).expect("absent producer demand must not inspect the instruction graph");
         });
     }
@@ -29470,6 +29599,7 @@ pure selected() -> Str {
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: None,
                 return_analysis: RefCell::default(),
+                producer_demand: crate::runtime::eval::ProducerDemand::Absent,
                 prepared_constant_work: Cell::new(0),
                 verified: false,
             };
@@ -29533,6 +29663,7 @@ pure selected() -> Str {
                 proven_callable_writers: RefCell::default(),
                 function_signature_index: None,
                 return_analysis: RefCell::default(),
+                producer_demand: crate::runtime::eval::ProducerDemand::Absent,
                 prepared_constant_work: Cell::new(0),
                 verified: false,
             };

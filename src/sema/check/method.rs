@@ -254,7 +254,7 @@ impl Checker {
             Type::ErasedRecord | Type::Record(_) | Type::Module(_)
         ) {
             let generic_export = if name == "get" {
-                crate::sema::projection::generic_pure_export_for_get(
+                crate::sema::projection::generic_callable_export_for_get(
                     &arena.arena,
                     &self.prepared_constants,
                     &base_ty,
@@ -297,7 +297,7 @@ impl Checker {
                 self.schema_expectation_for_expr(arena, base),
             );
             if generic_export.is_some() {
-                return self.reject_generic_pure_module_value(span);
+                return self.reject_generic_callable_module_value(span);
             }
             if let Type::Result(_, error) = &result
                 && let Some(projection) = projection

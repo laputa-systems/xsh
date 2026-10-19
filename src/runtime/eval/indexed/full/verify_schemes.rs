@@ -13,7 +13,7 @@ use super::{
 };
 use super::super::semantic::TypeMaterializationBudget;
 use crate::sema::types::{Type, merge_list_literal_item_ty};
-use crate::sema::schemes::{CallableMonotype, SchemeCallableKind, SchemeParameter, SchemeRowParameterId, SchemeRowTail, SchemeType, SchemeTypeParameterId};
+use crate::sema::schemes::{CallableMonotype, SchemeParameter, SchemeRowParameterId, SchemeRowTail, SchemeType, SchemeTypeParameterId};
 use crate::sema::validated::{IntRange, ValidatedType, Validation};
 use crate::symbol::Name;
 use std::cell::{Cell, OnceCell, RefCell};
@@ -181,9 +181,11 @@ fn verify_function_schemes(store: &FullStore) -> Result<Vec<Option<SchemeScope>>
         }
         let scheme = store.scheme(scheme_id)?;
         if scheme.reserved != [0; 3]
-            || scheme.callable_kind != super::schemes::FullSchemeCallableKind::Pure
-            || store.function_metadata[function_index].flags & 1 != 0
-            || scheme.inferred_effects
+            || match scheme.callable_kind {
+                crate::sema::types::CallableKind::Pure => store.function_metadata[function_index].flags & 1 != 0 || scheme.inferred_effects,
+                crate::sema::types::CallableKind::Proc => store.function_metadata[function_index].flags & 1 == 0 || !scheme.has_effects,
+                crate::sema::types::CallableKind::Stream => true,
+            }
         {
             return Err(IrVerifyError::new("generic function contract is invalid"));
         }
@@ -267,7 +269,7 @@ fn verify_function_schemes(store: &FullStore) -> Result<Vec<Option<SchemeScope>>
             return Err(IrVerifyError::new("scheme callable monotype belongs to multiple type nodes"));
         }
         let callable = store.scheme_callable_monotype(node.first)?;
-        if callable.reserved != [0; 2] || callable.kind == super::schemes::FullSchemeCallableKind::Stream {
+        if callable.reserved != [0; 2] || callable.kind == crate::sema::types::CallableKind::Stream {
             return Err(IrVerifyError::new("scheme callable monotype kind or metadata is invalid"));
         }
         if !callable.has_effects && callable.effects.len != 0 {
@@ -1101,11 +1103,30 @@ fn verify_body_expression(
                 arguments.push(child(value)?);
             }
             let target = store.functions.get(function.id.index()).ok_or_else(|| IrVerifyError::new("generic body call target is invalid"))?;
-            if store.function_metadata[function.id.index()].flags & 1 != 0 { return Err(IrVerifyError::new("generic body calls an effectful function")); }
+            if store.function_metadata[function.id.index()].flags & 1 != 0 {
+                let owner = IrFunctionId::from_raw(decoder.owner).and_then(|id| store.functions.get(id.index()))
+                    .ok_or_else(|| IrVerifyError::new("generic call has no function owner"))?;
+                let FullCallableContract::Scheme(owner_scheme) = owner.contract else { return Err(IrVerifyError::new("generic call owner has no scheme")) };
+                let owner_scheme = store.scheme(owner_scheme)?;
+                if owner_scheme.callable_kind != crate::sema::types::CallableKind::Proc || !owner_scheme.has_effects {
+                    return Err(IrVerifyError::new("generic body calls a proc without a finite proc effect contract"));
+                }
+                let ceiling = bounded(owner_scheme.effects, &store.scheme_effects, "generic owner effects are invalid")?;
+                let required = match target.contract {
+                    FullCallableContract::Ground(signature) => store.semantic.to_signature_with_budget(signature, 0, &mut budget.semantic_types)?.effects,
+                    FullCallableContract::Scheme(scheme) => {
+                        let scheme = store.scheme(scheme)?;
+                        if !scheme.has_effects { None } else { Some(bounded(scheme.effects, &store.scheme_effects, "generic target effects are invalid")?.to_vec()) }
+                    }
+                }.ok_or_else(|| IrVerifyError::new("generic body proc call has unrestricted effects"))?;
+                if required.iter().any(|effect| !crate::sema::check::Checker::effects_covers(ceiling, effect)) {
+                    return Err(IrVerifyError::new("generic body proc effects exceed its owner contract"));
+                }
+            }
             match target.contract {
                 FullCallableContract::Scheme(_) => ty.clone(),
                 FullCallableContract::Ground(signature) => {
-                    if store.semantic.signature_param_count(signature)? != arguments.len() || !store.semantic.signature_effects_empty(signature)? { return Err(IrVerifyError::new("generic body call signature has incompatible arguments or effects")); }
+                    if store.semantic.signature_param_count(signature)? != arguments.len() { return Err(IrVerifyError::new("generic body call signature has incompatible arguments or effects")); }
                     for (index, actual) in arguments.iter().enumerate() {
                         let (_, expected, flags) = store.semantic.signature_param(signature, index)?;
                         if flags != 0 { return Err(IrVerifyError::new("generic body call requires fixed required parameters")); }
@@ -1644,11 +1665,7 @@ fn decode_scheme_type(
             let effects = bounded(callable.effects, &store.scheme_effects, "scheme callable effect range is invalid")?;
             budget.charge(effects.len())?;
             SchemeType::Callable {
-                kind: match callable.kind {
-                    super::schemes::FullSchemeCallableKind::Pure => SchemeCallableKind::Pure,
-                    super::schemes::FullSchemeCallableKind::Proc => SchemeCallableKind::Proc,
-                    super::schemes::FullSchemeCallableKind::Stream => SchemeCallableKind::Stream,
-                },
+                kind: callable.kind,
                 monotype: Arc::new(CallableMonotype::new(params, return_type, return_schema)),
                 effects: callable.has_effects.then(|| Arc::from(effects)),
             }
@@ -3254,9 +3271,9 @@ fn verify_scheme_argument_evidence(
             let callable = store.scheme_callable_monotype(node.first)?;
             let parameters = bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")?;
             let pure = match callable.kind {
-                super::schemes::FullSchemeCallableKind::Pure => true,
-                super::schemes::FullSchemeCallableKind::Proc => false,
-                super::schemes::FullSchemeCallableKind::Stream => return Err(IrVerifyError::new("stream callable argument has no supported checked contract")),
+                crate::sema::types::CallableKind::Pure => true,
+                crate::sema::types::CallableKind::Proc => false,
+                crate::sema::types::CallableKind::Stream => return Err(IrVerifyError::new("stream callable argument has no supported checked contract")),
             };
             if actual.pure != pure || actual.sig.params.len() != parameters.len() {
                 return Err(IrVerifyError::new("generic callable argument kind or arity disagrees with its contract"));
@@ -3503,9 +3520,9 @@ fn instantiate_scheme_type_inner(
         FullSchemeTypeTag::Callable => {
             let callable = store.scheme_callable_monotype(node.first)?;
             let pure = match callable.kind {
-                super::schemes::FullSchemeCallableKind::Pure => true,
-                super::schemes::FullSchemeCallableKind::Proc => false,
-                super::schemes::FullSchemeCallableKind::Stream => return Err(IrVerifyError::new("stream callable monotype has no supported checked type")),
+                crate::sema::types::CallableKind::Pure => true,
+                crate::sema::types::CallableKind::Proc => false,
+                crate::sema::types::CallableKind::Stream => return Err(IrVerifyError::new("stream callable monotype has no supported checked type")),
             };
             let parameters = bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")?;
             if callable.return_schema.is_some() || parameters.iter().any(|parameter| parameter.schema.is_some()) {
@@ -3648,6 +3665,7 @@ pub(super) fn decoder_for_driver_step(
         proven_callable_writers: RefCell::default(),
         function_signature_index: None,
         return_analysis: RefCell::default(),
+        producer_demand: crate::runtime::eval::ProducerDemand::Absent,
         prepared_constant_work: Cell::new(0),
         verified: false,
     })
@@ -3674,6 +3692,7 @@ fn decoder_for_function(store: &FullStore, function_index: usize) -> Result<Full
         proven_callable_writers: RefCell::default(),
         function_signature_index: None,
         return_analysis: RefCell::default(),
+        producer_demand: crate::runtime::eval::ProducerDemand::Absent,
         prepared_constant_work: Cell::new(0),
         verified: false,
     })
@@ -3695,7 +3714,7 @@ fn ensure_closed_type(ty: &Type) -> Result<(), IrVerifyError> {
                     match export {
                         crate::sema::types::ModuleExportType::Value { ty, .. } => pending.push(ty),
                         crate::sema::types::ModuleExportType::Pure { sig, .. } | crate::sema::types::ModuleExportType::Proc { sig, .. } => { pending.push(&sig.return_ty); pending.extend(sig.params.iter().map(|parameter| &parameter.ty)); }
-                        crate::sema::types::ModuleExportType::GenericPure { .. } => {}
+                        crate::sema::types::ModuleExportType::GenericCallable { .. } => {}
                     }
                 }
             }
