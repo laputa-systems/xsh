@@ -10,6 +10,7 @@ import stat
 
 
 PACKAGE_ROW_SHAPES = (2048, 4096, 8192)
+DEMANDING_PACKAGE_ROW_SHAPES = (16384, 32768, 65536)
 
 
 def digest(path):
@@ -37,8 +38,8 @@ def snapshot(root):
 
 
 def generate(root, *, package_rows=PACKAGE_ROW_SHAPES[0]):
-    if type(package_rows) is not int or package_rows not in PACKAGE_ROW_SHAPES:
-        raise ValueError(f"package rows must be one of the frozen shapes: {PACKAGE_ROW_SHAPES}")
+    if type(package_rows) is not int or package_rows not in PACKAGE_ROW_SHAPES + DEMANDING_PACKAGE_ROW_SHAPES:
+        raise ValueError(f"package rows must be one of the frozen shapes: {PACKAGE_ROW_SHAPES + DEMANDING_PACKAGE_ROW_SHAPES}")
     root.mkdir(parents=True, exist_ok=False)
     header = (
         b"#define CAP_CHOWN 0\n#define\tCAP_NET_ADMIN\t0007 \t\n"
