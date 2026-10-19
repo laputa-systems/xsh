@@ -775,6 +775,8 @@ duplicate per-commit copies of controllers solely to record provenance.
 - The R13 performance cohort completed all 1,530 timed samples and 30 parity checks with both readiness checks passing and cleanup resolved. These are provisional pre-inference observations, not an accepted baseline or speedup claim. Candidate corpus checking reproduces the frozen 1,040-removal result; removing all additional 730 checker-restored rows fails. Four practical pure-return removals pass paired behavior and signature checks. All 202 effect clauses remain retained.
 - The isolated Deno node built successfully offline under the 12-GiB exception. Its prerequisite artifacts and the full-world plan are retained. Full-world completion, rooted functionality, unchanged rebuild reuse and actual Asterinas acceptance remain required; the deployment lane resumes that full remainder.
 
+- Combined source `7851fd22e` passed singleton bootstrap, then failed canonical root integration: 221 passes and four failures before the full native stage. The failures are map/record per-read allocation budgets, signal-hook registration snapshot semantics and pure-parameter grammar correspondence. Source stayed clean and cleanup resolved. Preserve that failed receipt under `.work/wt/perf-i1-combined-freeze`; focused repairs use `.work/wt/perf-i1-combined-fixes`, with the original freeze and prior qualified products unchanged. No canonical, G1 or I1 combined acceptance follows from this attempt.
+
 ## For the owner afterwards
 
 - Read the concise accepted baseline page and deployment reproduction commands.
