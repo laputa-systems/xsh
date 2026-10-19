@@ -575,13 +575,14 @@ impl Checker {
             view.statement_ids(),
         );
         checker.procs.get(&super::Name::intern("main")).is_some_and(|declaration| {
-            checker.local_function_signature(*declaration).is_some_and(|signature| {
-                matches!(signature.scheme().params(), [parameter]
-                    if parameter.rest && !parameter.defaulted
-                        && matches!(&parameter.ty,
-                            crate::sema::schemes::SchemeType::Ground(super::Type::List(item))
-                                if item.as_ref() == &super::Type::Bytes))
-            })
+            checker.declaration_inference.pending(*declaration)
+                .and_then(|signature| signature.provisional())
+                .is_some_and(|shape| {
+                    matches!(shape.params(), [parameter]
+                        if parameter.signature.rest && !parameter.signature.defaulted
+                            && matches!(&parameter.signature.ty,
+                                super::Type::List(item) if item.as_ref() == &super::Type::Bytes))
+                })
         })
     }
 
@@ -2156,7 +2157,7 @@ mod tests {
     #[test]
     fn byte_entry_resolves_imported_argument_alias_before_checking_module_bodies() {
         let mut sources = SourceMap::new();
-        let root_text = "use shared\nproc main(...argv: shared.Arguments) {}\n";
+        let root_text = "use shared\nproc main(...argv: shared.Arguments) [io, error] { assert args == argv; assert shared.incoming() == argv; io.write_stdout_bytes(argv[0])? }\nmain(@args)?\n";
         let shared_text = "##! Byte argument aliases.\n## Shared declarations for the entry check.\n## Arguments accepted as byte strings.\nexport type Arguments = List[Bytes]\n## Return the imported script arguments.\nexport pure incoming() -> List[Bytes] { args }\n";
         let root_source = sources.add_file("byte-entry.xsh", root_text);
         let shared_source = sources.add_file("shared.xsh", shared_text);
