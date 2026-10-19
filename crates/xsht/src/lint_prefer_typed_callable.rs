@@ -40,7 +40,6 @@ pub(super) struct CallableParameters {
 struct Function {
     name: Name,
     definition: FunctionDefId,
-    pure: bool,
     /// Private and top-level: every caller is a call in this module.
     enumerable: bool,
 }
@@ -58,13 +57,11 @@ impl CallableParameters {
         &mut self,
         name: Name,
         definition: FunctionDefId,
-        pure: bool,
         enumerable: bool,
     ) {
         self.functions.push(Function {
             name,
             definition,
-            pure,
             enumerable,
         });
     }
