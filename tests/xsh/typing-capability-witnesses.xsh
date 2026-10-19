@@ -1,5 +1,5 @@
 proc typing_module_fixture(ctx: TestContext, name: Str) [fs, error] -> Result[Str] {
-  fp"{ctx.file.parent()}/modules/{name}".read_text()
+  fp"{ctx.file.parent()}/../fixtures/modules/typing-capability/{name}".read_text()
 }
 
 test test_typing_identity_and_open_record_projection { |ctx|
