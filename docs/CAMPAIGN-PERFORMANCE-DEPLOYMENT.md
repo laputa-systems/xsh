@@ -20,6 +20,31 @@ The deliverables are:
 
 ## Current checkpoint
 
+The constructor tranche at `12436b472`, with branch-fact repair
+`a93a9b756`, supports independent Int/Str instantiation of list, record and
+Result constructors and generic value branches. Focused checks execute both
+indexed routes after frontend disposal and reject forged writer facts and
+uninitialized sibling-branch reads. Matching verification products pass the
+constructor, grounded lazy-branch and converted rank-1 collection witnesses.
+The inline binary-condition branch remains a mandatory open case. These
+results do not qualify the whole source or close inference G1.
+
+Callable consumers now distinguish a selected invocation target from a
+callable value. CLI annotation edits validate a fresh, import-aware candidate
+before writing; lint consumers use the canonical contract. Thirteen focused
+lint tests and the imported generic-alias annotation witness pass. Concrete
+and defaulted List results annotate correctly. Generic call-result annotation
+publication still needs a checker repair. Schema anchors preserve nominal
+meaning across independent parses; semantically empty facade contexts compare
+without erasing the checker's diagnostic context.
+
+The independent finite-effect model passes eight tests but has no production
+symbolic-effect differential yet. Fixed scaling workloads cover eight families
+at sizes 64, 128, 256 and 512. Their shape and generator checks are not measured
+performance evidence. Solver counter checks and finite-effect generic procedure
+implementation are in progress. All remaining capability, joint corpus,
+performance, baseline, deployment and cleanup gates retain their requirements.
+
 The first full-inference compiler slice, `dbfea6b51`, admits unannotated
 immutable aliases to known generic module exports. Each call keeps fresh type
 instantiation and the authenticated imported declaration. It preserves the
@@ -48,7 +73,7 @@ unresolved origins, schema guards, and independently verified prepared metadata.
 The prepared test rejects forged binder, layout, effect and substitution data.
 It executes after frontend disposal on both indexed routes. Independent source
 review finds no remaining P1/P2 issue in this slice. Symbolic effects, callable
-kind inference, stream materialization and ordinary generic bodies remain open.
+kind inference, stream materialization and broader generic bodies remain open.
 This graph checkpoint does not complete inference G1 or qualify a baseline.
 
 The independent type/row oracle now compares 128 fixed-seed problems with the
