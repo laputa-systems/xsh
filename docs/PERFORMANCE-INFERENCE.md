@@ -14,6 +14,16 @@ checkpoint binds these products and source in
 the products were hash-checked locally. They qualify the historical 1,040
 checker result, not the future G1 baseline.
 
+
+Integration candidate `6468326009b62cfd8ed682b0dc7007b371d3cb4d` now passes
+ordinary checking and lowering for both eleven-root views. Fresh AST validation
+confirms 499 local and 541 internal removals with all 48 loaded sources protected.
+The explicit retained table is the accepted `15243e97` version. Both whole-view
+digests and the candidate products stay unchanged across the checks. Logs are
+under `.work/tmp/i2-1040-check-r7-646832600`. These focused results earn no
+runtime or G1 acceptance credit. The paired runtime replay and full combined
+qualification remain pending.
+
 The frozen cohort contains 9,194 AST sites across 48 loaded files, from eleven
 roots: ten XSH roots and Laputa `pm/plan_json.xsh`. It has 693 eligible local
 annotations and 2,190 eligible private parameter, return, and effect
