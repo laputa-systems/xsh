@@ -243,9 +243,9 @@ and disjoint next slices. Run verification from a frozen scratch checkout, not t
 moving integration tree. Split independent focused inputs; preserve the one-full-
 suite lock. Width limits are ceilings, never a requirement to saturate timing runs.
 
-Dispatch actionable continuations with `collaboration.followup_task`, including
-when a lane appears to be running. That call starts an idle lane automatically.
-Reserve `collaboration.send_message` for coordination that needs no new turn.
+Use `collaboration.followup_task` for every message to a campaign worker,
+including when a lane appears to be running. That call starts an idle lane
+automatically. Do not use `collaboration.send_message` in this campaign.
 Check lane status before waiting for work and at least every 15 minutes.
 
 ### P0: Prove the loop and finish the baseline
@@ -801,6 +801,7 @@ duplicate per-commit copies of controllers solely to record provenance.
 - Laputa acceptance is clean at `17211df05ee51a8e9698d5179b4c044f2908ea3b`. Firecracker installation checks the pinned binary hash before executing it. Rejected-hash and accepted-installation host controls pass after a reproduced premature-execution failure. Offline full-world reuse verifies all 85 artifacts without starting a package build. The profile composes eight runtime roots, and XSH executes inside that root. Validation checks 1,482 files, 58 ELF files and 20 dynamic ELF files with zero loader failures. Actual KVM smoke passes with `ASTERINAS_PVH_BOOT_OK` on the pinned Asterinas source. Kernel SHA-256 is `3f316100ad13c8bf399748ae362d0dc7b96c302ff07c292ae4b3f7e41073ec89`. The owned build adapter disables Kache Rust path normalization because component registration depends on `file!()` paths. Its initial normalized build panicked before guest initialization. A subsequent partial bundle cleanup exposed a stale OSDK manifest, which was removed before successful packaging. Owned cleanup resolves and seed products remain unchanged. Full guest XSH acceptance remains pending. These results use the R13 seed, not the combined inference candidate.
 
 - Combined source `c24ce1759` passed bootstrap, 228 root integration tests, all 14 soundness tests, 1,043 debug-library tests and all 122 XSHT integration tests. Existing ignores and exclusions remained unchanged. Full native execution finished with 14,017 passes, 32 failures and 150 skips. Preserve its failed receipt in `.work/wt/perf-i1-combined-freeze-r5`. Reviewed repairs restore root signature isolation, driver temporary metadata, optional producer derivation and default inference from solved returns. Fixture repairs preserve unique wire ordinals, update the 153-tag inventory, relocate support programs into existing fixture data and accept generalized required pure parameters. Candidate `621513b7a` builds. Its 38 focused invocations have 35 passes and three residual IR failures, covering guard record sources and ProcessError metadata. All 24 btop source tests pass. Repair work continues in `.work/wt/perf-control-flow-r5`. Both new scalar mutation controls and eleven existing corruption controls pass. The optional-producer mutation fixture still stops at the guard failure before reaching its checks. No combined acceptance follows from these partial results.
+- Candidate `9c20697b7` passes 39 of 40 focused native invocations and all 18 selected verifier controls. Previously failing R5 selectors now pass. The added compound guard regression exposes a prior record payload decoded under the current call's owner. Reviewed fix `83b88901c` uses the source step's decoder, retains strict ownership checks and adds a minimal record-to-generic-call regression. Its pinned library typecheck passes; rebuilt behavior checks and full acceptance remain pending. The unexecuted R6 checkout is `.work/wt/perf-i1-combined-freeze-r6` on `campaign/performance-i1-freeze-r6`. Laputa's offline guest build publishes bundle `1b8af701198629cabf74c3c9b48c1e225ff5a501131d51d9dae0fb61118ad7c3` with resolved cleanup and unchanged qualified seed. Full guest XSH execution remains pending and still uses the R13 seed.
 
 ## For the owner afterwards
 
