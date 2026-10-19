@@ -127,6 +127,15 @@ The stream ground control uses a direct typed producer call. Its first alias
 version tested another unsupported capability and failed name resolution.
 The mandatory inferred alias cases remain unchanged.
 
+Source `c1ae1db64` adds three selectors in
+`tests/xsh/full-inference-callable-lists.xsh`. Reference products pass
+`test_full_inference_callable_list_typed_ground_control` and
+`test_full_inference_callable_list_rejects_an_incompatible_shared_contract`.
+`test_full_inference_callable_list_generalizes_its_outer_relationship` fails
+with `check.call-target` at both indexed calls. The target generalizes the
+immutable list's outer type relationship; it requires no per-element forall.
+Matching candidate replay remains pending.
+
 The nested callable graph is integrated at `3c41f3b3a`. Eight focused tests
 pass, covering shared binders, component resolution, rollback, rest parameters,
 unresolved origins, schema guards, and independently verified prepared metadata.
