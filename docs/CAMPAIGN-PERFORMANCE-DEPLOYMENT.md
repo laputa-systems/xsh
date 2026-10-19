@@ -25,8 +25,10 @@ earlier library failures. The replay covers private bridge contracts, native
 and static constructor arguments, open typed-callable headers, Result payloads,
 conditional and loop writers, branches that transfer control and Optional transport.
 Forged argument, payload, slot and metadata controls remain rejected.
-The entire embedded-module catalog passes. Matching verification tools are
-building; native replay and the full library boundary remain pending.
+The entire embedded-module catalog passes. Matching verification tools built
+successfully. Native replay passes all 26 private-effect cases, ten private-return
+cases and the private/imported generic Result witness, with zero skips. The full
+library boundary remains pending.
 This checkpoint does not qualify the whole source or close inference G1.
 
 The producer repair at `d06e66c34` removes a redundant writer census sweep.
@@ -42,19 +44,31 @@ generators, the parser/grammar omission matrix and thirteen lint consumer tests
 pass. Matching native products pass immutable prefixes, value branches,
 mutable-capture rejection and exported inference. Private/imported scalar and
 nested Ok probes pass. Repair `e704557d6` passes nested Err disposal tests;
-matching native replay remains pending. Frontend-disposal tests reject forged Result payloads and owner
+matching native replay now passes. Frontend-disposal tests reject forged Result payloads and owner
 effect ceilings while preserving contextual collections and Any callable values.
 
 The earlier `139868db6` full library boundary has 1,076 passes, eighteen failures
 and three ignores. All eighteen selectors now pass in the focused replay above.
 A fresh full library run remains required; its result is not implied by that replay.
 
+Matching `1710bf2ff` tools reject documentation generation and all nine annotation
+behavior tests before execution. Two minimal explicit-Result repros fail:
+`Ok(ctx "rendering" { "page" })` lacks a physical producer proof, and
+`Ok(result.stdout)` after `run.capture --text` lacks a propagation result
+contract. Their implicit Result-lifting controls pass. These baseline defects
+remain open; the earlier annotation-test success does not qualify this source.
+CLI cleanup `401950302` removes an unused internal accessor and fixes a new
+test-only Clippy warning. Seven descriptor checks pass before integration,
+and warning-denied Clippy passes for xsh and xsht with all targets and features.
+Merged replay remains required.
+
 The canonical `io.flush_stdout` coordinated callee/owner effect-forgery test is
 red. Its initial Print-based premise was wrong: print and eprint require no
 language effect. Independent executable-effect validation remains mandatory.
 Separately, `22e4de86c` makes direct and transitive glob use require `fs`, fixing
 the baseline's acceptance under an empty bound. The pure diagnostic stays
-unchanged. Four matching native regressions still need to qualify this change.
+unchanged. All four matching native regressions pass; the production caller
+census found no executable glob literals needing broader bounds.
 The retry capability
 fixture now includes its required time effect; its missing-time negative passes.
 
