@@ -104,14 +104,14 @@ impl CheckedCallableContract {
     /// express the checked contract. Callers still recheck it in its scope.
     pub fn source_annotation(&self) -> Option<String> {
         use crate::sema::types::{CallableParamType, CallableType, Type, TypedCallable};
-        if self.is_generic() || self.scheme.return_schema().is_some() { return None; }
+        if self.is_generic() || self.scheme.return_schema().is_some_and(schema_has_obligations) { return None; }
         let pure = match self.scheme.kind() {
             SchemeCallableKind::Pure => true,
             SchemeCallableKind::Proc => false,
             SchemeCallableKind::Stream => return None,
         };
         let params = self.scheme.params().iter().map(|parameter| {
-            if parameter.defaulted || parameter.rest || parameter.schema_expectation.is_some() { return None; }
+            if parameter.defaulted || parameter.rest || parameter.schema_expectation.as_ref().is_some_and(schema_has_obligations) { return None; }
             Some(CallableParamType { name: parameter.name, ty: parameter.ty.closed_ground_type()?, defaulted: false, rest: false })
         }).collect::<Option<Vec<_>>>()?;
         let ty = Type::Callable(Arc::new(TypedCallable { pure, sig: CallableType {
@@ -189,6 +189,15 @@ fn same_effects(left: Option<&[crate::syntax::node::Effect]>, right: Option<&[cr
     }
 }
 
+fn schema_has_obligations(schema: &SchemaExpectation) -> bool {
+    let mut pending = vec![schema];
+    while let Some(schema) = pending.pop() {
+        if !schema.instances.is_empty() { return true; }
+        pending.extend(schema.children.values());
+    }
+    false
+}
+
 struct BoundEquivalence<'a> {
     types: BTreeMap<SchemeTypeParameterId, SchemeTypeParameterId>,
     rows: BTreeMap<SchemeRowParameterId, SchemeRowParameterId>,
@@ -205,6 +214,8 @@ fn bind<Key: Copy + Ord>(mapping: &mut BTreeMap<Key, Key>, left: Key, right: Key
 
 impl BoundEquivalence<'_> {
     fn schema(&self, left: Option<&SchemaExpectation>, right: Option<&SchemaExpectation>) -> bool {
+        let left = left.filter(|schema| schema_has_obligations(schema));
+        let right = right.filter(|schema| schema_has_obligations(schema));
         match (left, right) {
             (None, None) => true,
             (Some(left), Some(right)) => left.instances.len() == right.instances.len()
@@ -212,8 +223,9 @@ impl BoundEquivalence<'_> {
                     self.left_schemas.get(&left.definition).is_some_and(|identity| Some(identity) == self.right_schemas.get(&right.definition))
                         && left.arguments == right.arguments
                 })
-                && left.children.len() == right.children.len()
-                && left.children.iter().all(|(component, left)| right.children.get(component)
+                && left.children.values().filter(|child| schema_has_obligations(child)).count()
+                    == right.children.values().filter(|child| schema_has_obligations(child)).count()
+                && left.children.iter().filter(|(_, child)| schema_has_obligations(child)).all(|(component, left)| right.children.get(component)
                     .is_some_and(|right| self.schema(Some(left), Some(right)))),
             _ => false,
         }
@@ -358,6 +370,8 @@ mod tests {
         let second = root_schema_contract("type Second[T] = {label: Str}\npure describe(value: Second[Int]) -> Str { value.label }\n");
         assert!(!first.equivalent_to(&second));
         assert_ne!(first.to_string(), second.to_string());
+        assert!(first.source_annotation().is_none());
+        assert!(second.source_annotation().is_none());
     }
 
     #[test]
@@ -367,6 +381,26 @@ mod tests {
         assert!(first.equivalent_to(&shifted));
         assert_eq!(first.to_string(), shifted.to_string());
         assert!(first.join_effects(&shifted).unwrap().equivalent_to(&first));
+    }
+
+    #[test]
+    fn checked_callable_contract_projects_empty_schema_contexts_without_mutating_them() {
+        let checked = root_schema_contract("pure describe(value: List[Int]) -> Int { value.len() }\n");
+        let context = checked.scheme.params()[0].schema_expectation.clone();
+        assert!(context.is_some());
+        let absent = CheckedCallableContract {
+            scheme: Arc::new(TypeScheme::new(checked.scheme.kind(), Vec::new(), Vec::new(),
+                checked.scheme.params().iter().cloned().map(|mut parameter| {
+                    parameter.schema_expectation = None;
+                    parameter
+                }).collect(), checked.scheme.return_type().clone(), None, checked.scheme.explicit_return(),
+                checked.scheme.effects().map(<[_]>::to_vec), checked.scheme.inferred_effects()).unwrap()),
+            symbol_owner: checked.symbol_owner.clone(),
+            schema_identities: Arc::clone(&checked.schema_identities),
+        };
+        assert_eq!(checked.source_annotation().as_deref(), Some("pure(value: List[Int]) -> Int"));
+        assert!(checked.equivalent_to(&absent));
+        assert_eq!(checked.scheme.params()[0].schema_expectation, context);
     }
 
     fn imported_schema_contract(key: &str, namespace: &str) -> CheckedCallableContract {
