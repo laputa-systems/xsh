@@ -36,10 +36,10 @@ lint tests and the imported generic-alias annotation witness pass. Generic, conc
 and defaulted List results annotate correctly with matching `5fcc45c48` tools;
 scalar locals remain unannotated. Deferred publication also passes the focused
 later-refined empty-list and generalized-body controls. The wider annotation
-group has eight passes and one public-return spelling failure: candidate
-validation rejects generated `Result[Unit]` on an exported proc. The renderer
-repair at `a92955568` spells `Result[Unit, Error]`; matching-product verification
-is pending. Schema anchors preserve nominal
+group initially has eight passes and one public-return spelling failure:
+candidate validation rejects generated `Result[Unit]` on an exported proc.
+The renderer repair at `a92955568` spells `Result[Unit, Error]`. All nine
+annotation behavior tests pass with matching rebuilt products, with no skips. Schema anchors preserve nominal
 meaning across independent parses; semantically empty facade contexts compare
 without erasing the checker's diagnostic context.
 
