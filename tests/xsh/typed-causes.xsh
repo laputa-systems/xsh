@@ -1,3 +1,23 @@
+test test_process_error_pattern_bindings_retain_their_nominal_runtime_value { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""let original: Result[Unit, ProcessError] = try { run sh -c "exit 7" }
+match original {
+  Err(failure) => {
+    let retained: ProcessError = failure
+    match retained {
+      ProcessError.NonzeroExit {..} => print "retained"
+      _ => exit 19
+    }
+  }
+  _ => exit 20
+}
+""",
+    status: 0,
+  )?
+  assert output.stdout == "retained\n"
+}
+
 test test_error_variant_payloads_evaluate_once_in_written_order { |ctx|
   let output = test.expect(
     ctx,

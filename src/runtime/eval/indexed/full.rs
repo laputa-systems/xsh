@@ -2126,12 +2126,7 @@ impl FullProgram {
         }
         let record_output_types = match (record_source, record_target) {
             (Some(source), Some(target)) => {
-                let source_type = decoder
-                    .derive_checked_expression_type(source)?
-                    .ok_or_else(|| {
-                        IrVerifyError::new("driver record source has no checked type")
-                    })?;
-                let output_types = FullDecoder::checked_target_field_types(target, &source_type)?;
+                let output_types = decoder.checked_driver_record_output_types(source, target)?;
                 if output_types.len()
                     != expected.iter().filter(|(_, slot)| slot.is_some()).count()
                 {
@@ -5014,11 +5009,10 @@ fn scheme_return_kind(
     })
 }
 
-/// The lowered environment-path read materializes a path list while its checked
-/// slot keeps `EnvPathList` for method resolution and checker facts.
 fn driver_slot_runtime_kind(ty: &Type) -> Result<LoweredType, IrVerifyError> {
     match ty {
         Type::EnvPathList => Ok(LoweredType::List),
+        Type::ProcessError => Ok(LoweredType::Error),
         ty => lowered_type_from_type(ty),
     }
 }
@@ -6561,35 +6555,23 @@ impl<'a> FullDecoder<'a> {
                 let slot = writer_slot as usize;
                 let source: BuildExprId = FullCodec::decode(&decoder, &mut payload)?;
                 let _: Vec<(Name, usize)> = FullCodec::decode(&decoder, &mut payload)?;
-                let target: LoweredCompTarget = FullCodec::decode(&decoder, &mut payload)?;
+                let target = LoweredCompTarget::borrow(
+                    DecodeContext::from_decoder(&decoder),
+                    &mut payload,
+                )?;
                 let mutable: bool = FullCodec::decode(&decoder, &mut payload)?;
                 let _: Span = FullCodec::decode(&decoder, &mut payload)?;
                 payload.finish()?;
                 if mutable {
                     return Ok(None);
                 }
-                let Some(source_type) =
-                    decoder.derive_checked_expression_type(source.index())?
-                else {
-                    return Ok(None);
-                };
-                let Some(path) = Self::checked_target_field_path(&target, slot) else {
-                    return Ok(None);
-                };
-                let mut field_type = source_type.unvalidated().clone();
-                for field in path {
-                    let Type::Record(fields) = field_type.unvalidated() else {
-                        return Ok(None);
-                    };
-                    let Some(next) = fields.get(&field).cloned() else {
-                        return Ok(None);
-                    };
-                    field_type = next;
-                }
+                let field_type = decoder
+                    .checked_driver_record_output_types(source.index(), target)?
+                    .remove(&slot);
                 self.checked_writer_slot_type(
                     binding_identity,
                     driver_slots,
-                    Some(field_type.unvalidated().clone()),
+                    field_type.map(|field| field.unvalidated().clone()),
                 )
             }
             _ => Ok(None),
@@ -6642,6 +6624,58 @@ impl<'a> FullDecoder<'a> {
         matched
     }
 
+
+    fn checked_driver_record_output_types(
+        &self,
+        source: usize,
+        target: decode::CompTargetView<'a>,
+    ) -> Result<BTreeMap<usize, Type>, IrVerifyError> {
+        if !matches!(&target, decode::CompTargetView::Discard) {
+            let source_type = self.derive_checked_expression_type(source)?.ok_or_else(|| {
+                IrVerifyError::new("driver record source has no checked type")
+            })?;
+            return Self::checked_target_field_types(target, &source_type);
+        }
+        let (target, value, optional) = self.driver_guard_source(source)?;
+        if matches!(&target, decode::CompTargetView::Discard) {
+            return Ok(BTreeMap::new());
+        }
+        let success_type = match (optional, self.expression_view(value)?) {
+            (false, schema::ExprView::Ok(inner)) => {
+                self.derive_checked_expression_type(inner.raw() as usize)?
+            }
+            _ => self.derive_checked_expression_type(value)?.and_then(|value_type| {
+                match value_type.into_unvalidated() {
+                    Type::Optional(inner) if optional => Some(*inner),
+                    Type::Result(ok, _) if !optional => Some(*ok),
+                    _ => None,
+                }
+            }),
+        }.ok_or_else(|| IrVerifyError::new("driver guard source has no checked success type"))?;
+        Self::checked_target_slot_types(target, &success_type)
+    }
+
+    fn driver_guard_source(
+        &self,
+        source: usize,
+    ) -> Result<(decode::CompTargetView<'a>, usize, bool), IrVerifyError> {
+        let schema::ExprView::ValueBlock { mut body, .. } = self.expression_view(source)? else {
+            return Err(IrVerifyError::new("driver guard source is not a value block"));
+        };
+        let guard = body.next().transpose()?.ok_or_else(|| {
+            IrVerifyError::new("driver guard source has no guard statement")
+        })?;
+        if body.next().transpose()?.is_some() {
+            return Err(IrVerifyError::new("driver guard source has multiple statements"));
+        }
+        let schema::StmtView::Guard { target, value, optional, .. } =
+            self.statement_view(guard.raw() as usize)?
+        else {
+            return Err(IrVerifyError::new("driver guard source has no guard statement"));
+        };
+        Ok((target, value.raw() as usize, optional))
+    }
+
     fn checked_target_field_types(
         target: decode::CompTargetView<'_>,
         source_type: &Type,
@@ -6651,6 +6685,13 @@ impl<'a> FullDecoder<'a> {
                 "driver record target is not a record destructuring",
             ));
         }
+        Self::checked_target_slot_types(target, source_type)
+    }
+
+    fn checked_target_slot_types(
+        target: decode::CompTargetView<'_>,
+        source_type: &Type,
+    ) -> Result<BTreeMap<usize, Type>, IrVerifyError> {
         let mut pending = vec![(target, source_type)];
         let mut output_types = BTreeMap::new();
         while let Some((target, source_type)) = pending.pop() {
@@ -22406,6 +22447,28 @@ run true
             Some("let flag = false\n")
         );
         FullVerifier::verify(&program).unwrap();
+    }
+
+    #[test]
+    fn full_verifier_authenticates_driver_guard_definition_slots() {
+        let program = fixture(
+            "guard-definition-slots.xsh",
+            "guard let text = Ok(\"ready\") else { exit 3 }\nprint $text\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let definition = program.store.driver_slots.iter().position(|slot| {
+            slot.flags & DRIVER_SLOT_DEFINITION != 0
+                && program.store.string(slot.name).unwrap() == "text"
+        }).unwrap();
+        let mut forged = program.clone();
+        let int_type = SemanticPoolBuilder::default()
+            .intern_type(&mut forged.store.semantic, &Type::Int)
+            .unwrap();
+        forged.store.driver_slots[definition].type_id = int_type;
+        assert_eq!(
+            FullVerifier::verify(&forged).unwrap_err().message,
+            "driver definition type differs from its source field",
+        );
     }
 
     #[test]
@@ -38371,6 +38434,10 @@ proc local() [env, error] -> Int {
         assert_eq!(
             driver_slot_runtime_kind(&Type::EnvPathList),
             Ok(LoweredType::List)
+        );
+        assert_eq!(
+            driver_slot_runtime_kind(&Type::ProcessError),
+            Ok(LoweredType::Error)
         );
         assert!(driver_slot_runtime_kind(&Type::Invalid).is_err());
         let facet = Type::ErrorFacet(Name::intern("Error"));
