@@ -9,10 +9,10 @@ type Span = {start: Int, end: Int, line: Int, last_line: Int}
 type SpanLookupEntry = {start: Int, prefix_end: Int}
 type SpanLookup = {entries: List[SpanLookupEntry]}
 type Attribute = {start: Int, end: Int, inner: Bool, scope: Int, condition_active: Bool}
-type RustModule = {name: Str, directory: Str, explicit_path: Str?, excluded: Bool, dead_code: Bool, line: Int}
+type RustModule = {name: Str, directory: Str, path_directory: Str, explicit_path: Str?, excluded: Bool, dead_code: Bool, line: Int}
 type CfgValue = {value: Bool, next: Int}
 type CfgPredicate = {start: Int, end: Int}
-type InlineModule = {end: Int, directory: Str}
+type InlineModule = {end: Int, directory: Str, path_directory: Str}
 type ModuleEdge = {owner: Str, target: Str, excluded: Bool, dead_code: Bool}
 type FunctionRegion = {keyword: Int, name: Str, params_start: Int, params_end: Int, body_start: Int, body_end: Int}
 type LegacyPipelineStageLayout = {tag_definitions: Int, tag_variants: List[Str], codec_definitions: Int, codec_tables: Int, codec_variants: List[Str], semantic_definitions: Int}
@@ -609,6 +609,7 @@ proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], lookup: Spa
       if (lexed.tokens.get(cursor) ?? end_token).text == "mod" and ident_start(first((lexed.tokens.get(cursor + 1) ?? end_token).text)) {
         let name = (lexed.tokens.get(cursor + 1) ?? end_token).text
           let parent = if inline.is_empty() { directory } else { inline[-1].directory }
+          let path_parent = if inline.is_empty() { file.parent().display() } else { inline[-1].path_directory }
           var explicit = null
         var previous = cursor - 1
         if (lexed.tokens.get(previous) ?? end_token).text == ")" { previous = lexed.mates[previous] - 1 }
@@ -634,13 +635,13 @@ proc modules(source_path: Str, lexed: Lexed, attrs: List[Attribute], lookup: Spa
           }
           previous = attr.start - 1
         }
-        # An explicit inline directory replaces the normal module component.
         let base = if inline.is_empty() { file.parent().display() } else { parent }
+        let path_base = if inline.is_empty() { file.parent().display() } else { path_parent }
         if (lexed.tokens.get(cursor + 2) ?? end_token).text == "{" {
-          inline += [{end: lexed.mates[cursor + 2], directory: if explicit != null { f"{base}/{explicit}" } else { f"{parent}/{name}" }}]
+          inline += [{end: lexed.mates[cursor + 2], directory: if explicit != null { f"{base}/{explicit}" } else { f"{parent}/{name}" }, path_directory: if explicit != null { f"{path_base}/{explicit}" } else { f"{path_parent}/{name}" }}]
         }
         if (lexed.tokens.get(cursor + 2) ?? end_token).text == ";" {
-          yield {name: name, directory: if explicit != null { base } else { parent }, explicit_path: explicit, excluded: inside(lexed.tokens[cursor], lookup), dead_code: false, line: lexed.tokens[cursor].line}
+          yield {name: name, directory: if explicit != null { base } else { parent }, path_directory: if explicit != null { path_base } else { path_parent }, explicit_path: explicit, excluded: inside(lexed.tokens[cursor], lookup), dead_code: false, line: lexed.tokens[cursor].line}
         }
       }
       cursor += 1
@@ -1467,16 +1468,24 @@ export proc scan_file(source_path: Str, source: Str) [error] -> Result[SourceSca
   let allowed = blanket[0].evidence |> map .line |> collect
   let edges = collect {
     for edge in modules(source_path, lexed, attrs, lookup)? {
-      yield {name: edge.name, directory: edge.directory, explicit_path: edge.explicit_path, excluded: edge.excluded, dead_code: edge.line in allowed, line: edge.line}
+      yield {name: edge.name, directory: edge.directory, path_directory: edge.path_directory, explicit_path: edge.explicit_path, excluded: edge.excluded, dead_code: edge.line in allowed, line: edge.line}
     }
   }
   {count: count, modules: edges, metrics: analysis.metrics, item_allowances: analysis.item_allowances}
 }
 
-proc module_target(root: Path, owner: Str, edge: RustModule) [fs, error] -> Result[Str] {
-    var candidates = []
-  if edge.explicit_path != null { candidates = [if edge.explicit_path.starts_with("/") { fp"{edge.explicit_path}" } else { fp"{root}/{edge.directory}/{edge.explicit_path}" }] } else { candidates = [fp"{root}/{edge.directory}/{edge.name}.rs", fp"{root}/{edge.directory}/{edge.name}/mod.rs"] }
-  let existing = collect { for candidate in candidates { yield candidate.resolve()?.strip_prefix(root)?.display() when candidate.exists() } }
+proc module_candidates(root: Path, edge: RustModule, path_owner: Bool) [fs, error] -> Result[List[Str]] {
+  let directory = if path_owner { edge.path_directory } else { edge.directory }
+  let candidates = if edge.explicit_path != null {
+    [if edge.explicit_path.starts_with("/") { fp"{edge.explicit_path}" } else { fp"{root}/{directory}/{edge.explicit_path}" }]
+  } else {
+    [fp"{root}/{directory}/{edge.name}.rs", fp"{root}/{directory}/{edge.name}/mod.rs"]
+  }
+  collect { for candidate in candidates { yield candidate.resolve()?.strip_prefix(root)?.display() when candidate.exists() } }
+}
+
+proc module_target(root: Path, owner: Str, edge: RustModule, path_owner: Bool) [fs, error] -> Result[Str] {
+  let existing = module_candidates(root, edge, path_owner)?
   if existing.len() != 1 { return Err(MetricError.Invalid(path: owner, line: edge.line, detail: f"module {edge.name} resolves to {existing.len()} files")) }
   existing[0]
 }
@@ -1503,11 +1512,35 @@ export proc measure_with_allowances(root: Path, source_roots: List[Str]) [fs, er
       let scan = scan_file(source_path, source)?
       sizes[source_path] = source.count_chars()
       scans += [scan]
+    }
+  }
+  var owner_sensitive: Map[Bool] = {}
+  for scan in scans { owner_sensitive[scan.count.path] = (scan.modules |> where .directory != .path_directory |> count()) > 0 }
+  var path_owners: Map[Bool] = {}
+  var resolved_ownership = false
+  var pass = 0
+  while pass <= scans.len() {
+    var next: Map[Bool] = {}
+    for scan in scans {
       for edge in scan.modules {
-        let target = module_target(base, source_path, edge)?
-        referenced[target] = true
-        edges += [{owner: source_path, target: target, excluded: edge.excluded, dead_code: edge.dead_code}]
+        if edge.explicit_path != null {
+          for target in module_candidates(base, edge, path_owners.get(scan.count.path) ?? false)? { next[target] = true }
+        }
       }
+    }
+    if next == path_owners { resolved_ownership = true; break }
+    path_owners = next
+    pass += 1
+  }
+  if ! resolved_ownership { return Err(MetricError.Contract(detail: "module path ownership does not converge")) }
+  for scan in scans {
+    for edge in scan.modules {
+      let target = module_target(base, scan.count.path, edge, path_owners.get(scan.count.path) ?? false)?
+      if edge.explicit_path == null and (path_owners.get(target) ?? false) and (owner_sensitive.get(target) ?? false) {
+        return Err(MetricError.Invalid(path: scan.count.path, line: edge.line, detail: f"module file {target} has both default and #[path] ownership with different child directories"))
+      }
+      referenced[target] = true
+      edges += [{owner: scan.count.path, target: target, excluded: edge.excluded, dead_code: edge.dead_code}]
     }
   }
   for scan in scans { if ! (referenced.get(scan.count.path) ?? false) { active[scan.count.path] = true } }

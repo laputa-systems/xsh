@@ -62,6 +62,10 @@ Changes to the current metrics scanner, its attestation, or either current metri
 test module select both current metric modules. Canonical bootstrap and execution
 reject stale scanner or ratchet hashes before starting a build. Reproduce the
 frozen baseline report and item inventory before updating an active observer pin.
+The current scanner's `SourceScan.modules` records both `directory` and
+`path_directory` so external `#[path]` owners resolve children using Rust's
+physical-directory rules. Missing, ambiguous, and conflicting owner-sensitive
+module targets fail the scan.
 The existing native checks still validate the historical proof.
 
 ## Building and release smoke

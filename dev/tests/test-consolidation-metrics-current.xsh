@@ -185,3 +185,83 @@ test test_instruction_schema_eager_classification_and_table_shape_fail_loudly {
   assert "malformed instruction schema header" in rejection_at(source_path, source.replace("BuildBoolRow => BoolView [Bool]", with: "BuildBoolRow => OtherView [Bool]"))
   assert "incomplete instruction schema table set" in rejection_at(source_path, source.replace("  BuildStmtRow => StmtView [Stmt] { Break => StmtBreak = 3 [0; Operands; FrameApply]; }\n", with: ""))
 }
+
+
+test test_path_external_modules_resolve_children_and_preserve_scopes { |ctx|
+  let root = tree(ctx)?
+  fp"{root}/src/check/inline".mkdir()
+  fp"{root}/src/lib.rs".write("#[allow(dead_code)]\n#[path = \"check/method.rs\"] mod method;\n#[cfg(test)] #[path = \"check/test_owner.rs\"] mod tests;\n")
+  fp"{root}/src/check/method.rs".write("mod host_obligations;\nmod inline { mod child; }\n")
+  fp"{root}/src/check/host_obligations.rs".write("#[allow(dead_code)] fn unused() {}\n")
+  fp"{root}/src/check/inline/child.rs".write("fn nested() {}\n")
+  fp"{root}/src/check/test_owner.rs".write("mod hidden;\n")
+  fp"{root}/src/check/hidden.rs".write("fn hidden() {}\n")
+  let measured = metrics.measure_with_allowances(root, ["src", "crates/xsht/src"])?
+  let excluded = measured.report.sources |> where .production == 0 |> map .path |> sort
+  assert excluded == ["src/check/hidden.rs", "src/check/test_owner.rs", "src/patterns.rs"]
+  let blanket = measured.report.metrics |> where .name == "blanket_dead_code_lines" |> collect
+  assert (blanket[0].evidence |> where .path == "src/check/host_obligations.rs" |> count()) == 1
+  assert (blanket[0].evidence |> where .path == "src/check/inline/child.rs" |> count()) == 1
+  let allowances = measured.item_allowances.entries |> where .path == "src/check/host_obligations.rs" |> collect
+  assert allowances.len() == 1
+  assert allowances[0].inherited_module_scope
+}
+
+
+test test_path_external_ownership_reaches_nested_inline_path_edges { |ctx|
+  let root = tree(ctx)?
+  fp"{root}/src/files/inline".mkdir()
+  fp"{root}/src/lib.rs".write("#[path = \"files/owner.rs\"] mod owner;\n")
+  fp"{root}/src/files/owner.rs".write("mod inline { #[path = \"nested.rs\"] mod nested; }\n")
+  fp"{root}/src/files/inline/nested.rs".write("mod child;\n")
+  fp"{root}/src/files/inline/child.rs".write("fn child() {}\n")
+  let report = metrics.measure(root, ["src", "crates/xsht/src"])?
+  let children = report.sources |> where .path == "src/files/inline/child.rs" |> collect
+  assert children[0].production == 1
+}
+
+test test_path_external_children_reject_missing_and_ambiguous_modules { |ctx|
+  let root = tree(ctx)?
+  fp"{root}/src/files".mkdir()
+  fp"{root}/src/lib.rs".write("#[path = \"files/owner.rs\"] mod owner;\n")
+  fp"{root}/src/files/owner.rs".write("mod child;\n")
+  for expected in [0, 2] {
+    if expected == 0 {
+      fp"{root}/src/files/owner".mkdir()
+      fp"{root}/src/files/owner/child.rs".write("fn wrong_directory() {}\n")
+    }
+    if expected == 2 {
+      fp"{root}/src/files/child".mkdir()
+      fp"{root}/src/files/child.rs".write("fn first() {}\n")
+      fp"{root}/src/files/child/mod.rs".write("fn second() {}\n")
+    }
+    match metrics.measure(root, ["src", "crates/xsht/src"]) {
+      Ok(_) => test.fail("invalid child module resolution was accepted")
+      Err(metrics.MetricError.Invalid {path: source_path, line, detail}) => {
+        assert source_path == "src/files/owner.rs"
+        assert line == 1
+        assert detail == f"module child resolves to {expected} files"
+      }
+      Err(error) => test.fail(error.message)
+    }
+  }
+}
+
+
+test test_path_external_modules_reject_conflicting_default_ownership { |ctx|
+  let root = tree(ctx)?
+  fp"{root}/src/owner".mkdir()
+  fp"{root}/src/lib.rs".write("mod owner;\n#[path = \"owner.rs\"] mod alias;\n")
+  fp"{root}/src/owner.rs".write("mod child;\n")
+  fp"{root}/src/owner/child.rs".write("fn default_child() {}\n")
+  fp"{root}/src/child.rs".write("fn path_child() {}\n")
+  match metrics.measure(root, ["src", "crates/xsht/src"]) {
+    Ok(_) => test.fail("conflicting module directories were silently selected")
+    Err(metrics.MetricError.Invalid {path: source_path, line, detail}) => {
+      assert source_path == "src/lib.rs"
+      assert line == 1
+      assert detail == "module file src/owner.rs has both default and #[path] ownership with different child directories"
+    }
+    Err(error) => test.fail(error.message)
+  }
+}
