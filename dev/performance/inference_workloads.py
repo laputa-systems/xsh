@@ -37,7 +37,7 @@ OUTPUT_SHAPES = {
     'dependency-chain': {'chain': 'Int'},
     'records': {'wide': 'Int field projection', 'deep': 'Int leaf projection'},
     'higher-order-composition': {'chain': 'Int'},
-    'generic-stream': {'items': 'List[Int] and List[Str]'},
+    'generic-stream': {'items': 'List[Int] for inputs 7 and 9'},
     'recursive-effect-component': {'component': 'Int'},
     'module-diamond': {'diamonds': 'Int sum'},
     'finite-overload-chain': {'chain': 'List[Int]'},
@@ -52,7 +52,7 @@ EVIDENCE_SHAPES = {
         'deep': 'one projection through a size-level record shape',
     },
     'higher-order-composition': {'chain': 'size applications of one Int callback contract'},
-    'generic-stream': {'items': 'two item-type instantiations and size yielded items each'},
+    'generic-stream': {'items': 'one Int item type at two inputs and size yielded items each'},
     'recursive-effect-component': {'component': 'one size-function recursive component with a time edge'},
     'module-diamond': {'diamonds': 'size two-branch diamonds sharing one identity export'},
     'finite-overload-chain': {'chain': 'size selected List[Int] map overloads'},
@@ -189,19 +189,18 @@ def _higher_order_composition(size):
 
 def _generic_stream(size):
     def source(annotated):
-        count_type = ': Int' if annotated else ''
-        numbers_type = ': List[Int]' if annotated else ''
-        words_type = ': List[Str]' if annotated else ''
-        lines = [f'stream repeated(value, count{count_type}) {{',
+        signature = '(value: Int, count: Int) -> Stream[Int]' if annotated else '(value, count)'
+        list_type = ': List[Int]' if annotated else ''
+        lines = [f'stream repeated{signature} {{',
                  '  repeat count times {',
                  '    yield value',
                  '  }',
                  '}',
                  '',
-                 f'let numbers{numbers_type} = repeated(7, {size}) |> collect()',
-                 f'let words{words_type} = repeated("x", {size}) |> collect()',
-                 'print $numbers.len()',
-                 'print $words.len()',
+                 f'let sevens{list_type} = repeated(7, {size}) |> collect()',
+                 f'let nines{list_type} = repeated(9, {size}) |> collect()',
+                 'print $sevens.len()',
+                 'print $nines.len()',
                  '']
         return {'main.xsh': '\n'.join(lines)}
 
@@ -231,7 +230,9 @@ def _recursive_effect_component(size):
 
 def _module_diamond(size):
     def sources(annotated):
-        result = {'identity.xsh': 'export pure identity(value) { value }\n'}
+        result = {'identity.xsh': ('##! Shared identity module.\n'
+                                   '## Returns its input unchanged.\n'
+                                   'export pure identity(value) { value }\n')}
         imports = []
         terms = []
         for index in range(size):
@@ -239,14 +240,21 @@ def _module_diamond(size):
                 module = f'diamond_{index}_{branch}'
                 alias = f'{branch}_{index}'
                 result[f'{module}.xsh'] = (
+                    '##! Branch of the shared identity workload.\n'
                     f'use identity as shared\n'
+                    '## Exposes the value returned by the identity function.\n'
                     f'export let value{": Int" if annotated else ""} = shared.identity(1)\n'
                 )
                 imports.append(f'use {module} as {alias}')
                 terms.append(f'{alias}.value')
         answer_type = ': Int' if annotated else ''
-        total = ' + '.join(terms)
-        result['main.xsh'] = '\n'.join((*imports, '', f'let answer{answer_type} = {total}',
+        totals = [f'let total_0 = {terms[0]} + {terms[1]}']
+        totals.extend(
+            f'let total_{index} = total_{index - 1} + {terms[2 * index]} + {terms[2 * index + 1]}'
+            for index in range(1, size)
+        )
+        result['main.xsh'] = '\n'.join((*imports, '', *totals,
+                                         f'let answer{answer_type} = total_{size - 1}',
                                          'print $answer', ''))
         return result
 

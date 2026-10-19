@@ -195,6 +195,13 @@ controls: 64, 128, and 256 await a boundary probe, while 512 remains an
 expected type-depth rejection under the existing limit. These sources retain
 future RED inputs without claiming section 12 coverage.
 
+The module-diamond source sums its `2 * size` imported values through `size`
+shallow accumulator bindings, so the source measures shared imports without a
+single expression reaching the parser nesting limit. The stream sizing source
+uses one `Stream[Int]` producer with inputs 7 and 9; it has one item type.
+Native inference capability fixtures cover independent `Int` and `Str` stream
+instances separately.
+
 `workloads.py` keeps the original fifteen cases first: two startup cases, six
 streaming cases, three JSON cases, three directory cases, and one 128-child
 spawn case. It appends six demanding data cases: JSON and directory workloads
