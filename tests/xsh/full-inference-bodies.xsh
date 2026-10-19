@@ -173,7 +173,7 @@ proc attempt(value: Int) [error] -> Result[Int, RetryBodyError] {
   }
   return Ok(value)
 }
-proc recover(row) [error] {
+proc recover(row) [error, time] {
   let outcome = try {
     retry [0ms] on (RetryBodyError.Temporary) {
       attempt(row.value)?
@@ -193,6 +193,35 @@ print attempts
     stdout: ["3\n"],
   )?
   assert output.stderr == "", output.stderr
+}
+
+test test_full_inference_body_retry_delay_requires_time_effect { |ctx|
+  test.expect(
+    ctx,
+    r"""error RetryBodyError = Temporary(attempt: Int)
+type RetryRow = {value: Int, token: Int}
+type RetryOutcome = {outcome: Result[Int, RetryBodyError], token: Int}
+var attempts = 0
+proc attempt(value: Int) [error] -> Result[Int, RetryBodyError] {
+  attempts += 1
+  if attempts < 2 {
+    return Err(RetryBodyError.Temporary(attempt: attempts))
+  }
+  return Ok(value)
+}
+proc recover(row: RetryRow) [error] -> Result[RetryOutcome] {
+  let outcome = try {
+    retry [0ms] on (RetryBodyError.Temporary) {
+      attempt(row.value)?
+    }?
+  }
+  {outcome: outcome, token: row.token}
+}
+let number = recover({value: 7, token: 42})?
+""",
+    status: 2,
+    stderr: ["[check.effect-violation]", "`retry` with delays requires the `time` effect"],
+  )?
 }
 
 test test_full_inference_body_resource_tempdir_and_cleanup { |ctx|
