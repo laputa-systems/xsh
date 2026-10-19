@@ -5,7 +5,7 @@ use crate::source::Span;
 use rustc_hash::FxHashSet;
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 mod gnu;
 
@@ -408,16 +408,35 @@ pub(crate) enum ParsePolicy {
     Applet,
 }
 
+#[derive(Clone, Debug)]
+struct CliDescriptorTypes {
+    values: crate::sema::types::Type,
+    full: OnceLock<crate::sema::types::Type>,
+    symbol_owner: Option<crate::symbol::SymbolOwner>,
+}
+
 /// One normalized descriptor supplies both checked field types and argument
 /// parsing policy. Prepared calls retain this plan without exposing it as a
 /// language value; dynamic descriptors use the same normalization at runtime.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct CliDescriptorPlan {
     specs: BTreeMap<String, OptionSpec>,
     gnu: Option<GnuConfig>,
     policy: ParsePolicy,
     commands: Option<(BTreeMap<String, CommandSpec>, Option<CommandSpec>)>,
+    types: OnceLock<CliDescriptorTypes>,
 }
+
+impl PartialEq for CliDescriptorPlan {
+    fn eq(&self, other: &Self) -> bool {
+        self.specs == other.specs
+            && self.gnu == other.gnu
+            && self.policy == other.policy
+            && self.commands == other.commands
+    }
+}
+
+impl Eq for CliDescriptorPlan {}
 
 impl CliDescriptorPlan {
     pub(crate) fn normalize(
@@ -432,6 +451,7 @@ impl CliDescriptorPlan {
             gnu,
             policy,
             commands: None,
+            types: OnceLock::new(),
         })
     }
 
@@ -457,6 +477,7 @@ impl CliDescriptorPlan {
             gnu: None,
             policy: ParsePolicy::Strict,
             commands: Some((specs, fallback)),
+            types: OnceLock::new(),
         })
     }
 
@@ -476,6 +497,10 @@ impl CliDescriptorPlan {
     }
 
     pub(crate) fn values_type(&self) -> crate::sema::types::Type {
+        self.prepared_types().values.clone()
+    }
+
+    fn compute_values_type(&self) -> crate::sema::types::Type {
         use crate::sema::types::Type;
         if let Some((commands, fallback)) = &self.commands {
             let mut shapes = commands
@@ -498,20 +523,44 @@ impl CliDescriptorPlan {
 
     pub(crate) fn return_type(&self, full: bool) -> crate::sema::types::Type {
         use crate::sema::types::Type;
-        let values = self.values_type();
+        let types = self.prepared_types();
         let result = if full {
-            Type::Record(BTreeMap::from(
-                xsh_registry::types::cli_full_fields(
-                    values,
-                    Type::ErasedRecord,
-                    Type::List(Box::new(Type::Str)),
-                )
-                .map(|(name, ty)| (crate::symbol::Name::intern(name), ty)),
-            ).into())
+            types.full.get_or_init(|| {
+                let create = || {
+                    Type::Record(
+                        BTreeMap::from(
+                            xsh_registry::types::cli_full_fields(
+                                types.values.clone(),
+                                Type::ErasedRecord,
+                                Type::List(Box::new(Type::Str)),
+                            )
+                            .map(|(name, ty)| (crate::symbol::Name::intern(name), ty)),
+                        )
+                        .into(),
+                    )
+                };
+                types
+                    .symbol_owner
+                    .as_ref()
+                    .map_or_else(create, |owner| owner.with_current(create))
+            })
+            .clone()
         } else {
-            values
+            types.values.clone()
         };
         Type::Result(Box::new(result), Box::new(Type::Error))
+    }
+
+    fn prepared_types(&self) -> &CliDescriptorTypes {
+        self.types.get_or_init(|| {
+            let symbol_owner = crate::symbol::SymbolOwner::current();
+            let values = self.compute_values_type();
+            CliDescriptorTypes {
+                values,
+                full: OnceLock::new(),
+                symbol_owner,
+            }
+        })
     }
 }
 
@@ -2789,8 +2838,27 @@ fn cli_commands_error(message: impl Into<String>, span: Span) -> RuntimeError {
 
 #[cfg(test)]
 mod tests {
-    use super::{ArgTokenKind, ArgValueType, parse_type_name};
+    use super::{ArgTokenKind, ArgValueType, CliDescriptorPlan, ParsePolicy, parse_type_name};
+    use crate::runtime::value::{RecordMap, Value};
+    use crate::sema::types::Type;
     use crate::source::{SourceId, Span};
+    use crate::symbol::{Name, SymbolOwner};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    fn record_fields(ty: &Type) -> &Arc<BTreeMap<Name, Type>> {
+        match ty {
+            Type::Record(fields) => fields,
+            _ => panic!("expected record type"),
+        }
+    }
+
+    fn result_value(ty: &Type) -> &Type {
+        match ty {
+            Type::Result(value, _) => value,
+            _ => panic!("expected result type"),
+        }
+    }
 
     #[test]
     fn parse_scalar_arg_types_is_centralized() {
@@ -2834,5 +2902,83 @@ mod tests {
         assert_eq!(ArgTokenKind::Long.as_str(), "long");
         assert_eq!(ArgTokenKind::Short.as_str(), "short");
         assert_eq!(ArgTokenKind::Operand.as_str(), "operand");
+    }
+
+    #[test]
+    fn descriptor_return_types_reuse_prepared_record_shapes() {
+        SymbolOwner::new().with_current(|| {
+            let span = Span::new(SourceId::new(0), 0, 0);
+            let plan = CliDescriptorPlan::normalize(
+                RecordMap::from([(Arc::from("count"), Value::Str(Arc::from("Int")))]),
+                span,
+                ParsePolicy::Strict,
+                &BTreeMap::new(),
+            )
+            .expect("valid CLI descriptor");
+
+            let values = plan.values_type();
+            let repeated_values = plan.values_type();
+            let parsed = plan.return_type(false);
+            let repeated_parsed = plan.return_type(false);
+            let value_shape = record_fields(&values);
+
+            assert!(Arc::ptr_eq(value_shape, record_fields(&repeated_values)));
+            assert!(Arc::ptr_eq(value_shape, record_fields(result_value(&parsed))));
+            assert!(Arc::ptr_eq(value_shape, record_fields(result_value(&repeated_parsed))));
+
+            let full = plan.return_type(true);
+            let repeated_full = plan.return_type(true);
+            let full_shape = record_fields(result_value(&full));
+            let repeated_full_shape = record_fields(result_value(&repeated_full));
+            assert!(Arc::ptr_eq(full_shape, repeated_full_shape));
+            assert!(!Arc::ptr_eq(value_shape, full_shape));
+            assert!(matches!(
+                full_shape.get(&Name::intern("values")),
+                Some(Type::Record(fields)) if Arc::ptr_eq(value_shape, fields)
+            ));
+            assert_eq!(full_shape.get(&Name::intern("sources")), Some(&Type::ErasedRecord));
+            assert_eq!(
+                full_shape.get(&Name::intern("warnings")),
+                Some(&Type::List(Box::new(Type::Str)))
+            );
+        });
+    }
+
+    #[test]
+    fn descriptor_type_shapes_retain_their_symbol_owner() {
+        const FIELD: &str = "xsh_cli_descriptor_cached_owner_probe";
+
+        let owner_a = SymbolOwner::new();
+        let plan = owner_a.with_current(|| {
+            CliDescriptorPlan::normalize(
+                RecordMap::from([(Arc::from(FIELD), Value::Str(Arc::from("Int")))]),
+                Span::new(SourceId::new(0), 0, 0),
+                ParsePolicy::Strict,
+                &BTreeMap::new(),
+            )
+            .expect("valid CLI descriptor")
+        });
+        let values_a = owner_a.with_current(|| plan.values_type());
+        drop(owner_a);
+
+        let owner_b = SymbolOwner::new();
+        owner_b.with_current(|| {
+            let recycled = Name::intern("xsh_cli_descriptor_owner_recycled_probe");
+            let field = Name::intern(FIELD);
+            let values_b = plan.values_type();
+            let fields_a = record_fields(&values_a);
+            let fields_b = record_fields(&values_b);
+
+            assert!(!recycled.is_preloaded());
+            assert!(!field.is_preloaded());
+            assert_eq!(field.as_str().as_str(), FIELD);
+            assert!(Arc::ptr_eq(fields_a, fields_b));
+            assert_eq!(
+                fields_b.get(&field),
+                Some(&Type::Optional(Box::new(Type::Int)))
+            );
+            assert_eq!(fields_b.len(), 1);
+            assert_eq!(fields_b.keys().next().unwrap().as_str().as_str(), FIELD);
+        });
     }
 }
