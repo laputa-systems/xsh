@@ -20,14 +20,21 @@ The deliverables are:
 
 ## Current checkpoint
 
-Repair `e704557d6` fixes contextual Err arguments, scoped pipeline proof
-emission, repeated immutable initializer derivation, UInt constructor-fact
-placement and stale export-corruption mutations. Focused tests preserve payload,
-unsigned and absent-demand rejection controls. Replaying the eighteen failed
-library cases now gives eleven passes and seven failures. Residual classes are
-private bridge signature authority, open typed-callable APIs, record projection
-and missing ground producer forms. Matching product/native replay and the full
-library boundary remain pending; this source is not qualified.
+Source `1710bf2ff` passes all 31 focused replay cases, including the eighteen
+earlier library failures. The replay covers private bridge contracts, native
+and static constructor arguments, open typed-callable headers, Result payloads,
+conditional and loop writers, branches that transfer control and Optional transport.
+Forged argument, payload, slot and metadata controls remain rejected.
+The entire embedded-module catalog passes. Matching verification tools are
+building; native replay and the full library boundary remain pending.
+This checkpoint does not qualify the whole source or close inference G1.
+
+The producer repair at `d06e66c34` removes a redundant writer census sweep.
+Actual traversal counts remain within three sweeps at 64 and 128 local bindings;
+the existing work cap is unchanged. CLI descriptor shapes at `9e63ec4dc` share
+their prepared records and retain the initializing symbol owner. Both new
+resource controls and the existing `parse` and `parse_full` execution control pass after
+integration. These are deterministic resource checks, with no timing claim.
 
 Procedure source `139868db6` integrates canonical callable kinds, inferred
 finite-effect Proc interfaces and strict Result producer checking. Both grammar
@@ -39,18 +46,16 @@ matching native replay remains pending. Frontend-disposal tests reject forged Re
 effect ceilings while preserving contextual collections and Any callable values.
 
 The earlier `139868db6` full library boundary has 1,076 passes, eighteen failures
-and three ignores. The focused repairs above resolve eleven failures, including
-the stale export-corruption payload. Private bridge validation now reaches a
-missing producer operand contract after its Pure signature representation was
-corrected. Repair the remaining classes before repeating the library gate.
-No whole-source qualification follows from the focused passes.
+and three ignores. All eighteen selectors now pass in the focused replay above.
+A fresh full library run remains required; its result is not implied by that replay.
 
 The canonical `io.flush_stdout` coordinated callee/owner effect-forgery test is
 red. Its initial Print-based premise was wrong: print and eprint require no
 language effect. Independent executable-effect validation remains mandatory.
-Separately, baseline checks accept direct and transitive glob use under an
-empty bound, contrary to the specified filesystem effect. Grounded controls
-preserve the valid filesystem bound and pure rejection. The retry capability
+Separately, `22e4de86c` makes direct and transitive glob use require `fs`, fixing
+the baseline's acceptance under an empty bound. The pure diagnostic stays
+unchanged. Four matching native regressions still need to qualify this change.
+The retry capability
 fixture now includes its required time effect; its missing-time negative passes.
 
 The constructor tranche at `12436b472`, with branch-fact repair
@@ -142,8 +147,10 @@ including source, product, view, retained-class, retained-reason and no-skip
 rejection. These controlled-product tests earn no compiler or
 annotation-removal credit. The next proposed candidate erases 758 Proc contracts
 from the frozen retained table: 549 parameters and 209 returns. Together with the
-accepted 1,040 edits, that would be 1,798 removals. No such candidate has passed;
-all 202 effects and other retained classes stay outside this tranche.
+accepted 1,040 edits, that would be 1,798 removals. Source reconstruction and AST
+validation confirm that proposed count: 499 local and 1,299 internal annotations
+across 250 Proc declarations. Compiler and runtime qualification remain pending.
+All 202 effects and other retained classes stay outside this tranche.
 
 The nested callable graph is integrated at `3c41f3b3a`. Eight focused tests
 pass, covering shared binders, component resolution, rollback, rest parameters,
