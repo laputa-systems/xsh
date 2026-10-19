@@ -256,6 +256,32 @@ print $defaulted_result
   }
 }
 
+test test_check_annotate_rejects_invalid_callable_candidates { |ctx|
+  let source = r"""pure defaulted(value: Int = 1) -> Int {
+  value
+}
+let selected = if true {
+  let candidate = defaulted
+  candidate
+} else {
+  let candidate = defaulted
+  candidate
+}
+let result = selected()
+print $result
+"""
+  let root = project(ctx, {"main.xsh": source})?
+  cd $root {
+    let checked = run.capture --text "xsht" check main.xsh
+    assert checked.status.exited_with(0), checked.stderr
+
+    let annotated = run.capture --text "xsht" check --annotate=locals main.xsh
+    assert annotated.status.exited_with(2), annotated.stderr
+    assert "err[check.arity]" in annotated.stderr, annotated.stderr
+    assert p"main.xsh".read_text()? == source
+  }
+}
+
 test test_check_annotate_uses_exact_configured_classes { |ctx|
   let source = """
 let names = ["a", "b"]
