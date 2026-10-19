@@ -789,6 +789,8 @@ duplicate per-commit copies of controllers solely to record provenance.
 
 - H3 maintenance passed on the unchanged Lean 4.35 formal project: Lake build, axiom audit and self-test, guarded fresh paranoid check, sandbox self-tests, inventory check and all 51 inventory tests. The proof inventory still has 72 planned implementation obligations, no frozen Rust source identity and no conformance cases. These checks do not establish Rust compiler verification.
 
+- Combined source `6957e88f4` passed 228 root integration tests, 1,042 debug-library tests with three existing ignores, and all 122 XSHT integration tests with five existing exclusions. Soundness then failed its unchanged minimum probe-count guard: five scalar receiver families were omitted after their registry types became explicit. The exact probe test passes with the adapter repair, but the full soundness run exposed a separate checker panic on an unknown entry-parameter type. Both repairs remain under focused verification. Preserve the failed r4 receipt; native and supplemental stages did not run. Commit `4105a3823` moves soundness ahead of the debug and XSHT corpus targets without changing commands or exclusions. The ordering regression failed before the change and both focused workflow tests pass afterward.
+
 ## For the owner afterwards
 
 - Read the concise accepted baseline page and deployment reproduction commands.
