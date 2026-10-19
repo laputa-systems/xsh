@@ -6547,7 +6547,10 @@ impl<'a> FullDecoder<'a> {
             }
             FullDriverTag::LetRecord => {
                 let slot = writer_slot as usize;
-                let source: BuildExprId = FullCodec::decode(&decoder, &mut payload)?;
+                let source = BuildExprId::borrow(
+                    DecodeContext::from_decoder(&decoder),
+                    &mut payload,
+                )?;
                 let _: Vec<(Name, usize)> = FullCodec::decode(&decoder, &mut payload)?;
                 let target = LoweredCompTarget::borrow(
                     DecodeContext::from_decoder(&decoder),
@@ -6560,7 +6563,7 @@ impl<'a> FullDecoder<'a> {
                     return Ok(None);
                 }
                 let field_type = decoder
-                    .checked_driver_record_output_types(source.index(), target)?
+                    .checked_driver_record_output_types(source.raw() as usize, target)?
                     .remove(&slot);
                 self.checked_writer_slot_type(
                     binding_identity,
@@ -22442,6 +22445,54 @@ run true
             Some("let flag = false\n")
         );
         FullVerifier::verify(&program).unwrap();
+    }
+
+    #[test]
+    fn full_verifier_authenticates_driver_record_sources_for_generic_arguments() {
+        let program = fixture(
+            "record-generic-source.xsh",
+            "pure identity(value) { value }\n\
+             let {text} = {text: \"ready\"}\n\
+             assert identity(text) == \"ready\"\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let step = program.store.driver_steps.iter().position(|step| {
+            step.tag == FullDriverTag::LetRecord
+        }).unwrap();
+        let scalar = program.store.driver_instruction_range(step).unwrap().find(|instruction| {
+            program.store.tags[*instruction] == FullTag::ExprStr
+        }).unwrap();
+        let mut forged = program.clone();
+        let payload = forged.store.driver_steps[step].data.range();
+        forged.store.extra[payload.start as usize] = scalar as u32;
+        assert_eq!(
+            FullVerifier::verify(&forged).unwrap_err().message,
+            "driver record source field path is not a record",
+        );
+    }
+
+    #[test]
+    fn full_verifier_authenticates_driver_guard_sources_for_generic_host_plans() {
+        let program = fixture(
+            "guard-generic-source.xsh",
+            "pure append(items: List[Int], row) -> List[Int] { items.push(row.value) }\n\
+             guard let row = Ok({value: 2}) else { exit 3 }\n\
+             assert append([1], row) == [1, 2]\n",
+        );
+        FullVerifier::verify(&program).unwrap();
+        let step = program.store.driver_steps.iter().position(|step| {
+            step.tag == FullDriverTag::LetRecord
+        }).unwrap();
+        let scalar = program.store.driver_instruction_range(step).unwrap().find(|instruction| {
+            program.store.tags[*instruction] == FullTag::ExprInt
+        }).unwrap();
+        let mut forged = program.clone();
+        let payload = forged.store.driver_steps[step].data.range();
+        forged.store.extra[payload.start as usize] = scalar as u32;
+        assert_eq!(
+            FullVerifier::verify(&forged).unwrap_err().message,
+            "driver guard source is not a value block",
+        );
     }
 
     #[test]
