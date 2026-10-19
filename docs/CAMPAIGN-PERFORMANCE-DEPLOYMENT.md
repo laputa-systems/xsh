@@ -20,6 +20,30 @@ The deliverables are:
 
 ## Current checkpoint
 
+Procedure source `139868db6` integrates canonical callable kinds, inferred
+finite-effect Proc interfaces and strict Result producer checking. Both grammar
+generators, the parser/grammar omission matrix and thirteen lint consumer tests
+pass. Matching native products pass immutable prefixes, value branches,
+mutable-capture rejection and exported inference. Private/imported scalar and
+nested Ok probes pass; nested Err arguments remain blocked by a missing closed
+type fact. Frontend-disposal tests reject forged Result payloads and owner
+effect ceilings while preserving contextual collections and Any callable values.
+
+The full library boundary is red: 1,076 pass, eighteen fail and three remain
+ignored. Strict constructor proof exposed missing lowering contexts for pipeline
+and method producers, unsupported producer forms and shared work-budget exhaustion.
+An export-corruption test also uses a stale payload/word layout after the new
+kind encoding. Repair these focused classes before repeating the library gate.
+No whole-source qualification follows from the focused passes.
+
+The canonical `io.flush_stdout` coordinated callee/owner effect-forgery test is
+red. Its initial Print-based premise was wrong: print and eprint require no
+language effect. Independent executable-effect validation remains mandatory.
+Separately, baseline checks accept direct and transitive glob use under an
+empty bound, contrary to the specified filesystem effect. Grounded controls
+preserve the valid filesystem bound and pure rejection. The retry capability
+fixture now includes its required time effect; its missing-time negative passes.
+
 The constructor tranche at `12436b472`, with branch-fact repair
 `a93a9b756`, supports independent Int/Str instantiation of list, record and
 Result constructors and generic value branches. Focused checks execute both
@@ -49,11 +73,8 @@ at sizes 64, 128, 256 and 512. Their shape and generator checks are not measured
 performance evidence. Three solver scaling checks pass at all four sizes. Seven host-obligation
 checks pass, including actual candidate-trial counts and deduplicated dependency
 requeues. These new counters are test-only; the older `worklist_wakeups` counter
-measures solver pair work. Finite-effect generic procedure implementation
-remains in progress: imported execution passes on both indexed routes, but a
-new forged Result-payload fact is incorrectly accepted. That corruption check
-blocks acceptance of the procedure tranche. All remaining capability, joint corpus,
-performance, baseline, deployment and cleanup gates retain their requirements.
+measures solver pair work. All remaining capability, joint corpus, performance,
+baseline, deployment and cleanup gates retain their requirements.
 
 The first full-inference compiler slice, `dbfea6b51`, admits unannotated
 immutable aliases to known generic module exports. Each call keeps fresh type
