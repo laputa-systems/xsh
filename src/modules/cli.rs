@@ -496,10 +496,6 @@ impl CliDescriptorPlan {
         )
     }
 
-    pub(crate) fn values_type(&self) -> crate::sema::types::Type {
-        self.prepared_types().values.clone()
-    }
-
     fn compute_values_type(&self) -> crate::sema::types::Type {
         use crate::sema::types::Type;
         if let Some((commands, fallback)) = &self.commands {
@@ -2916,13 +2912,16 @@ mod tests {
             )
             .expect("valid CLI descriptor");
 
-            let values = plan.values_type();
-            let repeated_values = plan.values_type();
+            let values = plan.return_type(false);
+            let repeated_values = plan.return_type(false);
             let parsed = plan.return_type(false);
             let repeated_parsed = plan.return_type(false);
-            let value_shape = record_fields(&values);
+            let value_shape = record_fields(result_value(&values));
 
-            assert!(Arc::ptr_eq(value_shape, record_fields(&repeated_values)));
+            assert!(Arc::ptr_eq(
+                value_shape,
+                record_fields(result_value(&repeated_values))
+            ));
             assert!(Arc::ptr_eq(value_shape, record_fields(result_value(&parsed))));
             assert!(Arc::ptr_eq(value_shape, record_fields(result_value(&repeated_parsed))));
 
@@ -2958,16 +2957,16 @@ mod tests {
             )
             .expect("valid CLI descriptor")
         });
-        let values_a = owner_a.with_current(|| plan.values_type());
+        let values_a = owner_a.with_current(|| plan.return_type(false));
         drop(owner_a);
 
         let owner_b = SymbolOwner::new();
         owner_b.with_current(|| {
             let recycled = Name::intern("xsh_cli_descriptor_owner_recycled_probe");
             let field = Name::intern(FIELD);
-            let values_b = plan.values_type();
-            let fields_a = record_fields(&values_a);
-            let fields_b = record_fields(&values_b);
+            let values_b = plan.return_type(false);
+            let fields_a = record_fields(result_value(&values_a));
+            let fields_b = record_fields(result_value(&values_b));
 
             assert!(!recycled.is_preloaded());
             assert!(!field.is_preloaded());

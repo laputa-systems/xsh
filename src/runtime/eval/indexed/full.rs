@@ -25701,7 +25701,7 @@ proc main() {
         let FullCallableContract::Ground(signature) = program.store.functions[declaration].contract else { panic!("ground bridge declaration") };
         let mut signature = program.store.semantic.to_signature_with_budget(signature, 0,
             &mut crate::runtime::eval::indexed::semantic::TypeMaterializationBudget::default()).unwrap();
-        signature.return_ty = Box::new(Type::Int);
+        *signature.return_ty = Type::Int;
         let mut forged = program.clone();
         let signature = SemanticPoolBuilder::default().intern_signature(&mut forged.store.semantic, &signature).unwrap();
         forged.store.functions[declaration].contract = FullCallableContract::Ground(signature);
