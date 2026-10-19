@@ -785,6 +785,10 @@ duplicate per-commit copies of controllers solely to record provenance.
 
 - Combined source `257c2d52a` passed the formerly failing documentation check and all 1,041 debug-library tests, with three existing ignores. Its tooling target then failed the contextual nominal-import test. The exact selector reproduced immediately: local slot facts used the resolved error-family owner while emitted annotations retained the import alias. The producer fix applies the existing scope-aware canonicalization to three local annotation paths. Four accepted declaration cases, two unchanged const rejections, all three contextual-root selectors and two verifier-authority controls pass with matching rebuilt products. Preserve the failed r3 receipt; native and supplemental stages remain unrun.
 
+- Laputa acceptance now contains the reviewed lifecycle and XSHI-proof port at `636113a`. The exact lifecycle and runner tests pass with the current R13 seed; the guest proof has only passed typechecking. Deno recovery verified all eight closure artifacts. The subsequent full-world build stopped on remote metapackage import: publication correctly omits its archive, but planning substitutes a legacy archive URL. The container was removed and partial artifacts remain reusable. The isolated fix owns `.work/wt/laputa-remote-meta-import`; no full-world, rooted-profile or guest acceptance follows from this failed stage.
+
+- H3 maintenance passed on the unchanged Lean 4.35 formal project: Lake build, axiom audit and self-test, guarded fresh paranoid check, sandbox self-tests, inventory check and all 51 inventory tests. The proof inventory still has 72 planned implementation obligations, no frozen Rust source identity and no conformance cases. These checks do not establish Rust compiler verification.
+
 ## For the owner afterwards
 
 - Read the concise accepted baseline page and deployment reproduction commands.
