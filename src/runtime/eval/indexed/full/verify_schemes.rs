@@ -18,7 +18,6 @@ use crate::sema::validated::{IntRange, ValidatedType, Validation};
 use crate::symbol::Name;
 use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
-use std::rc::Rc;
 use std::sync::Arc;
 
 const SCHEME_TYPE_WORK_PER_NODE: usize = 8;
@@ -190,18 +189,14 @@ fn verify_function_schemes(store: &FullStore) -> Result<Vec<Option<SchemeScope>>
             &mut type_parameter_coverage,
             "scheme type parameter range is invalid or overlaps",
         )?
-        .iter()
-        .copied()
-        .collect::<Vec<_>>();
+        .to_vec();
         let row_parameters = mark_range(
             scheme.row_parameters,
             &store.scheme_row_parameters,
             &mut row_parameter_coverage,
             "scheme row parameter range is invalid or overlaps",
         )?
-        .iter()
-        .copied()
-        .collect::<Vec<_>>();
+        .to_vec();
         for parameter in &row_parameters {
             mark_range(
                 parameter.lacks,
@@ -216,9 +211,7 @@ fn verify_function_schemes(store: &FullStore) -> Result<Vec<Option<SchemeScope>>
             &mut parameter_coverage,
             "scheme parameter range is invalid or overlaps",
         )?
-        .iter()
-        .copied()
-        .collect::<Vec<_>>();
+        .to_vec();
         let _effects = mark_range(
             scheme.effects,
             &store.scheme_effects,
@@ -1385,10 +1378,11 @@ fn scheme_body_fact_type(
         &store.scheme_body_facts,
         "scheme body fact range is invalid",
     )? {
-        if fact.instruction == instruction && fact.kind == kind {
-            if found.replace(fact.ty).is_some() {
-                return Err(IrVerifyError::new("generic body fact is duplicated"));
-            }
+        if fact.instruction == instruction
+            && fact.kind == kind
+            && found.replace(fact.ty).is_some()
+        {
+            return Err(IrVerifyError::new("generic body fact is duplicated"));
         }
     }
     Ok(found)
@@ -3475,6 +3469,14 @@ fn mark_range<'a, T>(
     Ok(&values[bounds])
 }
 
+fn require_empty_children(range: IrRange) -> Result<(), IrVerifyError> {
+    if range.len == 0 {
+        Ok(())
+    } else {
+        Err(IrVerifyError::new("scheme type node has unexpected child rows"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3598,13 +3600,5 @@ mod tests {
             .expect("aggregate type materialization should exceed the shared budget");
 
         assert!(error.message.contains("semantic type materialization exceeds its work limit"));
-    }
-}
-
-fn require_empty_children(range: IrRange) -> Result<(), IrVerifyError> {
-    if range.len == 0 {
-        Ok(())
-    } else {
-        Err(IrVerifyError::new("scheme type node has unexpected child rows"))
     }
 }

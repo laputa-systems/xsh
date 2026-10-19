@@ -6431,12 +6431,12 @@ impl<'a> FullDecoder<'a> {
                     .bounds(self.store.driver_writers.len())
                     .ok_or_else(|| IrVerifyError::new("binding writer range is invalid"))?;
                 for row in &self.store.driver_writers[writers] {
-                    if row.binding_identity == binding_identity {
-                        if writer.replace((step_index, row.slot)).is_some() {
-                            return Err(IrVerifyError::new(
-                                "binding identity has multiple defining writers",
-                            ));
-                        }
+                    if row.binding_identity == binding_identity
+                        && writer.replace((step_index, row.slot)).is_some()
+                    {
+                        return Err(IrVerifyError::new(
+                            "binding identity has multiple defining writers",
+                        ));
                     }
                 }
             }
@@ -6763,12 +6763,10 @@ impl<'a> FullDecoder<'a> {
                 .steps
                 .bounds(self.store.driver_steps.len())
                 .ok_or_else(|| IrVerifyError::new("driver program step range is invalid"))?;
-            if steps.contains(&owner_step) {
-                if program_steps.replace(steps).is_some() {
-                    return Err(IrVerifyError::new(
-                        "driver local owner belongs to multiple programs",
-                    ));
-                }
+            if steps.contains(&owner_step) && program_steps.replace(steps).is_some() {
+                return Err(IrVerifyError::new(
+                    "driver local owner belongs to multiple programs",
+                ));
             }
         }
         let Some(program_steps) = program_steps else {
@@ -6832,8 +6830,8 @@ impl<'a> FullDecoder<'a> {
                     let mut payload = FullCursor::new(self.store.payload(step.data.range())?);
                     payload.raw()?;
                     let context = DecodeContext::from_decoder(&decoder);
-                    let mut fields = Vec::<(Name, usize)>::borrow(context, &mut payload)?;
-                    while let Some(field) = fields.next() {
+                    let fields = Vec::<(Name, usize)>::borrow(context, &mut payload)?;
+                    for field in fields {
                         charge(1)?;
                         let (name, _) = field?;
                         if name.as_str() == target_name {
@@ -7972,9 +7970,7 @@ impl<'a> FullDecoder<'a> {
                         .effects
                         .bounds(self.store.scheme_effects.len())
                         .ok_or_else(|| IrVerifyError::new("scheme effect range is invalid"))?;
-                    Ok(self.store.scheme_effects[effects]
-                        .iter()
-                        .any(|effect| *effect == Effect::Error))
+                    Ok(self.store.scheme_effects[effects].contains(&Effect::Error))
                 }
             }
         };
@@ -10209,7 +10205,7 @@ impl<'a> FullDecoder<'a> {
                 }
                 verify_schemes::ensure_substitution_type(&ty)?;
                 let budget = constant_budget.get_or_insert_with(|| verify_schemes::SchemeInstantiationBudget::for_prepared_constants(self.store, self.prepared_constant_work.get()));
-                self.verify_prepared_constant_type(&value, &ty, &mut |amount| budget.charge(amount))?;
+                self.verify_prepared_constant_type(value, &ty, &mut |amount| budget.charge(amount))?;
             }
             schema::ExprView::Int(_) if ty == Type::Int => {}
             schema::ExprView::UInt(_) if ty == Type::UInt => {}
@@ -15695,16 +15691,16 @@ fn indexed_stage_callback_roots(
             | StageView::AnyBlock { body, value, .. }
             | StageView::AllBlock { body, value, .. }
             | StageView::ParMapBlock { body, value, .. } => {
-                block(&body, roots)?;
+                block(body, roots)?;
                 expression(value.raw(), roots);
             }
             StageView::Tee { body, .. } | StageView::Each { body, .. } => {
-                block(&body, roots)?;
+                block(body, roots)?;
             }
             StageView::Fold { body, value, .. }
             | StageView::ReduceBy { body, value, .. }
             | StageView::ReduceByConfigured { body, value, .. } => {
-                block(&body, roots)?;
+                block(body, roots)?;
                 expression(value.raw(), roots);
             }
             StageView::ParMapFlatMapReduceBy {
@@ -15715,10 +15711,10 @@ fn indexed_stage_callback_roots(
                 ..
             } => {
                 if let Some(body) = body {
-                    block(&body, roots)?;
+                    block(body, roots)?;
                 }
                 expression(value.raw(), roots);
-                block(&reduce_body, roots)?;
+                block(reduce_body, roots)?;
                 expression(reduce_value.raw(), roots);
             }
             _ => {}
@@ -16244,19 +16240,19 @@ impl FullVerifier {
             if metadata.owner != IR_NONE {
                 store.string(metadata.owner)?;
             }
-            if let FullCallableContract::Ground(signature) = function.contract {
-                if function.checked_return_type != IR_NONE {
-                    let ty = TypeId::from_raw(function.checked_return_type).ok_or_else(|| {
-                        IrVerifyError::new("function checked return type id is invalid")
-                    })?;
-                    let signature_return = store.semantic.signature_return_type(signature)?;
-                    let checked_return = store.semantic.to_type(ty)?;
-                    let declared_return = store.semantic.to_type(signature_return)?;
-                    if !checked_return.matches_expected(&declared_return) {
-                        return Err(IrVerifyError::new(
-                            "checked return type disagrees with the function signature",
-                        ));
-                    }
+            if let FullCallableContract::Ground(signature) = function.contract
+                && function.checked_return_type != IR_NONE
+            {
+                let ty = TypeId::from_raw(function.checked_return_type).ok_or_else(|| {
+                    IrVerifyError::new("function checked return type id is invalid")
+                })?;
+                let signature_return = store.semantic.signature_return_type(signature)?;
+                let checked_return = store.semantic.to_type(ty)?;
+                let declared_return = store.semantic.to_type(signature_return)?;
+                if !checked_return.matches_expected(&declared_return) {
+                    return Err(IrVerifyError::new(
+                        "checked return type disagrees with the function signature",
+                    ));
                 }
             }
             if metadata.flags & !0b11 != 0 {
@@ -17910,7 +17906,7 @@ impl FullCodec for LoweredModuleExport {
                 name,
                 function_namespace: Name::decode(decoder, input)?,
             }),
-            _ => return Err(IrVerifyError::new("module export kind is invalid")),
+            _ => Err(IrVerifyError::new("module export kind is invalid")),
         }
     }
 }
@@ -20704,8 +20700,7 @@ run true
             .unwrap();
         let mut cursor = FullCursor::new(payload);
         LoweredFunctionKey::decode(&decoder, &mut cursor).unwrap();
-        let block = IrBlockId::from_raw(cursor.raw().unwrap()).unwrap();
-        block
+        IrBlockId::from_raw(cursor.raw().unwrap()).unwrap()
     }
 
     fn scheme_fixture_call_arguments(program: &FullProgram, instruction: u32) -> Vec<(u32, u32)> {
@@ -20718,7 +20713,9 @@ run true
         let count = words[0] as usize;
         assert_eq!(words.len(), 1 + count * 2);
         words[1..]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|argument| (argument[0], argument[1]))
             .collect()
     }

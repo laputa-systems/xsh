@@ -273,11 +273,11 @@ fn measure_checked_declarations(declarations: &CheckedDeclarations) -> (usize, u
                     .saturating_sub(scheme.retained_bytes());
             }
             type_count += facts.expression_types().len() + facts.tail_types().len();
-        } else if let Some(scheme) = &declaration.scheme {
-            if counted_schemes.insert(std::sync::Arc::as_ptr(scheme) as usize) {
-                type_count += scheme.params().len() + 1;
-                bytes += scheme.retained_bytes();
-            }
+        } else if let Some(scheme) = &declaration.scheme
+            && counted_schemes.insert(std::sync::Arc::as_ptr(scheme) as usize)
+        {
+            type_count += scheme.params().len() + 1;
+            bytes += scheme.retained_bytes();
         }
     }
     for family in declarations.builtin_error_families.values() {

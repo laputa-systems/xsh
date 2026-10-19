@@ -1626,8 +1626,8 @@ impl SemanticPoolBuilder {
     }
 
     fn signature_param_key(param: SignatureParamParts) -> SignatureParamKey {
-        let flags = u32::from(param.defaulted) * PARAM_DEFAULTED
-            | u32::from(param.rest) * PARAM_REST;
+        let flags = (u32::from(param.defaulted) * PARAM_DEFAULTED)
+            | (u32::from(param.rest) * PARAM_REST);
         SignatureParamKey {
             name: param.name,
             ty: param.ty,

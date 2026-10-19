@@ -527,12 +527,11 @@ impl Checker {
                 return ordinary;
             }
         }
-        if matches!(seed, LocalSeed::Set) {
-            if !self.has_unshadowed_empty_set(program, initializer)
-                || !matches!(ordinary, Type::Set(_))
-            {
-                return ordinary;
-            }
+        if matches!(seed, LocalSeed::Set)
+            && (!self.has_unshadowed_empty_set(program, initializer)
+                || !matches!(ordinary, Type::Set(_)))
+        {
+            return ordinary;
         }
         let raw = if let Some(ty) = self.local_inference.bindings.get(&span) {
             ty.clone()

@@ -2829,13 +2829,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     .declarations
                     .prepared_constants
                     .analyze_expression(&self.program.arena, expr)
-                    .map(|constant| constant.in_type(&expected))
+                    .map(|constant| constant.in_type(expected))
                     .and_then(|constant| {
                         lower_literal_constant(&constant, Some(&self.declarations.wire_enums))
                     })
                     .filter(|value| lowered_value_matches(kind, value))
                     .or_else(|| {
-                        lower_const_param_default(&self.program.arena, expr, kind, Some(&expected))
+                        lower_const_param_default(&self.program.arena, expr, kind, Some(expected))
                     });
                 if let Some(value) = prepared {
                     self.record_prepared_tag_schemas(&value).ok_or(CompactFunctionBlocker::ParamDefault)?;

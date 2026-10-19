@@ -1640,14 +1640,16 @@ impl TypeConstraints {
         self.counters
             .worklist_wakeups
             .fetch_add(1, Ordering::Relaxed);
-        let mut access = ResolutionAccess::Journal(changes);
-        let expected = self
-            .resolve_row_inner(expected, depth, &mut access)
-            .map_err(|error| (row_type(expected), row_type(actual), Some(error)))?;
-        let actual = self
-            .resolve_row_inner(actual, depth, &mut access)
-            .map_err(|error| (row_type(&expected), row_type(actual), Some(error)))?;
-        drop(access);
+        let (expected, actual) = {
+            let mut access = ResolutionAccess::Journal(changes);
+            let expected = self
+                .resolve_row_inner(expected, depth, &mut access)
+                .map_err(|error| (row_type(expected), row_type(actual), Some(error)))?;
+            let actual = self
+                .resolve_row_inner(actual, depth, &mut access)
+                .map_err(|error| (row_type(&expected), row_type(actual), Some(error)))?;
+            (expected, actual)
+        };
         let mut left_only = BTreeMap::new();
         let mut right_only = BTreeMap::new();
         for (name, expected_field) in &expected.fields {
@@ -1846,9 +1848,10 @@ impl TypeConstraints {
         changes: &mut Vec<ConstraintChange>,
     ) -> Result<(), Option<ConstraintResolutionError>> {
         let root = self.row_representative(id, Some(changes)).map_err(Some)?;
-        let mut access = ResolutionAccess::Journal(changes);
-        let shape = self.resolve_row_inner(&shape, depth, &mut access).map_err(Some)?;
-        drop(access);
+        let shape = {
+            let mut access = ResolutionAccess::Journal(changes);
+            self.resolve_row_inner(&shape, depth, &mut access).map_err(Some)?
+        };
         if shape.fields.values().any(Type::contains_any) {
             return Err(None);
         }
@@ -2580,8 +2583,8 @@ impl TypeConstraints {
                     let right_root = self
                         .representative_root(*right)
                         .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
-                    if left_root != right_root {
-                        if self
+                    if left_root != right_root
+                        && (self
                             .occurs_in_type_at(*left, &Type::Inference(*right), depth)
                             .map_err(|error| {
                                 (expected.clone(), actual.clone(), Some(error))
@@ -2590,10 +2593,9 @@ impl TypeConstraints {
                                 .occurs_in_type_at(*right, &Type::Inference(*left), depth)
                                 .map_err(|error| {
                                     (expected.clone(), actual.clone(), Some(error))
-                                })?
-                        {
-                            return Err((expected, actual, None));
-                        }
+                                })?)
+                    {
+                        return Err((expected, actual, None));
                     }
                     let left_record = self
                         .record_binding(*left)
@@ -3953,7 +3955,7 @@ mod tests {
     #[test]
     fn constraint_trial_work_follows_touched_cells_instead_of_unrelated_wide_state() {
         crate::symbol::SymbolOwner::new().with_current(|| {
-            let fields = (0..64).map(|index| (crate::symbol::Name::intern(&format!("field_{index}")), Type::Int)).collect::<BTreeMap<_, _>>();
+            let fields = (0..64).map(|index| (crate::symbol::Name::intern(format!("field_{index}")), Type::Int)).collect::<BTreeMap<_, _>>();
             for touched in [1, 4, 16, 64] {
                 let mut reference = None;
                 for unrelated in [0, 8, 32] {
@@ -4197,7 +4199,7 @@ mod tests {
         let constraints = TypeConstraints::default();
         let (callable, body, tails, calls) = constraints
             .generalize_callable_body_with_calls(
-                &[result.clone()],
+                std::slice::from_ref(&result),
                 &body,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
@@ -4409,7 +4411,7 @@ mod tests {
     fn flexible_row_tail_accepts_a_rigid_row_tail() {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let field = crate::symbol::Name::intern("field");
-            let mut scope = RigidRowScope::default();
+            let mut scope = RigidRowScope;
             let rigid_tail = scope.fresh([field]);
             let mut constraints = TypeConstraints::default();
             let variable = constraints.fresh_row(span(1), [field]);
@@ -4429,7 +4431,7 @@ mod tests {
 
     #[test]
     fn rigid_row_tails_preserve_identity_and_reject_distinct_skolems() {
-        let mut scope = RigidRowScope::default();
+        let mut scope = RigidRowScope;
         let first = scope.fresh(std::iter::empty());
         let same = first.clone();
         let distinct = scope.fresh(std::iter::empty());
@@ -4462,7 +4464,7 @@ mod tests {
             let field = crate::symbol::Name::intern("field");
             let extra = crate::symbol::Name::intern("extra");
             for rigid_first in [false, true] {
-                let mut scope = RigidRowScope::default();
+                let mut scope = RigidRowScope;
                 let rigid_tail = scope.fresh([field]);
                 let mut constraints = TypeConstraints::default();
                 let flexible_tail = constraints.fresh_row(span(1), [field, extra]);
@@ -4494,7 +4496,7 @@ mod tests {
         crate::symbol::SymbolOwner::new().with_current(|| {
             let field = crate::symbol::Name::intern("field");
             for rigid_first in [false, true] {
-                let mut scope = RigidRowScope::default();
+                let mut scope = RigidRowScope;
                 let rigid_tail = scope.fresh([field]);
                 let mut constraints = TypeConstraints::default();
                 let flexible_tail = constraints.fresh_row(span(1), [field]);

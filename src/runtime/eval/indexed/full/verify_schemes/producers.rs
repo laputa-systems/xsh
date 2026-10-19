@@ -1,4 +1,13 @@
-use super::*;
+use super::{
+    BTreeMap, BTreeSet, CheckedArgumentType, FullCallableContract, FullDecoder, FullStore, FullTag,
+    IR_NONE, IrFunctionId, IrVerifyError, Name, SchemeInstantiationBudget, Type, TypeId, bounded,
+    checked_argument_type, checked_expression_type_id, decoder_for_driver_step,
+    decoder_for_function, driver_owner, ensure_closed_type, ensure_substitution_type, schema,
+    merge_list_item_types,
+};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
+#[cfg(test)]
+use std::cell::Cell;
 use super::super::decode::BorrowCodec;
 
 #[derive(Default)]
@@ -143,24 +152,24 @@ impl GroundProducerIndex {
                 owner.siblings[instruction - range.start] = owner.children[parent];
                 owner.children[parent] = instruction as u32;
             } else { roots.push(instruction); }
-            if decoder.store.tags[instruction].kind() == schema::InstructionKind::Stmt {
-                if !matches!(decoder.store.tags[instruction], FullTag::StmtAssign | FullTag::StmtAssignInt | FullTag::StmtAssignBool | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt | FullTag::StmtAssignPath | FullTag::StmtDefaultParameter | FullTag::StmtScanBytes) {
-                    let declared = match decoder.statement_view(instruction)? {
-                        schema::StmtView::ScanLines { line_slot, .. } => vec![line_slot],
-                        _ => decoder.statement_written_slots(instruction)?.0,
-                    };
-                    owner.declarations.insert(instruction, declared);
-                    let following = match decoder.statement_view(instruction)? {
-                        schema::StmtView::Let { slot, .. } | schema::StmtView::LetInt { slot, .. } | schema::StmtView::LetBool { slot, .. } => vec![slot],
-                        schema::StmtView::LetRecord { target, .. } | schema::StmtView::Guard { target, .. } => {
-                            let mut slots = Vec::new();
-                            decoder.comp_target_written_slots(target, &mut slots)?;
-                            slots
-                        }
-                        _ => Vec::new(),
-                    };
-                    owner.following_declarations.insert(instruction, following);
-                }
+            if decoder.store.tags[instruction].kind() == schema::InstructionKind::Stmt
+                && !matches!(decoder.store.tags[instruction], FullTag::StmtAssign | FullTag::StmtAssignInt | FullTag::StmtAssignBool | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt | FullTag::StmtAssignPath | FullTag::StmtDefaultParameter | FullTag::StmtScanBytes)
+            {
+                let declared = match decoder.statement_view(instruction)? {
+                    schema::StmtView::ScanLines { line_slot, .. } => vec![line_slot],
+                    _ => decoder.statement_written_slots(instruction)?.0,
+                };
+                owner.declarations.insert(instruction, declared);
+                let following = match decoder.statement_view(instruction)? {
+                    schema::StmtView::Let { slot, .. } | schema::StmtView::LetInt { slot, .. } | schema::StmtView::LetBool { slot, .. } => vec![slot],
+                    schema::StmtView::LetRecord { target, .. } | schema::StmtView::Guard { target, .. } => {
+                        let mut slots = Vec::new();
+                        decoder.comp_target_written_slots(target, &mut slots)?;
+                        slots
+                    }
+                    _ => Vec::new(),
+                };
+                owner.following_declarations.insert(instruction, following);
             }
         }
         if let Some(blocks) = &decoder.block_states {
@@ -466,8 +475,10 @@ fn install_condition_regions(decoder: &FullDecoder<'_>, owner: &mut ProducerOwne
         for arm in &mut arms {
             owner.work.borrow_mut().charge(1)?;
             let (_, _, value) = arm?;
-            if let Some(binding) = owner.region_bindings.get(&(value.raw() as usize, slot)) {
-                if found.replace(*binding).is_some() { return Err(IrVerifyError::new("pattern condition capture has multiple lexical producers")); }
+            if let Some(binding) = owner.region_bindings.get(&(value.raw() as usize, slot))
+                && found.replace(*binding).is_some()
+            {
+                return Err(IrVerifyError::new("pattern condition capture has multiple lexical producers"));
             }
         }
         let binding = found.ok_or_else(|| IrVerifyError::new("pattern condition capture has no lexical producer"))?;
@@ -550,10 +561,10 @@ pub(super) fn verify<'a>(store: &'a FullStore, index: &'a GroundProducerIndex, c
     }
     if matches!(proof.contexts, ProducerContexts::Published) {
         for fact in &store.checked_expr_types {
-            if let super::super::FullCheckedExprPurpose::ProducerContext(owner) = fact.purpose {
-                if !matches!(proof.used_contexts.get(&fact.instruction), Some((used_owner, _)) if *used_owner == owner) {
-                    return Err(IrVerifyError::new("published producer context is unused or has a wrong owner"));
-                }
+            if let super::super::FullCheckedExprPurpose::ProducerContext(owner) = fact.purpose
+                && !matches!(proof.used_contexts.get(&fact.instruction), Some((used_owner, _)) if *used_owner == owner)
+            {
+                return Err(IrVerifyError::new("published producer context is unused or has a wrong owner"));
             }
         }
     }
@@ -966,13 +977,14 @@ impl<'a> ProducerProof<'a> {
                         };
                         for qualifier in &mut qualifiers {
                             self.budget.charge(1)?;
-                            if let super::super::decode::CompQualifierView::For { target, iter: source, .. } = qualifier? && source.raw() as usize == iter {
-                                if let Some(fields) = FullDecoder::checked_target_field_path(&target.materialize()?, slot) {
-                                    let mut path = path.clone();
-                                    path.extend(fields.into_iter().rev().map(FunctionProjection::Field));
-                                    path.push(FunctionProjection::IterationItem);
-                                    pending.push((owner, CallableProducer::Expression(iter), path));
-                                }
+                            if let super::super::decode::CompQualifierView::For { target, iter: source, .. } = qualifier?
+                                && source.raw() as usize == iter
+                                && let Some(fields) = FullDecoder::checked_target_field_path(&target.materialize()?, slot)
+                            {
+                                let mut path = path.clone();
+                                path.extend(fields.into_iter().rev().map(FunctionProjection::Field));
+                                path.push(FunctionProjection::IterationItem);
+                                pending.push((owner, CallableProducer::Expression(iter), path));
                             }
                         }
                         continue;
@@ -1040,7 +1052,7 @@ impl<'a> ProducerProof<'a> {
                                     _ => return Err(IrVerifyError::new("ground callable lexical writer is not a value transfer")),
                                 }
                             }
-                            if self.index.owners[&owner].writers.get(&binding).is_none() && !self.index.owners[&owner].pattern_sources.contains_key(&binding) { return Err(IrVerifyError::new(format!("ground callable declaration {declaration} has no lexical writer"))); }
+                            if !self.index.owners[&owner].writers.contains_key(&binding) && !self.index.owners[&owner].pattern_sources.contains_key(&binding) { return Err(IrVerifyError::new(format!("ground callable declaration {declaration} has no lexical writer"))); }
                         }
                         ProducerBinding::HeaderParameter(parameter) => {
                             let function = function_index(owner)?;
@@ -1554,7 +1566,7 @@ impl<'a> ProducerProof<'a> {
                 if !expected_fields.is_empty() { return Err(IrVerifyError::new("ground error producer omits a declared payload field")); }
                 Ok(())
             }
-            schema::ExprView::PreparedConstant(value) => decoder.verify_prepared_constant_type(&value, &expected, &mut |amount| self.budget.charge(amount)),
+            schema::ExprView::PreparedConstant(value) => decoder.verify_prepared_constant_type(value, &expected, &mut |amount| self.budget.charge(amount)),
             schema::ExprView::Require { check, .. } | schema::ExprView::CheckedValue { check, .. } => {
                 let checked = check.ty.materialize()?;
                 if !checked.matches_expected(&expected) && !matches!(expected.as_ref(), Type::Result(ok, _) if checked.matches_expected(ok)) { return Err(IrVerifyError::new("ground checked producer disagrees with its contract")); }
@@ -1879,8 +1891,10 @@ impl<'a> ProducerProof<'a> {
         if let Some(step) = super::super::driver_owner_index(owner) {
             if let Some(source) = decoder.driver_local_let_source(slot, |amount| self.budget.charge(amount))? {
                 let source_owner = driver_owner(source.step).map_err(|_| IrVerifyError::new("ground driver initializer owner is invalid"))?;
-                if let Some(validation) = source.validation_type {
-                    if *self.ground_type(validation)? == *expected { return Ok(()); }
+                if let Some(validation) = source.validation_type
+                    && *self.ground_type(validation)? == *expected
+                {
+                    return Ok(());
                 }
                 self.expression(source_owner, source.initializer, expected, false);
                 return Ok(());
@@ -1934,11 +1948,11 @@ impl<'a> ProducerProof<'a> {
                 }
                 schema::StmtView::LetInt { .. } | schema::StmtView::AssignInt { .. } => {
                     if !Type::Int.matches_expected(&expected) { return Err(IrVerifyError::new("integer writer disagrees with its ground slot contract")); }
-                    self.verify_operands(&decoder, writer)?;
+                    self.verify_operands(decoder, writer)?;
                 }
                 schema::StmtView::LetBool { .. } | schema::StmtView::AssignBool { .. } => {
                     if !Type::Bool.matches_expected(&expected) { return Err(IrVerifyError::new("boolean writer disagrees with its ground slot contract")); }
-                    self.verify_operands(&decoder, writer)?;
+                    self.verify_operands(decoder, writer)?;
                 }
                 schema::StmtView::AssignField { field, value, .. } => {
                     let path = [super::super::CallableAssignmentPathStep::Field(Name::intern(field))];
@@ -1949,7 +1963,7 @@ impl<'a> ProducerProof<'a> {
                     let path = [super::super::CallableAssignmentPathStep::Field(Name::intern(field))];
                     let ty = decoder.callable_assignment_target_type(slot, &path)?.ok_or_else(|| IrVerifyError::new("ground integer field writer has no target type"))?;
                     if !Type::Int.matches_expected(&ty) { return Err(IrVerifyError::new("integer field writer disagrees with its ground target")); }
-                    self.verify_operands(&decoder, writer)?;
+                    self.verify_operands(decoder, writer)?;
                 }
                 schema::StmtView::AssignPath { mut path, value, .. } => {
                     let mut checked = Vec::new();
@@ -1957,7 +1971,7 @@ impl<'a> ProducerProof<'a> {
                         checked.push(match step? {
                             super::super::decode::AssignStepView::Field(name) => super::super::CallableAssignmentPathStep::Field(name),
                             super::super::decode::AssignStepView::Index(value) => {
-                                let ty = self.need_context(&decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground assignment index has no type"))?;
+                                let ty = self.need_context(decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground assignment index has no type"))?;
                                 self.expression(owner, value.raw() as usize, ty, false);
                                 super::super::CallableAssignmentPathStep::Index
                             }
@@ -1981,31 +1995,31 @@ impl<'a> ProducerProof<'a> {
                     self.slot(owner, writer, config.block_depth_slot, Arc::new(Type::Int))?;
                 }
                 schema::StmtView::ForRecord { target, iter, .. } => {
-                    let ty = self.need_context(&decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground destructuring loop has no iterable contract"))?;
+                    let ty = self.need_context(decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground destructuring loop has no iterable contract"))?;
                     let item = ty.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground destructuring loop has no item contract"))?;
                     let projected = comp_slot_type(target, slot, &item)?.ok_or_else(|| IrVerifyError::new("ground destructuring loop has no slot projection"))?;
                     if !projected.matches_expected(&expected) { return Err(IrVerifyError::new("ground destructuring loop disagrees with its slot contract")); }
                     self.expression(owner, iter.raw() as usize, ty, false);
                 }
                 schema::StmtView::For { iter, .. } => {
-                    let ty = self.need_context(&decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground loop producer has no iterable contract"))?;
+                    let ty = self.need_context(decoder, iter.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground loop producer has no iterable contract"))?;
                     let item = ty.iteration_item_type().ok_or_else(|| IrVerifyError::new("ground loop writer has no item contract"))?;
                     if !item.matches_expected(&expected) { return Err(IrVerifyError::new("ground loop writer disagrees with its slot contract")); }
                     self.expression(owner, iter.raw() as usize, ty, false);
                 }
                 schema::StmtView::ForStrLines { text, .. } => {
-                    let ty = self.need_context(&decoder, text.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground line writer has no string contract"))?;
+                    let ty = self.need_context(decoder, text.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground line writer has no string contract"))?;
                     if !ty.matches_expected(&expected) { return Err(IrVerifyError::new("ground line writer disagrees with its slot contract")); }
                     self.expression(owner, text.raw() as usize, ty, false);
                 }
                 schema::StmtView::LetRecord { source, target, .. } => {
-                    let ty = self.need_context(&decoder, source.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground destructuring writer has no source contract"))?;
+                    let ty = self.need_context(decoder, source.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground destructuring writer has no source contract"))?;
                     let projected = comp_slot_type(target, slot, &ty)?.ok_or_else(|| IrVerifyError::new("ground destructuring writer has no slot projection"))?;
                     if !projected.matches_expected(&expected) { return Err(IrVerifyError::new("ground destructuring writer disagrees with its slot contract")); }
                     self.expression(owner, source.raw() as usize, ty, false);
                 }
                 schema::StmtView::Guard { value, target, optional, else_param_slot, .. } => {
-                    let ty = self.need_context(&decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground guard has no subject contract"))?;
+                    let ty = self.need_context(decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground guard has no subject contract"))?;
                     let projected = if else_param_slot == Some(slot) {
                         match ty.unvalidated() { Type::Result(_, error) if !optional => Some((**error).clone()), _ => None }
                     } else {
@@ -2025,7 +2039,7 @@ impl<'a> ProducerProof<'a> {
                     for binding in &mut bindings {
                         let (bound, value) = binding?;
                         if bound != slot && !failure { continue; }
-                        let ty = self.need_context(&decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground With binding has no producer contract"))?;
+                        let ty = self.need_context(decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground With binding has no producer contract"))?;
                         let payload = match ty.unvalidated() { Type::Result(ok, _) => ok.as_ref(), other => other };
                         if !failure && !payload.matches_expected(&expected) { return Err(IrVerifyError::new("ground With writer disagrees with its slot contract")); }
                         self.expression(owner, value.raw() as usize, ty, false);
@@ -2034,7 +2048,7 @@ impl<'a> ProducerProof<'a> {
                     if !found { return Err(IrVerifyError::new("ground With capture has no typed source writer")); }
                 }
                 schema::StmtView::Match { value, mut arms, .. } => {
-                    let ty = self.need_context(&decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground match has no subject contract"))?;
+                    let ty = self.need_context(decoder, value.raw() as usize)?.ok_or_else(|| IrVerifyError::new("ground match has no subject contract"))?;
                     let mut found = false;
                     for arm in &mut arms {
                         let (pattern, _, _) = arm?;

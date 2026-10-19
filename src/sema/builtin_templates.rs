@@ -547,7 +547,7 @@ mod tests {
     #[test]
     fn symbolic_registered_plans_match_canonical_ground_method_domains() {
         use crate::sema::schemes::RegisteredCallPlan;
-        let mut domains = std::collections::HashSet::new();
+        let mut domains = Vec::new();
         for (domain, methods) in api_spec().method_entries() {
             for named in methods {
                 for method in &named.overloads {
@@ -582,12 +582,15 @@ mod tests {
                     let result = generalized.types.last().unwrap();
                     let arguments = generalized.types[1..generalized.types.len() - 1].iter().map(Some).collect::<Vec<_>>();
                     assert!(verify_registered_call(&plan, Some(receiver), &arguments, result), "{domain:?}.{}", named.name);
-                    domains.insert(domain);
+                    if !domains.contains(&domain) {
+                        domains.push(domain);
+                    }
                 }
             }
         }
-        let expected = [MethodReceiver::Path, MethodReceiver::Int, MethodReceiver::Float, MethodReceiver::List, MethodReceiver::Map, MethodReceiver::Record, MethodReceiver::Str, MethodReceiver::Bytes, MethodReceiver::Status, MethodReceiver::Digest, MethodReceiver::Regex, MethodReceiver::NonEmpty, MethodReceiver::RelPath, MethodReceiver::Set].into_iter().collect::<std::collections::HashSet<_>>();
-        assert_eq!(domains, expected);
+        let expected = [MethodReceiver::Path, MethodReceiver::Int, MethodReceiver::Float, MethodReceiver::List, MethodReceiver::Map, MethodReceiver::Record, MethodReceiver::Str, MethodReceiver::Bytes, MethodReceiver::Status, MethodReceiver::Digest, MethodReceiver::Regex, MethodReceiver::NonEmpty, MethodReceiver::RelPath, MethodReceiver::Set];
+        assert_eq!(domains.len(), expected.len());
+        assert!(expected.iter().all(|domain| domains.contains(domain)));
     }
 
     #[test]
