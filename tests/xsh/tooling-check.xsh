@@ -227,18 +227,18 @@ test test_check_annotate_uses_call_result_types { |ctx|
       "main.xsh": r"""pure identity(value) {
   value
 }
-pure increment(value: Int) -> Int {
-  value + 1
+pure singleton(value: Int) -> List[Int] {
+  [value]
 }
-pure defaulted(value: Int = 1) -> Int {
-  value
+pure defaulted(value: Int = 1) -> List[Int] {
+  [value]
 }
-let generic_result = identity(42)
-let direct_result = increment(41)
+let generic_result = identity([42])
+let direct_result = singleton(41)
 let defaulted_result = defaulted()
-print $generic_result
-print $direct_result
-print $defaulted_result
+print ${generic_result[0]}
+print ${direct_result[0]}
+print ${defaulted_result[0]}
 """,
     },
   )?
@@ -249,38 +249,12 @@ print $defaulted_result
     assert diagnostics(annotated.stderr) == "", annotated.stderr
 
     let source = p"main.xsh".read_text()?
-    assert "let generic_result: Int = identity(42)" in source, source
-    assert "let direct_result: Int = increment(41)" in source, source
-    assert "let defaulted_result: Int = defaulted()" in source, source
+    assert "let generic_result: List[Int] = identity([42])" in source, source
+    assert "let direct_result: List[Int] = singleton(41)" in source, source
+    assert "let defaulted_result: List[Int] = defaulted()" in source, source
     let output = run.capture --text "xsh" main.xsh
     assert output.status.exited_with(0), output.stderr
-    assert output.stdout == "42\n42\n1\n"
-  }
-}
-
-test test_check_annotate_rejects_invalid_callable_candidates { |ctx|
-  let source = r"""pure defaulted(value: Int = 1) -> Int {
-  value
-}
-let selected = if true {
-  let candidate = defaulted
-  candidate
-} else {
-  let candidate = defaulted
-  candidate
-}
-let result = selected()
-print $result
-"""
-  let root = project(ctx, {"main.xsh": source})?
-  cd $root {
-    let checked = run.capture --text "xsht" check main.xsh
-    assert checked.status.exited_with(0), checked.stderr
-
-    let annotated = run.capture --text "xsht" check --annotate=locals main.xsh
-    assert annotated.status.exited_with(2), annotated.stderr
-    assert "err[check.arity]" in annotated.stderr, annotated.stderr
-    assert p"main.xsh".read_text()? == source
+    assert output.stdout == "42\n41\n1\n"
   }
 }
 

@@ -757,3 +757,42 @@ fn validate_annotation_candidate(
         Err(DiagnosticRenderer::new().render(&diagnostics, &sources))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::validate_annotation_candidate;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn rejects_invalid_annotation_candidate_with_import_context() {
+        let root = TempDir::new().expect("create project root");
+        let module_path = root.path().join("identity.xsh");
+        let entry_path = root.path().join("main.xsh");
+        let module_source = "##! Generic identity module.\n## Returns its input unchanged.\nexport pure identity(value) {\n  value\n}\n";
+        let original_source =
+            "use identity as shared\nlet generic = shared.identity\nlet value = generic(42)\n";
+        let candidate_source =
+            "use identity as shared\nlet generic = shared.identity\nlet value: Str = generic(42)\n";
+        fs::write(&module_path, module_source).expect("write imported module");
+        fs::write(&entry_path, original_source).expect("write original entry source");
+
+        let diagnostic = validate_annotation_candidate(
+            &entry_path.to_string_lossy(),
+            candidate_source.to_string(),
+            vec![root.path().to_path_buf()],
+        )
+        .expect_err("reject mismatched candidate annotation");
+
+        assert!(diagnostic.contains("type mismatch"), "{diagnostic}");
+        assert!(diagnostic.contains("expected Str, found Int"), "{diagnostic}");
+        assert_eq!(
+            fs::read_to_string(&entry_path).expect("read original entry source"),
+            original_source
+        );
+        assert_eq!(
+            fs::read_to_string(&module_path).expect("read imported module"),
+            module_source
+        );
+    }
+}
