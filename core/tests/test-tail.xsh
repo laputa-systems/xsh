@@ -278,6 +278,16 @@ test test_tail_reads_a_regular_file_shorter_than_its_stat_size { |ctx|
   assert tail_run(ctx, root, ["-n", "1", "/sys/kernel/profiling"])?.stdout == content
   assert tail_run(ctx, root, ["-c", "1", "/sys/kernel/profiling"])?.stdout == content[content.len() - 1..]
   assert tail_run(ctx, root, ["-c", "2", "/sys/kernel/profiling"])?.stdout == content
+  for row in [
+    {args: ["-n", "1"], expected: content},
+    {args: ["-c", "1"], expected: content[content.len() - 1..]},
+    {args: ["-n", "0"], expected: b""},
+  ] {
+    let followed = tail_run(ctx, root, ["-f", "-s.01", "--pid=2147483647", attribute.display(), @row.args])?
+    assert followed.status == 0
+    assert followed.stdout == row.expected
+    assert followed.stderr == ""
+  }
 }
 
 test test_tail_reports_an_unreadable_empty_file_at_open { |ctx|

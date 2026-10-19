@@ -20,11 +20,21 @@ The deliverables are:
 
 ## Current checkpoint
 
-Fresh R8 is frozen at `8ebea493e757eb8c52d76823cdc11f665ce2c2f5` in
-`.work/wt/perf-i1-combined-freeze-r8`. Bootstrap passes and canonical execution
-is active. R7 remains failed. An isolated kernel lane owns the observed clock
-defect in `.work/wt/asterinas-wall-clock-r1`. No current-source G1 or guest
-acceptance is claimed.
+R8 at `8ebea493e757eb8c52d76823cdc11f665ce2c2f5` fails canonical
+qualification in the written tail corpus. Bootstrap, 229 root integration tests,
+14 soundness tests and 1,049 library tests pass. XSHT integration finishes with
+121 passes and one failure; subsequent stages do not run. Cleanup resolves.
+Preserve the failed receipt in `.work/wt/perf-i1-combined-freeze-r8`.
+No current-source G1 or full guest acceptance is claimed.
+
+The tail repair in `.work/wt/perf-tail-initial-offset-r9` advances the follow
+cursor by the entire buffered input, independently of the selected output.
+The existing short-file regression fails before the fix and passes afterward,
+including suffix and zero-output cases. Both existing tail files pass: 116
+tests, zero failures and zero skips. All three new cases match GNU tail 9.4.
+The initial reference attempt uses BusyBox tail, which rejects the fractional
+poll interval and receives no parity credit. Independent source review passes.
+Fresh combined qualification remains required.
 
 On October 19, frozen R7 source `6468326009b62cfd8ed682b0dc7007b371d3cb4d`
 passes bootstrap, 229 root integration tests, 14 soundness tests, 1,049
@@ -79,9 +89,14 @@ warning found and fixed during its first build. Existing toolchain warnings
 remain. No dependencies or toolchain pins change.
 
 Isolated Laputa source `88be9729efb6738e9bffd040c0d1f3033c2eee43` pins that
-kernel and its gitlink together. Its real offline kernel build owner is active.
-Actual kernel-test execution, KVM smoke, focused guest regression and final
-source-aligned acceptance remain pending.
+kernel and its gitlink together. Its real offline kernel build and KVM smoke
+pass; smoke reaches `ASTERINAS_PVH_BOOT_OK`. Kernel SHA-256 is
+`10638524e469d69fc1c6dcd5e187b94edfb9f8d7c3a1a2b1c3c0ae746e62cdf5`.
+The exact AWK shard passes in the real guest: one pass, zero failures and zero
+skips. Cleanup resolves and the qualified R13 seed remains unchanged. Evidence
+is under `laputa-world-acceptance/.work/tmp/asterinas-guest-test-20261019T093052Z-7314-d5856f7d`.
+Actual kernel-test execution and full source-aligned guest acceptance remain
+pending. These focused platform results do not qualify the combined compiler.
 
 ## Charter
 

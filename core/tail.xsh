@@ -889,6 +889,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       follow_offset = offset
     } else {
       write_output(plan.data[plan.start..], ! buffer_initial)
+      follow_offset = plan.data.len()
     }
 
     # Regular files and character devices (such as /dev/null, which never ends)
