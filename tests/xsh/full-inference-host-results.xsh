@@ -71,3 +71,34 @@ print "host results preserved"
   assert output.success, output.stderr
   assert output.stdout == "host results preserved\n"
 }
+
+test test_full_inference_result_bindings_discard_only_without_propagation { |ctx|
+  let output = test.run_xsh(
+    ctx,
+    r"""pure failure() -> Result[Unit, Str] { Err("dropped") }
+
+proc discard() [] -> Unit {
+  let _ = failure()
+  print "after discard"
+}
+
+proc discard_mutable() [] -> Unit {
+  var _ = failure()
+  print "after mutable discard"
+}
+
+proc propagate() [error] -> Result[Unit, Str] {
+  let _ = failure()?
+  print "after propagation"
+}
+
+discard()
+discard_mutable()
+let propagated = propagate()
+assert propagated is Err("dropped")
+print "after explicit propagation"
+""",
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "after discard\nafter mutable discard\nafter explicit propagation\n"
+}
