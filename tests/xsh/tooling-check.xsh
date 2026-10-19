@@ -181,6 +181,43 @@ let command: Command = process.command_argv("echo", names)
 """
 }
 
+test test_check_annotate_preserves_imported_generic_aliases { |ctx|
+  let root = project(
+    ctx,
+    {
+      "identity.xsh": r"""export pure identity(value) {
+  value
+}
+""",
+      "main.xsh": r"""use identity as shared
+let generic = shared.identity
+let integer = generic(42)
+let text = generic("demo")
+print $integer
+print $text
+""",
+    },
+  )?
+  cd $root {
+    let annotated = run.capture --text "xsht" check --annotate=locals main.xsh
+    assert annotated.status.exited_with(0), annotated.stderr
+    assert annotated.stdout == ""
+    assert diagnostics(annotated.stderr) == "", annotated.stderr
+
+    let source = p"main.xsh".read_text()?
+    assert "generic: Pure" not in source, source
+    let output = run.capture --text "xsh" main.xsh
+    assert output.status.exited_with(0), output.stderr
+    assert output.stdout == "42\ndemo\n"
+
+    let repeated = run.capture --text "xsht" check --annotate=locals main.xsh
+    assert repeated.status.exited_with(0), repeated.stderr
+    assert repeated.stdout == ""
+    assert diagnostics(repeated.stderr) == "", repeated.stderr
+    assert p"main.xsh".read_text()? == source
+  }
+}
+
 test test_check_annotate_uses_exact_configured_classes { |ctx|
   let source = """
 let names = ["a", "b"]

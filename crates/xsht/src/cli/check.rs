@@ -14,7 +14,7 @@ use std::time::Instant;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, DiagnosticRenderer, Label, LabelStyle};
 use xsh::execution::evaluator::Evaluator;
 use xsh::frontend::check::{
-    AnnotationFact, AnnotationFactKind, CheckOptions, CheckSession, Checker,
+    AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, CheckSession, Checker,
 };
 use xsh::frontend::load as loader;
 use xsh::frontend::source::{SourceId, SourceMap, Span};
@@ -455,6 +455,19 @@ fn check_entry(
 
     let mut type_stderr = DiagnosticRenderer::new().render(&checked.reveal_types, &report.sources);
     let annotation_facts = std::mem::take(&mut checked.annotation_facts);
+    let annotation_plan = annotation_policy.map(|policy| {
+        report.sources.get(source_id).map(|source| {
+            let original = source.text().to_string();
+            let edits = annotation_edits(
+                &checked,
+                &annotation_facts,
+                policy,
+                source_id,
+                &original,
+            );
+            (original, edits)
+        })
+    });
     let lowering_diagnostics = timings.time(Stage::Lower, || {
         Evaluator::compact_lowerability_diagnostics_with_view(
             &view,
@@ -470,10 +483,9 @@ fn check_entry(
         if !lowering_diagnostics.is_empty() {
             return report.failed(2, EntryOutput::Diagnostics(lowering_diagnostics));
         }
-        let Some(original) = report.sources.get(source_id).map(|s| s.text().to_string()) else {
+        let Some((original, edits)) = annotation_plan.flatten() else {
             return report.failed(2, EntryOutput::Text("xsht: missing script source\n".into()));
         };
-        let edits = annotation_edits(&annotation_facts, annotation_policy, source_id, &original);
         if !edits.is_empty() {
             let mut annotated = original.clone();
             for (start, end, replacement) in edits {
@@ -616,6 +628,7 @@ fn configured_annotation_policy(
 
 #[allow(clippy::single_call_fn)]
 fn annotation_edits(
+    checked: &CheckOutput,
     facts: &[AnnotationFact],
     policy: AnnotationPolicy,
     target_source: SourceId,
@@ -630,8 +643,29 @@ fn annotation_edits(
         {
             continue;
         }
-        let Some(ty) = fact.ty.annotation_source() else {
-            continue;
+        let annotation_span = match &fact.kind {
+            AnnotationFactKind::Binding { initializer, .. } => Some(*initializer),
+            AnnotationFactKind::DefaultedParam { default, .. } => Some(*default),
+            AnnotationFactKind::InferredPureReturn { .. }
+            | AnnotationFactKind::ExportedProcReturn { .. } => None,
+        };
+        let ty = if let Some(span) = annotation_span {
+            if let Some(contract) = checked.callable_contract_at(span) {
+                let Some(annotation) = contract.source_annotation() else {
+                    continue;
+                };
+                annotation
+            } else {
+                let Some(annotation) = fact.ty.annotation_source() else {
+                    continue;
+                };
+                annotation
+            }
+        } else {
+            let Some(annotation) = fact.ty.annotation_source() else {
+                continue;
+            };
+            annotation
         };
         match &fact.kind {
             AnnotationFactKind::Binding {
