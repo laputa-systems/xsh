@@ -1387,7 +1387,16 @@ impl Checker {
                         },
                     })
                     .collect(),
-                return_ty: self.type_from_arena(program, def.return_ty),
+                return_ty: if def.return_ty_defaulted && kind == CheckedFunctionKind::Pure {
+                    Type::Unknown
+                } else if def.return_ty_defaulted
+                    && kind == CheckedFunctionKind::Proc
+                    && super::infer_return::proc_may_return_value(program, def)
+                {
+                    Type::Result(Box::new(Type::Unknown), Box::new(Type::Error))
+                } else {
+                    self.type_from_arena(program, def.return_ty)
+                },
                 return_schema: (!def.return_ty_defaulted)
                     .then(|| {
                         self.record_constructors

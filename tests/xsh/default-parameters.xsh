@@ -258,11 +258,21 @@ pure dependent(value = target()) -> Int { value }
 pure target() { 7 }
 pure shadow(count = count) -> Int { count }
 pure anchored(value: Int = dependent()) -> Int { value }
+pure earlier() { "earlier" }
+pure ordered(value = earlier()) -> Str { value }
+proc later_value(value = generated()?) -> Result[Int] { Ok(value) }
+proc generated() { 8 }
+pure unit_value() -> Unit {}
+proc unit_target() { unit_value() }
+proc unit_default(value = unit_target()?) -> Unit { value }
 print ${dependent()} ${shadow()} ${shadow(9)} ${anchored()}
+print ${ordered()} ${later_value()?}
+unit_default()
 """,
     status: 0,
   )?
   assert output.stdout == """7 5 9 7
+earlier 8
 """
 }
 

@@ -671,6 +671,8 @@ impl Checker {
             .chain(conflicts.iter().flat_map(|(left, right, _)| [left, right]))
             .any(produces_value)
         {
+            let ty = self.type_from_arena(program, def.return_ty);
+            self.update_pending_return_type(program, def, ty);
             return;
         }
         // Once a completion produces a value, a statement completion conflicts
@@ -760,9 +762,7 @@ fn produces_value(ty: &Type) -> bool {
     }
 }
 
-// Only these completions can make a proc body a value body. Everything else
-// completes as a statement, so the probe would contribute nothing.
-fn proc_may_return_value(
+pub(super) fn proc_may_return_value(
     program: &ArenaProgram,
     def: &crate::syntax::arena::ArenaFunctionDef,
 ) -> bool {
