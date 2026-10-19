@@ -2884,16 +2884,16 @@ impl<'a> Parser<'a> {
                     let end = if self.at(TokenKindMatch::RBracket) {
                         None
                     } else {
-                        Some(self.parse_precedence_arena_only(0, arena)?.id)
+                        Some(self.in_nested_group(|parser| parser.parse_precedence_arena_only(0, arena))?.id)
                     };
                     (None, end)
                 } else {
-                    let first = self.parse_precedence_arena_only(0, arena)?;
+                    let first = self.in_nested_group(|parser| parser.parse_precedence_arena_only(0, arena))?;
                     if self.consume_dot_dot() {
                         let end = if self.at(TokenKindMatch::RBracket) {
                             None
                         } else {
-                            Some(self.parse_precedence_arena_only(0, arena)?.id)
+                            Some(self.in_nested_group(|parser| parser.parse_precedence_arena_only(0, arena))?.id)
                         };
                         (Some(first.id), end)
                     } else {

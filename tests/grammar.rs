@@ -663,6 +663,22 @@ fn run_option_values_leave_following_words_as_command_arguments() {
 }
 
 #[test]
+fn spawn_and_wait_indices_reset_enclosing_expression_boundaries() {
+    for source in [
+        "run --timeout=spawn xs[x ?] cmd\n",
+        "run --timeout=wait xs[x ?] cmd\n",
+        "run --timeout=spawn loop {}[x ?] cmd\n",
+        "run --timeout=spawn xs[.. x ?] cmd\n",
+        "run --timeout=spawn xs[x .. y ?] cmd\n",
+        "run --timeout=wait xs[x .. y ?] cmd\n",
+    ] {
+        let tokens = lex_grammar_tokens(source).expect("regression source lexes");
+        Recognizer::new(grammar()).recognize(&tokens).expect(source);
+        assert_parser_and_grammar_agree(source, true);
+    }
+}
+
+#[test]
 fn grouped_propagation_in_indices_is_recognized() {
     for source in ["let item = xs[(f()) ?]\n", "let item = xs[.. (f()) ?]\n", "let item = xs[(f())? ..]\n"] {
         assert_parser_and_grammar_agree(source, true);

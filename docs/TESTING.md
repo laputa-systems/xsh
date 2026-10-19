@@ -48,6 +48,9 @@ not standalone Cargo test targets. For a pure grammar check, select
 `-p xsh --test integration grammar::bare_minus_command_arguments_preserve_source_adjacency -- --exact`
 with the default debug profile. XSHT uses the same aggregate target under
 `-p xsht`. Confirm target and module names before composing a filtered command.
+After editing grammar productions, run the grammar module tests, including both
+generator depths, before starting full qualification. Fixed seeds select from the
+current production graph, so a local grammar edit can expose another parser case.
 
 Cargo process tests resolve `xsh`, `xsht`, `xshi`, `xsh-fuzz`, and
 `xsh-test-helper` through `test_bin!`, which rejects unsupported profiles.
