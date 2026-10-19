@@ -32,7 +32,22 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
         subprocess.run(["git", "-C", str(self.repo), "config", "user.email", "test@example.invalid"], check=True)
         (self.repo / ".git/info/exclude").write_text("/.work/\n/target\n", encoding="utf-8")
         (self.repo / "source.txt").write_text("source\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(self.repo), "add", "source.txt"], check=True)
+        self.observer_path = self.repo / "dev/consolidation_metrics_current.xsh"
+        self.ratchet_path = self.repo / "dev/tests/test-consolidation-ratchets-current.xsh"
+        self.attestation_path = self.repo / "dev/consolidation/metric-observer-successor.json"
+        for path in (self.observer_path, self.ratchet_path, self.attestation_path):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        self.observer_path.write_text("observer\n", encoding="utf-8")
+        self.ratchet_path.write_text("ratchet\n", encoding="utf-8")
+        self.attestation = {
+            "schema": 1,
+            "successor_scanner_path": str(self.observer_path.relative_to(self.repo)),
+            "successor_scanner_sha256": runner.sha256_file(self.observer_path),
+            "current_ratchet_tests_path": str(self.ratchet_path.relative_to(self.repo)),
+            "current_ratchet_tests_sha256": runner.sha256_file(self.ratchet_path),
+        }
+        self.attestation_path.write_text(json.dumps(self.attestation), encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.repo), "add", "."], check=True)
         subprocess.run(["git", "-C", str(self.repo), "commit", "--quiet", "-m", "source"], check=True)
         self.head = self.git("rev-parse", "HEAD")
         self.tree = self.git("rev-parse", "HEAD^{tree}")
@@ -148,6 +163,63 @@ class CanonicalReplayPreflightTests(unittest.TestCase):
     def validate(self, args=None):
         with self.with_mocked_tools():
             return runner.validate_inputs(args or self.arguments())
+
+    def commit_source(self):
+        self.git("add", ".")
+        self.git("commit", "--quiet", "-m", "change source")
+        self.head = self.git("rev-parse", "HEAD")
+        self.tree = self.git("rev-parse", "HEAD^{tree}")
+        self.create_build_receipt()
+
+    def assert_attestation_rejected_before_execution(self, detail):
+        for mode in ("bootstrap", "execute"):
+            with self.subTest(mode=mode):
+                argv = [
+                    str(RUNNER_PATH), mode, "--repo", str(self.repo),
+                    "--head", self.head, "--tree", self.tree,
+                    "--output", str(self.output), "--run-name", self.output.name,
+                ]
+                if mode == "execute":
+                    argv += ["--bootstrap-receipt", str(self.receipt_path)]
+                with (
+                    mock.patch.object(sys, "argv", argv),
+                    mock.patch.object(runner, "run_bootstrap") as bootstrap,
+                    mock.patch.object(runner, "run_batch") as batch,
+                    mock.patch("builtins.print") as print_error,
+                    self.with_mocked_tools(),
+                ):
+                    self.assertEqual(runner.main(), 2)
+                bootstrap.assert_not_called()
+                batch.assert_not_called()
+                self.assertIn(detail, print_error.call_args.args[0])
+                self.assertFalse(self.output.exists())
+
+    def test_rejects_committed_scanner_change_before_bootstrap_or_batch(self):
+        self.observer_path.write_text("changed observer\n", encoding="utf-8")
+        self.commit_source()
+        self.assert_attestation_rejected_before_execution("scanner hash mismatch")
+
+    def test_rejects_committed_ratchet_change_before_bootstrap_or_batch(self):
+        self.ratchet_path.write_text("changed ratchet\n", encoding="utf-8")
+        self.commit_source()
+        self.assert_attestation_rejected_before_execution("ratchet fixture hash mismatch")
+
+    def test_rejects_changed_attestation_before_bootstrap_or_batch(self):
+        self.attestation["successor_scanner_sha256"] = "0" * 64
+        self.attestation_path.write_text(json.dumps(self.attestation), encoding="utf-8")
+        self.commit_source()
+        self.assert_attestation_rejected_before_execution("scanner hash mismatch")
+
+    def test_rejects_noncanonical_active_attestation_paths(self):
+        for key, value in (
+            ("successor_scanner_path", "dev/../dev/consolidation_metrics_current.xsh"),
+            ("current_ratchet_tests_path", "../dev/tests/test-consolidation-ratchets-current.xsh"),
+        ):
+            with self.subTest(key=key):
+                attestation = {**self.attestation, key: value}
+                self.attestation_path.write_text(json.dumps(attestation), encoding="utf-8")
+                self.commit_source()
+                self.assert_attestation_rejected_before_execution("noncanonical")
 
     def test_rejects_missing_bootstrap_binary(self):
         self.bootstrap.unlink()

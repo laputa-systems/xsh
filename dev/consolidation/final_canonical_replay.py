@@ -65,6 +65,29 @@ def sha256_file(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
+def validate_observer_attestation(root: pathlib.Path) -> None:
+    path = root / "dev/consolidation/metric-observer-successor.json"
+    if path.is_symlink() or not path.is_file():
+        raise ReplayError(f"current observer attestation is missing or unsafe: {path}")
+    attestation = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(attestation, dict) or type(attestation.get("schema")) is not int or attestation["schema"] != 1:
+        raise ReplayError("current observer attestation must use schema 1")
+    for path_key, hash_key, canonical_path, label in (
+        ("successor_scanner_path", "successor_scanner_sha256", "dev/consolidation_metrics_current.xsh", "scanner"),
+        ("current_ratchet_tests_path", "current_ratchet_tests_sha256", "dev/tests/test-consolidation-ratchets-current.xsh", "ratchet fixture"),
+    ):
+        if attestation.get(path_key) != canonical_path:
+            raise ReplayError(f"current observer attestation names a noncanonical {label}")
+        expected_hash = attestation.get(hash_key)
+        if not isinstance(expected_hash, str) or re.fullmatch(r"[0-9a-fA-F]{64}", expected_hash) is None:
+            raise ReplayError(f"current observer attestation has an invalid {label} hash")
+        source_path = root / canonical_path
+        if source_path.is_symlink() or not source_path.is_file():
+            raise ReplayError(f"current observer attestation {label} is missing or unsafe: {source_path}")
+        if sha256_file(source_path) != expected_hash.lower():
+            raise ReplayError(f"current observer attestation {label} hash mismatch; requalify the same-source report before updating the active pin")
+
+
 def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
@@ -339,6 +362,7 @@ def validate_bootstrap_inputs(args: argparse.Namespace) -> dict[str, Any]:
     source = git_snapshot(root)
     if (source["head"], source["tree"], source["clean"]) != (args.head, args.tree, True):
         raise ReplayError(f"source does not match the explicit clean freeze: {source}")
+    validate_observer_attestation(root)
 
     work_dir = root / ".work"
     scratch_dir = work_dir / "tmp"
@@ -533,6 +557,7 @@ def validate_inputs(args: argparse.Namespace) -> dict[str, Any]:
     source = git_snapshot(root)
     if (source["head"], source["tree"], source["clean"]) != (args.head, args.tree, True):
         raise ReplayError(f"source does not match the explicit clean freeze: {source}")
+    validate_observer_attestation(root)
 
     work_dir = root / ".work"
     scratch_dir = work_dir / "tmp"

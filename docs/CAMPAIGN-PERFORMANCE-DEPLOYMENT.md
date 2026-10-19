@@ -21,10 +21,21 @@ The deliverables are:
 ## Current checkpoint
 
 On October 19, frozen R7 source `6468326009b62cfd8ed682b0dc7007b371d3cb4d`
-passes bootstrap, 229 root integration tests, 14 soundness tests and 1,049
-library tests. Canonical execution remains active under
+passes bootstrap, 229 root integration tests, 14 soundness tests, 1,049
+library tests, 122 XSHT integration tests, 82 Linux compatibility tests and ten
+privilege tests. Its full native suite finishes with 14,070 passes, two failures
+and 150 skips. Observer attestation and the UDP error queue fail.
+The failed canonical receipt remains under
 `.work/wt/perf-i1-combined-freeze-r7/.work/tmp/i1-combined-r7-646832600`.
-The remaining canonical stages and supplemental correctness are not qualified.
+Supplemental correctness is not qualified. Canonical cleanup resolves.
+Preserve the failed R7 receipt. The isolated observer repair in
+`perf-observer-attestation-r8` reproduces the frozen report and item inventory
+byte for byte before updating the scanner pin. Its 40 Python owner tests and
+66 focused native tests pass, with no native failures or skips.
+Canonical preflight now rejects stale active pins before builds. Changed-path
+gates select both current metric modules for changes to their shared contract.
+The first focused launch lacks its required `mold` mount. The corrected launch
+passes with unchanged tests and products. Both attempts remain recorded.
 Use the clean `laputa-firecracker-verification` checkout for the supplemental
 corpus. The active Laputa world checkout contains a temporary clock diagnostic.
 

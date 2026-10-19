@@ -86,6 +86,33 @@ test test_cargo_callers_select_their_exact_native_tests_and_products {
   assert "xshi" in broad_plan[0].argv
 }
 
+test test_current_metric_attestation_changes_select_both_native_contracts {
+  let files = [
+    "dev/tests/test-consolidation-metrics-current.xsh",
+    "dev/tests/test-consolidation-ratchets-current.xsh",
+  ]
+  let paths = [
+    "dev/consolidation_metrics_current.xsh",
+    "dev/consolidation/metric-observer-successor.json",
+    @files,
+  ]
+  let ctx = fixtures.linux_context(/repo)?
+  for changed_path in paths {
+    let selected = gates.select([changed_path])?
+    assert selected.areas.is_empty()
+    assert selected.native_files == files
+    let plan = gates.lane_plan(ctx, tests.Verification, selected)?
+    assert [spec.stage for spec in plan] == [
+      "test-products",
+      "native-dev/tests/test-consolidation-metrics-current.xsh",
+      "native-dev/tests/test-consolidation-ratchets-current.xsh",
+    ]
+  }
+  let combined = gates.select([@paths, @paths])?
+  assert combined.areas.is_empty()
+  assert combined.native_files == files
+}
+
 test test_route_witness_leaf_selects_its_direct_unit_cli_and_native_cases {
   let ctx = fixtures.linux_context(/repo)?
   let selection = gates.select(["src/runtime/eval/route_witness.rs"])?

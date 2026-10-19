@@ -22,6 +22,11 @@ const cargo_caller_native_files = [
   "dev/tests/test-native-workflows.xsh",
 ]
 
+const current_metric_native_files = [
+  "dev/tests/test-consolidation-metrics-current.xsh",
+  "dev/tests/test-consolidation-ratchets-current.xsh",
+]
+
 pure cargo_caller_tests(changed_path: Str) -> List[Str] {
   match changed_path {
     "dev/cargo_steps.xsh" => [
@@ -70,6 +75,12 @@ export pure select(paths: List[Str]) -> Result[Selection, Error] {
   var areas: List[Area] = []
   var native_files = []
   for changed_path in paths {
+    if changed_path == "dev/consolidation_metrics_current.xsh" or changed_path == "dev/consolidation/metric-observer-successor.json" or changed_path in current_metric_native_files {
+      for file in current_metric_native_files {
+        native_files += [file] when file not in native_files
+      }
+      continue
+    }
     if changed_path == "dev/consolidation/current_source_policy.xsh" {
       native_files += ["dev/tests/test-consolidation-ratchets-current.xsh"] when "dev/tests/test-consolidation-ratchets-current.xsh" not in native_files
       continue

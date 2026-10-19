@@ -58,6 +58,12 @@ test modules. `cargo dev gate PATH...` applies that mapping. The batch gate runs
 one full native suite at a time and includes repository and documentation
 checks.
 
+Changes to the current metrics scanner, its attestation, or either current metric
+test module select both current metric modules. Canonical bootstrap and execution
+reject stale scanner or ratchet hashes before starting a build. Reproduce the
+frozen baseline report and item inventory before updating an active observer pin.
+The existing native checks still validate the historical proof.
+
 ## Building and release smoke
 
 Build products with `cargo dev build`. Linux tests use the pinned
