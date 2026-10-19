@@ -816,6 +816,7 @@ mod tests {
                     kind: super::super::CheckedFunctionKind::Proc,
                     signature: None,
                     scheme: None,
+                    symbol_owner: crate::symbol::SymbolOwner::current().unwrap(),
                     scheme_body_facts: None,
                     body: contract,
                     parameter_spans: Vec::new(),

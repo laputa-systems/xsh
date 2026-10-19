@@ -144,12 +144,6 @@ fn render_scheme(scheme: &TypeScheme, names: &BinderNames) -> String {
         parts.push(format!("return-schema={}", render_schema(schema)));
     }
     parts.push(format!("effects={}", render_effects(scheme.effects())));
-    if scheme.inferred_effects() {
-        parts.push("inferred-effects".to_owned());
-    }
-    if scheme.explicit_return() {
-        parts.push("explicit-return".to_owned());
-    }
     parts.join(" ")
 }
 

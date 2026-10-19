@@ -3117,6 +3117,11 @@ Pure functions can omit their return annotation when the checker infers one
 closed type or rank-1 scheme from explicit returns and reachable tails. This
 rule also allows exported pure functions to omit return annotations. Recursive
 pure functions still need an explicit return annotation.
+Checked tooling contracts retain quantified parameter relationships and open
+record rows. Their diagnostic display can use `forall` notation; that notation
+is not source syntax. Tooling compares checked contracts by bound parameter
+renaming while preserving nominal types, labels, schemas, and effects.
+
 The checker infers mutually recursive pure parameters together before checking
 callers. Those parameters remain monomorphic. A parameter that the recursive
 bodies leave undetermined needs an annotation.

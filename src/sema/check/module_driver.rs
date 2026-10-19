@@ -1450,6 +1450,14 @@ mod tests {
                 &checked_module_facts(&session, workspace.module_source),
                 "identity",
             );
+            let text = workspace.sources.get(source).unwrap().text();
+            let start = text.find("shared.identity").unwrap();
+            let initializer = crate::source::Span::new(source, start, start + "shared.identity".len());
+            let selected = output.callable_contract_at(initializer).expect("generic alias initializer contract");
+            assert!(selected.is_generic());
+            let declaration = output.checked_declarations.functions.values()
+                .find(|declaration| declaration.name.as_str() == "identity").unwrap().callable_contract().unwrap();
+            assert!(selected.equivalent_to(&declaration));
             if let Some(previous) = &published {
                 assert!(Arc::ptr_eq(previous, &scheme));
             } else {

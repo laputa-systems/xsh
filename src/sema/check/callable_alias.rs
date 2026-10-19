@@ -57,6 +57,7 @@ impl Checker {
         if !matches!(exports.get(&name), Some(ModuleExportType::GenericPure { optional: false })) {
             return None;
         }
+        self.record_selected_function_call(program.arena.expr(expression).span, &alias.signature);
         self.expr_types.insert(program.arena.expr(expression).span, Type::Pure);
         Some(alias)
     }

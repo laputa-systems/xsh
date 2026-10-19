@@ -45,6 +45,20 @@ lowerability produce no diagnostics. Its default classes are defaulted
 parameters, inferred returns, and exported bindings; `locals` is opt-in. A
 bare `--annotate` uses `[check] annotate` when configured.
 
+The frontend facade exposes `CheckedCallableContract` through
+`CheckedFunctionDeclaration::callable_contract()` and
+`CheckOutput::callable_contract_at(span)`. These immutable views share the
+checker-selected signature and retain its symbols after source disposal.
+`is_generic()` and `kind()` describe the checked declaration; `Display` uses
+stable bound parameter names, and `equivalent_to` compares structure modulo
+bound type and row parameter names. `join_effects` combines finite effect
+requirements only when the remaining checked shape agrees; an unrestricted
+clause remains unrestricted. Per-call instantiation does not replace
+the declaration contract. Failed or unresolved declarations have no view.
+`source_annotation()` returns source text only for expressible callable types;
+callers recheck it in the insertion scope. Displayed `forall` notation is
+diagnostic text, not an annotation to insert.
+
 ## Lint
 
 `xsht lint` analyzes checked facts. It skips files with check errors and
