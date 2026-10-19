@@ -235,19 +235,135 @@ required. The exact declarations in the frozen source views are:
 | XSH `dev/stage.xsh` | `execute_with` |
 | XSH `dev/system_report_check.xsh` | `reference_powercap_parent`, `device_class_reference_parent`, `print_cpu_id_set_result`, `compare_live_identity`, `compare_live_namespaces`, `compare_live_meminfo`, `compare_live_thp`, `compare_live_huge_pages`, `compare_live_psi`, `compare_live_vulnerabilities`, `compare_live_swaps`, `compare_live_pci_identity`, `compare_live_pci_links`, `compare_live_usb_topology`, `compare_live_usb_ids`, `compare_live_usb_power`, `compare_live_usb_interfaces`, `compare_live_power_supplies`, `compare_live_powercap`, `compare_live_device_classes`, `compare_live_hwmon`, `compare_live_pci_bindings`, `compare_live_thermal`, `compare_live_ip_links`, `compare_live_ip_addresses`, `compare_live_ip_rules`, `compare_live_ip_routes`, `compare_live_storage`, `compare_live_queue`, `compare_live_mounts`, `compare_live_mount_usage`, `compare_live_modules`, `compare_live_kernel_command_line`, `compare_live_kernel_parameters`, `compare_live_cpu_scope`, `compare_live_cgroup2`, `compare_live_cpu_cache`, `compare_live_cpu_topology`, `compare_live_cpufreq`, `compare_live_cpuidle`, `compare_live_processes`, `run_fixture_cases` |
 
-The frozen eligibility table gives a source path and declaration name for each
-site. The focused candidate exposes
-`CheckOutput.function_effect_facts`, keyed by declaration namespace and body
-span, with effective and required effects, inference status, redundancy, and
-unknown-call-chain fields. This run recorded the lint totals, not a per-site
-extraction from that map or resolved call edges. The source groups contain host
-operations and `Result` handling. They do not distinguish a wider caller bound,
-an unknown summary, or a missing inference relationship. For example,
-`compare_live_identity` at line 21766 uses filesystem operations, `time.now`,
-`process.run`, and propagated errors. `pm/plan.xsh`'s `require_supported_target`
-constructs and returns `Err` without `?`, so its `[error]` clause cannot be
-called required from the body alone. Neither example proves intent or a
-checker defect.
+The R6 fact query used compiler source commit
+`0f2cbe61b3f8a20f695315d696cac51239b5861d` with default features in the pinned
+Linux container. It checked the 60 frozen declarations against the reconstructed
+original views at digest
+`e3429dcf2abe9524754a28458651443bc56523b50130268a1c1ff44c03e36899`. The
+reduced-view digest
+`b67b498467a1dfe613573690288a8c514b9c03d0f895a4a3b20e4fd3b55968f9` was
+validated separately and was not an input to this query. The query verified the
+selected Cargo lock packages against the compiler lock.
+The 60 unique rows cover 12 source files. The extraction is in
+[`effect-facts-r6.tsv`](../dev/performance/corpus/effect-facts-r6.tsv), with its
+namespace, body span, declared and effective effects, required effects,
+inference flags, redundancy, unknown chain, and written source call sites.
+
+All 60 facts have `inferred=false`, `inference_allowed=true`,
+`redundant_clause=false`, and an empty `unknown_chain`. Each `effective` set
+matches its explicit clause, and each differs from `required`. The reported
+`required` set is a strict subset of `effective` in 58 rows. In the other two,
+`required` also includes `env`. The linter returns unless the checked fact has
+`redundant_clause=true`
+([`lint_annotations.rs`](../crates/xsht/src/lint_annotations.rs:200)). It then
+checks whether deleting the clause preserves checked output. All 60 fail the
+first proof. That explains the absent suggestions without proving that the
+clauses must remain or that several clauses can be removed together.
+
+Eleven bodies have `required=[]`: `make_catalog`, `digest_lines`,
+`closure_from_edges`, `plan_digest_lines`, `find_remote`,
+`require_supported_target`, `require_build_epoch`, `plan_json_remote`,
+`package_contract_error`, `absolute_recipe_package`, and
+`size_is_reached`. The ten Laputa helpers build data, hash input, transform
+paths, or construct `Result` values. Their source does not use `?` to propagate
+an error effect. `size_is_reached` is a separate case: it calls
+`bytes.read_at` in the R6 source at compiler commit
+`0f2cbe61b3f8a20f695315d696cac51239b5861d`; its runtime implementation opens,
+seeks, and reads a file ([`bytes.rs`](../src/modules/bytes.rs:363)). Module-call
+effect conversion uses `Effect::from_module_call`
+([`node.rs`](../src/syntax/node.rs:49),
+[`signature.rs`](../src/modules/signature.rs:348)); that mapping has no `bytes`
+case, so this R6 fact omits the filesystem effect. This finding is specific to
+the R6 source; it transfers no removal credit to the separate R7 Fs repair.
+Keep this row out of any over-annotation classification.
+
+The 37 `compare_live_*` functions named in the table above all have effective
+`[fs,process,time,error,io]` and required `[error,fs,process,time]`. Their source
+calls include filesystem reads, `time.now`, and `process.run`. This proves a
+shared set mismatch, but it does not explain why the clauses include `io`.
+The separate `compare_live_processes` row has a required set that also contains
+`env`, while its clause omits it. Its body calls `system.execution_units()` at
+`dev/system_report_check.xsh:25474`, and the checker maps `system` calls to
+`env`.
+
+The other twelve rows are recorded individually in the TSV. Ten of them have
+required effects that are strict subsets of their clauses. Two rows do not fit
+that pattern: `compare_live_processes` requires undeclared `env`, and
+`core/wc.xsh`'s `count_input` requires `env` although its source calls
+`io.stdin_read`, `io.stdin_bytes`, `Path.metadata`, and `read_file`; the latter
+is declared `[fs,error]`. The extraction does not identify the source of
+`count_input`'s `env` requirement. Treat both rows as unresolved mismatches.
+
+`CheckOutput.function_effect_facts` does not expose resolved call edges. The
+TSV's call-site column records written call spellings, not checker-resolved
+dependencies. Those spellings contain no direct calls between two of the 60
+target names, but that lexical result does not rule out aliases or paths through
+other functions. No joint component or cycle is established by this query.
+`compare_live_identity` at line 21766 shows source operations that account for
+its required filesystem, time, process, and error effects. `pm/plan.xsh`'s
+`require_supported_target` returns `Err` without propagating it, which matches
+its empty required set. Neither example proves intent or a solver defect.
+
+To reproduce the query inside the same pinned container, create an isolated
+Cargo binary project under the container's `.work/tmp` mount. The container
+uses `kache` and `mold`. Copy the helper into `src/main.rs`, then use this
+manifest:
+
+```sh
+mkdir -p /query/query-r1/src
+cp /helper/dev/performance/corpus/effect_facts.rs /query/query-r1/src/main.rs
+cat > /query/query-r1/Cargo.toml <<'EOF'
+[package]
+name = "effect-facts"
+version = "0.0.0"
+edition = "2024"
+
+[workspace]
+
+[profile.dev]
+debug = 0
+strip = "debuginfo"
+
+[dependencies]
+xsh = { path = "/work" }
+
+[patch.crates-io]
+regex-lite = { path = "/work/third_party/regex-lite" }
+EOF
+TMPDIR=/work/.work/tmp CARGO_TARGET_DIR=/work/.work/target-final-canonical \
+  cargo build --offline --target x86_64-unknown-linux-musl \
+  --manifest-path /query/query-r1/Cargo.toml
+python3 - <<'PY'
+import tomllib
+from pathlib import Path
+
+compiler = tomllib.loads(Path("/work/Cargo.lock").read_text())
+query = tomllib.loads(Path("/query/query-r1/Cargo.lock").read_text())
+compiler_registry = {
+    (package["name"], package["version"], package["source"]): package["checksum"]
+    for package in compiler["package"]
+    if package.get("source", "").startswith("registry+")
+}
+selected_registry = [
+    package
+    for package in query["package"]
+    if package.get("source", "").startswith("registry+")
+]
+for package in selected_registry:
+    identity = (package["name"], package["version"], package["source"])
+    assert identity in compiler_registry, f"missing from compiler lock: {identity}"
+    assert package["checksum"] == compiler_registry[identity], f"checksum differs: {identity}"
+print(f"validated {len(selected_registry)} selected registry packages")
+PY
+/work/.work/target-final-canonical/x86_64-unknown-linux-musl/debug/effect-facts \
+  /views/xsh /views/laputa \
+  /helper/dev/performance/corpus/effect-facts-targets.tsv \
+  > /query/facts-r1.tsv
+```
+
+The query used no lint or runtime results. The compiler source remains
+unqualified, and the 142 earlier individual suggestions earn no joint-removal
+credit.
 
 The effect-graph behavior described here is from the accepted implementation
 source commit `0fe1469d1808b5f963bd841165af6c10f2c3e93b` (tree
@@ -265,13 +381,12 @@ Opaque `Proc.call` and `Pure.call` are assigned unknown effect contracts in that
 source view. A lexical scan of the 22 frozen clause-bearing files found no
 `.call(` use, so that dynamic-call restriction is not supported as a
 cohort-wide explanation. Callable schemes carry inferred-effect metadata, but
-the candidate lint output does not connect the 60 cases to scheme publication
-or a recursive generic boundary. Keep all 202 clauses and the 2,190-site
-internal denominator; the 142 single-clause results earn no joint-removal
-credit. The next evidence step is to map the candidate fact query's body spans
-to the frozen declarations, inspect dependency evidence for the 60, and run a
-joint solve only for source-confirmed components. The exact list of the 142
-historical lint findings is at `15243e97` in
+the fact query does not connect the 60 cases to scheme publication or a
+recursive generic boundary. Keep all 202 clauses and the 2,190-site internal
+denominator; the 142 single-clause results earn no joint-removal credit. Any
+joint solve requires resolved, source-confirmed components. This query
+establishes none. The exact list of the 142 historical lint findings is at
+`15243e97` in
 `dev/consolidation/evidence/typing-corpus-host-obligations/individual-effects-sites.tsv`.
 
 The accounting is 910 semantic restrictions/selections (758 Proc contracts,
