@@ -184,6 +184,15 @@ zero-length phase. The report schema and callable boundaries live in
 
 ## Frozen workload selection
 
+`inference_workloads.py` generates annotated and reduced source maps for the
+eight fixed inference families at 64, 128, 256, and 512 units. It is fixture
+preparation only; it does not compile, execute, measure, or qualify them.
+Expected units, logical stdout, and runtime-output byte counts are declared
+separately from source generation. Frontend behavior remains unprobed except
+for the deep-record controls: 64, 128, and 256 await a boundary probe, while
+512 remains an expected type-depth rejection under the existing limit. These
+sources retain future RED inputs without claiming section 12 coverage.
+
 `workloads.py` keeps the original fifteen cases first: two startup cases, six
 streaming cases, three JSON cases, three directory cases, and one 128-child
 spawn case. It appends six demanding data cases: JSON and directory workloads
