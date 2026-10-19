@@ -185,10 +185,44 @@ The remaining 713 rows have these frozen diagnostic families:
 | `field-access` | 1 | `try-error` | 1 |
 | `guard-binding` | 1 | `record-update-field` | 1 |
 
-A diagnostic identifies where erasure currently fails. It does not establish
+A historical diagnostic identifies where that earlier erasure failed. It does not establish
 whether the missing fact is unavailable, a semantic restriction, or a specific
 inference relationship. Keep these 713 rows pending source-level witnesses;
 do not assign a cause from the code alone.
+
+Source review against R12 (`55032a7ee`) reconciles the two largest families.
+These are historical diagnostic groups, not annotation kinds or current failures:
+
+| Historical diagnostic | Retained annotations | Declarations |
+|---|---|---:|
+| `infer-return` | 126 returns and 158 parameters | 154 |
+| `local-inference` | 229 required pure-function parameters, all without defaults | 178 |
+
+The 284 `infer-return` rows exclude four previously identified source-fact rows
+from the 288-row total below. Its declarations split into 64 with both kinds,
+62 with returns only, and 28 with parameters only. Of the 126 return annotations,
+83 name Result types, 40 name records or other types, and three name Lists.
+Null/empty constructors, typed record converters, and coupled parameter/return
+helpers provide distinct probe classes. No checker result is inferred from these
+source shapes.
+
+The 229 `local-inference` rows exclude sites 9111, 9112, and 2850 from 232 raw
+rows. They cover 203 XSH parameters and 26 Laputa parameters across 18 files.
+Their source relationships split as follows:
+
+| Body relationship | Sites |
+|---|---:|
+| Nominal or error-family matching without a body-derived selector | 6 |
+| Ordering or sorting without a concrete operand type | 6 |
+| Interpolation without a selected concrete display type | 14 |
+| Equality links values but does not establish their annotated domain | 7 |
+| Typed returns, fields, conditions, calls, or other body constraints | 196 |
+
+R12 seeds unannotated pure parameters with fresh variables and solves constraints
+from their bodies. Caller argument types do not determine those declarations.
+It can generalize type and open-row variables. Neither an available body
+constraint nor a typed caller proves an annotation removable. These source
+groups remain pending focused checks; frozen removals and denominators are unchanged.
 
 The 288 `infer-return` rows cover 128 return annotations and 160 parameter
 annotations across 158 declarations. Sixty-four declarations retain both
