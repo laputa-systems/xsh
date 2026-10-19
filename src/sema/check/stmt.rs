@@ -4915,14 +4915,28 @@ impl Checker {
         } else {
             None
         };
-        let actual = self.check_expr_with_schema_arena(
-            arena,
-            source,
-            initializer,
-            expected.as_ref().or(local_expected.as_ref()),
-            schema.clone(),
-        );
-        let callable_alias = if !mutable && ty.is_none() {
+        let generic_module_alias = if !mutable && ty.is_none()
+            && matches!(arena.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(_))
+            && let ArenaExprOrRun::Expr(expression) = initializer
+        {
+            self.check_generic_module_alias_initializer(arena, source, expression)
+        } else {
+            None
+        };
+        let actual = if generic_module_alias.is_some() {
+            Type::Pure
+        } else {
+            self.check_expr_with_schema_arena(
+                arena,
+                source,
+                initializer,
+                expected.as_ref().or(local_expected.as_ref()),
+                schema.clone(),
+            )
+        };
+        let callable_alias = if generic_module_alias.is_some() {
+            generic_module_alias
+        } else if !mutable && ty.is_none() {
             match initializer {
                 ArenaExprOrRun::Expr(expression) => {
                     self.resolve_callable_alias_target(arena, expression)

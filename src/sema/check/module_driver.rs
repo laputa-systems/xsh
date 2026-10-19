@@ -1420,6 +1420,39 @@ mod tests {
     }
 
     #[test]
+    fn imported_generic_aliases_instantiate_independently_without_changing_exports() {
+        let workspace = typing_workspace(&[
+            "use shared\nlet identity = shared.identity\nlet project = shared.name_of\nlet number: Int = identity(42)\nlet text: Str = identity(\"demo\")\nlet boolean: Bool = identity(false)\nlet name: Str = project({name: \"package\", version: 1})\n",
+            "use shared\nlet identity = shared.identity\nlet text: Str = identity(\"second\")\nlet number: Int = identity(7)\n",
+        ]);
+        let _symbols = workspace.program.symbol_owner().enter();
+        let session = CheckSession::new(
+            Arc::clone(&workspace.program),
+            Arc::clone(&workspace.sources),
+        );
+        let mut published = None;
+        for (index, &(root, source)) in workspace.roots.iter().enumerate() {
+            let output = session.check(root, source, CheckOptions::default());
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            assert_no_inference_in_output(&output);
+            assert_call_type_arguments(&output, if index == 0 {
+                &[Type::Int, Type::Str, Type::Bool, Type::Str]
+            } else {
+                &[Type::Str, Type::Int]
+            });
+            let scheme = exported_scheme(
+                &checked_module_facts(&session, workspace.module_source),
+                "identity",
+            );
+            if let Some(previous) = &published {
+                assert!(Arc::ptr_eq(previous, &scheme));
+            } else {
+                published = Some(scheme);
+            }
+        }
+    }
+
+    #[test]
     fn imported_identity_and_projection_schemes_are_order_independent_across_roots() {
         let workspace = typing_workspace(&[
             "use shared\nlet identity: Str = shared.identity(\"demo\")\nlet name: Str = shared.name_of({name: \"package\", version: \"1.0\"})\n",

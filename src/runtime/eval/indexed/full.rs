@@ -12299,11 +12299,9 @@ impl<'a> FullDecoder<'a> {
         if matches!(
             &receiver,
             Type::Module(exports)
-                if matches!(exports.get(&field), Some(ModuleExportType::GenericPure { .. }))
+                if matches!(exports.get(&field), Some(ModuleExportType::GenericPure { optional: false }))
         ) {
-            return Err(IrVerifyError::new(
-                "generic pure module export cannot be read as a value",
-            ));
+            return Ok(Type::Pure);
         }
         let receiver_id = if matches!(&receiver, Type::Record(_) | Type::Module(_)) {
             self.expression_checked_type_id(base)?
@@ -20236,6 +20234,33 @@ run true
                     result.unwrap(),
                     Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Unit)))
                 );
+            }
+        });
+    }
+
+    #[test]
+    fn imported_generic_aliases_execute_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let program = Arc::new(imported_scheme_fixture_after_frontend_drop_with_entry(
+                "use model\nproc main() [error] -> Result[Unit] {\n  let identity = model.identity\n  let shared = identity\n  let project = model.name_of\n  let number: Int = shared(42)\n  let text: Str = shared(\"demo\")\n  let boolean: Bool = shared(false)\n  assert number == 42\n  assert text == \"demo\"\n  assert !boolean\n  assert project({name: \"package\", version: 1}) == \"package\"\n  return Ok()\n}\n",
+            ));
+            FullVerifier::verify(&program).unwrap();
+            let import_step = scheme_fixture_use_step(&program, program_name(&program, "model"));
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                evaluator.force_frames = force_frames;
+                evaluator.eval_indexed_driver_step(
+                    import_step,
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("module import has a direct executor").expect("module import executes");
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "main")),
+                    LoweredFunctionKind::Proc,
+                    &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("generic alias importer exists").expect("generic alias importer executes");
+                assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Unit))));
             }
         });
     }

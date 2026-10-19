@@ -98,16 +98,16 @@ let concrete: Int = identity(raw)
   )?
 }
 
-test test_typing_generic_module_pure_is_not_a_value { |ctx|
+test test_typing_generic_module_alias_preserves_independent_instances { |ctx|
   let module_dir = test.temp_dir(ctx, name: "typing-generic-pure-value")?
   fp"{module_dir}/model.xsh".write("##! Generic module callable.\n## Returns its input.\nexport pure identity(value) { value }\n")?
   let result = test.run_xsh(
     ctx,
-    "use model\nlet identity = model.identity\n",
+    "use model\nlet identity = model.identity\nlet number: Int = identity(42)\nlet text: Str = identity(\"demo\")\nlet boolean: Bool = identity(false)\nassert !boolean\nprint $number\nprint $text\nprint $boolean\n",
     env: {XSH_MODULE_PATH: module_dir},
   )?
-  assert result.status == 2, result.stderr
-  assert "[check.module-member]" in result.stderr, result.stderr
+  assert result.success, result.stderr
+  assert result.stdout == "42\ndemo\nfalse\n"
 
   let null_safe = test.run_xsh(
     ctx,

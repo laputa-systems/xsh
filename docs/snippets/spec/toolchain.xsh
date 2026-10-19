@@ -4,3 +4,8 @@
 export proc build(root: Path, jobs = 1) [process, error] {
   run make -C $root f"-j{jobs}"
 }
+
+## Returns its argument unchanged.
+export pure identity(value) {
+  value
+}

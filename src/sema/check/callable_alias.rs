@@ -35,6 +35,32 @@ impl CallableAlias {
 }
 
 impl Checker {
+    pub(super) fn check_generic_module_alias_initializer(
+        &mut self,
+        program: &ArenaProgram,
+        source: &str,
+        expression: ExprId,
+    ) -> Option<CallableAlias> {
+        let ArenaExprKind::Field { base, name } = program.arena.expr(expression).kind else {
+            return None;
+        };
+        let alias = self.resolve_callable_alias_target(program, expression)?;
+        let scheme = alias.signature.scheme();
+        if !alias.pure
+            || scheme.type_parameters().is_empty() && scheme.row_parameters().is_empty()
+        {
+            return None;
+        }
+        let Type::Module(exports) = self.check_expr_arena(program, source, base, None) else {
+            return None;
+        };
+        if !matches!(exports.get(&name), Some(ModuleExportType::GenericPure { optional: false })) {
+            return None;
+        }
+        self.expr_types.insert(program.arena.expr(expression).span, Type::Pure);
+        Some(alias)
+    }
+
     pub(super) fn resolve_callable_alias_target(
         &self,
         program: &ArenaProgram,
