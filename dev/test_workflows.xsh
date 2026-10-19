@@ -154,12 +154,12 @@ export pure rust_plan(
       ctx.root, environment)]
   }
   plan += [
+    stages.command("test-soundness", ctx.target.triple, "cargo",
+      ["cargo", "test", @profile_args, "-p", "xsh-fuzz", "--test", "soundness"], ctx.root, environment),
     stages.command("test-debug-assertions", ctx.target.triple, "cargo",
       ["cargo", "test", @debug_args, "-p", "xsh", "--lib"], ctx.root, environment),
     stages.command("test-xsht", ctx.target.triple, "cargo",
       ["cargo", "test", @profile_args, "-p", "xsht", "--test", "integration", "--", @sibling_syntax_exclusions, @xsht_integration_exclusions], ctx.root, environment),
-    stages.command("test-soundness", ctx.target.triple, "cargo",
-      ["cargo", "test", @profile_args, "-p", "xsh-fuzz", "--test", "soundness"], ctx.root, environment),
   ]
   if privileged {
     for target in ["core_compat_extra", "linux_priv"] {

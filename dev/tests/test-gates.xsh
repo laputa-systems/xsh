@@ -385,7 +385,7 @@ p"{observed}".write(args.join("|"))?
   assert [spec.stage for spec in rust_plan] == [
     "test-products",
     "test-rust", "test-rust", "test-rust", "test-rust", "test-rust",
-    "test-debug-assertions", "test-xsht", "test-soundness",
+    "test-soundness", "test-debug-assertions", "test-xsht",
     "test-linux-priv", "test-linux-priv",
   ]
 
