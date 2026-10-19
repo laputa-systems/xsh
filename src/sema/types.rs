@@ -299,7 +299,7 @@ pub(crate) fn tail_type_matches_expected(expected: &Type, actual: &Type) -> bool
 /// identity. Nothing else varies: a domain change such as `Int` to `UInt` or
 /// a wider record needs a checked boundary that a call through the type does
 /// not run. An unresolved type inside either is not evidence of a fit.
-fn callable_return_fits(actual: &Type, expected: &Type) -> bool {
+pub(crate) fn callable_return_fits(actual: &Type, expected: &Type) -> bool {
     if actual == expected {
         return true;
     }
@@ -548,6 +548,38 @@ impl CallableType {
 }
 
 impl Type {
+    pub(crate) fn for_each_child<'a>(&'a self, mut visit: impl FnMut(&'a Type)) {
+        match self {
+            Self::List(inner) | Self::Stream(inner) | Self::Set(inner) | Self::Optional(inner) => visit(inner),
+            Self::Map(key, value) | Self::Result(key, value) => { visit(key); visit(value); }
+            Self::Record(fields) => { for field in fields.values() { visit(field); } }
+            Self::Union(members) => { for member in members { visit(member); } }
+            Self::Validated(validated) => visit(validated.base()),
+            Self::Callable(callable) => {
+                for parameter in &callable.sig.params { visit(&parameter.ty); }
+                visit(&callable.sig.return_ty);
+            }
+            Self::Module(module) => {
+                for export in module.values() {
+                    match export {
+                        ModuleExportType::Value { ty, .. } => visit(ty),
+                        ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. } => {
+                            for parameter in &sig.params { visit(&parameter.ty); }
+                            visit(&sig.return_ty);
+                        }
+                        ModuleExportType::GenericPure { .. } => {}
+                    }
+                }
+            }
+            Self::BuiltinParameter(_) | Self::Inference(_) | Self::Any | Self::Unknown | Self::Invalid
+            | Self::Null | Self::Bool | Self::Int | Self::UInt | Self::Float | Self::Duration
+            | Self::Str | Self::Bytes | Self::Digest | Self::Regex | Self::Path | Self::ErasedRecord
+            | Self::DynamicModule | Self::Status | Self::EnvPathList | Self::Error | Self::ErrorFamily(_)
+            | Self::ErrorVariant { .. } | Self::ErrorFacet(_) | Self::ProcessError | Self::Pure | Self::Proc
+            | Self::Command | Self::ProcessHandle | Self::NetJob | Self::FsRoot | Self::FsLock | Self::Unit | Self::Tag(_) => {}
+        }
+    }
+
     /// Whether runtime storage must preserve a nonnegative integer constraint.
     pub(crate) fn has_unsigned_constraint(&self) -> bool {
         match self {

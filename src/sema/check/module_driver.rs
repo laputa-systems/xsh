@@ -736,6 +736,12 @@ mod tests {
         match ty {
             SchemeType::Ground(ty) => assert!(!ty.contains_inference(), "{ty:?}"),
             SchemeType::Parameter(_) => {}
+            SchemeType::Callable { monotype, .. } => {
+                for parameter in monotype.params() {
+                    assert_no_inference_in_scheme_type(&parameter.ty);
+                }
+                assert_no_inference_in_scheme_type(monotype.return_type());
+            }
             SchemeType::List(inner)
             | SchemeType::Stream(inner)
             | SchemeType::Set(inner)

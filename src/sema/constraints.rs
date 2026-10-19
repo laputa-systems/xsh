@@ -1,6 +1,6 @@
 use super::types::{CallableType, ModuleExportType, Type};
 use super::schemes::{
-    CallInstantiation, CallableScheme, RowEvidence, SchemeBuildError, SchemeRowParameter,
+    CallInstantiation, CallableMonotype, CallableScheme, RowEvidence, SchemeBuildError, SchemeCallableKind, SchemeParameter, SchemeRowParameter,
     SchemeRowParameterId, SchemeRowTail, SchemeType, SchemeTypeParameterId,
 };
 #[cfg(test)]
@@ -790,6 +790,21 @@ impl TypeConstraints {
             ));
         }
         match ty {
+            Type::Callable(callable) => {
+                let params = callable.sig.params.iter().map(|parameter| Ok(SchemeParameter {
+                    name: parameter.name,
+                    ty: self.generalize_type(&parameter.ty, environment_level, generalization, depth + 1)?,
+                    schema_expectation: None,
+                    defaulted: parameter.defaulted,
+                    rest: parameter.rest,
+                })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
+                let return_type = self.generalize_type(&callable.sig.return_ty, environment_level, generalization, depth + 1)?;
+                Ok(SchemeType::Callable {
+                    kind: if callable.pure { SchemeCallableKind::Pure } else { SchemeCallableKind::Proc },
+                    monotype: Arc::new(CallableMonotype::new(params, return_type, None)),
+                    effects: callable.sig.effects.clone().map(Arc::from),
+                })
+            }
             Type::Inference(id) => {
                 match self.resolve_constraint(&ConstraintType::Variable(*id))? {
                     ConstraintType::Ground(ty) => {
@@ -1001,6 +1016,30 @@ impl TypeConstraints {
             )
         };
         match ty {
+            SchemeType::Callable { kind, monotype, effects } => {
+                if monotype.has_schema_contract() {
+                    return Err(SchemeOperationError::Build(SchemeBuildError::UnresolvedSchema));
+                }
+                let pure = match kind {
+                    SchemeCallableKind::Pure => true,
+                    SchemeCallableKind::Proc => false,
+                    SchemeCallableKind::Stream => return Err(SchemeOperationError::Build(SchemeBuildError::UnsupportedCallableKind)),
+                };
+                let params = monotype.params().iter().map(|parameter| Ok(super::types::CallableParamType {
+                    name: parameter.name,
+                    ty: nested(self, &parameter.ty, depth + 1)?,
+                    defaulted: parameter.defaulted,
+                    rest: parameter.rest,
+                })).collect::<Result<Vec<_>, SchemeOperationError>>()?;
+                Ok(Type::Callable(Arc::new(super::types::TypedCallable {
+                    pure,
+                    sig: CallableType {
+                        params,
+                        return_ty: Box::new(nested(self, monotype.return_type(), depth + 1)?),
+                        effects: effects.as_ref().map(|effects| effects.to_vec()),
+                    },
+                })))
+            }
             SchemeType::Ground(ty) => Ok(ty.clone()),
             SchemeType::Parameter(id) => type_arguments
                 .get(id)
@@ -2780,6 +2819,36 @@ impl TypeConstraints {
                         depth + 1,
                     ));
                 }
+                (Type::Callable(left), Type::Callable(right))
+                    if expected.contains_inference() || actual.contains_inference() =>
+                {
+                    if left.pure != right.pure || left.sig.params.len() != right.sig.params.len()
+                        || left.sig.params.iter().zip(&right.sig.params).any(|(left, right)| {
+                            left.name != right.name || left.defaulted != right.defaulted || left.rest != right.rest
+                        })
+                    {
+                        return Err((expected, actual, None));
+                    }
+                    for (left, right) in left.sig.params.iter().zip(&right.sig.params) {
+                        self.constrain_inner(&left.ty, &right.ty, contribution, annotation, depth + 1, changes)?;
+                    }
+                    self.constrain_inner(&left.sig.return_ty, &right.sig.return_ty, contribution, annotation, depth + 1, changes)?;
+                    let mut expected_signature = left.sig.clone();
+                    self.resolve_callable_depth_inner(&mut expected_signature, depth + 1, &mut ResolutionAccess::Journal(changes))
+                        .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
+                    let mut actual_signature = right.sig.clone();
+                    self.resolve_callable_depth_inner(&mut actual_signature, depth + 1, &mut ResolutionAccess::Journal(changes))
+                        .map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
+                    let effects_fit = left.pure || expected_signature.effects.as_ref().is_none_or(|bound| {
+                        actual_signature.effects.as_ref().is_some_and(|required| required.iter().all(|effect| super::check::Checker::effects_covers(bound, effect)))
+                    });
+                    if expected_signature.params.iter().zip(&actual_signature.params).any(|(expected, actual)| expected.ty != actual.ty)
+                        || !super::types::callable_return_fits(&actual_signature.return_ty, &expected_signature.return_ty)
+                        || !effects_fit
+                    {
+                        return Err((expected, actual, None));
+                    }
+                }
                 (Type::Record(left), Type::Record(right)) => {
                     for (name, expected_field) in left.iter().rev() {
                         let Some(actual_field) = right.get(name) else {
@@ -3088,6 +3157,9 @@ impl TypeConstraints {
                     )
                 })?
             }
+            Type::Callable(callable) if has_inference(&Type::Callable(Arc::clone(callable)), depth)? => {
+                self.resolve_callable_depth_inner(&mut Arc::make_mut(callable).sig, depth + 1, access)?;
+            }
             Type::Module(exports) if module_has_inference(exports, depth)? => {
                 for export in Arc::make_mut(exports).exports.values_mut() {
                     match export {
@@ -3190,39 +3262,7 @@ impl TypeConstraints {
                     };
                     variables.insert(variable.canonical);
                 }
-                Type::List(inner)
-                | Type::Optional(inner)
-                | Type::Stream(inner)
-                | Type::Set(inner) => pending.push((inner, depth + 1)),
-                Type::Map(key, value) => {
-                    pending.push((key, depth + 1));
-                    pending.push((value, depth + 1));
-                }
-                Type::Result(ok, error) => {
-                    pending.push((ok, depth + 1));
-                    pending.push((error, depth + 1));
-                }
-                Type::Record(fields) => pending.extend(fields.values().map(|ty| (ty, depth + 1))),
-                Type::Union(members) => pending.extend(members.iter().map(|ty| (ty, depth + 1))),
-                Type::Validated(validated) => pending.push((validated.base(), depth + 1)),
-                Type::Module(exports) => {
-                    for export in exports.values() {
-                        match export {
-                            ModuleExportType::Value { ty, .. } => pending.push((ty, depth + 1)),
-                            ModuleExportType::Pure { sig, .. }
-                            | ModuleExportType::Proc { sig, .. } => {
-                                pending.push((&sig.return_ty, depth + 1));
-                                pending.extend(
-                                    sig.params
-                                        .iter()
-                                        .map(|parameter| (&parameter.ty, depth + 1)),
-                                );
-                            }
-                            ModuleExportType::GenericPure { .. } => {}
-                        }
-                    }
-                }
-                _ => {}
+                _ => ty.for_each_child(|child| pending.push((child, depth + 1))),
             }
         }
         Ok(variables)
@@ -3732,79 +3772,29 @@ fn has_anchor(
             Type::Unknown | Type::Invalid => return Ok(false),
             Type::Inference(_) if annotation => return Ok(false),
             Type::Any | Type::ErasedRecord | Type::Null if !annotation => return Ok(false),
-            Type::List(inner) | Type::Optional(inner) | Type::Stream(inner) | Type::Set(inner) => {
-                pending.push((inner, depth + 1))
-            }
-            Type::Map(key, value) => {
-                pending.push((key, depth + 1));
-                pending.push((value, depth + 1));
-            }
-            Type::Result(ok, error) => {
-                pending.push((ok, depth + 1));
-                pending.push((error, depth + 1));
-            }
-            Type::Record(fields) => {
-                if fields.is_empty() && !annotation {
-                    return Ok(false);
-                }
-                pending.extend(fields.values().map(|ty| (ty, depth + 1)));
-            }
-            Type::Union(members) => pending.extend(members.iter().map(|ty| (ty, depth + 1))),
-            Type::Validated(validated) => pending.push((validated.base(), depth + 1)),
-            Type::Module(exports) => {
-                for export in exports.values() {
-                    match export {
-                        ModuleExportType::Value { ty, .. } => pending.push((ty, depth + 1)),
-                        ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. } => {
-                            pending.push((&sig.return_ty, depth + 1));
-                            pending.extend(
-                                sig.params
-                                    .iter()
-                                    .map(|parameter| (&parameter.ty, depth + 1)),
-                            );
-                        }
-                        ModuleExportType::GenericPure { .. } => {}
-                    }
-                }
-            }
-            _ => {}
+            Type::Record(fields) if fields.is_empty() && !annotation => return Ok(false),
+            _ => ty.for_each_child(|child| pending.push((child, depth + 1))),
         }
     }
     Ok(true)
 }
 
 fn has_inference(ty: &Type, depth: usize) -> Result<bool, ConstraintResolutionError> {
-    if depth > MAX_TYPE_DEPTH {
-        return Err(ConstraintResolutionError::TypeDepth);
+    let mut pending = vec![(ty, depth)];
+    while let Some((ty, depth)) = pending.pop() {
+        if depth > MAX_TYPE_DEPTH {
+            return Err(ConstraintResolutionError::TypeDepth);
+        }
+        if matches!(ty, Type::Inference(_)) {
+            return Ok(true);
+        }
+        if let Type::Module(exports) = ty {
+            if module_has_inference(exports, depth)? { return Ok(true); }
+            continue;
+        }
+        ty.for_each_child(|child| pending.push((child, depth + 1)));
     }
-    Ok(match ty {
-        Type::Inference(_) => true,
-        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
-            has_inference(inner, depth + 1)?
-        }
-        Type::Map(first, second) | Type::Result(first, second) => {
-            has_inference(first, depth + 1)? || has_inference(second, depth + 1)?
-        }
-        Type::Record(fields) => {
-            for field in fields.values() {
-                if has_inference(field, depth + 1)? {
-                    return Ok(true);
-                }
-            }
-            false
-        }
-        Type::Union(members) => {
-            for member in members {
-                if has_inference(member, depth + 1)? {
-                    return Ok(true);
-                }
-            }
-            false
-        }
-        Type::Validated(validated) => has_inference(validated.base(), depth + 1)?,
-        Type::Module(exports) => module_has_inference(exports, depth)?,
-        _ => false,
-    })
+    Ok(false)
 }
 
 fn module_has_inference(
@@ -3851,6 +3841,106 @@ mod tests {
             panic!("expected an inference variable")
         };
         *id
+    }
+
+    fn nested_callable(argument: Type, result: Type) -> Type {
+        Type::Callable(Arc::new(crate::sema::types::TypedCallable {
+            pure: true,
+            sig: CallableType {
+                params: vec![crate::sema::types::CallableParamType {
+                    name: crate::symbol::Name::intern("value"),
+                    ty: argument,
+                    defaulted: false,
+                    rest: false,
+                }],
+                return_ty: Box::new(result),
+                effects: Some(Vec::new()),
+            },
+        }))
+    }
+
+    #[test]
+    fn nested_callable_generalization_preserves_shared_outer_binder() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut constraints = TypeConstraints::default();
+            let value = constraints.fresh_at_level(span(1), 1);
+            let callback = nested_callable(value.clone(), value.clone());
+            let generalized = constraints.generalize_types(&[callback, value], 0).unwrap();
+            assert_eq!(generalized.type_parameters.len(), 1);
+            assert!(generalized.row_parameters.is_empty());
+            let scheme = CallableScheme::new(
+                generalized.type_parameters,
+                generalized.row_parameters,
+                vec![crate::sema::schemes::SchemeParameter {
+                    name: crate::symbol::Name::intern("action"),
+                    ty: generalized.types[0].clone(),
+                    schema_expectation: None,
+                    defaulted: false,
+                    rest: false,
+                }],
+                generalized.types[1].clone(),
+                None,
+                false,
+            ).unwrap();
+            let instance = constraints.instantiate_callable(&scheme, 1, span(2)).unwrap();
+            constraints.constrain(&instance.return_type, &Type::Int, span(3)).unwrap();
+            assert_eq!(constraints.resolve(&instance.params[0]), Ok(nested_callable(Type::Int, Type::Int)));
+            let second = constraints.instantiate_callable(&scheme, 1, span(4)).unwrap();
+            constraints.constrain(&second.return_type, &Type::Str, span(5)).unwrap();
+            assert_eq!(constraints.resolve(&second.params[0]), Ok(nested_callable(Type::Str, Type::Str)));
+        });
+    }
+
+    #[test]
+    fn nested_callable_resolution_rewrites_shared_parameter_and_result() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut constraints = TypeConstraints::default();
+            let value = constraints.fresh_at_level(span(1), 1);
+            let callback = nested_callable(value.clone(), value.clone());
+            constraints.constrain(&value, &Type::Int, span(2)).unwrap();
+            assert_eq!(constraints.resolve(&callback), Ok(nested_callable(Type::Int, Type::Int)));
+        });
+    }
+
+    #[test]
+    fn nested_callable_unification_rolls_back_conflicting_relationship() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut constraints = TypeConstraints::default();
+            let value = constraints.fresh_at_level(span(1), 1);
+            let callback = nested_callable(value.clone(), value.clone());
+            assert!(constraints.constrain(&callback, &nested_callable(Type::Int, Type::Str), span(2)).is_err());
+            assert_eq!(constraints.resolve(&value), Ok(value.clone()));
+            constraints.constrain(&callback, &nested_callable(Type::Int, Type::Int), span(3)).unwrap();
+            assert_eq!(constraints.resolve(&value), Ok(Type::Int));
+        });
+    }
+
+    #[test]
+    fn nested_callable_unresolved_reports_shared_variable_origin() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut constraints = TypeConstraints::default();
+            let value = constraints.fresh_at_level(span(1), 1);
+            let callback = nested_callable(value.clone(), value.clone());
+            assert_eq!(constraints.unresolved(&callback).unwrap(), vec![span(1)]);
+            constraints.constrain(&value, &Type::Bool, span(2)).unwrap();
+            assert!(constraints.unresolved(&callback).unwrap().is_empty());
+        });
+    }
+
+    #[test]
+    fn nested_callable_unification_preserves_matching_rest_layout() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let rest_callable = |item: Type| {
+                let mut ty = nested_callable(Type::List(Box::new(item.clone())), item);
+                let Type::Callable(callable) = &mut ty else { unreachable!() };
+                Arc::make_mut(callable).sig.params[0].rest = true;
+                ty
+            };
+            let mut constraints = TypeConstraints::default();
+            let item = constraints.fresh_at_level(span(1), 1);
+            constraints.constrain(&rest_callable(item.clone()), &rest_callable(Type::Int), span(2)).unwrap();
+            assert_eq!(constraints.resolve(&item), Ok(Type::Int));
+        });
     }
 
     fn parent(constraints: &TypeConstraints, ty: &Type) -> Option<TypeVariableId> {

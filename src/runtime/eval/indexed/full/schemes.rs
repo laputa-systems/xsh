@@ -128,6 +128,28 @@ pub(super) struct FullSchemeParam {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(C)]
+pub(super) struct FullSchemeCallableMonotype {
+    pub(super) params: IrRange,
+    pub(super) return_type: SchemeTypeId,
+    pub(super) return_schema: Option<FullSchemeSchemaExpectationId>,
+    pub(super) effects: IrRange,
+    pub(super) kind: FullSchemeCallableKind,
+    pub(super) has_effects: bool,
+    pub(super) reserved: [u8; 2],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+pub(super) struct FullSchemeCallableParameter {
+    pub(super) name: u32,
+    pub(super) ty: SchemeTypeId,
+    pub(super) schema: Option<FullSchemeSchemaExpectationId>,
+    pub(super) flags: u8,
+    pub(super) reserved: [u8; 3],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
 pub(super) struct FullSchemeTypeNode {
     pub(super) first: u32,
     pub(super) second: u32,
@@ -235,6 +257,11 @@ pub(super) struct FullSchemeBodyFact {
 }
 
 impl FullStore {
+    pub(super) fn scheme_callable_monotype(&self, index: u32) -> Result<&FullSchemeCallableMonotype, super::IrVerifyError> {
+        self.scheme_callable_monotypes.get(index as usize)
+            .ok_or_else(|| super::IrVerifyError::new("scheme callable monotype id is out of bounds"))
+    }
+
     pub(super) fn scheme(&self, id: FullSchemeId) -> Result<&FullScheme, super::IrVerifyError> {
         self.schemes
             .get(id.index())
@@ -541,6 +568,42 @@ impl FullBuilder {
         row_parameters: &BTreeMap<SchemeRowParameterId, u32>,
     ) -> Result<SchemeTypeId, IrBuildError> {
         let node = match ty {
+            SchemeType::Callable { kind, monotype, effects } => {
+                let mut parameters = Vec::with_capacity(monotype.params().len());
+                for parameter in monotype.params() {
+                    parameters.push(FullSchemeCallableParameter {
+                        name: self.intern_string(parameter.name.as_str().as_str())?.raw(),
+                        ty: self.intern_scheme_type(&parameter.ty, type_parameters, row_parameters)?,
+                        schema: parameter.schema_expectation.as_ref().map(|schema| self.intern_scheme_schema(schema)).transpose()?,
+                        flags: u8::from(parameter.rest) | u8::from(parameter.defaulted) << 1,
+                        reserved: [0; 3],
+                    });
+                }
+                let params_start = self.store.scheme_callable_parameters.len();
+                self.store.scheme_callable_parameters.extend(parameters);
+                let params = super::table_range(params_start, self.store.scheme_callable_parameters.len())?;
+                let return_type = self.intern_scheme_type(monotype.return_type(), type_parameters, row_parameters)?;
+                let return_schema = monotype.return_schema().map(|schema| self.intern_scheme_schema(schema)).transpose()?;
+                let effects_start = self.store.scheme_effects.len();
+                if let Some(effects) = effects { self.store.scheme_effects.extend_from_slice(effects); }
+                let effects_range = super::table_range(effects_start, self.store.scheme_effects.len())?;
+                let index = u32::try_from(self.store.scheme_callable_monotypes.len()).ok().filter(|index| *index != IR_NONE)
+                    .ok_or_else(|| IrBuildError::format("scheme_callable_monotype_overflow", None, 0, 0))?;
+                self.store.scheme_callable_monotypes.push(FullSchemeCallableMonotype {
+                    params,
+                    return_type,
+                    return_schema,
+                    effects: effects_range,
+                    kind: match kind {
+                        SchemeCallableKind::Pure => FullSchemeCallableKind::Pure,
+                        SchemeCallableKind::Proc => FullSchemeCallableKind::Proc,
+                        SchemeCallableKind::Stream => FullSchemeCallableKind::Stream,
+                    },
+                    has_effects: effects.is_some(),
+                    reserved: [0; 2],
+                });
+                FullSchemeTypeNode { first: index, second: 0, children: IrRange::default(), tag: FullSchemeTypeTag::Callable, reserved: [0; 3] }
+            }
             SchemeType::Ground(ty) => FullSchemeTypeNode {
                 first: self.intern_scheme_ground_type(ty)?.raw(),
                 second: 0,

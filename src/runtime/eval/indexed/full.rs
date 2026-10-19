@@ -701,6 +701,8 @@ struct FullStore {
     function_metadata: Vec<FullFunctionMetadata>,
     schemes: Vec<schemes::FullScheme>,
     scheme_types: Vec<FullSchemeTypeNode>,
+    scheme_callable_monotypes: Vec<schemes::FullSchemeCallableMonotype>,
+    scheme_callable_parameters: Vec<schemes::FullSchemeCallableParameter>,
     scheme_fields: Vec<schemes::FullSchemeField>,
     scheme_children: Vec<SchemeTypeId>,
     scheme_type_parameters: Vec<schemes::FullSchemeTypeParameter>,
@@ -778,6 +780,8 @@ impl Default for FullStore {
             function_metadata: Vec::new(),
             schemes: Vec::new(),
             scheme_types: Vec::new(),
+            scheme_callable_monotypes: Vec::new(),
+            scheme_callable_parameters: Vec::new(),
             scheme_fields: Vec::new(),
             scheme_children: Vec::new(),
             scheme_type_parameters: Vec::new(),
@@ -982,6 +986,8 @@ impl FullStore {
             + self.function_metadata.capacity() * size_of::<FullFunctionMetadata>()
             + self.schemes.capacity() * size_of::<schemes::FullScheme>()
             + self.scheme_types.capacity() * size_of::<FullSchemeTypeNode>()
+            + self.scheme_callable_monotypes.capacity() * size_of::<schemes::FullSchemeCallableMonotype>()
+            + self.scheme_callable_parameters.capacity() * size_of::<schemes::FullSchemeCallableParameter>()
             + self.scheme_fields.capacity() * size_of::<schemes::FullSchemeField>()
             + self.scheme_children.capacity() * size_of::<SchemeTypeId>()
             + self.scheme_type_parameters.capacity()
@@ -1079,6 +1085,8 @@ impl FullStore {
         self.function_metadata.shrink_to_fit();
         self.schemes.shrink_to_fit();
         self.scheme_types.shrink_to_fit();
+        self.scheme_callable_monotypes.shrink_to_fit();
+        self.scheme_callable_parameters.shrink_to_fit();
         self.scheme_fields.shrink_to_fit();
         self.scheme_children.shrink_to_fit();
         self.scheme_type_parameters.shrink_to_fit();
@@ -2755,6 +2763,13 @@ struct FullCheckpoint {
     producer_contexts: usize,
     checked_call_targets: usize,
     scheme_types: usize,
+    scheme_callable_monotypes: usize,
+    scheme_callable_parameters: usize,
+    scheme_effects: usize,
+    scheme_schema_expectations: usize,
+    scheme_schema_instances: usize,
+    scheme_schema_arguments: usize,
+    scheme_schema_children: usize,
     scheme_fields: usize,
     scheme_children: usize,
     call_instantiations: usize,
@@ -4520,6 +4535,13 @@ impl FullBuilder {
             producer_contexts: self.producer_contexts.len(),
             checked_call_targets: self.store.checked_call_targets.len(),
             scheme_types: self.store.scheme_types.len(),
+            scheme_callable_monotypes: self.store.scheme_callable_monotypes.len(),
+            scheme_callable_parameters: self.store.scheme_callable_parameters.len(),
+            scheme_effects: self.store.scheme_effects.len(),
+            scheme_schema_expectations: self.store.scheme_schema_expectations.len(),
+            scheme_schema_instances: self.store.scheme_schema_instances.len(),
+            scheme_schema_arguments: self.store.scheme_schema_arguments.len(),
+            scheme_schema_children: self.store.scheme_schema_children.len(),
             scheme_fields: self.store.scheme_fields.len(),
             scheme_children: self.store.scheme_children.len(),
             call_instantiations: self.store.call_instantiations.len(),
@@ -4590,6 +4612,13 @@ impl FullBuilder {
             .checked_call_targets
             .truncate(checkpoint.checked_call_targets);
         self.store.scheme_types.truncate(checkpoint.scheme_types);
+        self.store.scheme_callable_monotypes.truncate(checkpoint.scheme_callable_monotypes);
+        self.store.scheme_callable_parameters.truncate(checkpoint.scheme_callable_parameters);
+        self.store.scheme_effects.truncate(checkpoint.scheme_effects);
+        self.store.scheme_schema_expectations.truncate(checkpoint.scheme_schema_expectations);
+        self.store.scheme_schema_instances.truncate(checkpoint.scheme_schema_instances);
+        self.store.scheme_schema_arguments.truncate(checkpoint.scheme_schema_arguments);
+        self.store.scheme_schema_children.truncate(checkpoint.scheme_schema_children);
         self.store.scheme_fields.truncate(checkpoint.scheme_fields);
         self.store
             .scheme_children
@@ -4927,6 +4956,15 @@ fn scheme_type_physical_kind(
             )?)
         }
         schema::FullSchemeTypeTag::Parameter => None,
+        schema::FullSchemeTypeTag::Callable => {
+            let callable = store.scheme_callable_monotypes.get(node.first as usize)
+                .ok_or_else(|| IrVerifyError::new("scheme callable monotype id is out of bounds"))?;
+            Some(match callable.kind {
+                schemes::FullSchemeCallableKind::Pure => LoweredType::Pure,
+                schemes::FullSchemeCallableKind::Proc => LoweredType::Proc,
+                schemes::FullSchemeCallableKind::Stream => return Err(IrVerifyError::new("stream callable monotype has no supported physical kind")),
+            })
+        }
         schema::FullSchemeTypeTag::List => Some(LoweredType::List),
         schema::FullSchemeTypeTag::Map => Some(LoweredType::Map),
         schema::FullSchemeTypeTag::Stream => Some(LoweredType::Stream),
@@ -20261,6 +20299,89 @@ run true
                     Span::new(program.store.source_id, 0, 0),
                 ).expect("generic alias importer exists").expect("generic alias importer executes");
                 assert_eq!(result, Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Unit))));
+            }
+        });
+    }
+
+    #[test]
+    fn nested_callable_descriptors_execute_and_reject_forged_contracts() {
+        run_with_large_stack(|| {
+            let mut program = fixture("nested-callable-descriptor.xsh", "type Callback = pure(value: Int) -> Int\npure identity(value) { value }\npure increment(value: Int) -> Int { value + 1 }\nlet action: Callback = increment\nlet selected: Callback = identity(action)\nlet number: Int = selected(41)\nassert number == 42\n");
+            FullVerifier::verify(&program).unwrap();
+            assert_eq!(program.store.call_type_arguments.len(), 1);
+            let argument = program.store.call_type_arguments[0].ty;
+            let argument_node = program.store.scheme_types[argument.index()];
+            assert_eq!(argument_node.tag, schema::FullSchemeTypeTag::Ground);
+            let Type::Callable(callback) = program.store.semantic.to_type(TypeId::from_raw(argument_node.first).unwrap()).unwrap() else { panic!("checked callback type") };
+            assert_eq!(callback.sig.effects, None);
+            let identity = scheme_fixture_root_function(&program, "identity");
+            let FullCallableContract::Scheme(scheme_id) = program.store.functions[identity].contract else { panic!("identity scheme") };
+            let scheme = *program.store.scheme(scheme_id).unwrap();
+            let mut roots = BTreeSet::from([scheme.return_type]);
+            let parameter_range = scheme.params.bounds(program.store.scheme_params.len()).unwrap();
+            roots.extend(program.store.scheme_params[parameter_range].iter().map(|parameter| parameter.ty));
+            let facts = scheme.body_facts.bounds(program.store.scheme_body_facts.len()).unwrap();
+            roots.extend(program.store.scheme_body_facts[facts].iter().map(|fact| fact.ty));
+            let value_name = program.store.params[program.store.functions[identity].params.start as usize].name;
+            for root in roots {
+                let parameter = program.store.scheme_types[root.index()];
+                assert_eq!(parameter.tag, schema::FullSchemeTypeTag::Parameter);
+                let child = SchemeTypeId::new(program.store.scheme_types.len()).unwrap();
+                program.store.scheme_types.push(parameter);
+                let params_start = program.store.scheme_callable_parameters.len();
+                program.store.scheme_callable_parameters.push(schemes::FullSchemeCallableParameter {
+                    name: value_name, ty: child, schema: None, flags: 0, reserved: [0; 3],
+                });
+                let monotype = program.store.scheme_callable_monotypes.len();
+                program.store.scheme_callable_monotypes.push(schemes::FullSchemeCallableMonotype {
+                    params: IrRange { start: params_start as u32, len: 1 }, return_type: child,
+                    return_schema: None, effects: IrRange::default(), kind: schemes::FullSchemeCallableKind::Pure,
+                    has_effects: false, reserved: [0; 2],
+                });
+                program.store.scheme_types[root.index()] = FullSchemeTypeNode {
+                    first: monotype as u32, second: 0, children: IrRange::default(),
+                    tag: schema::FullSchemeTypeTag::Callable, reserved: [0; 3],
+                };
+            }
+            let increment = scheme_fixture_root_function(&program, "increment");
+            let FullCallableContract::Ground(signature) = program.store.functions[increment].contract else { panic!("increment signature") };
+            let (_, integer_type, _) = program.store.semantic.signature_param(signature, 0).unwrap();
+            program.store.scheme_types[argument.index()].first = integer_type.raw();
+            FullVerifier::verify(&program).unwrap();
+
+            let mut bad_binder = program.clone();
+            let child = bad_binder.store.scheme_callable_parameters[0].ty;
+            bad_binder.store.scheme_types[child.index()].first = 1;
+            assert!(FullVerifier::verify(&bad_binder).unwrap_err().message.contains("type parameter is out of scope"));
+
+            let mut bad_layout = program.clone();
+            bad_layout.store.scheme_callable_parameters[0].flags = 0x80;
+            assert!(FullVerifier::verify(&bad_layout).unwrap_err().message.contains("callable parameter layout"));
+
+            let mut bad_effects = program.clone();
+            let effects_start = bad_effects.store.scheme_effects.len();
+            bad_effects.store.scheme_effects.extend([Effect::Fs, Effect::Fs]);
+            bad_effects.store.scheme_callable_monotypes[0].effects = IrRange { start: effects_start as u32, len: 2 };
+            bad_effects.store.scheme_callable_monotypes[0].has_effects = true;
+            assert!(FullVerifier::verify(&bad_effects).unwrap_err().message.contains("callable effects are duplicated"));
+
+            let mut bad_contract = program.clone();
+            let mut semantic = SemanticPoolBuilder::default();
+            let text = semantic.intern_type(&mut bad_contract.store.semantic, &Type::Str).unwrap();
+            bad_contract.store.scheme_types[argument.index()].first = text.raw();
+            let error = FullVerifier::verify(&bad_contract).unwrap_err();
+            assert!(error.message.contains("generic call argument does not match its checked parameter slot"), "{}", error.message);
+
+            let program = Arc::new(program);
+            let _symbols = program.symbol_owner().enter();
+            for force_frames in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.force_frames = force_frames;
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for step in 0..program.driver_step_count().unwrap() {
+                    evaluator.eval_indexed_driver_step(step, Span::new(program.store.source_id, 0, 0)).unwrap().unwrap();
+                }
+                assert_eq!(evaluator.lookup(Name::intern("number")).unwrap().value, Value::Int(42));
             }
         });
     }

@@ -41,6 +41,8 @@ fn call_instantiation_error_message(
                 SchemeBuildError::GeneralizationNotPure => "target cannot be generalized",
                 SchemeBuildError::DynamicType => "argument contains a dynamic type",
                 SchemeBuildError::BodyTypeNotBound => "target body has an unbound type",
+                SchemeBuildError::UnsupportedCallableKind => "target contains an unsupported callable kind",
+                SchemeBuildError::UnresolvedSchema => "callable schema contract has no ground representation",
             };
             format!("generic call instantiation failed: {reason}")
         }

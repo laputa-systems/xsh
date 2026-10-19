@@ -13,7 +13,7 @@ use super::{
 };
 use super::super::semantic::TypeMaterializationBudget;
 use crate::sema::types::{Type, merge_list_literal_item_ty};
-use crate::sema::schemes::{SchemeRowParameterId, SchemeRowTail, SchemeType, SchemeTypeParameterId};
+use crate::sema::schemes::{CallableMonotype, SchemeCallableKind, SchemeParameter, SchemeRowParameterId, SchemeRowTail, SchemeType, SchemeTypeParameterId};
 use crate::sema::validated::{IntRange, ValidatedType, Validation};
 use crate::symbol::Name;
 use std::cell::{Cell, OnceCell, RefCell};
@@ -122,6 +122,10 @@ impl SchemeInstantiationBudget {
             match ty {
                 SchemeType::Ground(ty) => self.charge_clone(ty)?,
                 SchemeType::Parameter(_) => {}
+                SchemeType::Callable { monotype, .. } => {
+                    pending.push(monotype.return_type());
+                    pending.extend(monotype.params().iter().map(|parameter| &parameter.ty));
+                }
                 SchemeType::List(inner)
                 | SchemeType::Stream(inner)
                 | SchemeType::Set(inner)
@@ -253,7 +257,45 @@ fn verify_function_schemes(store: &FullStore) -> Result<Vec<Option<SchemeScope>>
         scopes[scheme_index] = Some(scope);
     }
 
-    if scheme_owners.iter().any(Option::is_none)
+    let mut callable_coverage = vec![false; store.scheme_callable_monotypes.len()];
+    let mut callable_parameter_coverage = vec![false; store.scheme_callable_parameters.len()];
+    for node in &store.scheme_types {
+        if node.tag != FullSchemeTypeTag::Callable { continue; }
+        let covered = callable_coverage.get_mut(node.first as usize)
+            .ok_or_else(|| IrVerifyError::new("scheme callable monotype id is out of bounds"))?;
+        if std::mem::replace(covered, true) {
+            return Err(IrVerifyError::new("scheme callable monotype belongs to multiple type nodes"));
+        }
+        let callable = store.scheme_callable_monotype(node.first)?;
+        if callable.reserved != [0; 2] || callable.kind == super::schemes::FullSchemeCallableKind::Stream {
+            return Err(IrVerifyError::new("scheme callable monotype kind or metadata is invalid"));
+        }
+        if !callable.has_effects && callable.effects.len != 0 {
+            return Err(IrVerifyError::new("scheme callable has effects without an effect bound"));
+        }
+        let parameters = mark_range(callable.params, &store.scheme_callable_parameters, &mut callable_parameter_coverage,
+            "scheme callable parameter range is invalid or overlaps")?;
+        let mut names = BTreeSet::new();
+        for (index, parameter) in parameters.iter().enumerate() {
+            let name = store.string(parameter.name)?;
+            if name.is_empty() || !names.insert(name) || parameter.reserved != [0; 3]
+                || parameter.flags & !3 != 0 || parameter.flags & 1 != 0 && (index + 1 != parameters.len() || parameter.flags & 2 != 0)
+            {
+                return Err(IrVerifyError::new("scheme callable parameter layout is invalid"));
+            }
+            if parameter.flags & 1 != 0 { verify_scheme_list_shape(store, parameter.ty)?; }
+        }
+        let effects = mark_range(callable.effects, &store.scheme_effects, &mut effect_coverage,
+            "scheme callable effect range is invalid or overlaps")?;
+        for (index, effect) in effects.iter().enumerate() {
+            if effects[..index].contains(effect) {
+                return Err(IrVerifyError::new("scheme callable effects are duplicated"));
+            }
+        }
+    }
+    if callable_coverage.iter().any(|covered| !covered)
+        || callable_parameter_coverage.iter().any(|covered| !covered)
+        || scheme_owners.iter().any(Option::is_none)
         || type_parameter_coverage.iter().any(|covered| !covered)
         || row_parameter_coverage.iter().any(|covered| !covered)
         || row_lacks_coverage.iter().any(|covered| !covered)
@@ -479,6 +521,16 @@ fn verify_scheme_tables(
             }
         }
     }
+    for callable in &store.scheme_callable_monotypes {
+        for parameter in bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")? {
+            if let Some(schema) = parameter.schema {
+                verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), 0)?;
+            }
+        }
+        if let Some(schema) = callable.return_schema {
+            verify_schema_expectation(store, schema, &mut schema_coverage, &mut BTreeSet::new(), 0)?;
+        }
+    }
     if type_owners.iter().any(Option::is_none)
         || type_states.iter().any(|state| *state != 2)
         || field_coverage.iter().any(|covered| !covered)
@@ -533,6 +585,16 @@ fn visit_scheme_type(
         return Err(IrVerifyError::new("scheme type node has reserved bits set"));
     }
     match node.tag {
+        FullSchemeTypeTag::Callable => {
+            require_empty_children(node.children)?;
+            if node.second != 0 { return Err(IrVerifyError::new("scheme callable type has payload bits set")); }
+            let callable = store.scheme_callable_monotype(node.first)?;
+            let parameters = bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")?;
+            for child in parameters.iter().map(|parameter| parameter.ty).chain(std::iter::once(callable.return_type)) {
+                visit_scheme_type(store, scheme_index, child, scope, type_owners, type_states, field_coverage, child_coverage,
+                    validation_coverage, validation_references, type_binder_uses, row_binder_uses, depth + 1)?;
+            }
+        }
         FullSchemeTypeTag::Ground => {
             require_empty_children(node.children)?;
             if node.second != 0 {
@@ -1504,6 +1566,33 @@ fn decode_scheme_type(
         decode_scheme_type(store, scope, id, budget, depth + 1)
     };
     let ty = match node.tag {
+        FullSchemeTypeTag::Callable => {
+            let callable = store.scheme_callable_monotype(node.first)?;
+            let params = bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")?
+                .iter().map(|parameter| {
+                    budget.charge(1)?;
+                    Ok(SchemeParameter {
+                        name: Name::intern(store.string(parameter.name)?),
+                        ty: nested(parameter.ty, budget)?,
+                        schema_expectation: parameter.schema.map(|schema| decode_scheme_schema(store, schema, budget, depth + 1)).transpose()?,
+                        defaulted: parameter.flags & 2 != 0,
+                        rest: parameter.flags & 1 != 0,
+                    })
+                }).collect::<Result<Vec<_>, IrVerifyError>>()?;
+            let return_type = nested(callable.return_type, budget)?;
+            let return_schema = callable.return_schema.map(|schema| decode_scheme_schema(store, schema, budget, depth + 1)).transpose()?;
+            let effects = bounded(callable.effects, &store.scheme_effects, "scheme callable effect range is invalid")?;
+            budget.charge(effects.len())?;
+            SchemeType::Callable {
+                kind: match callable.kind {
+                    super::schemes::FullSchemeCallableKind::Pure => SchemeCallableKind::Pure,
+                    super::schemes::FullSchemeCallableKind::Proc => SchemeCallableKind::Proc,
+                    super::schemes::FullSchemeCallableKind::Stream => SchemeCallableKind::Stream,
+                },
+                monotype: Arc::new(CallableMonotype::new(params, return_type, return_schema)),
+                effects: callable.has_effects.then(|| Arc::from(effects)),
+            }
+        }
         FullSchemeTypeTag::Ground => {
             let id = TypeId::from_raw(node.first)
                 .ok_or_else(|| IrVerifyError::new("ground scheme type id is invalid"))?;
@@ -1597,6 +1686,43 @@ fn decode_scheme_type(
     Ok(ty)
 }
 
+fn decode_scheme_schema(
+    store: &FullStore,
+    id: super::schemes::FullSchemeSchemaExpectationId,
+    budget: &mut SchemeInstantiationBudget,
+    depth: usize,
+) -> Result<crate::sema::constants::SchemaExpectation, IrVerifyError> {
+    use crate::sema::constants::{SchemaComponent, SchemaExpectation, SchemaInstance};
+    use super::schema::FullSchemeSchemaComponentTag;
+    if depth > 128 { return Err(IrVerifyError::new("scheme callable schema nesting is too deep")); }
+    budget.charge(1)?;
+    let schema = store.scheme_schema_expectations.get(id.index())
+        .ok_or_else(|| IrVerifyError::new("scheme callable schema id is out of bounds"))?;
+    let instances = bounded(schema.instances, &store.scheme_schema_instances, "scheme callable schema instance range is invalid")?
+        .iter().map(|instance| {
+            budget.charge(1)?;
+            let arguments = bounded(instance.arguments, &store.scheme_schema_arguments, "scheme callable schema argument range is invalid")?
+                .iter().map(|argument| store.semantic.to_type_with_budget(*argument, &mut budget.semantic_types))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(SchemaInstance { definition: crate::syntax::arena::TypeDefId::from_index(instance.definition as usize), arguments })
+        }).collect::<Result<Vec<_>, IrVerifyError>>()?;
+    let mut children = BTreeMap::new();
+    for child in bounded(schema.children, &store.scheme_schema_children, "scheme callable schema child range is invalid")? {
+        let component = match child.component {
+            FullSchemeSchemaComponentTag::Field => SchemaComponent::Field(Name::intern(store.string(child.name)?)),
+            FullSchemeSchemaComponentTag::Item => SchemaComponent::Item,
+            FullSchemeSchemaComponentTag::Key => SchemaComponent::Key,
+            FullSchemeSchemaComponentTag::Value => SchemaComponent::Value,
+            FullSchemeSchemaComponentTag::Optional => SchemaComponent::Optional,
+            FullSchemeSchemaComponentTag::Success => SchemaComponent::Success,
+            FullSchemeSchemaComponentTag::Error => SchemaComponent::Error,
+        };
+        let value = decode_scheme_schema(store, child.expectation, budget, depth + 1)?;
+        if children.insert(component, value).is_some() { return Err(IrVerifyError::new("scheme callable schema repeats a child")); }
+    }
+    Ok(SchemaExpectation { instances, children: Arc::new(children) })
+}
+
 fn validate_symbolic_substitution_type(
     ty: &SchemeType,
     caller_scope: &SchemeScope,
@@ -1606,6 +1732,12 @@ fn validate_symbolic_substitution_type(
         return Err(IrVerifyError::new("scheme substitution type nesting is too deep"));
     }
     match ty {
+        SchemeType::Callable { monotype, .. } => {
+            for parameter in monotype.params() {
+                validate_symbolic_substitution_type(&parameter.ty, caller_scope, depth + 1)?;
+            }
+            validate_symbolic_substitution_type(monotype.return_type(), caller_scope, depth + 1)
+        }
         SchemeType::Ground(ty) => ensure_substitution_type(ty),
         SchemeType::Parameter(id) => caller_scope
             .type_binders
@@ -1666,6 +1798,23 @@ fn substitute_scheme_type(
         substitute_scheme_type(ty, callee_scope, substitution, budget, depth + 1)
     };
     Ok(match ty {
+        SchemeType::Callable { kind, monotype, effects } => {
+            let params = monotype.params().iter().map(|parameter| {
+                budget.charge(1)?;
+                Ok(SchemeParameter {
+                    name: parameter.name,
+                    ty: nested(&parameter.ty, budget)?,
+                    schema_expectation: parameter.schema_expectation.clone(),
+                    defaulted: parameter.defaulted,
+                    rest: parameter.rest,
+                })
+            }).collect::<Result<Vec<_>, IrVerifyError>>()?;
+            SchemeType::Callable {
+                kind: *kind,
+                monotype: Arc::new(CallableMonotype::new(params, nested(monotype.return_type(), budget)?, monotype.return_schema().cloned())),
+                effects: effects.clone(),
+            }
+        }
         SchemeType::Ground(ty) => {
             budget.charge_clone(ty)?;
             SchemeType::Ground(ty.clone())
@@ -2967,6 +3116,13 @@ fn scheme_type_binders(
         materialization.charge(1)?;
         let node = store.scheme_type(id)?;
         match node.tag {
+            FullSchemeTypeTag::Callable => {
+                let callable = store.scheme_callable_monotype(node.first)?;
+                pending.push(callable.return_type);
+                for parameter in bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")? {
+                    pending.push(parameter.ty);
+                }
+            }
             FullSchemeTypeTag::Parameter => {
                 types.insert(node.first as usize);
             }
@@ -3031,6 +3187,30 @@ fn verify_scheme_argument_evidence(
     let node = store.scheme_type(scheme_type)?;
     let actual_shape = actual.unvalidated();
     match node.tag {
+        FullSchemeTypeTag::Callable => {
+            let Type::Callable(actual) = actual_shape else {
+                return Err(IrVerifyError::new("generic callable argument has no checked callable contract"));
+            };
+            let callable = store.scheme_callable_monotype(node.first)?;
+            let parameters = bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")?;
+            let pure = match callable.kind {
+                super::schemes::FullSchemeCallableKind::Pure => true,
+                super::schemes::FullSchemeCallableKind::Proc => false,
+                super::schemes::FullSchemeCallableKind::Stream => return Err(IrVerifyError::new("stream callable argument has no supported checked contract")),
+            };
+            if actual.pure != pure || actual.sig.params.len() != parameters.len() {
+                return Err(IrVerifyError::new("generic callable argument kind or arity disagrees with its contract"));
+            }
+            for (parameter, actual) in parameters.iter().zip(&actual.sig.params) {
+                if store.string(parameter.name)? != actual.name.as_str()
+                    || (parameter.flags & 1 != 0) != actual.rest || (parameter.flags & 2 != 0) != actual.defaulted
+                {
+                    return Err(IrVerifyError::new("generic callable argument layout disagrees with its contract"));
+                }
+                verify_scheme_argument_evidence(store, scope, parameter.ty, &actual.ty, substitution, evidence, materialization, depth + 1)?;
+            }
+            verify_scheme_argument_evidence(store, scope, callable.return_type, &actual.sig.return_ty, substitution, evidence, materialization, depth + 1)?;
+        }
         FullSchemeTypeTag::Parameter => {
             let binder = node.first as usize;
             if binder >= scope.type_parameters.len() {
@@ -3260,6 +3440,35 @@ fn instantiate_scheme_type_inner(
     budget.charge(1)?;
     let node = store.scheme_type(id)?;
     let ty = match node.tag {
+        FullSchemeTypeTag::Callable => {
+            let callable = store.scheme_callable_monotype(node.first)?;
+            let pure = match callable.kind {
+                super::schemes::FullSchemeCallableKind::Pure => true,
+                super::schemes::FullSchemeCallableKind::Proc => false,
+                super::schemes::FullSchemeCallableKind::Stream => return Err(IrVerifyError::new("stream callable monotype has no supported checked type")),
+            };
+            let parameters = bounded(callable.params, &store.scheme_callable_parameters, "scheme callable parameter range is invalid")?;
+            if callable.return_schema.is_some() || parameters.iter().any(|parameter| parameter.schema.is_some()) {
+                return Err(IrVerifyError::new("scheme callable schema contract has no ground representation"));
+            }
+            let params = parameters
+                .iter().map(|parameter| {
+                    budget.charge(1)?;
+                    Ok(crate::sema::types::CallableParamType {
+                        name: Name::intern(store.string(parameter.name)?),
+                        ty: instantiate_scheme_type_inner(store, scope, parameter.ty, substitution, budget, depth + 1)?,
+                        defaulted: parameter.flags & 2 != 0,
+                        rest: parameter.flags & 1 != 0,
+                    })
+                }).collect::<Result<Vec<_>, IrVerifyError>>()?;
+            let return_ty = Box::new(instantiate_scheme_type_inner(store, scope, callable.return_type, substitution, budget, depth + 1)?);
+            let effects = bounded(callable.effects, &store.scheme_effects, "scheme callable effect range is invalid")?;
+            budget.charge(effects.len())?;
+            Type::Callable(Arc::new(crate::sema::types::TypedCallable {
+                pure,
+                sig: crate::sema::types::CallableType { params, return_ty, effects: callable.has_effects.then(|| effects.to_vec()) },
+            }))
+        }
         FullSchemeTypeTag::Ground => {
             let id = TypeId::from_raw(node.first)
                 .ok_or_else(|| IrVerifyError::new("ground scheme type id is invalid"))?;

@@ -23,6 +23,7 @@ use super::decode::{ListView, TextHoleKinds, TextPatternFields, TextPatternSegme
 pub(super) enum FullSchemeTypeTag {
     Ground,
     Parameter,
+    Callable,
     List,
     Map,
     Stream,

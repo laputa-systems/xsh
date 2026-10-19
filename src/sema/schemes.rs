@@ -17,6 +17,11 @@ pub(crate) struct SchemeRowParameterId(pub(crate) u32);
 pub(crate) enum SchemeType {
     Ground(Type),
     Parameter(SchemeTypeParameterId),
+    Callable {
+        kind: SchemeCallableKind,
+        monotype: Arc<CallableMonotype>,
+        effects: Option<Arc<[Effect]>>,
+    },
     List(Box<Self>),
     Map(Box<Self>, Box<Self>),
     Stream(Box<Self>),
@@ -63,10 +68,15 @@ pub(crate) enum SchemeCallableKind {
 pub(crate) struct CallableScheme {
     type_parameters: Arc<[SchemeTypeParameterId]>,
     row_parameters: Arc<[SchemeRowParameter]>,
+    monotype: CallableMonotype,
+    explicit_return: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CallableMonotype {
     params: Arc<[SchemeParameter]>,
     return_type: SchemeType,
     return_schema: Option<SchemaExpectation>,
-    explicit_return: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -153,6 +163,8 @@ pub(crate) enum SchemeBuildError {
     DuplicateRowParameter,
     RowLacksMismatch,
     GeneralizationNotPure,
+    UnsupportedCallableKind,
+    UnresolvedSchema,
     DynamicType,
     BodyTypeNotBound,
 }
@@ -289,6 +301,7 @@ impl CallableScheme {
         let mut used_rows = BTreeSet::new();
         let mut row_requirements = BTreeMap::<SchemeRowParameterId, BTreeSet<Name>>::new();
         for parameter in &params {
+            if let Some(schema) = &parameter.schema_expectation { validate_schema_ground_types(schema)?; }
             parameter.ty.validate(
                 &type_ids,
                 &row_ids,
@@ -304,6 +317,7 @@ impl CallableScheme {
             &mut used_rows,
             &mut row_requirements,
         )?;
+        if let Some(schema) = &return_schema { validate_schema_ground_types(schema)?; }
         if used_types != type_ids {
             return Err(SchemeBuildError::UnusedTypeParameter);
         }
@@ -320,9 +334,7 @@ impl CallableScheme {
         Ok(Self {
             type_parameters: type_parameters.into(),
             row_parameters: row_parameters.into(),
-            params: params.into(),
-            return_type,
-            return_schema,
+            monotype: CallableMonotype::new(params, return_type, return_schema),
             explicit_return,
         })
     }
@@ -333,6 +345,63 @@ impl CallableScheme {
 
     pub(crate) fn row_parameters(&self) -> &[SchemeRowParameter] {
         &self.row_parameters
+    }
+
+    pub(crate) fn params(&self) -> &[SchemeParameter] {
+        self.monotype.params()
+    }
+
+    pub(crate) fn return_type(&self) -> &SchemeType {
+        self.monotype.return_type()
+    }
+
+    pub(crate) fn return_schema(&self) -> Option<&SchemaExpectation> {
+        self.monotype.return_schema()
+    }
+
+    pub(crate) fn explicit_return(&self) -> bool {
+        self.explicit_return
+    }
+
+    pub(crate) fn retained_bytes(&self) -> usize {
+        use std::mem::size_of;
+        let mut bytes = size_of::<Self>();
+        bytes = bytes.saturating_add(self.type_parameters.len() * size_of::<SchemeTypeParameterId>());
+        bytes = bytes.saturating_add(self.row_parameters.len() * size_of::<SchemeRowParameter>());
+        bytes = bytes.saturating_add(self.monotype.retained_bytes().saturating_sub(size_of::<CallableMonotype>()));
+        bytes = bytes.saturating_add(
+            self.row_parameters
+                .iter()
+                .map(|parameter| {
+                    parameter.lacks.len() * size_of::<Name>()
+                        + parameter
+                            .lacks
+                            .iter()
+                            .map(|name| name.as_str().len())
+                            .sum::<usize>()
+                })
+                .sum::<usize>(),
+        );
+        bytes
+    }
+
+    fn map_ground_types(&self, map: &mut impl FnMut(&mut Type)) -> Self {
+        Self {
+            type_parameters: self.type_parameters.clone(),
+            row_parameters: self.row_parameters.clone(),
+            monotype: self.monotype.map_ground_types(map),
+            explicit_return: self.explicit_return,
+        }
+    }
+}
+
+impl CallableMonotype {
+    pub(crate) fn new(
+        params: Vec<SchemeParameter>,
+        return_type: SchemeType,
+        return_schema: Option<SchemaExpectation>,
+    ) -> Self {
+        Self { params: params.into(), return_type, return_schema }
     }
 
     pub(crate) fn params(&self) -> &[SchemeParameter] {
@@ -347,29 +416,13 @@ impl CallableScheme {
         self.return_schema.as_ref()
     }
 
-    pub(crate) fn explicit_return(&self) -> bool {
-        self.explicit_return
+    pub(crate) fn has_schema_contract(&self) -> bool {
+        self.return_schema.is_some() || self.params.iter().any(|parameter| parameter.schema_expectation.is_some())
     }
 
-    pub(crate) fn retained_bytes(&self) -> usize {
+    fn retained_bytes(&self) -> usize {
         use std::mem::size_of;
-        let mut bytes = size_of::<Self>();
-        bytes = bytes.saturating_add(self.type_parameters.len() * size_of::<SchemeTypeParameterId>());
-        bytes = bytes.saturating_add(self.row_parameters.len() * size_of::<SchemeRowParameter>());
-        bytes = bytes.saturating_add(self.params.len() * size_of::<SchemeParameter>());
-        bytes = bytes.saturating_add(
-            self.row_parameters
-                .iter()
-                .map(|parameter| {
-                    parameter.lacks.len() * size_of::<Name>()
-                        + parameter
-                            .lacks
-                            .iter()
-                            .map(|name| name.as_str().len())
-                            .sum::<usize>()
-                })
-                .sum::<usize>(),
-        );
+        let mut bytes = size_of::<Self>() + self.params.len() * size_of::<SchemeParameter>();
         let mut counted_schema_children = BTreeSet::new();
         for parameter in self.params.iter() {
             bytes = bytes
@@ -407,12 +460,9 @@ impl CallableScheme {
         let mut return_type = self.return_type.clone();
         return_type.map_ground_types(map);
         Self {
-            type_parameters: self.type_parameters.clone(),
-            row_parameters: self.row_parameters.clone(),
             params: params.into(),
             return_type,
             return_schema: self.return_schema.clone(),
-            explicit_return: self.explicit_return,
         }
     }
 }
@@ -707,6 +757,29 @@ impl SchemeType {
                     Some(ty.clone())
                 }
                 SchemeType::Ground(_) | SchemeType::Parameter(_) => None,
+                SchemeType::Callable { kind, monotype, effects } => {
+                    if monotype.has_schema_contract() {
+                        return None;
+                    }
+                    let pure = match kind {
+                        SchemeCallableKind::Pure => true,
+                        SchemeCallableKind::Proc => false,
+                        SchemeCallableKind::Stream => return None,
+                    };
+                    Some(Type::Callable(Arc::new(super::types::TypedCallable {
+                        pure,
+                        sig: super::types::CallableType {
+                            params: monotype.params().iter().map(|parameter| Some(super::types::CallableParamType {
+                                name: parameter.name,
+                                ty: nested(&parameter.ty)?,
+                                defaulted: parameter.defaulted,
+                                rest: parameter.rest,
+                            })).collect::<Option<Vec<_>>>()?,
+                            return_ty: Box::new(nested(monotype.return_type())?),
+                            effects: effects.as_ref().map(|effects| effects.to_vec()),
+                        },
+                    })))
+                }
                 SchemeType::List(inner) => Some(Type::List(Box::new(nested(inner)?))),
                 SchemeType::Map(key, value) => Some(Type::Map(
                     Box::new(nested(key)?),
@@ -784,6 +857,8 @@ impl SchemeType {
     pub(crate) fn contains_parameter(&self) -> bool {
         match self {
             Self::Parameter(_) => true,
+            Self::Callable { monotype, .. } => monotype.params().iter().any(|parameter| parameter.ty.contains_parameter())
+                || monotype.return_type().contains_parameter(),
             Self::List(inner)
             | Self::Stream(inner)
             | Self::Set(inner)
@@ -816,6 +891,7 @@ impl SchemeType {
                 Self::Ground(ty) if ty.may_hold_resource() => return true,
                 Self::Ground(_) => {}
                 Self::Parameter(_) => return true,
+                Self::Callable { .. } => return true,
                 Self::List(inner)
                 | Self::Set(inner)
                 | Self::Optional(inner)
@@ -840,6 +916,7 @@ impl SchemeType {
     fn map_ground_types(&mut self, map: &mut impl FnMut(&mut Type)) {
         match self {
             Self::Ground(ty) => map(ty),
+            Self::Callable { monotype, .. } => *monotype = Arc::new(monotype.map_ground_types(map)),
             Self::List(inner)
             | Self::Stream(inner)
             | Self::Set(inner)
@@ -873,6 +950,9 @@ impl SchemeType {
             Self::Ground(ty) if ty.contains_recovery() => Some(SchemeBuildError::RecoveryType),
             Self::Ground(ty) if ty.contains_inference() => Some(SchemeBuildError::UnresolvedType),
             Self::Ground(_) | Self::Parameter(_) => None,
+            Self::Callable { monotype, .. } => monotype.params().iter()
+                .find_map(|parameter| parameter.ty.body_build_error())
+                .or_else(|| monotype.return_type().body_build_error()),
             Self::List(inner)
             | Self::Stream(inner)
             | Self::Set(inner)
@@ -898,6 +978,14 @@ impl SchemeType {
     ) -> Result<(), SchemeBuildError> {
         match self {
             Self::Ground(ty) => validate_ground(ty),
+            Self::Callable { monotype, .. } => {
+                for parameter in monotype.params() {
+                    if let Some(schema) = &parameter.schema_expectation { validate_schema_ground_types(schema)?; }
+                    parameter.ty.validate(type_ids, row_ids, used_types, used_rows, row_requirements)?;
+                }
+                if let Some(schema) = monotype.return_schema() { validate_schema_ground_types(schema)?; }
+                monotype.return_type().validate(type_ids, row_ids, used_types, used_rows, row_requirements)
+            }
             Self::Parameter(id) => {
                 if type_ids.contains(id) {
                     used_types.insert(*id);
@@ -965,6 +1053,10 @@ impl SchemeType {
                 bytes = bytes.saturating_add(ty.retained_bytes().saturating_sub(size_of::<Type>()));
             }
             Self::Parameter(_) => {}
+            Self::Callable { monotype, effects, .. } => {
+                bytes = bytes.saturating_add(monotype.retained_bytes())
+                    .saturating_add(effects.as_ref().map_or(0, |effects| std::mem::size_of_val(effects.as_ref())));
+            }
             Self::List(ty)
             | Self::Stream(ty)
             | Self::Set(ty)
@@ -1004,6 +1096,17 @@ fn validate_ground(ty: &Type) -> Result<(), SchemeBuildError> {
     }
 }
 
+fn validate_schema_ground_types(schema: &SchemaExpectation) -> Result<(), SchemeBuildError> {
+    let mut pending = vec![schema];
+    while let Some(schema) = pending.pop() {
+        for instance in &schema.instances {
+            for argument in &instance.arguments { validate_ground(argument)?; }
+        }
+        pending.extend(schema.children.values());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{SchemeBuildError, SchemeCallableKind, SchemeType, TypeScheme};
@@ -1017,6 +1120,64 @@ mod tests {
     use crate::syntax::arena::TypeDefId;
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
+
+    #[test]
+    fn nested_callable_ground_projection_preserves_schema_contracts() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let callback = |parameter_schema, return_schema| SchemeType::Callable {
+                kind: SchemeCallableKind::Pure,
+                monotype: Arc::new(super::CallableMonotype::new(
+                    vec![SchemeParameter {
+                        name: Name::intern("value"),
+                        ty: SchemeType::Ground(Type::Int),
+                        schema_expectation: parameter_schema,
+                        defaulted: false,
+                        rest: false,
+                    }],
+                    SchemeType::Ground(Type::Int),
+                    return_schema,
+                )),
+                effects: Some(Arc::from([])),
+            };
+            assert!(matches!(callback(None, None).closed_ground_type(), Some(Type::Callable(_))));
+            let schema = SchemaExpectation {
+                instances: vec![SchemaInstance { definition: TypeDefId::from_index(0), arguments: vec![Type::Int] }],
+                ..SchemaExpectation::default()
+            };
+            assert_eq!(callback(Some(schema.clone()), None).closed_ground_type(), None);
+            assert_eq!(callback(None, Some(schema)).closed_ground_type(), None);
+        });
+    }
+
+    #[test]
+    fn nested_callable_schema_rejects_solver_references() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut constraints = crate::sema::constraints::TypeConstraints::default();
+            let variable = constraints.fresh(crate::source::Span::at(crate::source::SourceId::new(0), 0));
+            let schema = SchemaExpectation {
+                instances: vec![SchemaInstance { definition: TypeDefId::from_index(0), arguments: vec![variable] }],
+                ..SchemaExpectation::default()
+            };
+            for schema_in_parameter in [false, true] {
+                let callback = SchemeType::Callable {
+                    kind: SchemeCallableKind::Pure,
+                    monotype: Arc::new(super::CallableMonotype::new(
+                        vec![SchemeParameter {
+                            name: Name::intern("value"), ty: SchemeType::Ground(Type::Int),
+                            schema_expectation: schema_in_parameter.then(|| schema.clone()), defaulted: false, rest: false,
+                        }],
+                        SchemeType::Ground(Type::Int),
+                        (!schema_in_parameter).then(|| schema.clone()),
+                    )),
+                    effects: Some(Arc::from([])),
+                };
+                let result = TypeScheme::new(SchemeCallableKind::Pure, Vec::new(), Vec::new(),
+                    vec![SchemeParameter { name: Name::intern("action"), ty: callback, schema_expectation: None, defaulted: false, rest: false }],
+                    SchemeType::Ground(Type::Int), None, false, None, false);
+                assert_eq!(result, Err(SchemeBuildError::UnresolvedType));
+            }
+        });
+    }
 
     #[test]
     fn closed_scheme_types_project_every_ground_shape() {

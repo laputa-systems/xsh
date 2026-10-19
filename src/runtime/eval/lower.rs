@@ -470,6 +470,11 @@ fn lowered_scheme_parameter_kind(ty: &SchemeType) -> Option<LoweredParamKind> {
 fn lowered_scheme_physical_type(ty: &SchemeType) -> Option<LoweredType> {
     match ty {
         SchemeType::Ground(ty) => lowered_checked_type(ty).filter(|kind| *kind != LoweredType::Any),
+        SchemeType::Callable { kind, .. } => match kind {
+            crate::sema::schemes::SchemeCallableKind::Pure => Some(LoweredType::Pure),
+            crate::sema::schemes::SchemeCallableKind::Proc => Some(LoweredType::Proc),
+            crate::sema::schemes::SchemeCallableKind::Stream => None,
+        },
         SchemeType::List(_) => Some(LoweredType::List),
         SchemeType::Map(_, _) => Some(LoweredType::Map),
         SchemeType::Stream(_) => Some(LoweredType::Stream),
@@ -497,6 +502,7 @@ fn lowered_scheme_return_kind(ty: &SchemeType) -> Option<LoweredReturnKind> {
                 .map(LoweredReturnKind::Plain),
         },
         SchemeType::Parameter(_) => Some(LoweredReturnKind::Erased),
+        SchemeType::Callable { .. } => lowered_scheme_physical_type(ty).map(LoweredReturnKind::Plain),
         SchemeType::Result(ok, _) => {
             lowered_scheme_physical_type(ok).map(LoweredReturnKind::Result)
         }
