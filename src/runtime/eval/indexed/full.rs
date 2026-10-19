@@ -8125,12 +8125,19 @@ impl<'a> FullDecoder<'a> {
         mut statements: ListView<'a, BuildStmtId>,
         expected: &Type,
     ) -> Result<(), IrVerifyError> {
-        let value = self.checked_block_tail_expression(&mut statements)?
-            .ok_or_else(|| IrVerifyError::new("checked value block has no value tail"))?;
+        let value = self.checked_block_tail_expression(&mut statements)?;
         self.checked_expression_matches_type(value, expected)
     }
 
     fn checked_block_tail_expression(
+        &self,
+        statements: &mut ListView<'a, BuildStmtId>,
+    ) -> Result<usize, IrVerifyError> {
+        self.derive_checked_block_tail_expression(statements)?
+            .ok_or_else(|| IrVerifyError::new("checked value block has no value tail"))
+    }
+
+    fn derive_checked_block_tail_expression(
         &self,
         statements: &mut ListView<'a, BuildStmtId>,
     ) -> Result<Option<usize>, IrVerifyError> {
@@ -9688,7 +9695,7 @@ impl<'a> FullDecoder<'a> {
                 Box::new(Type::Error),
             ))),
             schema::ExprView::ValueBlock { mut body, .. } => {
-                match self.checked_block_tail_expression(&mut body)? {
+                match self.derive_checked_block_tail_expression(&mut body)? {
                     Some(value) => self.derive_checked_expression_type(value),
                     None => Ok(None),
                 }
