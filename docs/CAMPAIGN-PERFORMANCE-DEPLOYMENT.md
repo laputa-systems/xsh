@@ -20,6 +20,15 @@ The deliverables are:
 
 ## Current checkpoint
 
+Repair `e704557d6` fixes contextual Err arguments, scoped pipeline proof
+emission, repeated immutable initializer derivation, UInt constructor-fact
+placement and stale export-corruption mutations. Focused tests preserve payload,
+unsigned and absent-demand rejection controls. Replaying the eighteen failed
+library cases now gives eleven passes and seven failures. Residual classes are
+private bridge signature authority, open typed-callable APIs, record projection
+and missing ground producer forms. Matching product/native replay and the full
+library boundary remain pending; this source is not qualified.
+
 Procedure source `139868db6` integrates canonical callable kinds, inferred
 finite-effect Proc interfaces and strict Result producer checking. Both grammar
 generators, the parser/grammar omission matrix and thirteen lint consumer tests
