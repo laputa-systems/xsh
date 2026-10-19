@@ -8,6 +8,7 @@ use crate::xsht::format::Formatter;
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
 use std::fs;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
@@ -424,7 +425,7 @@ fn check_entry(
             path_str,
             source_id,
             &mut sources,
-            module_roots,
+            module_roots.clone(),
         );
         report.sources = Arc::new(sources);
         if !parsed.diagnostics.is_empty() {
@@ -502,13 +503,20 @@ fn check_entry(
                     DiagnosticRenderer::new().render(&reformatted.diagnostics, &fmt_sources);
                 return report.failed(2, EntryOutput::Text(rendered));
             }
-            if reformatted.formatted != original
-                && let Err(err) = fs::write(path_str, &reformatted.formatted)
-            {
-                return report.failed(
-                    4,
-                    EntryOutput::Text(format!("xsht: failed to write '{path_str}': {err}\n")),
-                );
+            if reformatted.formatted != original {
+                if let Err(diagnostics) = validate_annotation_candidate(
+                    path_str,
+                    reformatted.formatted.clone(),
+                    module_roots,
+                ) {
+                    return report.failed(2, EntryOutput::Text(diagnostics));
+                }
+                if let Err(err) = fs::write(path_str, &reformatted.formatted) {
+                    return report.failed(
+                        4,
+                        EntryOutput::Text(format!("xsht: failed to write '{path_str}': {err}\n")),
+                    );
+                }
             }
         }
     } else {
@@ -650,7 +658,7 @@ fn annotation_edits(
             | AnnotationFactKind::ExportedProcReturn { .. } => None,
         };
         let ty = if let Some(span) = annotation_span {
-            if let Some(contract) = checked.callable_contract_at(span) {
+            if let Some(contract) = checked.callable_value_contract_at(span) {
                 let Some(annotation) = contract.source_annotation() else {
                     continue;
                 };
@@ -709,4 +717,43 @@ fn annotation_edits(
     edits.sort_unstable_by_key(|(start, end, _)| Reverse((*start, *end)));
     edits.dedup_by_key(|(start, end, _)| (*start, *end));
     edits
+}
+
+#[allow(clippy::single_call_fn)]
+fn validate_annotation_candidate(
+    path: &str,
+    source: String,
+    module_roots: Vec<PathBuf>,
+) -> Result<(), String> {
+    let entry_source = loader::entry_source_from_text(path, source);
+    let source_id = entry_source.source_id;
+    let (sources, parsed) =
+        loader::parse_load_entry_source_arena_only(path, entry_source, module_roots);
+    if !parsed.diagnostics.is_empty() {
+        return Err(DiagnosticRenderer::new().render(&parsed.diagnostics, &sources));
+    }
+
+    let arena = Arc::new(parsed.arena);
+    let statements = arena.statements;
+    let sources = Arc::new(sources);
+    let session = CheckSession::new(Arc::clone(&arena), Arc::clone(&sources));
+    let view = session.view_for_root(statements, source_id);
+    let checked = session.check_view(&view, CheckOptions::for_check_cli());
+    if !checked.diagnostics.is_empty() {
+        return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &sources));
+    }
+
+    let diagnostics = Evaluator::compact_lowerability_diagnostics_with_view(
+        &view,
+        source_id,
+        Arc::clone(&sources),
+        Checker::compact_declarations(view.program(), checked),
+        Vec::new(),
+        xsh::execution::script::script_command_name(path),
+    );
+    if diagnostics.is_empty() {
+        Ok(())
+    } else {
+        Err(DiagnosticRenderer::new().render(&diagnostics, &sources))
+    }
 }

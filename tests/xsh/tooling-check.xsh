@@ -218,6 +218,44 @@ print $text
   }
 }
 
+test test_check_annotate_uses_call_result_types { |ctx|
+  let root = project(
+    ctx,
+    {
+      "main.xsh": r"""pure identity(value) {
+  value
+}
+pure increment(value: Int) -> Int {
+  value + 1
+}
+pure defaulted(value: Int = 1) -> Int {
+  value
+}
+let generic_result = identity(42)
+let direct_result = increment(41)
+let defaulted_result = defaulted()
+print $generic_result
+print $direct_result
+print $defaulted_result
+""",
+    },
+  )?
+  cd $root {
+    let annotated = run.capture --text "xsht" check --annotate=locals main.xsh
+    assert annotated.status.exited_with(0), annotated.stderr
+    assert annotated.stdout == ""
+    assert diagnostics(annotated.stderr) == "", annotated.stderr
+
+    let source = p"main.xsh".read_text()?
+    assert "let generic_result: Int = identity(42)" in source, source
+    assert "let direct_result: Int = increment(41)" in source, source
+    assert "let defaulted_result: Int = defaulted()" in source, source
+    let output = run.capture --text "xsh" main.xsh
+    assert output.status.exited_with(0), output.stderr
+    assert output.stdout == "42\n42\n1\n"
+  }
+}
+
 test test_check_annotate_uses_exact_configured_classes { |ctx|
   let source = """
 let names = ["a", "b"]
