@@ -20,6 +20,23 @@ The deliverables are:
 
 ## Current checkpoint
 
+Full-inference F0 integrates the warning repair at `2ed638691`. The pinned
+offline xsh Clippy check passes with all targets and features under the ordinary
+two-CPU, 8-GiB limit. The old failed supplemental receipt remains failed; no
+full supplemental or baseline acceptance is inherited. The first current check
+finds three residual warnings, then a bracket error during repair; both are
+corrected before the successful focused run.
+
+The existing canonical launcher already consumes terminal children and cleanup
+before publishing successful receipts. Six real-child regressions now cover
+success, failure and interruption when a child exits before observation. All
+46 replay tests pass on the integration branch. No production polling service
+or job registry is added. The compiler's imported-alias regression fails before
+the change with `check.module-member`, then passes alongside a frontend-disposal
+test on both indexed routes. Native verification and independent review of that
+first behavior change remain pending. Broader callable/effect inference remains
+open.
+
 The owner launched `full-inference-campaign.md` on 2026-10-19 with bounded
 isolated edits, local commits/integration, and owned offline Docker operations.
 Pushing remains forbidden. Launch source is `9134db7e7`; its only change since
