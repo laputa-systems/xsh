@@ -32,21 +32,6 @@ EXPECTED_STDOUT = {
 }
 
 
-EXPECTED_RUNTIME_BYTES = {
-    'alias-chain': {'chain': {64: 3, 128: 3, 256: 3, 512: 3}},
-    'dependency-chain': {'chain': {64: 3, 128: 4, 256: 4, 512: 4}},
-    'records': {
-        'wide': {64: 2, 128: 2, 256: 2, 512: 2},
-        'deep': {64: 2, 128: 2, 256: 2, 512: 2},
-    },
-    'higher-order-composition': {'chain': {64: 3, 128: 4, 256: 4, 512: 4}},
-    'generic-stream': {'items': {64: 6, 128: 8, 256: 8, 512: 8}},
-    'recursive-effect-component': {'component': {64: 3, 128: 3, 256: 3, 512: 3}},
-    'module-diamond': {'diamonds': {64: 4, 128: 4, 256: 4, 512: 5}},
-    'finite-overload-chain': {'chain': {64: 2, 128: 2, 256: 2, 512: 2}},
-}
-
-
 OUTPUT_SHAPES = {
     'alias-chain': {'chain': 'Int'},
     'dependency-chain': {'chain': 'Int'},
@@ -84,11 +69,14 @@ class InferenceWorkload:
     annotated_sources: Mapping[str, str]
     reduced_sources: Mapping[str, str]
     expected_units: int
-    expected_output_shape: str
-    expected_evidence_shape: str
+    logical_output_shape: str
+    logical_evidence_shape: str
     expected_stdout: bytes
-    expected_runtime_bytes: int
     frontend_expectation: str
+
+    @property
+    def expected_runtime_bytes(self):
+        return len(self.expected_stdout)
 
 
 def _workload(family, shape, size, annotated, reduced, *, frontend_expectation='unprobed'):
@@ -103,10 +91,9 @@ def _workload(family, shape, size, annotated, reduced, *, frontend_expectation='
         annotated_sources=MappingProxyType(dict(annotated)),
         reduced_sources=MappingProxyType(dict(reduced)),
         expected_units=size,
-        expected_output_shape=OUTPUT_SHAPES[family][shape],
-        expected_evidence_shape=EVIDENCE_SHAPES[family][shape],
+        logical_output_shape=OUTPUT_SHAPES[family][shape],
+        logical_evidence_shape=EVIDENCE_SHAPES[family][shape],
         expected_stdout=expected_stdout,
-        expected_runtime_bytes=EXPECTED_RUNTIME_BYTES[family][shape][size],
         frontend_expectation=frontend_expectation,
     )
 
