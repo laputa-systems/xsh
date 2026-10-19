@@ -17,6 +17,30 @@ The deliverables are:
 5. Disposable Laputa package, process, rooted-filesystem, and real boot/shutdown acceptance workflows.
 6. A bounded release candidate with all applicable gates passing and accurate formal-evidence claims.
 
+
+## Current checkpoint
+
+On October 19, frozen R7 source `6468326009b62cfd8ed682b0dc7007b371d3cb4d`
+passes bootstrap, 229 root integration tests, 14 soundness tests and 1,049
+library tests. Canonical execution remains active under
+`.work/wt/perf-i1-combined-freeze-r7/.work/tmp/i1-combined-r7-646832600`.
+The remaining canonical stages and supplemental correctness are not qualified.
+Use the clean `laputa-firecracker-verification` checkout for the supplemental
+corpus. The active Laputa world checkout contains a temporary clock diagnostic.
+
+The byte-entry fix and filesystem effects for six file-backed byte operations
+are integrated. The latter has a failing-before/passing-after regression and
+four passing effect checks. The 60-row R6 effect audit replays exactly. Locale
+quoting explains `wc.count_input`'s `env` requirement; its `io` clause covers it.
+Keep the frozen inference denominator and removal credit unchanged.
+
+The R13 guest failure still needs an observed timestamp. Its console and
+Firecracker logs are preserved in the failed guest run. The separate
+`asterinas-clock-adapter/run-clock` permits only the exact AWK shard and the
+reviewed six-line boot-proof patch. Nine build/package and eight metadata
+argument controls pass. No diagnostic KVM run has started. Wait for canonical
+cleanup and lease release before launching it or supplemental correctness.
+
 ## Charter
 
 The coordinator owns integration, shared contracts, acceptance, and the final review.
