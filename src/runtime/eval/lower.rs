@@ -4381,10 +4381,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     return None;
                 }
                 let annotation = match ty {
-                    Some(ty) => Some(
-                        checked_type_annotation(self.declarations, self.current_namespace, ty)?
-                            .clone(),
-                    ),
+                    Some(ty) => Some(self.canonical_checked_type_annotation(ty)?),
                     None => None,
                 };
                 let value = if self.is_empty_record_in_map_context(value, ty) {
@@ -4468,19 +4465,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     lowered_arena_type(ty, self.declarations, self.current_namespace)?;
                 }
                 let annotation = match ty {
-                    Some(ty) => Some(
-                        checked_type_annotation(self.declarations, self.current_namespace, ty)?
-                            .clone(),
-                    ),
+                    Some(ty) => Some(self.canonical_checked_type_annotation(ty)?),
                     None => None,
                 };
                 let value =
                     self.lower_run_binding_value(run, slots, current_function, item_slot)?;
                 let binding_ty = match ty {
-                    Some(ty) => Some(
-                        checked_type_annotation(self.declarations, self.current_namespace, ty)?
-                            .clone(),
-                    ),
+                    Some(ty) => Some(self.canonical_checked_type_annotation(ty)?),
                     None => {
                         self.declarations
                             .local_binding_types
@@ -7688,6 +7679,53 @@ mod checked_constructor_fact_tests {
         };
         assert_eq!(error.construct, "top_level_boundary_blocker");
         assert_eq!(error.span, Some(statement_span));
+    }
+
+    #[test]
+    fn imported_error_annotations_agree_with_local_slot_facts() {
+        let work = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".work/tmp");
+        std::fs::create_dir_all(&work).expect("create repository scratch directory");
+        let module_root = tempfile::tempdir_in(&work).expect("create error module fixture");
+        std::fs::write(
+            module_root.path().join("model.xsh"),
+            "##! Error annotation fixture.\n## Keep imported error identity in local bindings.\nexport error ContextError = Left | Right(value: Int)\n",
+        )
+        .expect("write error module");
+        for declaration in ["let", "const", "var"] {
+            for (annotation, initializer, pattern) in [
+                ("m.ContextError", "m.ContextError.Right(11)", "m.ContextError.Right { value }"),
+                ("Result[Unit, m.ContextError]", "Err(m.ContextError.Right(11))", "Err(m.ContextError.Right { value })"),
+            ] {
+                let source = format!(
+                    "use model as m\npure inspect() -> Bool {{ {declaration} failure: {annotation} = {initializer}; match failure {{ {pattern} => value == 11; _ => false }} }}\n",
+                );
+                if declaration == "const" {
+                    let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                        "imported-error-annotation.xsh",
+                        crate::loader::entry_source_from_text("imported-error-annotation.xsh", source),
+                        vec![module_root.path().to_path_buf()],
+                    );
+                    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+                    let declarations = crate::sema::check::Checker::check_compact_declarations(
+                        &parsed.arena,
+                        &sources,
+                        sources.files()[0].id(),
+                    );
+                    assert_eq!(
+                        declarations.diagnostics.iter().map(|diagnostic| diagnostic.code).collect::<Vec<_>>(),
+                        [Some(crate::diagnostic::DiagnosticCode::CheckConst)],
+                    );
+                    continue;
+                }
+                let checked = CheckedSource::new(
+                    "imported-error-annotation.xsh",
+                    &source,
+                    vec![module_root.path().to_path_buf()],
+                );
+                let result = checked.build(&checked.declarations);
+                assert!(result.is_ok(), "{declaration} {annotation}: {result:?}");
+            }
+        }
     }
 
     #[test]
