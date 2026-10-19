@@ -525,38 +525,48 @@ and for
 `tests/xsh/rank1-inference.xsh::rank1_generic_function_cannot_be_stored_as_typed_callable`.
 The second test preserves the old rejection as a frontier control. F1 did not
 rerun either foundation probe or build compiler products. The reference probes
-below use existing R12 verification products.
+below use the combined-55032 canonical verification products.
 
-### R12 reference baseline probes
+### Combined-55032 canonical baseline probes
 
 `dev/performance/corpus/witnesses/` keeps annotated and one-annotation-erased
-forms with the same bodies and calls. The paired source fixtures are diagnostic
-controls; they add no corpus rows or removal credit. Each annotated form passed
-`xsht check` and normal `xsh` execution. The erased results were:
+forms with the same bodies and calls. These paired probes add no corpus rows or
+removal credit. Each annotated form passed `xsht check` and normal `xsh`
+execution. The erased results on the combined-55032 canonical products were:
 
-| Retained source class | Erased baseline result | Annotated output |
+| Retained source class | Erased check result | Successful output |
 |---|---|---|
-| Null/concrete return join | Check and execution passed; output matched the annotated form. | `7`, then `-1` |
-| Site 2850 interpolation-only parameter | `parse.expected-param-type`: the parser requires an explicit parameter type. The source fact does not show that a concrete type is required. | `meminfo.MemTotal` |
-| Recursive pure parameter | `parse.expected-param-type`: required parameters still need a type before body checking. | `4` |
-| Recursive pure return | `check.required-return`: recursive pure `recursive_return` requires an explicit return annotation. | `4` |
-| Empty-List accumulator | Check and execution passed; output matched the annotated form. | `3 3 5 8` |
-| `SourceRead` parameter | `parse.expected-param-type` prevents testing inferred row shape in an erased parameter. An explicit structural-row alias passed and matched the `SourceRead` form. | `8` |
+| Null/concrete return join | Passed; output matched the annotated form. | `7`, then `-1` |
+| Site 2850 interpolation-only parameter | Exit 2: `check.display-conversion` and `check.local-inference`. The inferred value needs an annotation for display, and the generic pure body fails the current local-inference rule. | `meminfo.MemTotal` |
+| Recursive pure parameter | Passed; output matched the annotated form. | `4` |
+| Recursive pure return | Exit 2: `check.required-return`; recursive pure `recursive_return` requires an explicit return annotation. | `4` |
+| Empty-List accumulator | Passed; output matched the annotated form. | `3 3 5 8` |
+| `SourceRead` parameter | Exit 2: `check.type-mismatch` at the `cgroup_maximum(source)` call. | `8` |
+| `SourceRead` structural-row alias | Passed and matched the `SourceRead` output. | `8` |
 
 The `SourceRead` structural-row case preserves the field reads and call to the
 typed `bounded_number` helper. It shows that this explicit row shape composes
 with the helper in this probe; it does not resolve the historical source site's
-cause. Keep the interpolation, parameter, recursive-return, and `SourceRead`
-classes pending the full inference contract.
+cause. Site 2850's display failure does not show that a concrete parameter type
+is required. A later inference contract may generalize that parameter. These
+probes report compiler behavior and do not establish why historical source
+sites retain annotations. Keep the source classifications diagnostic-only;
+they establish no removal or behavior-equivalence credit.
 
-These runs used the existing R12 functional-close source and verification
-products: source commit `44de8d71c04f155034a7c1e8cb8e7edddd9da15f`, tree
-`4a4f49eba8892f663a27f9cb54c1f4ce21935be0`, `xsh`
-`a6e0c338a27c8b950e2a42cb04839b4f7829ac8c3b3ab8b6fea0ee982a7c6f86`, and
-`xsht` `942a395ee697c2d7fdceee82bb49c94606dd90efc91bd92400603d738128ef72`.
-The clean source and product hashes matched before and after. Each process was
-limited to two CPUs, 4 GiB address space, 25 CPU seconds, and a 30-second wall
-timeout. These are R12 reference-baseline results, not integration acceptance.
+The probes used source checkout
+`.work/wt/perf-i1-combined-freeze-r12` at commit
+`55032a7ee2c4d340a6e5df9d4f362b0074d8a9e0`, tree
+`8255279c80818f3a159d2052f6eed102e0976938`. The canonical verification
+products were
+`.work/wt/perf-i1-combined-freeze-r12/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsh`
+(`aa674a2899adc10a0e1cbe9810176821e4e3b6165f89910aadaf2f1c3e62023e`) and
+`.work/wt/perf-i1-combined-freeze-r12/.work/target-final-canonical/x86_64-unknown-linux-musl/verification/xsht`
+(`caaaf0b7555d9620c048c76027579eb716cc92da3df6297fd113945977c96437`). The
+canonical replay receipt at
+`.work/tmp/i1-combined-r12-55032a7ee/canonical-replay.json` records a passed
+canonical gate batch replay with no acceptance credit. It is not a
+functional-close receipt. Each probe ran through the pinned offline adapter
+with two CPUs and 4 GiB of memory. No build or suite ran for these probes.
 
 The frozen local target cannot be reached while preserving the 149 required
 empty-Map locals and site 3598: at most 543 of 693 locals (78.35%) could be
