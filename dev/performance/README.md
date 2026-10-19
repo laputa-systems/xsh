@@ -146,7 +146,7 @@ the private suite. Measurement uses the completed release `opt3` receipt and
 builds no products. Canonical verification products continue to qualify
 functional close.
 
-The sampler runs 15 frozen cases after parity and warmup. It uses three rounds
+The sampler runs every selected case after parity and warmup. It uses three rounds
 of 60 fresh startup processes or 30 processes for other cases. `perf-gate-ready`
 and `perf-gate-ready -1` bracket the timed Docker batch; a busy host discards
 the whole batch. Workload deadlines, exact output, effects, and process cleanup
