@@ -479,7 +479,7 @@ fn check_entry(
         )
     });
 
-    if let Some(annotation_policy) = annotation_policy {
+    if annotation_policy.is_some() {
         if !lowering_diagnostics.is_empty() {
             return report.failed(2, EntryOutput::Diagnostics(lowering_diagnostics));
         }
