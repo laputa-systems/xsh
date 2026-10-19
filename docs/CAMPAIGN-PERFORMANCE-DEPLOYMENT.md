@@ -29,7 +29,14 @@ lint and diff checks pass. Structural scanning then fails to resolve
 qualification remains failed; documentation and supplemental stages do not run.
 Cleanup resolves. Preserve the failed receipt in
 `.work/wt/perf-i1-combined-freeze-r9`. The isolated scanner repair owns
-`.work/wt/perf-scanner-module-r10`; compiler module layout remains unchanged.
+`.work/wt/perf-scanner-module-r10` and is now integrated. Its four regressions,
+all seventy focused native tests and the actual Rust positive/negative controls
+pass. A fresh historical scan reproduces the frozen report and item inventory
+byte for byte before the single active scanner pin changes. The complete current
+source scan and existing structural policy pass. `SourceScan.modules` now carries
+both default and path-owner directories; report and inventory schemas are unchanged.
+Independent source review passes. Fresh R10 bootstrap and canonical qualification
+use `.work/wt/perf-i1-combined-freeze-r10`; no R9 qualification is inherited.
 Performance qualification and full source-aligned Laputa acceptance remain open.
 
 R8 at `8ebea493e757eb8c52d76823cdc11f665ce2c2f5` fails canonical
