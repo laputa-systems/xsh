@@ -66,6 +66,10 @@ IDs, and references, then derives the marks used by the in-place evaluator.
 Other instructions use the explicit frame scheduler. Runtime decoders rely on
 the verified representation.
 
+Driver temporary type metadata supports annotation checks. Generic and callable
+contracts require independently authenticated writer evidence. Missing optional
+type information does not relax those contracts.
+
 Indexed IDs refer to program-owned tables. `SymbolOwner` owns dynamic names.
 The installed program retains its source map, but not the CST, arena program,
 or checker output.
