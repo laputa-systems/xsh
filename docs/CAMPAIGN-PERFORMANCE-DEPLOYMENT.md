@@ -783,6 +783,8 @@ duplicate per-commit copies of controllers solely to record provenance.
 
 - Combined source `63130a3d5` passed bootstrap, 228 root integration tests and the previously failing allocation, hook and grammar controls. Canonical execution then stopped in the debug library: 1,040 passed, one failed and three were ignored. The documentation scanner mistook the member expression `source.observation.state` for a diagnostic code. The corpus consistency check passed. A focused scanner regression reproduces the false positive; the token-boundary fix passes all six diagnostic checks while retaining actual unknown-code controls. Preserve the failed receipt in `.work/wt/perf-i1-combined-freeze-r2`. Native and supplemental stages did not run.
 
+- Combined source `257c2d52a` passed the formerly failing documentation check and all 1,041 debug-library tests, with three existing ignores. Its tooling target then failed the contextual nominal-import test. The exact selector reproduced immediately: local slot facts used the resolved error-family owner while emitted annotations retained the import alias. The producer fix applies the existing scope-aware canonicalization to three local annotation paths. Four accepted declaration cases, two unchanged const rejections, all three contextual-root selectors and two verifier-authority controls pass with matching rebuilt products. Preserve the failed r3 receipt; native and supplemental stages remain unrun.
+
 ## For the owner afterwards
 
 - Read the concise accepted baseline page and deployment reproduction commands.
