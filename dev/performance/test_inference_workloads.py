@@ -56,7 +56,8 @@ class InferenceWorkloadTests(unittest.TestCase):
                 self.assertTrue(case.logical_evidence_shape)
         generic = next(case for case in self.workloads if case.family == 'generic-stream')
         self.assertIn('List[Int]', generic.logical_output_shape)
-        self.assertIn('List[Str]', generic.logical_output_shape)
+        self.assertIn('7 and 9', generic.logical_output_shape)
+        self.assertNotIn('List[Str]', generic.logical_output_shape)
 
     def test_each_annotation_pair_retains_the_same_entry_and_output_operations(self):
         for case in self.workloads:
@@ -119,9 +120,13 @@ class InferenceWorkloadTests(unittest.TestCase):
                     for source in (annotated, reduced):
                         self.assertIn('yield value', source)
                         self.assertIn(f'repeated(7, {case.size})', source)
-                        self.assertIn(f'repeated("x", {case.size})', source)
-                    self.assertIn('count: Int', annotated)
-                    self.assertNotIn('count: Int', reduced)
+                        self.assertIn(f'repeated(9, {case.size})', source)
+                        self.assertNotIn('repeated("x"', source)
+                    self.assertIn('(value: Int, count: Int) -> Stream[Int]', annotated)
+                    self.assertNotIn('value: Int', reduced)
+                    normalized = annotated.replace('(value: Int, count: Int) -> Stream[Int]', '(value, count)')
+                    normalized = normalized.replace(': List[Int]', '')
+                    self.assertEqual(normalized, reduced)
                 elif case.family == 'recursive-effect-component':
                     self.assertEqual(annotated.count('proc effect_step_'), case.size)
                     self.assertEqual(reduced.count('proc effect_step_'), case.size)
@@ -143,9 +148,24 @@ class InferenceWorkloadTests(unittest.TestCase):
                     self.assertEqual(len(sources), expected_source_count)
                     self.assertIn('identity.xsh', sources)
                     self.assertIn('main.xsh', sources)
+                    self.assertTrue(sources['identity.xsh'].startswith('##! '))
+                    self.assertIn('\n## ', sources['identity.xsh'])
                     branches = [name for name in sources if name.startswith('diamond_')]
                     self.assertEqual(len(branches), 2 * case.size)
-                    self.assertTrue(all('use identity as shared' in sources[name] for name in branches))
+                    for name in branches:
+                        branch = sources[name]
+                        self.assertIn('##! ', branch)
+                        self.assertIn('use identity as shared', branch)
+                        self.assertIn('\n## ', branch)
+                    main = sources['main.xsh']
+                    totals = [line for line in main.splitlines() if re.match(r'let total_\d+ =', line)]
+                    self.assertEqual(len(totals), case.size)
+                    self.assertEqual(main.count('.value'), 2 * case.size)
+                    self.assertEqual(main.count(' + '), 2 * case.size - 1)
+                    self.assertLessEqual(max(line.count(' + ') for line in totals), 2)
+                annotated_main = case.annotated_sources['main.xsh']
+                reduced_main = case.reduced_sources['main.xsh']
+                self.assertEqual(annotated_main.replace('let answer: Int = ', 'let answer = '), reduced_main)
                 self.assertEqual(set(case.annotated_sources), set(case.reduced_sources))
 
 
