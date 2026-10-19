@@ -327,7 +327,19 @@ suite lock. Width limits are ceilings, never a requirement to saturate timing ru
 Use `collaboration.followup_task` for every message to a campaign worker,
 including when a lane appears to be running. That call starts an idle lane
 automatically. Do not use `collaboration.send_message` in this campaign.
-Check lane status before waiting for work and at least every 15 minutes.
+Before waiting, reporting status, or starting another long operation, reconcile
+`collaboration.list_agents` with every outstanding process session and its actual
+result. Handle completed work in that turn: review and integrate it, launch its
+next ready step, or record the concrete blocker. A stale "running" note is never
+evidence that a lane is active.
+
+While any lane or process is outstanding, use bounded tool waits and reconcile
+again within 15 minutes. Completion notifications trigger immediate reconciliation;
+the interval is a backstop. Do not end the coordinating turn with background work
+that requires a later user prompt to notice its completion. A resumed session
+reconstructs outstanding work from agent status, process state and gate receipts
+before launching anything. Every handoff names outstanding session IDs, receipt
+paths and the next action for each result.
 
 ### P0: Prove the loop and finish the baseline
 
