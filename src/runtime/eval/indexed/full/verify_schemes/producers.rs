@@ -1,4 +1,5 @@
 use super::*;
+use super::super::decode::BorrowCodec;
 
 #[derive(Default)]
 pub(in crate::runtime::eval::indexed::full) struct GroundProducerIndex {
@@ -2083,6 +2084,37 @@ impl<'a> ProducerProof<'a> {
             }
             super::super::FullDriverTag::LetRecord => {
                 let value = payload.raw()? as usize;
+                let fields: Vec<(Name, usize)> = super::super::FullCodec::decode(&decoder, &mut payload)?;
+                let target = super::super::LoweredCompTarget::borrow(
+                    super::super::DecodeContext::from_decoder(&decoder), &mut payload,
+                )?;
+                let mutable: bool = super::super::FullCodec::decode(&decoder, &mut payload)?;
+                if mutable { return Err(IrVerifyError::new("ground captured destructuring writer is mutable")); }
+                if matches!(target, super::super::decode::CompTargetView::Discard) {
+                    let target_name = self.store.string(identity.name)?;
+                    let slot = fields.iter().find(|(name, _)| name.as_str() == target_name).map(|(_, slot)| *slot).ok_or_else(|| IrVerifyError::new("ground captured guard has no declared slot"))?;
+                    let (target, operand, optional) = decoder.driver_guard_source(value)?;
+                    let (producer, ty, success) = match (optional, decoder.expression_view(operand)?) {
+                        (false, schema::ExprView::Ok(inner)) => {
+                            let producer = inner.raw() as usize;
+                            let ty = self.need_context(&decoder, producer)?.ok_or_else(|| IrVerifyError::new("ground captured guard has no success producer type"))?;
+                            (producer, Arc::clone(&ty), ty)
+                        }
+                        _ => {
+                            let ty = self.need_context(&decoder, operand)?.ok_or_else(|| IrVerifyError::new("ground captured guard has no subject producer type"))?;
+                            let success = match ty.unvalidated() {
+                                Type::Result(ok, _) if !optional => Arc::new((**ok).clone()),
+                                Type::Optional(ok) if optional => Arc::new((**ok).clone()),
+                                _ => return Err(IrVerifyError::new("ground captured guard has no success contract")),
+                            };
+                            (operand, ty, success)
+                        }
+                    };
+                    let projected = comp_slot_type(target, slot, &success)?.ok_or_else(|| IrVerifyError::new("ground captured guard has no slot projection"))?;
+                    if !projected.matches_expected(&expected) { return Err(IrVerifyError::new("ground captured guard disagrees with its slot contract")); }
+                    self.expression(owner, producer, ty, false);
+                    return Ok(());
+                }
                 let ty = self.need_context(&decoder, value)?.ok_or_else(|| IrVerifyError::new("ground captured destructuring has no producer type"))?;
                 self.expression(owner, value, ty, false);
             }

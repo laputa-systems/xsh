@@ -1,3 +1,25 @@
+test test_top_level_guard_bindings_authenticate_scalar_optional_and_record_values { |ctx|
+  let output = test.expect(
+    ctx,
+    r"""pure identity(value) { value }
+pure append(items: List[Int], row) -> List[Int] { items.push(row.value) }
+guard let row = Ok({value: 2}) else { exit 3 }
+assert append([1], row) == [1, 2]
+guard let text = Ok("ready") else { exit 3 }
+assert identity(text) == "ready"
+let raw: Str? = "optional"
+guard let value = raw else { exit 3 }
+assert identity(value) == "optional"
+guard let {nested: {name}} = Ok({nested: {name: "nested"}}) else { exit 3 }
+assert identity(name) == "nested"
+guard let _ = Ok(null) else { exit 3 }
+print $text $value $name
+""",
+    status: 0,
+  )?
+  assert output.stdout == "ready optional nested\n"
+}
+
 test test_registered_calls_lower_named_entries_through_checked_bindings { |ctx|
   let root = test.temp_dir(ctx, name: "lowering-registered")?
   let output = test.expect(
