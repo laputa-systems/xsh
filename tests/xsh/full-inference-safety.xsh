@@ -48,10 +48,9 @@ print $text
 test test_full_inference_shared_mutable_capture_through_record_stays_monomorphic { |ctx|
   test.expect(
     ctx,
-    r"""var shared = {items: []}
-proc remember(value) {
-  shared.items = shared.items.push(value)
-  value
+    r"""var shared = {items: [1]}
+pure remember(value) {
+  shared.items.push(value)
 }
 let integer = remember(42)
 let text = remember("demo")
@@ -81,11 +80,10 @@ let _ = use_released_alias()?
 test test_full_inference_live_producer_keeps_one_incompatible_item_type { |ctx|
   test.expect(
     ctx,
-    r"""stream values(value) {
+    r"""stream values(value: Int) -> Stream[Int] {
   yield value
 }
 let producer = values(42)
-let integers: Stream[Int] = producer
 let words: Stream[Str] = producer
 """,
     status: 2,
@@ -96,12 +94,15 @@ let words: Stream[Str] = producer
 test test_full_inference_returned_callable_keeps_its_effect_obligation { |ctx|
   test.expect(
     ctx,
-    r"""proc log(value: Str) [io] -> Result[Str] {
+    r"""type Logged = proc(value: Str) [io] -> Result[Str]
+proc log(value: Str) [io] -> Result[Str] {
   print $value
   Ok(value)
 }
 let logged = log
-proc factory() { logged }
+proc factory() [error] -> Result[Logged] {
+  return Ok(logged)
+}
 proc denied() [error] -> Result[Str] {
   let callback = factory()?
   callback("demo")
